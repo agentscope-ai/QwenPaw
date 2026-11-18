@@ -41,7 +41,7 @@ describe("calculateReserveThreshold", () => {
 
 vi.mock("@agentscope-ai/design", () => {
   const passThrough = ({ children, ...props }: Record<string, unknown>) =>
-    React.createElement("div", props, children as any);
+    React.createElement("div", props, children as React.ReactNode);
 
   // Form.useWatch returns values from a map keyed by the path array joined
   const watchValues: Record<string, unknown> = {};
@@ -50,12 +50,12 @@ vi.mock("@agentscope-ai/design", () => {
       React.createElement(
         "div",
         props,
-        children as any,
+        children as React.ReactNode,
         extra
           ? React.createElement(
               "span",
               { "data-testid": "warning" },
-              extra as any,
+              extra as React.ReactNode,
             )
           : null,
       ),
@@ -93,7 +93,7 @@ vi.mock("@agentscope-ai/design", () => {
       ),
     Select: passThrough,
     InputNumber: (props: Record<string, unknown>) =>
-      React.createElement("input", { type: "number", ...props } as any),
+      React.createElement("input", { type: "number", ...props }),
   };
 });
 
@@ -119,7 +119,9 @@ import { Form } from "@agentscope-ai/design";
 import { LightContextCard } from "./LightContextCard";
 
 function renderWithRetention(days: number | undefined) {
-  const form = Form as any;
+  const form = Form as typeof Form & {
+    _setWatchValues: (values: Record<string, unknown>) => void;
+  };
   form._setWatchValues({
     "light_context_config.strategy": "scroll",
     "light_context_config.context_compact_config.compact_threshold_ratio": 0.8,

@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import logging
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from pydantic import TypeAdapter
+
+from ...plugins.harnesses import HarnessHistoryItem
 from ..models import ProviderInventory, SourceSession
 
 ProgressReporter = Callable[[str], Awaitable[None]]
@@ -17,6 +21,9 @@ MAX_SESSION_HISTORY_ITEMS = 20_000
 MAX_SESSION_HISTORY_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_SESSION_HISTORY_ITEMS = 100_000
 MAX_TOTAL_SESSION_HISTORY_BYTES = 128 * 1024 * 1024
+
+
+_HISTORY_ITEM_JSON = TypeAdapter(HarnessHistoryItem)
 
 
 @dataclass
@@ -30,8 +37,7 @@ class SessionReadBudget:
     def add(self, session: SourceSession) -> str | None:
         item_count = len(session.history)
         byte_count = sum(
-            len(item.model_dump_json().encode("utf-8", errors="replace"))
-            for item in session.history
+            len(_HISTORY_ITEM_JSON.dump_json(item)) for item in session.history
         )
         if item_count > MAX_SESSION_HISTORY_ITEMS:
             return (
@@ -75,9 +81,19 @@ async def report_result(
     kind: str,
     *values: Any,
 ) -> None:
+    fields = list(map(str, values))
+    # Preserve legacy events, but frame asset details and unusual source IDs
+    # as JSON so a filename cannot become another asset's fields.
+    if kind == "asset" and (
+        len(fields) > 4
+        or any("\t" in field or "\n" in field for field in fields)
+    ):
+        message = "\x1easset_json\t" + json.dumps(fields)
+    else:
+        message = f"\x1e{kind}\t" + "\t".join(fields)
     await report_progress(
         progress,
-        f"\x1e{kind}\t" + "\t".join(map(str, values)),
+        message,
     )
 
 

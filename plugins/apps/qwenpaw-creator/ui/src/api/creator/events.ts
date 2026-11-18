@@ -101,36 +101,68 @@ export function openCreatorEvents(
   onError?: () => void,
   onOpen?: () => void,
 ): CreatorEventStream {
-  const path = `/projects/${encodeURIComponent(
-    projectId,
-  )}/events?after=${Math.max(0, after)}`;
-  const source = new EventSource(creatorAuthenticatedUrl(path), {
-    withCredentials: true,
-  });
   let closed = false;
-  const consume = (message: MessageEvent<string>) => {
+  let cursor = Math.max(0, after);
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryDelay = 1000;
+  const connect = () => {
     if (closed) return;
-    try {
-      const event = JSON.parse(message.data) as CreatorEvent;
-      if (typeof event.seq === "number" && event.eventId) onEvent(event);
-    } catch {
-      // Malformed event payloads are ignored; the durable cursor is not advanced.
-    }
+    const path = `/projects/${encodeURIComponent(
+      projectId,
+    )}/events?after=${cursor}`;
+    const current = new EventSource(creatorAuthenticatedUrl(path), {
+      withCredentials: true,
+    });
+    source = current;
+    const consume = (message: MessageEvent<string>) => {
+      if (closed || source !== current) return;
+      try {
+        const event = JSON.parse(message.data) as CreatorEvent;
+        if (
+          Number.isInteger(event.seq) &&
+          event.seq > cursor &&
+          event.eventId
+        ) {
+          onEvent(event);
+          cursor = event.seq;
+        }
+      } catch {
+        // Malformed events do not advance the durable resume cursor.
+      }
+    };
+    current.onmessage = consume;
+    CREATOR_EVENT_TYPES.forEach((type) =>
+      current.addEventListener(type, consume as EventListener),
+    );
+    current.onopen = () => {
+      if (closed || source !== current) return;
+      retryDelay = 1000;
+      onOpen?.();
+    };
+    current.onerror = () => {
+      if (closed || source !== current) return;
+      onError?.();
+      // A temporary 404 while plugin routes are loading permanently closes
+      // native EventSource. Own retries for both CLOSED and CONNECTING states
+      // so a restart recovers without reloading the page or replaying from 0.
+      current.close();
+      source = null;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
   };
-  source.onmessage = consume;
-  CREATOR_EVENT_TYPES.forEach((type) =>
-    source.addEventListener(type, consume as EventListener),
-  );
-  source.onopen = () => {
-    if (!closed) onOpen?.();
-  };
-  source.onerror = () => {
-    if (!closed) onError?.();
-  };
+  connect();
   return {
     close: () => {
       closed = true;
-      source.close();
+      if (retryTimer != null) clearTimeout(retryTimer);
+      retryTimer = null;
+      source?.close();
+      source = null;
     },
   };
 }

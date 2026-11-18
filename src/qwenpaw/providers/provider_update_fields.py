@@ -32,6 +32,7 @@ CAPABILITY_MODEL_FIELDS = (
 )
 CONNECTION_CONFIG_FIELDS = frozenset(
     {
+        f"enabled",
         "api_key",
         "base_url",
         "auth_mode",

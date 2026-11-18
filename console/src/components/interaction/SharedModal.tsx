@@ -1,0 +1,72 @@
+import { useEffect, useState } from "react";
+import { Modal, type ModalProps } from "antd";
+import styles from "./SharedModal.module.less";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+
+/** Keep the accessible modal mounted until its shared surface returns home. */
+export function SharedModal({
+  surfaceId,
+  open,
+  className,
+  styles: modalStyles,
+  ...props
+}: ModalProps & {
+  surfaceId?: string;
+}) {
+  const reduced = useReducedMotion();
+  const [visible, setVisible] = useState(!!open);
+  useEffect(() => {
+    if (open) setVisible(true);
+  }, [open]);
+  return (
+    <Modal
+      centered
+      {...props}
+      width={props.width ?? "var(--app-overlay-modal-width)"}
+      className={`${styles.modal} ${className ?? ""}`}
+      open={!!open || visible}
+      transitionName=""
+      maskTransitionName=""
+      styles={{
+        ...modalStyles,
+        mask: {
+          ...modalStyles?.mask,
+          opacity: open ? 1 : 0,
+          transition:
+            reduced || open
+              ? "none"
+              : "opacity var(--app-motion-fast) var(--app-easing-standard)",
+        },
+      }}
+      modalRender={(node) => (
+        <AnimatePresence
+          onExitComplete={() => {
+            if (!open) setVisible(false);
+          }}
+        >
+          {open && (
+            <motion.div
+              key="detail"
+              layoutId={reduced ? undefined : surfaceId}
+              initial={false}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{
+                type: "spring",
+                stiffness: 360,
+                damping: 38,
+                opacity: { duration: 0.12 },
+              }}
+              style={{
+                borderRadius: "var(--app-radius-panel)",
+                background: "var(--app-surface)",
+              }}
+            >
+              {node}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+    />
+  );
+}

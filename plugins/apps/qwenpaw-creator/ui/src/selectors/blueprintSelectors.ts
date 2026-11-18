@@ -115,7 +115,17 @@ export function selectFinalFilmVersionId(
   if (!project) return null;
   const live = selectLiveTimelineIds(project);
   if (live.length !== 1) return null;
-  const render = selectTimelineRenderSlot(project, live[0]);
+  return selectTimelineFilmVersionId(project, live[0]);
+}
+
+/** A downloadable, selected, fresh film belonging to one live timeline. */
+export function selectTimelineFilmVersionId(
+  project: ProjectDocument | null | undefined,
+  timelineId: string,
+): string | null {
+  if (!project || !selectLiveTimelineIds(project).includes(timelineId))
+    return null;
+  const render = selectTimelineRenderSlot(project, timelineId);
   const selected = render?.selected;
   if (!selected || selected.stale || !selected.file_id) return null;
   const file = project.assets.files_by_id[selected.file_id];

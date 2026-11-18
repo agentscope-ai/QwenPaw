@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FileAddOutlined } from "@ant-design/icons";
+import { FilePlus as FileAddOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import {
   ToolCardShell,
@@ -32,7 +32,7 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
       <ToolCardShell
         content={content}
         isStreaming={isStreaming}
-        icon={<FileAddOutlined />}
+        icon={<FileAddOutlined size="1em" />}
         title={title}
       />
     );
@@ -52,7 +52,7 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<FileAddOutlined />}
+      icon={<FileAddOutlined size="1em" />}
       title={title}
       badges={badge}
       summaryAction={<FilePreviewLink content={content} />}

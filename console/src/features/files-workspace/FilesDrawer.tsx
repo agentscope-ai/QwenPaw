@@ -4,19 +4,23 @@ import {
   Download,
   Expand,
   FileText,
+  Maximize2,
   MessageSquarePlus,
+  Minimize2,
   X,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
   lazy,
+  useLayoutEffect,
   useRef,
   useState,
   Suspense,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ConfigProvider } from "antd";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
@@ -26,6 +30,7 @@ import { copyText } from "../../utils/clipboard";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import { useMemoryTagSupport } from "./useMemoryTagSupport";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
@@ -33,6 +38,12 @@ const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+
+function readStoredWidth(key: string): number {
+  if (typeof window === "undefined") return 0;
+  const stored = Number(localStorage.getItem(key));
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
 
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
@@ -68,42 +79,128 @@ export default function FilesDrawer({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const drawerRef = useRef<HTMLElement>(null);
+  const getPopupContainer = useCallback(
+    () => drawerRef.current ?? document.body,
+    [],
+  );
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const fullscreenFocusReturnRef = useRef<HTMLButtonElement | null>(null);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [memoryTagToBrowse, setMemoryTagToBrowse] = useState<string>();
   const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
+  const agentId = scope.agentId;
+  const memoryTagsSupported = useMemoryTagSupport(agentId);
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
+  useEffect(() => setMemoryTagToBrowse(undefined), [agentId, target]);
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() => readStoredWidth(widthStorageKey));
 
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(widthStorageKey));
-    setWidth(Number.isFinite(stored) && stored > 0 ? stored : 0);
+  useLayoutEffect(() => {
+    setWidth(readStoredWidth(widthStorageKey));
   }, [widthStorageKey]);
 
   const close = useCallback(() => {
+    setIsFullscreen(false);
     const trigger = state.trigger;
     dispatch({ type: "CLOSE" });
     requestAnimationFrame(() => trigger?.focus());
   }, [dispatch, state.trigger]);
 
+  useLayoutEffect(() => {
+    if (!isFullscreen) {
+      fullscreenFocusReturnRef.current?.focus();
+      fullscreenFocusReturnRef.current = null;
+      return;
+    }
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    const fullscreenButton = fullscreenButtonRef.current;
+    fullscreenFocusReturnRef.current = fullscreenButton;
+    const background = new Map<HTMLElement, string | null>();
+    let ancestor: HTMLElement = drawer;
+    while (ancestor !== document.body && ancestor.parentElement) {
+      for (const sibling of ancestor.parentElement.children) {
+        if (sibling instanceof HTMLElement && sibling !== ancestor) {
+          background.set(sibling, sibling.getAttribute("inert"));
+          sibling.setAttribute("inert", "");
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (!drawer.contains(document.activeElement)) {
+      fullscreenButton?.focus();
+    }
+    return () => {
+      for (const [element, inert] of background) {
+        if (inert === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", inert);
+      }
+    };
+  }, [isFullscreen]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const drawer = drawerRef.current;
+      if (
+        isFullscreen &&
+        event.key === "Tab" &&
+        drawer?.contains(event.target as Node)
+      ) {
+        const focusable = Array.from(
+          drawer.querySelectorAll<HTMLElement>(
+            "a[href], button, input, select, textarea, iframe, [tabindex]",
+          ),
+        ).filter(
+          (element) =>
+            element.tabIndex >= 0 &&
+            !element.matches(":disabled") &&
+            !element.closest("[hidden], [inert]") &&
+            element.getClientRects().length > 0 &&
+            getComputedStyle(element).visibility === "visible",
+        );
+        const first = focusable[0] ?? drawer;
+        const last = focusable[focusable.length - 1] ?? drawer;
+        const active = document.activeElement;
+        if (
+          active === drawer ||
+          (event.shiftKey ? active === first : active === last)
+        ) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
       if (event.key === "Escape") {
+        const popup =
+          event.target instanceof Element
+            ? event.target.closest('[role="menu"], [role="dialog"]')
+            : null;
+        // Let nested menus and dialogs handle Escape before the drawer.
+        if (popup && popup !== drawer) return;
         event.preventDefault();
-        close();
+        if (isFullscreen) {
+          setIsFullscreen(false);
+        } else {
+          close();
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
-    drawerRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [close, isFullscreen]);
+
+  useEffect(() => {
+    drawerRef.current?.focus();
   }, [close]);
 
   useEffect(() => {
@@ -173,7 +270,7 @@ export default function FilesDrawer({
             };
           })
       : target.source === "profile"
-      ? workspaceApi.loadFile(target.path).then((file) => ({
+      ? workspaceApi.loadFile(target.path, agentId).then((file) => ({
           metadata: {
             path: target.path,
             size: new Blob([file.content]).size,
@@ -217,7 +314,7 @@ export default function FilesDrawer({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [chatId, projectDirOverride, target]);
+  }, [agentId, chatId, projectDirOverride, target]);
 
   const resizeFromPointer = (event: React.PointerEvent) => {
     event.preventDefault();
@@ -230,7 +327,7 @@ export default function FilesDrawer({
     const maximum = Math.max(MIN_DRAWER_WIDTH, containerWidth - MIN_CHAT_WIDTH);
     const move = (nextEvent: PointerEvent) => {
       const next = Math.min(
-        Math.max(MIN_DRAWER_WIDTH, initial + nextEvent.clientX - startX),
+        Math.max(MIN_DRAWER_WIDTH, initial + startX - nextEvent.clientX),
         maximum,
       );
       setWidth(next);
@@ -248,7 +345,8 @@ export default function FilesDrawer({
     window.addEventListener("pointercancel", up);
   };
 
-  const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
+  const drawerStyle =
+    !isFullscreen && width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
   const canCopy =
     metadata?.preview_kind === "text" || metadata?.preview_kind === "csv";
@@ -267,17 +365,19 @@ export default function FilesDrawer({
       ref={drawerRef}
       className={`${styles.drawer} ${
         isWorkspace ? styles.drawerWorkspace : styles.drawerPreview
-      } ${isResizing ? styles.drawerResizing : ""}`}
+      } ${isResizing ? styles.drawerResizing : ""} ${
+        isFullscreen ? styles.drawerFullscreen : ""
+      }`}
       style={drawerStyle}
       layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
-        prefersReducedMotion ? false : { opacity: 0, x: -18, scale: 0.995 }
+        prefersReducedMotion ? false : { opacity: 0, x: 18, scale: 0.995 }
       }
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={
         prefersReducedMotion
           ? { opacity: 0 }
-          : { opacity: 0, x: -14, scale: 0.995 }
+          : { opacity: 0, x: 14, scale: 0.995 }
       }
       transition={
         prefersReducedMotion
@@ -294,44 +394,47 @@ export default function FilesDrawer({
               scale: { duration: 0.28, ease: [0.22, 0.78, 0.24, 1] },
             }
       }
-      role="region"
+      role={isFullscreen ? "dialog" : "region"}
+      aria-modal={isFullscreen || undefined}
       aria-label={t("files.title")}
       tabIndex={-1}
     >
-      <div
-        className={styles.resizeHandle}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("files.resize")}
-        aria-valuenow={Math.round(width)}
-        tabIndex={0}
-        onPointerDown={resizeFromPointer}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-            return;
-          }
-          event.preventDefault();
-          setWidth((current) => {
-            const base = current || 640;
-            const containerWidth =
-              drawerRef.current?.parentElement?.getBoundingClientRect().width ??
-              window.innerWidth;
-            const maximum = Math.max(
-              MIN_DRAWER_WIDTH,
-              containerWidth - MIN_CHAT_WIDTH,
-            );
-            const next = Math.min(
-              Math.max(
+      {!isFullscreen && (
+        <div
+          className={styles.resizeHandle}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("files.resize")}
+          aria-valuenow={Math.round(width)}
+          tabIndex={0}
+          onPointerDown={resizeFromPointer}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+              return;
+            }
+            event.preventDefault();
+            setWidth((current) => {
+              const base = current || 640;
+              const containerWidth =
+                drawerRef.current?.parentElement?.getBoundingClientRect()
+                  .width ?? window.innerWidth;
+              const maximum = Math.max(
                 MIN_DRAWER_WIDTH,
-                base + (event.key === "ArrowRight" ? 24 : -24),
-              ),
-              maximum,
-            );
-            localStorage.setItem(widthStorageKey, String(next));
-            return next;
-          });
-        }}
-      />
+                containerWidth - MIN_CHAT_WIDTH,
+              );
+              const next = Math.min(
+                Math.max(
+                  MIN_DRAWER_WIDTH,
+                  base + (event.key === "ArrowLeft" ? 24 : -24),
+                ),
+                maximum,
+              );
+              localStorage.setItem(widthStorageKey, String(next));
+              return next;
+            });
+          }}
+        />
+      )}
       <header className={styles.drawerHeader}>
         <div className={styles.fileMark}>
           <FileText size={17} />
@@ -395,6 +498,21 @@ export default function FilesDrawer({
           </button>
         )}
         <button
+          ref={fullscreenButtonRef}
+          type="button"
+          className={styles.iconButton}
+          aria-label={t(
+            isFullscreen ? "files.exitFullscreen" : "files.enterFullscreen",
+          )}
+          title={t(
+            isFullscreen ? "files.exitFullscreen" : "files.enterFullscreen",
+          )}
+          aria-pressed={isFullscreen}
+          onClick={() => setIsFullscreen((current) => !current)}
+        >
+          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
+        <button
           type="button"
           className={styles.iconButton}
           aria-label={t("common.close")}
@@ -411,13 +529,13 @@ export default function FilesDrawer({
           initial={
             prefersReducedMotion
               ? false
-              : { opacity: 0, x: isWorkspace ? 10 : -10 }
+              : { opacity: 0, x: isWorkspace ? -10 : 10 }
           }
           animate={{ opacity: 1, x: 0 }}
           exit={
             prefersReducedMotion
               ? { opacity: 0 }
-              : { opacity: 0, x: isWorkspace ? -8 : 8 }
+              : { opacity: 0, x: isWorkspace ? 8 : -8 }
           }
           transition={
             prefersReducedMotion
@@ -431,7 +549,13 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace initialTarget={target} scope={scope} />
+              <ConfigProvider getPopupContainer={getPopupContainer}>
+                <FilesWorkspace
+                  initialTarget={target}
+                  initialMemoryTag={memoryTagToBrowse}
+                  scope={scope}
+                />
+              </ConfigProvider>
             </Suspense>
           ) : (
             <>
@@ -449,6 +573,34 @@ export default function FilesDrawer({
                     root={target.root}
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
+                    onOpenFile={
+                      target.source === "workspace" && !target.artifactUrl
+                        ? (path) =>
+                            dispatch({
+                              type: "OPEN_PREVIEW",
+                              target: {
+                                source: "workspace",
+                                path,
+                                root: target.root,
+                              },
+                              trigger: state.trigger,
+                            })
+                        : undefined
+                    }
+                    onMemoryTagClick={
+                      memoryTagsSupported &&
+                      !target.artifactUrl &&
+                      (target.source === "memory" ||
+                        target.source === "daily" ||
+                        target.source === "digest" ||
+                        (target.source === "workspace" &&
+                          target.root === "workspace"))
+                        ? (tag) => {
+                            setMemoryTagToBrowse(tag);
+                            dispatch({ type: "EXPAND_WORKSPACE" });
+                          }
+                        : undefined
+                    }
                   />
                 ) : metadata?.preview_kind === "text" ? (
                   <pre className={styles.textPreview}>{content}</pre>
@@ -464,6 +616,13 @@ export default function FilesDrawer({
                     type="button"
                     className={styles.secondaryButton}
                     onClick={() => {
+                      if (
+                        isFullscreen ||
+                        window.matchMedia("(max-width: 1024px)").matches
+                      ) {
+                        setIsFullscreen(false);
+                        dispatch({ type: "CLOSE" });
+                      }
                       insertFileReference(target.path);
                     }}
                   >

@@ -27,6 +27,8 @@ from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 class FakeProvider:
     """Minimal stand-in for Provider (attribute-compatible subset)."""
 
+    chat_model = "OpenAIChatModel"
+
     def __init__(
         self,
         pid: str,

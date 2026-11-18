@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Image, Input, Tooltip } from "antd";
+import { Input, Tooltip } from "antd";
+import ImageLightbox from "@/components/assets/ImageLightbox";
 import { Loader2, SquarePen, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import InlineReviewDiff from "@/components/agent/InlineReviewDiff";
@@ -95,6 +96,12 @@ export default function PromptRichBlock({
   const { t } = useTranslation();
   const project = useProjectSnapshotStore((state) => state.project);
   const presentedValue = presentPromptEntityNames(value, project);
+  // An empty prompt is a planned-but-unwritten node only until someone
+  // writes it: a user clearing the prompt to rewrite must not lock the
+  // editor out, so the awaiting state is sticky-off once non-empty.
+  const everWritten = useRef(!!value.trim());
+  if (value.trim()) everWritten.current = true;
+  const awaitingAgent = !everWritten.current;
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
@@ -132,9 +139,9 @@ export default function PromptRichBlock({
           <span
             key={partIndex}
             data-prompt-token-missing={match[1]}
-            className="mx-0.5 inline-flex items-center rounded-full border border-dashed border-[var(--color-danger)]/50 bg-[var(--color-bg-primary)] px-2 py-0.5 align-[-3px] font-mono text-[9px] font-bold leading-none text-[var(--color-danger)]"
+            className="mx-0.5 inline-flex items-center rounded-full border border-dashed border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 align-[-3px] font-mono text-[9px] font-bold leading-none text-[var(--color-text-secondary)]"
           >
-            {t("r2v.tokenMissing", { index: match[1] })}
+            {t("r2v.tokenReferenceNumber", { index: match[1] })}
           </span>
         );
       }
@@ -216,7 +223,9 @@ export default function PromptRichBlock({
             </div>
           ) : (
             <span className="text-[var(--color-text-tertiary)]">
-              {placeholder ?? t("r2v.generateAndEdit", { label })}
+              {awaitingAgent
+                ? t("r2v.awaitAgentPrompt")
+                : placeholder ?? t("r2v.generateAndEdit", { label })}
             </span>
           )}
           {collapsed && (
@@ -244,7 +253,7 @@ export default function PromptRichBlock({
           <button
             type="button"
             data-prompt-edit={field}
-            disabled={disabled}
+            disabled={disabled || awaitingAgent}
             onClick={() => setFullOpen(true)}
             className="inline-flex h-10 shrink-0 cursor-pointer select-none items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 text-sm font-medium leading-6 text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -256,7 +265,7 @@ export default function PromptRichBlock({
               field={field}
               label={regenerateLabel ?? ""}
               loading={regenerating}
-              disabled={disabled || regenerateDisabled}
+              disabled={disabled || regenerateDisabled || awaitingAgent}
               onClick={onRegenerate}
             />
           )}
@@ -278,17 +287,7 @@ export default function PromptRichBlock({
 
       {/* Controlled zoom preview for token thumbnails. */}
       {previewSrc && (
-        <Image
-          style={{ display: "none" }}
-          src={previewSrc}
-          preview={{
-            visible: true,
-            src: previewSrc,
-            onVisibleChange: (visible) => {
-              if (!visible) setPreviewSrc(null);
-            },
-          }}
-        />
+        <ImageLightbox src={previewSrc} onClose={() => setPreviewSrc(null)} />
       )}
 
       <PromptEditorModal

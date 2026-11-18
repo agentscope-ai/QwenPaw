@@ -57,6 +57,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install dependencies
         run: pip install pyyaml requests
 
@@ -237,12 +243,13 @@ jobs:
 
             \`\`\`bash
             python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
-            pip install qwenpaw==${version}
-            qwenpaw
+            python -m pip install --upgrade "pip>=26.2.2"
+            python -m pip install qwenpaw==${version} "certifi>=2026.10.19"
+            qwenpaw app
             \`\`\`
 
             - [ ] Install succeeds (\`pip install\` exits cleanly)
-            - [ ] Launch succeeds (\`qwenpaw\` starts, browser UI reachable)
+            - [ ] Launch succeeds (\`qwenpaw app\` starts, browser UI reachable)
             - [ ] Model configured (API key + model saved without error)
             - [ ] Basic chat works (message sent, normal reply received)
 

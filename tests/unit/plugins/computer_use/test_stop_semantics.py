@@ -19,6 +19,8 @@ from computer_use.transport import (
 )
 from qwenpaw.app.computer_use import set_current_computer_use_turn_id
 
+from tests.unit.plugins.timing import WAIT_TIMEOUT
+
 
 class _ControlledTransport(ComputerUseTransport):
     """Hold ordinary requests until the test chooses their native outcome."""
@@ -60,7 +62,7 @@ class _ControlledTransport(ComputerUseTransport):
         self,
         handler: ReverseRequestHandler,
     ) -> None:
-        return None
+        del handler
 
     @property
     def pending_count(self) -> int:
@@ -202,7 +204,7 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
 
     thread = threading.Thread(target=run_owner, name="owner-loop", daemon=True)
     thread.start()
-    ready.wait(timeout=5)
+    assert ready.wait(timeout=WAIT_TIMEOUT)
 
     transport = _ControlledTransport()
     client = ComputerUseClient("session-cross", lambda: transport)
@@ -214,11 +216,11 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
     action = asyncio.run_coroutine_threadsafe(
         start_action(),
         owner_loop,
-    ).result(5)
+    ).result(WAIT_TIMEOUT)
     asyncio.run_coroutine_threadsafe(
         wait_for_pending(transport),
         owner_loop,
-    ).result(5)
+    ).result(WAIT_TIMEOUT)
 
     caller_loop = asyncio.new_event_loop()
     released = threading.Event()
@@ -235,25 +237,25 @@ def test_stop_arriving_on_another_event_loop_is_handed_back() -> None:
     releaser.start()
     try:
         stopped = caller_loop.run_until_complete(
-            asyncio.wait_for(client.stop_turn(), timeout=5),
+            asyncio.wait_for(client.stop_turn(), timeout=WAIT_TIMEOUT),
         )
         assert stopped is True
-        assert released.wait(timeout=5)
+        assert released.wait(timeout=WAIT_TIMEOUT)
         with pytest.raises(ComputerUseProtocolError):
             action.result()
         assert transport.closed is False
     finally:
-        releaser.join(timeout=5)
+        releaser.join(timeout=WAIT_TIMEOUT)
         owner_loop.call_soon_threadsafe(owner_loop.stop)
-        thread.join(timeout=5)
+        thread.join(timeout=WAIT_TIMEOUT)
         caller_loop.close()
         owner_loop.close()
         set_current_computer_use_turn_id(None)
 
 
 async def wait_for_pending(transport: _ControlledTransport) -> None:
-    for _ in range(1_000):
-        if transport.pending_count:
-            return
-        await asyncio.sleep(0)
-    raise AssertionError("transport did not receive a request")
+    async with asyncio.timeout(WAIT_TIMEOUT):
+        while True:
+            if transport.pending_count:
+                return
+            await asyncio.sleep(0)

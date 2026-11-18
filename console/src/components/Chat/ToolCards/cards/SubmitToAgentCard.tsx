@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { RocketOutlined } from "@ant-design/icons";
+import { Rocket as RocketOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 
@@ -39,7 +39,7 @@ const SubmitToAgentCard: React.FC<SubmitToAgentCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<RocketOutlined />}
+      icon={<RocketOutlined size="1em" />}
       title={title}
       inlineResult={inlineResult}
     />

@@ -15,11 +15,20 @@ from agentscope.message import ToolCallBlock
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
 
-from qwenpaw.local_models.tag_parser import (
+from openai import DefaultAsyncHttpxClient
+
+from .adapters.usage import (
+    CACHE_RESPONSE_HEADERS,
+    cache_usage,
+    capture_cache_headers,
+)
+from .completion_reason import CompletionReasonMixin
+
+from ..local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
-from qwenpaw.utils.tool_call_extra import (
+from ..utils.tool_call_extra import (
     attach_transient_tool_call_extra,
     collect_transient_tool_call_extras,
 )
@@ -169,6 +178,12 @@ class _SanitizedStream:
         self._ctx_stream: Any | None = None
         self.extra_contents: dict[str, Any] = {}
         self._tool_call_ids: dict[int, str] = {}
+        self.raw_usage = None
+        self.headers = getattr(
+            getattr(stream, f"response", None),
+            f"headers",
+            {},
+        )
 
     async def __aenter__(self) -> "_SanitizedStream":
         self._ctx_stream = await self._stream.__aenter__()
@@ -189,6 +204,9 @@ class _SanitizedStream:
         if self._ctx_stream is None:
             raise StopAsyncIteration
         item = await self._ctx_stream.__anext__()
+        raw_usage = getattr(getattr(item, f"chunk", item), f"usage", None)
+        if raw_usage is not None:
+            self.raw_usage = raw_usage
         self._capture_extra_content(item)
         return _sanitize_stream_item(item)
 
@@ -239,6 +257,20 @@ _SINGLE_SCHEMA_KEYWORDS = frozenset(
 _ARRAY_SCHEMA_KEYWORDS = frozenset(
     {"allOf", "anyOf", "oneOf", "prefixItems"},
 )
+# Keywords whose ``false`` value is the keyword's own native spelling rather
+# than a standalone boolean schema.  ``false`` is the form OpenAI strict-mode
+# tool definitions require and that compatible servers accept, while
+# ``{"not": {}}`` is rejected or silently ignored by several of them.  Only
+# ``false`` is preserved: ``true`` keeps its previous treatment, so the wire
+# format changes no further than the compatibility bug requires.
+_PRESERVED_FALSE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "additionalProperties",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    },
+)
 # Keywords whose value is an object whose values are schemas.
 _MAP_SCHEMA_KEYWORDS = frozenset(
     {
@@ -256,11 +288,20 @@ def _walk_schema(
     transform: Callable[[Any], Any],
     *,
     dependency_schema_types: tuple[type, ...] = (dict,),
+    preserve_false_keywords: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
-    """Walk known JSON Schema child positions using *transform*."""
+    """Walk known JSON Schema child positions using *transform*.
+
+    *preserve_false_keywords* is opt-in so the traversal contract stays
+    unchanged for the other sanitizers that share this walker.
+    """
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        if key in _SINGLE_SCHEMA_KEYWORDS:
+        if key in preserve_false_keywords and value is False:
+            # Keep the keyword's native boolean spelling instead of
+            # expanding it into a nested ``not`` schema.
+            result[key] = False
+        elif key in _SINGLE_SCHEMA_KEYWORDS:
             if key == "items" and isinstance(value, list):
                 result[key] = [transform(item) for item in value]
             else:
@@ -331,6 +372,14 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
     Special-cases retained:
     - ``additionalProperties: true``  → removed (JSON Schema default;
       explicit form rejected by some strict validators).
+    - ``additionalProperties`` / ``additionalItems`` /
+      ``unevaluatedProperties`` / ``unevaluatedItems`` with value
+      ``false`` → kept as-is.  ``false`` is the native keyword spelling
+      used by OpenAI strict-mode tool schemas; compatible servers that do
+      not implement ``not`` treat ``{"not": {}}`` as an opaque schema and
+      drop the surrounding ``properties`` map, so the model sees a
+      zero-parameter function.  ``true`` keeps its previous treatment (an
+      empty schema, or removal for ``additionalProperties``).
     - ``required: <bool>`` inside a property definition → removed
       (malformed; real JSON Schema uses ``required: ["field"]`` on the
       parent object).
@@ -345,6 +394,7 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
         _strip_boolean_schema_special_cases(schema),
         _sanitize_boolean_schemas,
         dependency_schema_types=(dict, bool),
+        preserve_false_keywords=_PRESERVED_FALSE_SCHEMA_KEYWORDS,
     )
 
 
@@ -661,7 +711,7 @@ def _sanitize_tool_schemas(
     return _map_tool_parameters(tools, _apply_openai_compat_schema_passes)
 
 
-class OpenAIChatModelCompat(OpenAIChatModel):
+class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay.
 
@@ -673,6 +723,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
       (used for DashScope tracking headers, etc.).
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` invocation
       (provider-level ``generate_kwargs`` that don't map to ``Parameters``).
+    * ``disable_thinking_kwargs`` — model-declared wire parameters used to
+      translate the internal ``disable_thinking`` request flag.
     """
 
     def __init__(
@@ -681,12 +733,29 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         provider_id: str | None = None,
         default_headers: dict[str, str] | None = None,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        disable_thinking_kwargs: dict[str, Any] | None = None,
         output_token_param: str = "max_tokens",
+        usage_guard: Callable[[], None] | None = None,
+        request_policy: Callable | None = None,
+        capture_cache_status: bool = False,
         **kwargs: Any,
     ) -> None:
+        if capture_cache_status:
+            client_kwargs = dict(kwargs.get(f"client_kwargs") or {})
+            client = client_kwargs.get(f"http_client")
+            if client is None:
+                client = DefaultAsyncHttpxClient()
+                client_kwargs[f"http_client"] = client
+            client.event_hooks.setdefault(f"response", []).append(
+                capture_cache_headers,
+            )
+            kwargs[f"client_kwargs"] = client_kwargs
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._disable_thinking_kwargs = disable_thinking_kwargs or {}
         self._output_token_param = output_token_param
+        self._usage_guard = usage_guard
+        self._request_policy = request_policy
         super().__init__(**kwargs)
         credential_id = str(getattr(self.credential, "id", "") or "")
         credential_provider_id = credential_id.removeprefix("qwenpaw-")
@@ -781,40 +850,85 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
-        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._usage_guard is not None:
+            self._usage_guard()
+        # Explicit max_completion_tokens is authoritative: deployment aliases
+        # may not reveal the model family. Normalize both sources to the same
+        # key so a per-call summary cap still overrides the configured cap.
+        output_token_param = self._output_token_param
+        if (
+            self._extra_generate_kwargs.get("max_completion_tokens")
+            is not None
+            or generate_kwargs.get("max_completion_tokens") is not None
+        ):
+            output_token_param = "max_completion_tokens"
+        merged = {
+            **self._normalize_output_token_kwargs(
+                self._extra_generate_kwargs,
+                output_token_param,
+            ),
+            **self._normalize_output_token_kwargs(
+                generate_kwargs,
+                output_token_param,
+            ),
+        }
+        if self._request_policy is not None:
+            merged = self._request_policy(model_name, f"chat", merged)
         self._consume_disable_thinking(merged)
-        if self._output_token_param != "max_tokens":
-            max_tokens = merged.pop("max_tokens", None)
-            if max_tokens is not None:
-                merged.setdefault(self._output_token_param, max_tokens)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
-        return await super()._call_api(
-            model_name,
-            messages,
-            tools,
-            tool_choice,
-            **merged,
+        token = CACHE_RESPONSE_HEADERS.set({})
+        try:
+            return await super()._call_api(
+                model_name,
+                messages,
+                tools,
+                tool_choice,
+                **merged,
+            )
+        finally:
+            CACHE_RESPONSE_HEADERS.reset(token)
+
+    @staticmethod
+    def _normalize_output_token_kwargs(
+        kwargs: dict,
+        output_token_param: str,
+    ) -> dict:
+        """Keep one output cap using the resolved request parameter."""
+        normalized = dict(kwargs)
+        alternate = (
+            "max_completion_tokens"
+            if output_token_param == "max_tokens"
+            else "max_tokens"
         )
+        limit = normalized.pop(alternate, None)
+        if limit is not None:
+            normalized.setdefault(output_token_param, limit)
+        return normalized
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
-        wire params, merging into *call_kwargs* in place.
+        wire params declared for this model, merging into *call_kwargs* in
+        place.
 
-        Qwen via ``enable_thinking``, DeepSeek/Moonshot-style via
-        ``thinking``.
+        An unknown model control intentionally adds no wire parameter.  A
+        compatibility endpoint may reject a parameter from another dialect,
+        so sending both known disable shapes is not a safe fallback.
         """
         if not call_kwargs.pop("disable_thinking", False):
             return
+        translated = dict(self._disable_thinking_kwargs)
+        # This is an internal signal, never an OpenAI SDK parameter.  Keep
+        # the boundary defensive even if a provider supplies it by mistake.
+        translated.pop("disable_thinking", None)
+        translated_body = translated.pop("extra_body", None)
+        call_kwargs.update(translated)
+        if not translated_body:
+            return
         body = dict(getattr(self, "extra_body", None) or {})
         body.update(call_kwargs.get("extra_body") or {})
-        body.update(
-            {
-                "enable_thinking": False,
-                "thinking": {"type": "disabled"},
-            },
-        )
+        body.update(translated_body)
         call_kwargs["extra_body"] = body
 
     def _format_tools(
@@ -832,6 +946,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             tools = _sanitize_tool_schemas(tools)
         return super()._format_tools(tools, tool_choice)
 
+    def _parse_completion_response(
+        self,
+        start_datetime,
+        response,
+        audio_format=f"wav",
+    ):
+        """Preserve cache counters omitted by the base SDK parser."""
+        parsed = super()._parse_completion_response(
+            start_datetime,
+            response,
+            audio_format,
+        )
+        cache_usage(
+            parsed.usage,
+            getattr(response, f"usage", None),
+            CACHE_RESPONSE_HEADERS.get(),
+        )
+        return parsed
+
     # pylint: disable=too-many-branches, too-many-statements
     async def _parse_stream_response(
         self,
@@ -846,6 +979,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             start_datetime=start_datetime,
             response=sanitized_response,
         ):
+            cache_usage(
+                parsed.usage,
+                sanitized_response.raw_usage,
+                sanitized_response.headers,
+            )
             # Filter out malformed tool_use blocks (null id or empty name)
             # emitted by some OpenAI-compatible models, to prevent bad entries
             # from being persisted into session history (issue #4185).

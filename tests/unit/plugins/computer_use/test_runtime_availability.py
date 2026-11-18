@@ -25,6 +25,9 @@ _CONTROL_ENV = {
 @pytest.fixture(autouse=True)
 def _reachable_host(monkeypatch: pytest.MonkeyPatch):
     """Present a reachable desktop host, so only the platform varies."""
+    monkeypatch.delenv("QWENPAW_RUNTIME_MODE", raising=False)
+    monkeypatch.setattr(HostRuntimeProvider, "_hosts", {})
+    monkeypatch.setattr(HostRuntimeProvider, "_control", None)
     for name, value in _CONTROL_ENV.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setattr(HostRuntimeProvider, "_capability", None)
@@ -70,3 +73,16 @@ def test_a_supported_platform_without_a_host_is_not_available(
     assert status.supported_platform is True
     assert status.host_reachable is False
     assert HostRuntimeProvider.is_available() is False
+
+
+def test_shared_host_switches_when_owning_client_disconnects(monkeypatch):
+    monkeypatch.setenv("QWENPAW_RUNTIME_MODE", "shared")
+    monkeypatch.setattr(runtime_module.sys, "platform", "darwin")
+    assert not HostRuntimeProvider.status().host_reachable
+    HostRuntimeProvider.register_host("first", 12345, "first-token")
+    HostRuntimeProvider.register_host("second", 23456, "second-token")
+    assert HostRuntimeProvider.registered_endpoint().port == 12345
+    HostRuntimeProvider.unregister_host("first")
+    assert HostRuntimeProvider.registered_endpoint().port == 23456
+    HostRuntimeProvider.unregister_host("second")
+    assert not HostRuntimeProvider.status().host_reachable

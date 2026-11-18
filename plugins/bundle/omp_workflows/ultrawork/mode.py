@@ -28,6 +28,7 @@ class UltraworkMode(OMPModeBase):
     """AgentMode for Ultrawork parallel execution."""
 
     name = "ultrawork"
+    loop_entry = f"ultrawork"
     gate_cls = UltraworkGate
     plugin_id = "__omp_ultrawork__"
     handler_name = "ultrawork-stop-handler"

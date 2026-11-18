@@ -51,9 +51,10 @@ function scopePath(scope: PromptSyncScope) {
 export async function getPromptSync(
   scope: PromptSyncScope,
   signal?: AbortSignal,
+  stage?: "storyboard" | "video",
 ): Promise<PromptSyncState> {
   const result = await creatorRequest<PromptSyncState>(
-    `${scopePath(scope)}/prompt-sync`,
+    `${scopePath(scope)}/prompt-sync${stage ? `?stage=${stage}` : ""}`,
     { signal },
   );
   if (
@@ -110,5 +111,19 @@ export function acceptPromptProposal(
       proposalId,
     )}/accept`,
     { method: "POST", body: jsonBody({}) },
+  );
+}
+export function confirmCurrentPrompts(
+  scope: PromptSyncScope,
+  stage?: "storyboard" | "video",
+) {
+  // Keep the current plan/prompts and only re-stamp the sync baseline, clearing
+  // the gate without an AI rewrite (#7720 finding #3).
+  return creatorRequest(
+    `${scopePath(scope)}/prompt-sync/confirm${stage ? `?stage=${stage}` : ""}`,
+    {
+      method: "POST",
+      body: jsonBody({}),
+    },
   );
 }

@@ -56,6 +56,36 @@ const actionMeta = (tool: string, args: Record<string, unknown>) => ({
 });
 
 describe("Creator conversation presentation", () => {
+  it.each([
+    ["AUTHORIZATION_REJECTED", "cancelled"],
+    ["AUTHORIZATION_EXPIRED", "not_started"],
+    ["EXECUTION_NOT_COMPLETED", "unconfirmed"],
+  ])("presents production authorization outcome %s", (reason, outcome) => {
+    const calls = toolCallPresentations(
+      [
+        creatorMessage({
+          role: "tool",
+          source: "runtime_action_result",
+          metadata: {
+            actionId: "production",
+            tool: "request_workgraph_execution",
+          },
+          content: text(
+            JSON.stringify({
+              status: "BLOCKED",
+              items: [
+                { status: "BLOCKED", reason: "GATED" },
+                { status: "BLOCKED", reason },
+              ],
+            }),
+          ),
+        }),
+      ],
+      [],
+    );
+    expect(calls).toMatchObject([{ productionOutcome: outcome }]);
+  });
+
   it("keeps actual user authority sources and rejects Runtime control rows as user bubbles", () => {
     const userSources = [
       "initial_goal",
@@ -340,10 +370,12 @@ describe("Creator conversation presentation", () => {
 
 describe("durable Task presentation", () => {
   it("converts progress into bounded percentages and surfaces task errors", () => {
-    expect(taskProgressPercent(0)).toBe(0);
-    expect(taskProgressPercent(0.42)).toBe(42);
-    expect(taskProgressPercent(1)).toBe(100);
-    expect(taskProgressPercent(null)).toBeNull();
+    expect(taskProgressPercent(0, "asset_ingest")).toBe(0);
+    expect(taskProgressPercent(0.42, "asset_ingest")).toBe(42);
+    expect(taskProgressPercent(1, "asset_ingest")).toBe(100);
+    expect(taskProgressPercent(null, "asset_ingest")).toBeNull();
+    expect(taskProgressPercent(0.42, "r2v_generation")).toBeNull();
+    expect(taskProgressPercent(0.42, "video")).toBeNull();
 
     const perItem = {
       kind: "ASSET_INGEST_FAILED",

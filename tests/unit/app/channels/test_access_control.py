@@ -386,3 +386,40 @@ class TestAccessControlStore:  # pylint: disable=too-many-public-methods
         path.write_text("not-json", encoding="utf-8")
         store = AccessControlStore(path)
         assert store.get_all_acls() == {}
+
+
+def test_inbound_decision_refreshes_and_enrolls_once(store):
+    other = AccessControlStore(store._path)
+    other.add_to_whitelist("console", "allowed")
+    other.add_to_blacklist("console", "blocked")
+    assert (
+        store.check_or_add_pending("console", "allowed", "hi", username="a")
+        == "allow"
+    )
+    assert (
+        store.check_or_add_pending("console", "blocked", "hi", username="b")
+        == "blocked"
+    )
+    assert (
+        store.check_or_add_pending("console", "new", "first", username="alice")
+        == "pending"
+    )
+    assert (
+        store.check_or_add_pending(
+            "console",
+            "new",
+            "second",
+            username="changed",
+        )
+        == "pending"
+    )
+    pending = store.get_all_pending()
+    assert len(pending) == 1
+    assert pending[0]["first_message"] == "first"
+    assert pending[0]["username"] == "alice"
+    refreshed = AccessControlStore(store._path)
+    assert refreshed.approve_pending("console", "new")
+    assert (
+        store.check_or_add_pending("console", "new", "third", username="alice")
+        == "allow"
+    )

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 import pytest
 
 from services.runtime_files import atomic_store as atomic_store_module
+from services.runtime_files.shared_io import open_shared_read
 from services.runtime_files import (
     AtomicJsonRecordStore,
     CorruptRecordError,
@@ -128,6 +129,143 @@ def test_atomic_bytes_tolerate_windows_like_missing_fchmod_and_dir_fsync(
         b'{"created":true}\n',
     )
     assert (tmp_path / "created.json").read_bytes() == b'{"created":true}\n'
+
+
+@pytest.mark.parametrize("permanent", [False, True])
+def test_atomic_reader_retries_windows_sharing_violation_but_preserves_denial(
+    tmp_path,
+    monkeypatch,
+    permanent,
+):
+    path = tmp_path / "record.json"
+    store = AtomicJsonRecordStore(path, DemoRecord)
+    store.create(DemoRecord(name="current", count=1))
+    calls = []
+
+    def read(candidate):
+        calls.append(candidate)
+        if permanent or len(calls) < 3:
+            raise PermissionError(errno.EACCES, "sharing violation", candidate)
+        return open_shared_read(candidate)
+
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_ATTEMPTS", 3)
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr(atomic_store_module, "open_shared_read", read)
+    if permanent:
+        with pytest.raises(PermissionError):
+            store.read()
+    else:
+        assert store.read().name == "current"
+    assert len(calls) == 3
+
+
+def test_open_snapshot_does_not_block_atomic_replacement(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "中文 snapshot.json"
+    old = b"old\x1a\r\n\x00snapshot"
+    path.write_bytes(old)
+    # Prove replacement works with a reader held open; retries cannot conceal
+    # a Windows sharing violation. Also exercise binary descriptor semantics.
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_ATTEMPTS", 1)
+    with open_shared_read(path) as reader:
+        assert not os.get_inheritable(reader.fileno())
+        atomic_store_module.atomic_replace_bytes(path, b"new snapshot")
+        assert reader.read() == old
+        assert path.read_bytes() == b"new snapshot"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows file-sharing contract")
+def test_external_nonsharing_reader_preserves_failed_write(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "session.json"
+    store = AtomicJsonRecordStore(path)
+    store.write({"revision": 1})
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_ATTEMPTS", 1)
+    with path.open("rb"):
+        with pytest.raises(PermissionError):
+            store.write({"revision": 2})
+    assert store.read() == {"revision": 1}
+    assert not list(tmp_path.glob(".session.json.*.tmp"))
+
+
+def test_replacement_never_hides_an_existing_snapshot(tmp_path):
+    path = tmp_path / "快照 snapshot.json"
+    store = AtomicJsonRecordStore(path)
+    store.write({"revision": 0})
+    stop = threading.Event()
+    ready = threading.Barrier(4)
+    errors = []
+    counts = [0] * 3
+
+    def poll(index):
+        ready.wait(timeout=5)
+        while not stop.is_set():
+            try:
+                assert store.read_or_none() is not None
+                counts[index] += 1
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+                return
+
+    readers = [threading.Thread(target=poll, args=(i,)) for i in range(3)]
+    for reader in readers:
+        reader.start()
+    try:
+        ready.wait(timeout=5)
+        for revision in range(1, 201):
+            # Force the Windows open-destination path on every replacement.
+            # ReplaceFileW retained this handle but exposed ENOENT to pollers.
+            with open_shared_read(path):
+                store.write({"revision": revision})
+    finally:
+        stop.set()
+        for reader in readers:
+            reader.join(timeout=5)
+    assert not errors
+    assert all(count > 0 for count in counts)
+    assert store.read() == {"revision": 200}
+
+
+@pytest.mark.parametrize("permanent", [False, True])
+def test_unsupported_shared_replace_keeps_safe_bounded_retry(
+    tmp_path,
+    monkeypatch,
+    permanent,
+):
+    path = tmp_path / "session.json"
+    store = AtomicJsonRecordStore(path)
+    store.write({"revision": 1})
+    real_replace = os.replace
+    attempts = []
+
+    def replace(source, target):
+        attempts.append(target)
+        if permanent or len(attempts) < 3:
+            raise PermissionError(errno.EACCES, "sharing violation", target)
+        return real_replace(source, target)
+
+    monkeypatch.setattr(atomic_store_module, "_is_windows", lambda: True)
+    monkeypatch.setattr(atomic_store_module.os, "replace", replace)
+    monkeypatch.setattr(
+        atomic_store_module,
+        "replace_open_file",
+        lambda *_: False,
+    )
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_ATTEMPTS", 3)
+    monkeypatch.setattr(atomic_store_module, "_REPLACE_RETRY_DELAY_SECONDS", 0)
+    if permanent:
+        with pytest.raises(PermissionError):
+            store.write({"revision": 2})
+        assert store.read() == {"revision": 1}
+    else:
+        store.write({"revision": 2})
+        assert store.read() == {"revision": 2}
+    assert len(attempts) == 3
+    assert not list(tmp_path.glob(".session.json.*.tmp"))
 
 
 def test_non_standard_nonfinite_json_is_reported_as_corruption(tmp_path):
@@ -540,7 +678,10 @@ def test_hammering_readers_never_starve_or_slow_a_writer(tmp_path):
                 stream.read_records_after(0, limit=20)
                 stream.last_seq()
                 value = record.read_or_none()
-                assert value is None or isinstance(value["revision"], int)
+                # The record was created before polling and is never deleted.
+                # A replacement must not temporarily hide its name.
+                assert value is not None
+                assert isinstance(value["revision"], int)
                 read_counts[index] += 1
             except BaseException as error:  # pragma: no cover - asserted
                 reader_errors.append(error)
@@ -666,3 +807,156 @@ def test_torn_crash_tail_never_breaks_lockfree_readers(tmp_path):
     assert not path.read_bytes().endswith(b"\n")
     assert stream.append(EventRecord(worker=1, value=4)).seq == 4
     assert [e.seq for e in stream.read_all()] == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("after", [0, 23])
+def test_forward_cursor_replays_once_and_follows_repaired_tail(
+    tmp_path,
+    monkeypatch,
+    after,
+):
+    path = tmp_path / "events.jsonl"
+    writer = DurableJsonlStore(path, EventRecord)
+    for value in range(1, 81):
+        writer.append(EventRecord(worker=1, value=value))
+    store = DurableJsonlStore(path, EventRecord)
+    validated = []
+    validate = store._validate_record  # pylint: disable=protected-access
+
+    def count_validation(record, *, line_number=None):
+        validated.append(line_number)
+        return validate(record, line_number=line_number)
+
+    monkeypatch.setattr(store, "_validate_record", count_validation)
+    reader = store.forward_reader(after)
+    values = []
+    while page := reader.read(limit=7):
+        assert len(page) <= 7
+        values.extend(item.value for item in page)
+    assert values == list(range(after + 1, 81))
+    # The old reverse-window loop revalidated the remaining history per page.
+    assert validated == list(range(1, 81))
+    with path.open("ab") as handle:
+        handle.write(b'{"seq":81,"record":')
+    assert not reader.read()
+    writer.append(EventRecord(worker=1, value=81))
+    assert [item.value for item in reader.read()] == [81]
+    assert not reader.read()
+    assert validated == list(range(1, 82))
+
+
+@pytest.mark.parametrize("damage", ["invalid", "gap", "replace", "truncate"])
+def test_forward_cursor_fails_closed_on_durable_stream_changes(
+    tmp_path,
+    damage,
+):
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    store.append(EventRecord(worker=1, value=1))
+    reader = store.forward_reader()
+    assert len(reader.read()) == 1
+    if damage == "replace":
+        replacement = path.with_suffix(".replacement")
+        replacement.write_bytes(path.read_bytes())
+        replacement.replace(path)
+    elif damage == "truncate":
+        path.write_bytes(b"")
+    else:
+        line = (
+            b"{}\n"
+            if damage == "invalid"
+            else path.read_bytes().replace(b'"seq":1', b'"seq":3')
+        )
+        with path.open("ab") as handle:
+            handle.write(line)
+    with pytest.raises(JsonlCorruptionError):
+        reader.read()
+
+
+def test_compressed_records_keep_checksums_and_stay_readable(tmp_path):
+    plain = AtomicJsonRecordStore(tmp_path / "plain.json", DemoRecord)
+    packed = AtomicJsonRecordStore(
+        tmp_path / "packed.json",
+        DemoRecord,
+        compress_payload=True,
+    )
+    value = {"name": "delivery", "count": 7}
+
+    plain_snapshot = plain.write(value)
+    packed_snapshot = packed.write(value)
+
+    assert (tmp_path / "packed.json").read_bytes()[:2] == b"\x1f\x8b"
+    assert (tmp_path / "plain.json").read_bytes()[:2] != b"\x1f\x8b"
+    assert packed.read() == DemoRecord(**value)
+    # The container must not leak into identity: a journal etags the value.
+    assert packed_snapshot.checksum == plain_snapshot.checksum
+    # A store that was never told stays able to read either container, so
+    # snapshots written before compression existed keep verifying.
+    reopened = AtomicJsonRecordStore(
+        tmp_path / "packed.json",
+        DemoRecord,
+    )
+
+    assert reopened.read().count == 7
+
+
+def test_compressed_record_supports_create_and_cas(tmp_path):
+    store = AtomicJsonRecordStore(
+        tmp_path / "state.json",
+        DemoRecord,
+        compress_payload=True,
+    )
+
+    created = store.create({"name": "before", "count": 1})
+    moved = store.compare_and_swap(
+        expected_checksum=created.checksum,
+        value=DemoRecord(name="after", count=2),
+    )
+
+    assert store.read().name == "after"
+    assert moved.checksum == store.read_snapshot().checksum
+    with pytest.raises(RecordConflictError):
+        store.compare_and_swap(
+            expected_checksum=created.checksum,
+            value=DemoRecord(name="stale", count=3),
+        )
+
+
+def test_truncated_compressed_record_reports_corruption(tmp_path):
+    path = tmp_path / "state.json"
+    AtomicJsonRecordStore(
+        path,
+        DemoRecord,
+        compress_payload=True,
+    ).write({"name": "delivery", "count": 7})
+
+    path.write_bytes(path.read_bytes()[:6])
+
+    with pytest.raises(CorruptRecordError):
+        AtomicJsonRecordStore(path, DemoRecord).read()
+
+
+def test_staged_temp_path_is_never_longer_than_its_target(tmp_path) -> None:
+    """A publish must never need a longer path than the record it writes.
+
+    Staging created ``.<name>.<8 random>.tmp``, about 14 characters longer
+    than the target, so on Windows with long paths disabled a record that
+    fits under the legacy MAX_PATH limit still failed in ``mkstemp`` and left
+    its parent directory behind (#8163).
+    """
+    captured: list[tuple[str, Path]] = []
+    for label, publish in (
+        ("create", atomic_store_module.atomic_create_bytes),
+        ("replace", atomic_store_module.atomic_replace_bytes),
+    ):
+        target = tmp_path / label / "journal.json"
+        captured.clear()
+        publish(
+            target,
+            b"{}\n",
+            stage_hook=lambda stage, path: captured.append((stage, path)),
+        )
+        staged = [path for stage, path in captured if stage == "temp_created"]
+        assert len(staged) == 1
+        assert staged[0].parent == target.parent
+        assert len(str(staged[0])) <= len(str(target))

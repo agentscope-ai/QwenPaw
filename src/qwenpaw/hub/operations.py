@@ -112,18 +112,22 @@ class HubOperationsStore:
             total_row["count"],
         )
 
-    def host_metrics(self) -> dict[str, float]:
-        """Collect portable host utilization percentages."""
+    def host_metrics(self) -> dict[str, float | int | str]:
+        """Collect capacity for the filesystem containing Hub user data."""
+        memory = psutil.virtual_memory()
+        data_path = self.data_root.resolve()
+        disk = psutil.disk_usage(str(data_path))
         return {
             "cpu_percent": round(float(psutil.cpu_percent()), 1),
-            "memory_percent": round(
-                float(psutil.virtual_memory().percent),
-                1,
-            ),
-            "disk_percent": round(
-                float(psutil.disk_usage(str(self.data_root)).percent),
-                1,
-            ),
+            "memory_percent": round(float(memory.percent), 1),
+            "memory_used": memory.used,
+            "memory_total": memory.total,
+            "memory_available": memory.available,
+            "disk_percent": round(float(disk.percent), 1),
+            "disk_used": disk.used,
+            "disk_total": disk.total,
+            "disk_free": disk.free,
+            "disk_path": str(data_path),
         }
 
     @staticmethod

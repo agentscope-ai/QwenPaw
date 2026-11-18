@@ -5,13 +5,40 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from pathlib import Path
 import re
+import stat
 
 from .errors import RuntimeFileValidationError
 
 
 _SAFE_RUNTIME_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 _MAX_HASHED_PREFIX_LENGTH = 127
+
+
+def is_link_stat(value: os.stat_result) -> bool:
+    """Recognize symlinks and Windows junctions from a non-following stat.
+
+    Junctions redirect directories but are not S_IFLNK. Use the reparse tag
+    rather than Path.is_junction(), which is unavailable on Python 3.11.
+    Other reparse tags (such as cloud placeholders) are not directory links.
+    """
+
+    return stat.S_ISLNK(value.st_mode) or getattr(
+        value,
+        "st_reparse_tag",
+        0,
+    ) == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
+
+
+def is_link_path(path: Path) -> bool:
+    """Check a link itself, including a dangling Windows junction."""
+
+    try:
+        return is_link_stat(path.lstat())
+    except FileNotFoundError:
+        return False
 
 
 def require_safe_runtime_segment(
@@ -54,4 +81,9 @@ def hashed_runtime_segment(prefix: str, *opaque_parts: str) -> str:
     )
 
 
-__all__ = ["hashed_runtime_segment", "require_safe_runtime_segment"]
+__all__ = [
+    "hashed_runtime_segment",
+    "require_safe_runtime_segment",
+    "is_link_stat",
+    "is_link_path",
+]

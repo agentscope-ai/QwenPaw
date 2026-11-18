@@ -140,6 +140,7 @@ class WorkspaceBootstrapFactory:
             logger.debug("Prompt contributors not available", exc_info=True)
 
         try:
+            from ...modes.advisor import AdvisorMode
             from ...modes.coding import CodingMode
             from ...modes.default import DefaultMode
             from ...modes.goal import GoalMode
@@ -150,6 +151,7 @@ class WorkspaceBootstrapFactory:
                 CodingMode,
                 MissionMode,
                 GoalMode,
+                AdvisorMode,
             ]
         except Exception:
             logger.debug("Modes not available", exc_info=True)

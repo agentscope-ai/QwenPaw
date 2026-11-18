@@ -11,6 +11,7 @@ import type {
   ElementLocationDocument,
   MotionGraphicDocument,
   ProjectDocument,
+  SubtitleStyleDocument,
   TaskView,
   TimelineDocument,
 } from "@/contracts/creator";
@@ -24,14 +25,15 @@ import {
   ELEMENT_PLAYBACK_STATUS_LABEL,
   playbackLayersInWindow,
   transitionOpacityAtTick,
+  withRoughCutFallback,
 } from "@/selectors/elementPlaybackSelectors";
 import {
   overlayContentKind,
   resolveElementVisualMeta,
 } from "@/selectors/timelineElementSelectors";
 import {
-  InterviewSummaryBox,
   PetOsBubble,
+  PlainCaption,
 } from "@/components/timeline/OverlayCopyLayer";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -46,6 +48,7 @@ interface TimelineLivePreviewProps {
   tasks: TaskView[];
   onPlayheadChange: (tick: number) => void;
   onPlayingChange: (playing: boolean) => void;
+  draft?: boolean;
 }
 
 /** Max allowed drift (seconds) between a video layer and the playhead before pulling it back. */
@@ -205,41 +208,53 @@ function TextOverlayLayer({
   stageWidth,
   stageHeight,
   contentType,
+  subtitleStyle,
 }: {
   layer: ElementPlayback;
   stageWidth: number;
   stageHeight: number;
   contentType: string | null | undefined;
+  subtitleStyle?: SubtitleStyleDocument | null;
 }) {
   const { element } = layer;
   if (element.creation.type !== "overlay") return null;
-  // Deterministic copy rendering identical to the final compositor, so the
-  // preview matches the final render.
+  const creation = element.creation;
+  const hasText = creation.text?.trim();
+  if (!hasText) return null;
   // Pet-OS bubble (with animal emoji) is only used when the project
-  // content_type is "pets"; otherwise fall back to the plain card style.
+  // content_type is "pets".
   const isPetOs =
-    element.creation.vibe !== "summary" &&
-    element.creation.overlay_kind !== "interview_summary" &&
+    creation.vibe !== "summary" &&
+    creation.overlay_kind !== "interview_summary" &&
     contentType === "pets";
+  if (isPetOs) {
+    return (
+      <div
+        data-live-text-overlay={element.element_id}
+        className="absolute"
+        style={locationBoxStyle(element.location)}
+      >
+        <PetOsBubble
+          text={creation.text}
+          vibe={creation.vibe}
+          stageWidth={stageWidth}
+        />
+      </div>
+    );
+  }
+  // For ordinary dialogue/narration/title/location captions show a
+  // subtle text preview so authors can verify timing and placement.
   return (
     <div
       data-live-text-overlay={element.element_id}
-      className="absolute"
-      style={locationBoxStyle(element.location)}
+      className="absolute inset-0 pointer-events-none"
     >
-      {isPetOs ? (
-        <PetOsBubble
-          text={element.creation.text}
-          vibe={element.creation.vibe}
-          stageWidth={stageWidth}
-        />
-      ) : (
-        <InterviewSummaryBox
-          text={element.creation.text}
-          stageWidth={stageWidth}
-          stageHeight={stageHeight}
-        />
-      )}
+      <PlainCaption
+        text={creation.text}
+        stageWidth={stageWidth}
+        role={creation.caption_role}
+        style={subtitleStyle}
+      />
     </div>
   );
 }
@@ -349,6 +364,7 @@ function useMotionDocumentHtml(motion: MotionGraphicDocument | null): {
 
 function MotionOverlayLayer({
   layer,
+  preserveAuthoredStyle,
   playheadTick,
   ticksPerSecond,
   playing,
@@ -356,6 +372,7 @@ function MotionOverlayLayer({
   onVisualReadyChange,
 }: {
   layer: ElementPlayback;
+  preserveAuthoredStyle: boolean;
   playheadTick: number;
   ticksPerSecond: number;
   playing: boolean;
@@ -394,8 +411,11 @@ function MotionOverlayLayer({
   // Paused scrubbing still needs every playhead change reflected immediately.
   const pausedSeekTimeMs = playing ? null : localTimeMs;
   const durationMs = (element.span.duration_tick / ticksPerSecond) * 1000;
-  const exitStyle =
-    motion?.exit ?? (html ? motionDataSetting(html, "exit") : undefined);
+  // The template renderer follows the document's declared exit. A default
+  // metadata value must not add a different animation only in the preview.
+  const exitStyle = preserveAuthoredStyle
+    ? (html ? motionDataSetting(html, "exit") : undefined) ?? "none"
+    : motion?.exit ?? (html ? motionDataSetting(html, "exit") : undefined);
   const exitProgress = motionExitProgress(exitStyle, localTimeMs, durationMs);
   const boxStyle = locationBoxStyle(element.location);
   const exitScale = exitStyle === "shrink" ? 1 - exitProgress * 0.18 : 1;
@@ -502,7 +522,10 @@ function MotionOverlayLayer({
     <iframe
       ref={iframeRef}
       data-live-motion-overlay={element.element_id}
-      srcDoc={motionPreviewDocument(html, isTextOverlay)}
+      srcDoc={motionPreviewDocument(
+        html,
+        isTextOverlay && !preserveAuthoredStyle,
+      )}
       title={element.label || t("livePreview.motionEffect")}
       // No scripts allowed; allow-same-origin exists only so the parent page
       // can sync the CSS animation timeline.
@@ -542,9 +565,24 @@ export default function TimelineLivePreview({
   tasks,
   onPlayheadChange,
   onPlayingChange,
+  draft = false,
 }: TimelineLivePreviewProps) {
   const { t } = useTranslation();
   const ticksPerSecond = timeline.ticks_per_second || 1;
+  const replaceNativeAudio = Boolean(
+    timeline.edit_plan?.design_floor?.opening?.includes(
+      "【官方固定模板：informal_launch】",
+    ) &&
+      Object.values(timeline.elements_by_id).some(
+        (element) =>
+          element.enabled &&
+          element.creation.type === "audio" &&
+          element.creation.role === "bgm" &&
+          project.assets.source_versions_by_id[
+            element.creation.source_asset_version_id ?? ""
+          ]?.media_kind === "audio",
+      ),
+  );
   const mediaRefs = useRef(new Map<string, HTMLMediaElement>());
   const imageRefs = useRef(new Map<string, HTMLImageElement>());
   const mediaRefCallbacks = useRef(
@@ -598,8 +636,11 @@ export default function TimelineLivePreview({
   // backend; the live preview plays them through hidden <audio> nodes
   // driven by the same playhead-following logic as video layers.
   const layers = useMemo(
-    () => playbackLayersInWindow(project, timeline, playheadTick, tasks),
-    [playheadTick, project, tasks, timeline],
+    () =>
+      playbackLayersInWindow(project, timeline, playheadTick, tasks).map(
+        (layer) => (draft ? withRoughCutFallback(project, layer) : layer),
+      ),
+    [playheadTick, project, tasks, timeline, draft],
   );
   const visibleLayers = useMemo(
     () =>
@@ -903,7 +944,10 @@ export default function TimelineLivePreview({
           ) {
             // Audio policy identical to the final render: only main-track video
             // keeps its original sound, overlay media is muted.
-            const silent = muted || element.creation.type === "overlay";
+            const silent =
+              muted ||
+              replaceNativeAudio ||
+              element.creation.type === "overlay";
             const boxStyle = locationBoxStyle(element.location);
             const baseOpacity =
               typeof boxStyle.opacity === "number" ? boxStyle.opacity : 1;
@@ -990,6 +1034,11 @@ export default function TimelineLivePreview({
                 <MotionOverlayLayer
                   key={elementId}
                   layer={layer}
+                  preserveAuthoredStyle={Boolean(
+                    timeline.edit_plan?.design_floor.opening.includes(
+                      "【官方固定模板：informal_launch】",
+                    ),
+                  )}
                   playheadTick={playheadTick}
                   ticksPerSecond={ticksPerSecond}
                   playing={playing}
@@ -1007,12 +1056,13 @@ export default function TimelineLivePreview({
                 stageWidth={stageWidth}
                 stageHeight={stageHeight}
                 contentType={project.settings.content_type}
+                subtitleStyle={project.settings.subtitle_style}
               />
             );
           }
           return <PlaceholderLayer key={elementId} layer={layer} />;
         })}
-        {showIncompleteNotice && (
+        {showIncompleteNotice && !draft && (
           <div
             data-live-preview-incomplete
             role="status"

@@ -86,6 +86,21 @@ afterEach(() => {
 });
 
 describe("registerBackgroundTask", () => {
+  it("tracks status without eagerly opening the output stream", async () => {
+    vi.useFakeTimers();
+    mocks.getInfo.mockResolvedValue({ status: "running" });
+    const { registerBackgroundTask } = await loadModule();
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc-lazy",
+      toolName: "shell",
+    });
+
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mocks.getInfo).toHaveBeenCalledWith("s", "tc-lazy");
+  });
+
   it("ignores empty tool call ids", async () => {
     const { registerBackgroundTask, useBackgroundTasksStore } =
       await loadModule();
@@ -126,15 +141,13 @@ describe("registerBackgroundTask", () => {
     registerBackgroundTask({ sessionId: "", toolCallId: "tc1", toolName: "t" });
     expect(mocks.subscribe).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(300);
-    expect(mocks.subscribe).toHaveBeenCalledWith(
-      "late-sess",
-      "tc1",
-      expect.anything(),
-    );
+    expect(mocks.subscribe).not.toHaveBeenCalled();
     const task = useBackgroundTasksStore
       .getState()
       .tasks.find((t) => t.toolCallId === "tc1");
     expect(task?.sessionId).toBe("late-sess");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mocks.getInfo).toHaveBeenCalledWith("late-sess", "tc1");
   });
 
   it("hydrates already-completed tasks immediately", async () => {
@@ -156,16 +169,20 @@ describe("registerBackgroundTask", () => {
   });
 });
 
-describe("startBackgroundTaskWatcher", () => {
+describe("background task status and output tracking", () => {
   it("appends streamed chunks to live output", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      startBackgroundTaskStream,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
     registerBackgroundTask({
       sessionId: "s",
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onChunk({ data: "hello " });
     sub.handlers!.onChunk({ data: { text: "world" } });
     sub.handlers!.onChunk({ data: { content: [{ text: "!" }] } });
@@ -176,8 +193,11 @@ describe("startBackgroundTaskWatcher", () => {
   });
 
   it("finalizes as done with a toast when the stream completes", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      startBackgroundTaskStream,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
     mocks.extractOutputText.mockReturnValue("final output");
     registerBackgroundTask({
@@ -185,6 +205,7 @@ describe("startBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "shell",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onDone();
     await Promise.resolve();
     await Promise.resolve();
@@ -197,8 +218,11 @@ describe("startBackgroundTaskWatcher", () => {
   });
 
   it("marks the task cancelled when final state is interrupted", async () => {
-    const { registerBackgroundTask, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      startBackgroundTaskStream,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
     mocks.getOutput.mockResolvedValue({ final_state: "interrupted" });
     registerBackgroundTask({
@@ -206,6 +230,7 @@ describe("startBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onDone();
     await Promise.resolve();
     await Promise.resolve();
@@ -218,13 +243,15 @@ describe("startBackgroundTaskWatcher", () => {
   });
 
   it("does not double-finalize or double-toast", async () => {
-    const { registerBackgroundTask } = await loadModule();
+    const { registerBackgroundTask, startBackgroundTaskStream } =
+      await loadModule();
     const sub = makeSubscribe();
     registerBackgroundTask({
       sessionId: "s",
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onDone();
     sub.handlers!.onDone();
     await Promise.resolve();
@@ -233,8 +260,8 @@ describe("startBackgroundTaskWatcher", () => {
     expect(mocks.getOutput).toHaveBeenCalledTimes(1);
   });
 
-  it("is idempotent per tool call id", async () => {
-    const { registerBackgroundTask, startBackgroundTaskWatcher } =
+  it("opens at most one output stream per tool call id", async () => {
+    const { registerBackgroundTask, startBackgroundTaskStream } =
       await loadModule();
     makeSubscribe();
     registerBackgroundTask({
@@ -242,14 +269,18 @@ describe("startBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
-    startBackgroundTaskWatcher("s", "tc1");
+    startBackgroundTaskStream("s", "tc1");
+    startBackgroundTaskStream("s", "tc1");
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to polling when the stream errors", async () => {
+  it("keeps status polling when the output stream errors", async () => {
     vi.useFakeTimers();
-    const { registerBackgroundTask, useBackgroundTasksStore } =
-      await loadModule();
+    const {
+      registerBackgroundTask,
+      startBackgroundTaskStream,
+      useBackgroundTasksStore,
+    } = await loadModule();
     const sub = makeSubscribe();
     mocks.getInfo.mockResolvedValue({ status: "running" });
     registerBackgroundTask({
@@ -257,6 +288,7 @@ describe("startBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
     expect(mocks.getInfo).toHaveBeenCalledTimes(1);
@@ -269,18 +301,17 @@ describe("startBackgroundTaskWatcher", () => {
     expect(task?.status).toBe("done");
   });
 
-  it("treats poll errors as completion (404 after finalize)", async () => {
+  it("confirms task absence before treating a poll error as completion", async () => {
     vi.useFakeTimers();
     const { registerBackgroundTask, useBackgroundTasksStore } =
       await loadModule();
-    const sub = makeSubscribe();
     mocks.getInfo.mockRejectedValue(new Error("404"));
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
     registerBackgroundTask({
       sessionId: "s",
       toolCallId: "tc1",
       toolName: "t",
     });
-    sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
     const task = useBackgroundTasksStore
       .getState()
@@ -288,11 +319,55 @@ describe("startBackgroundTaskWatcher", () => {
     expect(task?.status).toBe("done");
   });
 
+  it("keeps polling after a transient status error", async () => {
+    vi.useFakeTimers();
+    const { registerBackgroundTask, useBackgroundTasksStore } =
+      await loadModule();
+    mocks.getInfo
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValue({ status: "running" });
+    mocks.list.mockRejectedValue(new Error("network down"));
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(useBackgroundTasksStore.getState().tasks[0].status).toBe("running");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mocks.getInfo).toHaveBeenCalledTimes(2);
+    expect(useBackgroundTasksStore.getState().tasks[0].status).toBe("running");
+  });
+
+  it("does not overlap slow status polls", async () => {
+    vi.useFakeTimers();
+    let resolveInfo: ((value: { status: string }) => void) | undefined;
+    mocks.getInfo.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveInfo = resolve;
+        }),
+    );
+    const { registerBackgroundTask } = await loadModule();
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
+
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(mocks.getInfo).toHaveBeenCalledTimes(1);
+    resolveInfo?.({ status: "running" });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mocks.getInfo).toHaveBeenCalledTimes(2);
+  });
+
   it("marks the poll result cancelled for interrupted end state", async () => {
     vi.useFakeTimers();
     const { registerBackgroundTask, useBackgroundTasksStore } =
       await loadModule();
-    const sub = makeSubscribe();
     mocks.getInfo.mockResolvedValue({
       status: "done",
       end_state: "interrupted",
@@ -302,7 +377,6 @@ describe("startBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
-    sub.handlers!.onError();
     await vi.advanceTimersByTimeAsync(3000);
     const task = useBackgroundTasksStore
       .getState()
@@ -315,6 +389,7 @@ describe("stopBackgroundTaskWatcher", () => {
   it("aborts the stream without changing task status", async () => {
     const {
       registerBackgroundTask,
+      startBackgroundTaskStream,
       stopBackgroundTaskWatcher,
       useBackgroundTasksStore,
     } = await loadModule();
@@ -324,9 +399,35 @@ describe("stopBackgroundTaskWatcher", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     stopBackgroundTaskWatcher("tc1");
     expect(sub.abort).toHaveBeenCalledTimes(1);
     expect(useBackgroundTasksStore.getState().tasks[0].status).toBe("running");
+  });
+
+  it("ignores late chunks after the visible output stream stops", async () => {
+    vi.useFakeTimers();
+    mocks.getInfo.mockResolvedValue({ status: "running" });
+    const {
+      registerBackgroundTask,
+      startBackgroundTaskStream,
+      stopBackgroundTaskStream,
+      useBackgroundTasksStore,
+    } = await loadModule();
+    const sub = makeSubscribe();
+    registerBackgroundTask({
+      sessionId: "s",
+      toolCallId: "tc1",
+      toolName: "t",
+    });
+    startBackgroundTaskStream("s", "tc1");
+    stopBackgroundTaskStream("tc1");
+    sub.handlers!.onChunk({ data: "late" });
+
+    expect(sub.abort).toHaveBeenCalledTimes(1);
+    expect(useBackgroundTasksStore.getState().tasks[0].liveOutput).toBe("");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mocks.getInfo).toHaveBeenCalledWith("s", "tc1");
   });
 });
 
@@ -343,6 +444,7 @@ describe("cancelBackgroundTask", () => {
     const {
       registerBackgroundTask,
       cancelBackgroundTask,
+      startBackgroundTaskStream,
       useBackgroundTasksStore,
     } = await loadModule();
     const sub = makeSubscribe();
@@ -351,6 +453,7 @@ describe("cancelBackgroundTask", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     sub.handlers!.onChunk({ data: "partial" });
     await cancelBackgroundTask("s", "tc1");
     expect(mocks.cancel).toHaveBeenCalledWith("s", "tc1");
@@ -362,7 +465,11 @@ describe("cancelBackgroundTask", () => {
   });
 
   it("resumes the watcher when the cancel API fails", async () => {
-    const { registerBackgroundTask, cancelBackgroundTask } = await loadModule();
+    const {
+      registerBackgroundTask,
+      cancelBackgroundTask,
+      startBackgroundTaskStream,
+    } = await loadModule();
     const sub = makeSubscribe();
     mocks.cancel.mockRejectedValue(new Error("backend down"));
     registerBackgroundTask({
@@ -370,6 +477,7 @@ describe("cancelBackgroundTask", () => {
       toolCallId: "tc1",
       toolName: "t",
     });
+    startBackgroundTaskStream("s", "tc1");
     await expect(cancelBackgroundTask("s", "tc1")).rejects.toThrow(
       "backend down",
     );
@@ -383,6 +491,7 @@ describe("stopBackgroundWatchersNotInSession", () => {
   it("drops tasks and watchers from other sessions", async () => {
     const {
       registerBackgroundTask,
+      startBackgroundTaskStream,
       stopBackgroundWatchersNotInSession,
       useBackgroundTasksStore,
     } = await loadModule();
@@ -397,6 +506,7 @@ describe("stopBackgroundWatchersNotInSession", () => {
       toolCallId: "tc2",
       toolName: "t",
     });
+    startBackgroundTaskStream("s2", "tc2");
     stopBackgroundWatchersNotInSession("s1");
     const ids = useBackgroundTasksStore
       .getState()

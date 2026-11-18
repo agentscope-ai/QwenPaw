@@ -4,7 +4,7 @@
  * user switches to agent B, while same-agent CRUD keeps working.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { render, renderHook, act, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import React from "react";
 import { App } from "antd";
@@ -12,10 +12,16 @@ import { MemoryRouter } from "react-router-dom";
 import type { ChatSpec } from "../api";
 import api from "../api";
 import { chatApi } from "../api/modules/chat";
+import { ApiError } from "../api/request";
+import { useChatRouteResolution } from "../pages/Chat/hooks/useChatRouteResolution";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useAgentStore } from "../stores/agentStore";
-import { useSessionListStore } from "../stores/sessionListStore";
+import {
+  SESSION_LIST_REFRESH_EVENT,
+  useSessionListStore,
+} from "../stores/sessionListStore";
 import { useMessageQueueStore } from "../stores/messageQueueStore";
+import { SessionListPollingController } from "../components/SessionListPollingController";
 import {
   useSessionListData,
   getBackendId,
@@ -38,6 +44,18 @@ const A_CHAT = "33333333-aaaa-4aaa-8aaa-333333333333";
 const makeSession = (id: string): ExtendedChatSession =>
   ({ id, name: id, messages: [] }) as unknown as ExtendedChatSession;
 
+function makeChat(id: string, sessionId = `runtime-${id}`): ChatSpec {
+  return {
+    id,
+    name: id,
+    session_id: sessionId,
+    user_id: "default",
+    channel: "console",
+    created_at: null,
+    updated_at: null,
+  };
+}
+
 function wrapper({ children }: { children: ReactNode }) {
   return React.createElement(
     App,
@@ -51,7 +69,6 @@ function renderListData(sessions: ExtendedChatSession[]) {
   const hook = renderHook(
     () =>
       useSessionListData(sessions, setSessions, {
-        active: false,
         currentSessionId: A_CHAT,
         onSessionClick: vi.fn(),
       }),
@@ -65,6 +82,7 @@ beforeEach(() => {
   useAgentStore.setState({ selectedAgent: "agent-a", lastChatIdByAgent: {} });
   useSessionListStore.setState({
     sessions: [],
+    loading: true,
     lastUpdated: 0,
     _setLibrarySessions: null,
   });
@@ -156,17 +174,8 @@ describe("useSessionListData cross-agent ownership", () => {
   it("refetches the list immediately when the selected agent changes", async () => {
     sessionApi.setActiveAgent("agent-a");
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
-    const setSessions = vi.fn();
 
-    renderHook(
-      () =>
-        useSessionListData([], setSessions, {
-          active: true,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper },
-    );
+    render(React.createElement(SessionListPollingController));
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -194,7 +203,6 @@ describe("useSessionListData switchingSessionId lifecycle (#5354)", () => {
           [makeSession(A_CHAT), makeSession(OTHER_CHAT)],
           setSessions,
           {
-            active: false,
             currentSessionId: current,
             onSessionClick,
           },
@@ -559,6 +567,10 @@ describe("useSessionListData delete extras", () => {
       ...makeSession(A_CHAT),
       realId: REAL,
     } as ExtendedChatSession;
+    sessionApi.registerResolvedChat(
+      makeChat(REAL, A_CHAT),
+      sessionApi.getActiveOwner(),
+    );
     const { hook } = renderListData([withReal]);
 
     await act(async () => {
@@ -571,6 +583,8 @@ describe("useSessionListData delete extras", () => {
     expect(clearSpy).toHaveBeenCalledWith(A_CHAT);
     expect(clearSpy).toHaveBeenCalledWith(REAL);
     expect(newChatListener).toHaveBeenCalled();
+    expect(sessionApi.isRouteRemoved(A_CHAT)).toBe(true);
+    expect(sessionApi.isRouteRemoved(REAL)).toBe(true);
 
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
     lsSpy.mockRestore();
@@ -650,7 +664,6 @@ describe("useSessionListData context menu", () => {
     const hook = renderHook(
       () =>
         useSessionListData([makeSession(A_CHAT)], setSessions, {
-          active: false,
           currentSessionId: undefined,
           onSessionClick,
         }),
@@ -705,9 +718,9 @@ describe("useSessionListData context menu", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Polling: initial fetch, 3s interval, no-op skip, switch pause, errors
+// Layout polling: cadence, no-op skip, switch pause, errors and cleanup
 // ---------------------------------------------------------------------------
-describe("useSessionListData polling", () => {
+describe("SessionListPollingController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sessionApi.setActiveAgent("agent-a");
@@ -718,16 +731,42 @@ describe("useSessionListData polling", () => {
   });
 
   function renderActive(setSessions: (s: unknown[]) => void) {
-    return renderHook(
-      () =>
-        useSessionListData([], setSessions, {
-          active: true,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper },
-    );
+    useSessionListStore.setState({ _setLibrarySessions: setSessions });
+    return render(React.createElement(SessionListPollingController));
   }
+
+  it("keeps one polling chain while the sidebar list mounts and unmounts", async () => {
+    const list = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const { hook } = renderListData([]);
+
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(list).toHaveBeenCalledTimes(2);
+    hook.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(list).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a previous agent's pending list without clearing current loading", async () => {
+    const previous = deferred<ChatSpec[]>();
+    const current = deferred<ChatSpec[]>();
+    vi.spyOn(api, "listChats")
+      .mockReturnValueOnce(previous.promise)
+      .mockReturnValueOnce(current.promise);
+    const setSessions = vi.fn();
+    renderActive(setSessions);
+
+    act(() => useAgentStore.setState({ selectedAgent: "agent-b" }));
+    await act(async () => previous.resolve([makeChat("old-chat")]));
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(useSessionListStore.getState().loading).toBe(true);
+    expect(setSessions).not.toHaveBeenCalled();
+
+    await act(async () => current.resolve([makeChat("current-chat")]));
+    expect(useSessionListStore.getState().sessions[0]?.id).toBe("current-chat");
+    expect(useSessionListStore.getState().loading).toBe(false);
+  });
 
   it("fetches on activation, skips identical updates, applies changed lists", async () => {
     const listSpy = vi
@@ -747,7 +786,7 @@ describe("useSessionListData polling", () => {
 
     // Next poll returns the same list → no redundant state update
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(listSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(setSessions).toHaveBeenCalledTimes(1);
@@ -755,7 +794,7 @@ describe("useSessionListData polling", () => {
     // A changed list is applied
     listSpy.mockResolvedValue([makeSession("s2")] as unknown as ChatSpec[]);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(setSessions).toHaveBeenCalledTimes(2);
     expect(
@@ -775,10 +814,218 @@ describe("useSessionListData polling", () => {
 
     sessionApi.isSessionSwitching = true;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(30000);
     });
     expect(listSpy.mock.calls.length).toBe(callsAfterInitial);
     sessionApi.isSessionSwitching = false;
+  });
+
+  it("coalesces completion events into one refresh after an in-flight request", async () => {
+    const pending = deferred<ExtendedChatSession[]>();
+    const completed = {
+      ...makeSession("s1"),
+      lastFinishedAt: "2026-11-09T10:00:00Z",
+    };
+    const listSpy = vi
+      .spyOn(sessionApi, "getSessionList")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue([completed]);
+    renderActive(vi.fn());
+
+    act(() => {
+      for (let i = 0; i < 3; i++) {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      }
+    });
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => pending.resolve([makeSession("s1")]));
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+    expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+      completed.lastFinishedAt,
+    );
+  });
+
+  it.each([false, true])(
+    "refreshes queued completion metadata immediately after switching (hidden: %s)",
+    async (hidden) => {
+      vi.spyOn(document, "hidden", "get").mockReturnValue(hidden);
+      const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+      renderActive(vi.fn());
+      await act(() => vi.advanceTimersByTimeAsync(0));
+
+      sessionApi.startNewSwitch();
+      listSpy.mockResolvedValue([
+        { ...makeChat("s1"), last_finished_at: "2026-11-09T10:00:00Z" },
+      ]);
+      act(() => {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      });
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        sessionApi.finishSessionSwitch();
+        window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+      });
+
+      expect(listSpy).toHaveBeenCalledTimes(2);
+      expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+        "2026-11-09T10:00:00Z",
+      );
+      await act(async () => {
+        window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+      });
+      expect(listSpy).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["before", "after"])(
+    "preserves a queued refresh when switching finishes %s the in-flight request",
+    async (switchFinishes) => {
+      const pending = deferred<ExtendedChatSession[]>();
+      const completed = {
+        ...makeSession("s1"),
+        lastFinishedAt: "2026-11-09T10:00:00Z",
+      };
+      const listSpy = vi
+        .spyOn(sessionApi, "getSessionList")
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue([completed]);
+      renderActive(vi.fn());
+
+      sessionApi.startNewSwitch();
+      act(() => {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      });
+      if (switchFinishes === "before") {
+        act(() => {
+          sessionApi.finishSessionSwitch();
+          window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+        });
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      }
+
+      await act(async () => pending.resolve([makeSession("s1")]));
+
+      if (switchFinishes === "after") {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          sessionApi.finishSessionSwitch();
+          window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+        });
+      }
+      expect(listSpy).toHaveBeenCalledTimes(2);
+      expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+        completed.lastFinishedAt,
+      );
+    },
+  );
+
+  it("does not refresh after switching without a queued completion event", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    sessionApi.startNewSwitch();
+    await act(async () => {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a queued refresh when the controller unmounts during switching", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    const controller = renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    sessionApi.startNewSwitch();
+    act(() => {
+      document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+    });
+    controller.unmount();
+    await act(async () => {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits ten seconds before refreshing an idle session list", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const initialCalls = listSpy.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(9999));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
+  });
+
+  it("refreshes hidden tabs every thirty seconds and immediately when visible", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const initialCalls = listSpy.mock.calls.length;
+    hidden.mockReturnValue(true);
+    await act(() => vi.advanceTimersByTimeAsync(29999));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
+
+    hidden.mockReturnValue(false);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 2);
+  });
+
+  it("refreshes completion metadata for the active archived Chat", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([]);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const archived = { ...makeChat(A_CHAT), archived: true };
+    const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "agent-a",
+      chat: archived,
+    });
+    sessionApi.registerResolvedChat(archived, sessionApi.getActiveOwner());
+    sessionApi.setVisibleSession(A_CHAT);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    resolve.mockResolvedValue({
+      agent_id: "agent-a",
+      chat: { ...archived, last_finished_at: "2026-11-09T10:00:00Z" },
+    });
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(
+      useSessionListStore.getState().resolvedRouteSession?.lastFinishedAt,
+    ).toBe("2026-11-09T10:00:00Z");
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not overlap a slow session refresh", async () => {
+    const pending = deferred<ExtendedChatSession[]>();
+    const listSpy = vi
+      .spyOn(sessionApi, "getSessionList")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue([]);
+    renderActive(vi.fn());
+
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve([]));
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(listSpy).toHaveBeenCalledTimes(2);
   });
 
   it("keeps polling after a failed fetch and reports the initial failure", async () => {
@@ -787,37 +1034,36 @@ describe("useSessionListData polling", () => {
       .spyOn(api, "listChats")
       .mockRejectedValue(new Error("down"));
     const setSessions = vi.fn();
-    const hook = renderActive(setSessions);
+    renderActive(setSessions);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(consoleSpy).toHaveBeenCalled();
-    expect(hook.result.current.loading).toBe(false);
+    expect(useSessionListStore.getState().loading).toBe(false);
 
     // Polling errors are swallowed silently and polling continues
     consoleSpy.mockClear();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(consoleSpy).not.toHaveBeenCalled();
 
     // Recovery: next poll succeeds and updates the list
     listSpy.mockResolvedValue([makeSession("s1")] as unknown as ChatSpec[]);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10000);
     });
     expect(setSessions).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
   });
 
-  it("does not fetch while inactive", async () => {
+  it("does not start polling from the sidebar hook", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
     const setSessions = vi.fn();
     renderHook(
       () =>
         useSessionListData([], setSessions, {
-          active: false,
           currentSessionId: undefined,
           onSessionClick: vi.fn(),
         }),
@@ -831,29 +1077,21 @@ describe("useSessionListData polling", () => {
     expect(setSessions).not.toHaveBeenCalled();
   });
 
-  it("stops polling after deactivation", async () => {
+  it("stops polling after the controller unmounts", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
     const setSessions = vi.fn();
-    const hook = renderHook(
-      ({ active }: { active: boolean }) =>
-        useSessionListData([], setSessions, {
-          active,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper, initialProps: { active: true } },
-    );
+    const controller = renderActive(setSessions);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    hook.rerender({ active: false });
-    const callsAfterDeactivate = listSpy.mock.calls.length;
+    controller.unmount();
+    const callsAfterUnmount = listSpy.mock.calls.length;
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
+      await vi.advanceTimersByTimeAsync(30000);
     });
-    expect(listSpy.mock.calls.length).toBe(callsAfterDeactivate);
+    expect(listSpy.mock.calls.length).toBe(callsAfterUnmount);
   });
 });
 
@@ -975,6 +1213,131 @@ describe("useSessionListData owner guards and misc edges", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
   });
 
+  it("leaves the deleted route before refreshing the session list", async () => {
+    const order: string[] = [];
+    vi.spyOn(chatApi, "deleteChat").mockImplementation(async () => {
+      order.push("delete");
+      return {} as Awaited<ReturnType<typeof chatApi.deleteChat>>;
+    });
+    vi.spyOn(sessionApi, "getSessionList").mockImplementation(async () => {
+      order.push("refresh");
+      return [] as Awaited<ReturnType<typeof sessionApi.getSessionList>>;
+    });
+    const newChatListener = vi.fn(() => order.push("new-chat"));
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+
+    const { hook } = renderListData([makeSession(A_CHAT)]);
+    await act(async () => {
+      await hook.result.current.handleDelete(A_CHAT);
+    });
+
+    expect(order).toEqual(["delete", "new-chat", "refresh"]);
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it("reports 404 and allows retry when revisiting a chat deleted from another route", async () => {
+    const deletedChat = makeChat("44444444-bbbb-4bbb-8bbb-444444444444");
+    const currentChat = makeChat(A_CHAT);
+    const list = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([currentChat, deletedChat]);
+    const resolve = vi
+      .spyOn(api, "resolveChat")
+      .mockRejectedValue(new ApiError(404, "Chat not found"));
+    vi.spyOn(chatApi, "deleteChat").mockResolvedValue({
+      success: true,
+      chat_id: deletedChat.id,
+    });
+    const sessions =
+      (await sessionApi.getSessionList()) as ExtendedChatSession[];
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      ({ current }: { current: string }) => ({
+        data: useSessionListData(sessions, setSessions, {
+          currentSessionId: current,
+          onSessionClick: vi.fn(),
+        }),
+        route: useChatRouteResolution(current, "agent-a"),
+      }),
+      { wrapper, initialProps: { current: A_CHAT } },
+    );
+
+    expect(hook.result.current.route.blocked).toBe(false);
+    list.mockResolvedValue([currentChat]);
+    await act(async () => {
+      await hook.result.current.data.handleDelete(deletedChat.id);
+    });
+    expect(resolve).not.toHaveBeenCalled();
+
+    hook.rerender({ current: deletedChat.id });
+    await act(async () => {});
+
+    expect(hook.result.current.route.error).toMatchObject({ status: 404 });
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(hook.result.current.route.blocked).toBe(true);
+
+    await act(async () => hook.result.current.route.retry());
+
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.route.error).toMatchObject({ status: 404 });
+  });
+
+  it.each(["canonical", "resolved-runtime", "ambiguous-runtime"] as const)(
+    "keeps the current %s route when another chat shares its reference",
+    async (reference) => {
+      const runtimeId = reference === "canonical" ? A_CHAT : "runtime-shared";
+      const deletedChat = makeChat(
+        "44444444-bbbb-4bbb-8bbb-444444444444",
+        runtimeId,
+      );
+      const currentChat = makeChat(
+        A_CHAT,
+        reference === "canonical" ? `runtime-${A_CHAT}` : runtimeId,
+      );
+      const list = vi
+        .spyOn(api, "listChats")
+        .mockResolvedValue([currentChat, deletedChat]);
+      const sessions =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      if (reference === "resolved-runtime") {
+        sessionApi.registerResolvedChat(
+          currentChat,
+          sessionApi.getActiveOwner(),
+        );
+      }
+      const currentRoute = reference === "canonical" ? A_CHAT : runtimeId;
+      expect(sessionApi.getSessionIdentity(currentRoute).chatId).toBe(
+        reference === "ambiguous-runtime" ? undefined : A_CHAT,
+      );
+      vi.spyOn(chatApi, "deleteChat").mockResolvedValue({
+        success: true,
+        chat_id: deletedChat.id,
+      });
+      const newChatListener = vi.fn();
+      window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+
+      try {
+        const hook = renderHook(
+          () =>
+            useSessionListData(sessions, vi.fn(), {
+              currentSessionId: currentRoute,
+              onSessionClick: vi.fn(),
+            }),
+          { wrapper },
+        );
+        list.mockResolvedValue([currentChat]);
+        await act(async () => {
+          await hook.result.current.handleDelete(deletedChat.id);
+        });
+
+        expect(newChatListener).not.toHaveBeenCalled();
+        expect(sessionApi.isRouteRemoved(currentRoute)).toBe(false);
+      } finally {
+        window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+      }
+    },
+  );
+
   it("matches the current chat by realId when deciding post-delete navigation", async () => {
     vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
       {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
@@ -1000,6 +1363,181 @@ describe("useSessionListData owner guards and misc edges", () => {
 
     expect(newChatListener).not.toHaveBeenCalled();
     window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it("navigates when the current route uses the runtime session alias", async () => {
+    const runtimeId = `runtime-${A_CHAT}`;
+    vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
+    );
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const newChatListener = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+    const session = {
+      ...makeSession(A_CHAT),
+      realId: A_CHAT,
+      sessionId: runtimeId,
+    } as ExtendedChatSession;
+    sessionApi.registerResolvedChat(
+      makeChat(A_CHAT, runtimeId),
+      sessionApi.getActiveOwner(),
+    );
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      () =>
+        useSessionListData([session], setSessions, {
+          currentSessionId: runtimeId,
+          onSessionClick: vi.fn(),
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await hook.result.current.handleDelete(A_CHAT);
+    });
+
+    expect(newChatListener).toHaveBeenCalled();
+    expect(sessionApi.isRouteRemoved(runtimeId)).toBe(true);
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it.each(["unchanged", "route", "identity", "owner"] as const)(
+    "handles a %s route after polling clears identity during deletion",
+    async (change) => {
+      const runtimeId = `runtime-${A_CHAT}`;
+      const nextChatId = "44444444-bbbb-4bbb-8bbb-444444444444";
+      const chat = makeChat(A_CHAT, runtimeId);
+      const list = vi.spyOn(api, "listChats").mockResolvedValue([chat]);
+      const sessions =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      sessionApi.registerResolvedChat(chat, sessionApi.getActiveOwner());
+      expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBe(A_CHAT);
+
+      const pendingDelete =
+        deferred<Awaited<ReturnType<typeof chatApi.deleteChat>>>();
+      vi.spyOn(chatApi, "deleteChat").mockReturnValue(pendingDelete.promise);
+      const newChatListener = vi.fn();
+      window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+
+      try {
+        const hook = renderHook(
+          ({ current }: { current: string }) =>
+            useSessionListData(sessions, vi.fn(), {
+              currentSessionId: current,
+              onSessionClick: vi.fn(),
+            }),
+          { wrapper, initialProps: { current: runtimeId } },
+        );
+        let pending!: unknown;
+        act(() => {
+          pending = hook.result.current.handleDelete(A_CHAT);
+        });
+
+        // Publish a real list refresh before the DELETE response arrives.
+        list.mockResolvedValue([]);
+        await act(async () => {
+          await hook.result.current.refreshSessions();
+        });
+        expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBeUndefined();
+        expect(newChatListener).not.toHaveBeenCalled();
+
+        if (change === "route") {
+          hook.rerender({ current: `runtime-${nextChatId}` });
+        } else if (change === "identity") {
+          act(() => {
+            sessionApi.registerResolvedChat(
+              makeChat(nextChatId, runtimeId),
+              sessionApi.getActiveOwner(),
+            );
+          });
+          expect(sessionApi.getSessionIdentity(runtimeId).chatId).toBe(
+            nextChatId,
+          );
+        } else if (change === "owner") {
+          act(() => {
+            sessionApi.setActiveAgent("agent-b");
+          });
+        }
+
+        pendingDelete.resolve({ success: true, chat_id: A_CHAT });
+        await act(async () => {
+          await pending;
+        });
+
+        expect(newChatListener).toHaveBeenCalledTimes(
+          change === "unchanged" ? 1 : 0,
+        );
+        expect(sessionApi.isRouteRemoved(runtimeId)).toBe(
+          change === "unchanged",
+        );
+        expect(sessionApi.isRouteRemoved(A_CHAT)).toBe(change !== "owner");
+        expect(sessionApi.isRouteRemoved(`runtime-${nextChatId}`)).toBe(false);
+      } finally {
+        window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+      }
+    },
+  );
+
+  it("does not leave a session selected while deletion was pending", async () => {
+    const nextSessionId = "44444444-bbbb-4bbb-8bbb-444444444444";
+    const pendingDelete =
+      deferred<Awaited<ReturnType<typeof chatApi.deleteChat>>>();
+    vi.spyOn(chatApi, "deleteChat").mockReturnValue(pendingDelete.promise);
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const newChatListener = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+    const sessions = [makeSession(A_CHAT), makeSession(nextSessionId)];
+    const setSessions = vi.fn();
+    const hook = renderHook(
+      ({ current }: { current: string }) =>
+        useSessionListData(sessions, setSessions, {
+          currentSessionId: current,
+          onSessionClick: vi.fn(),
+        }),
+      { wrapper, initialProps: { current: A_CHAT } },
+    );
+
+    let pending!: unknown;
+    act(() => {
+      pending = hook.result.current.handleDelete(A_CHAT);
+    });
+    hook.rerender({ current: nextSessionId });
+    pendingDelete.resolve({} as Awaited<ReturnType<typeof chatApi.deleteChat>>);
+    await act(async () => {
+      await pending;
+    });
+
+    expect(newChatListener).not.toHaveBeenCalled();
+    window.removeEventListener("qwenpaw:sidebar-new-chat", newChatListener);
+  });
+
+  it("does not globally remove a runtime alias shared by another Chat", async () => {
+    const sharedRuntimeId = "runtime-shared";
+    const nextSessionId = "44444444-bbbb-4bbb-8bbb-444444444444";
+    vi.spyOn(chatApi, "deleteChat").mockResolvedValue(
+      {} as Awaited<ReturnType<typeof chatApi.deleteChat>>,
+    );
+    vi.spyOn(sessionApi, "getSessionList").mockResolvedValue([]);
+    const sessions = [
+      {
+        ...makeSession(A_CHAT),
+        realId: A_CHAT,
+        sessionId: sharedRuntimeId,
+      },
+      {
+        ...makeSession(nextSessionId),
+        realId: nextSessionId,
+        sessionId: sharedRuntimeId,
+      },
+    ] as ExtendedChatSession[];
+    const { hook } = renderListData(sessions);
+
+    await act(async () => {
+      await hook.result.current.handleDelete(nextSessionId);
+    });
+
+    expect(sessionApi.isRouteRemoved(sharedRuntimeId)).toBe(false);
+    expect(sessionApi.isRouteRemoved(nextSessionId)).toBe(true);
   });
 
   it("handleEditSubmit skips the refetch when the owner changed mid-rename", async () => {

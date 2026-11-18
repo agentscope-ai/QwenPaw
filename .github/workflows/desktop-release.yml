@@ -30,11 +30,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
+  plugin-versions:
+    uses: ./.github/workflows/plugin-release-guard.yml
+    with:
+      dry-run: ${{ github.event_name != 'release' && inputs.upload_to_oss != true }}
+    secrets: inherit
+
   # On release events, fail fast if the DashScope secret is missing.
   # Without it, the verifier would silently skip the LLM chat round
   # and emit a misleading "PASS". Forks / manual dispatch are allowed
   # to run without the secret (UI-load checks still execute).
   check-release-secrets:
+    needs: [plugin-versions]
     name: Check release secrets (release only)
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
@@ -67,7 +74,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -130,7 +137,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -160,9 +167,10 @@ jobs:
           path: dist/QwenPaw-*.zip
 
   build-tauri-windows:
-    needs: [check-release-secrets]
+    needs: [check-release-secrets, plugin-versions]
     if: |
       always() &&
+      needs.plugin-versions.result == 'success' &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: windows-latest
@@ -182,16 +190,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -311,7 +327,7 @@ jobs:
           path: |
             ${{ runner.temp }}/qwenpaw-desktop-stdout.log
             ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-            ~/AppData/Local/com.qwenpaw.desktop/logs/
+            ${{ runner.temp }}/qwenpaw-desktop-logs/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -348,13 +364,14 @@ jobs:
             dist/tauri-windows-x86_64-updater.json.sha256
 
   build-tauri-macos:
-    needs: [check-release-secrets]
+    needs: [check-release-secrets, plugin-versions]
     if: |
       always() &&
+      needs.plugin-versions.result == 'success' &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -372,16 +389,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -517,7 +542,7 @@ jobs:
             dist/tauri-darwin-*-updater.json.sha256
 
   upload-release:
-    needs: [build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos, plugin-versions]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     env:
@@ -536,7 +561,9 @@ jobs:
           # revision that defined this emergency workflow instead.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Download and verify desktop installers
@@ -587,12 +614,13 @@ jobs:
             "${files[@]}"
 
   upload-oss:
-    needs: [build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos, plugin-versions]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
     if: |
       always() &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')) &&
+      needs.plugin-versions.result == 'success' &&
       needs.build-tauri-windows.result == 'success' &&
       needs.build-tauri-macos.result == 'success'
     runs-on: ubuntu-latest
@@ -611,13 +639,21 @@ jobs:
           # revision that defined this emergency workflow instead.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
@@ -819,13 +855,20 @@ jobs:
 
       - name: Generate and upload OSS updater manifest
         # The Tauri auto-updater uses OSS only; GitHub Releases only carry
-        # first-install artifacts.
+        # first-install artifacts. Match the web console's stable-only policy.
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         env:
           # Pass release.body via env so quotes/newlines/$ in markdown are safe.
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE=$(python -c \
+            'import sys; from packaging.version import Version; print(Version(sys.argv[1]).is_prerelease)' \
+            "$VERSION")
+          if [ "$IS_PRERELEASE" = "True" ]; then
+            echo "Skipping auto-update manifest for pre-release ${VERSION}"
+            exit 0
+          fi
           OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
           metadata_args=()
           for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \

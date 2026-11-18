@@ -23,6 +23,7 @@ import type {
   ChatActionSpec,
   ChatApprovalRendererItem,
   ChatCardItem,
+  ChatCodeBlockItem,
   ChatListField,
   ChatNodeItem,
   ChatRequestPayloadTransformItem,
@@ -35,6 +36,9 @@ import type {
   ChatToolRendererItem,
   Disposable,
   Localized,
+  ThemeTokenKey,
+  ThemeTokenOverrides,
+  ThemeTokenValue,
 } from "./types";
 import { auditStore } from "./audit";
 
@@ -54,6 +58,14 @@ interface ListEntry<T> {
   registrationId: string;
   pluginId: string;
   item: T;
+  registeredAt: number;
+}
+
+interface ThemeTokenEntry {
+  registrationId: string;
+  pluginId: string;
+  token: ThemeTokenKey;
+  value: ThemeTokenValue;
   registeredAt: number;
 }
 
@@ -117,6 +129,11 @@ export interface ChatScalarSnapshot {
   };
 }
 
+/** Public read shape for theme token overrides (one winner per token). */
+export type ChatThemeTokenSnapshot = Partial<
+  Record<ThemeTokenKey, { pluginId: string; value: ThemeTokenValue }>
+>;
+
 export interface ChatListSnapshot {
   "header.rightHeader": ListEntry<ChatNodeItem>[];
   "sender.prefix": ListEntry<ChatNodeItem>[];
@@ -125,6 +142,7 @@ export interface ChatListSnapshot {
   requestActions: ListEntry<ChatActionItem>[];
   cards: ListEntry<ChatCardItem>[];
   customToolRender: ListEntry<ChatToolRendererItem>[];
+  "response.codeBlocks": ListEntry<ChatCodeBlockItem>[];
   "approval.renderers": ListEntry<ChatApprovalRendererItem>[];
   "request.prepend": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
   "request.append": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
@@ -143,6 +161,8 @@ class ChatExtensionsRegistry {
     ChatScalarField,
     ScalarEntry<ChatScalarField>[]
   >();
+  // Each overridable theme token: a stack; top entry is the winner.
+  private themeTokenStacks = new Map<ThemeTokenKey, ThemeTokenEntry[]>();
   // Each list field: append-only array.
   private listMaps: ChatListSnapshot = {
     "header.rightHeader": [],
@@ -152,6 +172,7 @@ class ChatExtensionsRegistry {
     requestActions: [],
     cards: [],
     customToolRender: [],
+    "response.codeBlocks": [],
     "approval.renderers": [],
     "request.prepend": [],
     "request.append": [],
@@ -165,6 +186,7 @@ class ChatExtensionsRegistry {
   // Memoized snapshots — recreated only when state changes, so
   // useSyncExternalStore consumers don't see new refs on every read.
   private scalarSnapshot: ChatScalarSnapshot = {};
+  private themeTokenSnapshot: ChatThemeTokenSnapshot = {};
   private listSnapshot: ChatListSnapshot = { ...this.listMaps };
   private seq = 0;
 
@@ -231,6 +253,87 @@ class ChatExtensionsRegistry {
     };
   }
 
+  // ── Theme tokens (per-token LIFO stacks) ──────────────────────────────────
+
+  /**
+   * Push one registration per token.
+   *
+   * Tokens stack independently, so a plugin that only customises `border`
+   * never clobbers another plugin's `surface`, and disposing falls back to
+   * whatever was registered below it.
+   */
+  setThemeTokens(pluginId: string, tokens: ThemeTokenOverrides): Disposable {
+    const registeredAt = Date.now();
+    const pushed: Array<{ token: ThemeTokenKey; registrationId: string }> = [];
+
+    for (const token of Object.keys(tokens) as ThemeTokenKey[]) {
+      const value = tokens[token];
+      if (!value) continue;
+
+      const stack = this.themeTokenStacks.get(token) ?? [];
+      const prevTop = stack[stack.length - 1];
+      const entry: ThemeTokenEntry = {
+        registrationId: this.nextId(),
+        pluginId,
+        token,
+        value,
+        registeredAt,
+      };
+      stack.push(entry);
+      this.themeTokenStacks.set(token, stack);
+
+      auditStore.record({
+        kind: "chat.themeTokens.set",
+        field: `theme.tokens.${token}`,
+        pluginId,
+        supersededPluginId:
+          prevTop && prevTop.pluginId !== pluginId
+            ? prevTop.pluginId
+            : undefined,
+        timestamp: registeredAt,
+      });
+      pushed.push({ token, registrationId: entry.registrationId });
+    }
+
+    if (pushed.length > 0) {
+      this.rebuildThemeTokenSnapshot();
+      this.notify();
+    }
+
+    let disposed = false;
+    return {
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        let mutated = false;
+        for (const { token, registrationId } of pushed) {
+          const stack = this.themeTokenStacks.get(token) ?? [];
+          const idx = stack.findIndex(
+            (e) => e.registrationId === registrationId,
+          );
+          if (idx < 0) continue;
+          stack.splice(idx, 1);
+          if (stack.length === 0) {
+            this.themeTokenStacks.delete(token);
+          } else {
+            this.themeTokenStacks.set(token, stack);
+          }
+          auditStore.record({
+            kind: "chat.themeTokens.dispose",
+            field: `theme.tokens.${token}`,
+            pluginId,
+            timestamp: Date.now(),
+          });
+          mutated = true;
+        }
+        if (mutated) {
+          this.rebuildThemeTokenSnapshot();
+          this.notify();
+        }
+      },
+    };
+  }
+
   // ── Additive lists ────────────────────────────────────────────────────────
 
   addRightHeader(pluginId: string, item: ChatNodeItem): Disposable {
@@ -272,6 +375,19 @@ class ChatExtensionsRegistry {
     return this.addToList("customToolRender", pluginId, {
       id: `${pluginId}:${toolName}`,
       toolName,
+      render,
+    });
+  }
+
+  addCodeBlock(
+    pluginId: string,
+    language: string,
+    render: ChatCodeBlockItem["render"],
+  ): Disposable {
+    language = language.trim().toLowerCase();
+    return this.addToList("response.codeBlocks", pluginId, {
+      id: `${pluginId}:${language}`,
+      language,
       render,
     });
   }
@@ -395,6 +511,18 @@ class ChatExtensionsRegistry {
       }
     }
 
+    for (const [token, stack] of this.themeTokenStacks) {
+      const filtered = stack.filter((e) => e.pluginId !== pluginId);
+      if (filtered.length !== stack.length) {
+        if (filtered.length === 0) {
+          this.themeTokenStacks.delete(token);
+        } else {
+          this.themeTokenStacks.set(token, filtered);
+        }
+        mutated = true;
+      }
+    }
+
     for (const field of Object.keys(this.listMaps) as ChatListField[]) {
       const arr = this.listMaps[field] as ListEntry<unknown>[];
       const filtered = arr.filter((e) => e.pluginId !== pluginId);
@@ -408,6 +536,7 @@ class ChatExtensionsRegistry {
 
     if (mutated) {
       this.rebuildScalarSnapshot();
+      this.rebuildThemeTokenSnapshot();
       for (const field of Object.keys(this.listMaps) as ChatListField[]) {
         this.rebuildListSnapshot(field);
       }
@@ -419,6 +548,10 @@ class ChatExtensionsRegistry {
 
   getScalarSnapshot(): ChatScalarSnapshot {
     return this.scalarSnapshot;
+  }
+
+  getThemeTokenSnapshot(): ChatThemeTokenSnapshot {
+    return this.themeTokenSnapshot;
   }
 
   getListSnapshot(): ChatListSnapshot {
@@ -437,11 +570,13 @@ class ChatExtensionsRegistry {
   /** Reset all state. Tests only. */
   __resetForTests(): void {
     this.scalarStacks.clear();
+    this.themeTokenStacks.clear();
     for (const f of Object.keys(this.listMaps) as ChatListField[]) {
       (this.listMaps as unknown as Record<string, ListEntry<unknown>[]>)[f] =
         [];
     }
     this.rebuildScalarSnapshot();
+    this.rebuildThemeTokenSnapshot();
     for (const f of Object.keys(this.listMaps) as ChatListField[]) {
       this.rebuildListSnapshot(f);
     }
@@ -468,6 +603,17 @@ class ChatExtensionsRegistry {
     this.scalarSnapshot = next;
   }
 
+  private rebuildThemeTokenSnapshot(): void {
+    const next: ChatThemeTokenSnapshot = {};
+    for (const [token, stack] of this.themeTokenStacks) {
+      const top = stack[stack.length - 1];
+      if (top) {
+        next[token] = { pluginId: top.pluginId, value: top.value };
+      }
+    }
+    this.themeTokenSnapshot = next;
+  }
+
   private rebuildListSnapshot(field: ChatListField): void {
     // Always rebuild the full snapshot object so consumers can compare by ref.
     this.listSnapshot = {
@@ -478,6 +624,7 @@ class ChatExtensionsRegistry {
       requestActions: this.listMaps.requestActions.slice(),
       cards: this.listMaps.cards.slice(),
       customToolRender: this.listMaps.customToolRender.slice(),
+      "response.codeBlocks": this.listMaps["response.codeBlocks"].slice(),
       "approval.renderers": this.listMaps["approval.renderers"].slice(),
       "request.prepend": this.listMaps["request.prepend"].slice(),
       "request.append": this.listMaps["request.append"].slice(),

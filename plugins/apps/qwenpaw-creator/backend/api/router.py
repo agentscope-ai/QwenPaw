@@ -22,6 +22,7 @@ from .example_routes import router as examples_router
 from .file_execution_routes import router as file_execution_router
 from .file_media_routes import router as file_media_router
 from .file_session_routes import router as file_sessions_router
+from .file_script_routes import router as file_script_router
 from .file_source_intelligence_routes import (
     router as file_source_intelligence_router,
 )
@@ -29,11 +30,15 @@ from .model_routes import bind_creator_tool_config
 from .model_routes import router as model_router
 from .observability_routes import router as observability_router
 from .project_file_routes import router as project_files_router
+from .project_routes import storage_router
 from .project_routes import router as projects_router
+from .skill_routes import router as skill_router
+from .subtitle_style_routes import router as subtitle_styles_router
 from .video_template_routes import router as video_templates_router
 from .voice_routes import router as voice_router
 from .work_graph_routes import router as work_graph_router
 from .prompt_sync_routes import router as prompt_sync_router
+from .storage_profile_routes import router as storage_profile_router
 from .dependencies import (
     CreatorErrorRoute,
     bind_creator_trace_request,
@@ -41,26 +46,35 @@ from .dependencies import (
 )
 
 router = APIRouter(
-    dependencies=[
-        Depends(bind_creator_trace_request),
-        Depends(bind_creator_tool_config),
-    ],
+    dependencies=[Depends(bind_creator_trace_request)],
     route_class=CreatorErrorRoute,
 )
-router.include_router(projects_router)
-router.include_router(examples_router)
-router.include_router(project_files_router)
-router.include_router(file_assets_router)
-router.include_router(file_source_intelligence_router)
-router.include_router(file_sessions_router)
-router.include_router(file_execution_router)
-router.include_router(file_media_router)
-router.include_router(work_graph_router)
-router.include_router(prompt_sync_router)
-router.include_router(model_router)
-router.include_router(observability_router)
-router.include_router(video_templates_router)
-router.include_router(voice_router)
+# Listing and archive transfer must remain available with invalid model settings.
+router.include_router(storage_router)
+# A storage report is a diagnostic: it must also survive invalid model settings.
+router.include_router(storage_profile_router)
+configured_router = APIRouter(
+    dependencies=[Depends(bind_creator_tool_config)],
+    route_class=CreatorErrorRoute,
+)
+configured_router.include_router(projects_router)
+configured_router.include_router(examples_router)
+configured_router.include_router(project_files_router)
+configured_router.include_router(file_assets_router)
+configured_router.include_router(file_script_router)
+configured_router.include_router(file_source_intelligence_router)
+configured_router.include_router(file_sessions_router)
+configured_router.include_router(file_execution_router)
+configured_router.include_router(file_media_router)
+configured_router.include_router(work_graph_router)
+configured_router.include_router(prompt_sync_router)
+configured_router.include_router(model_router)
+configured_router.include_router(observability_router)
+configured_router.include_router(video_templates_router)
+configured_router.include_router(subtitle_styles_router)
+configured_router.include_router(skill_router)
+configured_router.include_router(voice_router)
+router.include_router(configured_router)
 
 
 @router.get("/health", tags=["infrastructure"])

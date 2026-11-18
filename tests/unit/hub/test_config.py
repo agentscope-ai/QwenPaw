@@ -29,7 +29,7 @@ version: 1
 control_plane:
   public_base_url: https://qwenpaw.example.com/root/
   registration:
-    enabled: false
+    mode: closed
   security:
     ip_blacklist: [192.0.2.4, 2001:db8::/64]
   proxy:
@@ -48,7 +48,7 @@ capacity:
 
     config = load_hub_config(config_path)
 
-    assert config.control_plane.registration.enabled is False
+    assert config.control_plane.registration.mode == "closed"
     assert (
         config.control_plane.public_base_url
         == "https://qwenpaw.example.com/root"
@@ -179,7 +179,7 @@ def test_config_store_applies_explicit_yaml_on_every_resolve(
 version: 1
 control_plane:
   registration:
-    enabled: true
+    mode: open
 runtime:
   provisioner: local
 capacity:
@@ -198,9 +198,9 @@ capacity:
     with sqlite3.connect(database) as connection:
         registration = connection.execute(
             "SELECT value_json FROM hub_settings WHERE key = ?",
-            ("registration_enabled",),
+            ("registration_mode",),
         ).fetchone()
-    assert registration == ("true",)
+    assert registration == ('"open"',)
     auth = HubAuthService(
         database,
         TenantCredentialVault(database, tmp_path / ".vault_key"),
@@ -222,7 +222,7 @@ capacity:
 version: 1
 control_plane:
   registration:
-    enabled: false
+    mode: closed
 capacity:
   max_running_runtimes: 1
 """.strip(),
@@ -231,7 +231,7 @@ capacity:
     replaced = store.resolve(config_path)
 
     assert replaced.capacity.max_running_runtimes == 1
-    assert replaced.control_plane.registration.enabled is False
+    assert replaced.control_plane.registration.mode == "closed"
     assert store.resolve(None) == replaced
     assert auth.registration_enabled() is False
 
@@ -259,7 +259,7 @@ def test_config_store_updates_with_revision_and_rejects_stale_writes(
     )
 
     assert saved.capacity == updated.capacity
-    assert saved.control_plane.registration.enabled is False
+    assert saved.control_plane.registration.mode == "closed"
     assert saved.control_plane.registration.default_role == "user"
     assert next_revision == revision + 1
     assert store.snapshot()[0] == saved

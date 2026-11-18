@@ -19,14 +19,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from qwenpaw.constant import SECRET_DIR, WORKING_DIR
-from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
-from qwenpaw.utils.io_utils import get_sync_path_lock, write_json_atomic
+from ..constant import SECRET_DIR, WORKING_DIR
+from ..security.secret_store import decrypt, encrypt, is_encrypted
+from ..utils.io_utils import get_sync_path_lock, write_json_atomic
 
 from .registry import (
     env_key_identity,
     is_bootstrap_protected_env_key,
     is_internal_env_key,
+    is_managed_control_key,
     validate_unique_env_keys,
 )
 
@@ -66,7 +67,7 @@ def _prepare_secret_parent(path: Path) -> None:
 
 def _migrate_legacy_envs_json(path: Path) -> None:
     """Copy old envs.json into secret dir once (best effort)."""
-    if path.is_file():
+    if os.environ.get("QWENPAW_RUNTIME_ID") or path.is_file():
         return
     if path.exists() and not path.is_file():
         logger.error(
@@ -115,6 +116,8 @@ def _apply_to_environ(
     """
     seen: set[str] = set()
     for key, value in envs.items():
+        if is_internal_env_key(key) or is_managed_control_key(key):
+            continue
         identity = env_key_identity(key)
         if identity in seen:
             logger.warning(
@@ -132,6 +135,8 @@ def _apply_to_environ(
 
 def _remove_from_environ(key: str) -> None:
     """Restore the inherited value for *key*, or remove it if absent."""
+    if is_internal_env_key(key):
+        return
     host_key = env_key_identity(key) if os.name == "nt" else key
     inherited = _HOST_ENV_VALUES.get(host_key)
     if inherited is None:
@@ -259,6 +264,13 @@ def _save_envs_unlocked(
     old: dict[str, str],
 ) -> None:
     validate_unique_env_keys(envs)
+    for key, value in envs.items():
+        if is_internal_env_key(key):
+            # Preserve legacy data during unrelated edits without injecting it.
+            if key not in old or old[key] != value:
+                raise ValueError(f"Environment variable is managed: {key}")
+        elif is_managed_control_key(key):
+            raise ValueError(f"Environment variable is managed: {key}")
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
             f"envs.json path exists but is not a regular file: {path}",

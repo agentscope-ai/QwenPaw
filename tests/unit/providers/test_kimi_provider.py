@@ -115,11 +115,19 @@ def test_kimi_codingplan_provider_config() -> None:
 def test_kimi_codingplan_models() -> None:
     """Verify Kimi Coding Plan model list."""
     model_ids = [m.id for m in KIMI_CODINGPLAN_MODELS]
-    assert "kimi-for-coding" in model_ids
-    assert len(KIMI_CODINGPLAN_MODELS) == 1
-    model = KIMI_CODINGPLAN_MODELS[0]
-    assert model.supports_image is False
-    assert model.supports_video is False
+    assert model_ids == [
+        "k3.1-pro",
+        "k3.1-pro-highspeed",
+        "kimi-for-coding",
+    ]
+    assert {
+        model.id: (model.supports_image, model.supports_video)
+        for model in KIMI_CODINGPLAN_MODELS
+    } == {
+        "k3.1-pro": (True, True),
+        "k3.1-pro-highspeed": (True, True),
+        "kimi-for-coding": (False, False),
+    }
 
 
 def test_kimi_codingplan_registered(isolated_secret_dir) -> None:

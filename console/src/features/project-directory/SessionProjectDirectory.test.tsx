@@ -3,11 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
 import SessionProjectDirectory from "./SessionProjectDirectory";
+import {
+  getPendingProjectDirs,
+  migratePendingProjectDirectory,
+  setPendingProjectDirectory,
+} from "./pendingProjectDirectory";
+import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
 
 const {
   mockBrowseDirs,
   mockCreateDirectory,
   mockGetSessionDirectory,
+  mockGetAgentDirs,
+  mockSetAgentDirs,
+  mockClearAgentDirs,
   mockUseIsMobile,
   mockListProjects,
   mockSetSessionDirectory,
@@ -19,6 +28,9 @@ const {
   mockBrowseDirs: vi.fn(),
   mockCreateDirectory: vi.fn(),
   mockGetSessionDirectory: vi.fn(),
+  mockGetAgentDirs: vi.fn(),
+  mockSetAgentDirs: vi.fn(),
+  mockClearAgentDirs: vi.fn(),
   mockUseIsMobile: vi.fn(() => false),
   mockListProjects: vi.fn(),
   mockSetSessionDirectory: vi.fn(),
@@ -33,6 +45,9 @@ vi.mock("../../api/modules/projectDirectory", () => ({
     browseDirs: mockBrowseDirs,
     createDirectory: mockCreateDirectory,
     get: mockGetSessionDirectory,
+    getDirs: mockGetAgentDirs,
+    setDirs: mockSetAgentDirs,
+    clearDirs: mockClearAgentDirs,
     list: mockListProjects,
     set: mockSetSessionDirectory,
   },
@@ -195,6 +210,36 @@ describe("SessionProjectDirectory", () => {
     expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
       "aria-pressed",
       "false",
+    );
+  });
+
+  it("enters a folder with its arrow without selecting or saving it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.openDirectory",
+      }),
+    );
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/projects/custom", false);
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+  });
+
+  it("jumps to an ancestor without changing the selected workspace", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+    await openPanel(user);
+    await user.click(await screen.findByRole("button", { name: "/" }));
+    expect(mockBrowseDirs).toHaveBeenLastCalledWith("/", false);
+    expect(mockSetSessionDirectory).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /agentscope/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
   });
 
@@ -393,6 +438,438 @@ describe("SessionProjectDirectory", () => {
       expect(mockSetSessionDirectory).toHaveBeenCalledWith("/projects/runtime");
     });
   });
+
+  it("does not show the new-task default checkbox in Agent scope", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={scope} />);
+
+    await openPanel(user);
+
+    expect(
+      screen.queryByRole("checkbox", {
+        name: "projectDirectory.syncAsAgentDefault",
+      }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("SessionProjectDirectory new-task Agent default", () => {
+  const newSessionScope = {
+    kind: "session" as const,
+    agentId: "default",
+    sessionId: "new-session",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    mockUseIsMobile.mockReturnValue(false);
+    mockGetSessionDirectory.mockResolvedValue({
+      path: "/projects/default",
+      name: "default",
+      is_workspace_default: false,
+      exists: true,
+    });
+    mockSetSessionDirectory.mockResolvedValue({
+      path: "/projects/default",
+      name: "default",
+      is_workspace_default: false,
+      exists: true,
+    });
+    mockGetAgentDirs.mockResolvedValue({
+      project_dirs: [
+        {
+          path: "/projects/default",
+          label: null,
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        },
+      ],
+      source: "agent",
+      workspace_dir: "/projects/workspace",
+    });
+    mockSetAgentDirs.mockImplementation(
+      async (entries: { path: string; label?: string | null }[]) => ({
+        project_dirs: entries.map((entry) => ({
+          path: entry.path,
+          label: entry.label ?? null,
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        })),
+        source: "agent",
+        workspace_dir: "/projects/workspace",
+      }),
+    );
+    mockListProjects.mockResolvedValue([]);
+    mockBrowseDirs.mockResolvedValue({
+      current: "/projects",
+      parent: "/",
+      dirs: [{ name: "extra", path: "/projects/extra" }],
+    });
+  });
+
+  const openNewSessionPanel = async (
+    user: ReturnType<typeof userEvent.setup>,
+  ) =>
+    user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    );
+
+  it("shows the checkbox for a new task", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={newSessionScope} />);
+
+    await openNewSessionPanel(user);
+
+    expect(
+      await screen.findByRole("checkbox", {
+        name: "projectDirectory.syncAsAgentDefault",
+      }),
+    ).not.toBeChecked();
+  });
+
+  it("keeps the selected directory while the first message persists it", async () => {
+    setPendingProjectDirectory("default", "new-session", [
+      { path: "/projects/custom", label: null },
+    ]);
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: [],
+      source: "workspace_fallback",
+      agent_project_dir: null,
+    });
+    mockGetChatDirectory.mockResolvedValue({
+      project_dir: "/projects/workspace",
+      source: "workspace_fallback",
+      exists: true,
+      agent_project_dir: null,
+    });
+    const { rerender } = renderWithProviders(
+      <SessionProjectDirectory scope={newSessionScope} />,
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "projectDirectory.sessionTitle",
+    });
+    await waitFor(() => expect(trigger).toHaveTextContent("custom"));
+
+    const createdScope = {
+      ...newSessionScope,
+      sessionId: "created-chat",
+      chatId: "created-chat",
+    };
+    migratePendingProjectDirectory("default", "new-session", "created-chat");
+    rerender(<SessionProjectDirectory scope={createdScope} />);
+    await act(async () => {});
+
+    expect(trigger).toHaveTextContent("custom");
+    expect(mockGetProjectDirs).not.toHaveBeenCalled();
+
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: [
+        {
+          path: "/projects/custom",
+          label: null,
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        },
+      ],
+      source: "session",
+      agent_project_dir: null,
+    });
+    act(() => {
+      setPendingProjectDirectory("default", "created-chat", null);
+      notifyProjectDirectoryChanged(createdScope, { preserveTabs: true });
+    });
+
+    await waitFor(() =>
+      expect(mockGetProjectDirs).toHaveBeenCalledWith(
+        "created-chat",
+        "default",
+      ),
+    );
+    expect(trigger).toHaveTextContent("custom");
+    expect(trigger).toHaveTextContent("projectDirectory.sessionSource");
+  });
+
+  it("ignores an older default lookup after a directory is selected", async () => {
+    let resolveDefault!: (value: unknown) => void;
+    mockGetAgentDirs.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDefault = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={newSessionScope} />);
+    await openNewSessionPanel(user);
+    await user.type(
+      await screen.findByPlaceholderText("projectDirectory.pathPlaceholder"),
+      "/projects/custom",
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+    const trigger = screen.getByRole("button", {
+      name: "projectDirectory.sessionTitle",
+    });
+    await waitFor(() => expect(trigger).toHaveTextContent("custom"));
+
+    await act(async () => {
+      resolveDefault({
+        project_dirs: [],
+        source: "workspace_fallback",
+        workspace_dir: "/projects/workspace",
+      });
+    });
+
+    expect(trigger).toHaveTextContent("custom");
+    expect(trigger).toHaveTextContent("projectDirectory.sessionSource");
+  });
+
+  it("keeps the Agent default unchanged when the checkbox is unchecked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={newSessionScope} />);
+
+    await openNewSessionPanel(user);
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(getPendingProjectDirs("default", "new-session")).toEqual({
+        dirs: [{ path: "/projects/default", label: null }],
+      });
+    });
+    expect(mockSetAgentDirs).not.toHaveBeenCalled();
+  });
+
+  it("updates the Agent default and keeps the new task directory when checked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={newSessionScope} />);
+
+    await openNewSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(
+      await screen.findByRole("checkbox", {
+        name: "projectDirectory.syncAsAgentDefault",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalledWith([
+        { path: "/projects/default", label: null },
+        { path: "/projects/extra", label: null },
+      ]);
+      expect(getPendingProjectDirs("default", "new-session")).toEqual({
+        dirs: [
+          { path: "/projects/default", label: null },
+          { path: "/projects/extra", label: null },
+        ],
+      });
+    });
+  });
+
+  it("edits the Agent default list directly in configuration scope", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+      />,
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.agentTitle",
+      }),
+    );
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalledWith([
+        { path: "/projects/default", label: null },
+        { path: "/projects/extra", label: null },
+      ]);
+    });
+  });
+
+  it("consults beforeChange with the list it is about to save", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const beforeChange = vi.fn(
+      async (next?: Array<{ path: string }>): Promise<boolean> => {
+        order.push(`before ${next?.map((e) => e.path).join("+") ?? "none"}`);
+        return true;
+      },
+    );
+    mockSetAgentDirs.mockImplementationOnce(
+      async (entries: { path: string; label?: string | null }[]) => {
+        order.push(`save ${entries.map((e) => e.path).join("+")}`);
+        return {
+          project_dirs: entries.map((entry) => ({
+            path: entry.path,
+            label: entry.label ?? null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          })),
+          source: "agent",
+          workspace_dir: "/projects/workspace",
+        };
+      },
+    );
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+        inline
+        beforeChange={beforeChange}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalled();
+    });
+    // The gate runs first: by the time the list is written the user has
+    // already been asked, so a refusal can still prevent the PUT. It carries
+    // the whole list — index 0 is what becomes the project directory.
+    expect(order).toEqual([
+      "before /projects/default+/projects/extra",
+      "save /projects/default+/projects/extra",
+    ]);
+  });
+
+  it("skips the write when beforeChange declines", async () => {
+    const user = userEvent.setup();
+    const beforeChange = vi.fn(async () => false);
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+        inline
+        beforeChange={beforeChange}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(beforeChange).toHaveBeenCalled();
+    });
+    expect(mockSetAgentDirs).not.toHaveBeenCalled();
+  });
+
+  it("renders the Agent default editor inline without another trigger", async () => {
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+        inline
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "common.apply" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "projectDirectory.agentTitle",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("projectDirectory.agentTitle"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("projectDirectory.primaryHint"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "projectDirectory.primaryHint" }),
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "projectDirectory.primaryHint",
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "projectDirectory.useWorkspace",
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTitle("projectDirectory.countTitle")).toHaveTextContent(
+      "1",
+    );
+  });
+
+  it("replaces the workspace fallback when the first Agent default is added", async () => {
+    const user = userEvent.setup();
+    mockGetAgentDirs.mockResolvedValueOnce({
+      project_dirs: [],
+      source: "workspace_fallback",
+      workspace_dir: "/projects/workspace",
+    });
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "projectDirectory.agentTitle",
+      }),
+    );
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalledWith([
+        { path: "/projects/extra", label: null },
+      ]);
+    });
+  });
+
+  it("keeps the picker open and reports an error when default sync fails", async () => {
+    const user = userEvent.setup();
+    mockSetAgentDirs.mockRejectedValueOnce(
+      new Error("Unable to update Agent default"),
+    );
+    renderWithProviders(<SessionProjectDirectory scope={newSessionScope} />);
+
+    await openNewSessionPanel(user);
+    await user.click(
+      await screen.findByRole("checkbox", {
+        name: "projectDirectory.syncAsAgentDefault",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    expect(
+      await screen.findByText("Unable to update Agent default"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(getPendingProjectDirs("default", "new-session")).toBeNull();
+  });
 });
 
 describe("SessionProjectDirectory session scope direct path input (#7588)", () => {
@@ -423,6 +900,7 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
     vi.clearAllMocks();
     mockUseIsMobile.mockReturnValue(false);
     mockListProjects.mockResolvedValue([]);
+    sessionStorage.clear();
     mockBrowseDirs.mockResolvedValue({
       current: "/projects",
       parent: "/",
@@ -434,16 +912,33 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
       agent_project_dir: null,
     });
     mockSetProjectDirs.mockImplementation(
-      async (_chatId: string, entries: { path: string }[]) => ({
+      async (_chatId: string, entries: { path: string }[]) => {
+        const saved = {
+          project_dirs: entries.map((entry) => ({
+            path: entry.path,
+            label: null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          })),
+          source: "session",
+          agent_project_dir: null,
+        };
+        mockGetProjectDirs.mockResolvedValue(saved);
+        return saved;
+      },
+    );
+    mockSetAgentDirs.mockImplementation(
+      async (entries: { path: string; label?: string | null }[]) => ({
         project_dirs: entries.map((entry) => ({
           path: entry.path,
-          label: null,
+          label: entry.label ?? null,
           exists: true,
           nested_with: null,
           is_workspace: false,
         })),
-        source: "session",
-        agent_project_dir: null,
+        source: "agent",
+        workspace_dir: "/projects/workspace",
       }),
     );
   });
@@ -458,13 +953,190 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
   const getPathInput = async () =>
     screen.findByPlaceholderText("projectDirectory.pathPlaceholder");
 
-  it("shows a direct path input on session scope", async () => {
+  it.each(["remove", "make primary", "add"])(
+    "keeps an unsaved %s when the first message confirms directories",
+    async (edit) => {
+      setPendingProjectDirectory("default", "sess-1", boundDirs);
+      const user = userEvent.setup();
+      renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+      await openSessionPanel(user);
+
+      let paths: string[];
+      if (edit === "remove") {
+        await user.click(
+          screen.getAllByRole("button", { name: "projectDirectory.remove" })[1],
+        );
+        paths = ["/projects/alpha"];
+      } else if (edit === "make primary") {
+        await user.click(
+          screen.getByRole("button", { name: "projectDirectory.makePrimary" }),
+        );
+        paths = ["/projects/beta", "/projects/alpha"];
+      } else {
+        await user.type(await getPathInput(), "/projects/custom");
+        await user.click(
+          screen.getByRole("button", { name: "projectDirectory.add" }),
+        );
+        paths = ["/projects/alpha", "/projects/beta", "/projects/custom"];
+      }
+
+      await act(async () => {
+        setPendingProjectDirectory("default", "sess-1", null);
+        notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+      });
+      await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+      await waitFor(() => {
+        expect(mockSetProjectDirs).toHaveBeenCalledWith(
+          "chat-1",
+          paths.map((path) => ({ path, label: null })),
+        );
+      });
+    },
+  );
+
+  it("keeps edits made while directory confirmation is loading", async () => {
+    setPendingProjectDirectory("default", "sess-1", boundDirs);
+    let confirm!: (value: unknown) => void;
+    mockGetProjectDirs.mockReturnValueOnce(
+      new Promise((resolve) => {
+        confirm = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+    await openSessionPanel(user);
+
+    act(() => {
+      setPendingProjectDirectory("default", "sess-1", null);
+      notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+    });
+    await user.click(
+      screen.getAllByRole("button", { name: "projectDirectory.remove" })[1],
+    );
+    await act(async () => {
+      confirm({
+        project_dirs: boundDirs,
+        source: "session",
+        agent_project_dir: null,
+      });
+    });
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+      ]);
+    });
+  });
+
+  it("refreshes an unedited open panel with confirmed directory details", async () => {
+    setPendingProjectDirectory("default", "sess-1", boundDirs);
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: [{ ...boundDirs[0], label: "Confirmed project" }],
+      source: "session",
+      agent_project_dir: null,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+    await openSessionPanel(user);
+
+    await act(async () => {
+      setPendingProjectDirectory("default", "sess-1", null);
+      notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+    });
+
+    expect(await screen.findByText("Confirmed project")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "projectDirectory.remove" }),
+    ).toHaveLength(1);
+  });
+
+  it("replaces a pending selection when another directory is saved", async () => {
+    setPendingProjectDirectory("default", "sess-1", [
+      { path: "/projects/custom", label: null },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.type(await getPathInput(), "/projects/next{Enter}");
+
+    await waitFor(() => {
+      expect(getPendingProjectDirs("default", "sess-1")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "projectDirectory.sessionTitle" }),
+      ).toHaveTextContent("next");
+    });
+  });
+
+  it("clears a pending selection when the default is restored", async () => {
+    setPendingProjectDirectory("default", "sess-1", [
+      { path: "/projects/custom", label: null },
+    ]);
+    mockClearProjectDirs.mockResolvedValue({});
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: [],
+      source: "workspace_fallback",
+      agent_project_dir: null,
+    });
+    mockGetChatDirectory.mockResolvedValue({
+      project_dir: "/projects/workspace",
+      source: "workspace_fallback",
+      agent_project_dir: null,
+      exists: true,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+    await openSessionPanel(user);
+
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.restoreDefault" }),
+    );
+
+    await waitFor(() => {
+      expect(getPendingProjectDirs("default", "sess-1")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "projectDirectory.sessionTitle" }),
+      ).toHaveTextContent("workspace");
+    });
+  });
+
+  it("always shows the long-term default option on session scope", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
 
     await openSessionPanel(user);
 
     expect(await getPathInput()).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "projectDirectory.syncAsAgentDefault",
+      }),
+    ).not.toBeChecked();
+  });
+
+  it("updates both the current task and Agent defaults when checked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SessionProjectDirectory scope={sessionScope} inline />,
+    );
+
+    const syncDefault = await screen.findByRole("checkbox", {
+      name: "projectDirectory.syncAsAgentDefault",
+    });
+    await user.click(syncDefault);
+    expect(syncDefault).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    const payload = [
+      { path: "/projects/alpha", label: null },
+      { path: "/projects/beta", label: null },
+    ];
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalledWith(payload);
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", payload);
+    });
   });
 
   it("pastes a POSIX path + Enter switches the primary, keeping other dirs", async () => {
@@ -539,6 +1211,78 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
 
     expect(await getPathInput()).toHaveValue("/projects/custom");
     expect(mockSetProjectDirs).not.toHaveBeenCalled();
+  });
+
+  it("applies a browsed directory without requiring Add", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /custom/ }));
+    const apply = screen.getByRole("button", { name: "common.apply" });
+
+    expect(apply).toBeEnabled();
+    await user.click(apply);
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+        { path: "/projects/custom", label: null },
+      ]);
+    });
+  });
+
+  it("applies a workspace project without requiring Add", async () => {
+    const user = userEvent.setup();
+    mockListProjects.mockResolvedValueOnce([
+      {
+        path: "/projects/catalog",
+        name: "catalog",
+        is_git: true,
+        is_active: false,
+      },
+    ]);
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /catalog/ }));
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+        { path: "/projects/beta", label: null },
+        { path: "/projects/catalog", label: null },
+      ]);
+    });
+  });
+
+  it("makes the first directly applied directory primary", async () => {
+    const user = userEvent.setup();
+    mockGetProjectDirs.mockResolvedValueOnce({
+      project_dirs: [],
+      source: "workspace_fallback",
+      agent_project_dir: null,
+    });
+    mockGetChatDirectory.mockResolvedValueOnce({
+      project_dir: "/projects/workspace",
+      source: "workspace_fallback",
+      agent_project_dir: null,
+      exists: true,
+    });
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+
+    await openSessionPanel(user);
+    await user.click(await screen.findByRole("button", { name: /custom/ }));
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/custom", label: null },
+        { path: "/projects/workspace", label: null },
+      ]);
+    });
   });
 
   it("makes an already-bound typed path the primary", async () => {

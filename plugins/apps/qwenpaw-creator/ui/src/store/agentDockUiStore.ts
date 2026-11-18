@@ -28,6 +28,8 @@ interface AgentDockUiState {
   sidebarTab: WorkspaceSidebarTab;
   width: number;
   height: number;
+  /** User-dragged height of the creation overview; null keeps the automatic cap. */
+  overviewHeight: number | null;
   runFilter: string;
   draft: string;
   selection: SelectionAttachment | null;
@@ -41,6 +43,7 @@ interface AgentDockUiState {
   setTab: (tab: AgentDockTab) => void;
   setSidebarTab: (tab: WorkspaceSidebarTab) => void;
   setSize: (width: number, height: number) => void;
+  setOverviewHeight: (height: number | null) => void;
   setRunFilter: (filter: string) => void;
   setDraft: (draft: string) => void;
   setSelection: (selection: SelectionAttachment | null) => void;
@@ -55,6 +58,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   sidebarTab: "assistant",
   width: 340,
   height: 620,
+  overviewHeight: null,
   runFilter: "all",
   draft: "",
   selection: null,
@@ -67,6 +71,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
     // Floor must match AgentDock's DOCK_MIN_WIDTH so users can actually
     // narrow the dock down to 240px on tight windows.
     set({ width: Math.max(240, width), height: Math.max(320, height) }),
+  setOverviewHeight: (overviewHeight) => set({ overviewHeight }),
   setRunFilter: (runFilter) => set({ runFilter }),
   setDraft: (draft) => set({ draft }),
   setSelection: (selection) =>
@@ -80,6 +85,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
       tab: "conversation",
       width: 340,
       height: 620,
+      overviewHeight: null,
       runFilter: "all",
       draft: "",
       selection: null,

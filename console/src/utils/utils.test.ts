@@ -82,6 +82,26 @@ describe("stripFrontmatter", () => {
 });
 
 describe("parseMarkdownFrontmatter", () => {
+  it("preserves block lists and nested metadata values", () => {
+    const input = [
+      "---",
+      "memory_tags:",
+      "- 赵六",
+      "- 上海示例科技有限公司",
+      "source:",
+      "  path: memory/note.md",
+      "---",
+      "## Body",
+    ].join("\n");
+    expect(parseMarkdownFrontmatter(input)).toEqual({
+      body: "## Body",
+      entries: [
+        { key: "memory_tags", value: "- 赵六\n- 上海示例科技有限公司" },
+        { key: "source", value: "path: memory/note.md" },
+      ],
+    });
+  });
+
   it("returns ordered metadata entries and the Markdown body", () => {
     const input =
       "---\ndescription: Memory Search: query guidance\nname: memory-search\n---\n## Body";

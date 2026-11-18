@@ -2,12 +2,15 @@
 // installed-apps view and the app market. Embedded PawApp runtime styles
 // (capsule button, embed frame) are intentionally left untouched.
 
+@import (reference) "../../styles/scaledTypography.less";
+
 .page {
+  .scaled-control-typography();
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--app-surface);
+  background: transparent;
 }
 
 .pageBody {
@@ -31,7 +34,7 @@
 
 .subtitle {
   margin: 0 0 16px;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.6;
   color: var(--app-text-secondary);
 }
@@ -73,8 +76,8 @@
   padding: 0 6px;
   border-radius: 999px;
   background: var(--app-fill);
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
@@ -108,7 +111,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 32px;
   flex-shrink: 0;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
@@ -116,8 +119,8 @@
   background: var(--app-surface);
   color: var(--app-text-secondary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--app-font-secondary);
+  line-height: calc(20px * var(--app-font-scale));
   cursor: pointer;
   transition:
     color 0.16s ease,
@@ -189,6 +192,19 @@
     max-width: none;
     flex-basis: 100%;
   }
+
+  .marketFilter,
+  .refreshBtn {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
+
+  .emptyActions :global(.ant-btn),
+  .emptyActions :global(.qwenpaw-btn),
+  .cardActions :global(.ant-btn),
+  .cardActions :global(.qwenpaw-btn) {
+    min-height: var(--app-hit-touch);
+  }
 }
 
 .categorySelect {
@@ -198,6 +214,51 @@
 .refreshBtn {
   width: 32px;
   padding: 0;
+}
+
+// Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+// match inputs, selects and chips so every toolbar row shares one height.
+@media (pointer: coarse) {
+  .toolbar,
+  .marketFilterBar {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    // antd pins the single-select root to 32px while the selector stretches,
+    // which offsets the box against sibling controls and leaves the label /
+    // arrow off-center; stretch root + selector + line-height together.
+    :global(:is(.qwenpaw-select-single, .ant-select-single)) {
+      height: 44px;
+
+      :global(:is(.qwenpaw-select-selector, .ant-select-selector)) {
+        height: 100%;
+      }
+
+      :global(:is(.qwenpaw-select-selection-item, .ant-select-selection-item)),
+      :global(
+          :is(
+              .qwenpaw-select-selection-placeholder,
+              .ant-select-selection-placeholder
+            )
+        ) {
+        line-height: 42px;
+      }
+    }
+  }
+
+  .marketFilter {
+    min-height: 44px;
+  }
+
+  // Keep the square icon button square under the 44px touch height.
+  .refreshBtn {
+    width: 44px;
+  }
 }
 
 // ── Grid & cards ────────────────────────────────────────────────────────────
@@ -229,7 +290,6 @@
   &:hover {
     border-color: var(--app-border-strong);
     box-shadow: var(--app-shadow-sm);
-    transform: translateY(-2px);
   }
 
   // The app configures antd with prefixCls="qwenpaw"; keep the ant-* alias
@@ -250,18 +310,6 @@
       padding: 14px;
     }
   }
-
-  &:hover .cardHoverActions,
-  &:focus-within .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  &:hover .cardFooter,
-  &:focus-within .cardFooter {
-    opacity: 0;
-  }
 }
 
 .appCardClickable {
@@ -279,6 +327,24 @@
 
   &:focus-visible {
     outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+.cardTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cardIconButton {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
     outline-offset: 2px;
   }
 }
@@ -334,7 +400,7 @@
 .cardTitle {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--app-font-body);
   line-height: 1.4;
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -346,8 +412,8 @@
   border-radius: 4px;
   background: var(--app-fill);
   color: var(--app-text-secondary);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: calc(10px * var(--app-font-scale));
+  line-height: calc(16px * var(--app-font-scale));
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -355,7 +421,7 @@
 .cardDesc {
   min-height: 39px;
   margin: 0 !important;
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   line-height: 1.5;
   color: var(--app-text-secondary);
   overflow-wrap: anywhere;
@@ -366,7 +432,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -397,8 +463,8 @@
   flex-shrink: 0;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: calc(11px * var(--app-font-scale));
+  line-height: calc(18px * var(--app-font-scale));
   font-weight: 500;
   color: var(--app-accent);
   background: var(--app-fill-subtle);
@@ -412,11 +478,8 @@
 }
 
 .cardActions {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  left: 16px;
-  z-index: 2;
+  position: relative;
+  margin-top: auto;
   display: flex;
   gap: 8px;
 
@@ -424,39 +487,17 @@
   :global(.qwenpaw-btn) {
     flex: 1;
     min-width: 0;
-    border-radius: 6px;
+    border-radius: 10px;
+    &:last-child:not(:first-child) {
+      flex: 0 0 auto;
+    }
   }
 
   @media (max-width: 639px) {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-
     :global(.ant-btn),
     :global(.qwenpaw-btn) {
       min-height: 36px;
     }
-  }
-}
-
-.cardHoverActions {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition:
-    opacity 0.16s ease,
-    transform 0.16s ease;
-}
-
-@media (max-width: 639px), (hover: none) {
-  .cardHoverActions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
-  .appCard .cardFooter {
-    opacity: 0;
   }
 }
 
@@ -471,7 +512,7 @@
 
 .noMoreText {
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .sentinel {
@@ -481,7 +522,7 @@
   width: 100%;
   min-height: 32px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
 }
 
 .stateBlock {
@@ -592,7 +633,13 @@
     0 4px 12px rgba(0, 0, 0, 0.15),
     0 2px 4px rgba(0, 0, 0, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   animation: pulse 2s ease-in-out 3;
 
   &:hover {
@@ -608,8 +655,8 @@
   @media (max-width: 768px) {
     top: 16px;
     right: 16px;
-    height: 32px;
-    border-radius: 16px;
+    height: var(--app-hit-touch);
+    border-radius: 22px;
   }
 }
 
@@ -624,7 +671,13 @@
   background: transparent;
   color: #fff;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 
   &:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -645,16 +698,16 @@
 
   // Mobile responsive
   @media (max-width: 768px) {
-    min-width: 32px;
-    height: 32px;
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
     padding: 0 8px;
 
     &:first-child {
-      border-radius: 16px 0 0 16px;
+      border-radius: 22px 0 0 22px;
     }
 
     &:last-child {
-      border-radius: 0 16px 16px 0;
+      border-radius: 0 22px 22px 0;
     }
   }
 }
@@ -722,4 +775,41 @@
   // Smooth scrolling
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+}
+
+.previewTrigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+.previewBody {
+  color: var(--app-text-secondary);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  p {
+    margin: 20px 0 8px;
+    white-space: pre-wrap;
+  }
+}
+.previewActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }

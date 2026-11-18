@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 
 from agentscope.message import Msg, TextBlock
 
+from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import scoped_session_id
 from ...loop.gates.base import StopAction
@@ -28,6 +29,16 @@ class MissionMode(AgentMode):
     """Bundle for mission-mode behaviour."""
 
     name = "mission"
+
+    def describe_loop(self, workspace: object) -> LoopModeInfo | None:
+        """Expose this mode through the shared loop catalog."""
+        return LoopModeInfo(
+            id=self.name,
+            name=self.name,
+            slash_command=self.name,
+            description=f"Run a persistent multi-step mission.",
+            source=f"builtin",
+        )
 
     def __init__(self) -> None:
         self._gate: MissionGate | None = None

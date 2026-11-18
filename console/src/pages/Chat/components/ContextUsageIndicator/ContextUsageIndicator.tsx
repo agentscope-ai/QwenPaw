@@ -182,12 +182,16 @@ function PopoverBody({
         <MetricRow
           name={t("chat.turnUsagePopover.cacheLabel")}
           position={t("chat.turnUsagePopover.centerValue")}
-          detail={t("chat.turnUsagePopover.cacheTokens", {
-            readTok: formatCompact(usage?.session_cache_read_tokens || 0),
-            inputTok: formatCompact(
-              usage?.session_cache_eligible_input_tokens || 0,
-            ),
-          })}
+          detail={
+            usage?.session_cache_observed
+              ? t("chat.turnUsagePopover.cacheTokens", {
+                  readTok: formatCompact(usage.session_cache_read_tokens || 0),
+                  inputTok: formatCompact(
+                    usage.session_cache_eligible_input_tokens || 0,
+                  ),
+                })
+              : t("chat.turnUsagePopover.cacheNotReported")
+          }
           value={formatPercent(cacheRate)}
           valueColor={
             cacheRate !== null && cacheRate > 0 ? "#278b59" : undefined
@@ -224,13 +228,24 @@ const ContextUsageIndicator: React.FC<{
   const { t } = useTranslation();
   const snapshot = useTurnUsageStore((state) => state.snapshot);
 
-  if (!snapshot?.context_usage) return null;
+  const activeMax = useTurnUsageStore((state) => state.activeMaxInputLength);
+  const maxInputLength = activeMax ?? snapshot?.context_usage?.max_input_length;
+  if (!maxInputLength) return null;
+  const estimatedTokens = snapshot?.context_usage?.estimated_tokens ?? 0;
+  const context = {
+    estimated_tokens: estimatedTokens,
+    max_input_length: maxInputLength,
+    context_usage_ratio: Math.min(
+      100,
+      (estimatedTokens / maxInputLength) * 100,
+    ),
+  };
 
   const contextRate = Math.max(
     0,
-    Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
+    Math.min(Number(context.context_usage_ratio) || 0, 100),
   );
-  const cacheRate = cacheRateFromUsage(snapshot.usage);
+  const cacheRate = cacheRateFromUsage(snapshot?.usage ?? null);
 
   return (
     <Popover
@@ -238,8 +253,8 @@ const ContextUsageIndicator: React.FC<{
       mouseEnterDelay={0.15}
       content={
         <PopoverBody
-          usage={snapshot.usage}
-          context={snapshot.context_usage}
+          usage={snapshot?.usage ?? null}
+          context={context}
           onCompact={onCompact}
           onNew={onNew}
         />

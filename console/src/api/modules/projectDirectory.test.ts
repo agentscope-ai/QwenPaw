@@ -40,6 +40,22 @@ describe("projectDirectoryApi", () => {
     });
   });
 
+  it("sets and clears the ordered Agent default list", async () => {
+    const dirs = [
+      { path: "/p", label: null },
+      { path: "/extra", label: null },
+    ];
+    await projectDirectoryApi.setDirs(dirs);
+    expect(request).toHaveBeenCalledWith("/workspace/project-directory/dirs", {
+      method: "PUT",
+      body: JSON.stringify({ project_dirs: dirs }),
+    });
+    await projectDirectoryApi.clearDirs();
+    expect(request).toHaveBeenCalledWith("/workspace/project-directory/dirs", {
+      method: "DELETE",
+    });
+  });
+
   it("create sends POST with name body", async () => {
     await projectDirectoryApi.create("my-proj");
     expect(request).toHaveBeenCalledWith(

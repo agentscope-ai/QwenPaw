@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { PawPrint } from "lucide-react";
 import styles from "./ProviderIconComponent.module.less";
 import { providerIcon } from "./providerIcon";
 import {
@@ -13,6 +14,8 @@ const DEFAULT_FALLBACK_URL =
 interface ProviderIconProps {
   providerId: string;
   size?: number;
+  decorative?: boolean;
+  loading?: "eager" | "lazy";
 }
 
 /**
@@ -22,6 +25,8 @@ interface ProviderIconProps {
 export const ProviderIcon: React.FC<ProviderIconProps> = ({
   providerId,
   size = 32,
+  decorative = false,
+  loading = "eager",
 }) => {
   const rawUrl = providerIcon(providerId);
   const imageUrl = rawUrl === DEFAULT_FALLBACK_URL ? undefined : rawUrl;
@@ -29,15 +34,30 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
 
   const borderRadius = size * 0.25;
 
+  if (providerId === "hub-managed") {
+    return (
+      <PawPrint
+        size={size}
+        strokeWidth={1.5}
+        aria-hidden="true"
+        data-provider-id={providerId}
+        style={{ flexShrink: 0 }}
+      />
+    );
+  }
+
   if (imageUrl && !imageFailed) {
     return (
       <img
         src={imageUrl}
-        alt={providerId}
+        alt={decorative ? "" : providerId}
+        aria-hidden={decorative || undefined}
         className={styles.providerIcon}
         data-provider-id={providerId}
         width={size}
         height={size}
+        loading={loading}
+        decoding="async"
         style={{
           width: size,
           height: size,
@@ -56,6 +76,7 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
 
   return (
     <div
+      aria-hidden={decorative || undefined}
       style={{
         width: size,
         height: size,

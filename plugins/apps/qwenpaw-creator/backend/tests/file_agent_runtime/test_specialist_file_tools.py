@@ -61,6 +61,29 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
     assert "r2v_generation" not in visual
     assert "image_generation" not in editing
 
+    # Verified-identity delegations drop the reader tools entirely: locating
+    # the source via read_project burns a whole VLM turn for facts the
+    # delegation message already carries.
+    verified_source = _names(
+        registry.manifest_for(
+            SpecialistRole.SOURCE_INTELLIGENCE,
+            admitted_target_refs=["asset:source-1"],
+            include_project_readers=False,
+        ),
+    )
+    assert not {"read_project", "read_project_file"} & verified_source
+    assert {"transcribe_source_audio", "commit_source_intelligence"} <= (
+        verified_source
+    )
+    editing_unaffected = _names(
+        registry.manifest_for(
+            SpecialistRole.AI_EDITING_DIRECTOR,
+            admitted_target_refs=["timeline:timeline:main"],
+            include_project_readers=False,
+        ),
+    )
+    assert {"read_project", "jq_project"} <= editing_unaffected
+
 
 def test_visual_role_cannot_bypass_work_graph_with_image_generation(
     tmp_path,

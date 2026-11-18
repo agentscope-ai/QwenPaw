@@ -29,6 +29,7 @@ class UltraQAMode(OMPModeBase):
     """AgentMode for the UltraQA workflow."""
 
     name = "ultraqa"
+    loop_entry = f"ultraqa"
     gate_cls = UltraQAGate
     plugin_id = "__omp_ultraqa__"
     handler_name = "ultraqa-stop-handler"

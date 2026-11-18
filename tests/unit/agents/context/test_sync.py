@@ -10,10 +10,11 @@ and robust (empty dir / corrupt file never raise).
 
 import json
 import logging
+import threading
+from concurrent.futures import CancelledError
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
@@ -22,7 +23,8 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll import sync as sync_mod
 from qwenpaw.agents.context.scroll.sync import (
     MANIFEST_NAME,
-    sync_all_scroll_agents,
+    MIGRATION_KEY,
+    migrate_agent_history,
     sync_sessions_to_history,
 )
 from qwenpaw.agents.context.types import LogEntry
@@ -896,166 +898,155 @@ def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
     assert r2.rows_inserted == 0
 
 
-def _stub_config_loaders(
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_migration_skips_all_session_io(
+    tmp_path,
     monkeypatch,
-    workspace: Path,
-    *,
-    retention_days: int = 0,
-) -> None:
-    """Point the startup sync at one scroll agent under *workspace*.
-
-    ``agent_config.workspace_dir`` is deliberately a bogus path: the sync must
-    resolve the workspace from the *profile ref*, not from the agent.json body
-    (which is stale for cloned workspaces). If a regression reuses
-    ``agent_config.workspace_dir``, the bogus path has no sessions/ and the
-    first-run notice never fires — failing the test.
-    """
-    agent_config = SimpleNamespace(
-        workspace_dir="/nonexistent/must-not-be-used",
-        running=SimpleNamespace(
-            light_context_config=SimpleNamespace(
-                strategy="scroll",
-                scroll_config=SimpleNamespace(
-                    db_filename="history.db",
-                    history_retention_days=retention_days,
-                ),
-            ),
-        ),
-    )
-    profiles = {"a1": SimpleNamespace(workspace_dir=str(workspace))}
-    config = SimpleNamespace(agents=SimpleNamespace(profiles=profiles))
-    import qwenpaw.config as cfg
-    import qwenpaw.config.config as cfgcfg
-
-    monkeypatch.setattr(cfg, "load_config", lambda: config, raising=False)
-    monkeypatch.setattr(
-        cfgcfg,
-        "load_agent_config",
-        lambda _id: agent_config,
-        raising=False,
-    )
-
-
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_first_run_emits_console_notice_then_stays_quiet(
-    monkeypatch,
-    caplog,
-    tmp_path: Path,
+    changed,
 ):
-    workspace = tmp_path / "ws"
-    _write_session_2x(
-        workspace / "sessions",
-        "sid.json",
-        "sid",
-        _sample_msgs(),
-    )
-    _write_chats(
-        workspace / "chats.json",
-        [{"session_id": "sid", "user_id": "sid", "channel": ""}],
-    )
-    _stub_config_loaders(monkeypatch, workspace)
-
-    # First boot: a WARNING-level one-time migration notice precedes the work.
-    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
-        sync_all_scroll_agents()
-    first_run_notices = [
-        r for r in caplog.records if "first run" in r.getMessage()
-    ]
-    assert len(first_run_notices) == 1
-    assert first_run_notices[0].levelno == logging.WARNING
-    assert (workspace / "sessions" / MANIFEST_NAME).exists()
-
-    # Second boot: manifest present → no first-run notice.
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
-        sync_all_scroll_agents()
-    assert not [r for r in caplog.records if "first run" in r.getMessage()]
-
-
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_startup_blocks_auto_created_empty_chat_registry(
-    monkeypatch,
-    caplog,
-    tmp_path: Path,
-):
-    """Startup creates an empty chats.json before history migration runs."""
-    workspace = tmp_path / "ws"
-    _write_session_1x(
-        workspace / "sessions",
-        "legacy.json",
-        _sample_msgs(),
-    )
-    _write_chats(workspace / "chats.json", [])
-    _stub_config_loaders(monkeypatch, workspace)
-
-    with caplog.at_level(logging.ERROR, logger=sync_mod.logger.name):
-        sync_all_scroll_agents()
-
-    assert not (workspace / "sessions" / MANIFEST_NAME).exists()
-    assert any(
-        "has no registered chats" in record.getMessage()
-        for record in caplog.records
-    )
-    assert not (workspace / "history.db").exists()
-
-
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_blocked_registry_does_not_purge_existing_history(
-    monkeypatch,
-    tmp_path: Path,
-):
-    workspace = tmp_path / "ws"
-    _write_session_1x(
-        workspace / "sessions",
-        "legacy.json",
-        _sample_msgs(),
-    )
-    _write_chats(workspace / "chats.json", [])
-    history = HistoryStore(workspace / "history.db")
-    history.append(
-        session_id="existing",
-        dedup_key="old",
-        entry=LogEntry(
-            kind="model_turn",
-            role="assistant",
-            content="must survive blocked migration",
-            created_at="2000-01-01T00:00:00+00:00",
-        ),
-    )
+    sessions = tmp_path / "sessions"
+    path = _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    _write_chats(tmp_path / "chats.json", [_chat("sid")])
+    history = HistoryStore(tmp_path / "history.db")
+    migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+    count = history.count("sid")
     history.close()
-    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+    if changed:
+        path.write_text("changed by subsequent conversation")
 
-    sync_all_scroll_agents()
+    def unexpected(*args, **kwargs):
+        pytest.fail("Completed migrations must not scan/hash/check sessions")
 
-    conn = sqlite3.connect(workspace / "history.db")
+    monkeypatch.setattr(sync_mod, "preflight_sessions", unexpected)
+    monkeypatch.setattr(sync_mod, "_sha256", unexpected)
+    monkeypatch.setattr(sync_mod, "_load_manifest", unexpected)
+    monkeypatch.setattr(HistoryStore, "claim_session", unexpected)
+    monkeypatch.setattr(HistoryStore, "count", unexpected)
+    history = HistoryStore(tmp_path / "history.db")
     try:
-        count = conn.execute(
-            "SELECT COUNT(*) FROM conversation_history "
-            "WHERE session_id = 'existing'",
-        ).fetchone()[0]
+        migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+        assert history.migration_complete("a1", MIGRATION_KEY)
+        assert (
+            history._conn.execute(
+                "SELECT COUNT(*) FROM conversation_history",
+            ).fetchone()[0]
+            == count
+        )
     finally:
-        conn.close()
-    assert count == 1
+        history.close()
 
 
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_blocked_registry_does_not_quarantine_corrupt_history(
+def test_failed_migration_is_resumable_and_does_not_mark_complete(tmp_path):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "good.json", "good", _sample_msgs())
+    bad = _write_session_2x(sessions, "bad.json", "bad", _sample_msgs())
+    bad.write_text("invalid json")
+    _write_chats(tmp_path / "chats.json", [_chat("good"), _chat("bad")])
+    history = HistoryStore(tmp_path / "history.db")
+    try:
+        with pytest.raises(RuntimeError, match="incomplete"):
+            migrate_agent_history(
+                history,
+                tmp_path,
+                "a1",
+                0,
+                threading.Event(),
+            )
+        assert not history.migration_complete("a1", MIGRATION_KEY)
+        count = history.count("good")
+        assert count > 0
+        _write_session_2x(sessions, "bad.json", "bad", _sample_msgs())
+        migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+        assert history.migration_complete("a1", MIGRATION_KEY)
+        assert history.count("good") == count
+        assert history.count("bad") > 0
+    finally:
+        history.close()
+
+
+def test_cancelled_migration_resumes_without_duplicate_rows(
+    tmp_path,
     monkeypatch,
-    tmp_path: Path,
 ):
-    workspace = tmp_path / "ws"
-    _write_session_1x(
-        workspace / "sessions",
-        "legacy.json",
-        _sample_msgs(),
-    )
-    _write_chats(workspace / "chats.json", [])
-    db_path = workspace / "history.db"
-    original = b"not a sqlite database" * 50
-    db_path.write_bytes(original)
-    _stub_config_loaders(monkeypatch, workspace)
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "a.json", "a", _sample_msgs())
+    _write_session_2x(sessions, "b.json", "b", _sample_msgs())
+    _write_chats(tmp_path / "chats.json", [_chat("a"), _chat("b")])
+    stop = threading.Event()
+    original = sync_mod._sync_file
 
-    sync_all_scroll_agents()
+    def interrupt(*args, **kwargs):
+        result = original(*args, **kwargs)
+        stop.set()
+        return result
 
-    assert db_path.read_bytes() == original
-    assert not list(workspace.glob("history.db.corrupt-*"))
+    history = HistoryStore(tmp_path / "history.db")
+    try:
+        monkeypatch.setattr(sync_mod, "_sync_file", interrupt)
+        with pytest.raises(CancelledError):
+            migrate_agent_history(history, tmp_path, "a1", 0, stop)
+        assert not history.migration_complete("a1", MIGRATION_KEY)
+        count = history.count("a")
+        assert count > 0
+        monkeypatch.setattr(sync_mod, "_sync_file", original)
+        migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+        assert history.count("a") == count
+        assert history.count("b") > 0
+        assert history.migration_complete("a1", MIGRATION_KEY)
+    finally:
+        history.close()
+
+
+def test_registry_failure_preserves_history_and_completion_is_agent_scoped(
+    tmp_path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    _write_chats(tmp_path / "chats.json", [])
+    history = HistoryStore(tmp_path / "history.db")
+    try:
+        history.complete_migration("other", MIGRATION_KEY)
+        history.append(
+            session_id="existing",
+            entry=LogEntry(kind="model_turn"),
+        )
+        with pytest.raises(RuntimeError, match="incomplete"):
+            migrate_agent_history(
+                history,
+                tmp_path,
+                "a1",
+                30,
+                threading.Event(),
+            )
+        assert history.count("existing") == 1
+        assert not history.migration_complete("a1", MIGRATION_KEY)
+        _write_chats(tmp_path / "chats.json", [_chat("sid")])
+        migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+        assert history.migration_complete("a1", MIGRATION_KEY)
+    finally:
+        history.close()
+
+
+@pytest.mark.parametrize("reset", ["strategy", "database"])
+def test_explicit_reset_allows_new_backfill(tmp_path, reset):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "first.json", "first", _sample_msgs())
+    _write_chats(tmp_path / "chats.json", [_chat("first")])
+    path = tmp_path / "history.db"
+    history = HistoryStore(path)
+    migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+    history.close()
+    _write_session_2x(sessions, "second.json", "second", _sample_msgs())
+    _write_chats(tmp_path / "chats.json", [_chat("first"), _chat("second")])
+    if reset == "database":
+        path.unlink()
+    else:
+        sync_mod.invalidate_agent_migration(tmp_path)
+    history = HistoryStore(path)
+    try:
+        migrate_agent_history(history, tmp_path, "a1", 0, threading.Event())
+        assert history.count("first") > 0
+        assert history.count("second") > 0
+        assert history.migration_complete("a1", MIGRATION_KEY)
+    finally:
+        history.close()

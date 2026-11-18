@@ -19,11 +19,13 @@ Contributors read configuration from ``ctx.extras``:
 
 from __future__ import annotations
 
+
 import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..utils.io_utils import run_sync_io
 from .prompt_manager import PromptManager, SyncPromptContributor
 from .protected_prompt import PROTECTED_EXECUTION_CONTRACT_PROMPT
 
@@ -256,10 +258,16 @@ class MultimodalHintContributor(SyncPromptContributor):
     name = "multimodal_hint"
     priority = 80
 
+    async def contribute(self, ctx: "HookContext") -> str | None:
+        """Resolve potentially remote model metadata outside the event loop."""
+        return await run_sync_io(self.contribute_sync, ctx)
+
     def contribute_sync(self, ctx: "HookContext") -> str | None:
         from ..agents.prompt import build_multimodal_hint
 
-        hint = build_multimodal_hint()
+        hint = build_multimodal_hint(
+            (getattr(ctx, "extras", None) or {}).get("agent_config"),
+        )
         return hint or None
 
 
@@ -378,7 +386,7 @@ class DirectoryContextContributor(SyncPromptContributor):
 
 
 class CodingModeContributor(SyncPromptContributor):
-    """Inject Coding Mode persona block when coding mode is active.
+    """Inject Code Mode orchestration guidance when enabled.
 
     Only code-specific guidance lives here. The project/workspace paths
     themselves come from :class:`DirectoryContextContributor`, which
@@ -396,9 +404,9 @@ class CodingModeContributor(SyncPromptContributor):
         cm = getattr(agent_config, "coding_mode", None)
         if not cm or not getattr(cm, "enabled", False):
             return None
-        from ..modes.coding import _CODING_SYSTEM_PROMPT_TEMPLATE
+        from ..modes.coding.prompt import CODING_GUIDELINES
 
-        return _CODING_SYSTEM_PROMPT_TEMPLATE
+        return CODING_GUIDELINES
 
 
 class ScrollContextContributor(SyncPromptContributor):

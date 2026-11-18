@@ -83,6 +83,19 @@ class TaskStatus(StrEnum):
     QUARANTINED = "QUARANTINED"
 
 
+# A Task in one of these states will never produce more work, so its scratch
+# can be released.  QUARANTINED stays terminal-but-preserved: the result is
+# disputed and the files are the only evidence.
+TERMINAL_TASK_STATUSES = frozenset(
+    {
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+        TaskStatus.QUARANTINED,
+    },
+)
+
+
 class TaskKind(StrEnum):
     ASSET_INGEST = "asset_ingest"
     ASSET_IMPORT = "asset_import"

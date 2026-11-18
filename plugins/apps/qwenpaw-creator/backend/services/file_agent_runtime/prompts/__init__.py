@@ -44,6 +44,7 @@ FILE_AGENT_PROMPT_SPECS = {
             "image_model_guidance",
             "external_skills",
             "live_operation_guidance",
+            "subtitle_style_guidance",
         ),
         _spec(
             "source_intelligence_agent.system",
@@ -59,6 +60,9 @@ FILE_AGENT_PROMPT_SPECS = {
             "workspace_schema",
             "content_type",
             "target_duration_seconds",
+            "subtitle_policy",
+            "subtitle_template",
+            "subtitle_style_guidance",
             "tts_guidance",
         ),
     )
@@ -105,6 +109,7 @@ def render_creator_system_prompt(
     workspace_schema: str | None = None,
     external_skills: str | None = None,
     live_operation: str | None = None,
+    subtitle_settings: object | None = None,
 ) -> str:
     if workspace_schema is None:
         from services.project_files.schema_prompt import (
@@ -140,6 +145,10 @@ def render_creator_system_prompt(
         )
 
         live_operation = _live_operation_module.live_operation_guidance()
+    from services.media_files.motion_blueprints import (
+        subtitle_settings_prompt_block,
+    )
+
     if (
         model_config.get_execution_authorization_mode()
         == model_config.EXECUTION_AUTHORIZATION_ALLOW_ALL
@@ -155,6 +164,9 @@ def render_creator_system_prompt(
             "用户要求制作时，必须调用 request_workgraph_execution 提出真实请求；"
             "每项批准后才执行。若调用因现有审阅而返回阻塞，该请求已结束、未排队，"
             "审阅通过后须重新请求，不能声称会自动续跑。"
+            "若返回项带 promptSyncRequired（或 missing 指向分镜/提示词待同步），"
+            "这是计划与提示词未同步、并非审阅冷却；应提示用户在制作工作台重新同步，"
+            "或点「保留现有内容并生成」，不要声称会自动重试。"
             "全部片段就绪后，用该工具的 compose 阶段提交本地成片合成；"
             "合成复用已有片段，不新增付费生成授权。"
         )
@@ -184,6 +196,12 @@ def render_creator_system_prompt(
         ),
         external_skills=external_skills,
         live_operation_guidance=live_operation,
+        # The style pack wording comes from the same table the caption
+        # renderer reads, so the delegator can never describe a style the
+        # final cut does not draw.
+        subtitle_style_guidance=subtitle_settings_prompt_block(
+            subtitle_settings,
+        ),
     )
     return rendered + "\n\n# 当前制作执行方式\n\n" + execution_guidance
 

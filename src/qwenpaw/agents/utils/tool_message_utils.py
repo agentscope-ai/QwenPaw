@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tool message validation and sanitization utilities.
+"""Tool message validation, sanitization and plain-text projection.
 
 This module ensures tool_call/tool_result messages are properly
 paired and ordered to prevent API errors.
@@ -645,3 +645,64 @@ def _truncate_text(text: str, max_length: int) -> str:
         f"{text[:half_length]}\n\n[...truncated {truncated_chars} "
         f"chars...]\n\n{text[-half_length:]}"
     )
+
+
+def dump_block(block: Any) -> dict:
+    fn = getattr(block, "model_dump", None)
+    if callable(fn):
+        try:
+            out = fn(mode="json")
+        except Exception:  # noqa: BLE001
+            out = fn()
+        return out if isinstance(out, dict) else {"value": out}
+    return {"repr": str(block)}
+
+
+def media_ref(bd: dict) -> str | None:
+    """Render one ``DataBlock`` dump as a compact, searchable text reference.
+
+    ``[image: <url>]`` / ``[file: <name> — <url>]`` so a media-bearing turn
+    still lands in ``content`` (and its FTS index) and comes back through
+    recall — which is text-only and would otherwise see an empty string. A
+    base64 source or data URL is represented by name and media type.
+    """
+    if not isinstance(bd, dict) or bd.get("type") != "data":
+        return None
+    src = bd.get("source") or {}
+    media_type = src.get("media_type") or ""
+    kind = media_type.split("/", 1)[0] if "/" in media_type else "file"
+    if kind not in ("image", "audio", "video"):
+        kind = "file"
+    url = src.get("url")
+    ref = (
+        url
+        if src.get("type") == "url" and str(url)[:5].lower() != "data:"
+        else f"<{media_type or 'binary'}>"
+    )
+    name = bd.get("name")
+    if name and ref:
+        return f"[{kind}: {name} — {ref}]"
+    return f"[{kind}: {name or ref or '?'}]"
+
+
+def flatten_output(output: Any) -> str | None:
+    """Flatten a ToolResultBlock.output (str | list[block]) to text.
+
+    Non-text blocks (an image a tool returned) collapse to a ``_media_ref``
+    placeholder rather than vanishing, so the result stays recallable.
+    """
+    if output is None:
+        return None
+    if isinstance(output, str):
+        return output
+    parts: list[str] = []
+    for block in output:
+        bd = block if isinstance(block, dict) else dump_block(block)
+        text = bd.get("text")
+        if text:
+            parts.append(text)
+        else:
+            ref = media_ref(bd)
+            if ref:
+                parts.append(ref)
+    return "\n".join(parts) if parts else None

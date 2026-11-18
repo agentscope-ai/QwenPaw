@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import HubConfig
+from .user_profile import HubUserProfile
 
 
 class RuntimeCreateBody(BaseModel):
@@ -31,6 +32,7 @@ class CredentialsBody(BaseModel):
 
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=1024)
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 class AdminUserCreateBody(CredentialsBody):
@@ -44,6 +46,7 @@ class AdminUserPatchBody(BaseModel):
 
     role: str | None = None
     disabled: bool | None = None
+    profile: HubUserProfile | None = None
 
 
 class PasswordChangeBody(BaseModel):

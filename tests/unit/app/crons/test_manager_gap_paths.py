@@ -7,6 +7,7 @@ the scheduled and heartbeat callbacks, service-job registration guards,
 the fire-and-forget task failure callback, heartbeat rescheduling, and
 the delivery-failure / exception branches of ``_execute_once``.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -713,6 +714,7 @@ class TestExecuteOnceBranches:
         manager,
         repo,
         monkeypatch,
+        caplog,
     ):
         job = make_cron_job_spec(job_id="job-1")
         await repo.upsert_job(job)
@@ -742,6 +744,17 @@ class TestExecuteOnceBranches:
         kwargs = inbox.call_args.kwargs
         assert kwargs["event_type"] == "cron_delivery_failed_fallback"
         assert kwargs["payload"]["delivery_error"] == "channel down"
+        records = [
+            r.getMessage()
+            for r in caplog.records
+            if "cron _execute_once:" in r.getMessage()
+        ]
+        assert any(
+            "status=error" in text
+            and "delivery_status=failed" in text
+            and "execution_status=success" in text
+            for text in records
+        )
 
     async def test_execution_exception_marks_error_and_reraises(
         self,
@@ -791,3 +804,40 @@ class TestExecuteOnceBranches:
         kwargs = inbox.call_args.kwargs
         assert kwargs["event_type"] == "cron_result"
         assert kwargs["body"] == "Hello"
+
+
+@pytest.mark.parametrize("trigger", ["manual", "scheduled"])
+@pytest.mark.parametrize("save_result", [True, False])
+async def test_timeout_enters_inbox(
+    manager,
+    monkeypatch,
+    trigger,
+    save_result,
+):
+    job = make_cron_job_spec(job_id="timeout-job")
+    job.save_result_to_inbox = save_result
+    from qwenpaw.app.crons.executor import CronExecutionTimeout
+
+    execute = AsyncMock(
+        side_effect=CronExecutionTimeout(
+            run_id="timeout-run",
+            timeout_seconds=job.runtime.timeout_seconds,
+        ),
+    )
+    monkeypatch.setattr(manager._executor, "execute", execute)
+    inbox = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.manager.append_inbox_event",
+        inbox,
+    )
+    with pytest.raises(asyncio.TimeoutError):
+        await manager._execute_once(job, trigger=trigger)
+    inbox.assert_awaited_once()
+    event = inbox.call_args.kwargs
+    assert event["status"] == "error"
+    assert event["severity"] == "error"
+    assert "timed out" in event["body"]
+    assert event["payload"]["trigger"] == trigger
+    assert event["payload"]["job_id"] == job.id
+    assert event["payload"]["run_id"] == "timeout-run"
+    assert manager._history[job.id][0].status == "error"

@@ -192,7 +192,7 @@ describe("deriveAgentLiveStatus", () => {
     expect(quantified.label).toBe("「主角小狐」素材入库中…");
     expect(quantified.progressPercent).toBe(42);
     expect(
-      live({ tasks: [task("r2v_generation", null, "element:e2")] })
+      live({ tasks: [task("r2v_generation", 0.42, "element:e2")] })
         .progressPercent,
     ).toBeNull();
     expect(

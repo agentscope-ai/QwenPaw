@@ -36,14 +36,26 @@ from services.runtime_files.models import (
 from utils.logger import setup_logger
 
 from . import snapshot_restore_hold
-from .assets import AssetFileStore
+from .assets import AssetFileError, AssetFileStore
 from .auto_snapshot import auto_snapshot_timelines, frozen_snapshot_edits
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
-from .models import EditPlan, Project, TimelineElement
+from .models import EditPlan, Project, R2VCreation, TimelineElement
 from .patch_ops import PatchOpError, apply_patch_ops
 from .schema_prompt import ProjectSchemaPrompt, build_project_schema_prompt
+from .script_document_text import (
+    SCRIPT_IMPORT_DOCUMENT_MAX_BYTES,
+    extract_script_document_text,
+    is_script_document_name,
+)
+from .script_import import (
+    IMPORT_SCRIPT_TOOL_NAME,
+    SCRIPT_IMPORT_MAX_BYTES,
+    ScriptImportError,
+    is_importable_script_text,
+    publish_script_import,
+)
 from .store import ProjectSnapshot, ProjectStore
 
 logger = setup_logger("creator.project_files.agent_tools")
@@ -229,6 +241,7 @@ class _ToolModel(BaseModel):
 class ReadProjectToolInput(_ToolModel):
     project_id: str = Field(alias="projectId", min_length=1)
     pointer: str | None = None
+    fields: list[str] | None = Field(default=None, min_length=1, max_length=32)
     offset: int = Field(default=0, ge=0)
     max_bytes: int = Field(default=16_384, alias="maxBytes", ge=4, le=32_768)
     expected_etag: str | None = Field(default=None, alias="expectedEtag")
@@ -246,6 +259,14 @@ class ReadProjectFileToolInput(_ToolModel):
         ge=4,
         le=_MAX_TEXT_PAGE_BYTES,
     )
+
+
+class ImportScriptAssetToolInput(_ToolModel):
+    """Model-facing arguments of ``import_script_asset`` (剧本直登)."""
+
+    project_id: str = Field(alias="projectId", min_length=1)
+    timeline_id: str = Field(alias="timelineId", min_length=1)
+    asset_version_id: str = Field(alias="assetVersionId", min_length=1)
 
 
 class JqProjectToolInput(_ToolModel):
@@ -466,7 +487,9 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "description": (
             "读取当前 Project 的已验证模型视图（历史快照只列索引，大内容会标明省略）。"
             "可传 pointer 读取任意 JSON Pointer（包括历史快照），按 UTF-8 字节 offset/maxBytes 分页；"
-            "下一页携带返回的 etag 作为 expectedEtag，避免混合不同版本。"
+            "需要续读时直接使用返回的 nextPage 参数（包含 offset 与 expectedEtag），避免混合不同版本。"
+            "核对同一对象的多个字段时优先读取父对象，maxBytes 可取 32768，减少往返回合。"
+            "可用 fields 一次只读取该对象的指定字段，省去不需要的大段提示词或历史内容。"
             "部分视图不能用于整体替换集合，应按稳定 ID 修改；Runtime 始终保有完整提交基线。"
             "并返回 generation 与 ETag。修改前先调用此工具了解当前结构；"
             "jq_project 会自动基于你最近一次读到的快照提交，无需回传 ETag。"
@@ -478,6 +501,13 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "pointer": {
                     "type": "string",
                     "description": "JSON Pointer；空字符串代表整个 Project。",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "description": "只读取 pointer 所指对象的这些字段；不传则读取完整对象。",
                 },
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "maxBytes": {
@@ -740,6 +770,13 @@ _PROJECT_SCHEMA_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
         "intensity、theme、variant、motif、html、fps、loop、"
         "design_notes）必须放在 creation.motion 子对象内，"
         "不得直接写在 creation 上；"
+        "台词卡 Overlay 必须声明 caption_role 指定字幕角色："
+        "dialogue（对白）/ narration（旁白）/ opening_title（片名）/"
+        "opening_credit（演职员）/ ending_credit（片尾）/"
+        "location（地点标注）/ chapter（章节标题）/"
+        "interview_summary（访谈摘要）；"
+        "未声明时默认为 dialogue（对白），"
+        "宠物 OS 台词卡则有意留空（专用气泡布局，不属字幕）。"
         "Overlay 没有 overlay_kind 字段：台词卡把文案写入 text，"
         "text 为空的装饰/媒体 Overlay 必须携带非空 prompt 或引用版本",
     ),
@@ -788,11 +825,27 @@ _ELEMENT_LEVEL_FIELDS = frozenset(
 
 
 def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
-    """Name the bracket-misplacement when element fields sit in creation."""
+    """Name a known field placed on the wrong side of ``creation``."""
 
+    loc = item.get("loc") or ()
+    if (
+        item.get("type") == "extra_forbidden"
+        and len(loc) == 6
+        and loc[:2] == ("timelines", "items")
+        and loc[3] == "elements_by_id"
+        and loc[-1] in R2VCreation.model_fields
+    ):
+        pointer = "/" + "/".join(
+            str(part).replace("~", "~0").replace("/", "~1")
+            for part in (*loc[:-1], "creation", loc[-1])
+        )
+        return (
+            "该创作字段误写在 Element 顶层，应放入 creation 内。"
+            f"正确 patch 路径：{pointer}；"
+            "移除本次候选的顶层字段后重新提交，项目尚未修改"
+        )
     if item.get("type") != "missing":
         return ""
-    loc = item.get("loc") or ()
     if not loc or str(loc[-1]) not in _ELEMENT_LEVEL_FIELDS:
         return ""
     parent = item.get("input")
@@ -808,7 +861,11 @@ def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
     return ""
 
 
-def _translate_project_schema_error(error: ValidationError) -> str:
+def _translate_project_schema_error(
+    error: ValidationError,
+    *,
+    tool_name: str = JQ_PROJECT_TOOL_NAME,
+) -> str:
     """Render post-jq Project validation errors as located, fixable items."""
 
     items = error.errors()
@@ -845,10 +902,44 @@ def _translate_project_schema_error(error: ValidationError) -> str:
             f"- ...另有 {len(items) - _MAX_SCHEMA_ERROR_LINES} 处错误",
         )
     return (
-        "jq 输出未通过 Project Schema 校验，项目未被修改：\n"
+        f"{tool_name} 输出未通过 Project Schema 校验，项目未被修改：\n"
         + "\n".join(lines)
-        + "\n请修正 program/jsonArgs 后重试。"
+        + (
+            "\n请修正 ops 后重试。"
+            if tool_name == PATCH_PROJECT_TOOL_NAME
+            else "\n请修正 program/jsonArgs 后重试。"
+        )
     )
+
+
+def _script_import_raw_text(
+    raw: bytes,
+    *,
+    name: str,
+    document_import: bool,
+) -> str:
+    """从源文件字节解出可直登的剧本正文。
+
+    文档（DOCX/PDF）走文字层抽取，纯文本走 UTF-8 解码；两条路径的失败
+    都翻译成带错误码的 AgentProjectToolError，绝不把未分类异常抛给模型。
+    """
+    if document_import:
+        try:
+            return extract_script_document_text(raw, name=name)
+        except ScriptImportError as error:
+            raise AgentProjectToolError(
+                str(error),
+                code=error.code,
+                retryable=error.retryable,
+                details=error.details,
+            ) from error
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise AgentProjectToolError(
+            f"{name!r} 不是 UTF-8 文本，无法直登为剧本。",
+            code="SCRIPT_IMPORT_NOT_UTF8",
+        ) from error
 
 
 class AgentProjectTools:
@@ -943,9 +1034,24 @@ class AgentProjectTools:
         )
         if value is MISSING:
             raise AgentProjectToolError(
-                "Project pointer does not exist",
+                f"Project pointer does not exist: {request.pointer}. "
+                "If user review removed this target, recreate its intended "
+                "content instead of repeating the same read.",
                 code="PROJECT_POINTER_NOT_FOUND",
             )
+        if request.fields is not None:
+            if not isinstance(value, dict):
+                raise AgentProjectToolError(
+                    "fields requires a JSON object pointer",
+                    code="PROJECT_FIELDS_REQUIRE_OBJECT",
+                )
+            missing = [key for key in request.fields if key not in value]
+            if missing:
+                raise AgentProjectToolError(
+                    f"Fields do not exist at {request.pointer or '/'}: {missing}",
+                    code="PROJECT_FIELD_NOT_FOUND",
+                )
+            value = {key: value[key] for key in request.fields}
         raw = json_text(value).encode("utf-8")
         if request.offset > len(raw):
             raise AgentProjectToolError(
@@ -963,6 +1069,18 @@ class AgentProjectTools:
                     ) from exc
                 page = page[: exc.start]
         next_offset = request.offset + len(page)
+        next_page = (
+            {
+                "projectId": request.project_id,
+                "pointer": request.pointer or "",
+                "offset": next_offset,
+                "maxBytes": request.max_bytes,
+                "expectedEtag": snapshot.etag,
+                **({"fields": request.fields} if request.fields else {}),
+            }
+            if next_offset < len(raw)
+            else None
+        )
         return {
             "resultKind": "project_value_page",
             "projectId": request.project_id,
@@ -971,6 +1089,7 @@ class AgentProjectTools:
             "pointer": request.pointer,
             "offset": request.offset,
             "nextOffset": next_offset,
+            "nextPage": next_page,
             "eof": next_offset >= len(raw),
             "totalBytes": len(raw),
             "content": content,
@@ -1056,6 +1175,128 @@ class AgentProjectTools:
             content=content,
         )
 
+    def import_script_asset(
+        self,
+        *,
+        project_id: str,
+        timeline_id: str,
+        asset_version_id: str,
+    ) -> dict[str, Any]:
+        """Land an already-ingested text asset as this timeline's script.
+
+        剧本直登：正文由服务端从文件索引读取，模型只递交版本 ID，
+        因此一份长剧本不会再被逐页 VLM 理解、也不会被重抄进工具参数。
+        不创建 ProjectSource，也就不会触发素材理解委派。DOCX/PDF 剧本同样
+        适用：服务端先抽出文字层，抽不出（扫描件/缺依赖）就报错让模型回到
+        文档理解规则，不会静默登记半份剧本。
+        """
+
+        request = ImportScriptAssetToolInput(
+            projectId=project_id,
+            timelineId=timeline_id,
+            assetVersionId=asset_version_id,
+        )
+        base = self._base(request.project_id)
+        version = base.project.assets.source_versions_by_id.get(
+            request.asset_version_id,
+        )
+        if version is None:
+            raise AgentProjectToolError(
+                "import_script_asset 只能引用已入库的 source asset version："
+                f"{request.asset_version_id!r} 不在 "
+                "assets.source_versions_by_id 中。请先 read_project 拿到"
+                "本轮入库素材的真实版本 ID。",
+                code="SCRIPT_IMPORT_VERSION_NOT_FOUND",
+            )
+        document_import = not is_importable_script_text(
+            media_kind=version.media_kind,
+            media_type=version.media_type,
+        )
+        if document_import and not is_script_document_name(version.name):
+            raise AgentProjectToolError(
+                "只有 UTF-8 文本或 DOCX/PDF 文档能直登为剧本；"
+                f"{version.name!r} 是 "
+                f"{version.media_kind}（{version.media_type}）。图片/视频/"
+                "音频素材仍需按规则委派素材理解。",
+                code="SCRIPT_IMPORT_NOT_TEXT",
+            )
+        if version.file_id is None:
+            raise AgentProjectToolError(
+                f"{version.name!r} 还是远程 URL，本地没有可读正文；"
+                "等原片下载入缓存后再直登，或先把正文作为文本素材入库。",
+                code="SCRIPT_IMPORT_NO_LOCAL_FILE",
+            )
+        indexed = base.project.assets.files_by_id.get(version.file_id)
+        if indexed is None:
+            raise AgentProjectToolError(
+                f"素材文件索引不存在: {version.file_id!r}",
+                code="SCRIPT_IMPORT_FILE_NOT_INDEXED",
+            )
+        size_cap = (
+            SCRIPT_IMPORT_DOCUMENT_MAX_BYTES
+            if document_import
+            else SCRIPT_IMPORT_MAX_BYTES
+        )
+        if indexed.size_bytes > size_cap:
+            raise AgentProjectToolError(
+                f"剧本文件 {indexed.size_bytes} 字节超过直登上限 "
+                f"{size_cap} 字节；请按集或场次拆分后导入。",
+                code="SCRIPT_IMPORT_TOO_LARGE",
+            )
+        # 读路径与下面的落盘路径同属 Asset 边界：源文件损坏或丢失时
+        # 必须给出带错误码的原因，而不是把 AssetFileCorrupt 这类未分类
+        # 异常直接抛给模型。
+        try:
+            stream = AssetFileStore(
+                self.store.project_root(request.project_id),
+            ).open_verified(indexed)
+            try:
+                raw = stream.read()
+            finally:
+                stream.close()
+        except AssetFileError as error:
+            raise AgentProjectToolError(
+                f"读取剧本源文件失败：{error}",
+                code="SCRIPT_IMPORT_FILE_ERROR",
+            ) from error
+        raw_text = _script_import_raw_text(
+            raw,
+            name=version.name,
+            document_import=document_import,
+        )
+        try:
+            outcome = publish_script_import(
+                store=self.store,
+                commits=self.commits,
+                project_id=request.project_id,
+                timeline_id=request.timeline_id,
+                raw_text=raw_text,
+                source_name=version.name,
+                provenance_refs=[f"asset-version:{version.version_id}"],
+                commit_metadata=self.context.commit_metadata(),
+                observe_snapshot=self._remember,
+            )
+        except ScriptImportError as error:
+            raise AgentProjectToolError(
+                str(error),
+                code=error.code,
+                retryable=error.retryable,
+                details=error.details,
+            ) from error
+        except AssetFileError as error:
+            raise AgentProjectToolError(
+                f"剧本正文落盘失败：{error}",
+                code="SCRIPT_IMPORT_FILE_ERROR",
+            ) from error
+        payload = outcome.to_payload()
+        payload["notice"] = (
+            "剧本正文已进入待审阅，审阅通过后才会成为当前版本；"
+            "不要重新起草，也不要为该素材创建 ProjectSource 或委派素材理解。"
+            if outcome.review_id is not None
+            else "剧本正文已登记为当前版本；不要重新起草覆盖它，也不要为该" "素材创建 ProjectSource 或委派素材理解。"
+        )
+        return payload
+
     def jq_project(
         self,
         *,
@@ -1083,8 +1324,11 @@ class AgentProjectTools:
             base.project.model_dump(mode="json"),
             candidate,
         )
-        normalized_pointers = normalize_project_candidate(candidate)
         base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         changed_protected = [
             pointer
             for pointer in sorted(PROTECTED_EXACT_POINTERS)
@@ -1497,7 +1741,11 @@ class AgentProjectTools:
             base.project.model_dump(mode="json"),
             candidate,
         )
-        normalized_pointers = normalize_project_candidate(candidate)
+        base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         sync_fence = self._begin_sync_review_fence(
             base.project.model_dump(mode="json"),
             candidate,
@@ -1593,7 +1841,7 @@ class AgentProjectTools:
 
         if tool_name == READ_PROJECT_TOOL_NAME:
             request = ReadProjectToolInput.model_validate(dict(arguments))
-            if request.pointer is not None:
+            if request.pointer is not None or request.fields is not None:
                 return self.read_project_page(request)
             result: BaseModel = self.read_project(request.project_id)
         elif tool_name == READ_PROJECT_FILE_TOOL_NAME:
@@ -1671,7 +1919,10 @@ class AgentProjectTools:
                 ) from exc
             except ValidationError as exc:
                 raise AgentProjectToolError(
-                    _translate_project_schema_error(exc),
+                    _translate_project_schema_error(
+                        exc,
+                        tool_name=PATCH_PROJECT_TOOL_NAME,
+                    ),
                     code="PATCH_PROJECT_SCHEMA_INVALID",
                     details={
                         "validationErrors": exc.errors(
@@ -1689,6 +1940,18 @@ class AgentProjectTools:
                 tick=request.tick,
                 include_disabled=request.include_disabled,
             )
+        elif tool_name == IMPORT_SCRIPT_TOOL_NAME:
+            # 剧本直登 answers with the shared ScriptImportOutcome payload (the
+            # same shape the HTTP direct-landing route returns), so it cannot
+            # go through the BaseModel dump below.
+            request = ImportScriptAssetToolInput.model_validate(
+                dict(arguments),
+            )
+            return self.import_script_asset(
+                project_id=request.project_id,
+                timeline_id=request.timeline_id,
+                asset_version_id=request.asset_version_id,
+            )
         else:
             raise UnknownAgentProjectTool(
                 f"unknown Project tool: {tool_name!r}",
@@ -1704,6 +1967,7 @@ AgentProjectToolBoundary = AgentProjectTools
 __all__ = [
     "AGENT_PROJECT_TOOL_SCHEMAS",
     "ELEMENTS_AT_TOOL_NAME",
+    "IMPORT_SCRIPT_TOOL_NAME",
     "JQ_PROJECT_TOOL_NAME",
     "READ_PROJECT_FILE_TOOL_NAME",
     "READ_PROJECT_TOOL_NAME",
@@ -1717,6 +1981,7 @@ __all__ = [
     "AgentProjectTools",
     "JqProjectToolInput",
     "ElementsAtToolInput",
+    "ImportScriptAssetToolInput",
     "ReadProjectFileToolInput",
     "ReadProjectToolInput",
     "UnknownAgentProjectTool",

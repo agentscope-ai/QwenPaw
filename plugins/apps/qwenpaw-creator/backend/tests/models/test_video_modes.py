@@ -9,6 +9,7 @@ Provider HTTP traffic is stubbed; no real model is ever called.
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 
 from PIL import Image
@@ -96,6 +97,65 @@ def _bind(
 
 
 # ── model name derivation ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+def test_reference_uploads_overlap_but_keep_order_and_stop_together(
+    monkeypatch,
+    outcome,
+):
+    async def scenario():
+        active = set()
+        finished = []
+        peak = 0
+        first_wave = asyncio.Event()
+        release = {str(i): asyncio.Event() for i in range(5)}
+
+        async def upload(url, backend):
+            nonlocal peak
+            assert backend == "wan"
+            active.add(url)
+            peak = max(peak, len(active))
+            if len(active) == 3:
+                first_wave.set()
+            try:
+                await release[url].wait()
+                if url == "2" and outcome == "failure":
+                    raise ModelError("upload failed")
+                finished.append(url)
+                return f"oss://{url}", "image"
+            finally:
+                active.remove(url)
+
+        monkeypatch.setattr(
+            video_model,
+            "_resolve_reference_media_url",
+            upload,
+        )
+        pending = asyncio.create_task(
+            video_model._resolve_reference_media_urls(list(release), "wan"),
+        )
+        await asyncio.wait_for(first_wave.wait(), 1)
+        assert active == {"0", "1", "2"}
+        if outcome == "cancel":
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        elif outcome == "failure":
+            release["2"].set()
+            with pytest.raises(ModelError, match="upload failed"):
+                await pending
+        else:
+            # Complete later references first; prompt image numbering stays.
+            for key in reversed(release):
+                release[key].set()
+                await asyncio.sleep(0)
+            assert await pending == [(f"oss://{i}", "image") for i in range(5)]
+            assert finished != list(release)
+        assert peak == 3
+        assert not active
+
+    asyncio.run(scenario())
 
 
 def test_derive_model_name_appends_or_replaces_mode_segments() -> None:
@@ -729,6 +789,33 @@ def test_happyhorse_models_route_to_wan_backend(monkeypatch) -> None:
         model_config.reset_request_tool_configs(token)
 
 
+def test_file_execution_preserves_distinct_version_slots_with_same_url(
+    monkeypatch,
+):
+    captured = {}
+    _bind(monkeypatch, "happyhorse-1.1-r2v", captured)
+    asyncio.run(
+        video_model.submit_video_task(
+            "[Image 2] is the character. [Image 3] is the scene.",
+            reference_image_url="/generated/storyboard.png",
+            reference_image_url_list=[
+                "/generated/same.png",
+                "/generated/same.png",
+            ],
+            preserve_reference_slots=True,
+            ratio="16:9",
+            duration=5,
+            resolution="720p",
+        ),
+    )
+    media = captured["body"]["input"]["media"]
+    assert [item["url"] for item in media] == [
+        "oss://dashscope-instant/storyboard.png",
+        "oss://dashscope-instant/same.png",
+        "oss://dashscope-instant/same.png",
+    ]
+
+
 def test_happyhorse_submit_body_omits_prompt_extend(monkeypatch) -> None:
     captured: dict = {}
     _bind(monkeypatch, "happyhorse-1.1-r2v", captured)
@@ -929,6 +1016,20 @@ def _png_bytes() -> bytes:
     return output.getvalue()
 
 
+def _noise_png_bytes() -> bytes:
+    """Deterministic noise PNG: ~31KB raw, ~11KB as an optimised JPEG.
+
+    The gap lets a test put the inline ceiling between the two, so the
+    downscale path is exercised without building a 20MB fixture.
+    """
+    output = io.BytesIO()
+    Image.effect_noise((128, 128), 128).convert("RGB").save(
+        output,
+        format="PNG",
+    )
+    return output.getvalue()
+
+
 def test_seedance_reference_media_becomes_base64_data_url(
     monkeypatch,
     tmp_path,
@@ -968,6 +1069,157 @@ def test_seedance_local_reference_video_is_rejected(
                 "seedance2",
             ),
         )
+
+
+def test_token_plan_wan_reference_inlines_base64(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A Token Plan key has no upload route, so a local wan reference image
+    inlines as a Base64 data URL (HappyHorse/Wan media[].url accepts it)."""
+    image = tmp_path / "ref.png"
+    image.write_bytes(_png_bytes())
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1-i2v",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_base_url",
+        lambda: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    )
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan video reference reached uploads")
+
+    monkeypatch.setattr(
+        video_model,
+        "upload_local_file_to_dashscope_temp",
+        refuse_upload,
+    )
+
+    url, kind = asyncio.run(
+        video_model._resolve_reference_media_url(image.as_uri(), "wan"),
+    )
+
+    assert url.startswith("data:image/png;base64,")
+    assert kind == "image"
+
+
+def test_token_plan_wan_reference_video_needs_public_url(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A local reference video/audio has no Base64 channel on Token Plan."""
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"mp4")
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1-i2v",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_base_url",
+        lambda: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    )
+
+    with pytest.raises(ModelError, match="公网"):
+        asyncio.run(
+            video_model._resolve_reference_media_url(clip.as_uri(), "wan"),
+        )
+
+
+def test_token_plan_wan_oversized_reference_downscales(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """An oversized local reference shrinks instead of failing the request.
+
+    Inlining is the only channel a Token Plan key has, so refusing an image
+    the ladder can fit under the 20MB ceiling would lose a generation the
+    provider could have served. The payload becomes JPEG, so the data URL
+    must say jpeg rather than keep the source PNG suffix.
+    """
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1-i2v",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_base_url",
+        lambda: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    )
+    monkeypatch.setattr(
+        video_model,
+        "VIDEO_TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        20_000,
+    )
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan video reference reached uploads")
+
+    monkeypatch.setattr(
+        video_model,
+        "upload_local_file_to_dashscope_temp",
+        refuse_upload,
+    )
+    raw = _noise_png_bytes()
+    assert len(raw) > 20_000
+    image = tmp_path / "big.png"
+    image.write_bytes(raw)
+
+    url, kind = asyncio.run(
+        video_model._resolve_reference_media_url(image.as_uri(), "wan"),
+    )
+
+    assert url.startswith("data:image/jpeg;base64,")
+    assert kind == "image"
+    payload = base64.b64decode(url.split(",", 1)[1])
+    assert len(payload) <= 20_000
+    assert len(payload) < len(raw)
+
+
+def test_token_plan_wan_unshrinkable_reference_fails_fast(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A reference that cannot fit must not be marked retryable.
+
+    The ceiling is a provider constant, so the failure is permanent; a
+    retryable verdict would burn MAX_RETRIES x RETRY_BACKOFF_BASE seconds on
+    a request that cannot succeed and surface a transport-flavoured message
+    instead of the guidance the user can act on.
+    """
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: "happyhorse-1.1-i2v",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_base_url",
+        lambda: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    )
+    # Below the payload size, so the downscale path runs; the bytes are not
+    # an image, so no ladder rung can rescue them.
+    monkeypatch.setattr(
+        video_model,
+        "VIDEO_TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        8,
+    )
+    blob = tmp_path / "ref.bin"
+    blob.write_bytes(b"not an image")
+
+    with pytest.raises(ModelError, match="20MB") as excinfo:
+        asyncio.run(
+            video_model._resolve_reference_media_url(blob.as_uri(), "wan"),
+        )
+
+    assert excinfo.value.retryable is False
+    assert "transport failed" not in str(excinfo.value)
 
 
 def test_wan_reference_media_uses_dashscope_temp_upload(

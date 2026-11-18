@@ -193,6 +193,7 @@ async def verify_visual_grounding_with_vlm(
     verification_api_key = model_config.get_web_grounding_model_api_key()
     verification_base_url = model_config.get_web_grounding_model_base_url()
     verification_model_name = model_config.get_web_grounding_model_name()
+    verification_protocol = model_config.get_web_grounding_model_protocol()
     if (
         not verification_api_key
         or not verification_base_url
@@ -305,11 +306,11 @@ async def verify_visual_grounding_with_vlm(
                     content,
                     system_prompt=VISUAL_GROUNDING_VERIFIER_SYSTEM_PROMPT,
                     temperature=0.0,
-                    max_tokens=900,
                     timeout=attempt_timeout,
                     api_key_override=verification_api_key,
                     base_url_override=verification_base_url,
                     model_name_override=verification_model_name,
+                    protocol_override=verification_protocol,
                 ),
                 timeout=attempt_timeout,
             )

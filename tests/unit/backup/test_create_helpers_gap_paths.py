@@ -105,14 +105,14 @@ class TestAddAgentWorkspaces:
         locked = ws / "locked.bin"
         locked.write_text("y", encoding="utf-8")
 
-        real_write = zipfile.ZipFile.write
-
-        def flaky_write(self, filename, arcname=None, *args, **kwargs):
-            if Path(filename).name == "locked.bin":
-                raise PermissionError("locked by backend")
-            return real_write(self, filename, arcname, *args, **kwargs)
-
-        monkeypatch.setattr(zipfile.ZipFile, "write", flaky_write)
+        monkeypatch.setattr(
+            ch,
+            "stage_workspace_files",
+            lambda *_args: (
+                {str(ws / "good.txt"): str(ws / "good.txt")},
+                set(),
+            ),
+        )
 
         with _zip(tmp_path) as zf:
             ok = ch.add_agent_workspaces(

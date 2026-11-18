@@ -86,11 +86,13 @@ describe("Project snapshot authority store", () => {
     expect(store().appliedRequestSequence).toBe(store().issuedRequestSequence);
   });
 
-  it("evicts the last-good snapshot and stops polling after Project deletion", async () => {
+  it("recovers from startup 404s and only evicts and stops after confirmed deletion", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(snapshot(2, "Before deletion"))
+      .mockResolvedValueOnce(response(404, { detail: "Not Found" }))
+      .mockResolvedValueOnce(snapshot(3, "Recovered"))
       .mockResolvedValueOnce(
         response(404, { code: "NOT_FOUND", message: "Project 不存在" }),
       );
@@ -99,7 +101,14 @@ describe("Project snapshot authority store", () => {
     const stop = startPolling();
     await vi.advanceTimersByTimeAsync(0);
     expect(store().project?.name).toBe("Before deletion");
+    const lastGood = store().project;
 
+    await vi.advanceTimersByTimeAsync(100);
+    expect(store().project).toBe(lastGood);
+    expect(store()).toMatchObject({ syncStatus: "degraded", polling: true });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(store().project?.name).toBe("Recovered");
+    expect(store().syncStatus).toBe("healthy");
     await vi.advanceTimersByTimeAsync(100);
     expect(store()).toMatchObject({
       project: null,
@@ -108,7 +117,7 @@ describe("Project snapshot authority store", () => {
       syncStatus: "not_found",
       polling: false,
     });
-    await ticks(fetchMock, [[1_000, 2]]);
+    await ticks(fetchMock, [[1_000, 4]]);
     stop();
   });
 

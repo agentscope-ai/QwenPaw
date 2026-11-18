@@ -1,6 +1,8 @@
-import { Popover } from "antd";
+import { Popover, message } from "antd";
 import {
   BookOpen,
+  Github,
+  CirclePlay,
   BrainCircuit,
   Check,
   ChevronRight,
@@ -27,12 +29,13 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { settingsApi } from "../api/modules/language";
+import { applyLanguagePreference } from "../utils/languagePreference";
 import { LANGUAGE_LIST } from "../constants/languageList";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import {
@@ -50,8 +53,15 @@ import {
   type ToolDisplayPreference,
 } from "../utils/chatDisplayPreference";
 import { openExternalLink } from "../utils/openExternalLink";
-import { getDocsUrl, getFaqUrl, getReleaseNotesUrl } from "./constants";
+import {
+  GITHUB_URL,
+  getFeatureDemosUrl,
+  getDocsUrl,
+  getFaqUrl,
+  getReleaseNotesUrl,
+} from "./constants";
 import styles from "./sidebarSettingsPanel.module.less";
+import LocalAvatarPicker from "./LocalAvatarPicker";
 
 type ContentWidth = "standard" | "wide";
 
@@ -125,7 +135,7 @@ function FlyoutItem({ icon, label, content }: FlyoutItemProps) {
           {content}
         </FlyoutContext.Provider>
       }
-      overlayClassName={styles.nestedPopover}
+      classNames={{ root: styles.nestedPopover }}
       destroyOnHidden
       mouseEnterDelay={0.06}
       mouseLeaveDelay={0.18}
@@ -193,6 +203,12 @@ export default function SidebarSettingsPanel({
   onLogout,
 }: SidebarSettingsPanelProps) {
   const { t, i18n } = useTranslation();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current
+      ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+      ?.focus({ preventScroll: true });
+  }, []);
   const { themeMode, setThemeMode } = useTheme();
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
   const [showThinking, setShowThinking] = useState(getShowThinkingPreference);
@@ -216,9 +232,10 @@ export default function SidebarSettingsPanel({
 
   const changeLanguage = (language: string) => {
     finishAction(() => {
-      void i18n.changeLanguage(language);
-      localStorage.setItem("language", language);
-      void settingsApi.updateLanguage(language).catch(() => {});
+      applyLanguagePreference(i18n, language, {
+        onPersistError: () =>
+          message.error(t("agentConfig.languageSaveFailed")),
+      });
     });
   };
 
@@ -407,7 +424,8 @@ export default function SidebarSettingsPanel({
   );
 
   return (
-    <div className={styles.panel}>
+    <div ref={panelRef} className={styles.panel}>
+      <LocalAvatarPicker />
       <FlyoutItem
         icon={<Palette size={16} />}
         label={t("sidebar.quickMenu.appearance", "Appearance")}
@@ -452,6 +470,22 @@ export default function SidebarSettingsPanel({
       >
         <CircleHelp size={16} />
         <span>{t("header.faq", "FAQ")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(getFeatureDemosUrl(i18n.language))}
+      >
+        <CirclePlay size={16} />
+        <span>{t("header.featureDemos")}</span>
+      </button>
+      <button
+        type="button"
+        className={styles.menuItem}
+        onClick={() => openLink(GITHUB_URL)}
+      >
+        <Github size={16} />
+        <span>{t("header.github")}</span>
       </button>
       <div className={styles.divider} />
 

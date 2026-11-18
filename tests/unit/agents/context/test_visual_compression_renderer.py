@@ -323,3 +323,52 @@ class TestPageRenderLines:
             max_lines=10,
         )
         assert out[0] == "a"
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+@pytest.mark.parametrize(
+    "body",
+    ["words ", "中文a", "tab\tmissing\x00🙂↵end\n"],
+)
+def test_render_cell_bound_never_underestimates_page_rows(effort, body):
+    from qwenpaw.agents.context.visual_compression.config import effort_preset
+
+    preset = effort_preset(effort)
+    profile = renderer._profile_for_preset(preset)
+    columns = (profile.width - 2 * profile.padding) // preset.cell_width
+    parts = [
+        f"<user>\n{body * 1200}\n</user>",
+        "<assistant>\nDone\n</assistant>",
+    ]
+    rendered = renderer.prepare_render_text("\n\n".join(parts))
+    separator = renderer.prepare_render_text("\n\n")
+    assert rendered == separator.join(map(renderer.prepare_render_text, parts))
+    cells = sum(
+        renderer.count_render_cells(renderer.prepare_render_text(part))
+        for part in parts
+    ) + renderer.count_render_cells(separator)
+    assert cells == renderer.count_render_cells(rendered)
+    upper_rows = (cells + columns - 2) // (columns - 1)
+    pages = renderer.estimate_text_pages(rendered, preset)
+    rows = sum(
+        (page.height - 2 * profile.padding) // preset.line_height
+        for page in pages
+    )
+    assert rows <= upper_rows
+
+
+@pytest.mark.parametrize("tail_rows", [1, 4, 5])
+def test_tail_balance_preserves_rows_and_capacity(tail_rows):
+    lines = [f"row-{index}" for index in range(40 + tail_rows)]
+    pages = renderer._split_visual_pages(lines, 20, 160, min_page_rows=5)
+    assert pages[0] == lines[:20]
+    assert [row for page in pages for row in page] == lines
+    assert all(5 <= len(page) <= 20 for page in pages)
+    assert all(len("\n".join(page)) <= 160 for page in pages)
+    # A full-width last row cannot be balanced without violating capacity.
+    assert not renderer._split_visual_pages(
+        ["x"] * 6 + ["z" * 16],
+        6,
+        16,
+        min_page_rows=2,
+    )

@@ -1,0 +1,64 @@
+.file-drop-zone() {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 36px 24px;
+  border: 1.5px dashed var(--app-border-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+
+    .dropIcon {
+      color: var(--app-accent);
+    }
+  }
+}
+
+.file-drop-active() {
+  border-color: var(--app-accent);
+  background: var(--app-accent-soft);
+
+  .dropIcon {
+    color: var(--app-accent);
+  }
+}
+
+.file-drop-icon() {
+  color: var(--app-text-quaternary);
+  transition: color 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.file-drop-primary() {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--app-text);
+}
+
+.file-selection-card() {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 8px;
+  background: var(--app-fill-faint);
+  color: var(--app-text);
+}
+
+.file-selection-name() {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

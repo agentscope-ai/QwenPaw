@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dockerReferenceParts, formatDate, formatImageSize } from "./pageUtils";
+import {
+  dockerReferenceKey,
+  dockerReferenceParts,
+  formatDate,
+  formatImageSize,
+} from "./pageUtils";
 
 // ---------------------------------------------------------------------------
 // formatDate — regression for #1395
@@ -79,4 +84,14 @@ describe("dockerReferenceParts", () => {
       tag: "latest",
     });
   });
+});
+
+it("matches Docker Hub aliases without conflating registries or tags", () => {
+  const key = dockerReferenceKey("agentscope/qwenpaw:latest");
+  expect(dockerReferenceKey("docker.io/agentscope/qwenpaw:latest")).toBe(key);
+  expect(dockerReferenceKey("index.docker.io/agentscope/qwenpaw")).toBe(key);
+  expect(
+    dockerReferenceKey("registry.example.com/agentscope/qwenpaw"),
+  ).not.toBe(key);
+  expect(dockerReferenceKey("agentscope/qwenpaw:v2")).not.toBe(key);
 });

@@ -13,13 +13,9 @@ from .._utils.signing import replace_meta_with_local_signature
 from ..models import BackupMeta
 from ...config.utils import load_config
 from ...constant import BACKUP_DIR
-from .create_helpers import add_files_to_zip
+from .create_helpers import BackupCancelled, add_files_to_zip
 
 logger = logging.getLogger(__name__)
-
-
-class BackupCancelled(Exception):
-    """Raised when cooperative cancellation stops archive creation."""
 
 
 def _compute_initial_agents(

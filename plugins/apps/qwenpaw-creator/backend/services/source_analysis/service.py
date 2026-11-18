@@ -87,6 +87,7 @@ from services.runtime_files.execution_models import (
 from services.runtime_files.execution_store import ProjectExecutionStore
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
+from services.runtime_files.path_safety import is_link_stat
 from services.runtime_files.media_probe import (
     MediaProbeError,
     MediaProbeUnavailable,
@@ -227,7 +228,7 @@ def _require_real_directory(path: Path, *, label: str) -> Path:
         value = path.lstat()
     except FileNotFoundError as error:
         raise StorageIntegrityError(f"{label} 不存在") from error
-    if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode):
+    if is_link_stat(value) or not stat.S_ISDIR(value.st_mode):
         raise StorageIntegrityError(f"{label} 必须是真实的非 symlink 目录")
     return path
 
@@ -2057,13 +2058,17 @@ class SourceMediaAnalysisService:
                 if task_owned:
                     self._complete_task_sync(job, published)
                 return published
-            if (
-                current.generation != job.input_generation
-                or current.etag != job.input_etag
-                or not self._same_frozen_source(current.project, job)
-            ):
+            # Sibling commits (parallel per-asset understanding, unrelated
+            # edits) may advance the project head while the provider ran.
+            # The publication below is rebuilt from the fresh ``current``
+            # read under the lifecycle lock, so only the delegated source's
+            # own frozen identity gates the commit — whole-project
+            # generation/ETag equality made parallel specialists quarantine
+            # each other's paid results (CR 2026-09-11).
+            if not self._same_frozen_source(current.project, job):
                 raise StaleSourceAnalysis(
-                    "Project generation/ETag or selected SourceAssetVersion changed",
+                    "selected SourceAssetVersion changed since the analysis "
+                    "was dispatched",
                 )
             payload = canonical_json_bytes(
                 index.model_dump(mode="json", by_alias=True),

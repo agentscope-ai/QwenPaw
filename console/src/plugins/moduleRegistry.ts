@@ -21,6 +21,11 @@ export interface ModuleRegistry {
   get(moduleKey: string, exportName: string): unknown;
 
   /**
+   * Get an optional module export without logging when the module is absent.
+   */
+  getOptional(moduleKey: string, exportName: string): unknown;
+
+  /**
    * Call a module export function (for function/class types)
    */
   call(moduleKey: string, exportName: string, ...args: unknown[]): unknown;
@@ -84,6 +89,10 @@ class ModuleRegistryImpl implements ModuleRegistry {
       return undefined;
     }
     return mod[exportName];
+  }
+
+  getOptional(moduleKey: string, exportName: string): unknown {
+    return this.modules.get(moduleKey)?.[exportName];
   }
 
   call(moduleKey: string, exportName: string, ...args: unknown[]): unknown {

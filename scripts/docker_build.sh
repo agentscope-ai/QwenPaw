@@ -28,7 +28,7 @@ if [ -z "$QWENPAW_VERSION" ]; then
 fi
 
 echo "[docker_build] Building image: $TAG (Dockerfile: $DOCKERFILE)"
-docker build -f "$DOCKERFILE" \
+docker build --pull --no-cache -f "$DOCKERFILE" \
     --build-arg QWENPAW_DISABLED_CHANNELS="$DISABLED_CHANNELS" \
     --build-arg \
     QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="$QWENPAW_VERSION" \

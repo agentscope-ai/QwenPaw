@@ -44,14 +44,14 @@
 
 .searchInput {
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   background: var(--sidebar-input-bg);
   border-color: var(--sidebar-input-border);
 }
 
 .groupInput {
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   background: var(--sidebar-input-bg);
   border-color: var(--sidebar-input-border);
 }
@@ -82,43 +82,6 @@
   margin-bottom: 4px;
 }
 
-.loadMoreRow {
-  display: flex;
-  align-items: center;
-  height: 44px;
-  padding: 0 8px;
-}
-
-.loadMoreButton {
-  display: flex;
-  width: 100%;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--app-border-subtle);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--app-text-tertiary);
-  cursor: pointer;
-  font-size: 11px;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.loadMoreButton:hover {
-  border-color: var(--app-accent-border);
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
-}
-
-.loadMoreButton:focus-visible {
-  outline: 2px solid var(--app-accent-border);
-  outline-offset: 1px;
-}
-
 /* Date group label (clickable to collapse/expand) */
 .groupLabel {
   display: flex;
@@ -129,7 +92,7 @@
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -149,7 +112,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px 12px;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   color: var(--sidebar-state-text);
 }
 
@@ -158,7 +121,7 @@
 .historyHeaderRow {
   display: flex;
   align-items: center;
-  min-height: 30px;
+  min-height: var(--app-control-md);
 }
 
 .historyHeader {
@@ -189,8 +152,8 @@
 
 .historyAction {
   display: inline-flex;
-  width: 26px;
-  height: 26px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -206,13 +169,24 @@
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
-    outline-offset: 1px;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+  }
+}
+
+@media (any-pointer: coarse) {
+  .historyAction,
+  .historyHeader {
+    min-height: var(--app-hit-touch);
+  }
+
+  .historyAction {
+    width: var(--app-hit-touch);
   }
 }
 
 .historyLabel {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 600;
   letter-spacing: 0.1px;
   user-select: none;
@@ -235,8 +209,8 @@
   --sidebar-create-bg: rgba(255, 255, 255, 0.035);
   --sidebar-create-text: rgba(255, 255, 255, 0.62);
   --sidebar-create-hover-border: rgba(255, 143, 50, 0.5);
-  --sidebar-create-hover-bg: rgba(255, 127, 22, 0.1);
-  --sidebar-create-hover-text: #ff8f32;
+  --sidebar-create-hover-bg: var(--app-accent-soft);
+  --sidebar-create-hover-text: var(--app-accent-text);
   --sidebar-sticky-bg: color-mix(
     in srgb,
     var(--app-surface-subtle) 96%,
@@ -250,5 +224,19 @@
       color: rgba(255, 255, 255, 0.92);
       background: rgba(255, 255, 255, 0.08);
     }
+  }
+}
+
+.primarySidebar {
+  .searchContainer {
+    padding: 6px 4px 8px;
+  }
+  .searchInput {
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--app-fill-subtle);
+    font-size: 12px;
   }
 }

@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+# Pylint all-files aliases isolated plugin/local modules to third-party names.
+# pylint: disable=no-name-in-module
 """QwenPaw-Data PawApp backend entry point."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -25,19 +28,38 @@ logger = logging.getLogger(__name__)
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 if __package__ and __package__.startswith("plugin_"):
     from .backend.config import (
+        APP_DATA_DIR,
         CONFIG_JSON_PATH,
         DataAppConfig,
+        context_service_env,
         load_config,
         on_before_start,
         prepare_runtime_files,
         save_config,
         seed_from_env,
-        set_context_env_vars,
     )
+    from .backend.bridge import (
+        BridgeSessionStore,
+        EngineClient,
+        make_bridge_middleware_factory,
+    )
+    from .backend.bridge.commands import (
+        make_data_command,
+        make_datasource_command,
+    )
+    from .backend.standalone import (
+        console_scope,
+        identity_namespace,
+        dispatch_console_chat,
+    )
+    from .backend.service_compat import managed_service
+    from .backend.model_settings import ModelSettings, ModelSettingsService
     from .backend.context_gateway import ContextGateway
+    from .backend.engine_gateway import EngineGateway
     from .backend.runtime import (
         context_python,
         context_working_dir,
+        provision_engine_mcp,
         runtime_packages_available,
         skill_layers,
         skills_root,
@@ -46,19 +68,38 @@ else:
     if str(PLUGIN_DIR) not in sys.path:
         sys.path.insert(0, str(PLUGIN_DIR))
     from backend.config import (  # noqa: E402
+        APP_DATA_DIR,
         CONFIG_JSON_PATH,
         DataAppConfig,
+        context_service_env,
         load_config,
         on_before_start,
         prepare_runtime_files,
         save_config,
         seed_from_env,
-        set_context_env_vars,
     )
+    from backend.bridge import (  # noqa: E402
+        BridgeSessionStore,
+        EngineClient,
+        make_bridge_middleware_factory,
+    )
+    from backend.bridge.commands import (  # noqa: E402
+        make_data_command,
+        make_datasource_command,
+    )
+    from backend.standalone import (
+        console_scope,
+        identity_namespace,
+        dispatch_console_chat,
+    )
+    from backend.service_compat import managed_service
+    from backend.model_settings import ModelSettings, ModelSettingsService
     from backend.context_gateway import ContextGateway  # noqa: E402
+    from backend.engine_gateway import EngineGateway  # noqa: E402
     from backend.runtime import (  # noqa: E402
         context_python,
         context_working_dir,
+        provision_engine_mcp,
         runtime_packages_available,
         skill_layers,
         skills_root,
@@ -82,6 +123,22 @@ _context_token = secrets.token_urlsafe(32)
 
 _active_restore_done = False
 
+# Network configuration is an explicit grant to these two sidecars, not an
+# SDK-wide default. App/model credentials come from saved settings instead.
+_NETWORK_ENV = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+
 
 async def _on_before_start() -> None:
     """Wrap the config hook so per-service-start state gets reset.
@@ -102,7 +159,8 @@ async def _on_before_start() -> None:
     await on_before_start()
 
 
-_context_service = app.managed_service(
+_context_service = managed_service(
+    app,
     "context",
     command=(
         str(context_python()),
@@ -116,16 +174,31 @@ _context_service = app.managed_service(
     ),
     health_path="/api/health",
     cwd=context_working_dir(),
-    # Only pass plugin-owned overrides; the framework's
-    # ManagedService.start() already inherits os.environ.copy() and merges
-    # spec.env on top. Spreading **os.environ here would (a) freeze the
-    # snapshot at import time, pinning later env changes to stale values on
-    # restart, and (b) subject every inherited env var to
-    # _replace_placeholders(), silently rewriting literal {host}/{port}.
+    # Configure owns model/Neo4j credentials. Only the extra runtime knobs
+    # listed here may be inherited; Engine and Host credentials stay out.
+    inherit_env=(
+        *_NETWORK_ENV,
+        "QWENPAW_DATA_HOME",
+        "NEO4J_DATABASE_DEMO",
+        "NEO4J_DATABASE_MCP",
+        "DATASOURCES_CONFIG",
+        "SEMANTIC_CONFIG_DB_PATH",
+        "DOC_STORAGE_DIR",
+        "DOC_MAX_SIZE",
+        "QWENPAW_DATA_JOBS_DB",
+        "EMBEDDING_JOBS_DIR",
+        "LLM_HTTP_TIMEOUT",
+        "KNOWLEDGE_INGEST_LLM_TIMEOUT",
+        "EMBED_API_BATCH",
+        "EMBED_API_CONCURRENCY",
+        "EMBED_API_MAX_RETRIES",
+        "EMBED_API_MAX_INPUT_CHARS",
+    ),
     env={
         "QWENPAW_DATA_API_TOKEN": _context_token,
         "QWENPAW_DATA_CLIENT_API_TOKEN": _context_token,
     },
+    env_factory=context_service_env,
     external_url_env="QWENPAW_DATA_CONTEXT_URL",
     mode_env="QWENPAW_DATA_CONTEXT_MODE",
     on_before_start=_on_before_start,
@@ -140,6 +213,166 @@ _context_service = app.managed_service(
     ),
 )
 _gateway = ContextGateway(_context_service, _context_token)
+
+_engine_token = secrets.token_urlsafe(32)
+ENGINE_HOME = APP_DATA_DIR / "engine"
+
+
+def _engine_context_connection() -> tuple[str, str]:
+    """Resolve Context connectivity after the earlier sidecar has started."""
+    if _context_service.is_external:
+        cm_url = os.getenv("QWENPAW_DATA_CONTEXT_URL", "").strip()
+        cm_token = os.getenv("QWENPAW_DATA_CONTEXT_TOKEN", "").strip()
+    else:
+        try:
+            cm_url = _context_service.base_url
+        except RuntimeError:
+            cm_url = ""
+        cm_token = _context_token
+    return cm_url, cm_token
+
+
+async def _engine_before_start() -> None:
+    """Prepare the Engine workspace without modifying the Host environment."""
+    ENGINE_HOME.mkdir(parents=True, exist_ok=True)
+    cm_url, cm_token = _engine_context_connection()
+    if cm_url:
+        provision_engine_mcp(ENGINE_HOME, cm_url, cm_token)
+    config = _sync_reuse_from_host(load_config())
+    if config.llm.reuse_host or config.embedding.reuse_host:
+        save_config(config)
+
+
+def _engine_env() -> dict[str, str]:
+    """Build a fresh Engine-only configuration after startup preparation."""
+    environment: dict[str, str] = {}
+    cm_url, cm_token = _engine_context_connection()
+    if cm_url:
+        environment["QWENPAW_DATA_CM_BASE_URL"] = cm_url
+        environment["QWENPAW_DATA_CLIENT_API_TOKEN"] = cm_token
+    config = load_config()
+    if config.llm.model and config.llm.api_key:
+        environment["QWENPAW_DATA_MODEL_PROVIDER"] = (
+            config.llm.provider or "openai"
+        )
+        environment["QWENPAW_DATA_MODEL_NAME"] = config.llm.model
+        environment["QWENPAW_DATA_MODEL_API_KEY"] = config.llm.api_key
+        if config.llm.base_url:
+            environment["QWENPAW_DATA_MODEL_BASE_URL"] = config.llm.base_url
+    return environment
+
+
+_engine_service = managed_service(
+    app,
+    "engine",
+    command=(
+        str(context_python()),
+        "-m",
+        "uvicorn",
+        "--factory",
+        "qwenpaw_data.host.core.api.app:create_app",
+        "--host",
+        "{host}",
+        "--port",
+        "{port}",
+    ),
+    health_path="/health",
+    cwd=context_working_dir(),
+    inherit_env=(
+        *_NETWORK_ENV,
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CONFIG",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "QWENPAW_DATA_STORE",
+        "QWENPAW_DATA_FOLLOWUP_ENABLED",
+        "QWENPAW_DATA_BIZ_TRACE_ENABLED",
+        "QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED",
+        "QWENPAW_DATA_MCP_EXECUTION_TIMEOUT",
+        "QWENPAW_DATA_MCP_DISCOVERY_TIMEOUT",
+        "QWENPAW_DATA_CM_MCP_TIMEOUT",
+    ),
+    env={
+        "QWENPAW_DATA_API_TOKEN": _engine_token,
+        "QWENPAW_DATA_HOME": str(ENGINE_HOME),
+    },
+    env_factory=_engine_env,
+    external_url_env="QWENPAW_DATA_ENGINE_URL",
+    mode_env="QWENPAW_DATA_ENGINE_MODE",
+    on_before_start=_engine_before_start,
+    startup_timeout=45,
+    display_name="Analysis Engine",
+    required=False,
+    capabilities=("agent-chat", "analysis-orchestration"),
+    runtime_remediation=(
+        "Install the runtime from PyPI (scripts/setup-pypi.sh) or from the "
+        "QwenPaw-Data workspace (scripts/setup-dev.sh); alternatively set "
+        "QWENPAW_DATA_ENGINE_MODE=external with QWENPAW_DATA_ENGINE_URL and "
+        "QWENPAW_DATA_ENGINE_TOKEN"
+    ),
+)
+_engine_gateway = EngineGateway(_engine_service, _engine_token)
+
+
+def _engine_endpoint() -> tuple[str, str]:
+    """Resolve the engine base URL + bearer token for server-side calls.
+
+    Mirrors the gateway's managed/external token selection; ``base_url``
+    raises RuntimeError while the sidecar is not ready, which the bridge
+    client surfaces as an engine-unavailable turn.
+    """
+    token = (
+        os.getenv("QWENPAW_DATA_ENGINE_TOKEN", "").strip()
+        if _engine_service.is_external
+        else _engine_token
+    )
+    return _engine_service.base_url, token
+
+
+_model_settings = ModelSettingsService(APP_DATA_DIR / "model-bindings")
+
+
+async def _runtime_models(scope):
+    models = await _model_settings.runtime(scope)
+    if any(
+        models.get(role) is None
+        for role in ("analysis", "lightweight", "databridge")
+    ):
+        effective = (await _describe_models(scope))["effective"]
+        for role, model in effective.items():
+            if not model["configured"]:
+                raise HTTPException(409, f"{role}_model_missing")
+    if models.get("databridge") is not None or "databridge" in models.get(
+        "inherit_analysis",
+        [],
+    ):
+        try:
+            health = await _gateway.json("GET", "/api/health")
+        except HTTPException as exc:
+            raise HTTPException(503, "context_unavailable") from exc
+        if health.get("runtime_model_bindings") is not True:
+            raise HTTPException(503, "context_model_bindings_unsupported")
+    return models
+
+
+_bridge_store = BridgeSessionStore(path=APP_DATA_DIR / "bridge_sessions.json")
+_bridge_client = EngineClient(_engine_endpoint)
+app.middleware(
+    make_bridge_middleware_factory(
+        client=_bridge_client,
+        store=_bridge_store,
+    ),
+    priority=50,
+)
+app.command(
+    "data",
+    description="Toggle data-analysis mode (on/off/status)",
+)(make_data_command(_bridge_store))
+app.command(
+    "datasource",
+    description="List engine datasources and select one for analysis",
+)(make_datasource_command(_bridge_store, _bridge_client))
 
 
 def _context_runtime_issue() -> dict[str, str] | None:
@@ -259,17 +492,18 @@ _skill_count = sum(
     for child in layer.iterdir()
     if child.is_dir() and (child / "SKILL.md").is_file()
 )
-if _skills is not None:
-    for _layer in _skill_layers:
-        app.skill_provider(_layer, enabled_by_default=True, channels=["all"])
+# Engine workspaces load Data skills directly; they are not Host-global skills.
 
 
 app.prompt_section(
     "qwenpaw-data-analysis",
     """
-You are operating inside the QwenPaw-Data application. For questions that
-depend on organizational metrics, datasets, dimensions, prior analysis, or
-graph context, call qwenpaw_data_search_context before drawing conclusions. Use
+You are operating inside the QwenPaw-Data application runtime. These
+instructions and the qwenpaw_data_* tools are app-private; Main Chat must use
+the public qwenpaw-data.analyze delegated action instead of invoking them.
+Within the Data runtime, for questions that depend on organizational metrics,
+datasets, dimensions, prior analysis, or graph context, call
+qwenpaw_data_search_context before drawing conclusions. Use
 qwenpaw_data_execute_sql only for read-only SQL and preserve the selected data
 source. Clearly distinguish retrieved facts, computed results, and inference.
 Keep progress narration brief. In the final response, answer the user's
@@ -293,40 +527,36 @@ async def _initialize_config() -> None:
     This runs before managed services start (priority 70) so the context
     service's on_before_start hook can read a fully initialized config.json.
     """
-    from qwenpaw.envs import load_envs_into_environ
-
-    # Framework-level envs (``qwenpaw env set``) participate in first-run
-    # seeding, mirroring what on_before_start reloads before every start.
-    load_envs_into_environ()
     config = load_config()
     if not CONFIG_JSON_PATH.is_file():
-        host_llm = _host_llm_payload()
-        if host_llm:
-            config.llm.provider = "openai"
-            config.llm.base_url = host_llm["base_url"]
-            config.llm.model = host_llm["model"]
-            config.llm.api_key = host_llm["api_key"]
-            # Default embedding to the same provider/credentials.
-            config.embedding.base_url = host_llm["base_url"]
-            config.embedding.api_key = host_llm["api_key"]
-        # Fill anything the host model did not cover (Neo4j credentials,
-        # embedding model) from the environment so the Configure page
-        # reflects the values the service actually uses.
-        seed_from_env(config)
+        from qwenpaw.envs import load_envs
+
+        # Model inheritance is resolved per task. Seed only explicitly supplied
+        # app environment settings; never copy Host provider credentials here.
+        seed_from_env(config, {**os.environ, **load_envs()})
         save_config(config)
     else:
         prepare_runtime_files(config)
-        set_context_env_vars()
 
 
 @app.hook("startup", priority=90)
 async def _start_gateway() -> None:
     await _gateway.start()
+    await _engine_gateway.start()
+    # Native chat can run without a Context-console poll. Both the sidecar
+    # and gateway must be ready before restoring its persisted datasource.
+    await _restore_active_datasource()
 
 
 @app.hook("shutdown", priority=120)
 async def _stop_gateway() -> None:
-    await _gateway.stop()
+    try:
+        await _gateway.stop()
+    finally:
+        try:
+            await _engine_gateway.stop()
+        finally:
+            await _bridge_client.aclose()
 
 
 _known_source_dependencies: dict[str, str] = {}
@@ -454,68 +684,104 @@ async def _register_data_source_dependencies() -> None:
 router = APIRouter()
 
 
-_llm_bootstrap_done = False
-
-
-def _host_llm_payload() -> dict[str, Any] | None:
-    """Read the host's active model as an OpenAI-compatible payload."""
+async def _describe_models(scope):
+    result = await _model_settings.describe(scope)
+    roles = result["effective"]
+    if not any(role["source"] == "app-local" for role in roles.values()):
+        return result
     try:
-        from qwenpaw.providers.provider_manager import ProviderManager
-
-        manager = ProviderManager.get_instance()
-        slot = manager.get_active_model()
-        provider = manager.get_provider(slot.provider_id) if slot else None
-    except Exception:  # pragma: no cover - host internals unavailable
-        return None
-    if slot is None or provider is None:
-        return None
-    model = (slot.model or "").strip()
-    base_url = (getattr(provider, "base_url", "") or "").strip()
-    api_key = (getattr(provider, "api_key", "") or "").strip()
-    if not model or not base_url or not api_key:
-        return None
-    return {"model": model, "base_url": base_url, "api_key": api_key}
-
-
-async def _bootstrap_llm_from_host() -> None:
-    """Bootstrap the Context service's LLM from the QwenPaw host model.
-
-    The app owns its model configuration, matching standalone qwenpaw-data-cli
-    and Data-Cloud deployments. The host's active model is used only as a
-    first-run default when no LLM has been configured yet; an existing
-    configuration is never overwritten.
-    """
-    global _llm_bootstrap_done
-    if _llm_bootstrap_done or not _context_service.is_ready:
-        return
-    try:
-        current = await _gateway.json("GET", "/api/system/model-config/")
+        identity = identity_namespace(scope)
+        active_response = await _engine_gateway.json(
+            "GET",
+            "/api/v1/preferences/active-models",
+            user_id=identity,
+        )
+        provider_response = await _engine_gateway.json(
+            "GET",
+            "/api/v1/preferences/providers",
+            user_id=identity,
+        )
+        active = active_response["active_models"]
+        providers = provider_response["providers"]
+        for role in ("analysis", "lightweight", "databridge"):
+            if roles[role]["source"] != "app-local":
+                continue
+            choice = result["settings"][role]
+            if role == "databridge" and choice["source"] == "local":
+                config = (
+                    await _gateway.json("GET", "/api/system/model-config/")
+                )["llm"]
+                model = config.get("model")
+                provider = None
+                configured = all(
+                    config.get(key) for key in ("model", "base_url", "api_key")
+                )
+            else:
+                prefix = (
+                    "light"
+                    if role == "lightweight"
+                    and choice["source"] == "local"
+                    and active.get("light_model_id")
+                    else "default"
+                )
+                model = active.get(f"{prefix}_model_id")
+                provider = active.get(f"{prefix}_provider_id")
+                configured = any(
+                    p["id"] == provider
+                    and p["configured"]
+                    and any(m["id"] == model for m in p["models"])
+                    for p in providers
+                )
+            roles[role].update(
+                model_id=model,
+                provider_id=provider,
+                configured=bool(configured),
+                error=(
+                    None
+                    if configured
+                    else "Configure the app-specific model "
+                    "in Advanced settings."
+                ),
+            )
     except HTTPException:
-        return
-    llm_config = (current or {}).get("llm") or {}
-    if (llm_config.get("api_key") or "").strip():
-        # App-specific configuration exists; leave it alone for good.
-        _llm_bootstrap_done = True
-        return
-    body = _host_llm_payload()
-    if body is None:
-        return
-    try:
-        await _gateway.json("PUT", "/api/system/model-config/llm", body=body)
-    except HTTPException:
-        return
-    _llm_bootstrap_done = True
+        for role in roles.values():
+            if role["source"] == "app-local":
+                role.update(
+                    configured=False,
+                    error=(
+                        "App-specific settings are unavailable. "
+                        "Check the Data service."
+                    ),
+                )
+    return result
+
+
+@router.get("/model-settings")
+async def get_model_settings(request: Request):
+    return await _describe_models(await console_scope(request))
+
+
+@router.put("/model-settings")
+async def put_model_settings(request: Request, settings: ModelSettings):
+    scope = await console_scope(request)
+    # Validate explicit references without making provider calls.
+    _, effective = _model_settings.resolve(scope, settings)
+    for role, (_, error) in effective.items():
+        if error and getattr(settings, role).source == "host":
+            raise HTTPException(422, error)
+    await _model_settings.save(scope, settings)
+    return await _describe_models(scope)
 
 
 @router.get("/status")
 async def status() -> dict[str, Any]:
     health: dict[str, Any] | None = None
     if _context_service.is_ready:
-        await _bootstrap_llm_from_host()
         health = await _gateway.json("GET", "/api/health")
     return {
         "app": "qwenpaw-data",
         "service": _context_service.status(),
+        "engine": _engine_service.status(),
         "runtime": {
             "ok": _runtime_issue is None,
             "issue": _runtime_issue,
@@ -536,9 +802,9 @@ async def context_auth_status() -> dict[str, Any]:
     """Report that the embedded console needs no client-side login.
 
     The gateway injects the Context service token server-side, so from the
-    embedded UI's point of view authentication is never required.  Serve
-    both contract shapes: ``required`` (public qwenpaw-data-context 0.1.x
-    AuthGate) and ``enabled`` (internal Data-Cloud auth store).
+    embedded UI's point of view authentication is never required. Serve both
+    contract shapes: ``required`` (public Context AuthGate) and ``enabled``
+    (internal Data-Cloud auth store).
     """
     return {"required": False, "enabled": False}
 
@@ -593,10 +859,6 @@ async def _proxy_delete_datasource(
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def context_proxy(path: str, request: Request) -> Any:
-    # First-run default: seed the LLM config from the host before the
-    # console reads it; configured values are never overwritten.
-    if request.method == "GET" and "system/model-config" in path:
-        await _bootstrap_llm_from_host()
     # The shell polls the source list; piggyback the persisted-active
     # restore and a throttled reconcile so the selection survives
     # restarts and console-side changes converge onto the dependency
@@ -614,7 +876,49 @@ async def context_proxy(path: str, request: Request) -> Any:
         return await _proxy_set_active_datasource(path, request)
     if request.method == "DELETE" and _DATASOURCE_ITEM_RE.search(path):
         return await _proxy_delete_datasource(path, request)
-    return await _gateway.proxy(path, request)
+    binding = None
+    if "system/model-config" not in path:
+        _, effective = _model_settings.resolve(await console_scope(request))
+        model, _ = effective["databridge"]
+        if model is not None:
+            binding = base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "model": model["model_id"],
+                        "base_url": model["base_url"],
+                        "api_key": model["api_key"],
+                    },
+                ).encode(),
+            ).decode()
+    return await _gateway.proxy(path, request, model_binding=binding)
+
+
+@router.api_route(
+    "/engine/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+)
+async def engine_proxy(path: str, request: Request) -> Any:
+    """Forward session/chat traffic to the analysis engine sidecar."""
+    # This bridge owns the gateway and shares its path normalization.
+    # pylint: disable-next=protected-access
+    normalized = _engine_gateway._upstream_path(path).rstrip("/")
+    if request.method == "POST" and normalized == "/api/v1/console/chat":
+        return await dispatch_console_chat(
+            request,
+            _engine_gateway,
+            _runtime_models,
+        )
+    if request.method == "POST" and re.fullmatch(
+        r"/api/v1/sessions/[^/]+/chats",
+        normalized,
+    ):
+        raise HTTPException(409, "Use the Data console to start an analysis")
+    scope = await console_scope(request)
+    return await _engine_gateway.proxy(
+        path,
+        request,
+        user_id=identity_namespace(scope),
+    )
 
 
 @router.get("/config")
@@ -691,7 +995,6 @@ async def set_config(payload: dict[str, Any]) -> dict[str, Any]:
     # saving while reuse is enabled also follows host model switches.
     _sync_reuse_from_host(config)
     save_config(config)
-    set_context_env_vars()
     # If the context service is already running, push the new model
     # configuration so it takes effect without a manual restart.
     await _push_model_config(config)
@@ -802,9 +1105,20 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     if reuse:
         _sync_reuse_from_host(config, strict=True)
     save_config(config)
-    set_context_env_vars()
     await _push_model_config(config)
     return config.to_dict()
+
+
+@router.post("/config/restart-context")
+async def restart_context_service() -> dict[str, Any]:
+    """Restart the managed Context service so saved settings take effect.
+
+    External-mode deployments own the service lifecycle; restarting is a
+    no-op that still reports success so the console flow stays uniform.
+    """
+    if not _context_service.is_external:
+        await _context_service.restart()
+    return {"ok": True, "external": _context_service.is_external}
 
 
 @router.post("/config/test/{target}")
@@ -873,15 +1187,6 @@ async def test_config_target(
 app.include_router(router)
 
 
-@app.tool(
-    "qwenpaw_data_search_context",
-    description=(
-        "Retrieve QwenPaw-Data semantic, metric, dataset, and graph "
-        "context for a question."
-    ),
-    icon="🔎",
-    tool_type="network",
-)
 async def qwenpaw_data_search_context(
     query: str,
     datasource_id: str = "",
@@ -895,26 +1200,11 @@ async def qwenpaw_data_search_context(
     return await _gateway.json("POST", "/api/v1/cm/search_context", body=body)
 
 
-@app.tool(
-    "qwenpaw_data_list_domains",
-    description="List QwenPaw-Data business domains available for analysis.",
-    icon="🗂️",
-    tool_type="network",
-)
 async def qwenpaw_data_list_domains(datasource_id: str = "") -> Any:
     params = {"datasource_id": datasource_id} if datasource_id else None
     return await _gateway.json("GET", "/api/v1/cm/domains", params=params)
 
 
-@app.tool(
-    "qwenpaw_data_explore_entity",
-    description=(
-        "Explore a metric or business entity across QwenPaw-Data "
-        "context graphs."
-    ),
-    icon="🕸️",
-    tool_type="network",
-)
 async def qwenpaw_data_explore_entity(
     entity_name: str,
     datasource_id: str = "",
@@ -928,15 +1218,6 @@ async def qwenpaw_data_explore_entity(
     return await _gateway.json("POST", "/api/v1/cm/explore_entity", body=body)
 
 
-@app.tool(
-    "qwenpaw_data_execute_sql",
-    description=(
-        "Execute a read-only SQL query through the selected "
-        "QwenPaw-Data source."
-    ),
-    icon="🧮",
-    tool_type="network",
-)
 async def qwenpaw_data_execute_sql(
     sql: str,
     datasource_id: str = "",

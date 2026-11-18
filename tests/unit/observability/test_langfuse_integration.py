@@ -5,8 +5,11 @@
 Covers:
 - LangfuseTraceHook: trace scope opened in PRE_EXECUTE, skipped when disabled
 - LangfuseTraceCleanupHook: trace scope closed in FINALLY phase
-- LangfuseToolSpanMiddleware: tool observations created/skipped correctly
 - OpenAIChatModelCompat.__call__: Langfuse kwargs injection
+
+LangfuseToolSpanMiddleware output-recording tests live in
+tests/unit/agents/test_langfuse_tool_span_output.py (not SDK-gated, so
+they actually run in CI).
 """
 
 from __future__ import annotations
@@ -36,19 +39,24 @@ class FakeObservation:
         self.id = observation_id
         self.updates: list[dict] = []
         self.ended = False
+        # 记录调用顺序，用于断言 update 必须发生在 end 之前
+        self.calls: list[str] = []
 
     def update(self, **kwargs):
         self.updates.append(kwargs)
+        self.calls.append("update")
         return self
 
     def end(self):
         self.ended = True
+        self.calls.append("end")
         return self
 
 
 class FakeClient:
     def __init__(self, *, trace_id=None, observation_id=None):
         self.started: list[dict] = []
+        self.observations: list[FakeObservation] = []
         self.next_id = 0
         self._trace_id = trace_id
         self._observation_id = observation_id
@@ -56,13 +64,17 @@ class FakeClient:
     def start_observation(self, **kwargs):
         self.started.append(kwargs)
         self.next_id += 1
-        return FakeObservation(f"obs-{self.next_id}")
+        obs = FakeObservation(f"obs-{self.next_id}")
+        self.observations.append(obs)
+        return obs
 
     @contextmanager
     def start_as_current_observation(self, **kwargs):
         self.started.append(kwargs)
         self.next_id += 1
-        yield FakeObservation(f"obs-{self.next_id}")
+        obs = FakeObservation(f"obs-{self.next_id}")
+        self.observations.append(obs)
+        yield obs
 
     def get_current_observation_id(self):
         return self._observation_id or f"obs-{self.next_id}"
@@ -271,93 +283,6 @@ class TestLangfuseTraceCleanupHook:
         assert _LANGFUSE_SCOPE_KEY not in ctx.extras
         obs = client.started[0]
         assert obs["as_type"] == "span"
-
-
-# ===========================================================================
-# Tests: LangfuseToolSpanMiddleware
-# ===========================================================================
-
-
-class TestLangfuseToolSpanMiddleware:
-    """LangfuseToolSpanMiddleware tests."""
-
-    async def test_passthrough_when_no_active_trace(self, monkeypatch):
-        """Middleware passes events through when no trace is active."""
-        from qwenpaw.agents.middlewares import LangfuseToolSpanMiddleware
-
-        monkeypatch.setattr(lf, "is_langfuse_enabled", lambda: True)
-
-        mw = LangfuseToolSpanMiddleware()
-        events_in = ["chunk1", "chunk2", "done"]
-
-        async def fake_next_handler():
-            for e in events_in:
-                yield e
-
-        collected = []
-        agent = SimpleNamespace()
-        input_kwargs = {
-            "tool_call": SimpleNamespace(name="test", input={}, id="tc-1"),
-        }
-
-        async for event in mw.on_acting(
-            agent,
-            input_kwargs,
-            fake_next_handler,
-        ):
-            collected.append(event)
-
-        assert collected == events_in
-
-    async def test_creates_tool_span_when_trace_active(self, monkeypatch):
-        """Middleware wraps tool execution in a Langfuse tool span."""
-        from agentscope.message import TextBlock
-        from agentscope.tool import ToolResponse
-
-        from qwenpaw.agents.middlewares import LangfuseToolSpanMiddleware
-
-        client = FakeClient()
-        monkeypatch.setattr(lf, "is_langfuse_enabled", lambda: True)
-        monkeypatch.setattr(lf, "_langfuse_client", lambda: client)
-
-        lf.set_current_trace(
-            trace_id="trace-1",
-            parent_observation_id="root-obs",
-            name="agent.react_loop",
-            metadata={"session_id": "s1"},
-        )
-
-        tool_response = ToolResponse(
-            content=[TextBlock(type="text", text="result data")],
-            id="tc-1",
-        )
-
-        async def fake_next_handler():
-            yield tool_response
-
-        mw = LangfuseToolSpanMiddleware()
-        agent = SimpleNamespace()
-        input_kwargs = {
-            "tool_call": SimpleNamespace(
-                name="execute_shell",
-                input={"command": "ls"},
-                id="tc-1",
-            ),
-        }
-
-        collected = []
-        async for event in mw.on_acting(
-            agent,
-            input_kwargs,
-            fake_next_handler,
-        ):
-            collected.append(event)
-
-        assert len(collected) == 1
-        assert collected[0] is tool_response
-        assert len(client.started) == 1
-        assert client.started[0]["name"] == "tool.execute_shell"
-        assert client.started[0]["as_type"] == "tool"
 
 
 # ===========================================================================

@@ -13,10 +13,12 @@
 #   Stage 1: creator-ui-builder — builds Creator UI SPA
 #   Final stage: runtime — adds Creator plugin on top of official QwenPaw image
 
-# Global ARGs: must be declared before first FROM to be available in all stages.
-# Use ACR registry for users in China; override with --build-arg for Docker Hub.
+# Image ARGs must be declared before the first FROM; RUN arguments are
+# redeclared in the stage that consumes them.
+# The base image uses ACR for users in China. Node uses the pinned official
+# image by default; override NODE_IMAGE to use an ACR Node mirror.
 ARG QWENPAW_BASE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw:latest
-ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+ARG NODE_IMAGE=node:22.23.4-slim
 
 # PyPI mirror for faster package downloads in China.
 # Override with --build-arg PYPI_INDEX_URL=https://pypi.org/simple/ for global mirror.
@@ -25,21 +27,57 @@ ARG PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 # -----------------------------------------------------------------------------
 # Stage 1: build Creator UI frontend.
 # -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS creator-ui-builder
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS creator-ui-builder
 WORKDIR /app
 COPY plugins/apps/qwenpaw-creator/ui /app/creator-ui
+COPY plugins/apps/qwenpaw-creator/templates /app/templates
 RUN cd /app/creator-ui && npm ci --include=dev && npm run build
+
+# Keep the pinned Node distribution available for the runtime stage.
+FROM ${NODE_IMAGE} AS node-runtime
 
 # -----------------------------------------------------------------------------
 # Final stage: runtime image with Creator plugin on top of official QwenPaw.
 # -----------------------------------------------------------------------------
 FROM ${QWENPAW_BASE_IMAGE}
 
-# Install geopandas system dependency (not included in official QwenPaw image).
+ARG PYPI_INDEX_URL
+
+# The QwenPaw base image may not be rebuilt with the repository Node pin yet.
+# Overlay Node-owned files so the final runtime always matches .nvmrc.
+COPY --from=node-runtime \
+  /usr/local/bin/node \
+  /usr/local/bin/npm \
+  /usr/local/bin/npx \
+  /usr/local/bin/corepack \
+  /usr/local/bin/
+COPY --from=node-runtime \
+  /usr/local/lib/node_modules/npm \
+  /usr/local/lib/node_modules/npm
+COPY --from=node-runtime \
+  /usr/local/lib/node_modules/corepack \
+  /usr/local/lib/node_modules/corepack
+RUN ln -sf node /usr/local/bin/nodejs
+
+# Keep image metadata consistent with the overlaid runtime.
+ENV NODE_VERSION=22.23.4
+
+# Fail if the final runtime's Node does not match the repository pin.
+COPY .nvmrc /tmp/qwenpaw-node-version
+RUN expected_version="v$(tr -d '[:space:]' < /tmp/qwenpaw-node-version)" \
+  && actual_version="$(node --version)" \
+  && if [ "${actual_version}" != "${expected_version}" ]; then \
+       echo "Node version mismatch: expected ${expected_version}, got ${actual_version}" >&2; \
+       exit 1; \
+     fi \
+  && rm /tmp/qwenpaw-node-version
+
+# Install Creator's editing, media-probing, and GIS system dependencies.
+# These are not included in the official QwenPaw image.
 # Replace default Debian mirror with Aliyun mirror for faster downloads in China.
 RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null; \
-    apt-get update && apt-get install -y --fix-missing libgeos-dev \
+    apt-get update && apt-get install -y --fix-missing jq ffmpeg libgeos-dev \
   && rm -rf /var/lib/apt/lists/* \
   && apt-get clean
 

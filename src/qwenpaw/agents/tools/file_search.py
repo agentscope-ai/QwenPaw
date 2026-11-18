@@ -604,6 +604,7 @@ def _walk_and_glob(
     policy_name="Grep",
     default_policy="allow",
     policy_reason="Content search (global)",
+    decision_model_local_read=True,
     ui_description="Search file contents by pattern",
     ui_icon="🔍",
 )
@@ -729,6 +730,7 @@ async def grep_search(
     policy_name="Glob",
     default_policy="allow",
     policy_reason="File listing (global)",
+    decision_model_local_read=True,
     ui_description="Find files matching a glob pattern",
     ui_icon="📁",
 )

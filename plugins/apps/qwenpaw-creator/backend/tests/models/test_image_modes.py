@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextlib import contextmanager
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,6 +20,7 @@ import respx
 
 from models import config as model_config
 from models.image import dashscope_provider
+from models.image.base import image_reference_capability, image_reference_limit
 from models.image.dashscope_provider import DashScopeImageModel
 from models.image.openai_provider import OpenAIImageModel
 from utils.exceptions import ModelError
@@ -111,6 +114,175 @@ def test_edit_body_keeps_images_first_and_disables_watermark() -> None:
     assert body["parameters"] == {"size": "1664*928", "watermark": False}
 
 
+def test_token_plan_reference_inlines_base64_not_upload(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A Token Plan endpoint has no upload route: the public dashscope
+    uploads answer its sk-sp- key 401 and the token-plan host serves no
+    /api/v1/uploads, so a local reference is inlined as a Base64 data URL
+    (which the multimodal-generation endpoint accepts) instead of uploaded.
+    """
+    from PIL import Image
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    reference = tmp_path / "ref.png"
+    Image.new("RGB", (8, 8), "red").save(reference, format="PNG")
+    model = DashScopeImageModel(
+        model_name="qwen-image-2.0-pro",
+        api_key="sk-sp-test",
+        base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+        timeout=30,
+    )
+    resolved = asyncio.run(model._public_reference_url(reference.as_uri()))
+    assert resolved.startswith("data:image/png;base64,")
+
+
+def _token_plan_image_model() -> DashScopeImageModel:
+    return DashScopeImageModel(
+        model_name="qwen-image-2.0-pro",
+        api_key="sk-sp-test",
+        base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+        timeout=30,
+    )
+
+
+def _noise_png_bytes() -> bytes:
+    """Deterministic noise PNG: ~31KB raw, ~11KB as an optimised JPEG.
+
+    The gap lets a test put the inline ceiling between the two, so the
+    downscale path is exercised without building a 7MB fixture.
+    """
+    import io
+
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.effect_noise((128, 128), 128).convert("RGB").save(
+        output,
+        format="PNG",
+    )
+    return output.getvalue()
+
+
+def test_token_plan_reference_over_inline_ceiling_errors(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A generate reference that cannot shrink under the 7MB Base64 ceiling
+    fails with guidance rather than sending a doomed upload, and fails fast:
+    the ceiling is a provider constant, so retrying cannot help."""
+    from PIL import Image
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    # Force the tiny test image over the ceiling without building a 7MB file.
+    # 16 bytes is below even the smallest ladder rung, so no downscale can
+    # rescue it and the refusal path is what runs.
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        16,
+    )
+    reference = tmp_path / "big.png"
+    Image.new("RGB", (8, 8), "red").save(reference, format="PNG")
+    model = _token_plan_image_model()
+    with pytest.raises(ModelError, match="7MB") as excinfo:
+        asyncio.run(model._public_reference_url(reference.as_uri()))
+    assert excinfo.value.retryable is False
+
+
+def test_token_plan_generate_reference_downscales_under_ceiling(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A generate reference only carries subject and style, so shrinking it
+    beats failing a request the provider could have served.
+
+    The re-encoded payload is JPEG whatever the source was, so the data URL
+    must not keep the source's PNG MIME: ``reference_media_data_url`` reads
+    the type from the filename suffix first.
+    """
+    import base64
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        20_000,
+    )
+    raw = _noise_png_bytes()
+    reference = tmp_path / "big.png"
+    reference.write_bytes(raw)
+    assert len(raw) > 20_000
+
+    model = _token_plan_image_model()
+    resolved = asyncio.run(model._public_reference_url(reference.as_uri()))
+
+    assert resolved.startswith("data:image/jpeg;base64,")
+    payload = base64.b64decode(resolved.split(",", 1)[1])
+    assert len(payload) <= 20_000
+    assert len(payload) < len(raw)
+
+
+@pytest.mark.parametrize("mode", ["edit", "translate"])
+def test_token_plan_edit_and_translate_references_never_downscale(
+    tmp_path,
+    monkeypatch,
+    mode,
+) -> None:
+    """An edit/translate reference *is* the canvas the instruction operates
+    on, so its pixels are never silently resampled even when the ladder
+    could fit them: the request fails fast with guidance instead."""
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    # The same bytes do downscale under mode=generate (see the test above),
+    # so a refusal here can only come from the mode gate.
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        20_000,
+    )
+    reference = tmp_path / "big.png"
+    reference.write_bytes(_noise_png_bytes())
+
+    model = _token_plan_image_model()
+    with pytest.raises(ModelError, match="7MB") as excinfo:
+        asyncio.run(
+            model._public_reference_url(reference.as_uri(), mode=mode),
+        )
+    assert excinfo.value.retryable is False
+    assert f"mode={mode}" in str(excinfo.value)
+    assert "不会被自动" in str(excinfo.value)
+
+
 @respx.mock
 def test_translate_submits_async_task_polls_and_downloads_result(
     monkeypatch,
@@ -173,3 +345,71 @@ def test_translate_submits_async_task_polls_and_downloads_result(
             "ext": {"config": {"imageSegment": False}},
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected"),
+    [
+        ("wan2.7-image-pro", 9),
+        ("wan2.7-image", 9),
+        ("wan2.6-image", 4),
+        ("z-image-turbo", 0),
+        (" WAN2.7-IMAGE-PRO ", 9),
+        ("wan2.7", None),
+        ("wan2.7-r2v", None),
+        ("wan2.7-i2v", None),
+        ("wan2.7-image-pro-unknown", None),
+        ("qwen-image-3.0-pro", 3),
+        ("qwen-image-2.0-pro-2026-06-22", 3),
+        ("qwen-image-edit-plus-2025-12-15", 3),
+        ("qwen-mt-image", 1),
+        ("qwen-image-plus", 0),
+        ("gpt-image-2-2026-04-21", 16),
+        ("gpt-image-1-mini", 16),
+        ("dall-e-2", 1),
+        ("dall-e-3", 0),
+        ("gemini-3-pro-image", 14),
+        ("gemini-3.1-flash-image", 14),
+        ("gemini-2.5-flash-image", 3),
+        ("doubao-seedream-5-0-pro-260628", 10),
+        ("doubao-seedream-4-5-251128", 14),
+        ("flux-2-pro", 8),
+        ("flux-2-klein-4b", 4),
+        ("flux-2-klein-9b", 4),
+        ("ideogram-v3", 1),
+        ("ideogram-v4", 0),
+        ("gemini-42-image", None),
+        ("private-gateway-alias", None),
+    ],
+)
+def test_official_reference_limits_are_model_specific(model_name, expected):
+    assert image_reference_limit(model_name) == expected
+    capability = image_reference_capability(model_name)
+    if expected is None:
+        assert capability is None
+    else:
+        assert capability is not None
+        assert capability.documentation_url.startswith("https://")
+
+
+def test_every_ui_image_preset_has_a_reference_contract() -> None:
+    """A selectable model must not fail later as an unknown capability."""
+    app_root = Path(__file__).resolve().parents[3]
+    source = (
+        app_root / "ui/src/components/creator/ModelConfigModal.tsx"
+    ).read_text(encoding="utf-8")
+    presets = source.split("const IMAGE_PRESETS:", 1)[1].split(
+        "const VIDEO_PRESETS:",
+        1,
+    )[0]
+    arrays = re.findall(r"models:\s*(\[[^\]]*\])", presets)
+    assert arrays, "No image presets found; update this contract test"
+    model_names = set(re.findall(r'"([^"\n]+)"', "".join(arrays)))
+    missing = sorted(
+        name
+        for name in model_names
+        if image_reference_capability(name) is None
+    )
+    assert (
+        not missing
+    ), f"Image presets missing reference capabilities: {missing}"

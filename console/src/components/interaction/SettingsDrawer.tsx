@@ -1,0 +1,76 @@
+import { ConfigProvider, Grid, type DrawerProps } from "antd";
+import BottomSheet from "./BottomSheet";
+import { SharedModal } from "./SharedModal";
+import styles from "./SettingsDrawer.module.less";
+
+/** One editor: centered on desktop, gesture-driven sheet on touch screens. */
+export function SettingsDrawer({
+  onClose,
+  children,
+  title,
+  footer,
+  open,
+  width,
+  destroyOnHidden,
+  surfaceId,
+  tall = true,
+}: Omit<DrawerProps, "onClose"> & {
+  onClose: () => void;
+  surfaceId?: string;
+  tall?: boolean;
+}) {
+  const screens = Grid.useBreakpoint();
+  const content = (
+    <ConfigProvider
+      getPopupContainer={(trigger) =>
+        trigger?.closest<HTMLElement>("[data-vaul-drawer]") ??
+        trigger?.closest<HTMLElement>(".os-window-overlay-root") ??
+        document.body
+      }
+    >
+      <div className={styles.form}>{children}</div>
+    </ConfigProvider>
+  );
+  if (screens.md === false) {
+    return (
+      <BottomSheet
+        open={!!open}
+        onOpenChange={(next) => {
+          if (!next) onClose();
+        }}
+        title={<div className={styles.editor}>{title}</div>}
+        tall={tall}
+        footer={footer && <div className={styles.editor}>{footer}</div>}
+      >
+        <div className={styles.editor}>{content}</div>
+      </BottomSheet>
+    );
+  }
+  return (
+    <SharedModal
+      surfaceId={surfaceId}
+      centered
+      width={
+        typeof width === "number"
+          ? Math.max(480, Math.min(width, 960))
+          : "var(--app-overlay-drawer-width)"
+      }
+      title={<div className={styles.editor}>{title}</div>}
+      open={open}
+      onCancel={onClose}
+      destroyOnHidden={destroyOnHidden}
+      footer={footer ? <div className={styles.editor}>{footer}</div> : null}
+      className={styles.editor}
+      styles={{
+        body: {
+          maxHeight: "min(68dvh, 720px)",
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          padding: "var(--app-space-2) 2px",
+        },
+      }}
+    >
+      {content}
+    </SharedModal>
+  );
+}

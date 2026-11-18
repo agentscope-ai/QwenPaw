@@ -25,7 +25,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import ExecutionResult, SandboxConfig
+from ..utils.shell_resources import watch_shell_process_async
+
+from .config import ExecutionResult, SandboxConfig, is_volume_root
 from .windows_unelevated_sandbox import (
     _PROCESS_INFORMATION,
     _SID_AND_ATTRIBUTES,
@@ -63,6 +65,8 @@ from .windows_unelevated_sandbox import (
 from .windows_unelevated_sandbox import (
     _get_kernel32 as _get_shared_kernel32,
 )
+
+from ._cleanup_logging import cleanup_errors, cleanup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -968,6 +972,16 @@ def _add_traverse_ace(  # pylint: disable=too-many-return-statements
             return False
 
         try:
+            # A NULL DACL means "no protection at all". Merging our ACE
+            # into it would write a DACL holding only the sandbox SID,
+            # silently locking every other trustee out of the directory.
+            if not p_dacl.value:
+                logger.warning(
+                    "_add_traverse_ace: refusing %s: its DACL is NULL",
+                    path,
+                )
+                return False
+
             # Build and merge the new ACE
             ea = _build_explicit_access(
                 psid,
@@ -1852,15 +1866,17 @@ def _grant_object_access(  # pylint: disable=too-many-return-statements
 
 def _create_process_with_token(
     h_token: ctypes.wintypes.HANDLE,
-    cmd: str,
+    cmd: str | list[str],
     cwd: str,
     env: Dict[str, str],
     shell_executable: Optional[str] = None,
+    *,
+    stdio: tuple[int, int, int] | None = None,
 ) -> Tuple[
     int,
     ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
-    ctypes.wintypes.HANDLE,
+    Optional[ctypes.wintypes.HANDLE],
+    Optional[ctypes.wintypes.HANDLE],
     Optional[ctypes.wintypes.HANDLE],
 ]:
     """Launches a process with the restricted token.
@@ -1885,14 +1901,21 @@ def _create_process_with_token(
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
 
-    stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
-        kernel32,
-    )
+    if stdio is None:
+        (
+            stdout_read,
+            stdout_write,
+            stderr_read,
+            stderr_write,
+        ) = _create_stdio_pipes(kernel32)
+    else:
+        stdout_read = stderr_read = None
+        _, stdout_write, stderr_write = stdio
 
     si = _STARTUPINFOW()
     si.cb = ctypes.sizeof(si)
     si.dwFlags = _WC.STARTF_USESTDHANDLES
-    si.hStdInput = None
+    si.hStdInput = stdio[0] if stdio is not None else None
     si.hStdOutput = stdout_write
     si.hStdError = stderr_write
     si.lpDesktop = "WinSta0\\Default"
@@ -1902,7 +1925,11 @@ def _create_process_with_token(
     creation_flags = _WC.CREATE_UNICODE_ENVIRONMENT | _WC.CREATE_NO_WINDOW
 
     _ensure_privileges()
-    shell_cmd = _build_shell_command_line(cmd, shell_executable)
+    shell_cmd = (
+        subprocess.list2cmdline(cmd)
+        if isinstance(cmd, list)
+        else _build_shell_command_line(cmd, shell_executable)
+    )
     cmd_line = ctypes.create_unicode_buffer(shell_cmd)
 
     success = advapi32.CreateProcessWithTokenW(
@@ -1940,13 +1967,15 @@ def _create_process_with_token(
             ctypes.byref(pi),
         )
 
-    kernel32.CloseHandle(stdout_write)
-    kernel32.CloseHandle(stderr_write)
+    if stdio is None:
+        kernel32.CloseHandle(stdout_write)
+        kernel32.CloseHandle(stderr_write)
 
     if not success:
         err = ctypes.get_last_error()
-        kernel32.CloseHandle(stdout_read)
-        kernel32.CloseHandle(stderr_read)
+        if stdio is None:
+            kernel32.CloseHandle(stdout_read)
+            kernel32.CloseHandle(stderr_read)
         raise OSError(
             f"CreateProcess failed: error={err} "
             f"(CreateProcessWithTokenW also failed: {err_with_token})",
@@ -2403,8 +2432,10 @@ class WindowsElevatedSandbox(WindowsSandboxBase):
             )
             self._process_handle = proc_handle
             self._process_id = pid
+            await watch_shell_process_async(pid)
             self._job_handle = job_handle
 
+            assert stdout_handle is not None and stderr_handle is not None
             (
                 exit_code,
                 stdout,
@@ -2680,6 +2711,14 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
         return True
 
     # Last-resort fallback: reset DACL inheritance and retry removal.
+    # Never on a volume root: ``icacls /reset`` rewrites the DACL of the
+    # entire volume, which can make the drive inaccessible.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to reset the DACL of volume root %s",
+            path,
+        )
+        return False
     _run_icacls_sync_local([path, "/reset"])
     if _remove_acl_with_verify_sync(path, sid, deadline=deadline):
         return True
@@ -2692,7 +2731,19 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
     return False
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup(*, log_progress: bool = True) -> None:
+    """Clean sandbox state, optionally silencing the whole cleanup chain."""
+    with (
+        cleanup_logging(log_progress),
+        cleanup_errors(
+            logger,
+            "Unexpected sandbox shutdown failure",
+        ),
+    ):
+        _shutdown_cleanup()
+
+
+def _shutdown_cleanup() -> None:
     """Cleans up elevated sandbox instances owned by this process or orphaned.
 
     Removes ACLs, firewall rules, local user accounts, and profile
@@ -2720,10 +2771,11 @@ def shutdown_cleanup() -> None:
     )
 
     for meta_file, meta in orphaned:
-        username = meta.get("username", "")
-        if username:
-            logger.info("Cleaning sandbox metadata: %s", username)
-            _cleanup_from_metadata(meta, meta_file)
+        with cleanup_errors(logger, "Failed to clean metadata %s", meta_file):
+            username = meta.get("username", "")
+            if username:
+                logger.info("Cleaning sandbox metadata: %s", username)
+                _cleanup_from_metadata(meta, meta_file)
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
@@ -2925,4 +2977,4 @@ def _cleanup_from_metadata(  # pylint: disable=R0912
     )
 
 
-atexit.register(shutdown_cleanup)
+atexit.register(shutdown_cleanup, log_progress=False)

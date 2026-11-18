@@ -141,6 +141,8 @@ Tavily is an AI-optimized web search service that enables agents to perform real
 
 > **Built-in Support**: A `tavily_search` client is automatically created at system startup. It auto-enables when the `TAVILY_API_KEY` environment variable is set. You can also directly modify the tavily mcp configuration.
 
+This configures the Tavily **MCP client**. QwenPaw's built-in `web_search` tool can use Tavily, AnySearch, or Firecrawl; see [Web Search](#Web-Search-web_search) below for its configuration.
+
 #### Remote MCP Service
 
 ```json
@@ -247,6 +249,8 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | File Operations    | `append_file`             | Append content to file end                                    |
 | File Search        | `grep_search`             | Search by content, supports regex and context                 |
 | File Search        | `glob_search`             | Find files by name pattern                                    |
+| Web Search         | `web_search`              | Search the web with Tavily, AnySearch, or Firecrawl           |
+| Web Fetch          | `web_fetch`               | Read a web page and convert it to Markdown                    |
 | Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution              |
 | Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                 |
 | Browser Automation | `browser`                 | Unified Browser SDK automation with async Python              |
@@ -259,6 +263,32 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | Statistics         | `get_token_usage`         | Query LLM token usage statistics                              |
 
 ### Tool Details
+
+#### Web Search (`web_search`)
+
+Enable `web_search` under **Agent → Tools**, select a search provider, and optionally enter that provider's API key. Each agent has its own configuration. AnySearch is the default when no provider is selected.
+
+- **AnySearch** (default): Supports keyless anonymous search with an anonymous quota. An AnySearch API key enables authenticated requests. If the anonymous quota is exhausted, the service may return an automatically registered key, which the tool attempts to save before retrying.
+- **Tavily**: Keyless anonymous search works without an API key. With a Tavily API key, authenticated requests are preferred; HTTP 401, 429, or 432 falls back to anonymous search.
+- **Firecrawl**: The API key is optional. Authenticated requests are preferred when a key is set; HTTP 401 triggers one keyless retry. Keyless availability and limits depend on the service.
+
+Select the provider on the tool card, then enter its API key if needed. Keys are stored in the current agent's credential store; the **built-in tool** does not read the `TAVILY_API_KEY` environment variable from the Tavily MCP example above. If editing `agent.json` manually, the provider is stored at `tools.builtin_tools.web_search.config.provider`:
+
+```json
+{
+  "tools": {
+    "builtin_tools": {
+      "web_search": {
+        "name": "web_search",
+        "enabled": true,
+        "config": { "provider": "anysearch" }
+      }
+    }
+  }
+}
+```
+
+Valid `provider` values are `tavily`, `anysearch`, and `firecrawl`. Enter API keys through the Console instead of saving them in this file. `web_search` accepts `search_term`; `web_fetch` accepts `url` to read pages found in search results.
 
 **File Operations**
 

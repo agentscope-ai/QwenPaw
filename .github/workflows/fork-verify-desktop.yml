@@ -55,16 +55,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -124,16 +132,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -161,6 +177,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item -Force $installer.FullName $target
           Write-Host "Staged: $target"
+          Write-Host "Installer size: $($installer.Length) bytes ($([Math]::Round($installer.Length / 1MB, 2)) MiB)"
 
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10

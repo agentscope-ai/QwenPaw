@@ -34,6 +34,8 @@ import signal
 import time
 from typing import List, Optional
 
+from ..utils.shell_resources import communicate_shell_process
+
 from .config import ExecutionResult
 from .local_sandbox import LocalSandbox
 
@@ -221,7 +223,7 @@ class BubblewrapSandbox(LocalSandbox):
                 start_new_session=True,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                self._process.communicate(),
+                communicate_shell_process(self._process),
                 timeout=self._config.timeout_seconds,
             )
             duration_ms = int((time.monotonic() - start) * 1000)

@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@/features/thinking/types";
 // Multi-agent management types
 
 import type { ModelSlotConfig } from "./provider";
@@ -19,6 +20,8 @@ export interface AgentSummary {
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
+  backend_status?: "available" | "missing" | "disabled" | "failed";
+  backend_plugin_id?: string | null;
   backend_capabilities?: Partial<HarnessCapabilities>;
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
@@ -94,6 +97,31 @@ export interface MemoryGraphSnapshot {
   edges: MemoryGraphEdge[];
 }
 
+export interface MemoryTagPage {
+  items: { tag: string; file_count: number }[];
+  total_tags: number;
+  page: number;
+  page_size: number;
+}
+
+export interface MemoryTagFile {
+  path: string;
+  source: "daily" | "digest" | "workspace";
+  relative_path: string;
+  name: string;
+  description: string;
+  modified_at: number;
+  memory_tags: string[];
+}
+
+export interface MemoryTagFilePage {
+  tag: string;
+  items: MemoryTagFile[];
+  total_files: number;
+  page: number;
+  page_size: number;
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;
@@ -108,13 +136,15 @@ export interface AgentProfileConfig {
   };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;
     target_scope: "configured" | "free_only";
   };
   subagent_model?: ModelSlotConfig | null;
-  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+  thinking_level?: ThinkingLevel;
+  thinking_budget?: number | null;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
@@ -127,13 +157,16 @@ export interface AgentProfileConfig {
 }
 
 export interface AgentModelSettingsPatch {
+  active_model?: ModelSlotConfig | null;
+  decision_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;
     target_scope: "configured" | "free_only";
   };
   subagent_model?: ModelSlotConfig | null;
-  thinking_level?: "inherit" | "off" | "low" | "medium" | "high";
+  thinking_level?: ThinkingLevel;
+  thinking_budget?: number | null;
 }
 
 export interface CreateAgentRequest {

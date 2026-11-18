@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from models import config
 import services.external_skills as external_skills
 from services.external_skills import load_skills
+from services.file_agent_runtime.prompts import live_operation_guidance
 from services.file_agent_runtime import (
     AgentModelTurn,
     AgentRunStatus,
@@ -92,59 +95,63 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert loaded["good"].available
     assert not loaded["ghost"].available and loaded["ghost"].reason
     assert not loaded["bad-md"].available
-    assert "off" not in loaded  # disabled entries are skipped entirely
+    # Disabled entries stay listed (enabled=False) so the UI can re-enable
+    # them; agent-facing consumers filter on entry.enabled.
+    assert "off" in loaded and not loaded["off"].entry.enabled
     invalid = next(s for s in loaded.values() if "invalid" in (s.reason or ""))
     assert not invalid.available
 
 
-def test_professional_media_prompt_skill_is_builtin(
+@pytest.mark.parametrize(
+    ("skill_name", "body_fields"),
+    [
+        ("professional-media-prompts", ("[Image 1]",)),
+        (
+            "visual-asset-design",
+            ("canonical_variant_id", "derived_from_variant_id"),
+        ),
+        (
+            "informal-launch-captions",
+            ("screenCopy", "design_motion_overlays"),
+        ),
+    ],
+)
+def test_media_skills_are_builtin_and_viewable(
     tmp_path,
     monkeypatch,
-) -> None:
-    """The Creator ships the detailed prompt compiler without config."""
-
+    skill_name,
+    body_fields,
+):
     _configure(tmp_path, monkeypatch, [])
     builtin_root = Path(__file__).resolve().parents[2] / "skills"
     monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
     external_skills._clear_load_cache()
-
     loaded = {skill.entry.name: skill for skill in load_skills()}
-    skill = loaded["professional-media-prompts"]
+    skill = loaded[skill_name]
     assert skill.available
     parsed = external_skills.parse_skill_md(skill.skill_md)
     assert parsed["description"] and parsed["body"]
-    # Keep the interoperable reference convention covered; layout semantics
-    # belong to executable layout tests, not exact prose-copy assertions.
-    assert "[Image 1]" in parsed["body"]
-    viewed = external_skills.view_skill(
-        skill_name="professional-media-prompts",
-    )
+    assert all(field in parsed["body"] for field in body_fields)
+    viewed = external_skills.view_skill(skill_name=skill_name)
     assert viewed["ok"] is True
     assert viewed["content"] == skill.skill_md
 
 
-def test_visual_asset_design_skill_is_builtin(
+def test_launch_caption_designer_reads_the_discoverable_skill(
     tmp_path,
     monkeypatch,
-) -> None:
-    """The visual doctrine retired from the specialist ships as a skill."""
+):
+    from services.media_files.informal_launch_template import (
+        informal_launch_caption_skill,
+    )
 
     _configure(tmp_path, monkeypatch, [])
     builtin_root = Path(__file__).resolve().parents[2] / "skills"
     monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
-    external_skills._clear_load_cache()
-
-    loaded = {skill.entry.name: skill for skill in load_skills()}
-    skill = loaded["visual-asset-design"]
-    assert skill.available
-    parsed = external_skills.parse_skill_md(skill.skill_md)
-    assert "VisualVariant" in parsed["description"]
-    assert "电影感艺术身份板" in parsed["body"]
-    assert "规避图片审核误判（硬性）" in parsed["body"]
-    assert "构图与镜头语言" in parsed["body"]
-    viewed = external_skills.view_skill(skill_name="visual-asset-design")
+    viewed = external_skills.view_skill(skill_name="informal-launch-captions")
     assert viewed["ok"] is True
-    assert "序列关键帧参考图" in viewed["content"]
+    body = external_skills.parse_skill_md(viewed["content"])["body"]
+    assert body and informal_launch_caption_skill() == body
 
 
 # ── Driver loop: progressive disclosure end to end ───────────────────────────
@@ -322,3 +329,97 @@ def test_skill_loading_runs_off_the_event_loop(tmp_path, monkeypatch) -> None:
 
     assert load_threads, "the model loop must have loaded external skills"
     assert all(thread != loop_thread for thread in load_threads)
+
+
+def test_computer_use_manual_follows_the_loaded_plugin(tmp_path, monkeypatch):
+    bundle = tmp_path / "computer-use"
+    package = bundle / "computer_use"
+    skill = bundle / "skills" / "computer_use" / "SKILL.md"
+    package.mkdir(parents=True)
+    skill.parent.mkdir(parents=True)
+    module_file = package / "__init__.py"
+    module_file.write_text("", encoding="utf-8")
+    skill.write_text(
+        "---\nname: computer_use\n---\nNative manual",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "computer_use",
+        SimpleNamespace(__file__=str(module_file)),
+    )
+    monkeypatch.setattr(live_operation_guidance, "_skill_root", lambda: None)
+
+    manual = live_operation_guidance.load_host_computer_use_manual()
+    assert manual == "Native manual"
+
+
+# ── Management reader vs agent viewer gates ──────────────────────────────────
+
+
+def test_view_skill_refuses_a_disabled_skill(tmp_path, monkeypatch) -> None:
+    """A skill disabled mid-run is not readable through the agent viewer."""
+
+    root = _write_skill(tmp_path / "demo-src")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [{"name": "demo-skill", "path": str(root), "enabled": False}],
+    )
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    # Stays listed so the UI can re-enable it, but the agent-facing viewer
+    # now refuses it (regression: it used to check only ``available``).
+    assert "demo-skill" in loaded
+    assert not loaded["demo-skill"].entry.enabled
+    with pytest.raises(external_skills.SkillExecutionError, match="disabled"):
+        external_skills.view_skill(skill_name="demo-skill")
+
+
+def test_read_skill_content_reads_disabled_and_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The management reader bypasses the enabled/available gates."""
+
+    root = _write_skill(tmp_path / "demo-src")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [
+            {"name": "demo-skill", "path": str(root), "enabled": False},
+            {"name": "ghost", "path": str(tmp_path / "nope"), "enabled": True},
+        ],
+    )
+    # A disabled skill stays editable through the management reader.
+    viewed = external_skills.read_skill_content(skill_name="demo-skill")
+    assert viewed["ok"] is True
+    assert viewed["content"] == _SKILL_MD
+    assert viewed["truncated"] is False
+    # A missing directory surfaces as a refusal, not a silently empty editor.
+    with pytest.raises(external_skills.SkillExecutionError):
+        external_skills.read_skill_content(skill_name="ghost")
+
+
+def test_read_skill_content_is_not_truncated_by_the_viewer_cap(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The editor reader round-trips the whole file, unlike view_skill."""
+
+    big_md = "---\nname: big-skill\ndescription: big\n---\n\n# Big\n\n"
+    big_md += "line\n" * 100_000
+    root = tmp_path / "big-src"
+    root.mkdir()
+    (root / "SKILL.md").write_text(big_md, encoding="utf-8")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [{"name": "big-skill", "path": str(root), "enabled": True}],
+    )
+    viewed = external_skills.view_skill(skill_name="big-skill")
+    assert viewed["truncated"] is True
+    cap = external_skills.SKILL_FILE_READ_MAX_BYTES
+    assert len(viewed["content"].encode("utf-8")) <= cap
+    full = external_skills.read_skill_content(skill_name="big-skill")
+    assert full["truncated"] is False
+    assert full["content"] == big_md

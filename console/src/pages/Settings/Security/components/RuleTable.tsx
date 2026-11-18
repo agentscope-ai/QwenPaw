@@ -1,26 +1,13 @@
-import { useMemo } from "react";
-import {
-  Table,
-  Tag,
-  Switch,
-  Button,
-  Tooltip,
-  Collapse,
-} from "@agentscope-ai/design";
-import { Space } from "antd";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Button, Input, Switch, Tag, Empty } from "antd";
+import { Eye, Pencil, Trash2, ChevronRight, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
+import NumberFlow from "@number-flow/react";
+import { SharedModal } from "@/components/interaction/SharedModal";
+import InlineHelp from "@/components/InlineHelp";
 import type { MergedRule } from "../useToolGuard";
-import { useTheme } from "../../../../contexts/ThemeContext";
-import styles from "../index.module.less";
-
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: "red",
-  HIGH: "orange",
-  MEDIUM: "gold",
-  LOW: "blue",
-  INFO: "default",
-};
+import styles from "./RuleTable.module.less";
 
 interface RuleTableProps {
   rules: MergedRule[];
@@ -30,20 +17,6 @@ interface RuleTableProps {
   onPreviewRule: (rule: MergedRule) => void;
   onEditRule: (rule: MergedRule) => void;
   onDeleteRule: (ruleId: string) => void;
-}
-
-function groupRulesByCategory(
-  rules: MergedRule[],
-): Record<string, MergedRule[]> {
-  const groups: Record<string, MergedRule[]> = {};
-  for (const rule of rules) {
-    const category = rule.category || "other";
-    if (!groups[category]) {
-      groups[category] = [];
-    }
-    groups[category].push(rule);
-  }
-  return groups;
 }
 
 export function RuleTable({
@@ -56,205 +29,170 @@ export function RuleTable({
   onDeleteRule,
 }: RuleTableProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
-  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
-
-  const groupedRules = useMemo(() => groupRulesByCategory(rules), [rules]);
-
-  const columns = [
-    {
-      title: t("security.rules.id"),
-      dataIndex: "id",
-      key: "id",
-      width: 280,
-      render: (id: string, record: MergedRule) => (
-        <span style={{ opacity: record.disabled ? 0.4 : 1 }}>{id}</span>
-      ),
-    },
-    {
-      title: t("security.rules.severity"),
-      dataIndex: "severity",
-      key: "severity",
-      width: 100,
-      render: (sev: string, record: MergedRule) => (
-        <Tag
-          color={SEVERITY_COLORS[sev] ?? "default"}
-          style={{ opacity: record.disabled ? 0.4 : 1 }}
-        >
-          {sev}
-        </Tag>
-      ),
-    },
-    {
-      title: t("security.rules.descriptionCol"),
-      dataIndex: "description",
-      key: "description",
-      ellipsis: true,
-      render: (_text: string, record: MergedRule) => {
-        const i18nKey = `security.rules.descriptions.${record.id}`;
-        const translated = t(i18nKey, { defaultValue: "" });
-        const display = translated || record.description;
-        return (
-          <Tooltip title={display}>
-            <span
-              style={{
-                opacity: record.disabled ? 0.4 : 1,
-                display: "block",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {display}
-            </span>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: t("security.rules.source"),
-      dataIndex: "source",
-      key: "source",
-      width: 100,
-      render: (source: string, record: MergedRule) => (
-        <Tag
-          color={source === "builtin" ? "rgba(142, 140, 153, 1)" : "green"}
-          style={{ opacity: record.disabled ? 0.4 : 1 }}
-        >
-          {source === "builtin"
-            ? t("security.rules.builtin")
-            : t("security.rules.custom")}
-        </Tag>
-      ),
-    },
-    {
-      title: (
-        <Tooltip title={t("security.rules.autoDenyTooltip")}>
-          <span>{t("security.rules.autoDeny")}</span>
-        </Tooltip>
-      ),
-      key: "autoDeny",
-      width: 100,
-      render: (_: unknown, record: MergedRule) => (
-        <Tooltip
-          title={
-            record.autoDeny
-              ? t("security.rules.autoDenyDisable")
-              : t("security.rules.autoDenyEnable")
-          }
-        >
-          <Switch
-            size="small"
-            checked={record.autoDeny}
-            onChange={() => onToggleAutoDeny(record.id, record.autoDeny)}
-            disabled={!enabled || record.disabled}
-          />
-        </Tooltip>
-      ),
-    },
-    {
-      title: t("security.rules.actions"),
-      key: "actions",
-      width: 100,
-      render: (_: unknown, record: MergedRule) => (
-        <Space size="small">
-          <Tooltip
-            title={
-              record.disabled
-                ? t("security.rules.enable")
-                : t("security.rules.disable")
-            }
-          >
-            <Switch
-              size="small"
-              checked={!record.disabled}
-              onChange={() => onToggleRule(record.id, record.disabled)}
-              disabled={!enabled}
-            />
-          </Tooltip>
-          {record.source === "builtin" && (
-            <Button
-              type="text"
-              size="small"
-              onClick={() => onPreviewRule(record)}
-              disabled={!enabled}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                ...darkBtnStyle,
-              }}
-            >
-              <Eye size={16} />
-            </Button>
-          )}
-          {record.source === "custom" && (
-            <>
-              <Tooltip title={t("security.rules.edit")}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<Pencil size={14} />}
-                  onClick={() => onEditRule(record)}
-                  disabled={!enabled}
-                  style={darkBtnStyle}
-                />
-              </Tooltip>
-              <Tooltip title={t("security.rules.delete")}>
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<Trash2 size={14} />}
-                  onClick={() => onDeleteRule(record.id)}
-                  disabled={!enabled}
-                />
-              </Tooltip>
-            </>
-          )}
-        </Space>
-      ),
-    },
-  ];
-
-  const categoryKeys = Object.keys(groupedRules);
-
-  const collapseItems = categoryKeys.map((category) => {
-    const categoryRules = groupedRules[category];
-    const enabledCount = categoryRules.filter((r) => !r.disabled).length;
-    const totalCount = categoryRules.length;
-    const categoryLabel =
-      t(`security.rules.categories.${category}`, { defaultValue: "" }) ||
-      category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-    return {
-      key: category,
-      label: (
-        <span className={styles.collapseCategoryLabel}>
-          {categoryLabel}
-          <Tag style={{ marginLeft: 8 }}>
-            {enabledCount}/{totalCount}
-          </Tag>
-        </span>
-      ),
-      children: (
-        <Table
-          dataSource={categoryRules}
-          columns={columns}
-          rowKey="id"
-          pagination={false}
-          size="small"
-          className={styles.ruleTable}
-        />
-      ),
-    };
-  });
-
+  const reduced = useReducedMotion();
+  const [category, setCategory] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const grouped = useMemo(() => {
+    const groups: Record<string, MergedRule[]> = {};
+    for (const rule of rules)
+      (groups[rule.category || "other"] ??= []).push(rule);
+    return groups;
+  }, [rules]);
+  const label = (key: string) =>
+    t(`security.rules.categories.${key}`, {
+      defaultValue: key.replace(/_/g, " "),
+    });
+  const description = (rule: MergedRule) =>
+    t(`security.rules.descriptions.${rule.id}`, {
+      defaultValue: rule.description,
+    });
+  const selected = category
+    ? (grouped[category] ?? []).filter((rule) =>
+        `${rule.id} ${description(rule)}`
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+      )
+    : [];
   return (
-    <Collapse
-      defaultActiveKey={categoryKeys}
-      items={collapseItems}
-      className={styles.ruleCollapse}
-    />
+    <LayoutGroup>
+      <div className={styles.categories}>
+        {Object.entries(grouped).map(([key, items]) => (
+          <motion.button
+            type="button"
+            key={key}
+            layoutId={reduced ? undefined : `rule-category:${key}`}
+            className={styles.category}
+            data-inactive={!enabled || undefined}
+            style={{ borderRadius: 18 }}
+            onClick={() => {
+              setQuery("");
+              setCategory(key);
+            }}
+            whileTap={reduced ? undefined : { scale: 0.98 }}
+          >
+            <span className={styles.categoryTop}>
+              <strong>{label(key)}</strong>
+              <ChevronRight size={17} />
+            </span>
+            <span className={styles.count}>
+              <NumberFlow
+                value={
+                  enabled ? items.filter((rule) => !rule.disabled).length : 0
+                }
+                respectMotionPreference
+              />{" "}
+              <small>/ {items.length}</small>
+            </span>
+            <span className={styles.meter} aria-hidden="true">
+              <motion.span
+                animate={{
+                  width: `${
+                    ((enabled
+                      ? items.filter((rule) => !rule.disabled).length
+                      : 0) /
+                      items.length) *
+                    100
+                  }%`,
+                }}
+                transition={{ duration: reduced ? 0 : 0.25 }}
+              />
+            </span>
+            <span className={styles.caption}>
+              {t(enabled ? "common.enabled" : "common.disabled")}
+            </span>
+          </motion.button>
+        ))}
+      </div>
+      <SharedModal
+        open={category !== null}
+        surfaceId={category ? `rule-category:${category}` : undefined}
+        title={category ? label(category) : ""}
+        onCancel={() => setCategory(null)}
+        footer={null}
+        width={840}
+      >
+        <Input
+          prefix={<Search size={16} />}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("common.search")}
+          aria-label={t("common.search")}
+          allowClear
+        />
+        <div className={styles.rules}>
+          {selected.map((rule) => (
+            <article
+              className={styles.rule}
+              key={rule.id}
+              data-disabled={rule.disabled || undefined}
+            >
+              <div className={styles.ruleHeading}>
+                <div>
+                  <code>{rule.id}</code>
+                  <p>{description(rule)}</p>
+                </div>
+                <Switch
+                  disabled={!enabled}
+                  checked={!rule.disabled}
+                  aria-label={`${t("security.enabled")}: ${rule.id}`}
+                  onChange={() => onToggleRule(rule.id, rule.disabled)}
+                />
+              </div>
+              <div className={styles.ruleFooter}>
+                <Tag>{rule.severity}</Tag>
+                <span>
+                  {t(
+                    `security.rules.${
+                      rule.source === "builtin" ? "builtin" : "custom"
+                    }`,
+                  )}
+                </span>
+                <div className={styles.actions}>
+                  <span>
+                    {t("security.rules.autoDeny")}{" "}
+                    <InlineHelp>
+                      {t("security.rules.autoDenyTooltip")}
+                    </InlineHelp>
+                  </span>
+                  <Switch
+                    size="small"
+                    disabled={!enabled || rule.disabled}
+                    checked={rule.autoDeny}
+                    aria-label={`${t("security.rules.autoDeny")}: ${rule.id}`}
+                    onChange={() => onToggleAutoDeny(rule.id, rule.autoDeny)}
+                  />
+                  <Button
+                    type="text"
+                    aria-label={`${t("common.view")}: ${rule.id}`}
+                    icon={<Eye size={16} />}
+                    onClick={() => onPreviewRule(rule)}
+                  />
+                  {rule.source === "custom" && (
+                    <>
+                      <Button
+                        type="text"
+                        disabled={!enabled}
+                        aria-label={`${t("security.rules.edit")}: ${rule.id}`}
+                        icon={<Pencil size={16} />}
+                        onClick={() => onEditRule(rule)}
+                      />
+                      <Button
+                        type="text"
+                        danger
+                        disabled={!enabled}
+                        aria-label={`${t("security.rules.delete")}: ${rule.id}`}
+                        icon={<Trash2 size={16} />}
+                        onClick={() => onDeleteRule(rule.id)}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
+          {!selected.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+        </div>
+      </SharedModal>
+    </LayoutGroup>
   );
 }

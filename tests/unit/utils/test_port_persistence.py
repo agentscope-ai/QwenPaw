@@ -8,6 +8,8 @@ port handling in ``get_stable_port``.
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import socket
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -100,6 +102,35 @@ class TestBindAndFindPort:
 
 
 class TestGetStablePort:
+    @pytest.mark.parametrize(f"source", [f"recorded", f"fixed"])
+    def test_queues_connection_burst_before_accept(
+        self,
+        tmp_path,
+        monkeypatch,
+        source,
+    ):
+        """Keep pending connections until the server starts accepting."""
+        port_file = tmp_path / f"port"
+        port = port_mod.find_free_port()
+        monkeypatch.setattr(
+            port_mod,
+            f"QWENPAW_DESKTOP_PORT",
+            f"{port}" if source == f"fixed" else f"",
+        )
+        if source == f"recorded":
+            port_mod.write_port_file(port_file, port)
+
+        with ExitStack() as sockets:
+            selected, listener = port_mod.get_stable_port(port_file)
+            assert listener is not None
+            sockets.enter_context(listener)
+            assert selected == port
+            # No accept: exercise the queue established by the first listen.
+            for _ in range(20):
+                sockets.enter_context(
+                    socket.create_connection((f"127.0.0.1", port), timeout=2),
+                )
+
     def test_env_var_port_wins(self, tmp_path):
         port_file = tmp_path / "port"
         free = port_mod.find_free_port()

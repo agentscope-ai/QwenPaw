@@ -3,7 +3,7 @@
  * once the user confirms, transitions to a progress view via useBackupRunner.
  * Does NOT handle the silent pre-restore case — see SilentBackupModal for that.
  */
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { Modal, Input, Alert, Button, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
@@ -40,27 +40,30 @@ export default function CreateBackupModal({
 
   const runner = useBackupRunner({ onSuccess, onClose });
 
-  /** Resets form and runner state each time the modal opens for a fresh session. */
-  const handleAfterOpenChange = (visible: boolean) => {
-    if (visible) {
-      if (resumeJob) {
-        runner.resume(resumeJob);
-        return;
-      }
-      setName(`Backup ${dayjs().format("YYYY-MM-DD HH:mm")}`);
-      setDescription("");
-      setScope(defaultCreateScope(agents.map((a) => a.id)));
-      runner.reset();
+  // Initialize before interaction; the entrance animation must not reset edits.
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (resumeJob) {
+      runner.resume(resumeJob);
+      return;
     }
-  };
+    setName(`Backup ${dayjs().format("YYYY-MM-DD HH:mm")}`);
+    setDescription("");
+    setScope(defaultCreateScope(agents.map((a) => a.id)));
+    runner.reset();
+    // Take a fresh snapshot on opening, not on later form/runner renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   /** Validates the name then hands off to useBackupRunner to start the stream. */
   const handleOk = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { scope: backupScope, agents } = buildScope(
+    const { scope: backupScope, agents: selectedAgentIds } = buildScope(
       scope.backupMode,
-      scope.selectedAgents,
+      scope.backupMode === "full"
+        ? agents.map((agent) => agent.id)
+        : scope.selectedAgents,
       scope.globalConfig,
       scope.includeSkillPool,
       scope.includeSecrets,
@@ -69,13 +72,21 @@ export default function CreateBackupModal({
       name: trimmed,
       description: description.trim() || undefined,
       scope: backupScope,
-      agents,
+      agents: selectedAgentIds,
     });
   };
 
   return (
     <Modal
       title={t("backup.createTitle")}
+      width={640}
+      styles={{
+        body: {
+          maxHeight: "min(68dvh, 640px)",
+          overflowY: "auto",
+          paddingInline: 2,
+        },
+      }}
       open={open}
       onCancel={runner.loading ? undefined : onClose}
       onOk={runner.loading ? undefined : handleOk}
@@ -94,7 +105,6 @@ export default function CreateBackupModal({
         ) : undefined
       }
       destroyOnHidden
-      afterOpenChange={handleAfterOpenChange}
       centered
       closable={!runner.loading}
       maskClosable={!runner.loading}

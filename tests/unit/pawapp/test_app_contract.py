@@ -385,14 +385,23 @@ def test_pawapp_delegates_extensions_through_plugin_api(
         "/capabilities",
     }
     assert api.register_http_router.call_count == 1
-    api.register_startup_hook.assert_any_call(
-        hook_name="pawapp_fixture_service_context",
-        callback=service.start,
-        priority=70,
+    service_hook = next(
+        call.kwargs
+        for call in api.register_startup_hook.call_args_list
+        if call.kwargs["hook_name"] == "pawapp_fixture_service_context"
     )
+    assert callable(service_hook["callback"])
+    assert service_hook["priority"] == 70
+    service_effect = next(
+        call.kwargs
+        for call in api.effect.call_args_list
+        if call.kwargs["desc"] == "pawapp:fixture:service:context"
+    )
+    closer = service_effect["teardown"]
+    assert closer.client is service
     api.register_shutdown_hook.assert_any_call(
         hook_name="pawapp_fixture_service_context",
-        callback=service.stop,
+        callback=closer,
         priority=130,
     )
 
@@ -826,3 +835,31 @@ def test_chat_reply_returns_only_the_last_assistant_message() -> None:
     )
 
     assert reply.text == "The final answer is 42."
+
+
+def test_chat_stream_disables_proxy_buffering() -> None:
+    class StreamContext:
+        app_id = "fixture"
+
+        def is_app_session_id(self, session_id: str) -> bool:
+            return session_id.startswith("pawapp:fixture")
+
+        async def ensure_chat_session(self, _session_id):
+            return None
+
+        async def chat_stream(self, *_args, **_kwargs):
+            yield {"type": "done"}
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_scoped_ctx] = StreamContext
+    client = TestClient(fixture)
+
+    response = client.post(
+        "/chat/stream",
+        json={"message": "hi", "session_id": "pawapp:fixture"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["x-accel-buffering"] == "no"

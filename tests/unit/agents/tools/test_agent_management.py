@@ -260,6 +260,55 @@ async def test_stop_agent_chat_async_calls_target_stop_endpoint(monkeypatch):
     )
 
 
+async def test_stop_agent_chat_async_forwards_reason_and_initiator(
+    monkeypatch,
+):
+    """GH-8252: the cascade stop must carry reason AND initiator so the
+    target's logs can attribute the cancellation."""
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, path, **kwargs):
+            calls.append((path, kwargs))
+            return _FakeResponse(json_data={"stopped": True})
+
+    monkeypatch.setattr(
+        agent_management.httpx,
+        "AsyncClient",
+        FakeAsyncClient,
+    )
+
+    stopped = await agent_management.stop_agent_chat_async(
+        "http://127.0.0.1:8088",
+        "session-1",
+        "bot_b",
+        cancel_reason="timeout",
+        initiator="caller-session-9",
+    )
+
+    assert stopped is True
+    assert calls[1] == (
+        "/console/chat/stop",
+        {
+            "params": {
+                "chat_id": "session-1",
+                "cancel_reason": "timeout",
+                "initiator": "caller-session-9",
+            },
+            "headers": {"X-Agent-Id": "bot_b"},
+        },
+    )
+
+
 async def test_agent_management_tools_can_be_registered_in_toolkit():
     toolkit = Toolkit(
         tools=[
@@ -410,6 +459,184 @@ async def test_chat_with_agent_stops_target_when_cancelled(
 
     assert stop_calls
     assert stop_calls[0][0] == (None, "session-1", "bot_b")
+
+
+@pytest.mark.parametrize(
+    ("reason_value", "expected_text"),
+    [
+        ("user", "cancelled by the user"),
+        ("timeout", "cancelled due to timeout"),
+    ],
+)
+async def test_chat_with_agent_returns_error_for_single_tool_cancel(
+    monkeypatch,
+    reason_value,
+    expected_text,
+):
+    from qwenpaw.tool_calls import reset_call_context, set_call_context
+    from qwenpaw.tool_calls._context import CancelReason, ToolCallContext
+
+    stop_calls = []
+
+    async def fake_collect_async(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    async def fake_stop_async(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+
+    ctx = ToolCallContext(
+        tool_call_id="call-1",
+        tool_name="chat_with_agent",
+        session_id="parent-session",
+        agent_id="parent-agent",
+        root_session_id="parent-session",
+        started_at=0.0,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+        cancel_reason=CancelReason(reason_value),
+    )
+    ctx.cancel_event.set()
+    token = set_call_context(ctx)
+    try:
+        response = await agent_management.chat_with_agent(
+            to_agent="bot_b",
+            text="Need help",
+            session_id="session-1",
+        )
+    finally:
+        reset_call_context(token)
+
+    assert response.state == agent_management.ToolResultState.ERROR
+    assert expected_text in response.content[0].text
+    assert response.metadata["cancel_reason"] == reason_value
+    assert stop_calls
+
+
+async def test_chat_with_agent_propagates_parent_task_cancel(monkeypatch):
+    from qwenpaw.tool_calls import reset_call_context, set_call_context
+    from qwenpaw.tool_calls._context import CancelReason, ToolCallContext
+
+    collect_started = asyncio.Event()
+    stop_calls = []
+
+    async def fake_collect_async(*_args, **_kwargs):
+        collect_started.set()
+        await asyncio.Event().wait()
+
+    async def fake_stop_async(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+
+    ctx = ToolCallContext(
+        tool_call_id="call-1",
+        tool_name="chat_with_agent",
+        session_id="parent-session",
+        agent_id="parent-agent",
+        root_session_id="parent-session",
+        started_at=0.0,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+        cancel_reason=CancelReason.USER,
+    )
+    ctx.cancel_event.set()
+    token = set_call_context(ctx)
+    try:
+        task = asyncio.create_task(
+            agent_management.chat_with_agent(
+                to_agent="bot_b",
+                text="Need help",
+                session_id="session-1",
+            ),
+        )
+        await collect_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        reset_call_context(token)
+
+    assert stop_calls
+
+
+async def test_chat_with_agent_propagates_timeout_to_target_stop(
+    monkeypatch,
+):
+    from qwenpaw.tool_calls import reset_call_context, set_call_context
+    from qwenpaw.tool_calls._context import CancelReason, ToolCallContext
+
+    stop_calls = []
+
+    async def fake_stop_async(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    ctx = ToolCallContext(
+        tool_call_id="call-1",
+        tool_name="chat_with_agent",
+        session_id="parent-session",
+        agent_id="parent-agent",
+        root_session_id="parent-session",
+        started_at=0.0,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+        cancel_reason=CancelReason.TIMEOUT,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    token = set_call_context(ctx)
+    try:
+        await agent_management._stop_cancelled_agent_chat(
+            "child-session",
+            "child-agent",
+        )
+    finally:
+        reset_call_context(token)
+
+    assert stop_calls == [
+        (
+            (None, "child-session", "child-agent"),
+            {
+                "cancel_reason": "timeout",
+                "initiator": "parent-session",
+            },
+        ),
+    ]
 
 
 async def test_chat_with_agent_reports_target_stop_failure(monkeypatch):
@@ -1855,7 +2082,12 @@ async def test_spawn_foreground_stops_subagent_when_cancelled(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await agent_management.spawn_subagent(task="do work")
 
-    assert stop_calls == [((None, "sub-cancel", "bot-a"), {})]
+    assert stop_calls == [
+        (
+            (None, "sub-cancel", "bot-a"),
+            {"cancel_reason": None, "initiator": None},
+        ),
+    ]
 
 
 async def test_spawn_batch_omitted_timeout_passes_none(monkeypatch):
@@ -1982,7 +2214,12 @@ async def test_spawn_fork_foreground_stops_subagent_when_cancelled(
             fork=True,
         )
 
-    assert stop_calls == [((None, "fork-cancel", "bot-a"), {})]
+    assert stop_calls == [
+        (
+            (None, "fork-cancel", "bot-a"),
+            {"cancel_reason": None, "initiator": None},
+        ),
+    ]
     assert failed_calls == [
         (
             ("/tmp/fork-cancel", "fork/cancel"),

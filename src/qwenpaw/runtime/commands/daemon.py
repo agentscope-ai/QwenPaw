@@ -17,6 +17,7 @@ from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_NAMESPACE, LOG_FILE_PATH
 
 if TYPE_CHECKING:
@@ -144,19 +145,12 @@ async def run_daemon_restart(context: DaemonContext) -> str:
     """Trigger zero-downtime agent reload or instruct user."""
     if context.manager is not None and context.agent_id is not None:
         try:
-            success = await context.manager.reload_agent(context.agent_id)
-            if success:
-                return (
-                    "**Restart completed**\n\n"
-                    "- Agent reloaded with zero-downtime "
-                    "(channels, cron, MCP)."
-                )
-            else:
-                return (
-                    "**Restart skipped**\n\n"
-                    "- Agent not currently loaded. "
-                    "Will reload on next request."
-                )
+            context.manager.schedule_reload(context.agent_id)
+            return (
+                "**Restart scheduled**\n\n"
+                "- The agent will reload after any outgoing history "
+                "writers finish saving."
+            )
         except Exception as e:
             return f"**Restart failed**\n\n- {e}"
     return (
@@ -253,7 +247,7 @@ class DaemonCommandHandlerMixin:
             )
         sub, args = parsed
         if sub == "status":
-            text = run_daemon_status(context)
+            text = await run_sync_io(run_daemon_status, context)
         elif sub == "restart":
             text = await run_daemon_restart(context)
         elif sub == "reload-config":

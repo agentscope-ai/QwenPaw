@@ -1,0 +1,230 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  padding: 14px 18px;
+  color: var(--app-text);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  > svg:first-child {
+    color: var(--app-accent-text);
+  }
+  > svg:last-child {
+    color: var(--app-text-tertiary);
+  }
+  &:hover {
+    border-color: var(--app-accent-border);
+    box-shadow: var(--app-shadow-sm);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+  }
+}
+.place {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  strong {
+    font-weight: 550;
+  }
+  small {
+    font-size: 11px;
+    color: var(--app-text-tertiary);
+  }
+}
+.clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 24px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.05em;
+}
+.atlas {
+  padding-top: 12px;
+}
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.readout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 8px 12px;
+  h3 {
+    font-size: 24px;
+    font-weight: 550;
+    margin: 6px 0;
+  }
+  small,
+  > div > span {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+  }
+  .clock {
+    font-size: 48px;
+  }
+}
+.map {
+  position: relative;
+  aspect-ratio: 800 / 384;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--app-surface-subtle);
+  display: grid;
+  place-items: center;
+  margin-top: 12px;
+}
+.geography {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-origin: center;
+  > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+.land {
+  fill: var(--app-fill-strong);
+  stroke: var(--app-border-strong);
+  stroke-width: 0.5;
+}
+.graticule {
+  fill: none;
+  stroke: var(--app-border-subtle);
+  stroke-width: 0.5;
+}
+.pin {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  > span:first-child {
+    width: 6px;
+    height: 6px;
+    background: var(--app-text-secondary);
+    border: 1px solid var(--app-surface);
+    border-radius: 50%;
+  }
+  &[data-selected="true"] > span:first-child {
+    width: 10px;
+    height: 10px;
+    background: var(--app-accent);
+    box-shadow:
+      0 0 0 7px var(--app-accent-soft),
+      0 0 24px var(--app-accent-border);
+  }
+  &:hover,
+  &:focus-visible {
+    outline: 1px solid var(--app-accent-border);
+    background: var(--app-accent-soft);
+    z-index: 2;
+  }
+}
+.pinLabel {
+  position: absolute;
+  top: 29px;
+  padding: 4px 8px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 8px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--app-text);
+  pointer-events: none;
+  box-shadow: var(--app-shadow-sm);
+}
+.zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 4px;
+}
+.hint {
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  margin: 14px 4px 0;
+}
+@media (max-width: 600px) {
+  .toolbar {
+    flex-wrap: wrap;
+    > :first-child {
+      flex-basis: 100%;
+    }
+  }
+  .readout .clock {
+    font-size: 36px;
+  }
+  .readout h3 {
+    font-size: 20px;
+  }
+}
+
+.timeBand {
+  fill: transparent;
+  stroke: var(--app-border-subtle);
+  stroke-width: 0.5;
+  cursor: pointer;
+  &:hover,
+  &:focus-visible,
+  &[aria-pressed="true"] {
+    fill: var(--app-accent-soft);
+    stroke: var(--app-accent-border);
+    outline: none;
+  }
+}
+.readout > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mapPreview {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 14px;
+  border-radius: 12px;
+  color: var(--app-text);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-subtle);
+  box-shadow: var(--app-shadow-sm);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 13px;
+  strong {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  span {
+    color: var(--app-text-secondary);
+  }
+}

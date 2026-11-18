@@ -25,7 +25,7 @@ import asyncio
 import time
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-from domain.enums import CreatorCommandType, CreatorSessionStatus
+from domain.enums import CreatorCommandType, CreatorSessionStatus, TaskStatus
 from models.config import (
     EXECUTION_AUTHORIZATION_ALLOW_ALL,
     get_execution_authorization_mode,
@@ -38,7 +38,11 @@ from services.media_files.call_budget import (
     MediaCallBudgetExhausted,
     ensure_media_call_budget,
 )
+from services.media_files.image_execution import (
+    recover_unclaimed_image_tasks,
+)
 from services.media_files.transient_errors import is_transient_error_message
+from services.file_agent_runtime import manual_regeneration_hold
 from services.file_agent_runtime.notifications import RuntimeEventKind
 from services.file_agent_runtime.work_graph import (
     dispatch_key_predates_digest_ledger,
@@ -74,6 +78,11 @@ _TRANSIENT_RETRY_LIMIT = 2
 # spend stays bounded.
 _TRANSIENT_RETRY_HARD_CAP = 6
 _TRANSIENT_RETRY_COOLDOWN_SECONDS = 300.0
+
+# Preparation validation retries: when the LLM generates a prompt that
+# fails contract checks (aspect ratio, reference format), feed the error
+# back as guidance so the model can self-correct.
+_PREPARATION_VALIDATION_RETRIES = 2
 
 # Scheduler-only transient markers; the shared media-side classifier
 # (is_transient_error_message) supplies the common ones (connection,
@@ -155,19 +164,60 @@ _MEDIA_REVIEW_DEPENDENT_KINDS = frozenset(
     {"visual", "lineup", "storyboard", "video", "compose"},
 )
 # Heavy/billed nodes that need stable inputs: storyboard, video, and compose.
-# These are unconditionally fenced by both media review (any active slot) and
-# sync review (text review pending). Visual/lineup are lighter and only fenced
-# when their specific target slot is under review.
+# Reviews fence their consumers and transitive dependencies; unrelated work
+# may proceed. Project-wide or unknown review scopes remain conservative.
 _HEAVY_NODE_KINDS = frozenset({"storyboard", "video", "compose"})
+
+
+def _review_scope(node: WorkNode, graph: WorkGraph, project=None):
+    """Owners read by a node, including transitive and explicit references."""
+    owners: set[str] = set()
+    visited: set[str] = set()
+    pending = [node]
+    by_id = graph.by_id
+    while pending:
+        current = pending.pop()
+        if current.node_id in visited:
+            continue
+        visited.add(current.node_id)
+        if current.target_ref:
+            owners.add(current.target_ref)
+        pending.extend(by_id[dep] for dep in current.deps if dep in by_id)
+        if project is not None and current.timeline_id:
+            timeline = project.timelines.items.get(current.timeline_id)
+            element = (
+                timeline.elements_by_id.get(
+                    (current.target_ref or "").removeprefix("element:"),
+                )
+                if timeline
+                else None
+            )
+            if element and current.kind in {"storyboard", "video"}:
+                for version_id in getattr(
+                    element.creation,
+                    f"{current.kind}_reference_version_ids",
+                    (),
+                ):
+                    version = project.assets.artifact_versions_by_id.get(
+                        version_id,
+                    )
+                    if version:
+                        owners.add(version.owner_ref)
+    return owners
 
 
 def _blocked_by_active_media_review(
     node: WorkNode,
     active_slots: frozenset[str],
     active_owner_refs: frozenset[str],
+    *,
+    graph: WorkGraph | None = None,
+    project=None,
 ) -> bool:
     if not active_slots or node.kind not in _MEDIA_REVIEW_DEPENDENT_KINDS:
         return False
+    if graph is not None:
+        return bool(_review_scope(node, graph, project) & active_owner_refs)
     if node.kind in _HEAVY_NODE_KINDS:
         return True
     # ArtifactSlot ids are opaque (asset:{id}:variant:{vid}:image), while a
@@ -179,14 +229,51 @@ def _blocked_by_active_media_review(
     return False
 
 
+def _reviewed_pointer_owner(pointer: str) -> str | None:
+    from services.project_files.json_pointer import split_pointer
+
+    parts = split_pointer(pointer)
+    if (
+        len(parts) >= 5
+        and parts[:2] == ("timelines", "items")
+        and parts[3] == "elements_by_id"
+    ):
+        return f"element:{parts[4]}"
+    if len(parts) >= 4:
+        prefix = {
+            ("visual", "entities", "items"): "asset",
+            ("visual", "cast_lineups", "items"): "lineup",
+        }.get(parts[:3])
+        if prefix:
+            return f"{prefix}:{parts[3]}"
+    return None
+
+
 def _blocked_by_active_sync_review(
     node: WorkNode,
     *,
     sync_review_pending: bool,
+    fences=(),
+    graph: WorkGraph | None = None,
+    project=None,
 ) -> bool:
-    """Fence storyboard/video/compose until pre-generation text review ends."""
+    """Wait for reviews of this node's inputs and shared dependencies."""
 
-    return sync_review_pending and node.kind in _HEAVY_NODE_KINDS
+    if not sync_review_pending or node.kind not in _HEAVY_NODE_KINDS:
+        return False
+    if graph is None or not fences:
+        return True
+    owners = _review_scope(node, graph, project)
+    for fence in fences:
+        pointers = fence.get("reviewed_pointers")
+        if not pointers:
+            return True
+        for pointer in pointers:
+            owner = _reviewed_pointer_owner(pointer)
+            # Project-wide or unrecognized edits retain the conservative gate.
+            if owner is None or owner in owners:
+                return True
+    return False
 
 
 class WorkGraphScheduler:
@@ -203,6 +290,9 @@ class WorkGraphScheduler:
     ) -> None:
         self.services = services
         self.executions = ProjectExecutionStore(services.root)
+        self.manual_holds = (
+            manual_regeneration_hold.ManualRegenerationHoldStore(services.root)
+        )
         self._image_dispatch = image_dispatch
         self._r2v_dispatch = r2v_dispatch
         self._s2v_dispatch = s2v_dispatch
@@ -217,7 +307,14 @@ class WorkGraphScheduler:
         self._transient_retries: dict[tuple[str, str, str], int] = {}
         self._transient_last: dict[tuple[str, str, str], float] = {}
         self._inflight: dict[str, set[str]] = {}
-        self._dispatch_tasks: dict[str, set[asyncio.Task[None]]] = {}
+        self._dispatch_tasks: dict[str, set[asyncio.Task[Any]]] = {}
+        self._preparation_tasks: dict[str, asyncio.Task[None]] = {}
+        self._preparing: dict[str, set[str]] = {}
+        self._preparation_validation_errors: dict[
+            tuple[str, str],
+            tuple[str, int],
+        ] = {}
+        self._closed = False
         self._sync_gate_rechecks: dict[str, asyncio.TimerHandle] = {}
         self._cancelled_projects: set[str] = set()
         # Keyed by (project, node, fingerprint): a deterministic failure
@@ -287,11 +384,43 @@ class WorkGraphScheduler:
     def _dispatch_slot(fingerprint: str) -> str:
         return dispatch_slot(fingerprint)
 
+    @classmethod
+    def manual_retry_fingerprint(cls, node: WorkNode, tasks: Sequence) -> str:
+        """A human request may move beyond a terminal execution.
+
+        Failed/cancelled slots retry, and a succeeded slot re-rolls with the
+        same inputs. The terminal task determines the next identity, so
+        concurrent clicks converge on one new task. Automatic dispatch keeps
+        its original slot; only an explicit manual request authorizes another
+        paid attempt.
+        """
+        base = fingerprint = cls._ledger_fingerprint(node)
+        by_key = {
+            key: task
+            for task in tasks
+            for key in (task.idempotency_key, task.caused_by_request_id)
+            if key
+        }
+        while True:
+            key = f"dag-{node.node_id}-{cls._dispatch_slot(fingerprint)}"
+            previous = by_key.get(key)
+            if previous is None or previous.status not in (
+                TaskStatus.CANCELLED,
+                TaskStatus.FAILED,
+                TaskStatus.SUCCEEDED,
+            ):
+                return fingerprint
+            fingerprint = (
+                f"{base}-manual-retry-{cls._dispatch_slot(previous.task_id)}"
+            )
+
     # -- lifecycle -----------------------------------------------------
 
     def wake(self, project_id: str) -> None:
         """Signal that durable state changed; start the loop if needed."""
 
+        if self._closed:
+            return
         # A wake is a state-change signal, not authorization to resume. tick()
         # checks the durable Session stop even for startup/late-commit wakes.
         # This local set only suppresses cancelled dispatch finalizers.
@@ -302,11 +431,15 @@ class WorkGraphScheduler:
         if task is None or task.done():
             self._loops[project_id] = asyncio.create_task(
                 self._project_loop(project_id),
+                context=manual_regeneration_hold.background_context(),
             )
 
     async def shutdown(self) -> None:
+        # Cancelled preparation/dispatch finalizers must not start new loops.
+        self._closed = True
         tasks = [
             *self._loops.values(),
+            *self._preparation_tasks.values(),
             *(
                 task
                 for project_tasks in self._dispatch_tasks.values()
@@ -325,6 +458,8 @@ class WorkGraphScheduler:
                 pass
         self._loops.clear()
         self._dispatch_tasks.clear()
+        self._preparation_tasks.clear()
+        self._preparing.clear()
         for handle in self._sync_gate_rechecks.values():
             handle.cancel()
         self._sync_gate_rechecks.clear()
@@ -334,6 +469,10 @@ class WorkGraphScheduler:
         """Synchronously signal every scheduler-owned task for one Project."""
 
         self._cancelled_projects.add(project_id)
+        preparation = self._preparation_tasks.pop(project_id, None)
+        if preparation is not None:
+            preparation.cancel()
+        self._preparing.pop(project_id, None)
         loop = self._loops.pop(project_id, None)
         if loop is not None:
             loop.cancel()
@@ -493,6 +632,21 @@ class WorkGraphScheduler:
             logger.exception("work-graph state read failed for %s", project_id)
             return None
 
+        # A dispatch that died between task admission and the provider claim
+        # leaves a RUNNING record no executor owns; the graph would derive
+        # that node RUNNING forever and never re-dispatch. No claim means no
+        # provider spend, so closing it as a transient failure is free.
+        if await asyncio.to_thread(
+            recover_unclaimed_image_tasks,
+            self.services,
+            project_id,
+            tasks,
+        ):
+            tasks = await asyncio.to_thread(
+                self.executions.list_tasks,
+                project_id,
+            )
+
         # Auto-rereview stale scene locks before deriving the graph.
         # Without this, compose stays GATED (scene locks expired) but
         # auto_review_stale_scenes only runs inside compose execution —
@@ -579,17 +733,29 @@ class WorkGraphScheduler:
                 snapshot.generation,
             )
             return graph
-        running = sum(
-            1 for node in graph.nodes if node.status.value == "running"
-        )
-        capacity = get_media_parallelism() - running - len(inflight)
+        active_media = {
+            node.node_id
+            for node in graph.nodes
+            if node.status is WorkNodeStatus.RUNNING
+        } | (inflight - self._preparing.get(project_id, set()))
+        # The durable task and its scheduler handle are the same operation.
+        capacity = get_media_parallelism() - len(active_media)
         # Auto-saved frontend edits open a short grace window per element;
         # dispatching inside it would hand a possibly half-finished prompt
         # to a paid provider. Recheck once the earliest window expires.
         held_recheck: float | None = None
+        manually_held = (
+            await asyncio.to_thread(self.manual_holds.read, project_id)
+        ).node_ids
         for node in self._dispatch_candidates(project_id, graph, tasks):
             if capacity <= 0:
                 break
+            if node.node_id in manually_held:
+                logger.info(
+                    "work-graph node %s held pending manual regeneration",
+                    node.node_id,
+                )
+                continue
             target_ref = node.target_ref or ""
             if target_ref.startswith("element:"):
                 held_for = frontend_edit_hold.hold_remaining(
@@ -606,6 +772,9 @@ class WorkGraphScheduler:
             if _blocked_by_active_sync_review(
                 node,
                 sync_review_pending=sync_review_pending,
+                fences=sync_fences,
+                graph=graph,
+                project=snapshot.project,
             ):
                 logger.info(
                     "work-graph node %s waits for synchronous text review",
@@ -616,6 +785,8 @@ class WorkGraphScheduler:
                 node,
                 reviewing_slots,
                 reviewing_owners,
+                graph=graph,
+                project=snapshot.project,
             ):
                 logger.info(
                     "work-graph node %s waits for async review of %s",
@@ -653,7 +824,22 @@ class WorkGraphScheduler:
         if held_recheck is not None:
             # Same one-shot wake mechanics as the sync-gate recheck timer.
             self._schedule_sync_gate_recheck(project_id, held_recheck)
-        await self._prepare_changed_prompts(project_id, graph)
+        preparation = self._preparation_tasks.get(project_id)
+        if preparation is None or preparation.done():
+            # One bounded text preparation per project, independent of media
+            # capacity. Its model call must never hold the dispatch loop.
+            preparation = asyncio.create_task(
+                self._prepare_changed_prompts(project_id, graph),
+            )
+            self._preparation_tasks[project_id] = preparation
+
+            def prepared(done: asyncio.Task[None]) -> None:
+                if self._preparation_tasks.get(project_id) is done:
+                    self._preparation_tasks.pop(project_id, None)
+                if not done.cancelled():
+                    done.exception()
+
+            preparation.add_done_callback(prepared)
         await self._emit_graph_transitions(
             project_id,
             graph,
@@ -688,14 +874,27 @@ class WorkGraphScheduler:
                 and graph.by_id[key[1]].prompt_sync_required
             )
         }
+        self._preparation_validation_errors = {
+            key: value
+            for key, value in self._preparation_validation_errors.items()
+            if key[0] != project_id
+            or (
+                key[1] in graph.by_id
+                and graph.by_id[key[1]].prompt_sync_required
+            )
+        }
+        manually_held = (
+            await asyncio.to_thread(self.manual_holds.read, project_id)
+        ).node_ids
         for node in graph.nodes:
             if (
                 # pylint: disable-next=too-many-boolean-expressions
-                node.kind != "storyboard"
+                node.kind not in {"storyboard", "video"}
                 or not getattr(node, "prompt_sync_required", False)
                 or not node.timeline_id
                 or not node.target_ref
                 or node.node_id in self._inflight.get(project_id, set())
+                or node.node_id in manually_held
                 or any(
                     dep not in graph.by_id
                     or graph.by_id[dep].status is not WorkNodeStatus.DONE
@@ -746,11 +945,31 @@ class WorkGraphScheduler:
                 node.timeline_id,
                 element_id,
             )
-            if status["status"] not in {"needs_update", "needs_confirmation"}:
+            # For legacy elements with empty prompts, treat as needing sync
+            # so the scheduler can auto-generate prompts from the narrative.
+            is_legacy_with_empty_prompts = (
+                status["status"] == "legacy"
+                and not status.get("storyboardPrompt", "").strip()
+                and not status.get("videoPrompt", "").strip()
+            )
+            if (
+                status["status"]
+                not in {
+                    "needs_update",
+                    "needs_confirmation",
+                }
+                and not is_legacy_with_empty_prompts
+            ):
                 continue
             fingerprint = "prepare-" + status["baselineToken"]
             ledger_key = (project_id, node.node_id, fingerprint)
             if ledger_key in self._deterministic_failure_nodes:
+                continue
+            if not self._transient_budget_available(ledger_key):
+                self._schedule_sync_gate_recheck(
+                    project_id,
+                    _TRANSIENT_RETRY_COOLDOWN_SECONDS,
+                )
                 continue
             self._deterministic_failure_nodes = {
                 key: value
@@ -759,6 +978,7 @@ class WorkGraphScheduler:
                 or not key[2].startswith("prepare-")
             }
             self._inflight.setdefault(project_id, set()).add(node.node_id)
+            self._preparing.setdefault(project_id, set()).add(node.node_id)
             try:
                 if status.get("validationMessage"):
                     raise ValueError(status["validationMessage"])
@@ -769,11 +989,28 @@ class WorkGraphScheduler:
                     text=f"正在准备生成内容：{node.label}",
                     node=node,
                 )
+                if await asyncio.to_thread(
+                    self.manual_holds.is_held,
+                    project_id,
+                    node.node_id,
+                ):
+                    return
                 proposal = await service.propose(
                     project_id,
                     node.timeline_id,
                     element_id,
-                    source=status.get("suggestedSource") or "storyboardPrompt",
+                    source=(
+                        "currentPlan"
+                        if is_legacy_with_empty_prompts
+                        else status.get("suggestedSource")
+                        or "storyboardPrompt"
+                    ),
+                    error_guidance=(
+                        self._preparation_validation_errors.get(
+                            (project_id, node.node_id),
+                            ("", 0),
+                        )[0]
+                    ),
                 )
                 if not await asyncio.to_thread(self.enabled):
                     return
@@ -793,28 +1030,106 @@ class WorkGraphScheduler:
                     for other in latest_graph.nodes
                 ):
                     return
-                await service.accept(
+                if await asyncio.to_thread(
+                    self.manual_holds.is_held,
                     project_id,
-                    node.timeline_id,
-                    element_id,
-                    proposal["proposalId"],
+                    node.node_id,
+                ):
+                    return
+                with manual_regeneration_hold.automatic_node(
+                    self.services.root,
+                    project_id,
+                    node.node_id,
+                ):
+                    await service.accept(
+                        project_id,
+                        node.timeline_id,
+                        element_id,
+                        proposal["proposalId"],
+                    )
+                self._preparation_validation_errors.pop(
+                    (project_id, node.node_id),
+                    None,
                 )
             except ConflictError:
                 # A concurrent edit invalidated the proposal. The next wake
                 # reads that edit; never publish the older generated plan.
                 pass
             except Exception as exc:
-                self._deterministic_failure_nodes[ledger_key] = str(exc)[:200]
-                await self._notify(
-                    project_id,
-                    kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
-                    request_id=f"failed-{fingerprint}-{node.node_id}",
-                    text=f"生成准备需要调整：{node.label}。{str(exc)[:200]}",
-                    node=node,
-                    error_code="PROMPT_PREPARATION_FAILED",
-                )
+                is_validation = type(exc).__name__ == "ValidationError"
+                if is_validation:
+                    val_key = (project_id, node.node_id)
+                    _prev = self._preparation_validation_errors.get(
+                        val_key,
+                        ("", 0),
+                    )
+                    retry_count = _prev[1]
+                    if retry_count < _PREPARATION_VALIDATION_RETRIES:
+                        self._preparation_validation_errors[val_key] = (
+                            str(exc)[:300],
+                            retry_count + 1,
+                        )
+                        self._schedule_sync_gate_recheck(
+                            project_id,
+                            5.0,
+                        )
+                        logger.warning(
+                            "Preparation validation error for %s "
+                            "(retry %d/%d); will retry with feedback: %s",
+                            node.node_id,
+                            retry_count + 1,
+                            _PREPARATION_VALIDATION_RETRIES,
+                            exc,
+                        )
+                    else:
+                        self._preparation_validation_errors.pop(
+                            val_key,
+                            None,
+                        )
+                        self._deterministic_failure_nodes[ledger_key] = str(
+                            exc,
+                        )[:200]
+                        await self._notify(
+                            project_id,
+                            kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                            request_id=(
+                                f"failed-{fingerprint}-{node.node_id}"
+                            ),
+                            text=(
+                                f"生成准备需要调整：{node.label}。" f"{str(exc)[:200]}"
+                            ),
+                            node=node,
+                            error_code="PROMPT_PREPARATION_FAILED",
+                        )
+                elif _is_transient_dispatch_error(
+                    exc,
+                ) and self._transient_budget_available(ledger_key):
+                    self._note_transient_retry(ledger_key)
+                    self._schedule_sync_gate_recheck(
+                        project_id,
+                        _TRANSIENT_RETRY_COOLDOWN_SECONDS,
+                    )
+                    logger.warning(
+                        "Transient preparation failure for %s (%s); "
+                        "will retry after cooldown",
+                        node.node_id,
+                        exc,
+                    )
+                else:
+                    self._deterministic_failure_nodes[ledger_key] = str(exc)[
+                        :200
+                    ]
+                    await self._notify(
+                        project_id,
+                        kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                        request_id=f"failed-{fingerprint}-{node.node_id}",
+                        text=(f"生成准备需要调整：{node.label}。" f"{str(exc)[:200]}"),
+                        node=node,
+                        error_code="PROMPT_PREPARATION_FAILED",
+                    )
             finally:
                 self._inflight.get(project_id, set()).discard(node.node_id)
+                self._preparing.get(project_id, set()).discard(node.node_id)
                 if project_id not in self._cancelled_projects:
                     self.wake(project_id)
             return
@@ -1211,7 +1526,12 @@ class WorkGraphScheduler:
             node=node,
         )
         try:
-            await self.dispatch_node(project_id, node, fingerprint)
+            with manual_regeneration_hold.automatic_node(
+                self.services.root,
+                project_id,
+                node.node_id,
+            ):
+                await self.dispatch_node(project_id, node, fingerprint)
             self._deterministic_failure_nodes.pop(
                 (project_id, node.node_id, fingerprint),
                 None,
@@ -1231,6 +1551,8 @@ class WorkGraphScheduler:
                     text=f"生成完成：{node.label}",
                     node=node,
                 )
+        except manual_regeneration_hold.ManualHoldConflict:
+            self._dispatched.discard((project_id, node.node_id, fingerprint))
         except Exception as exc:  # pylint: disable=broad-except
             ledger_key = (project_id, node.node_id, fingerprint)
             if _is_transient_dispatch_error(
@@ -1313,6 +1635,36 @@ class WorkGraphScheduler:
             self._inflight.get(project_id, set()).discard(node.node_id)
             if project_id not in self._cancelled_projects:
                 self.wake(project_id)
+
+    async def await_admitted_execution(
+        self,
+        project_id: str,
+        node_id: str,
+        execution: Awaitable[Any],
+    ) -> Any:
+        """Own an approved request independently of its mainline waiter.
+
+        Approval and input checks must precede this call. A new message can
+        cancel the waiter, while hard-stop/shutdown still cancel this job.
+        """
+        task = asyncio.create_task(execution)
+        self._dispatch_tasks.setdefault(project_id, set()).add(task)
+        self._inflight.setdefault(project_id, set()).add(node_id)
+
+        def completed(done: asyncio.Task[Any]) -> None:
+            owned = self._dispatch_tasks.get(project_id)
+            if owned is not None:
+                owned.discard(done)
+                if not owned:
+                    self._dispatch_tasks.pop(project_id, None)
+            self._inflight.get(project_id, set()).discard(node_id)
+            if not done.cancelled():
+                done.exception()
+            if not self._closed and project_id not in self._cancelled_projects:
+                self.wake(project_id)
+
+        task.add_done_callback(completed)
+        return await asyncio.shield(task)
 
     async def dispatch_node(
         self,
@@ -1406,6 +1758,7 @@ async def _default_script_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     """Draft one timeline's script via the text model (free of media spend)."""
 
@@ -1416,6 +1769,15 @@ async def _default_script_dispatch(
 
     # The script entry point has a single command and takes no command kwarg.
     del command
+    if expected_object_versions:
+        from domain.errors import ConflictError
+
+        snapshot = await asyncio.to_thread(services.projects.read, project_id)
+        if any(
+            f"project:{snapshot.etag}:" not in value
+            for value in expected_object_versions
+        ):
+            raise ConflictError("剧本命令目标已被其他写者修改")
     return await execute_file_script_command(
         services,
         project_id=project_id,
@@ -1469,6 +1831,11 @@ async def _default_s2v_dispatch(
     )
 
     del command
+    await asyncio.to_thread(
+        manual_regeneration_hold.check_automatic,
+        services.root,
+        project_id,
+    )
     await preflight_s2v_face_detect(
         services,
         project_id=project_id,
@@ -1493,6 +1860,7 @@ async def _default_compose_dispatch(
     target_ref: str,
     arguments: dict[str, Any],
     idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
 ) -> Any:
     """Master render for an unattended project (same path as the UI button).
 
@@ -1507,7 +1875,6 @@ async def _default_compose_dispatch(
         execute_file_local_media_command,
     )
     from services.runtime_files.errors import RecordNotFoundError
-    from services.runtime_files.execution_models import TaskStatus
 
     # A master render is a free local pass, so a failed attempt must not
     # freeze the slot: probe the durable ledger and mint the next retry
@@ -1561,9 +1928,13 @@ async def _default_compose_dispatch(
                     and (getattr(element.creation, "text", "") or "").strip()
                     # Hand-written css snippets fail the compose-time
                     # safety check and ship the fallback bubble; only a
-                    # pipeline-designed document counts as styled.
+                    # pipeline-designed document counts as styled.  A
+                    # template document also has to still carry the
+                    # project's current subtitle style pack, which is how
+                    # picking a new pack reaches the final cut.
                     and not _is_trusted_caption_motion(
                         getattr(element.creation, "motion", None),
+                        snapshot.project,
                     )
                 )
                 # Variety frames own their visual through the blueprint:
@@ -1586,6 +1957,11 @@ async def _default_compose_dispatch(
                 design_motion_overlays,
             )
 
+            await asyncio.to_thread(
+                manual_regeneration_hold.mark_untracked_admission,
+                services.root,
+                project_id,
+            )
             await design_motion_overlays(
                 services,
                 project_id=project_id,
@@ -1610,6 +1986,7 @@ async def _default_compose_dispatch(
         target_ref=target_ref,
         arguments=arguments,
         idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
     )
 
 

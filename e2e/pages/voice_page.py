@@ -27,12 +27,12 @@ class VoicePage(BasePage):
     """
 
     PAGE_TITLE = "QwenPaw Console"
-    PAGE_URL = f"{config.base_url}/settings/voice"
+    PAGE_URL = f"{config.base_url}/voice-transcription"
 
     # ========== Selector definitions ==========
 
     # Page load indicator
-    PAGE_LOAD_INDICATOR = '.qwenpaw-switch, .qwenpaw-switch-input, [class*=voiceToggle]'
+    PAGE_LOAD_INDICATOR = 'div[class*="voiceTranscriptionPage"]'
 
     # Voice service switch
     VOICE_TOGGLE_SELECTOR = '.qwenpaw-switch, .qwenpaw-switch-input, [class*=voiceToggle]'

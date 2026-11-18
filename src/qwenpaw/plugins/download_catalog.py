@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import http.client
 import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
@@ -97,6 +99,7 @@ def _pick_en(value: Any) -> str:
 def _installed_plugin_ids() -> dict[str, str]:
     """Return ``{plugin_id: installed_version}`` from disk manifests."""
     from ..config.utils import get_plugins_dir
+    from .loader import _is_disabled_plugin_dir
 
     plugins_dir = get_plugins_dir()
     if not plugins_dir.is_dir():
@@ -104,7 +107,7 @@ def _installed_plugin_ids() -> dict[str, str]:
 
     installed: dict[str, str] = {}
     for item in plugins_dir.iterdir():
-        if not item.is_dir():
+        if not item.is_dir() or _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.is_file():
@@ -195,7 +198,7 @@ def _is_entry_compatible(entry: dict[str, Any]) -> bool:
         return False
 
 
-def build_plugin_catalog() -> dict[str, Any]:
+def _build_remote_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
     Returns:
@@ -207,7 +210,13 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     try:
         main_index = _fetch_json(f"{base}/metadata/index.json")
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+        http.client.HTTPException,
+    ) as exc:
         logger.warning("Plugin catalog: main index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugin catalog index"
         return result
@@ -224,7 +233,13 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     try:
         plugins_index = _fetch_json(f"{base}{index_path}")
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+        http.client.HTTPException,
+    ) as exc:
         logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugins metadata"
         return result
@@ -275,6 +290,56 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     plugins.sort(key=lambda p: (p.get("kind") or "", p.get("name") or ""))
     result["plugins"] = plugins
+    return result
+
+
+def build_plugin_catalog() -> dict[str, Any]:
+    """Combine CDN releases with bundled plugins available for reinstall."""
+    from ..market.builtin import get_builtin_hub_plugins_dir
+
+    result = _build_remote_plugin_catalog()
+    plugins = {
+        (entry["plugin_id"], entry["version"]): entry
+        for entry in result["plugins"]
+    }
+    installed = _installed_plugin_ids()
+    bundled_dir = Path(__file__).resolve().parent / "bundled"
+    manifests = (
+        bundled_dir.glob("*/*/plugin.json")
+        if bundled_dir.is_dir()
+        else get_builtin_hub_plugins_dir().glob("*/plugin.json")
+    )
+    for path in sorted(manifests):
+        manifest = PluginManifest.from_dict(
+            json.loads(path.read_text(encoding="utf-8")),
+        )
+        compatible, _ = check_plugin_version_compat(manifest)
+        if not compatible:
+            continue
+        installed_version = installed.get(manifest.id)
+        plugins[(manifest.id, manifest.version)] = {
+            "id": f"{manifest.id}-{manifest.version}",
+            "plugin_id": manifest.id,
+            "name": manifest.name,
+            "description": manifest.description,
+            "description_i18n": manifest.description_i18n,
+            "version": manifest.version,
+            "author": manifest.author,
+            "kind": manifest.plugin_type.value,
+            "size": "",
+            "sha256": "",
+            "install_url": str(path.parent.resolve()),
+            "installed": manifest.id in installed,
+            "installed_version": installed_version,
+            "upgrade_available": _is_upgrade_available(
+                installed_version or "",
+                manifest.version,
+            ),
+        }
+    result["plugins"] = sorted(
+        plugins.values(),
+        key=lambda entry: (entry.get("kind") or "", entry.get("name") or ""),
+    )
     return result
 
 

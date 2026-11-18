@@ -4,12 +4,14 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+from _thread import RLock
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import (
     EVENT_JOB_MAX_INSTANCES,
     EVENT_JOB_MISSED,
@@ -59,9 +61,39 @@ CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
+def _effective_max_concurrency(_job: CronJobSpec) -> int:
+    """Return the enforced concurrency for a cron job."""
+    return 1
+
+
 @dataclass
 class _Runtime:
     sem: asyncio.Semaphore
+
+
+class _ReloadAwareExecutor(AsyncIOExecutor):
+    _instances: dict[str, int]
+    _lock: RLock | None
+
+    def share_running_counts(self, old: _ReloadAwareExecutor) -> None:
+        """Preserve per-job limits when a paused candidate takes over."""
+        # APScheduler 3.x completion callbacks decrement this same mapping.
+        # Share it, not a copy; pending futures remain executor-owned so
+        # shutting down an outgoing scheduler cannot cancel incoming jobs.
+        # pylint: disable=protected-access
+        if any(self._instances.values()):
+            raise RuntimeError("Reload candidate has already submitted jobs")
+        self._instances = old._instances
+        self._lock = old._lock
+
+    def snapshot_active_tasks(self) -> set[asyncio.Future]:
+        # APScheduler owns these futures from submission through callback
+        # completion, including callbacks not yet entered on the event loop.
+        return {
+            task
+            for task in getattr(self, "_pending_futures", ())
+            if not task.done()
+        }
 
 
 class CronManager(ManagerBase):
@@ -75,12 +107,21 @@ class CronManager(ManagerBase):
         channel_manager: Any,
         timezone: str = "UTC",  # pylint: disable=redefined-outer-name
         agent_id: Optional[str] = None,
+        start_paused: bool = False,
     ):
         self._repo = repo
         self._workspace = workspace
         self._channel_manager = channel_manager
         self._agent_id = agent_id
-        self._scheduler = AsyncIOScheduler(timezone=timezone)
+        self._scheduler_executor = _ReloadAwareExecutor()
+        self._scheduler = AsyncIOScheduler(
+            timezone=timezone,
+            executors={"default": self._scheduler_executor},
+        )
+        self._start_paused = start_paused
+        self._successor: CronManager | None = None
+        self._manual_tasks: set[asyncio.Task] = set()
+        self._schedules: dict[str, tuple] = {}
         self._executor = CronExecutor(
             workspace=workspace,
             channel_manager=channel_manager,
@@ -104,7 +145,7 @@ class CronManager(ManagerBase):
             await self._repo.prune_orphan_history(valid_job_ids)
 
             self._register_scheduler_listeners()
-            self._scheduler.start()
+            self._scheduler.start(paused=self._start_paused)
             for job in jobs_file.jobs:
                 try:
                     if self._requires_portability_review(job):
@@ -170,6 +211,51 @@ class CronManager(ManagerBase):
                 name="cron-keepalive",
             )
 
+    def handoff_from(self, old: CronManager | None) -> None:
+        """Transfer scheduling without cancelling submitted work."""
+        # Same-class handoff deliberately transfers private scheduler state.
+        # pylint: disable=protected-access
+        if old is None:
+            self._scheduler.resume()
+            return
+        for job in self._scheduler.get_jobs():
+            previous = old._scheduler.get_job(job.id)
+            same_schedule = (
+                self._schedules.get(job.id) == old._schedules.get(job.id)
+                if job.id in self._schedules
+                else previous is not None
+                and str(job.trigger) == str(previous.trigger)
+            )
+            if same_schedule:
+                if previous is None:
+                    # A one-shot occurrence was already consumed by old.
+                    self._scheduler.remove_job(job.id)
+                else:
+                    self._scheduler.modify_job(
+                        job.id,
+                        next_run_time=previous.next_run_time,
+                    )
+        # Keep per-job concurrency and history writes serialized across
+        # generations while outgoing executions drain.
+        self._rt.update(old._rt)
+        self._repo = old._repo
+        self._history = old._history
+        self._scheduler_executor.share_running_counts(
+            old._scheduler_executor,
+        )
+        old._scheduler.pause()
+        try:
+            self._scheduler.resume()
+        except BaseException:
+            old._scheduler.resume()
+            raise
+        old._successor = self
+
+    def snapshot_active_tasks(self) -> dict[str, asyncio.Future]:
+        tasks = self._scheduler_executor.snapshot_active_tasks()
+        tasks.update(task for task in self._manual_tasks if not task.done())
+        return {f"cron:{id(task)}": task for task in tasks}
+
     async def stop(self) -> None:
         async with self._lock:
             if not self._started:
@@ -188,7 +274,11 @@ class CronManager(ManagerBase):
                         "Error cancelling cron keepalive task: %s",
                         repr(exc),
                     )
+            tasks = list(self.snapshot_active_tasks().values())
             self._scheduler.shutdown(wait=False)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _keepalive_loop(self) -> None:
         """Keep the asyncio event loop ticking while cron is running.
@@ -247,6 +337,14 @@ class CronManager(ManagerBase):
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
         async with self._lock:
             previous = await self._repo.get_job(spec.id or "")
+            if (
+                previous is not None
+                and "share_session" not in spec.runtime.model_fields_set
+            ):
+                # Defaults apply to creation, not omitted legacy update fields.
+                spec.runtime = spec.runtime.model_copy(
+                    update={"share_session": previous.runtime.share_session},
+                )
             await self._persist_and_register(spec, previous=previous)
 
     async def create_job_if_absent(self, spec: CronJobSpec) -> bool:
@@ -695,6 +793,9 @@ class CronManager(ManagerBase):
         and reflected in the job state but NOT propagated to the caller.
         """
         job = await self._repo.get_job(job_id)
+        if self._successor is not None:
+            await self._successor.run_job(job_id)
+            return
         if not job:
             raise KeyError(f"Job not found: {job_id}")
         self._assert_review_complete(job)
@@ -714,6 +815,8 @@ class CronManager(ManagerBase):
             ),
             name=f"cron-run-{job_id}",
         )
+        self._manual_tasks.add(task)
+        task.add_done_callback(self._manual_tasks.discard)
         task.add_done_callback(lambda t: self._task_done_cb(t, job))
 
     # ----- callbacks -----
@@ -804,7 +907,7 @@ class CronManager(ManagerBase):
         error_msg = (
             f"skipped scheduled run at {scheduled_text}: "
             f"maximum running instances reached "
-            f"({job.runtime.max_concurrency})"
+            f"({_effective_max_concurrency(job)})"
         )
         await self._record_skipped(job, error_msg)
 
@@ -866,15 +969,22 @@ class CronManager(ManagerBase):
             id=spec.id,
             args=[spec.id],
             misfire_grace_time=spec.runtime.misfire_grace_seconds,
+            max_instances=_effective_max_concurrency(spec),
             replace_existing=True,
             **add_job_kwargs,
+        )
+
+        self._schedules[spec.id] = (
+            spec.schedule.model_dump(mode="json"),
+            spec.enabled,
+            self._requires_portability_review(spec),
         )
 
         # Only publish new runtime state after APScheduler accepted the whole
         # registration.  add_job(replace_existing=True) preserves the old job
         # if construction/validation fails.
         self._rt[spec.id] = _Runtime(
-            sem=asyncio.Semaphore(spec.runtime.max_concurrency),
+            sem=asyncio.Semaphore(_effective_max_concurrency(spec)),
         )
 
         # update next_run
@@ -1056,7 +1166,9 @@ class CronManager(ManagerBase):
         self._assert_review_complete(job)
         rt = self._rt.get(job.id)
         if not rt:
-            rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))
+            rt = _Runtime(
+                sem=asyncio.Semaphore(_effective_max_concurrency(job)),
+            )
             self._rt[job.id] = rt
 
         async with rt.sem:
@@ -1084,8 +1196,11 @@ class CronManager(ManagerBase):
                     st.last_status = "success"
                     st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s "
+                    "execution_status=success delivery_status=%s",
                     job.id,
+                    st.last_status,
+                    execution_result.get("delivery_status", "success"),
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"
@@ -1094,6 +1209,44 @@ class CronManager(ManagerBase):
                     "cron _execute_once: job_id=%s status=cancelled",
                     job.id,
                 )
+                raise
+            except asyncio.TimeoutError as exc:
+                st.last_status = "error"
+                st.last_error = (
+                    f"TimeoutError: timed out after "
+                    f"{job.runtime.timeout_seconds}s"
+                )
+                logger.warning(
+                    "cron _execute_once: job_id=%s %s",
+                    job.id,
+                    st.last_error,
+                )
+                try:
+                    await append_inbox_event(
+                        agent_id=self._agent_id,
+                        source_type="cron",
+                        source_id=job.id,
+                        event_type="cron_timeout",
+                        status="error",
+                        severity="error",
+                        title=f"Cron task timed out: {job.name}",
+                        body=(
+                            "Task execution timed out after "
+                            f"{job.runtime.timeout_seconds}s. "
+                            "The task did not finish."
+                        ),
+                        payload={
+                            "job_id": job.id,
+                            "job_name": job.name,
+                            "task_type": job.task_type,
+                            "trigger": trigger,
+                            "run_id": getattr(exc, "run_id", None),
+                            "error": st.last_error,
+                            "timeout_seconds": job.runtime.timeout_seconds,
+                        },
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception("failed to append cron timeout event")
                 raise
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"

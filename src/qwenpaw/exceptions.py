@@ -676,6 +676,7 @@ def _is_model_related_error(exc: Exception) -> bool:
         "rate limit",
         "quota",
         "context length",
+        f"context_length",
         "authentication",
         "unauthorized",
         "forbidden",
@@ -803,7 +804,9 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     if any(
         kw in error_message
         for kw in [
-            "context",
+            f"context length",
+            f"context_length",
+            f"context limit",
             "maximum context",
             "context window",
             "too many tokens",

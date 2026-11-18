@@ -1,6 +1,7 @@
 import type { HubRuntime } from "../../api/modules/hub";
 
 export type Section =
+  | "models"
   | "overview"
   | "runtimes"
   | "users"
@@ -10,7 +11,7 @@ export type Section =
 
 export interface SettingsFormValues {
   publicBaseUrl?: string;
-  registrationEnabled: boolean;
+  registrationMode: "open" | "invite" | "closed";
   runtimeProvisioner: "local" | "docker";
   dockerSource: "docker_hub" | "aliyun_acr" | "local" | "custom";
   dockerImage: string;
@@ -64,6 +65,15 @@ export function dockerReferenceParts(reference: string) {
       tagIndex > lastSlash ? withoutDigest.slice(0, tagIndex) : withoutDigest,
     tag: tagIndex > lastSlash ? withoutDigest.slice(tagIndex + 1) : "latest",
   };
+}
+
+export function dockerReferenceKey(reference: string) {
+  if (!reference) return "";
+  const { repository, tag } = dockerReferenceParts(reference);
+  let name = repository.replace(/^(?:docker\.io|index\.docker\.io)\//, "");
+  if (!name.includes("/")) name = `library/${name}`;
+  const digest = reference.split("@")[1];
+  return digest ? `${name}@${digest}` : `${name}:${tag}`;
 }
 
 export function formatImageSize(size: number) {

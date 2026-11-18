@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, replace
+from functools import wraps
 from pathlib import Path
 from typing import Any, BinaryIO, Optional
 
@@ -31,6 +32,12 @@ from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
+from ...utils.shell_resources import (
+    SHELL_GUARD,
+    ShellGuard,
+    watch_shell_process,
+    watch_shell_process_async,
+)
 from ...utils.shell_normalization import (
     normalize_posix_line_continuations,
     shell_execution_path,
@@ -49,6 +56,49 @@ _WINDOWS_PROCESS_KILL_REAP_SECS = 5.0
 _SHELL_MAX_DISK_BYTES: int = int(
     os.environ.get("QWENPAW_SHELL_MAX_OUTPUT_BYTES", 10 * 1024 * 1024),
 )
+
+
+def _with_shell_guard(function):
+    """Apply opt-in resource protection without changing the tool schema."""
+
+    @wraps(function)
+    async def guarded(*args, **kwargs):
+        try:
+            guard = await ShellGuard.from_environment(
+                _SHELL_MAX_DISK_BYTES,
+            )
+        except ValueError as error:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[TextBlock(type="text", text=str(error))],
+            )
+        except RuntimeError as error:
+            _logger.warning("%s", error)
+            return await function(*args, **kwargs)
+        if guard is None:
+            return await function(*args, **kwargs)
+        token = SHELL_GUARD.set(guard)
+        completed = False
+        try:
+            result = await function(*args, **kwargs)
+            completed = True
+        finally:
+            SHELL_GUARD.reset(token)
+            await asyncio.to_thread(guard.close, not completed)
+            if guard.warning:
+                _logger.warning("%s", guard.warning)
+        if guard.failure:
+            result.state = ToolResultState.ERROR
+            result.content.append(
+                TextBlock(
+                    type="text",
+                    text=f"[resource protection] {guard.failure}",
+                ),
+            )
+        return result
+
+    return guarded
 
 
 # ─── Windows Job Object helpers ──────────────────────────────────────────
@@ -210,8 +260,12 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 
 def _windows_shell_creationflags() -> int:
-    """Return Windows process flags for shell commands."""
-    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    """Return Windows flags that isolate shell commands from the host."""
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+        subprocess,
+        "CREATE_NO_WINDOW",
+        0,
+    )
 
 
 def _collapse_embedded_newlines(
@@ -251,6 +305,97 @@ def _sanitize_win_cmd(cmd: str) -> str:
     if '\\"' in cmd and '"' not in cmd.replace('\\"', ""):
         return cmd.replace('\\"', '"')
     return cmd
+
+
+def _list_user_python_dirs(local_apps: str) -> list[str]:
+    """Return per-user Python version/Scripts directories (Windows)."""
+    if not local_apps:
+        return []
+    python_base = os.path.join(local_apps, "Programs", "Python")
+    if not os.path.isdir(python_base):
+        return []
+    dirs: list[str] = []
+    try:
+        entries = sorted(os.listdir(python_base))
+    except OSError:
+        return []
+    for entry in entries:
+        ver_dir = os.path.join(python_base, entry)
+        if not os.path.isdir(ver_dir):
+            continue
+        dirs.append(ver_dir)
+        scripts_dir = os.path.join(ver_dir, "Scripts")
+        if os.path.isdir(scripts_dir):
+            dirs.append(scripts_dir)
+    return dirs
+
+
+def _ensure_user_bins_on_path(
+    env: dict[str, str],
+    user_home: str | None = None,
+) -> dict[str, str]:
+    """Prepend standard user-level bin directories onto ``env["PATH"]``.
+
+    When QwenPaw runs under a service manager (systemd, Launchd, Docker with
+    a stripped ``PATH``), the inherited ``PATH`` often omits the directories
+    where single-user toolchains install their CLIs:
+
+    * ``~/.local/bin`` on Unix — the standard location for user-installed
+      binaries (``gh``, ``cmake``, ``lark-cli``, etc.).
+    * ``%LOCALAPPDATA%\\Programs\\Python\\<version>\\Scripts`` on Windows —
+      where per-user Python installs place their ``Scripts`` directory.
+    * ``~/.local/share/fnm`` and ``~/.nvm`` on Unix — base directories used
+      by the most common single-user Node.js managers. These are added so
+      their shims (which resolve to real binaries at runtime) are
+      discoverable without changing the Python venv.
+
+    Only directories that *exist* on disk are added, and duplicates against
+    the existing ``PATH`` are skipped.  This keeps daemon subprocesses
+    consistent with what a logged-in user would see, while leaving the
+    already-configured ``python_bin_dir`` and existing ``PATH`` entries
+    untouched.
+    """
+    home = user_home if user_home is not None else str(Path.home())
+    candidate_dirs: list[str] = []
+    existing_path = env.get("PATH", "")
+    existing_lower = (
+        {os.path.normpath(p).lower() for p in existing_path.split(os.pathsep)}
+        if existing_path
+        else set()
+    )
+
+    if sys.platform != "win32":
+        candidate_dirs.extend(
+            [
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, ".local", "share", "fnm"),
+                os.path.join(home, ".nvm"),
+            ],
+        )
+    else:
+        local_apps = env.get("LOCALAPPDATA") or ""
+        candidate_dirs.extend(_list_user_python_dirs(local_apps))
+
+    additions: list[str] = []
+    for d in candidate_dirs:
+        if not d:
+            continue
+        d = os.path.normpath(d)
+        if d.lower() in existing_lower:
+            continue
+        if not os.path.isdir(d):
+            continue
+        additions.append(d)
+
+    if not additions:
+        return env
+
+    # Keep existing PATH casing intact; just prepend new user-bin dirs.
+    existing_first: list[str] = (
+        existing_path.split(os.pathsep) if existing_path else []
+    )
+    env["PATH"] = os.pathsep.join(additions + existing_first)
+    return env
 
 
 def _read_output_snapshot(
@@ -622,6 +767,7 @@ def _execute_subprocess_sync(
     stderr_reader = None
     proc: subprocess.Popen | None = None
     job_handle = None
+    guard = None
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -664,6 +810,16 @@ def _execute_subprocess_sync(
             cwd=cwd,
             env=env,
             creationflags=_windows_shell_creationflags(),
+        )
+
+        guard = watch_shell_process(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                stdout_path,
+                stderr_path,
+                stdout_reader,
+                stderr_reader,
+            ),
         )
 
         # Assign to a Job Object for reliable tree kill (Windows only).
@@ -807,6 +963,8 @@ def _execute_subprocess_sync(
                 pass
         return -1, "", str(e)
     finally:
+        if guard is not None:
+            guard.close()
         _close_job_handle_win32(job_handle)
         for f in (
             stdout_file,
@@ -1008,18 +1166,24 @@ async def _execute_in_sandbox(
         if changed:
             ctx.deadline_changed_event.set()
 
+    guard = SHELL_GUARD.get()
     try:
         async with create_sandbox(effective_config) as sandbox:
             # Setup finished: compensate setup elapsed on borrowed deadlines,
             # then arm kill_deadline for the command timeout only.
             _restore_setup_deadlines()
-            return await cancellable_wait(
+            result = await cancellable_wait(
                 sandbox.execute(cmd, cwd=cwd),
                 fallback_secs=timeout,
                 as_kill_deadline=True,
             )
+            if result.timed_out and guard is not None:
+                await asyncio.to_thread(guard.close, True)
+            return result
     except BaseException:
         _restore_setup_deadlines()
+        if guard is not None:
+            await asyncio.to_thread(guard.close, True)
         raise
 
 
@@ -1091,6 +1255,9 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
     """Kill a timed-out or cancelled POSIX subprocess group."""
+    guard = SHELL_GUARD.get()
+    if guard is not None:
+        await asyncio.to_thread(guard.close, True)
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGTERM)
@@ -1149,6 +1316,16 @@ async def _execute_posix_host(
             cwd=cwd,
             env=env,
             start_new_session=True,
+        )
+
+        await watch_shell_process_async(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                outputs.stdout_path,
+                outputs.stderr_path,
+                None,
+                None,
+            ),
         )
 
         # The child inherited its own descriptors.  Close the parent copies
@@ -1244,8 +1421,11 @@ async def _execute_posix_host(
     ui_description="Execute shell commands",
     ui_icon="💻",
 )
+@_with_shell_guard
 async def execute_shell_command(
     command: str,
+    *,
+    title: str = "",
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
     sandbox_config: Optional[Any] = None,
@@ -1260,6 +1440,9 @@ async def execute_shell_command(
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
 
+    The title is display-only. It does not affect command execution, security
+    checks, or the returned result.
+
     IMPORTANT: Do not use nohup or other commands to start long-running
     background processes. If unavoidable, explicitly redirect stdin,
     stdout, and stderr.
@@ -1267,6 +1450,14 @@ async def execute_shell_command(
     Args:
         command (`str`):
             The shell command to execute.
+        title (`str`, defaults to `""`):
+            Always provide a concise, single-line description of the command's
+            intent. Use the current conversation language and active voice.
+            Prefer 5-10 words for languages that use spaces, or an equivalently
+            concise phrase otherwise. Describe only what the command will do;
+            never claim success, failure, completion, or another result, and
+            never include secrets. Examples: "Inspect the current Git status",
+            "Run the targeted shell tests", "检查当前 Git 状态".
         timeout (`float`, defaults to `60.0`):
             The maximum time (in seconds) allowed for the command to run.
             Default is 60.0 seconds.
@@ -1341,8 +1532,10 @@ async def execute_shell_command(
     else:
         working_dir = get_tool_base_dir()
 
-    # Ensure the venv Python is on PATH for subprocesses
-    env = os.environ.copy()
+    # Ensure the venv Python is on PATH for subprocesses.  User-level bins
+    # (``~/.local/bin`` etc.) are added first so that daemon subprocesses can
+    # locate user-installed CLIs — see ``_ensure_user_bins_on_path``.
+    env = _ensure_user_bins_on_path(os.environ.copy())
     env["PATH"] = shell_execution_path(env.get("PATH"))
 
     if sandbox_config is not None and not isinstance(

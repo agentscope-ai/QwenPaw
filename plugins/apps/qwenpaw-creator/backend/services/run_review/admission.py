@@ -340,6 +340,37 @@ def settle_sync_review(
         write_json(state_path, state)
 
 
+def sync_review_retry_after(reports_root: Path, pointer_group: str) -> float:
+    """Availability backoff is separate from the creative repair round cap."""
+    with _sync_lock(reports_root):
+        state = read_json(_sync_state_path(reports_root)) or {}
+        return float((state.get(pointer_group) or {}).get("retry_after") or 0)
+
+
+def settle_sync_review_availability(
+    reports_root: Path,
+    pointer_group: str,
+    *,
+    available: bool,
+) -> float:
+    """Back off failed providers across commits, including changed content."""
+    import time
+
+    with _sync_lock(reports_root):
+        state = read_json(_sync_state_path(reports_root)) or {}
+        group = state.get(pointer_group) or {}
+        failures = 0 if available else int(group.get("failures") or 0) + 1
+        retry_after = (
+            0.0
+            if available
+            else time.time() + min(300 * 2 ** min(failures - 1, 3), 1800)
+        )
+        group.update(failures=failures, retry_after=retry_after)
+        state[pointer_group] = group
+        write_json(_sync_state_path(reports_root), state)
+        return retry_after
+
+
 # ── Sync scheduling fence (registered before Project publication) ─────────
 
 

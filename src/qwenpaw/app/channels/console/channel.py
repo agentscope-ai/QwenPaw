@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import errno
 import json as _json
 import logging
 import os
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from qwenpaw.schemas import (
+    AgentResponse,
     MessageType,
     Message,
     RunStatus,
@@ -29,8 +31,12 @@ from qwenpaw.schemas import (
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
+from ...notification_store import publish as publish_notification
 from ....constant import DEFAULT_MEDIA_DIR
+from ....token_usage.model_wrapper import TokenRecordingModelWrapper
 from ....exceptions import ModelQuotaExceededException
+from ....plugins.activity import PluginBusyError
+from ....plugins.errors import SDKError
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -61,6 +67,22 @@ _RESET = "\033[0m" if _USE_COLOR else ""
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+def _started_by_agent(request: Any) -> bool:
+    """True for a turn another agent started, not the user.
+
+    spawn_subagent marks its requests with ``_spawn_subagent``, and both
+    spawn_subagent and chat_with_agent / submit_to_agent name the calling
+    agent in ``root_agent_id`` (agents/tools/agent_management.py).
+    """
+    request_context = getattr(request, "request_context", None)
+    if not isinstance(request_context, dict):
+        return False
+    return bool(
+        request_context.get("_spawn_subagent")
+        or request_context.get("root_agent_id"),
+    )
 
 
 class ConsoleChannel(BaseChannel):
@@ -101,6 +123,9 @@ class ConsoleChannel(BaseChannel):
             process,
             on_reply_sent=on_reply_sent,
             display_config=display_config,
+            # Each console HTTP submission is a complete user message.
+            # Attachments must run without waiting for a later text message.
+            no_text_debounce=False,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -116,6 +141,11 @@ class ConsoleChannel(BaseChannel):
         else:
             self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # When the controlling TTY/pipe is gone (e.g. daemon after terminal
+        # close), further print() calls raise EIO/EPIPE; skip them after
+        # one warning so daemon logs are not flooded.
+        self._stdout_broken = False
 
         # Windows stdout encoding fix
         if sys.platform == "win32":
@@ -390,6 +420,7 @@ class ConsoleChannel(BaseChannel):
         self._clear_session_turn_usage(session_id)
         user_id = getattr(request, "user_id", "") or ""
         channel_name = getattr(request, "channel", "") or self.channel
+        notification_session_id = session_id
 
         # Refresh the chat's updated_at so the console session list surfaces
         # this new message as the latest activity (issue #6131). stream_one is
@@ -401,11 +432,13 @@ class ConsoleChannel(BaseChannel):
             try:
                 chat_mgr = getattr(self._workspace, "chat_manager", None)
                 if chat_mgr is not None:
-                    await chat_mgr.touch_chat_by_session(
+                    touched_chat = await chat_mgr.touch_chat_by_session(
                         session_id=session_id,
                         channel=channel_name,
                         user_id=user_id or None,
                     )
+                    if touched_chat is not None:
+                        notification_session_id = touched_chat.id
             except Exception:  # pylint: disable=broad-except
                 logger.debug(
                     "failed to touch chat updated_at for session=%s",
@@ -418,9 +451,30 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            last_usage = None
             headline_stream_states: dict[str, Any] = {}
 
             async for event in self._process(request):
+                usage = TokenRecordingModelWrapper.peek_usage_for_session(
+                    session_id,
+                )
+                if usage is not None and usage is not last_usage:
+                    last_usage = usage
+                    tokens = usage.get(f"last_prompt_tokens", 0)
+                    limit = usage.get(f"context_size", 0)
+                    payload = {
+                        f"type": f"turn_usage",
+                        f"session_id": session_id,
+                        f"usage": usage,
+                        f"context_usage": {
+                            f"estimated_tokens": tokens,
+                            f"max_input_length": limit,
+                            f"context_usage_ratio": (
+                                min(tokens / limit * 100, 100) if limit else 0
+                            ),
+                        },
+                    }
+                    yield f"data: {_json.dumps(payload)}\n\n"
                 event_count += 1
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
@@ -505,6 +559,23 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+            # "Reply completion" is about the user's own turns: a subagent
+            # or another agent's call finishing is not a reply to the user
+            if (
+                not err_msg
+                and last_response is not None
+                and last_response.status == RunStatus.Completed
+                and session_id
+                and not _started_by_agent(request)
+            ):
+                publish_notification(
+                    category=f"conversation",
+                    agent_id=getattr(self._workspace, f"agent_id", f"default"),
+                    title=f"QwenPaw",
+                    body=f"",
+                    session_id=notification_session_id,
+                )
+
         except asyncio.CancelledError:
             self._clear_session_turn_usage(session_id)
             raise
@@ -526,6 +597,25 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+            if isinstance(e, (SDKError, PluginBusyError)):
+                response = AgentResponse(
+                    object="response",
+                    session_id=session_id,
+                    status=RunStatus.Failed,
+                    error={
+                        "code": (
+                            "plugin_busy"
+                            if isinstance(e, PluginBusyError)
+                            else (
+                                "backend_unavailable"
+                                if err_msg.startswith("backend_unavailable:")
+                                else "sdk_error"
+                            )
+                        ),
+                        "message": err_msg,
+                    },
+                )
+                yield f"data: {self._serialize_event_for_sse(response)}\n\n"
         finally:
             try:
                 await self._on_response_cycle_end(session_id)
@@ -547,15 +637,34 @@ class ConsoleChannel(BaseChannel):
 
     # ── pretty-print helpers ────────────────────────────────────────
 
+    def _mark_stdout_broken(self, exc: OSError) -> None:
+        """Disable further console prints after stdout becomes unusable."""
+        if self._stdout_broken:
+            return
+        self._stdout_broken = True
+        logger.warning(
+            "Console stdout is unavailable (%s); "
+            "suppressing further console prints",
+            exc,
+        )
+
     def _safe_print(self, text: str) -> None:
         """Safely print text, handling Windows encoding and pipe issues.
 
         On Windows, print() can raise OSError [Errno 22] when output is
         piped or contains unsupported characters. This wrapper handles
         such cases gracefully.
+
+        When stdout is detached/closed (common for ``qwenpaw app`` after
+        the launching terminal exits), print() raises EIO/EPIPE. Log once
+        and suppress further prints instead of flooding ERROR logs.
         """
+        if self._stdout_broken:
+            return
         try:
             print(text)
+        except BrokenPipeError as e:
+            self._mark_stdout_broken(e)
         except OSError as e:
             if e.errno == 22:
                 logger.warning(
@@ -573,6 +682,8 @@ class ConsoleChannel(BaseChannel):
                         "Failed to print even with fallback: %s",
                         fallback_err,
                     )
+            elif e.errno in (errno.EIO, errno.EPIPE):
+                self._mark_stdout_broken(e)
             else:
                 logger.error("Print failed with OSError: %s", e)
 
@@ -623,11 +734,8 @@ class ConsoleChannel(BaseChannel):
                 pm.builtin_providers.values(),
             ) + list(pm.custom_providers.values())
             for p in all_providers:
-                meta = getattr(p, "meta", None) or {}
-                if not meta.get("is_free_tier"):
-                    continue
-                for m in p.models:
-                    if getattr(m, "is_free", False):
+                for m in p.models + p.extra_models:
+                    if p.model_pricing(m) == f"free" and not m.remote_missing:
                         alternatives.append(
                             {
                                 "provider_id": p.id,

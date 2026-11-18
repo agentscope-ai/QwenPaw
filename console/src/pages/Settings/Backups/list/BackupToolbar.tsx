@@ -4,7 +4,7 @@
  * so this component is purely presentational (controlled input).
  */
 import { Input } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { Search as SearchOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "./BackupToolbar.module.less";
 
@@ -19,7 +19,8 @@ export default function BackupToolbar({ searchQuery, onSearchChange }: Props) {
     <div className={styles.toolbar}>
       <Input
         className={styles.searchInput}
-        prefix={<SearchOutlined />}
+        prefix={<SearchOutlined size="1em" />}
+        aria-label={t("backup.searchPlaceholder")}
         placeholder={t("backup.searchPlaceholder")}
         value={searchQuery}
         onChange={(e) => onSearchChange(e.target.value)}

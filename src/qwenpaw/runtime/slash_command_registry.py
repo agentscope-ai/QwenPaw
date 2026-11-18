@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+from .occupancy import occupancy_conflict
+
 if TYPE_CHECKING:
     from agentscope.message import Msg
 
@@ -32,6 +34,7 @@ class CommandSpec:
     ``category`` records the origin (``"daemon"`` / ``"control"`` /
     ``"conversation"`` / ``"skill"`` / ``"auto"`` / ``"user"``) so future
     introspection can group commands without re-parsing source.
+    ``owner_plugin_id`` identifies plugin commands; built-ins remain ownerless.
     """
 
     name: str
@@ -40,6 +43,7 @@ class CommandSpec:
     category: str = "user"
     help_text: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    owner_plugin_id: str = ""
 
 
 class SlashCommandRegistry:
@@ -56,22 +60,48 @@ class SlashCommandRegistry:
         self._fallback: FallbackHandler | None = None
 
     # ---------------------------------------------------------------- register
-    def register(self, spec: CommandSpec) -> None:
+    def _validate_registration(self, spec: CommandSpec) -> tuple[str, ...]:
         names = (spec.name, *spec.aliases)
-        for nm in names:
-            key = nm.lower()
-            if not key:
-                raise ValueError(
-                    f"command spec has empty name in {names!r}",
-                )
+        keys = tuple(name.lower() for name in names)
+        if any(not key for key in keys):
+            raise ValueError(f"command spec has empty name in {names!r}")
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"command spec has duplicate names in {names!r}")
+        for key in keys:
             if key in self._by_name:
                 existing = self._by_name[key]
                 raise ValueError(
-                    f"command /{key} already registered "
-                    f"by {existing.category} ({existing.name})",
+                    occupancy_conflict(
+                        "command",
+                        f"/{key}",
+                        getattr(existing, "owner_plugin_id", "") or "",
+                    ),
                 )
-        for nm in names:
-            self._by_name[nm.lower()] = spec
+        return keys
+
+    def validate(self, spec: CommandSpec) -> None:
+        """Validate a registration without changing the registry."""
+        self._validate_registration(spec)
+
+    def register(self, spec: CommandSpec) -> None:
+        keys = self._validate_registration(spec)
+        self._by_name.update(zip(keys, (spec,) * len(keys)))
+
+    def unregister(
+        self,
+        name: str,
+        expected: CommandSpec | None = None,
+    ) -> bool:
+        """Remove a command only if *expected* still occupies the row."""
+        key = name.lower()
+        spec = self._by_name.get(key)
+        if spec is None:
+            return False
+        if expected is not None and spec is not expected:
+            return False
+        for nm in (spec.name, *spec.aliases):
+            self._by_name.pop(nm.lower(), None)
+        return True
 
     def register_fallback(self, handler: FallbackHandler) -> None:
         if self._fallback is not None:
@@ -146,7 +176,10 @@ class SlashCommandRegistry:
         match = self.resolve(raw_text)
         if match is not None:
             spec, args = match
-            return await spec.handler(ctx, args)
+            from ..plugins.activity import plugin_invocation
+
+            with plugin_invocation(spec.owner_plugin_id):
+                return await spec.handler(ctx, args)
         if (
             self._fallback is not None
             and raw_text

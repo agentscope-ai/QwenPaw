@@ -1,6 +1,8 @@
 import { CreatorHttpError } from "@/api/creator/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Image, Input, Modal, Select, message } from "antd";
+import { Alert, Button, Input, Modal, Select, message } from "antd";
+import ImageLightbox from "@/components/assets/ImageLightbox";
+import PreviewImage from "@/components/assets/PreviewImage";
 import {
   ArrowLeft,
   Loader2,
@@ -18,6 +20,7 @@ import {
   type ProjectEditOperation,
 } from "@/store/projectSnapshotStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { nodeGenerating } from "@/lib/generationActivity";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import {
@@ -30,11 +33,7 @@ import {
   getR2VReferenceOrder,
 } from "@/api/creator";
 import { dispatchWorkGraphNode } from "@/api/creator/workGraph";
-import {
-  acceptPromptProposal,
-  createPromptProposal,
-  getPromptSync,
-} from "@/api/creator/promptSync";
+import { confirmCurrentPrompts, getPromptSync } from "@/api/creator/promptSync";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { taskProgressPercent } from "@/lib/taskPresentation";
@@ -127,7 +126,6 @@ function PromptTextArea({
   field,
   path,
   disabled = false,
-  placeholder,
   onChange,
   onRegenerate,
   regenerating = false,
@@ -145,6 +143,12 @@ function PromptTextArea({
   regenerateLabel?: string;
 }) {
   const { t } = useTranslation();
+  // An empty prompt is a planned-but-unwritten field only until someone
+  // writes it: a user clearing the draft to rewrite must not lock the box,
+  // so the awaiting state is sticky-off once the value has been non-empty.
+  const everWritten = useRef(!!value.trim());
+  if (value.trim()) everWritten.current = true;
+  const awaitingAgent = !everWritten.current;
   return (
     <div
       data-creator-field={field}
@@ -157,10 +161,14 @@ function PromptTextArea({
       <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <TextArea
           value={value}
-          disabled={disabled}
+          disabled={disabled || awaitingAgent}
           onChange={(event) => onChange(event.target.value)}
           autoSize={{ minRows: 2, maxRows: 10 }}
-          placeholder={placeholder ?? t("r2v.generateAndEdit", { label })}
+          placeholder={
+            awaitingAgent
+              ? t("r2v.awaitAgentPrompt")
+              : t("r2v.generateAndEdit", { label })
+          }
           className="!rounded-none !border-0 !bg-transparent !text-xs !shadow-none"
         />
         {onRegenerate && (
@@ -169,7 +177,7 @@ function PromptTextArea({
               field={field}
               label={regenerateLabel ?? ""}
               loading={regenerating}
-              disabled={disabled}
+              disabled={disabled || awaitingAgent}
               onClick={onRegenerate}
             />
           </div>
@@ -201,10 +209,9 @@ function MediaFrame({
       data-review-media-anchor={anchorVersionId}
       className="mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141210]"
     >
-      <Image
+      <PreviewImage
         src={src}
         alt={alt}
-        preview={{ src }}
         style={{
           display: "block",
           width: "auto",
@@ -468,6 +475,8 @@ export function WorkbenchSurface({
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
     // Prompt-only edits do not change reference identities. Keep their
     // verified images during refresh; actual binding changes clear them.
     if (previousReferenceIdentity.current !== referenceIdentity) {
@@ -475,17 +484,28 @@ export function WorkbenchSurface({
       setStoryboardReferenceOrder(null);
       previousReferenceIdentity.current = referenceIdentity;
     }
-    Promise.allSettled([
-      getR2VReferenceOrder(projectId, elementId),
-      getR2VReferenceOrder(projectId, elementId, "storyboard"),
-    ])
-      .then(([video, storyboard]) => {
-        if (cancelled) return;
+    const refresh = async () => {
+      const [video, storyboard] = await Promise.allSettled([
+        getR2VReferenceOrder(projectId, elementId),
+        getR2VReferenceOrder(projectId, elementId, "storyboard"),
+      ]);
+      if (cancelled) return;
+      const retryable = (result: PromiseSettledResult<unknown>) =>
+        result.status === "rejected" &&
+        (!(result.reason instanceof CreatorHttpError) ||
+          result.reason.retryable ||
+          result.reason.status >= 500 ||
+          result.reason.status === 429 ||
+          (result.reason.status === 404 && result.reason.code !== "NOT_FOUND"));
+      // A temporarily unavailable backend does not unbind verified media.
+      // Retry without requiring another project edit or reopening the page.
+      if (!retryable(video))
         setReferenceOrder(
           video.status === "fulfilled" && Array.isArray(video.value?.references)
             ? video.value
             : null,
         );
+      if (!retryable(storyboard))
         setStoryboardReferenceOrder(
           storyboard.status === "fulfilled" &&
             storyboard.value?.stage === "storyboard" &&
@@ -493,12 +513,16 @@ export function WorkbenchSurface({
             ? storyboard.value
             : null,
         );
-      })
-      .catch(() => {
-        if (!cancelled) setReferenceOrder(null);
-      });
+      if ((retryable(video) || retryable(storyboard)) && retryAttempt < 8)
+        retryTimer = setTimeout(
+          () => void refresh(),
+          Math.min(30_000, 1000 * 2 ** retryAttempt++),
+        );
+    };
+    void refresh();
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
     };
   }, [projectId, elementId, generationMode, generation, referenceIdentity]);
 
@@ -774,37 +798,30 @@ export function WorkbenchSurface({
           timelineId: timeline.timeline_id,
           elementId: element.element_id,
         };
-        let sync = await getPromptSync(scope);
+        // Use the same stage boundary as Work Graph. A ready storyboard
+        // must not wait for a separate video/narrative rewrite.
+        let sync = await getPromptSync(scope, undefined, kind);
         if (!isCurrent() || submittedInput !== inputSignature()) return;
         if (sync.validationMessage) throw new Error(sync.validationMessage);
-        if (
+        const gated =
           sync.status === "needs_update" ||
-          sync.status === "needs_confirmation"
-        ) {
+          sync.status === "needs_confirmation";
+        // Regeneration is node-scoped: re-render only the clicked stage from its
+        // current content, never rewriting the authored prompts. A pending gate
+        // only needs re-stamping (confirm_current keeps all three bodies
+        // verbatim, #7720); with no gate this is a plain re-render. The
+        // downstream stage is deliberately left alone — its node goes stale for
+        // a separate manual click — instead of cascading a paid re-generation.
+        if (gated) {
           setSynchronizing(true);
-          const proposal = await createPromptProposal(
-            scope,
-            sync.suggestedSource ??
-              (sync.narrative.trim() ? "currentPlan" : "videoPrompt"),
-          );
-          // A new edit or route change cancels this generation intent before
-          // the proposal can publish. The backend also checks its saved baseline.
-          if (!isCurrent() || submittedInput !== inputSignature()) return;
-          await acceptPromptProposal(scope, proposal.proposalId);
+          await confirmCurrentPrompts(scope, kind);
           if (!isCurrent()) return;
           await pollOnce(projectId);
           if (!isCurrent()) return;
           submittedInput = inputSignature();
-          sync = await getPromptSync(scope);
+          sync = await getPromptSync(scope, undefined, kind);
           if (!isCurrent() || submittedInput !== inputSignature()) return;
-          // Dispatch only the exact synchronized content returned by this
-          // operation; an unrelated concurrent edit must not inherit its click.
-          if (
-            sync.status !== "current" ||
-            sync.storyboardPrompt !== proposal.storyboardPrompt ||
-            sync.videoPrompt !== proposal.videoPrompt ||
-            sync.narrative !== proposal.narrative
-          )
+          if (sync.status !== "current")
             throw new Error(t("r2v.sync.changedBeforeGeneration"));
           setSynchronizing(false);
         }
@@ -1009,7 +1026,9 @@ export function WorkbenchSurface({
     if (!task || task.status === "SUCCEEDED") return null;
     const active = task.status === "QUEUED" || task.status === "RUNNING";
     const progress =
-      task.status === "RUNNING" ? taskProgressPercent(task.progress) : null;
+      task.status === "RUNNING"
+        ? taskProgressPercent(task.progress, task.kind)
+        : null;
     return (
       <p
         data-stage-task={kind}
@@ -1108,17 +1127,7 @@ export function WorkbenchSurface({
     </div>
   );
   const lightbox = lightboxSrc && (
-    <Image
-      style={{ display: "none" }}
-      src={lightboxSrc}
-      preview={{
-        visible: true,
-        src: lightboxSrc,
-        onVisibleChange: (visible) => {
-          if (!visible) setLightboxSrc(null);
-        },
-      }}
-    />
+    <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
   );
 
   // ── Mode-specific workbenches ─────────────────────────────────────────
@@ -1238,7 +1247,8 @@ export function WorkbenchSurface({
                       onChange={(value) => updateModeField("script", value)}
                       onRegenerate={() => void regenerateNode("video")}
                       regenerating={
-                        regeneratingNode === `video:${element.element_id}`
+                        regeneratingNode === `video:${element.element_id}` ||
+                        nodeGenerating(tasks, `video:${element.element_id}`)
                       }
                       regenerateLabel={t("r2v.regenerateVideo")}
                     />
@@ -1297,7 +1307,8 @@ export function WorkbenchSurface({
                       }
                       onRegenerate={() => void regenerateNode("video")}
                       regenerating={
-                        regeneratingNode === `video:${element.element_id}`
+                        regeneratingNode === `video:${element.element_id}` ||
+                        nodeGenerating(tasks, `video:${element.element_id}`)
                       }
                       regenerateLabel={t("r2v.regenerateVideo")}
                     />
@@ -1641,12 +1652,29 @@ export function WorkbenchSurface({
   };
 
   // A dirty reference binding has no verified provider order yet. Prompt
-  // Prompt edits keep the current reference mapping intact.
+  // edits keep the current reference mapping intact.
   const referenceDraftChanged = elementDraft.dirtyPaths.some((path) =>
     /\/creation\/(?:storyboard_reference_version_ids|video_reference_version_ids|scene_ref|character_refs|prop_refs|visual_variant_refs|cast_lineup_refs)(?:\/|$)/.test(
       path,
     ),
   );
+
+  // The video node goes stale once its upstream (the selected storyboard
+  // version) changes. Surface it so a manual storyboard re-render leaves a
+  // visible pending-regeneration marker instead of silently cascading.
+  const videoNodeStale = useWorkGraphStore(
+    (s) =>
+      s.graph?.nodes.find((n) => n.id === `video:${element.element_id}`)
+        ?.status === "stale",
+  );
+
+  // Human-initiated regeneration is node-scoped: it re-renders only the clicked
+  // stage from its current content, never rewrites prompts, and never cascades
+  // to the downstream stage. The unattended agent never reaches this handler;
+  // it resolves prompt-sync gates and cascades on its own in the backend
+  // scheduler (_prepare_changed_prompts).
+  const handleRegenerate = (kind: "storyboard" | "video") =>
+    void regenerateNode(kind);
 
   // The storyboard the backend will lock as [Image 1] is the *selected*
   // version, not whichever one is being viewed.
@@ -1784,34 +1812,34 @@ export function WorkbenchSurface({
                 message={regenerationError}
               />
             )}
-            {contextCard && <div className="px-3.5 pt-2.5">{contextCard}</div>}
-            <details
-              className="r2v-narrative mx-3.5 mt-2.5"
-              open={reviewField?.includes("/creation/narrative") || undefined}
-            >
-              <summary className="cursor-pointer text-xs font-medium text-[var(--color-text-secondary)]">
-                {t("r2v.narrativeTitle")}
-              </summary>
-              <div className="mt-2">
-                <PromptRichBlock
-                  label={t("r2v.narrativeTitle")}
-                  value={creation.narrative}
-                  field={`element:${element.element_id}/creation/narrative`}
-                  path={elementPointer("creation", "narrative")}
-                  disabled={patching}
-                  tokens={[]}
-                  collapseHeight={150}
-                  onEditComplete={scheduleSilentApply}
-                  onChange={(value) =>
-                    updateElement((draft) => {
-                      if (draft.creation.type === "r2v")
-                        draft.creation.narrative = value;
-                    })
-                  }
-                />
-              </div>
-            </details>
             <div className="r2v-workbench-prompt-body min-w-0 flex-1 p-4">
+              {contextCard && <div className="pb-2.5">{contextCard}</div>}
+              <details
+                className="r2v-narrative mb-4"
+                open={reviewField?.includes("/creation/narrative") || undefined}
+              >
+                <summary className="cursor-pointer text-xs font-medium text-[var(--color-text-secondary)]">
+                  {t("r2v.narrativeTitle")}
+                </summary>
+                <div className="mt-2">
+                  <PromptRichBlock
+                    label={t("r2v.narrativeTitle")}
+                    value={creation.narrative}
+                    field={`element:${element.element_id}/creation/narrative`}
+                    path={elementPointer("creation", "narrative")}
+                    disabled={patching}
+                    tokens={[]}
+                    collapseHeight={150}
+                    onEditComplete={scheduleSilentApply}
+                    onChange={(value) =>
+                      updateElement((draft) => {
+                        if (draft.creation.type === "r2v")
+                          draft.creation.narrative = value;
+                      })
+                    }
+                  />
+                </div>
+              </details>
               {/* Stage ①: storyboard prompt + versions. Both stages stay
                   mounted (hidden attr) so field anchors and review focus
                   keep resolving regardless of the visible tab. */}
@@ -1893,13 +1921,6 @@ export function WorkbenchSurface({
                         </Button>
                       </div>
                     )}
-                  {storyboardReferenceOrder?.ready === false && (
-                    <Alert
-                      type="warning"
-                      showIcon
-                      message={t("r2v.referencesNeedReview")}
-                    />
-                  )}
                   <PromptRichBlock
                     label={t("r2v.storyboardPrompt")}
                     value={creation.storyboard_prompt}
@@ -1912,9 +1933,10 @@ export function WorkbenchSurface({
                       storyboardReferenceOrder?.ready === false
                     }
                     collapseHeight={230}
-                    onRegenerate={() => void regenerateNode("storyboard")}
+                    onRegenerate={() => handleRegenerate("storyboard")}
                     regenerating={
-                      regeneratingNode === `storyboard:${element.element_id}`
+                      regeneratingNode === `storyboard:${element.element_id}` ||
+                      nodeGenerating(tasks, `storyboard:${element.element_id}`)
                     }
                     regenerateLabel={t("r2v.regenerateImage")}
                     onEditComplete={scheduleSilentApply}
@@ -1977,6 +1999,11 @@ export function WorkbenchSurface({
                       </span>
                     </button>
                   )}
+                  {videoNodeStale && (
+                    <p className="text-[11px] leading-relaxed text-[var(--color-text-tertiary)]">
+                      {t("r2v.videoStaleHint")}
+                    </p>
+                  )}
                   <PromptRichBlock
                     label={t("r2v.videoPrompt")}
                     value={creation.video_prompt}
@@ -1984,10 +2011,14 @@ export function WorkbenchSurface({
                     path={elementPointer("creation", "video_prompt")}
                     disabled={patching}
                     tokens={vdTokens}
+                    regenerateDisabled={
+                      referenceDraftChanged || referenceOrder?.ready === false
+                    }
                     collapseHeight={460}
-                    onRegenerate={() => void regenerateNode("video")}
+                    onRegenerate={() => handleRegenerate("video")}
                     regenerating={
-                      regeneratingNode === `video:${element.element_id}`
+                      regeneratingNode === `video:${element.element_id}` ||
+                      nodeGenerating(tasks, `video:${element.element_id}`)
                     }
                     regenerateLabel={t("r2v.regenerateVideo")}
                     onEditComplete={scheduleSilentApply}
@@ -2153,6 +2184,9 @@ export function WorkbenchSurface({
             )}
             onOpen={openVisualEntity}
             onRemove={(entityId) => removeEntityRef("character", entityId)}
+            onPreview={(versionId) =>
+              setLightboxSrc(getArtifactVersionMediaUrl(versionId))
+            }
           />
           <EntityGroup
             label={t("blueprint.entityKinds.scene")}
@@ -2161,6 +2195,9 @@ export function WorkbenchSurface({
             )}
             onOpen={openVisualEntity}
             onRemove={(entityId) => removeEntityRef("scene", entityId)}
+            onPreview={(versionId) =>
+              setLightboxSrc(getArtifactVersionMediaUrl(versionId))
+            }
           />
           <EntityGroup
             label={t("blueprint.entityKinds.prop")}
@@ -2169,6 +2206,9 @@ export function WorkbenchSurface({
             )}
             onOpen={openVisualEntity}
             onRemove={(entityId) => removeEntityRef("prop", entityId)}
+            onPreview={(versionId) =>
+              setLightboxSrc(getArtifactVersionMediaUrl(versionId))
+            }
           />
 
           {materialCards.length > 0 && (
@@ -2193,6 +2233,27 @@ export function WorkbenchSurface({
                           src={card.thumbUrl}
                           alt=""
                           loading="lazy"
+                          onClick={() =>
+                            setLightboxSrc(
+                              project.assets.source_versions_by_id[
+                                card.versionId
+                              ]
+                                ? getAssetVersionMediaUrl(card.versionId)
+                                : getArtifactVersionMediaUrl(card.versionId),
+                            )
+                          }
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter")
+                              setLightboxSrc(
+                                project.assets.source_versions_by_id[
+                                  card.versionId
+                                ]
+                                  ? getAssetVersionMediaUrl(card.versionId)
+                                  : getArtifactVersionMediaUrl(card.versionId),
+                              );
+                          }}
                           className="h-full w-full object-cover"
                         />
                       ) : (

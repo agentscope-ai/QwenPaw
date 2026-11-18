@@ -29,6 +29,8 @@ _NATIVE_IMAGE_MEDIA_TYPES = frozenset(
     },
 )
 _PNG_CONVERTIBLE_IMAGE_FORMATS = frozenset({"BMP", "TIFF"})
+# History and memory retain originals; provider formatters bound requests.
+MAX_SNAPSHOT_IMAGE_BYTES = 50 * 1024 * 1024
 
 
 def validate_image_bytes(
@@ -87,13 +89,15 @@ def _local_path_from_url(url: str) -> Path | None:
 def freeze_image_bytes(
     image_bytes: bytes,
     display_name: str,
+    *,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> tuple[DataBlock | None, str | None]:
     """Validate image bytes and freeze them as immutable base64 content."""
-    if len(image_bytes) > MAX_INLINE_MEDIA_BYTES:
+    if len(image_bytes) > max_bytes:
         return (
             None,
             f"Error: {display_name} exceeds the "
-            f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+            f"{max_bytes}-byte image limit.",
         )
 
     try:
@@ -130,12 +134,12 @@ def freeze_image_bytes(
     ) as exc:
         return None, f"Error: {display_name} is not a valid image: {exc}"
 
-    if len(frozen_bytes) > MAX_INLINE_MEDIA_BYTES:
+    if len(frozen_bytes) > max_bytes:
         return (
             None,
             f"Error: converted {display_name} is "
             f"{len(frozen_bytes)} bytes and exceeds the "
-            f"{MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+            f"{max_bytes}-byte image limit.",
         )
 
     encoded = base64.b64encode(frozen_bytes).decode("ascii")
@@ -152,22 +156,28 @@ def freeze_image_bytes(
 
 def freeze_local_image(
     image_path: Path,
+    *,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
 ) -> tuple[DataBlock | None, str | None]:
     """Read, validate, and freeze one local image as immutable content."""
     try:
         file_size = image_path.stat().st_size
-        if file_size > MAX_INLINE_MEDIA_BYTES:
+        if file_size > max_bytes:
             return (
                 None,
                 f"Error: {image_path.name} is {file_size} bytes and "
-                f"exceeds the {MAX_INLINE_MEDIA_BYTES}-byte image limit.",
+                f"exceeds the {max_bytes}-byte image limit.",
             )
         with image_path.open("rb") as image_file:
-            image_bytes = image_file.read(MAX_INLINE_MEDIA_BYTES + 1)
+            image_bytes = image_file.read(max_bytes + 1)
     except OSError as exc:
         return None, f"Error: {image_path.name} is not a valid image: {exc}"
 
-    return freeze_image_bytes(image_bytes, image_path.name)
+    return freeze_image_bytes(
+        image_bytes,
+        image_path.name,
+        max_bytes=max_bytes,
+    )
 
 
 def _replacement_text(value: Any, error: str) -> Any:
@@ -204,7 +214,10 @@ def _freeze_data_block(value: Any) -> tuple[Any, int]:
     if local_path is None:
         return value, 0
 
-    frozen, error = freeze_local_image(local_path)
+    frozen, error = freeze_local_image(
+        local_path,
+        max_bytes=MAX_SNAPSHOT_IMAGE_BYTES,
+    )
     if frozen is None or error is not None:
         return _replacement_text(value, error or "failed to load image"), 1
 

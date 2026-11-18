@@ -1,0 +1,74 @@
+.selector {
+  max-width: 900px;
+}
+.options {
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--app-fill-subtle);
+}
+.option {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  padding: 13px 16px;
+  border-radius: 12px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  > input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+  > span {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+  > i {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+  }
+  &[data-selected] {
+    color: var(--app-text);
+    font-weight: 550;
+  }
+  &[data-disabled] {
+    opacity: 0.5;
+    cursor: default;
+  }
+  &:has(input:focus-visible) {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 2px;
+  }
+}
+.description {
+  min-height: 44px;
+  margin-top: 14px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  p {
+    margin: 0;
+  }
+}
+@media (max-width: 600px) {
+  .options {
+    flex-wrap: wrap;
+  }
+  .option {
+    flex-basis: calc(50% - 4px);
+    padding: 12px 8px;
+  }
+}

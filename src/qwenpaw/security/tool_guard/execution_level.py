@@ -34,6 +34,9 @@ class ToolExecutionLevel(str, Enum):
         - MEDIUM/HIGH/CRITICAL severity: require approval
     """
 
+    JEV = "jev"
+    """SMART baseline plus a decision-model pre-execution approval check."""
+
     AUTO = "auto"
     """Only explicitly guarded tools require approval (backward compatible).
 
@@ -76,4 +79,4 @@ class ToolExecutionLevel(str, Enum):
 
     def is_smart_mode(self) -> bool:
         """Check if using smart risk-based approval."""
-        return self == ToolExecutionLevel.SMART
+        return self in (ToolExecutionLevel.SMART, ToolExecutionLevel.JEV)

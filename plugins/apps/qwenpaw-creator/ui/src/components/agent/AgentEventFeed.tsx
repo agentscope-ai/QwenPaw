@@ -17,6 +17,7 @@ import { isTechnicalControlText } from "@/lib/creatorMessagePresentation";
 import {
   creatorRoleLabel,
   creatorStatusLabel,
+  creatorRunStatusLabel,
   creatorTargetLabel,
   creatorToolLabel,
 } from "@/lib/creatorPresentation";
@@ -140,10 +141,6 @@ function isReviewWaitingRun(run: SpecialistRunView): boolean {
     (run.status === "BLOCKED" &&
       /等待(?:用户)?审阅|审阅通过后/u.test(run.finalSummaryText || ""))
   );
-}
-
-function runStatusLabel(status: SpecialistRunView["status"]): string {
-  return creatorStatusLabel(status);
 }
 
 function eventText(event: CreatorEvent): string {
@@ -483,7 +480,7 @@ export default function AgentEventFeed() {
                     ·{" "}
                     {isReviewWaitingRun(run)
                       ? t("agentEventFeed.waitingReview")
-                      : runStatusLabel(run.status)}
+                      : creatorRunStatusLabel(run, tasks)}
                   </span>
                 </li>
               ))}

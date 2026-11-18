@@ -7,22 +7,90 @@ import {
   Download,
   Film,
   Play,
+  Pause,
   RotateCcw,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ProjectDocument } from "@/contracts/creator";
+import type { ProjectDocument, TimelineDocument } from "@/contracts/creator";
 import {
   getArtifactVersionMediaUrl,
   getAssetVersionMediaUrl,
-  getTimelineRoughCutUrl,
 } from "@/api/creator";
 import {
   selectFinalFilmVersionId,
   selectRoughCutFrames,
   type RoughCutSource,
 } from "@/selectors/blueprintSelectors";
-import { selectLiveTimelineIds } from "@/selectors/timelineElementSelectors";
+import {
+  selectLiveTimelineIds,
+  timelineEndTick,
+} from "@/selectors/timelineElementSelectors";
+import TimelineLivePreview from "@/components/timeline/TimelineLivePreview";
+
+function DraftTimelinePlayer({
+  project,
+  timeline,
+  onEnded,
+}: {
+  project: ProjectDocument;
+  timeline: TimelineDocument;
+  onEnded: () => void;
+}) {
+  const { t } = useTranslation();
+  const [tick, setTick] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const duration = timelineEndTick(timeline);
+  const tps = timeline.ticks_per_second || 1000;
+  useEffect(() => {
+    if (duration > 0 && tick >= duration) onEnded();
+  }, [tick, duration, onEnded]);
+  return (
+    <div data-roughcut-live className="w-[min(88vw,1000px)] pt-10">
+      <div className="h-[min(68vh,720px)]">
+        <TimelineLivePreview
+          project={project}
+          timeline={timeline}
+          durationTick={duration}
+          playheadTick={Math.min(tick, Math.max(0, duration - 1))}
+          playing={playing}
+          muted={false}
+          tasks={[]}
+          onPlayheadChange={setTick}
+          onPlayingChange={setPlaying}
+          draft
+        />
+      </div>
+      <div className="flex items-center gap-3 px-4 py-3 text-xs text-white">
+        <button
+          type="button"
+          aria-label={t(
+            playing ? "blueprint.pausePreview" : "blueprint.playRoughCut",
+          )}
+          onClick={() => setPlaying((value) => !value)}
+        >
+          {playing ? <Pause size={18} /> : <Play size={18} />}
+        </button>
+        <input
+          aria-label={t("blueprint.previewPosition")}
+          type="range"
+          min={0}
+          max={duration}
+          step={Math.max(1, tps / 24)}
+          value={tick}
+          onChange={(event) => {
+            setPlaying(false);
+            setTick(Number(event.target.value));
+          }}
+          className="min-w-0 flex-1 accent-[var(--color-accent)]"
+        />
+        <span className="tabular-nums">
+          {(tick / tps).toFixed(1)} / {(duration / tps).toFixed(1)}s
+        </span>
+      </div>
+    </div>
+  );
+}
 
 const SOURCE_STYLE: Record<RoughCutSource, string> = {
   final: "bg-[var(--color-success)]/90",
@@ -53,7 +121,7 @@ function PreviewCinema({
   /** Whole-film mp4 url; used when startId is the FULL_FILM_ID sentinel. */
   filmUrl: string | null;
   labelOf: (timelineId: string) => string;
-  srcOf: (timelineId: string) => string;
+  srcOf: (timelineId: string) => string | null;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -139,13 +207,22 @@ function PreviewCinema({
           <div className="flex h-40 w-80 items-center justify-center px-6 text-center text-xs text-white/70">
             {t("blueprint.roughCutFailed")}
           </div>
+        ) : !wholeFilm &&
+          !srcOf(currentId) &&
+          project.timelines.items[currentId] ? (
+          <DraftTimelinePlayer
+            key={`${currentId}:${replayNonce}`}
+            project={project}
+            timeline={project.timelines.items[currentId]}
+            onEnded={handleEnded}
+          />
         ) : (
           // The frame hugs the video's own aspect ratio (measured from
           // metadata): width = min(92vw, 82vh × ratio) — no letterbox bars
           // in either orientation.
           <video
             key={`${currentId}:${replayNonce}`}
-            src={wholeFilm ? filmUrl ?? undefined : srcOf(currentId)}
+            src={(wholeFilm ? filmUrl : srcOf(currentId)) ?? undefined}
             controls
             autoPlay
             playsInline
@@ -251,6 +328,8 @@ export default function BlueprintRoughCutStrip({
     const slot =
       project.assets.artifact_slots_by_id[`timeline:${timelineId}:render`];
     if (slot?.kind !== "final_video" || !slot.selected_version_id) return null;
+    if (project.assets.artifact_versions_by_id[slot.selected_version_id]?.stale)
+      return null;
     return getArtifactVersionMediaUrl(slot.selected_version_id);
   };
 
@@ -329,10 +408,7 @@ export default function BlueprintRoughCutStrip({
           startId={playingId}
           filmUrl={filmUrl}
           labelOf={timelineLabelOf}
-          srcOf={(timelineId) =>
-            finalCutUrlOf(timelineId) ??
-            getTimelineRoughCutUrl(project.project_id, timelineId)
-          }
+          srcOf={finalCutUrlOf}
           onClose={() => setPlayingId(null)}
         />
       )}

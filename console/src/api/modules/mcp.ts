@@ -15,7 +15,11 @@ export const mcpApi = {
   /**
    * List all MCP clients
    */
-  listMCPClients: () => request<MCPClientInfo[]>("/mcp"),
+  listMCPClients: (agentId?: string) =>
+    request<MCPClientInfo[]>(
+      "/mcp",
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
+    ),
 
   /**
    * Get details of a specific MCP client

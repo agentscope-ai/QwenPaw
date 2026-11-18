@@ -64,11 +64,6 @@ async def test_lifespan_initializes_provider_manager_in_worker_thread(
         app_module,
         "migrate_legacy_skills_to_skill_pool",
         lambda: None,
-        monkeypatch.setattr(
-            app_module,
-            "_sync_scroll_history_on_startup",
-            AsyncMock(),
-        ),
     )
     monkeypatch.setattr(app_module, "ensure_qa_agent_exists", lambda: None)
 
@@ -146,11 +141,6 @@ async def test_lifespan_initializes_local_model_manager_in_worker_thread(
         app_module,
         "migrate_legacy_skills_to_skill_pool",
         lambda: None,
-    )
-    monkeypatch.setattr(
-        app_module,
-        "_sync_scroll_history_on_startup",
-        AsyncMock(),
     )
     monkeypatch.setattr(app_module, "ensure_qa_agent_exists", lambda: None)
 

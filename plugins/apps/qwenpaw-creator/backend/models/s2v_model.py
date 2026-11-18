@@ -26,9 +26,7 @@ import asyncio
 import io
 import mimetypes
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import urlparse
 
 import httpx
 from PIL import Image
@@ -38,7 +36,7 @@ from models.media_transport import upload_local_file_to_dashscope_temp
 from models.provider_tasks import note_provider_task
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
-from utils.paths import media_path_from_url
+from utils.paths import local_path_from_file_url, media_path_from_url
 
 logger = setup_logger("model.s2v")
 
@@ -135,7 +133,7 @@ async def resolve_s2v_media_url(
     if value.startswith("/generated/"):
         media_path = media_path_from_url(value)
     elif value.startswith("file://"):
-        media_path = Path(urlparse(value).path)
+        media_path = local_path_from_file_url(value)
     else:
         raise ModelError(
             "S2V media must be /generated, file://, http(s):// or oss:// "

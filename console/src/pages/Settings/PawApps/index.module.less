@@ -26,17 +26,23 @@
 
 .appCard {
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
   border: 1px solid transparent;
 }
 
 .appCard:hover {
-  border-color: #ff7f16;
+  border-color: var(--app-accent);
 }
 
 .appCardActive {
-  border-color: #ff7f16;
-  background: rgba(255, 127, 22, 0.04);
+  border-color: var(--app-accent);
+  background: var(--app-accent-faint);
 }
 
 .appContent {

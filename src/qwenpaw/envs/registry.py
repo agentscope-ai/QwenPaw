@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
+
+from ..utils.runtime_environment import user_environment_key_allowed
+from ..utils.shell_resources import parse_shell_memory_limit
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -25,6 +29,7 @@ class EnvVarSpec:
     mutability: EnvMutability
     value_type: EnvValueType = "string"
     readonly_reason_code: EnvReadonlyReason | None = None
+    validator: Callable[[str], object] | None = None
 
     @property
     def editable(self) -> bool:
@@ -33,6 +38,12 @@ class EnvVarSpec:
 
 
 ENV_VAR_SPECS = (
+    EnvVarSpec(
+        "QWENPAW_SHELL_MEMORY_LIMIT_MB",
+        "0",
+        "hot_runtime",
+        validator=parse_shell_memory_limit,
+    ),
     EnvVarSpec(
         "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
         "30",
@@ -151,8 +162,10 @@ ENV_VAR_SPECS_BY_KEY = {spec.key: spec for spec in ENV_VAR_SPECS}
 
 _INTERNAL_KEYS = frozenset(
     {
+        "QWENPAW_DEPENDENCY_STATE_DIR",
         "QWENPAW_RUNTIME_INTERNAL_TOKEN",
         "QWENPAW_RUNTIME_READY_FILE",
+        "QWENPAW_INTERNAL_HOST_API_PORT",
     },
 )
 _PROTECTED_BOOTSTRAP_KEYS = frozenset(
@@ -201,7 +214,7 @@ def validate_env_key(key: str) -> None:
         raise ValueError(
             f"QwenPaw environment variable must be uppercase: {key}",
         )
-    if is_internal_env_key(key):
+    if is_internal_env_key(key) or is_managed_control_key(key):
         raise ValueError(f"Environment variable is managed internally: {key}")
     spec = ENV_VAR_SPECS_BY_KEY.get(identity)
     if spec is not None and not spec.editable:
@@ -213,8 +226,10 @@ def validate_env_value(key: str, value: str) -> None:
     if not isinstance(value, str):
         raise ValueError(f"Environment variable value must be text: {key}")
     spec = ENV_VAR_SPECS_BY_KEY.get(key)
-    if spec is None or spec.value_type == "string":
+    if spec is None:
         return
+    if spec.validator is not None:
+        spec.validator(value)
     try:
         if spec.value_type == "float":
             parsed = float(value)
@@ -224,3 +239,14 @@ def validate_env_value(key: str, value: str) -> None:
             int(value)
     except ValueError as exc:
         raise ValueError(f"Invalid {spec.value_type} value for {key}") from exc
+
+
+def is_managed_control_key(key: str) -> bool:
+    """Protect the launch contract in managed runtimes only."""
+    if not os.environ.get("QWENPAW_RUNTIME_ID"):
+        return False
+    spec = ENV_VAR_SPECS_BY_KEY.get(key)
+    return not (
+        user_environment_key_allowed(key)
+        or (spec is not None and spec.editable)
+    )

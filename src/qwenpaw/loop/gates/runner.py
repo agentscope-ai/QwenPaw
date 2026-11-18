@@ -8,6 +8,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agentscope.message import Msg, TextBlock
+
+from ...constant import (
+    LOOP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
 from .base import StopAction, StopHandlerResult
 
 logger = logging.getLogger(__name__)
@@ -156,8 +162,8 @@ def apply_stop_result(  # pylint: disable=protected-access
     """Process stop_result and set pending state on agent.
 
     Called after _run_stop_handlers in a tool-call iteration.
-    Defers TERMINATE until the tool results are processed. A continuation
-    prompt is unnecessary because tool calls already continue the loop.
+    Defer stops and strategy warnings until tool results are processed.
+    Ordinary keep-working prompts are unnecessary on tool-call iterations.
     """
     if is_tool_call:
         if stop_result.action == StopAction.TERMINATE and stop_result.reason:
@@ -166,6 +172,12 @@ def apply_stop_result(  # pylint: disable=protected-access
                 stop_result.reason,
             )
             agent._gate_pending_stop = stop_result
+        elif (
+            stop_result.action == StopAction.INTERRUPT_AND_CONTINUE
+            and stop_result.inject_on_tool_call
+            and stop_result.continuation_message
+        ):
+            agent._gate_pending_continue = stop_result
 
 
 def check_pending_gates(  # pylint: disable=protected-access
@@ -178,6 +190,10 @@ def check_pending_gates(  # pylint: disable=protected-access
     """
     from ...browser.handoff_signal import take_pending
     from ...config.context import get_current_session_id
+
+    continuation = getattr(agent, "_gate_pending_continue", None)
+    if continuation is not None:
+        agent._gate_pending_continue = None
 
     handoff = take_pending(get_current_session_id() or "default")
     if handoff is not None:
@@ -195,6 +211,18 @@ def check_pending_gates(  # pylint: disable=protected-access
         )
         return pending
 
+    if continuation is not None:
+        agent.state.context.append(
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text=continuation.continuation_message)],
+                metadata=continuation.continuation_metadata
+                or {
+                    QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+                },
+            ),
+        )
     return None
 
 
@@ -205,6 +233,7 @@ def clear_pending_gate_state(
     if agent is None:
         return
     agent._gate_pending_stop = None  # pylint: disable=protected-access
+    agent._gate_pending_continue = None  # pylint: disable=protected-access
 
 
 __all__ = [

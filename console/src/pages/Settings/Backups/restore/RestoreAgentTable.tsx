@@ -6,9 +6,13 @@
  */
 import { useState, useMemo } from "react";
 import type { Key } from "react";
+import NumberFlow from "@number-flow/react";
 import { Checkbox, Input, Tag, Table, Spin, Typography } from "antd";
 import type { TableColumnsType } from "antd";
-import { SearchOutlined, RightOutlined } from "@ant-design/icons";
+import {
+  Search as SearchOutlined,
+  ChevronRight as RightOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "./RestoreAgentTable.module.less";
 
@@ -76,7 +80,7 @@ export default function RestoreAgentTable({
   const handleTableSelectionChange = (keys: Key[]) => {
     const filteredIds = new Set(filteredAgentRows.map((r) => r.aid));
     const kept = selectedAgents.filter((id) => !filteredIds.has(id));
-    onSelectionChange([...kept, ...(keys as string[])]);
+    onSelectionChange([...new Set([...kept, ...(keys as string[])])]);
   };
 
   /**
@@ -112,27 +116,12 @@ export default function RestoreAgentTable({
               ? t("backup.agentActionReplace")
               : t("backup.agentActionAdd")}
           </Tag>
+          <div className={styles.agentWorkspaceText}>
+            {row.isExisting
+              ? row.currentWorkspaceDir || row.aid
+              : getNewAgentDestPath(row.aid)}
+          </div>
         </div>
-      ),
-    },
-    {
-      title: t("backup.agentColumnWorkspace"),
-      key: "workspace",
-      ellipsis: true,
-      render: (_, row) => (
-        <Text
-          type="secondary"
-          className={styles.agentWorkspaceText}
-          ellipsis={{
-            tooltip: row.isExisting
-              ? row.currentWorkspaceDir
-              : getNewAgentDestPath(row.aid),
-          }}
-        >
-          {row.isExisting
-            ? row.currentWorkspaceDir || row.aid
-            : getNewAgentDestPath(row.aid)}
-        </Text>
       ),
     },
   ];
@@ -158,16 +147,20 @@ export default function RestoreAgentTable({
           )}
         </Checkbox>
         {includeAgents && (
-          <span
+          <button
+            type="button"
+            aria-label={t("backup.scopeAgents")}
+            aria-expanded={agentsExpanded}
             onClick={() => setAgentsExpanded(!agentsExpanded)}
             className={styles.expandToggle}
           >
             <RightOutlined
+              size="1em"
               className={`${styles.expandIcon}${
                 agentsExpanded ? ` ${styles.open}` : ""
               }`}
             />
-          </span>
+          </button>
         )}
       </div>
 
@@ -187,6 +180,7 @@ export default function RestoreAgentTable({
                   size="small"
                   prefix={
                     <SearchOutlined
+                      size="1em"
                       style={{ color: "var(--app-text-quaternary)" }}
                     />
                   }
@@ -197,7 +191,11 @@ export default function RestoreAgentTable({
                   className={styles.agentSearchInput}
                 />
                 <Text type="secondary" className={styles.selectAllCount}>
-                  ({selectedAgents.length}/{allAgentIds.length})
+                  <NumberFlow
+                    value={selectedAgents.length}
+                    respectMotionPreference
+                  />{" "}
+                  / {allAgentIds.length}
                 </Text>
               </div>
 
@@ -211,6 +209,7 @@ export default function RestoreAgentTable({
                   onChange: handleTableSelectionChange,
                   columnTitle: (
                     <Checkbox
+                      aria-label={t("common.selectAll")}
                       checked={allSelected}
                       indeterminate={someSelected}
                       onChange={(e) => handleSelectAll(e.target.checked)}

@@ -17,13 +17,14 @@ import webbrowser
 from collections.abc import Mapping
 from ipaddress import ip_address
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, url2pathname, urlopen
 
 import click
 
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
+from .shutdown_cmd import _terminate_pid
 
 try:
     import webview
@@ -80,7 +81,25 @@ class WebViewAPI:
                 (".html", ".htm"),
             ):
                 return False
-            return webbrowser.open(uri)
+            if sys.platform != "win32":
+                # Only Windows ShellExecute percent-decodes file URLs with
+                # the ANSI code page (GBK on zh systems); every other
+                # platform's webbrowser.open expects a proper file URI —
+                # on macOS `open location` rejects a bare path.
+                return webbrowser.open(uri)
+            # Open the decoded local path, not the file:// URL: Windows
+            # ShellExecute percent-decodes file URLs with the ANSI code
+            # page (GBK on zh systems), so a UTF-8-percent-encoded URI for
+            # a Chinese workspace path fails with ERROR_FILE_NOT_FOUND.
+            # urlparse().path keeps the URI's forward slashes; url2pathname
+            # unquotes as UTF-8 and converts them to native separators.
+            # A UNC URI (file://server/share/...) carries the host in
+            # netloc, so re-add it as the leading // UNC hint before
+            # decoding — otherwise \\server\share collapses to \share.
+            path_for_decode = resolved.path
+            if resolved.netloc:
+                path_for_decode = f"//{resolved.netloc}{resolved.path}"
+            return webbrowser.open(url2pathname(path_for_decode))
         except Exception:
             logger.exception("open_workspace_html failed")
             return False
@@ -185,6 +204,14 @@ def _stream_reader(in_stream, out_stream) -> None:
             pass
 
 
+def _shutdown_backend_process(proc: subprocess.Popen[str]) -> bool:
+    """Gracefully stop a desktop backend, with the shared force fallback."""
+    try:
+        return _terminate_pid(proc.pid, process=proc)
+    except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
 @click.command("desktop")
 @click.option(
     "--host",
@@ -270,6 +297,11 @@ def desktop_cmd(
             env=env,
             bufsize=1,
             universal_newlines=True,
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if is_windows
+                else 0
+            ),
         )
         try:
             if is_windows:
@@ -332,31 +364,10 @@ def desktop_cmd(
                 manually_terminated = (
                     True  # Mark that we're intentionally terminating
                 )
-                try:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5.0)
-                        logger.info("Backend server terminated cleanly.")
-                    except subprocess.TimeoutExpired:
-                        logger.warning(
-                            "Backend did not exit in 5s, force killing...",
-                        )
-                        try:
-                            proc.kill()
-                            proc.wait()
-                            logger.info("Backend server force killed.")
-                        except (ProcessLookupError, OSError) as e:
-                            # Process already exited, which is fine
-                            logger.debug(
-                                f"kill() raised {e.__class__.__name__} "
-                                f"(process already exited)",
-                            )
-                except (ProcessLookupError, OSError) as e:
-                    # Process already exited between poll() and terminate()
-                    logger.debug(
-                        f"terminate() raised {e.__class__.__name__} "
-                        f"(process already exited)",
-                    )
+                if _shutdown_backend_process(proc):
+                    logger.info("Backend server terminated cleanly.")
+                else:
+                    logger.error("Failed to terminate backend server.")
             elif proc:
                 logger.info(
                     f"Backend already exited with code {proc.returncode}",
@@ -370,8 +381,7 @@ def desktop_cmd(
         # Using a flag is more reliable than checking specific exit codes
         if proc and proc.returncode != 0 and not manually_terminated:
             logger.error(
-                f"Backend process exited unexpectedly with code "
-                f"{proc.returncode}",
+                f"Backend process exited unexpectedly with code {proc.returncode}",
             )
             # Follow POSIX convention for exit codes:
             # - Negative (signal): 128 + signal_number

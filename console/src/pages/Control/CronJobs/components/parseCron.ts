@@ -1,13 +1,19 @@
 /**
  * Parse cron expression to form-friendly format and vice versa.
- * Supports: hourly, daily, weekly, custom
+ * Supports: minute intervals, hourly, daily, weekly, monthly, custom
  *
  * Day-of-week values use three-letter English abbreviations
  * (mon, tue, wed, thu, fri, sat, sun) to avoid the numbering
  * mismatch between crontab (0=Sun) and APScheduler v3 (0=Mon).
  */
 
-export type CronType = "hourly" | "daily" | "weekly" | "custom";
+export type CronType =
+  | "minutes"
+  | "hourly"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "custom";
 
 export interface CronParts {
   type: CronType;
@@ -15,6 +21,8 @@ export interface CronParts {
   minute?: number;
   daysOfWeek?: string[]; // "mon", "tue", …, "sun"
   rawCron?: string;
+  intervalMinutes?: number;
+  dayOfMonth?: number;
 }
 
 const CRON_RE = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$/;
@@ -50,7 +58,7 @@ function isDayName(value: string): value is DayName {
  *   "0 * * * *" -> hourly
  *   "0 9 * * *" -> daily at 09:00
  *   "0 9 * * mon,wed,fri" -> weekly on Mon/Wed/Fri at 09:00
- *   "* /15 * * * *" -> custom (every 15 minutes)
+ *   "* /15 * * * *" -> minutes (every 15 minutes)
  */
 export function parseCron(cron: string): CronParts {
   const trimmed = (cron || "").trim();
@@ -64,6 +72,31 @@ export function parseCron(cron: string): CronParts {
   }
 
   const [, minute, hour, dayOfMonth, month, dayOfWeek] = match;
+
+  if (
+    hour === "*" &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    dayOfWeek === "*"
+  ) {
+    const interval =
+      minute === "*"
+        ? 1
+        : /^\*\/\d+$/.test(minute)
+        ? Number(minute.slice(2))
+        : 0;
+    if ([1, 2, 3, 5, 10, 15, 20, 30].includes(interval)) {
+      return { type: "minutes", intervalMinutes: interval };
+    }
+  }
+  if (month === "*" && dayOfWeek === "*") {
+    const d = parsePlainCronNumber(dayOfMonth, 1, 31);
+    const h = parsePlainCronNumber(hour, 0, 23);
+    const m = parsePlainCronNumber(minute, 0, 59);
+    if (d !== null && h !== null && m !== null) {
+      return { type: "monthly", dayOfMonth: d, hour: h, minute: m };
+    }
+  }
 
   // Hourly: "0 * * * *"
   if (
@@ -123,6 +156,14 @@ function parsePlainCronNumber(
  */
 export function serializeCron(parts: CronParts): string {
   switch (parts.type) {
+    case "minutes":
+      return parts.intervalMinutes === 1
+        ? "* * * * *"
+        : `*/${parts.intervalMinutes ?? 5} * * * *`;
+    case "monthly":
+      return `${parts.minute ?? 0} ${parts.hour ?? 9} ${
+        parts.dayOfMonth ?? 1
+      } * *`;
     case "hourly":
       return "0 * * * *";
 

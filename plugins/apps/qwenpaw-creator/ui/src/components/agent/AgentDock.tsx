@@ -25,14 +25,18 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Paperclip,
+  Plus,
   RotateCcw,
   Square,
   Undo2,
+  X,
 } from "lucide-react";
 import {
   getArtifactVersionMediaUrl,
   getAssetVersionMediaUrl,
   getGeneratedMediaUrl,
+  ingestAssetFile,
 } from "@/api/creator";
 import type {
   CreatorContentPart,
@@ -404,8 +408,17 @@ function ThinkingDisclosure({
   );
 }
 
-function simplifyErrorMessage(_text: string): string {
-  // Provider/runtime errors may contain prompts, local paths and protocol data.
+// ``invalid`` must sit right beside ``temperature``: OpenAI-compatible
+// gateways wrap unrelated 400s as ``invalid_request_error`` that merely echo
+// the word. Mirrors ``models.config.is_temperature_unsupported_error``.
+const UNSUPPORTED_TEMPERATURE_RE =
+  /not supported|unsupported|invalid[\s:]+temperature|temperature[\s:]+invalid/i;
+
+export function simplifyErrorMessage(text: string): string {
+  // Classify known failures without exposing raw provider payloads or secrets.
+  if (/temperature/i.test(text) && UNSUPPORTED_TEMPERATURE_RE.test(text)) {
+    return i18n.t("agentActivity.unsupportedTemperature");
+  }
   return i18n.t("agentActivity.failureHint");
 }
 
@@ -474,12 +487,44 @@ function ConversationMessage({ item }: { item: CreatorMessage }) {
   // A persisted tool envelope or hidden thinking has no conversation body.
   // Do not leave an empty sibling between otherwise consecutive tool rows.
   if (!content.length && !showThinking && !showAction) return null;
-  if (item.role === "user")
+  if (item.role === "user") {
+    // Sent attachments must stay visible on the message itself — the
+    // composer chips are consumed by the send.
+    const attachmentRefs = Array.isArray(item.metadata?.assetVersionRefs)
+      ? (item.metadata.assetVersionRefs as unknown[])
+          .map((ref) => String(ref))
+          .filter((ref) => ref.startsWith("asset-version:"))
+      : [];
     return (
-      <div data-agent-message className="agent-user-message">
-        <MessageParts parts={content} />
+      <div className="ml-auto flex w-fit max-w-full flex-col items-end gap-1">
+        <div data-agent-message className="agent-user-message">
+          <MessageParts parts={content} />
+        </div>
+        {attachmentRefs.length > 0 && (
+          <div
+            className="flex flex-wrap justify-end gap-1"
+            data-agent-message-attachments
+          >
+            {attachmentRefs.map((ref) => {
+              const versionId = ref.slice("asset-version:".length);
+              const name =
+                project?.assets.source_versions_by_id[versionId]?.name ||
+                versionId.slice(-8);
+              return (
+                <span
+                  key={ref}
+                  className="inline-flex max-w-[200px] items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)]"
+                >
+                  <Paperclip className="h-2.5 w-2.5 shrink-0 text-[var(--color-accent)]" />
+                  <span className="min-w-0 truncate">{name}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
+  }
   return (
     <div
       data-agent-message
@@ -617,7 +662,7 @@ function statusCopy(status: string): string {
         {
           started: "running",
           succeeded: "done",
-          failed: "failed",
+          failed: "toolFailed",
           cancelled: "cancelled",
           waiting_review: "waiting_review",
           unknown: "unknown",
@@ -849,7 +894,7 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
       )}
       {status === "failed" && (
         <p className="agent-activity-notice">
-          {t("agentActivity.failureHint")}
+          {t("agentActivity.toolFailureHint")}
         </p>
       )}
       {status === "waiting_review" && (
@@ -1130,7 +1175,15 @@ export default function AgentDock({
     (state) => state.streamingAssistantMessages,
   );
   const events = useCreatorSessionStore((state) => state.events);
-  const queued = useCreatorSessionStore((state) => state.queuedUi);
+  const queuedUi = useCreatorSessionStore((state) => state.queuedUi);
+  const activeConversationId = useCreatorSessionStore(
+    (state) => state.activeConversationId,
+  );
+  const queued = useMemo(
+    () =>
+      queuedUi.filter((item) => item.conversationId === activeConversationId),
+    [queuedUi, activeConversationId],
+  );
   const hasMoreMessages = useCreatorSessionStore(
     (state) => state.hasMoreMessages,
   );
@@ -1201,6 +1254,17 @@ export default function AgentDock({
   currentProject.current = projectId;
   const submissionVersion = useRef(0);
   const projectLifecycleVersion = useRef(0);
+  // Unmounting must invalidate in-flight submissions: the refs above keep
+  // their last values after unmount, so project/version guards alone let a
+  // late upload callback refresh stores and send into whatever session is
+  // globally current by then.
+  const dockAlive = useRef(true);
+  useEffect(() => {
+    dockAlive.current = true;
+    return () => {
+      dockAlive.current = false;
+    };
+  }, []);
   const [removedContextRefs, setRemovedContextRefs] = useState<string[]>([]);
   const [canSend, setCanSend] = useState(false);
   const [rateLimitResuming, setRateLimitResuming] = useState(false);
@@ -1211,15 +1275,60 @@ export default function AgentDock({
   useEffect(() => {
     setRemovedContextRefs([]);
     setRateLimitResuming(false);
+    setPendingUploads([]);
+    setUploadingAssets(false);
+    setInterruptedDraft(null);
     submissionVersion.current += 1;
     projectLifecycleVersion.current += 1;
   }, [projectId]);
   const [showJump, setShowJump] = useState(false);
   const inputRef = useRef<MentionInputHandle>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadSeq = useRef(0);
+  // Files picked via "+" stay staged until the user hits send: their refs
+  // then ride the message (same contract as launch-time uploads), which is
+  // what triggers per-asset understanding. An entry whose upload already
+  // succeeded (a prior attempt failed later) keeps its chip visible with
+  // the ref instead of the file — attachments are never invisible state.
+  const [pendingUploads, setPendingUploads] = useState<
+    { id: string; name: string; file?: File; ref?: string }[]
+  >([]);
+  const [uploadingAssets, setUploadingAssets] = useState(false);
+  // Live view of the chips for the async submit pipeline: an X-removal
+  // during the upload phase must keep the file out of the message.
+  const pendingUploadsRef = useRef(pendingUploads);
+  useEffect(() => {
+    pendingUploadsRef.current = pendingUploads;
+  }, [pendingUploads]);
+  // Instruction captured by a submission whose upload failed after the
+  // user had already rewritten the composer — recoverable, never silent.
+  const [interruptedDraft, setInterruptedDraft] = useState<{
+    text: string;
+    draft: ReturnType<MentionInputHandle["getDraft"]>;
+    contextRefs: RefSearchItem[];
+    selectedRef: string | null;
+    editingField: string | null;
+    panel: typeof interactionPanel;
+  } | null>(null);
+  const stageUploads = (files: File[]) => {
+    if (files.length === 0) return;
+    setPendingUploads((prev) => [
+      ...prev,
+      ...files.map((file) => ({
+        id: `staged-${(uploadSeq.current += 1)}`,
+        name: file.name,
+        file,
+      })),
+    ]);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
+  const prevIsReplaying = useRef(isReplaying);
+  const userScrolledDuringReplay = useRef(false);
+  const realignTimerIds = useRef<number[]>([]);
   const previousPendingAuthorizationCount = useRef(0);
   const lastOpenedFileReviewToken = useRef<string | null>(null);
+  const lastOpenedExecutionPause = useRef<string | null>(null);
   const resizeRef = useRef<{
     startX: number;
     startY: number;
@@ -1435,6 +1544,15 @@ export default function AgentDock({
     extraRefs.forEach(add);
     return chips;
   }, [extraRefs, project, removedContextRefs, selectedRef, timeline]);
+  const composerContextSignature = JSON.stringify({
+    conversationId: activeConversationId,
+    panel: interactionPanel,
+    selectedRef,
+    editingField,
+    refs: contextChips.map((item) => item.ref),
+  });
+  const currentComposerContext = useRef(composerContextSignature);
+  currentComposerContext.current = composerContextSignature;
   const visibleChips = useMemo(
     () => contextChips.filter((chip) => !inlineRefs.includes(chip.ref)),
     [contextChips, inlineRefs],
@@ -1477,6 +1595,21 @@ export default function AgentDock({
     // pending badge and tray summary are visible without navigation.
     setOpen(true);
   }, [fileReviews, pendingFileReviewCount, setOpen]);
+
+  useEffect(() => {
+    const notice = messages.at(-1);
+    if (
+      session?.projectId !== projectId ||
+      notice?.source !== "creator_execution_notice" ||
+      !notice.metadata.executionPause
+    )
+      return;
+    const token = `${projectId}:${notice.messageId}`;
+    if (lastOpenedExecutionPause.current === token) return;
+    lastOpenedExecutionPause.current = token;
+    stickBottom.current = true;
+    setOpen(true);
+  }, [messages, projectId, session?.projectId, setOpen]);
 
   useEffect(() => {
     const stored = loadDockSize(sidebar);
@@ -1522,11 +1655,91 @@ export default function AgentDock({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mentionQuery, open, setOpen]);
 
-  useEffect(() => {
-    if (open && feedSlot == null && scrollRef.current && stickBottom.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  const suppressFollow = isReplaying && connectionState === "connected";
+
+  useLayoutEffect(() => {
+    const replayJustEnded = prevIsReplaying.current && !isReplaying;
+    prevIsReplaying.current = isReplaying;
+
+    // Replay settling is an explicit "land on newest" intent, except when the
+    // user deliberately scrolled up during the suppressed replay window. This
+    // runs BEFORE every early return: the dock unmounts entirely when closed
+    // (`{open && ...}`), so consuming the edge and clearing the flag here stops
+    // it leaking into a later replay / project switch and silently suppressing
+    // the bottom-follow we set out to guarantee.
+    if (replayJustEnded) {
+      if (!userScrolledDuringReplay.current) {
+        stickBottom.current = true;
+        setShowJump(false);
+      }
+      userScrolledDuringReplay.current = false;
     }
-  }, [open, feedSlot, orderedMessages, queued, toolCalls, subagentActivities]);
+
+    // Suppress per-frame bottom-follow only while the replay stream is
+    // genuinely healthy. If SSE is disconnected / reconnecting we must not lock
+    // the viewport at the top — fall through to the normal follow below so the
+    // feed still lands on the newest message even when replay never settles.
+    if (suppressFollow) return;
+
+    if (!open || feedSlot != null) return;
+    const element = scrollRef.current;
+    if (!element) return;
+
+    if (!stickBottom.current) return;
+    element.scrollTop = element.scrollHeight;
+
+    // After replay ends, re-snap a few times to absorb late layout growth
+    // (images / markdown / code finishing after the paint). Timers live in a ref
+    // so a streaming `orderedMessages` change that re-runs this effect re-arms
+    // them rather than cancelling the only pass that fixes a post-replay gap.
+    if (replayJustEnded) {
+      realignTimerIds.current.forEach((id) => window.clearTimeout(id));
+      realignTimerIds.current = [120, 320, 640].map((delay) =>
+        window.setTimeout(() => {
+          if (stickBottom.current && scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        }, delay),
+      );
+    }
+  }, [
+    open,
+    feedSlot,
+    orderedMessages,
+    queued,
+    toolCalls,
+    subagentActivities,
+    isReplaying,
+    connectionState,
+    suppressFollow,
+  ]);
+
+  // Clear any pending re-align timers on unmount.
+  useEffect(
+    () => () => {
+      realignTimerIds.current.forEach((id) => window.clearTimeout(id));
+      realignTimerIds.current = [];
+    },
+    [],
+  );
+
+  // A ResizeObserver keeps the viewport pinned while the feed box itself
+  // changes size (dock drag-resize, window resize, the pause bar / workspace
+  // panel mounting or unmounting) — none of which appear in the follow effect's
+  // deps, so without this a late container resize could leave the newest
+  // message just out of view. Content growth from slow images / markdown after
+  // replay is already covered by the re-align timers above; this covers box
+  // growth and only acts while the user is still stuck to the bottom.
+  useEffect(() => {
+    if (!open || feedSlot != null) return;
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickBottom.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [open, feedSlot]);
 
   // Apply a pending draft before inserting any selection pill: callers like
   // the blueprint "request changes" action set both, and the draft must land
@@ -1619,6 +1832,11 @@ export default function AgentDock({
     const nearBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight < 60;
     stickBottom.current = nearBottom;
+    // A deliberate upward scroll during the suppressed replay window must
+    // survive the replay-end snap, so remember it until replay settles.
+    if (!nearBottom && useCreatorSessionStore.getState().isReplaying) {
+      userScrolledDuringReplay.current = true;
+    }
     setShowJump(!nearBottom);
   };
   // Older-history loading: capture the scroll anchor before the request so
@@ -1629,16 +1847,31 @@ export default function AgentDock({
     scrollTop: number;
   } | null>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
-  const loadOlder = useCallback(() => {
-    const element = scrollRef.current;
-    const state = useCreatorSessionStore.getState();
-    if (!element || state.loadingOlder || !state.hasMoreMessages) return;
-    olderAnchor.current = {
-      scrollHeight: element.scrollHeight,
-      scrollTop: element.scrollTop,
-    };
-    void loadOlderMessages();
-  }, [loadOlderMessages]);
+  const loadOlder = useCallback(
+    (origin: "sentinel" | "manual" = "sentinel") => {
+      const element = scrollRef.current;
+      const state = useCreatorSessionStore.getState();
+      if (!element || state.loadingOlder || !state.hasMoreMessages) return;
+      // The suppressed replay window parks the viewport at the top, which would
+      // otherwise auto-fire this and pull an extra history page that fights the
+      // replay-end snap for the scroll position. That argument only covers the
+      // automatic sentinel, and only while the stream is healthy: an EventSource
+      // that dies before finishing the replay leaves isReplaying raised, and
+      // locking the explicit button here would make an already-available HTTP
+      // history page permanently unreachable.
+      if (
+        state.isReplaying &&
+        (origin !== "manual" || state.connectionState === "connected")
+      )
+        return;
+      olderAnchor.current = {
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      };
+      void loadOlderMessages();
+    },
+    [loadOlderMessages],
+  );
   useLayoutEffect(() => {
     if (loadingOlder) return;
     const anchor = olderAnchor.current;
@@ -1649,20 +1882,23 @@ export default function AgentDock({
     if (delta > 0) element.scrollTop = anchor.scrollTop + delta;
   }, [loadingOlder, orderedMessages]);
   useEffect(() => {
-    if (!open || !hasMoreMessages) return;
+    // Do not arm the auto-load-history sentinel while replay is suppressing the
+    // viewport at the top (the sentinel would be falsely intersecting).
+    if (!open || !hasMoreMessages || isReplaying) return;
     if (typeof IntersectionObserver === "undefined") return;
     const sentinel = topSentinelRef.current;
     const root = scrollRef.current;
     if (!sentinel || !root) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadOlder();
+        if (entries.some((entry) => entry.isIntersecting))
+          loadOlder("sentinel");
       },
       { root, rootMargin: "160px 0px 0px 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [open, hasMoreMessages, loadOlder]);
+  }, [open, hasMoreMessages, isReplaying, loadOlder]);
   const jumpToBottom = () => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -1720,14 +1956,15 @@ export default function AgentDock({
   };
 
   const submit = async () => {
-    if (originalsGate) return;
+    if (originalsGate || uploadingAssets || !activeConversationId) return;
     const content = inputRef.current?.getContent() ?? {
       text: "",
       refs: [],
       selections: [],
     };
     const text = content.text.trim();
-    if (!text) return;
+    const batch = pendingUploads;
+    if (!text && batch.length === 0) return;
     const allRefs = [
       ...new Set([
         ...contextChips.map((item) => item.ref),
@@ -1736,15 +1973,162 @@ export default function AgentDock({
     ];
     const version = ++submissionVersion.current;
     const submittedProject = projectId;
-    const submittedExtraRefs = extraRefs;
+    const isCurrentSubmission = () =>
+      dockAlive.current &&
+      currentProject.current === submittedProject &&
+      submissionVersion.current === version;
+    const composerSignature = (
+      value: ReturnType<NonNullable<typeof inputRef.current>["getContent"]>,
+      extra: { ref: string }[],
+      context: string,
+    ) =>
+      JSON.stringify({
+        t: value.text.trim(),
+        r: value.refs.map((item) => item.ref),
+        s: value.selections,
+        e: extra.map((item) => item.ref),
+        context,
+      });
+    const submittedSignature = composerSignature(
+      content,
+      extraRefs,
+      composerContextSignature,
+    );
+    const submittedDraft = inputRef.current?.getDraft() ?? [];
+    // Fresh files ingest now (silently: their refs ride this message, so the
+    // run itself triggers per-asset understanding — the same contract
+    // launch-time uploads use). Chips stay visible the whole way: a finished
+    // upload converts its chip to a ref entry in place, so a later failure
+    // never strands invisible attachment state, and a re-send skips the
+    // already-uploaded bytes.
+    const uploaded = new Map<string, string>(
+      batch
+        .filter((item) => item.ref)
+        .map((item) => [item.id, item.ref as string]),
+    );
+    const filesToUpload = batch.filter((item) => item.file && !item.ref);
+    if (filesToUpload.length > 0) {
+      setUploadingAssets(true);
+      try {
+        for (const item of filesToUpload) {
+          // Honour a mid-upload X-removal: the chip is gone, so the file
+          // must neither upload nor ride the message.
+          if (
+            !pendingUploadsRef.current.some((pending) => pending.id === item.id)
+          )
+            continue;
+          const accepted = await ingestAssetFile(
+            submittedProject,
+            item.file as File,
+            "ATTACH_SOURCE",
+            { notifyAgent: false },
+          );
+          if (!isCurrentSubmission()) return;
+          const ref = `asset-version:${accepted.assetVersionId}`;
+          uploaded.set(item.id, ref);
+          setPendingUploads((prev) =>
+            prev.map((pending) =>
+              pending.id === item.id
+                ? { ...pending, file: undefined, ref }
+                : pending,
+            ),
+          );
+        }
+      } catch (error) {
+        if (isCurrentSubmission()) {
+          message.error(
+            error instanceof Error ? error.message : t("assets.uploadFailed"),
+            6,
+          );
+          // The batch keeps its chips, but a rewritten composer would lose
+          // the captured instruction silently — park it for recovery.
+          const currentContent = inputRef.current?.getContent();
+          if (
+            currentContent &&
+            composerSignature(
+              currentContent,
+              useCreatorInteractionStore.getState().extraRefs,
+              currentComposerContext.current,
+            ) !== submittedSignature
+          ) {
+            setInterruptedDraft({
+              text,
+              draft: submittedDraft,
+              contextRefs: contextChips,
+              selectedRef,
+              editingField,
+              panel: interactionPanel,
+            });
+          }
+        }
+        return;
+      } finally {
+        if (isCurrentSubmission()) setUploadingAssets(false);
+      }
+      // The snapshot/task stores hold only the current project's state: a
+      // stale refresh after unmounting or switching projects would clobber
+      // the new page, and sendMessage below reads the store's current
+      // project.
+      if (!isCurrentSubmission()) return;
+      void Promise.allSettled([
+        useProjectSnapshotStore.getState().pollOnce(submittedProject),
+        useCreatorTaskViewStore.getState().refresh(submittedProject),
+      ]);
+    }
+    if (!isCurrentSubmission()) return;
+    const liveChipIds = new Set(
+      pendingUploadsRef.current.map((pending) => pending.id),
+    );
+    const attachments = batch.flatMap((item) => {
+      if (!liveChipIds.has(item.id)) return [];
+      const ref = uploaded.get(item.id);
+      return ref ? [{ ref, name: item.name }] : [];
+    });
+    if (!text && attachments.length === 0) return;
+    const assetVersionRefs = attachments.map((item) => item.ref);
+    const messageText =
+      text ||
+      t("agent.uploadOnlyMessage", {
+        names: attachments.map((item) => item.name).join("、"),
+      });
     // Manual project.json edits accumulated since the previous message ride
     // along as context so the agent can re-evaluate dependent plan pieces.
     const userEdits = useCreatorEditBufferStore
       .getState()
       .consumeContext(projectId);
+    // The batch is handed to the message now: its chips leave the composer,
+    // and the composed input clears only when nothing about it — text,
+    // selections, mention refs or context refs — changed while the uploads
+    // ran; anything the user reshaped meanwhile belongs to the next message.
+    setPendingUploads((prev) =>
+      prev.filter((pending) => !uploaded.has(pending.id)),
+    );
+    const currentContent = inputRef.current?.getContent() ?? {
+      text: "",
+      refs: [],
+      selections: [],
+    };
+    const currentExtraRefs = useCreatorInteractionStore.getState().extraRefs;
+    if (
+      composerSignature(
+        currentContent,
+        currentExtraRefs,
+        currentComposerContext.current,
+      ) === submittedSignature
+    ) {
+      inputRef.current?.clear();
+      setCanSend(false);
+      setInlineRefs([]);
+      setDraft("");
+      setMentionQuery(null);
+      useCreatorInteractionStore.getState().setExtraRefs([]);
+    }
     try {
-      const pending = sendMessage({
-        message: text,
+      await sendMessage({
+        conversationId: activeConversationId,
+        message: messageText,
+        assetVersionRefs:
+          assetVersionRefs.length > 0 ? assetVersionRefs : undefined,
         context: {
           panel: interactionPanel,
           selected:
@@ -1768,30 +2152,16 @@ export default function AgentDock({
           userEdits: userEdits ?? undefined,
         },
       });
-      inputRef.current?.clear();
-      setCanSend(false);
-      setInlineRefs([]);
-      setDraft("");
-      setMentionQuery(null);
-      useCreatorInteractionStore.getState().setExtraRefs([]);
-      await pending;
       if (userEdits) {
         useCreatorEditBufferStore
           .getState()
           .markFlushed(projectId, userEdits.lastEntryAt);
       }
-    } catch (error) {
-      if (
-        currentProject.current !== submittedProject ||
-        submissionVersion.current !== version
-      )
-        return;
-      if (!inputRef.current?.getContent().text.trim()) {
-        inputRef.current?.setText(text);
-        setCanSend(true);
-        setDraft(text);
-        useCreatorInteractionStore.getState().setExtraRefs(submittedExtraRefs);
-      }
+    } catch {
+      // The failed request lives on its queuedUi card with the verbatim
+      // payload and a retry entry — never backfilled into whatever draft
+      // the composer holds by now.
+      if (!isCurrentSubmission()) return;
       message.error(t("agentActivity.failureHint"));
     }
   };
@@ -2012,7 +2382,7 @@ export default function AgentDock({
                     <button
                       type="button"
                       disabled={loadingOlder}
-                      onClick={loadOlder}
+                      onClick={() => loadOlder("manual")}
                       className="flex w-full items-center justify-center gap-1 text-center text-[11px] text-[var(--color-text-tertiary)]"
                     >
                       {loadingOlder && (
@@ -2088,9 +2458,26 @@ export default function AgentDock({
                       {item.text}
                     </div>
                     {item.state === "failed" && (
-                      <p className="text-right text-[11px] text-[var(--color-danger)]">
-                        {t("agentActivity.sendFailed")}
-                      </p>
+                      <div className="flex items-center justify-end gap-2 text-[11px]">
+                        <span className="text-[var(--color-danger)]">
+                          {t("agentActivity.sendFailed")}
+                        </span>
+                        {item.request && (
+                          <button
+                            type="button"
+                            data-agent-retry-send={item.clientMessageId}
+                            onClick={() =>
+                              void useCreatorSessionStore
+                                .getState()
+                                .retryQueuedMessage(item.clientMessageId)
+                                .catch(() => undefined)
+                            }
+                            className="font-medium text-[var(--color-accent)] hover:underline"
+                          >
+                            {t("agentActivity.retrySend")}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -2117,8 +2504,13 @@ export default function AgentDock({
                           {t("agent.rateLimitContinue")}
                         </Button>
                       </div>
+                    ) : session.error.code === "MODEL_CONTEXT_UNFIT" ? (
+                      // The backend proved nothing more can be given up and
+                      // parked the run, so the generic "you can retry to
+                      // continue" hint would promise a resume that never runs.
+                      <span>{t("agent.contextUnfit")}</span>
                     ) : (
-                      t("agentActivity.failureHint")
+                      simplifyErrorMessage(session.error.message)
                     )}
                   </div>
                 )}
@@ -2343,7 +2735,96 @@ export default function AgentDock({
                   <SourceCacheGate status={sourceCache} compact />
                 </div>
               )}
+              {interruptedDraft && (
+                <div
+                  className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2.5 py-1.5 text-[11px]"
+                  data-agent-interrupted-text
+                >
+                  <span className="shrink-0 font-medium text-[var(--color-danger)]">
+                    {t("agent.unsentInstruction")}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[var(--color-text-secondary)]">
+                    {interruptedDraft.text}
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-[var(--color-accent)] hover:underline"
+                    onClick={() => {
+                      inputRef.current?.setDraft(interruptedDraft.draft);
+                      const interaction = useCreatorInteractionStore.getState();
+                      interaction.setExtraRefs(interruptedDraft.contextRefs);
+                      interaction.select(interruptedDraft.selectedRef);
+                      interaction.setEditingField(
+                        interruptedDraft.editingField,
+                      );
+                      interaction.setPanel(interruptedDraft.panel);
+                      setRemovedContextRefs([]);
+                      setCanSend(true);
+                      setInterruptedDraft(null);
+                    }}
+                  >
+                    {t("agent.restoreDraft")}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("common.close")}
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
+                    onClick={() => setInterruptedDraft(null)}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              )}
+              {pendingUploads.length > 0 && (
+                <div
+                  className="mb-2 flex flex-wrap gap-1.5"
+                  data-agent-upload-staged
+                >
+                  {pendingUploads.map((item) => (
+                    <span
+                      key={item.id}
+                      className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 pl-2 pr-1 text-[11px] text-[var(--color-text-secondary)]"
+                    >
+                      <Paperclip className="h-3 w-3 shrink-0 text-[var(--color-accent)]" />
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingUploads((prev) =>
+                            prev.filter((pending) => pending.id !== item.id),
+                          )
+                        }
+                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
+                        aria-label={t("home.removeAttachment")}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex items-end gap-2">
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  data-agent-upload-input
+                  onChange={(event) => {
+                    stageUploads(Array.from(event.target.files ?? []));
+                    if (uploadInputRef.current)
+                      uploadInputRef.current.value = "";
+                  }}
+                />
+                <Button
+                  aria-label={t("agent.uploadAsset")}
+                  title={t("agent.uploadAsset")}
+                  icon={<Plus className="h-4 w-4" />}
+                  disabled={!projectId || uploadingAssets}
+                  onClick={() => uploadInputRef.current?.click()}
+                  className="!flex !h-8 !w-8 !shrink-0 !items-center !justify-center !p-0"
+                  data-agent-upload-asset
+                />
                 <MentionInput
                   ref={inputRef}
                   placeholder={t("agent.inputPlaceholder")}
@@ -2355,7 +2836,9 @@ export default function AgentDock({
                   onMentionConfirm={confirmMention}
                   onMentionClose={() => setMentionQuery(null)}
                 />
-                {(stoppable || stopping) && !canSend ? (
+                {(stoppable || stopping) &&
+                !canSend &&
+                pendingUploads.length === 0 ? (
                   <Button
                     type="primary"
                     danger
@@ -2390,7 +2873,10 @@ export default function AgentDock({
                     type="primary"
                     aria-label={t("common.send")}
                     icon={<ArrowUpOutlined />}
-                    disabled={!canSend || originalsGate}
+                    loading={uploadingAssets}
+                    disabled={
+                      (!canSend && pendingUploads.length === 0) || originalsGate
+                    }
                     onClick={() => void submit()}
                     className="!flex !h-8 !w-8 !items-center !justify-center !p-0"
                   />

@@ -29,14 +29,21 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.exception_handlers import register_exception_handlers
 from qwenpaw.app.routers.config import router as config_router
-from qwenpaw.config import get_available_channels
+from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
+    AgentProfileConfig,
+    AgentProfileRef,
+    AgentsConfig,
     ChannelConfig,
+    Config,
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
     TelegramConfig,
+    ThemeConfig,
     ToolGuardConfig,
+    load_agent_config,
+    save_agent_config,
 )
 from qwenpaw.constant import (
     HEARTBEAT_FILE,
@@ -86,6 +93,7 @@ def fake_agent_workspace():
     """Workspace stub whose ``config`` has channels + agent_id attribute."""
     workspace = MagicMock(name="Workspace")
     workspace.agent_id = "default"
+    workspace.channel_manager = None
     workspace.config = MagicMock(name="AgentConfig")
     workspace.config.channels = ChannelConfig(
         console=ConsoleConfig(enabled=True),
@@ -103,12 +111,49 @@ def patch_get_agent(fake_agent_workspace):
         yield patched
 
 
+@pytest.fixture
+def isolated_channel_persistence(tmp_path, monkeypatch, fake_agent_workspace):
+    """Give channel PUTs real durable state, separate from the running agent."""
+    from qwenpaw.config import utils as config_utils
+
+    root_path = tmp_path / "config.json"
+    monkeypatch.setattr(config_utils, "get_config_path", lambda: root_path)
+    monkeypatch.setattr(config_utils, "_config_cache", None)
+    monkeypatch.setattr(config_utils, "_config_mtime", None)
+    monkeypatch.setattr(config_utils, "_agent_config_cache", {})
+    directory = tmp_path / "default"
+    directory.mkdir()
+    config_utils.save_config(
+        Config(
+            agents=AgentsConfig(
+                profiles={
+                    "default": AgentProfileRef(
+                        id="default",
+                        workspace_dir=str(directory),
+                    ),
+                },
+            ),
+        ),
+    )
+    save_agent_config(
+        "default",
+        AgentProfileConfig(
+            id="default",
+            name="Default",
+            channels=fake_agent_workspace.config.channels.model_copy(
+                deep=True,
+            ),
+        ),
+    )
+    return directory / "agent.json"
+
+
 # ---------------------------------------------------------------------------
-# /config/channels/types — pure list, no deps
+# /config/channels/types — editable workspace catalog
 # ---------------------------------------------------------------------------
 
 
-def test_list_channel_types_returns_list(client):
+def test_list_channel_types_returns_list(client, patch_get_agent):
     response = client.get("/api/config/channels/types")
 
     assert response.status_code == 200
@@ -153,10 +198,12 @@ def test_put_channels_saves_and_triggers_reload(
     client,
     fake_agent_workspace,
     patch_get_agent,
+    isolated_channel_persistence,
 ):
     with (
         patch(
             "qwenpaw.config.config.save_agent_config",
+            wraps=save_agent_config,
         ) as save_mock,
         patch(
             "qwenpaw.app.routers.config.schedule_agent_reload",
@@ -175,7 +222,8 @@ def test_put_channels_saves_and_triggers_reload(
     assert body["console"]["enabled"] is True
     assert body["discord"]["enabled"] is True
     assert fake_agent_workspace.config.channels.console.enabled is True
-    assert fake_agent_workspace.config.channels.discord.enabled is True
+    assert load_agent_config("default").channels.discord.enabled is True
+    assert fake_agent_workspace.config.channels.discord.enabled is False
 
     # Side-effects fired exactly once.
     save_mock.assert_called_once()
@@ -186,10 +234,12 @@ def test_put_console_channel_keeps_it_enabled(
     client,
     fake_agent_workspace,
     patch_get_agent,
+    isolated_channel_persistence,
 ):
     with (
         patch(
             "qwenpaw.config.config.save_agent_config",
+            wraps=save_agent_config,
         ) as save_mock,
         patch(
             "qwenpaw.app.routers.config.schedule_agent_reload",
@@ -203,11 +253,16 @@ def test_put_console_channel_keeps_it_enabled(
     assert response.status_code == 200, response.text
     assert response.json()["enabled"] is True
     assert fake_agent_workspace.config.channels.console.enabled is True
+    assert load_agent_config("default").channels.console.enabled is True
     save_mock.assert_called_once()
     reload_mock.assert_called_once()
 
 
-def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
+def test_put_channels_422_on_invalid_payload(
+    client,
+    patch_get_agent,
+    isolated_channel_persistence,
+):
     # ``console.enabled`` must be a bool — give it a string instead so
     # Pydantic rejects the body at validation time, before our code runs.
     response = client.put(
@@ -221,6 +276,7 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
 def test_put_channels_returns_409_for_stale_agent_config(
     client,
     patch_get_agent,
+    isolated_channel_persistence,
 ):
     """A stale agent save returns a stable conflict response."""
     with patch(
@@ -303,6 +359,7 @@ def test_put_onebot_channel_stores_a_validated_model(
     client,
     fake_agent_workspace,
     patch_get_agent,
+    isolated_channel_persistence,
 ):
     """A built-in channel payload is parsed into its config model."""
     payload = OneBotConfig(
@@ -312,7 +369,10 @@ def test_put_onebot_channel_stores_a_validated_model(
     ).model_dump()
 
     with (
-        patch("qwenpaw.config.config.save_agent_config") as save_mock,
+        patch(
+            "qwenpaw.config.config.save_agent_config",
+            wraps=save_agent_config,
+        ) as save_mock,
         patch(
             "qwenpaw.app.routers.config.schedule_agent_reload",
         ) as reload_mock,
@@ -322,9 +382,10 @@ def test_put_onebot_channel_stores_a_validated_model(
     assert response.status_code == 200, response.text
     assert response.json()["ws_host"] == "10.88.0.10"
     # A raw dict here would bypass validation and reach agent.json.
-    stored = fake_agent_workspace.config.channels.onebot
+    stored = load_agent_config("default").channels.onebot
     assert isinstance(stored, OneBotConfig)
     assert stored.access_token == "secret-token"
+    assert fake_agent_workspace.config.channels.onebot.access_token == ""
 
     save_mock.assert_called_once()
     reload_mock.assert_called_once()
@@ -334,6 +395,7 @@ def test_put_onebot_channel_rejects_invalid_value(
     app,
     fake_agent_workspace,
     patch_get_agent,
+    isolated_channel_persistence,
 ):
     """An invalid value is refused instead of reaching the disk.
 
@@ -729,6 +791,104 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
     # The handler must flip the engine flag AND ask it to reload rules.
     assert engine_mock.enabled is True
     engine_mock.reload_rules.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /config/theme
+# ---------------------------------------------------------------------------
+
+
+def test_get_theme_returns_sparse_defaults(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = None
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/theme")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_put_theme_persists_without_agent_reload(client):
+    fake_cfg = MagicMock()
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put(
+            "/api/config/theme",
+            json={
+                "accent": "#0b57d0",
+                "radius": "12px",
+                "dark": {"surface": "#1a1a1a"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "accent": "#0b57d0",
+        "radius": "12px",
+        "dark": {"surface": "#1a1a1a"},
+    }
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme.accent == "#0b57d0"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "url(javascript:alert(1))",
+        "rgb(0,0,0) url(https://example.invalid/pixel)",
+        "rgb(not-a-color)",
+        "#12345",
+    ],
+)
+def test_put_theme_rejects_invalid_css_values(client, value):
+    response = client.put(
+        "/api/config/theme",
+        json={"accent_bg": value},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "#abc",
+        "#11223380",
+        "rgb(11, 87, 208)",
+        "rgb(11 87 208 / 50%)",
+        "rgba(11, 87, 208, 0.1)",
+        "hsl(210, 90%, 43%)",
+        "hsl(210deg 90% 43% / 50%)",
+    ],
+)
+def test_theme_config_accepts_supported_css_values(value):
+    assert ThemeConfig(accent=value).accent == value
+
+
+def test_delete_theme_clears_persisted_config(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = ThemeConfig(accent="#0b57d0")
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.delete("/api/config/theme")
+
+    assert response.status_code == 204
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme is None
 
 
 # ---------------------------------------------------------------------------

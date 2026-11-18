@@ -24,8 +24,10 @@ from services.media_files.local_execution import (
     FfmpegLocalMediaRunner,
     LocalMediaExecutionSpec,
     LocalMediaInput,
+    _caption_fallback_style_kwargs,
     _motion_document_matches_text,
 )
+from services.media_files.motion_blueprints import subtitle_pack_animation
 
 
 def test_motion_copy_match_uses_browser_visible_html_entities() -> None:
@@ -365,13 +367,119 @@ def test_materialize_keyframe_persists_and_reuses_deterministic_jpeg(
     assert calls[0][5:7] == ["-ss", "4.500"]
 
 
-def test_materialize_keyframe_rejects_symlink_source(tmp_path: Path) -> None:
+def test_materialize_keyframe_rejects_symlink_source(
+    tmp_path: Path,
+    file_symlink,
+) -> None:
     project_root = tmp_path / "project-1"
     project_root.mkdir()
     real_source = project_root / "real.mp4"
     real_source.write_bytes(b"source-video")
     symlink = project_root / "source.mp4"
-    symlink.symlink_to(real_source)
+    file_symlink(real_source, symlink)
 
     with pytest.raises(StorageIntegrityError, match="安全的普通文件"):
         _materialize_keyframe(project_root, symlink, 1)
+
+
+@pytest.mark.skipif(_FFMPEG is None, reason="ffmpeg is not installed")
+def test_real_keyframe_is_published_and_reused(tmp_path: Path) -> None:
+    from PIL import Image
+
+    project_root = tmp_path / "中文 project"
+    project_root.mkdir()
+    source = project_root / "源视频.mp4"
+    subprocess.run(
+        [
+            _FFMPEG,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=orange:s=640x360:d=1",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    kwargs = {
+        "source_path": source,
+        "source_identity": "test-source-v1",
+        "timestamp_seconds": 0.5,
+        "width": 320,
+        "ffmpeg_path": _FFMPEG,
+    }
+    first = keyframe_cache.materialize_keyframe(project_root, **kwargs)
+    with Image.open(first.path) as frame:
+        assert frame.format == "JPEG"
+        assert frame.size == (320, 180)
+        frame.load()
+    published_at = first.path.stat().st_mtime_ns
+    assert keyframe_cache.materialize_keyframe(project_root, **kwargs) == first
+    assert first.path.stat().st_mtime_ns == published_at
+    assert not list(first.path.parent.glob("*.part"))
+
+
+def test_keyframe_cache_rejects_directory_redirect(tmp_path, directory_link):
+    project_root = tmp_path / "project-1"
+    (project_root / "runtime").mkdir(parents=True)
+    source = project_root / "source.mp4"
+    source.write_bytes(b"source-video")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    directory_link(outside, project_root / "runtime" / "keyframe-cache")
+    with pytest.raises(StorageIntegrityError, match="安全的真实目录"):
+        _materialize_keyframe(project_root, source, 1)
+    assert not list(outside.iterdir())
+
+
+def test_normalized_overlay_carries_the_caption_animation_pick() -> None:
+    """The compose-time fallback must burn the user's entrance triple.
+
+    Regression: ``_normalized_overlay`` used to drop
+    ``caption_animation``, so every fallback caption silently reverted to
+    the pack's signature motion (the field report: "the animation setting
+    did nothing").
+    """
+
+    pick = {"entrance": "pop", "exit": "shrink", "loop": True}
+    normalized = FfmpegLocalMediaRunner._normalized_overlay(
+        {
+            "kind": "pet_os",
+            "text": "你好",
+            "appear_at": 0.5,
+            "duration": 2.0,
+            "subtitle_template": "warm_note",
+            "caption_animation": pick,
+        },
+        5.0,
+    )
+    assert normalized is not None
+    assert normalized["caption_animation"] == pick
+    kwargs = _caption_fallback_style_kwargs(normalized)
+    assert kwargs["entrance"] == "pop"
+    assert kwargs["exit"] == "shrink"
+    assert kwargs["loop"] is True
+
+
+def test_normalized_overlay_without_a_pick_keeps_the_pack_motion() -> None:
+    normalized = FfmpegLocalMediaRunner._normalized_overlay(
+        {
+            "kind": "pet_os",
+            "text": "你好",
+            "appear_at": 0.0,
+            "duration": 2.0,
+            "subtitle_template": "warm_note",
+        },
+        5.0,
+    )
+    assert normalized is not None
+    assert normalized["caption_animation"] is None
+    kwargs = _caption_fallback_style_kwargs(normalized)
+    expected = subtitle_pack_animation("warm_note")
+    assert kwargs["entrance"] == expected["entrance"]
+    assert kwargs["exit"] == expected["exit"]
+    assert kwargs["loop"] == expected["loop"]

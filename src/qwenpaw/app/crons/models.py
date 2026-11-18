@@ -162,7 +162,7 @@ class JobRuntimeSpec(BaseModel):
     timeout_seconds: int = Field(default=120, ge=1)
     misfire_grace_seconds: int = Field(default=600, ge=0)
     share_session: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to share session with target user. "
             "If False, executions use one dedicated visible cron-sourced "

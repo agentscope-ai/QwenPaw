@@ -29,7 +29,10 @@ describe("partitionSidebarEntries", () => {
       [entry("core.security"), entry("plugin.settings")],
     );
 
-    expect(result.work.map((item) => item.key)).toEqual(["core.files"]);
+    expect(result.work.map((item) => item.key)).toEqual([
+      "core.marketplace",
+      "core.files",
+    ]);
     expect(result.global.map((item) => item.key)).toEqual(["core.security"]);
     expect(result.plugins.map((item) => item.key)).toEqual([
       "plugin.work",
@@ -37,7 +40,7 @@ describe("partitionSidebarEntries", () => {
     ]);
   });
 
-  it("keeps inbox and marketplace visible without preferences", () => {
+  it("keeps only inbox visible without preferences", () => {
     const items: TreeMenuItem[] = [
       {
         id: "core.inbox",
@@ -55,7 +58,7 @@ describe("partitionSidebarEntries", () => {
       filterSidebarMenuItems(items, new Set(), new Set()).map(
         (item) => item.id,
       ),
-    ).toEqual(["core.inbox", "core.marketplace"]);
+    ).toEqual(["core.inbox"]);
   });
 
   it("deduplicates a plugin while preserving first-seen order", () => {

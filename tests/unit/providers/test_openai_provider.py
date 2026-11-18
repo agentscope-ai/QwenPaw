@@ -2,20 +2,25 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from agentscope.model import OpenAIChatModel
+from agentscope.message import UserMsg
+import httpx
 import pytest
 
+from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import (
-    GitHubModelsProvider,
     KiloProvider,
     OpenCodeProvider,
     OpenAIProvider,
 )
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.services.azure import AzureOpenAIProvider
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -27,6 +32,98 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
         is_custom=is_custom,
         chat_model="OpenAIChatModel",
     )
+
+
+@pytest.mark.parametrize(
+    ("control", "expected"),
+    [
+        (None, {}),
+        (
+            ThinkingControl(
+                kind="budget",
+                budget_min=1,
+                budget_max=8192,
+                supports_off=True,
+                wire="compat_budget",
+            ),
+            {"extra_body": {"enable_thinking": False}},
+        ),
+        (
+            ThinkingControl(
+                kind="effort",
+                efforts=["low", "high"],
+                supports_off=True,
+                wire="compat_effort",
+            ),
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+        ),
+    ],
+)
+async def test_chat_model_uses_declared_disable_thinking_wire(
+    monkeypatch,
+    control,
+    expected,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="strict-compat-model",
+            name="Strict compat model",
+            thinking_control=control,
+        ),
+    ]
+
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("strict-compat-model")
+    result = await model._call_api(
+        "strict-compat-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured == expected
+
+
+@pytest.mark.parametrize("thinking_enabled", [False, True])
+async def test_gpt52_disable_signal_never_reaches_sdk(
+    monkeypatch,
+    thinking_enabled,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="gpt-5.2",
+            name="GPT-5.2",
+            thinking_enabled=thinking_enabled,
+            config_overrides=["thinking_enabled"],
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("gpt-5.2")
+    result = await model._call_api(
+        "gpt-5.2",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert "disable_thinking" not in captured
+    assert captured.get("reasoning_effort") in {None, "none"}
 
 
 async def test_check_connection_success(monkeypatch) -> None:
@@ -154,7 +251,9 @@ async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
     close.assert_awaited_once()
 
 
-async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
+async def test_opencode_accepts_current_inventory_without_stale_blocklist(
+    monkeypatch,
+) -> None:
     provider = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -179,10 +278,7 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
 
     models = await provider.fetch_models()
 
-    assert [model.id for model in models] == [
-        "mimo-v2.5-free",
-        "nemotron-3-ultra-free",
-    ]
+    assert [model.id for model in models] == [row.id for row in rows]
     assert all(model.is_free for model in models)
     close.assert_awaited_once()
 
@@ -333,51 +429,18 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     )
 
     assert image_result[0] is True
-    assert video_result == (False, "Probe failed: video probe failed")
+    assert video_result == (None, "Probe failed: video probe failed")
     image_close.assert_awaited_once()
     video_close.assert_awaited_once()
 
 
-async def test_github_models_connection_closes_client(monkeypatch) -> None:
-    provider = GitHubModelsProvider(
-        id="github-models",
-        name="GitHub Models",
-        base_url="https://models.github.ai/inference",
-        api_key="gh-test",
-        chat_model="OpenAIChatModel",
-    )
-    response_close = AsyncMock()
-    client_close = AsyncMock()
-
-    class FakeStream:
-        response = SimpleNamespace(aclose=response_close)
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            raise StopAsyncIteration
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            _ = kwargs
-            return FakeStream()
-
-    fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=FakeCompletions()),
-        close=client_close,
-    )
-    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-
-    result = await provider.check_connection(timeout=2)
-
-    assert result == (True, "")
-    response_close.assert_awaited_once()
-    client_close.assert_awaited_once()
-
-
-async def test_check_gpt5_model_uses_max_completion_tokens(
+@pytest.mark.parametrize(
+    "model_id",
+    ["gpt-5.2", "gpt-6.1-sol", "openai/gpt-6.1-sol", "gpt-10-mini"],
+)
+async def test_check_modern_gpt_model_uses_max_completion_tokens(
     monkeypatch,
+    model_id,
 ) -> None:
     provider = _make_provider()
     captured: list[dict] = []
@@ -411,7 +474,7 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+    ok, msg = await provider.check_model_connection(model_id, timeout=4)
 
     assert ok is True
     assert msg == ""
@@ -421,60 +484,197 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     assert stream.closed is True
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected_param"),
+    [
+        ("gpt-6.1-sol", "max_completion_tokens"),
+        (" OpenAI/GPT-6.1-SOL ", "max_completion_tokens"),
+        ("gpt-10-mini", "max_completion_tokens"),
+        ("gpt-4.1", "max_tokens"),
+        ("gpt-3.5-turbo", "max_tokens"),
+        ("gpt-custom", "max_tokens"),
+    ],
+)
+def test_token_limit_kwargs_handles_gpt_versions(
+    model_id,
+    expected_param,
+) -> None:
+    assert openai_provider_module.token_limit_kwargs(
+        model_id,
+        200,
+    ) == {expected_param: 200}
+
+
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-5-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "o3",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/o4-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-4o-mini",
         200,
     ) == {"max_tokens": 200}
 
 
-async def test_summary_limit_uses_reasoning_model_parameter(
-    monkeypatch,
-) -> None:
-    captured: dict = {}
+@pytest.mark.parametrize(
+    ("model_id", "wire_param"),
+    [
+        ("glm-5.3-flash", "max_tokens"),
+        ("gpt-5.2", "max_completion_tokens"),
+        ("o3", "max_completion_tokens"),
+    ],
+)
+@pytest.mark.parametrize("configured_limit", [None, 8192])
+@pytest.mark.parametrize("summary", [False, True])
+async def test_output_limit_in_actual_request_body(
+    model_id,
+    wire_param,
+    configured_limit,
+    summary,
+):
+    """Exercise AgentScope's default injection and the real SDK serializer."""
+    provider = _make_provider(is_custom=True)
+    provider.models = [
+        ModelInfo(
+            id=model_id,
+            name=model_id,
+            generate_kwargs=(
+                {}
+                if configured_limit is None
+                else {"max_tokens": configured_limit}
+            ),
+        ),
+    ]
+    model = provider.get_chat_model_instance(model_id)
+    body = await _capture_output_limit_request(model, summary=summary)
+    limits = {
+        key: value
+        for key, value in body.items()
+        if key in {"max_tokens", "max_completion_tokens"}
+    }
+    expected = 4000 if summary else configured_limit
+    assert limits == ({} if expected is None else {wire_param: expected})
 
-    async def fake_call_api(self, *args, **kwargs):
-        del self, args
-        captured.update(kwargs)
-        return "ok"
 
-    monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
-    model = _make_provider().get_chat_model_instance("gpt-5.2")
+@pytest.mark.parametrize("summary", [False, True])
+async def test_custom_deployment_preserves_explicit_completion_limit(summary):
+    provider = AzureOpenAIProvider(
+        id="azure-openai",
+        name="Azure OpenAI",
+        base_url="https://mock-openai.local/v1",
+        api_key="sk-test",
+        is_custom=True,
+        chat_model="OpenAIChatModel",
+    )
+    configured = {"max_completion_tokens": 4096}
+    provider.models = [
+        ModelInfo(
+            id="production-reasoner",
+            name="Production reasoner",
+            generate_kwargs=configured,
+        ),
+    ]
+    model = provider.get_chat_model_instance("production-reasoner")
+    body = await _capture_output_limit_request(model, summary=summary)
 
-    result = await model._call_api(
-        "gpt-5.2",
-        [],
-        max_tokens=256,
-        disable_thinking=True,
+    assert body["max_completion_tokens"] == (4000 if summary else 4096)
+    assert "max_tokens" not in body
+    assert provider.get_effective_generate_kwargs("production-reasoner") == (
+        configured
     )
 
-    assert result == "ok"
-    assert captured["max_completion_tokens"] == 256
-    assert "max_tokens" not in captured
+
+@pytest.mark.parametrize(
+    ("model_id", "configured", "call_kwargs", "expected"),
+    [
+        (
+            "production-reasoner",
+            {"max_tokens": 8192},
+            {"max_completion_tokens": 256},
+            256,
+        ),
+        (
+            "gpt-5-mini",
+            {"max_tokens": 8192, "max_completion_tokens": 4096},
+            {},
+            4096,
+        ),
+    ],
+)
+async def test_explicit_completion_limit_in_actual_request_body(
+    model_id,
+    configured,
+    call_kwargs,
+    expected,
+):
+    provider = _make_provider(is_custom=True)
+    provider.generate_kwargs = configured.copy()
+    model = provider.get_chat_model_instance(model_id)
+    body = await _capture_output_limit_request(model, **call_kwargs)
+
+    assert body["max_completion_tokens"] == expected
+    assert "max_tokens" not in body
+    assert provider.generate_kwargs == configured
 
 
-def test_get_gpt5_model_maps_configured_max_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {"max_tokens": 4096}
+async def _capture_output_limit_request(model, *, summary=False, **kwargs):
+    """Capture a real AgentScope/OpenAI SDK request without a live endpoint."""
+    captured = []
 
-    model = provider.get_chat_model_instance("gpt-5.2")
+    def capture(request):
+        captured.append(json.loads(request.content))
+        chunk = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": model.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "summary"},
+                    "finish_reason": "stop",
+                },
+            ],
+        }
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            text="data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n",
+        )
 
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 4096,
-    }
+    original_client = model.client
+    model.client = original_client.with_options(
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(capture)),
+    )
+    try:
+        if summary:
+            manager = object.__new__(ScrollContextManager)
+            await manager._generate_plain_summary(
+                SimpleNamespace(model=model),
+                "summarize",
+                max_tokens=4000,
+            )
+        else:
+            response = await model(
+                messages=[UserMsg(name="user", content="hello")],
+                **kwargs,
+            )
+            async for _ in response:
+                pass
+    finally:
+        await model.client.close()
+        await original_client.close()
+
+    assert len(captured) == 1
+    return captured[0]
 
 
 def test_get_model_omits_unknown_max_tokens() -> None:
@@ -524,33 +724,6 @@ def test_get_model_does_not_send_discovered_output_capability() -> None:
     model = provider.get_chat_model_instance("known-limit")
 
     assert model.parameters.max_tokens is None
-
-
-def test_get_o_series_model_maps_configured_max_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {"max_tokens": 4096}
-
-    model = provider.get_chat_model_instance("o3")
-
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 4096,
-    }
-
-
-def test_get_gpt5_model_preserves_explicit_max_completion_tokens() -> None:
-    provider = _make_provider()
-    provider.generate_kwargs = {
-        "max_tokens": 4096,
-        "max_completion_tokens": 2048,
-    }
-
-    model = provider.get_chat_model_instance("gpt-5-mini")
-
-    assert model.parameters.max_tokens is None
-    assert model._extra_generate_kwargs == {
-        "max_completion_tokens": 2048,
-    }
 
 
 async def test_check_model_connection_api_error_returns_false(

@@ -1,0 +1,166 @@
+{
+  "schema_version": 2,
+  "id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16",
+  "date": "2026-10-16T19:08:48Z",
+  "kind": "official",
+  "experiment": "qwenpaw-2.2.2-qwen3.8-max-20261016",
+  "sdk_version": "2.2.2",
+  "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+  "provider": "dashscope",
+  "model": "qwen3.8-max",
+  "harness": "qwenpaw",
+  "parameters": {
+    "max_context_length": 1000000,
+    "max_response_length": 131072
+  },
+  "exchange_rate": {
+    "cny_per_usd": 7.0,
+    "basis": "fixed"
+  },
+  "board": {
+    "id": "qwenpaw",
+    "name": "QwenPaw Index",
+    "group_by": "model_harness"
+  },
+  "benchmarks": [
+    {
+      "id": "gaia",
+      "name": "GAIA",
+      "revision": "1.0",
+      "expected": 165,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-gaia@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-gaia",
+      "date": "2026-10-16T18:31:55Z",
+      "summary": {
+        "score_sum": 135.0,
+        "failures": {
+          "timeout": 3
+        },
+        "model_cost": {
+          "amount": 339.714528,
+          "currency": "CNY"
+        },
+        "model_cost_count": 165,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 165,
+        "runtime_seconds_sum": 100841.302778,
+        "runtime_count": 165
+      }
+    },
+    {
+      "id": "pawbench",
+      "name": "PawBench",
+      "revision": "agentscope-ai/pawbench@4",
+      "expected": 150,
+      "judge": {
+        "kind": "llm",
+        "model": "qwen3.8-max",
+        "scorer": null,
+        "official_model": "claude-opus-4.6",
+        "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-pawbench",
+      "date": "2026-10-16T19:03:15Z",
+      "summary": {
+        "score_sum": 112.91919,
+        "failures": {
+          "scoring_error": 2,
+          "execution_error": 2,
+          "timeout": 2
+        },
+        "model_cost": {
+          "amount": 316.895148,
+          "currency": "CNY"
+        },
+        "model_cost_count": 150,
+        "judge_cost": {
+          "amount": 65.01944400000001,
+          "currency": "CNY"
+        },
+        "judge_cost_count": 149,
+        "runtime_seconds_sum": 124388.39644,
+        "runtime_count": 150
+      }
+    },
+    {
+      "id": "spreadsheetbench-verified",
+      "name": "SpreadsheetBench Verified",
+      "revision": "1.0",
+      "expected": 400,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-spreadsheetbench-verified@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-spreadsheetbench-verified",
+      "date": "2026-10-16T18:02:41Z",
+      "summary": {
+        "score_sum": 353.0,
+        "failures": {
+          "execution_error": 5
+        },
+        "model_cost": {
+          "amount": 627.653916,
+          "currency": "CNY"
+        },
+        "model_cost_count": 400,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 400,
+        "runtime_seconds_sum": 224485.232049,
+        "runtime_count": 400
+      }
+    },
+    {
+      "id": "swebench-verified",
+      "name": "SWE-bench Verified",
+      "revision": "1.0",
+      "expected": 500,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-swebench-verified@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-default-qwen3.8-max-2026-10-16-swebench-verified",
+      "date": "2026-10-16T19:08:48Z",
+      "summary": {
+        "score_sum": 469.0,
+        "failures": {
+          "execution_error": 10,
+          "timeout": 9
+        },
+        "model_cost": {
+          "amount": 1532.023056,
+          "currency": "CNY"
+        },
+        "model_cost_count": 500,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 500,
+        "runtime_seconds_sum": 478727.840362,
+        "runtime_count": 500
+      }
+    }
+  ]
+}

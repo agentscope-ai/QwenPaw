@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Load .env file from project root before reading any env vars
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-if _env_path.exists():
+if not os.environ.get("QWENPAW_RUNTIME_ID") and _env_path.exists():
     load_dotenv(_env_path)
 
 
@@ -97,7 +97,7 @@ else:
 # over the user-level file because load_dotenv(..., override=False) keeps
 # existing values.
 _user_env_path = WORKING_DIR / ".env"
-if _user_env_path.exists():
+if not os.environ.get("QWENPAW_RUNTIME_ID") and _user_env_path.exists():
     load_dotenv(_user_env_path)
 
 SECRET_DIR = (
@@ -119,6 +119,7 @@ PROJECT_NAME = "QwenPaw"
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 QWENPAW_CLIENT_MESSAGE_ID_KEY = "qwenpaw_client_message_id"
+QWENPAW_USER_CONTENT_KEY = "qwenpaw_original_user_content"
 SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
@@ -135,12 +136,6 @@ SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
         LOOP_CONTINUATION_MESSAGE_TAG,
         RUBRIC_EVALUATION_MESSAGE_TAG,
     },
-)
-AUTO_MEMORY_SEARCH_TEXT = (
-    "I'll check memory for relevant context before answering."
-)
-AUTO_MEMORY_SEARCH_THINKING_PREFIX = (
-    "I should search long-term memory before answering."
 )
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported
@@ -377,7 +372,8 @@ LLM_ACQUIRE_TIMEOUT = EnvVarLoader.get_float(
     min_value=10.0,
 )
 
-# Maximum upstream wait (seconds) for the first content-bearing stream chunk.
+# Maximum upstream wait (seconds) for startup and the first content chunk.
+# Queueing for a rate-limit slot uses LLM_ACQUIRE_TIMEOUT separately.
 # Set to 0 to disable the first-content timeout.
 LLM_STREAM_FIRST_CONTENT_TIMEOUT = EnvVarLoader.get_float(
     "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",

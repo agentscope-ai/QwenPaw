@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...installation_origin import validated_origin
 from ...utils.io_utils import write_text_atomic
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
@@ -29,6 +30,7 @@ from .store import (
     copy_pool_skill_automation,
     copy_skill_dir,
     default_workspace_manifest,
+    ensure_not_cancelled,
     extract_zip_skills,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
@@ -36,6 +38,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    install_staged_skill_dir,
     is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
@@ -77,6 +80,7 @@ def _register_pool_skill_entry(
     source: str = "customized",
     protected: bool = False,
     installed_from: str = "",
+    installation_origin: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     tags: Any | None = None,
     preserve_from: dict[str, Any] | None = None,
@@ -93,6 +97,13 @@ def _register_pool_skill_entry(
         protected=protected,
     )
     entry["external"] = not is_primary_pool_skill_dir(skill_dir)
+    entry["installation_origin"] = validated_origin(
+        (
+            installation_origin
+            if installation_origin is not None
+            else preserve_from.get("installation_origin")
+        ),
+    )
 
     installed_from_final = installed_from or str(
         preserve_from.get("installed_from", "") or "",
@@ -169,6 +180,9 @@ class SkillPoolService:
                 entry.get("source", "customized"),
             )
             if skill is not None:
+                skill.installation_origin = validated_origin(
+                    entry.get("installation_origin"),
+                )
                 skills.append(skill)
         return skills
 
@@ -181,6 +195,7 @@ class SkillPoolService:
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         installed_from: str = "",
+        installation_origin: dict[str, Any] | None = None,
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -209,6 +224,7 @@ class SkillPoolService:
                 skill_dir,
                 source="customized",
                 installed_from=installed_from,
+                installation_origin=installation_origin,
                 config=config,
                 preserve_from={},
             )
@@ -864,6 +880,9 @@ class SkillPoolService:
                     "channels": _old.get("channels") or ["all"],
                     "preload": _old.get("preload") is True,
                     "source": metadata["source"],
+                    "installation_origin": validated_origin(
+                        _old.get("installation_origin"),
+                    ),
                     "installed_from": str(
                         _old.get("installed_from", "") or "",
                     ),
@@ -948,6 +967,9 @@ class SkillPoolService:
                 target_dir,
                 source="customized",
                 installed_from=ws_installed_from,
+                installation_origin=validated_origin(
+                    workspace_entry.get("installation_origin"),
+                ),
                 config=ws_config if ws_config else None,
                 tags=ws_tags,
                 preserve_from={},
@@ -1082,6 +1104,24 @@ class SkillPoolService:
         *,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        """Copy a pool skill into a workspace and register it.
+
+        Replacing the skill directory removes it for a moment, and a
+        concurrent ``POST /skills/refresh`` reconciles the manifest against
+        the filesystem — so the entry can be gone by the time the write below
+        runs. The write falls back to the entry this call read *before* the
+        copy, which keeps ``enabled`` / ``channels`` / ``config`` instead of
+        resetting them as if the skill were being installed for the first
+        time.
+
+        Cancellation is observed by the copies themselves, which check the
+        armed checker between whole files. That always fires before the
+        manifest write, so a cancelled download leaves the workspace holding
+        the skill it already had — including its ``enabled`` / ``channels`` /
+        ``config`` — and the caller's rollback owns the cleanup. Cancellation
+        is best-effort: one that arrives after the last copy loses, and the
+        download completes.
+        """
         try:
             skill_name = normalize_skill_dir_name(skill_name)
         except SkillsError:
@@ -1123,7 +1163,11 @@ class SkillPoolService:
         with staged_skill_dir(final_name) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
             scan_skill_dir_or_raise(staged_dir, final_name)
-            copy_skill_dir(staged_dir, target_dir)
+            # Cheap early-out before the workspace itself is replaced: a
+            # cancellation seen here costs nothing to honour, because the
+            # target directory is still exactly what it was.
+            ensure_not_cancelled()
+            install_staged_skill_dir(staged_dir, target_dir)
 
         pool_config = entry.get("config") or {}
         pool_tags = entry.get("tags")
@@ -1131,7 +1175,9 @@ class SkillPoolService:
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
-            prior = payload["skills"].get(final_name) or {}
+            # ``existing`` is the entry read before the copy replaced the
+            # directory; a concurrent reconcile may have dropped it since.
+            prior = payload["skills"].get(final_name) or existing or {}
             metadata = build_skill_metadata(
                 final_name,
                 target_dir,
@@ -1148,6 +1194,9 @@ class SkillPoolService:
                 "preload": prior.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
+                "installation_origin": validated_origin(
+                    entry.get("installation_origin"),
+                ),
                 "config": (
                     prior["config"] if "config" in prior else pool_config
                 ),

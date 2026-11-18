@@ -10,8 +10,10 @@ import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useTimelineStore } from "@/store/timelineStore";
-import { getArtifactVersionMediaUrl, renderTimeline } from "@/api/creator";
+import { renderTimeline } from "@/api/creator";
+import { setSubtitleStyle, toggleSubtitles } from "@/api/creator";
 import {
+  isSubtitleOverlay,
   overlayContentKind,
   resolveTimelineRender,
   selectPrimaryTimeline,
@@ -21,53 +23,21 @@ import {
 import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
+import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { useNarrowWorkspace } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
 import TimelineSnapshotPanel from "@/components/timeline/TimelineSnapshotPanel";
 import ElementDetail from "@/components/timeline/ElementDetail";
-import { storyboardOfOwner } from "@/components/workbench/referenceThumbs";
 import WorkbenchModal from "@/components/workbench/WorkbenchModal";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
 import SaveAsTemplateDialog from "@/components/creator/SaveAsTemplateDialog";
 import type {
-  ProjectDocument,
+  SubtitleStyleUpdateRequest,
   TimelineElementDocument,
 } from "@/contracts/creator";
 import { useTranslation } from "react-i18next";
-
-/** 分镜图预览 rail tab (design 83:13383): the element's storyboard image. */
-function StoryboardPreviewPanel({
-  project,
-  element,
-}: {
-  project: ProjectDocument;
-  element: TimelineElementDocument | null;
-}) {
-  const { t } = useTranslation();
-  const versionId = element
-    ? storyboardOfOwner(project, `element:${element.element_id}`)
-    : null;
-  return (
-    <div
-      data-storyboard-preview-panel
-      className="min-h-0 flex-1 overflow-y-auto p-3"
-    >
-      {versionId ? (
-        <img
-          src={getArtifactVersionMediaUrl(versionId)}
-          alt=""
-          className="w-full rounded-lg border border-[var(--color-border)]"
-        />
-      ) : (
-        <p className="py-10 text-center text-xs text-[var(--color-text-tertiary)]">
-          {t("plan.noStoryboard")}
-        </p>
-      )}
-    </div>
-  );
-}
 
 function sec(tick: number, ticksPerSecond: number): string {
   return (tick / ticksPerSecond).toFixed(1).replace(/\.0$/, "");
@@ -134,20 +104,14 @@ export default function PlanPage() {
     ],
   );
   const [playheadTick, setPlayheadTick] = useState(0);
-  // Right rail tabs (design 83:13383): 视频概览 hosts the element overview,
-  // 分镜图预览 shows the element's storyboard image (r2v elements only).
-  const [railTab, setRailTab] = useState<"overview" | "storyboard">("overview");
-  const storyboardTabAvailable = elementDraft.value?.creation.type === "r2v";
-  useEffect(() => {
-    if (!storyboardTabAvailable && railTab === "storyboard")
-      setRailTab("overview");
-  }, [railTab, storyboardTabAvailable]);
   const [composing, setComposing] = useState(false);
   const [requestedComposeTaskId, setRequestedComposeTaskId] = useState<
     string | null
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
   const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [subtitleToggling, setSubtitleToggling] = useState(false);
+  const [subtitleStyleBusy, setSubtitleStyleBusy] = useState(false);
   const [comparePreviewOpen, setComparePreviewOpen] = useState(true);
   const composeAttemptedGeneration = useRef<number | null>(null);
   const hadPendingReviews = useRef(false);
@@ -173,6 +137,164 @@ export default function PlanPage() {
       )
     : 1;
   const clampedPlayheadTick = Math.min(playheadTick, displayDurationTick);
+
+  // Subtitle element stats for the toolbar toggle button.  The count has to
+  // follow the same predicate the backend toggle applies, or the button would
+  // advertise a number of subtitles it never touches: a pet-OS bubble carries
+  // no caption_role and is not a subtitle.
+  const subtitleStats = useMemo(() => {
+    if (!timeline) return { count: 0, enabledCount: 0 };
+    let count = 0;
+    let enabledCount = 0;
+    const contentType = project?.settings.content_type;
+    for (const element of Object.values(timeline.elements_by_id)) {
+      if (
+        element.creation.type === "overlay" &&
+        isSubtitleOverlay(element.creation, contentType)
+      ) {
+        count++;
+        if (element.enabled) enabledCount++;
+      }
+    }
+    return { count, enabledCount };
+  }, [project, timeline]);
+  const hasSubtitles = subtitleStats.count > 0;
+  const subtitlesAllEnabled =
+    subtitleStats.enabledCount === subtitleStats.count;
+
+  const handleToggleSubtitles = useCallback(async () => {
+    setSubtitleToggling(true);
+    try {
+      await toggleSubtitles(id, !subtitlesAllEnabled);
+      await pollOnce(id);
+      message.success(
+        subtitlesAllEnabled ? t("plan.subtitleRemove") : t("plan.subtitleAdd"),
+      );
+      message.info(t("plan.subtitleToggleRecompose"), 4);
+    } catch (error) {
+      message.error(
+        t("plan.subtitleToggleFailed", {
+          detail: (error as Error).message,
+        }),
+      );
+    } finally {
+      setSubtitleToggling(false);
+    }
+  }, [id, subtitlesAllEnabled, pollOnce, t]);
+
+  // The switch lives in the timeline itself (the subtitle lane's row header),
+  // so the page only hands down what it knows best: whether every subtitle is
+  // currently on, how many the backend toggle will reach, and the action.
+  const subtitleToggle = hasSubtitles
+    ? {
+        enabled: subtitlesAllEnabled,
+        count: subtitleStats.count,
+        busy: subtitleToggling,
+        onToggle: () => void handleToggleSubtitles(),
+      }
+    : undefined;
+
+  // A single caption is toggled through a direct one-operation patch instead of
+  // the element draft: the draft derives its operations from React state, so
+  // applying it in the same tick as the mutation would submit nothing.
+  const handleToggleElementSubtitle = useCallback(
+    async (element: TimelineElementDocument, enabled: boolean) => {
+      const timelineId = timeline?.timeline_id;
+      if (!timelineId) return;
+      const before =
+        timeline?.elements_by_id[element.element_id]?.enabled ?? true;
+      if (before === enabled) return;
+      try {
+        await patchProject(id, [
+          {
+            op: "replace",
+            path: projectJsonPointer(
+              "timelines",
+              "items",
+              timelineId,
+              "elements_by_id",
+              element.element_id,
+              "enabled",
+            ),
+            before,
+            value: enabled,
+          },
+        ]);
+        await pollOnce(id);
+        message.success(
+          enabled ? t("plan.subtitleAdd") : t("plan.subtitleRemove"),
+        );
+        message.info(t("plan.subtitleToggleRecompose"), 4);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleToggleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    },
+    [id, timeline, patchProject, pollOnce, t],
+  );
+
+  // One confirmed pick may be two backend calls (the project-wide pack and
+  // overrides, then this caption's motion), and each of them keeps the
+  // setting, the burned-in caption documents and every 动效描述 in step, so
+  // the page reports what the whole batch actually reached.
+  const handleApplySubtitleStyle = useCallback(
+    async (requests: SubtitleStyleUpdateRequest[]) => {
+      if (!requests.length) return;
+      setSubtitleStyleBusy(true);
+      try {
+        let syncedPrompts = 0;
+        let redrawnDocuments = 0;
+        let skippedNonTemplate = 0;
+        for (const request of requests) {
+          const result = await setSubtitleStyle(id, request);
+          syncedPrompts += result.syncedPrompts;
+          redrawnDocuments += result.redrawnDocuments;
+          skippedNonTemplate += result.skippedNonTemplate;
+        }
+        // A caption whose look was designed independently keeps it: reporting
+        // "updated" for a pick that reached nothing would be the same lie the
+        // style switch was built to remove.
+        const nothingButSkips =
+          skippedNonTemplate > 0 && !syncedPrompts && !redrawnDocuments;
+        if (nothingButSkips) {
+          message.warning(
+            t("plan.subtitleStyleSkippedDesign", { count: skippedNonTemplate }),
+          );
+        } else {
+          if (syncedPrompts || redrawnDocuments) {
+            message.success(
+              t("plan.subtitleStyleSynced", {
+                prompts: syncedPrompts,
+                documents: redrawnDocuments,
+              }),
+            );
+          }
+          if (skippedNonTemplate) {
+            message.warning(
+              t("plan.subtitleStyleSkippedDesign", {
+                count: skippedNonTemplate,
+              }),
+            );
+          }
+          message.info(t("plan.subtitleStyleApplied"), 4);
+        }
+        await pollOnce(id);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleStyleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      } finally {
+        setSubtitleStyleBusy(false);
+      }
+    },
+    [id, pollOnce, t],
+  );
+
   // Any playhead motion (transport keys, scrub, playback, seeks) returns the
   // panel to follow mode so it can never describe a stale selection.
   const movePlayhead = useCallback((tick: number) => {
@@ -664,7 +786,14 @@ export default function PlanPage() {
           if (draft) mutator(draft);
         })
       }
-      onApply={() => void applyElementDraft()}
+      onApply={applyElementDraft}
+      onToggleSubtitleEnabled={(element, enabled) =>
+        void handleToggleElementSubtitle(element, enabled)
+      }
+      subtitleStyleBusy={subtitleStyleBusy}
+      onApplySubtitleStyle={(requests) =>
+        void handleApplySubtitleStyle(requests)
+      }
       onDiscard={elementDraft.discard}
       onAcceptConflicts={elementDraft.acceptConflicts}
       onOpenWorkbench={openElementWorkbench}
@@ -721,7 +850,7 @@ export default function PlanPage() {
               {timeline.title || t("blueprint.timelineEdit")}
             </h2>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 pr-5">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 pr-5">
             {/* When the workspace runs out of width the info chips fold
               into one tooltip so the action buttons keep their room. */}
             <div className="flex flex-wrap items-center gap-2 @max-[559px]:hidden">
@@ -745,16 +874,6 @@ export default function PlanPage() {
                 <Info className="h-3.5 w-3.5" />
               </span>
             </Tooltip>
-            {/* 脚本方案 (84:46780): drill back up to the blueprint page. */}
-            <button
-              type="button"
-              data-open-blueprint
-              onClick={() => leaveDraft(() => navigate(`/project/${id}`))}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition hover:border-[var(--color-accent)]/50 hover:text-[var(--color-accent)] dark:bg-[var(--color-bg-elevated)]"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              {t("plan.scriptPlan")}
-            </button>
             {composeFailed && !isComposing && (
               <button
                 type="button"
@@ -823,6 +942,15 @@ export default function PlanPage() {
               <Bookmark className="h-3.5 w-3.5" />
               {t("home.saveAsTemplate")}
             </button>
+            <button
+              type="button"
+              data-open-blueprint
+              onClick={() => leaveDraft(() => navigate(`/project/${id}`))}
+              className="creator-view-switch"
+            >
+              <FileText className="h-4 w-4" />
+              {t("plan.scriptPlan")}
+            </button>
             <SaveAsTemplateDialog
               open={saveAsTemplateOpen}
               onClose={() => setSaveAsTemplateOpen(false)}
@@ -853,6 +981,7 @@ export default function PlanPage() {
                 selectedElementId={selectedElementId}
                 previewOpen={comparePreviewOpen}
                 tasks={tasks}
+                subtitleToggle={subtitleToggle}
                 onPreviewOpenChange={setComparePreviewOpen}
                 onPlayheadChange={(tick) =>
                   movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
@@ -934,6 +1063,7 @@ export default function PlanPage() {
             selectedElementId={selectedElementId}
             previewOpen
             tasks={tasks}
+            subtitleToggle={subtitleToggle}
             onPreviewOpenChange={() => {}}
             onPlayheadChange={(tick) =>
               movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
@@ -943,62 +1073,24 @@ export default function PlanPage() {
           />
         )}
 
-        {/* Right rail (design 83:13383, 389px): 视频概览 hosts the element
-          overview, 分镜图预览 the storyboard image; the rail spans the header
-          and stage rows. On narrow workspaces it degrades to a drawer. */}
+        {/* The overview includes a zoomable storyboard; full edits open the
+            workbench. On narrow workspaces the rail becomes a drawer. */}
         {!narrowWorkspace ? (
           <aside
             data-element-rail
             className="col-start-2 row-span-2 row-start-1 flex min-h-0 flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-bg-primary)]"
           >
             <div
-              data-element-rail-tabs
-              className="flex h-12 shrink-0 items-center gap-6 border-b border-[var(--color-border)] px-4"
+              data-element-rail-heading
+              className="flex h-12 shrink-0 items-center border-b border-[var(--color-border)] px-4"
             >
-              {(
-                [
-                  { key: "overview", label: t("plan.railOverviewTab") },
-                  ...(storyboardTabAvailable
-                    ? [
-                        {
-                          key: "storyboard",
-                          label: t("plan.railStoryboardTab"),
-                        } as const,
-                      ]
-                    : []),
-                ] as { key: "overview" | "storyboard"; label: string }[]
-              ).map((item) => {
-                const active = railTab === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setRailTab(item.key)}
-                    data-active={active}
-                    className={`relative pb-1 text-sm transition-colors ${
-                      active
-                        ? "font-semibold text-[var(--color-text-primary)]"
-                        : "font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    }`}
-                  >
-                    {item.label}
-                    {active && (
-                      <span className="absolute inset-x-0 -bottom-0.5 mx-auto h-0.5 w-6 rounded-full bg-[var(--color-text-primary)]" />
-                    )}
-                  </button>
-                );
-              })}
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                {t("plan.railOverviewTab")}
+              </h3>
             </div>
-            {railTab === "overview" ? (
-              <div className="grid min-h-0 flex-1">
-                {renderElementDetail(true)}
-              </div>
-            ) : (
-              <StoryboardPreviewPanel
-                project={project}
-                element={elementDraft.value}
-              />
-            )}
+            <div className="grid min-h-0 flex-1">
+              {renderElementDetail(true)}
+            </div>
           </aside>
         ) : elementDraft.value ? (
           <div className="absolute inset-y-4 right-4 z-40 grid w-[min(calc(100%-32px),420px)] min-h-0 shadow-2xl">

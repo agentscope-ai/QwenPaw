@@ -155,7 +155,6 @@ describe("PlanPage Timeline/Element frontend", () => {
     // 总览层：分镜/视频 Prompt 的全量编辑迁往制作台悬浮窗，详情保留创作语境字段。
     expect(screen.getByText("创作意图")).toBeInTheDocument();
     expect(screen.queryByText("分镜描述")).not.toBeInTheDocument();
-
     // Detail edits stay local on blur and commit via CAS Patch on Apply.
     const name = screen.getByDisplayValue("午饭名场面");
     fireEvent.change(name, { target: { value: "新的午饭名场面" } });
@@ -184,6 +183,35 @@ describe("PlanPage Timeline/Element frontend", () => {
       ].elements_by_id["r2v-window"].label,
     ).toBe("新的午饭名场面");
   });
+
+  it.each(["source_asset_version", "artifact_version"] as const)(
+    "opens an Edit backed by %s with a literal percent in its name",
+    async (type) => {
+      const project = cloneProject();
+      const element =
+        project.timelines.items["timeline:main"].elements_by_id["edit-opening"];
+      const versionId =
+        type === "artifact_version"
+          ? "final-v1"
+          : element.render_source!.version_id;
+      if (typeof versionId !== "string")
+        throw new Error("Expected video fixture");
+      const versions =
+        type === "artifact_version"
+          ? project.assets.artifact_versions_by_id
+          : project.assets.source_versions_by_id;
+      versions[versionId].name = "100% 完成的成片";
+      element.render_source = {
+        ...element.render_source!,
+        type,
+        version_id: versionId,
+      };
+      seedProject(project);
+      installMockFetch(pollRoutes());
+      renderPage("/project/p1/plan?element=edit-opening");
+      expect(await screen.findByTitle("100% 完成的成片")).toBeInTheDocument();
+    },
+  );
 
   it("moves the playhead from a chart click and opens a block's overview in the rail", async () => {
     const { container } = renderPage();
@@ -240,7 +268,7 @@ describe("PlanPage Timeline/Element frontend", () => {
       screen.queryByRole("button", { name: "下载 / 导出" }),
     ).not.toBeInTheDocument();
     expect(container.querySelector("[data-open-blueprint]")).toHaveTextContent(
-      "脚本方案",
+      "返回视频脚本",
     );
     expect(
       screen.getByRole("button", { name: "合成成片" }),
@@ -384,7 +412,7 @@ describe("PlanPage Timeline/Element frontend", () => {
       screen.queryByRole("button", { name: "下载 / 导出" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /脚本方案/ }),
+      screen.getByRole("button", { name: /返回视频脚本/ }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "合成成片" }),

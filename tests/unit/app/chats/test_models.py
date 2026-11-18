@@ -11,6 +11,7 @@ from qwenpaw.app.chats.models import (
     ChatSpec,
     ChatUpdate,
     ChatsFile,
+    CHAT_NAME_MAX_LENGTH,
     CRON_CHAT_GROUP_ID,
     DEFAULT_CHAT_GROUP_ID,
     SessionSource,
@@ -66,6 +67,33 @@ def test_chat_spec_two_instances_get_different_ids():
     assert a.id != b.id
 
 
+def test_chat_spec_caps_long_names():
+    spec = ChatSpec(
+        session_id="console:u1",
+        user_id="u1",
+        name="x" * (CHAT_NAME_MAX_LENGTH + 1),
+    )
+
+    assert len(spec.name) == CHAT_NAME_MAX_LENGTH
+
+
+def test_chats_file_caps_legacy_long_names():
+    chats_file = ChatsFile.model_validate(
+        {
+            "version": 1,
+            "chats": [
+                {
+                    "session_id": "console:u1",
+                    "user_id": "u1",
+                    "name": "x" * (CHAT_NAME_MAX_LENGTH + 1),
+                },
+            ],
+        },
+    )
+
+    assert len(chats_file.chats[0].name) == CHAT_NAME_MAX_LENGTH
+
+
 # ---------------------------------------------------------------------------
 # ChatUpdate
 # ---------------------------------------------------------------------------
@@ -76,6 +104,12 @@ def test_chat_update_allows_partial_fields():
     assert update.name == "Renamed"
     assert update.pinned is None
     assert update.group_id is None
+
+
+def test_chat_update_caps_long_names():
+    update = ChatUpdate(name="x" * (CHAT_NAME_MAX_LENGTH + 1))
+
+    assert len(update.name) == CHAT_NAME_MAX_LENGTH
 
 
 def test_chat_update_forbids_extra_fields():

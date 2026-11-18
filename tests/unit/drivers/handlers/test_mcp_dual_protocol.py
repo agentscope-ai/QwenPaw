@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 from typing import Any, Callable
@@ -39,6 +40,7 @@ from qwenpaw.drivers.handlers.mcp_streamable_http import (
     _oauth_required_message,
     _same_origin,
     _supported_versions_from_payload,
+    _unwrap_jsonrpc_result,
 )
 
 
@@ -284,6 +286,12 @@ def test_normalize_call_tool_result_snake_case_aliases():
         lambda r: httpx.Response(400, text=""),
         lambda r: httpx.Response(404, text=""),
         lambda r: httpx.Response(405, text=""),
+        lambda r: httpx.Response(422, text=""),
+        # DBX-style: 422 with a plain-text "expect initialize" body.
+        lambda r: httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+        ),
         lambda r: _ok(r, {"supportedVersions": ["2025-11-25"]}),
         lambda r: _err(r, -32601, "Method not found: server/discover"),
         lambda r: _err(r, -32022, "bad", {"supported": ["2025-11-25"]}),
@@ -316,12 +324,101 @@ async def test_auto_falls_back_once(monkeypatch, make):
     assert c._impl is None
 
 
+def test_unwrap_gzip_headers_on_decoded_4xx_body():
+    """Rebuilding a 4xx response must not re-decompress already-decoded bytes.
+
+    ``_rpc`` copies original ``Content-Encoding`` after ``aread()`` has
+    already gunzipped the body. Reconstructing ``httpx.Response`` with
+    those headers used to raise ``DecodingError`` and abort legacy fallback.
+    """
+    body = (
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25,2025-06-18,2025-03-26,2024-11-05)\n"
+    )
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _unwrap_jsonrpc_result(
+            method="server/discover",
+            status=400,
+            data=None,
+            request=httpx.Request("POST", "http://mcp.test/mcp"),
+            request_id=1,
+            content=body,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+                "content-length": str(len(body)),
+            },
+        )
+    assert caught.value.response.status_code == 400
+    assert caught.value.response.content == body
+
+
+async def test_auto_falls_back_on_gzip_plain_400(monkeypatch):
+    """Gzip-compressed HTTP 400 on discover is legacy evidence, not a crash."""
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+    compressed = gzip.compress(
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25)\n",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            400,
+            content=compressed,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+            },
+        )
+
+    c = _cli(HttpAutoClient, "dagu", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dagu"]
+    finally:
+        await c.close()
+
+
+async def test_auto_falls_back_on_plain_422(monkeypatch):
+    """DBX-style HTTP 422 with a plain-text body is legacy evidence.
+
+    The peer mandates ``initialize`` as the first message and answers the
+    unknown ``server/discover`` probe with 422 and a non-JSON-RPC body, so
+    the AutoClient must fall back to the legacy handshake instead of failing
+    the Driver build.
+    """
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            422,
+            text="Unexpected message, expect initialize request",
+            headers={"content-type": "text/plain; charset=utf-8"},
+        )
+
+    c = _cli(HttpAutoClient, "dbx", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dbx"]
+    finally:
+        await c.close()
+
+
 @pytest.mark.parametrize(
     ("make", "exc_type", "match"),
     [
         (_transport_error(httpx.ReadTimeout), httpx.ReadTimeout, None),
-        # Only 401 joins 400/404/405 as fallback evidence; other 4xx stay
-        # hard failures so a real authorization problem is not masked.
+        # Only 401 joins 400/404/405/422 as fallback evidence; other 4xx
+        # (e.g. 403) stay hard failures so a real authorization problem is
+        # not masked.
         (
             lambda r: httpx.Response(403, text="forbidden"),
             httpx.HTTPStatusError,

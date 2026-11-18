@@ -72,7 +72,6 @@ class TestHeartbeatDisplayAndToggle:
 
         log_test_step("2. Verify config card and form elements")
         expect(heartbeat_page.page.locator(heartbeat_page.ENABLED_SWITCH).first).to_be_visible()
-        expect(heartbeat_page.page.locator(heartbeat_page.INTERVAL_INPUT).first).to_be_visible()
         expect(heartbeat_page.page.locator(heartbeat_page.SAVE_BTN).first).to_be_visible()
         logger.info("All config elements displayed correctly")
 
@@ -83,6 +82,13 @@ class TestHeartbeatDisplayAndToggle:
         log_test_step("4. Toggle state and save")
         heartbeat_page.toggle_heartbeat()
         heartbeat_page.save_config()
+
+        if not original_state:
+            expect(
+                heartbeat_page.page.locator(
+                    heartbeat_page.INTERVAL_INPUT
+                ).first
+            ).to_be_visible()
 
         log_test_step("5. Verify state change")
         new_state = heartbeat_page.is_heartbeat_enabled()
@@ -140,38 +146,31 @@ class TestHeartbeatFullConfig:
         8. Restore original config
         """
         test_name = request.node.name
-        test_time = "09:00"
-
         log_test_step("1. Open Heartbeat page")
         heartbeat_page.open()
 
         log_test_step("2. Record original config")
         original_enabled = heartbeat_page.is_heartbeat_enabled()
+        if not original_enabled:
+            heartbeat_page.enable_heartbeat()
+            heartbeat_page.save_config()
         original_interval = heartbeat_page.get_interval()
-        original_time = heartbeat_page.get_scheduled_time()
-        logger.info(f"Original config: enabled={original_enabled}, interval={original_interval}, time={original_time}")
+        logger.info(
+            f"Original config: enabled={original_enabled}, "
+            f"interval={original_interval}"
+        )
 
         log_test_step("3. Set interval to 15 minutes")
         heartbeat_page.set_interval(15, "分钟")
 
-        log_test_step("4. Set scheduled time to 09:00")
-        heartbeat_page.set_scheduled_time(test_time)
-
-        log_test_step("5. Choose a skill (if any available)")
-        skill_select = heartbeat_page.page.locator(heartbeat_page.SKILL_SELECT)
-        if skill_select.count() > 0:
-            skill_select.click()
-            options = heartbeat_page.page.locator('.ant-select-option')
-            if options.count() > 0:
-                options.first.click()
-                logger.info("Skill selected")
+        log_test_step("4. Wait for interval auto-save")
+        heartbeat_page.save_config()
 
         log_test_step("6. Enable heartbeat, save config")
         heartbeat_page.configure_heartbeat(
             enabled=True,
             interval=15,
             unit="分钟",
-            scheduled_time=test_time,
         )
 
         log_test_step("7. Verify config took effect")
@@ -184,8 +183,7 @@ class TestHeartbeatFullConfig:
         heartbeat_page.configure_heartbeat(
             enabled=original_enabled,
             interval=int(original_interval.get("value", 30)),
-            unit=original_interval.get("unit", "分钟") or "分钟",
-            scheduled_time=original_time,
+            unit="minutes",
         )
 
         log_test_result(test_name, True, 0)
@@ -245,107 +243,44 @@ class TestHeartbeatTargetAndActiveHours:
         log_test_step("1. Open Heartbeat page")
         heartbeat_page.open()
 
-        log_test_step("2. Record original config")
-        original_enabled = heartbeat_page.is_heartbeat_enabled()
-        original_interval = heartbeat_page.get_interval()
-        original_time = heartbeat_page.get_scheduled_time()
-        logger.info(f"Original config: enabled={original_enabled}, interval={original_interval}, time={original_time}")
-
-        log_test_step("3. Find target session selector (main/last)")
-        target_session_selector = heartbeat_page.page.locator(
-            '.qwenpaw-radio-group, .qwenpaw-select, [class*="targetSession"], [class*="target"]'
-        ).first
-        expect(target_session_selector).to_be_visible(timeout=3000)
-        logger.info("Target session selector exists")
-
-        log_test_step("4. Verify selector exists and record current value")
-        current_target = ""
-        main_option = heartbeat_page.page.locator(
-            '.qwenpaw-radio-label:has-text("main"), .qwenpaw-radio-label:has-text("主会话"), '
-            '[class*="radio"]:has-text("main"), [class*="radio"]:has-text("主")'
-        ).first
-        last_option = heartbeat_page.page.locator(
-            '.qwenpaw-radio-label:has-text("last"), .qwenpaw-radio-label:has-text("最近"), '
-            '[class*="radio"]:has-text("last"), [class*="radio"]:has-text("最近")'
-        ).first
-
-        if main_option.is_visible():
-            current_target = "main" if main_option.get_attribute('aria-checked') == 'true' else "last"
-        elif last_option.is_visible():
-            current_target = "last" if last_option.get_attribute('aria-checked') == 'true' else "main"
-        logger.info(f"Current target session: {current_target}")
-
-        log_test_step("5. Switch target session option")
-        if current_target == "main" and last_option.is_visible():
-            last_option.click()
-            heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("Switched to last session")
-        elif current_target == "last" and main_option.is_visible():
-            main_option.click()
-            heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("Switched to main session")
-
-        log_test_step("6. Find active hours toggle")
-        active_hours_switch = heartbeat_page.page.locator(
-            '.qwenpaw-switch, [class*="activeHours"], [class*="active"]'
-        ).first
-        expect(active_hours_switch).to_be_visible(timeout=3000)
-        logger.info("Active hours toggle exists")
-
-        log_test_step("7. Enable active hours")
-        active_hours_checked = active_hours_switch.get_attribute('aria-checked')
-        if active_hours_checked != 'true':
-            active_hours_switch.click()
-            heartbeat_page.page.wait_for_timeout(1000)
-            logger.info("Active hours enabled")
-
-        log_test_step("8. Set start time")
-        start_time_picker = heartbeat_page.page.locator(
-            '.qwenpaw-picker, .qwenpaw-time-picker, [class*="startTime"], [class*="start"]'
-        ).first
-        if start_time_picker.is_visible():
-            start_time_picker.click()
-            heartbeat_page.page.wait_for_timeout(500)
-            # Select 09:00
-            time_option = heartbeat_page.page.locator('.qwenpaw-picker-panel li, .ant-picker-panel li').filter(has_text="09").first
-            if time_option.is_visible():
-                time_option.click()
-                heartbeat_page.page.wait_for_timeout(500)
-            logger.info("Start time set")
-
-        log_test_step("9. Set end time")
-        end_time_picker = heartbeat_page.page.locator(
-            '.qwenpaw-picker, .qwenpaw-time-picker, [class*="endTime"], [class*="end"]'
-        ).first
-        if end_time_picker.is_visible():
-            end_time_picker.click()
-            heartbeat_page.page.wait_for_timeout(500)
-            # Select 18:00
-            time_option = heartbeat_page.page.locator('.qwenpaw-picker-panel li, .ant-picker-panel li').filter(has_text="18").first
-            if time_option.is_visible():
-                time_option.click()
-                heartbeat_page.page.wait_for_timeout(500)
-            logger.info("End time set")
-
-        log_test_step("10. Save config")
-        save_btn = heartbeat_page.page.locator(heartbeat_page.SAVE_BTN).first
-        if save_btn.is_visible():
-            save_btn.click()
-            heartbeat_page.page.wait_for_timeout(2000)
-            logger.info("Save button clicked")
-
-        log_test_step("11. Verify config saved")
-        heartbeat_page.assert_config_saved()
-        logger.info("Config saved")
-
-        log_test_step("12. Restore original config")
-        heartbeat_page.configure_heartbeat(
-            enabled=original_enabled,
-            interval=int(original_interval.get("value", 30)),
-            unit=original_interval.get("unit", "分钟") or "分钟",
-            scheduled_time=original_time,
+        log_test_step("2. Verify and switch the reply target")
+        target_options = heartbeat_page.page.locator(
+            '.qwenpaw-segmented[aria-label="Reply target"] '
+            'input[type="radio"]'
         )
-        logger.info("Original config restored")
+        assert target_options.count() == 3
+        original_index = next(
+            index for index, option in enumerate(target_options.all())
+            if option.is_checked()
+        )
+        replacement_index = next(
+            index for index, option in enumerate(target_options.all())
+            if not option.is_checked()
+        )
+        target_labels = heartbeat_page.page.locator(
+            '.qwenpaw-segmented[aria-label="Reply target"] '
+            '.qwenpaw-segmented-item'
+        )
+        replacement = target_options.nth(replacement_index)
+        target_labels.nth(replacement_index).click()
+        heartbeat_page.page.wait_for_timeout(1000)
+        expect(replacement).to_be_checked()
+
+        log_test_step("3. Toggle active hours")
+        active_hours_switch = heartbeat_page.page.get_by_role(
+            "switch", name="Active hours (optional)"
+        )
+        expect(active_hours_switch).to_be_visible(timeout=3000)
+        original_active = active_hours_switch.get_attribute("aria-checked")
+        active_hours_switch.click()
+        heartbeat_page.page.wait_for_timeout(1000)
+        current_active = active_hours_switch.get_attribute("aria-checked")
+        assert current_active != original_active
+
+        log_test_step("4. Restore the original target and active-hours state")
+        target_labels.nth(original_index).click()
+        active_hours_switch.click()
+        heartbeat_page.page.wait_for_timeout(1000)
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - target session selection and active hours config work")

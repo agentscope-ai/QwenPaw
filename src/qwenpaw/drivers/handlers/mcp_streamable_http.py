@@ -218,7 +218,11 @@ def _is_legacy_protocol_evidence(
         )
         has_mod = _MODERN_PROTOCOL_VERSION in supported_versions
         return bool(supported_versions) and has_hs and not has_mod
-    return status_code in {400, 404, 405}
+    # A bare 422 means the peer rejected the modern request shape (e.g. it
+    # mandates ``initialize`` first and answers unknown methods with 422 and
+    # a plain-text body) -- same fallback as 400/404/405. Auth codes are
+    # handled separately, so this cannot mask a real authorization problem.
+    return status_code in {400, 404, 405, 422}
 
 
 class _ModernCallToolResult(mcp_types.CallToolResult):
@@ -409,8 +413,20 @@ def _unwrap_jsonrpc_result(
         if _is_jsonrpc_envelope(data) and isinstance(data.get("error"), dict):
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
             raise _JsonRpcError.from_payload(data["error"], http_status=status)
+        # aread() already decoded gzip/deflate/br; leftover encoding
+        # headers would make httpx.Response try to decompress again.
+        stale = {
+            "content-encoding",
+            "content-length",
+            "transfer-encoding",
+        }
+        sanitized = {
+            key: value
+            for key, value in (headers or {}).items()
+            if key.casefold() not in stale
+        }
         resp_kw: dict[str, Any] = {
-            "headers": headers or {},
+            "headers": sanitized,
             "request": request,
         }
         if isinstance(data, dict):
@@ -762,7 +778,7 @@ class HttpStatelessClient(_HttpClientBase):
                 f"discover probe got HTTP 401: {exc}",
             ) from exc
         except httpx.HTTPStatusError as exc:
-            # Bare 400/404/405 ⇒ one legacy fallback.
+            # Bare 400/404/405/422 ⇒ one legacy fallback.
             if _is_legacy_protocol_evidence(
                 status_code=exc.response.status_code,
             ):

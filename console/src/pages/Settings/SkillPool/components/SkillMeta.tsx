@@ -1,3 +1,4 @@
+import { FolderOpen, Tag } from "lucide-react";
 import defaultStyles from "../index.module.less";
 
 interface SkillCategoryTagsProps {
@@ -48,7 +49,9 @@ export function SkillCategoriesAndTags({
     <div className={styles.categoriesTagsContainer}>
       {!!categories?.length && (
         <div className={styles.metaRow}>
-          <span className={styles.metaIcon}>📂</span>
+          <span className={styles.metaIcon}>
+            <FolderOpen size={14} aria-hidden="true" />
+          </span>
           <div className={styles.metaContent}>
             {categories.map((cat) => (
               <span key={cat} className={styles.categoryChip}>
@@ -60,7 +63,9 @@ export function SkillCategoriesAndTags({
       )}
       {!!tags?.length && (
         <div className={styles.metaRow}>
-          <span className={styles.metaIcon}>🏷️</span>
+          <span className={styles.metaIcon}>
+            <Tag size={14} aria-hidden="true" />
+          </span>
           <div className={styles.metaContent}>
             {tags.map((tag) => (
               <span key={tag} className={styles.tagChip}>
@@ -82,7 +87,9 @@ export function SkillTags({
   return (
     <div className={styles.tagsContainer}>
       <div className={styles.metaRow}>
-        <span className={styles.metaIcon}>🏷️</span>
+        <span className={styles.metaIcon}>
+          <Tag size={14} aria-hidden="true" />
+        </span>
         <div className={styles.metaContent}>
           {tags.map((tag) => (
             <span key={tag} className={styles.tagChip}>

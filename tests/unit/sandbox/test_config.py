@@ -8,6 +8,8 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from qwenpaw.sandbox import config as sandbox_config
+
 from qwenpaw.sandbox import (
     MountSpec,
     PortRule,
@@ -296,3 +298,11 @@ class TestCreateSandboxSeatbeltDowngrade:
         sb = create_sandbox(config)
         assert isinstance(sb, NoneSandbox)
         mock_detect.assert_called_once()
+
+
+def test_environment_markers_do_not_prove_runtime_isolation(monkeypatch):
+    """A normal host process cannot skip its sandbox using forged flags."""
+    monkeypatch.setenv("QWENPAW_RUNTIME_PROVISIONER", "local")
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "forged-runtime")
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "forged-token")
+    assert not sandbox_config._inherits_runtime_boundary()

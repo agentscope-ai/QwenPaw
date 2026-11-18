@@ -10,15 +10,26 @@
  * gating, and the doc-link button (builtin EN/ZH + plugin schema doc_url).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { Form } from "antd";
 import type { FormInstance } from "antd";
+import type { ChannelSaveJob } from "../../../../api/modules/channel";
+import type { ChannelQrcodeConfig } from "./useChannelQrcode";
 
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const langRef = vi.hoisted(() => ({ current: "en" }));
 const mockOpenExternalLink = vi.hoisted(() => vi.fn());
+const mockConfirm = vi.hoisted(() => vi.fn());
 const mockMessage = vi.hoisted(() => ({
+  destroy: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
   warning: vi.fn(),
@@ -30,7 +41,8 @@ vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string, fallback?: unknown) => {
       if (typeof fallback === "string") return fallback;
@@ -51,52 +63,112 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("../../../../stores/agentStore", () => ({
-  useAgentStore: () => ({
-    selectedAgent: "agent-a",
-    agents: [{ id: "agent-a", workspace_dir: "/ws" }],
-  }),
-}));
+vi.mock("../../../../stores/agentStore", async () => {
+  const { create } = await import("zustand");
+  return {
+    useAgentStore: create(() => ({
+      selectedAgent: "agent-a",
+      agents: [{ id: "agent-a", workspace_dir: "/ws" }],
+    })),
+  };
+});
 
 vi.mock("../../../../utils/openExternalLink", () => ({
   openExternalLink: (url: string) => mockOpenExternalLink(url),
 }));
 
 vi.mock("../../../../hooks/useAppMessage", () => ({
-  useAppMessage: () => ({ message: mockMessage }),
+  useAppMessage: () => ({
+    message: mockMessage,
+    modal: { confirm: mockConfirm },
+  }),
 }));
+
+// jsdom's matchMedia mock reports md=false, so SettingsDrawer mounts the
+// vaul-based BottomSheet. Vaul schedules transition timeouts that can fire
+// after the environment teardown (ReferenceError: window is not defined),
+// crashing the vitest worker. The drawer chrome is covered by the
+// SettingsDrawer suites; keep an inert shell exposing the [data-vaul-drawer]
+// container hook (useAutoSave parents its confirm dialog with it) and the
+// close button (vaul's Drawer.Close drives the whole save-on-close flow).
+vi.mock("@/components/interaction/BottomSheet", async () => {
+  const { useTranslation } = await import("react-i18next");
+  function MockBottomSheet({
+    open,
+    onOpenChange,
+    title,
+    children,
+    footer,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: ReactNode;
+    children: ReactNode;
+    footer?: ReactNode;
+  }) {
+    const { t } = useTranslation();
+    return open ? (
+      <div data-vaul-drawer="">
+        <div>{title}</div>
+        <button
+          aria-label={t("common.close")}
+          onClick={() => onOpenChange(false)}
+        />
+        <div>{children}</div>
+        {footer ? <div>{footer}</div> : null}
+      </div>
+    ) : null;
+  }
+  return { default: MockBottomSheet };
+});
 
 // Capture QR-code auth callbacks so tests can drive success/error paths.
 vi.mock("./QrcodeAuthBlock", () => ({
-  QrcodeAuthBlock: (props: Record<string, unknown>) => {
-    const channel = props.channel as string;
+  QrcodeAuthBlock: (props: ChannelQrcodeConfig) => {
+    const { channel } = props;
     return (
       <div data-testid={`qr-${channel}`}>
         <button
           data-testid={`qr-success-${channel}`}
-          onClick={() =>
-            (props.onSuccess as (c: Record<string, string>) => void)({
-              client_id: "cid",
-              client_secret: "cs",
-              app_id: "aid",
-              app_secret: "as",
-              bot_token: "bt",
-              bot_id: "bid",
-              secret: "sec",
-            })
-          }
+          onClick={() => {
+            let taken = false;
+            let cancelled = false;
+            props.onSuccess(
+              {
+                client_id: "cid",
+                client_secret: "cs",
+                app_id: "aid",
+                app_secret: "as",
+                bot_token: "bt",
+                base_url: "https://wechat-auth.example.test",
+                bot_id: "bid",
+                secret: "sec",
+              },
+              { agentId: props.agentId, channel, token: `auth-${channel}` },
+              {
+                take: () => {
+                  if (cancelled) return false;
+                  taken = true;
+                  return true;
+                },
+                cancel: () => {
+                  if (!taken) cancelled = true;
+                },
+              },
+            );
+          }}
         >
           qr-ok
         </button>
         <button
           data-testid={`qr-expired-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("expired")}
+          onClick={() => props.onError("expired")}
         >
           qr-expired
         </button>
         <button
           data-testid={`qr-failed-${channel}`}
-          onClick={() => (props.onError as (t: string) => void)("failed")}
+          onClick={() => props.onError("fail")}
         >
           qr-failed
         </button>
@@ -106,6 +178,8 @@ vi.mock("./QrcodeAuthBlock", () => ({
 }));
 
 import { ChannelDrawer } from "./ChannelDrawer";
+import { channelApi } from "../../../../api/modules/channel";
+import styles from "../index.module.less";
 
 // ---- Harness ---------------------------------------------------------------
 
@@ -119,6 +193,8 @@ interface DrawerProps {
   channelSchema?: unknown;
   onClose?: () => void;
   onSubmit?: (values: Record<string, unknown>) => void;
+  onSubmitSnapshot?: (job: ChannelSaveJob) => Promise<void | boolean>;
+  onRuntimeChange?: () => void | Promise<void>;
 }
 
 function renderDrawer(
@@ -140,6 +216,8 @@ function renderDrawer(
         channelSchema={props.channelSchema as never}
         onClose={props.onClose ?? (() => {})}
         onSubmit={props.onSubmit ?? (() => {})}
+        onSubmitSnapshot={props.onSubmitSnapshot}
+        onRuntimeChange={props.onRuntimeChange}
       />
     );
   }
@@ -150,6 +228,7 @@ function renderDrawer(
 beforeEach(() => {
   langRef.current = "en";
   mockOpenExternalLink.mockClear();
+  mockConfirm.mockClear();
   mockMessage.success.mockClear();
   mockMessage.error.mockClear();
   mockMessage.warning.mockClear();
@@ -161,75 +240,278 @@ afterEach(() => {
 
 // ---- Builtin channel field branches ---------------------------------------
 
+it.each(["success", "failure", "cancel", "absent"])(
+  "handles channel updates (%s) without changing enabled intent",
+  async (outcome) => {
+    const update = {
+      installed_version: "0.1.0.dev0",
+      version: "0.1.0",
+      source: "bundled:matrix",
+    };
+    const refresh = vi.fn();
+    const submit = vi.fn();
+    const install = vi.spyOn(channelApi, "updateChannelPlugin");
+    if (outcome === "failure")
+      install.mockRejectedValue(new Error("update failed"));
+    else
+      install.mockResolvedValue(
+        (outcome === "cancel" ? null : { id: "matrix" }) as never,
+      );
+    const { form } = renderDrawer({
+      activeKey: "matrix",
+      initialValues: { enabled: false },
+      channelSchema: outcome === "absent" ? undefined : { update },
+      onRuntimeChange: refresh,
+      onSubmit: submit,
+    });
+    const button = screen.queryByRole("button", {
+      name: "channels.update.action",
+    });
+    if (outcome === "absent") {
+      expect(button).not.toBeInTheDocument();
+      return;
+    }
+    fireEvent.click(button!);
+    await waitFor(() => expect(install).toHaveBeenCalledWith(update));
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(form.getFieldValue("enabled")).toBe(false);
+    expect(submit).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(outcome === "success" ? 1 : 0);
+    if (outcome === "failure") expect(mockMessage.error).toHaveBeenCalled();
+  },
+);
+
 describe("ChannelDrawer builtin channel rendering", () => {
+  it.each([
+    {
+      activeKey: "sip",
+      adjacentValues: { sip_mode: "dev", sip_transport: "UDP" },
+    },
+    {
+      activeKey: "mqtt",
+      adjacentValues: { transport: "tcp", qos: "2" },
+    },
+  ])(
+    "binds the $activeKey no-text switch to its narrow-container layout without touching adjacent values",
+    async ({ activeKey, adjacentValues }) => {
+      const { form } = renderDrawer({ activeKey });
+      fireEvent.click(
+        screen.getByRole("button", { name: "collapsed Advanced settings" }),
+      );
+      const noTextSwitch = screen.getByRole("switch", {
+        name: /channels\.noTextDebounce/,
+      });
+      const formItem = noTextSwitch.closest(".ant-form-item");
+
+      expect(formItem).toHaveClass(styles.noTextDebounceItem);
+      fireEvent.click(noTextSwitch);
+      await waitFor(() => {
+        expect(form.getFieldValue("no_text_debounce")).toBe(false);
+      });
+      expect(form.getFieldsValue(true)).toMatchObject(adjacentValues);
+    },
+  );
+
+  it("keeps SIP defaults and explicit values without duplicate initial-value warnings", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const defaults = renderDrawer({ activeKey: "sip" });
+
+    await waitFor(() => {
+      expect(defaults.form.getFieldsValue(true)).toMatchObject({
+        sip_mode: "dev",
+        sip_transport: "UDP",
+        no_text_debounce: true,
+      });
+    });
+    defaults.unmount();
+
+    const explicit = renderDrawer({
+      activeKey: "sip",
+      initialValues: {
+        sip_mode: "livekit",
+        sip_transport: "TLS",
+        no_text_debounce: false,
+      },
+    });
+    await waitFor(() => {
+      expect(explicit.form.getFieldsValue(true)).toMatchObject({
+        sip_mode: "livekit",
+        sip_transport: "TLS",
+        no_text_debounce: false,
+      });
+      expect(screen.getByText("channels.livekitUrl")).toBeTruthy();
+    });
+    expect(
+      consoleError.mock.calls.some((call) =>
+        call.some((value) =>
+          String(value).includes("Form already set 'initialValues'"),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves the unsaved LiveKit draft while SIP mode toggles", async () => {
+    const onSubmit = vi.fn();
+    const view = renderDrawer({
+      activeKey: "sip",
+      initialValues: {
+        sip_mode: "livekit",
+        livekit_url: "wss://draft.example.test",
+        livekit_api_key: "draft-key",
+        livekit_api_secret: "draft-secret",
+      },
+      onSubmit,
+    });
+
+    await waitFor(() =>
+      expect(view.form.getFieldValue("livekit_api_secret")).toBe(
+        "draft-secret",
+      ),
+    );
+    act(() => view.form.setFieldValue("sip_mode", "dev"));
+    await waitFor(() =>
+      expect(screen.queryByText("channels.livekitUrl")).toBeNull(),
+    );
+    expect(view.form.getFieldValue("livekit_api_secret")).toBe("draft-secret");
+
+    act(() => view.form.setFieldValue("sip_mode", "livekit"));
+    await screen.findByText("channels.livekitUrl");
+    expect(view.form.getFieldValue("livekit_url")).toBe(
+      "wss://draft.example.test",
+    );
+    expect(view.form.getFieldValue("livekit_api_key")).toBe("draft-key");
+    expect(view.form.getFieldValue("livekit_api_secret")).toBe("draft-secret");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps MQTT defaults and explicit values in the submitted payload", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const defaults = renderDrawer({ activeKey: "mqtt" });
+
+    await waitFor(() => {
+      expect(defaults.form.getFieldsValue(true)).toMatchObject({
+        transport: "tcp",
+        qos: "2",
+        no_text_debounce: true,
+      });
+    });
+    defaults.unmount();
+
+    const onSubmit = vi.fn();
+    const explicit = renderDrawer({
+      activeKey: "mqtt",
+      initialValues: {
+        host: "broker.example.test",
+        port: 1883,
+        subscribe_topic: "server/+/up",
+        publish_topic: "client/{client_id}/down",
+        transport: "websockets",
+        qos: "1",
+        no_text_debounce: false,
+      },
+      onSubmit,
+    });
+    const botPrefixInputs =
+      document.querySelectorAll<HTMLInputElement>("input#bot_prefix");
+    fireEvent.change(botPrefixInputs.item(botPrefixInputs.length - 1), {
+      target: { value: "@sentinel" },
+    });
+    await waitFor(() =>
+      expect(explicit.form.getFieldValue("bot_prefix")).toBe("@sentinel"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      host: "broker.example.test",
+      transport: "websockets",
+      qos: "1",
+      no_text_debounce: false,
+      bot_prefix: "@sentinel",
+    });
+    expect(explicit.form.getFieldValue("transport")).toBe("websockets");
+    expect(
+      consoleError.mock.calls.some((call) =>
+        call.some((value) =>
+          String(value).includes("Form already set 'initialValues'"),
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("renders matrix fields and switches to password auth when a password exists", async () => {
     renderDrawer({
       activeKey: "matrix",
       initialValues: { password: "secret-pw" },
     });
     await waitFor(() => {
-      expect(screen.getByText("Homeserver URL")).toBeTruthy();
+      expect(screen.getByText("channels.fieldHomeserverURL")).toBeTruthy();
     });
     // The password-auth effect re-applies auth_method after mount, so the
     // password input becomes visible while access token is hidden.
     await waitFor(() => {
-      const pw = screen.getByPlaceholderText("Account password for login");
+      const pw = screen.getByPlaceholderText("channels.fieldPassword");
       expect(pw).toBeTruthy();
     });
   });
 
   it("renders imessage, discord and slack fields", () => {
     const { unmount } = renderDrawer({ activeKey: "imessage" });
-    expect(screen.getByText("DB Path")).toBeTruthy();
-    expect(screen.getByText("Poll Interval (sec)")).toBeTruthy();
+    expect(screen.getByText("channels.fieldDBPath")).toBeTruthy();
+    expect(screen.getByText("channels.fieldPollIntervalsec")).toBeTruthy();
     unmount();
 
     const u2 = renderDrawer({ activeKey: "discord" });
-    expect(screen.getAllByText("Bot Token").length).toBeGreaterThan(0);
-    expect(screen.getByText("HTTP Proxy")).toBeTruthy();
+    expect(
+      screen.getAllByText("channels.wechatBotToken").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("channels.fieldHTTPProxy")).toBeTruthy();
     u2.unmount();
 
     renderDrawer({ activeKey: "slack" });
-    expect(screen.getByText("App Token")).toBeTruthy();
+    expect(screen.getByText("channels.slackAppToken")).toBeTruthy();
   });
 
   it("renders dingtalk fields and the card-template block when message_type=card", () => {
     const { unmount } = renderDrawer({ activeKey: "dingtalk" });
-    expect(screen.getByText("Client ID")).toBeTruthy();
-    expect(screen.queryByText("Card Template ID")).toBeNull();
+    expect(screen.getByText("channels.fieldClientID")).toBeTruthy();
+    expect(screen.queryByText("channels.fieldCardTemplateID")).toBeNull();
     unmount();
 
     renderDrawer({
       activeKey: "dingtalk",
       initialValues: { message_type: "card" },
     });
-    expect(screen.getByText("Card Template ID")).toBeTruthy();
-    expect(screen.getByText("Card Template Key")).toBeTruthy();
-    expect(screen.getByText("Robot Code")).toBeTruthy();
+    expect(screen.getByText("channels.fieldCardTemplateID")).toBeTruthy();
+    expect(screen.getByText("channels.fieldCardTemplateKey")).toBeTruthy();
+    expect(screen.getByText("channels.fieldRobotCode")).toBeTruthy();
   });
 
   it("renders feishu, qq, telegram and mqtt fields", () => {
     const { unmount } = renderDrawer({ activeKey: "feishu" });
-    expect(screen.getByText("App ID")).toBeTruthy();
-    expect(screen.getByText("Encrypt Key")).toBeTruthy();
+    expect(screen.getByText("channels.fieldAppID")).toBeTruthy();
+    expect(screen.getByText("channels.fieldEncryptKey")).toBeTruthy();
     unmount();
 
     const u2 = renderDrawer({ activeKey: "qq" });
-    expect(screen.getByText("Client Secret")).toBeTruthy();
+    expect(screen.getByText("channels.fieldClientSecret")).toBeTruthy();
     u2.unmount();
 
     const u3 = renderDrawer({ activeKey: "telegram" });
-    expect(screen.getByText("API Base URL")).toBeTruthy();
+    expect(screen.getByText("channels.fieldAPIBaseURL")).toBeTruthy();
     u3.unmount();
 
     renderDrawer({ activeKey: "mqtt" });
-    expect(screen.getByText("MQTT Host")).toBeTruthy();
-    expect(screen.getByText("MQTT Port")).toBeTruthy();
+    expect(screen.getByText("channels.fieldMQTTHost")).toBeTruthy();
+    expect(screen.getByText("channels.fieldMQTTPort")).toBeTruthy();
   });
 
   it("renders mattermost, voice, wecom, xiaoyi, wechat and yuanbao fields", () => {
     const { unmount } = renderDrawer({ activeKey: "mattermost" });
-    expect(screen.getByText("Mattermost URL")).toBeTruthy();
+    expect(screen.getByText("channels.fieldMattermostURL")).toBeTruthy();
     unmount();
 
     const u2 = renderDrawer({ activeKey: "voice" });
@@ -239,11 +521,11 @@ describe("ChannelDrawer builtin channel rendering", () => {
     u2.unmount();
 
     const u3 = renderDrawer({ activeKey: "wecom" });
-    expect(screen.getByText("Bot ID")).toBeTruthy();
+    expect(screen.getByText("channels.fieldBotID")).toBeTruthy();
     u3.unmount();
 
     const u4 = renderDrawer({ activeKey: "xiaoyi" });
-    expect(screen.getByText("Access Key (AK)")).toBeTruthy();
+    expect(screen.getByText("channels.fieldAccessKeyAK")).toBeTruthy();
     u4.unmount();
 
     const u5 = renderDrawer({ activeKey: "wechat" });
@@ -251,7 +533,7 @@ describe("ChannelDrawer builtin channel rendering", () => {
     u5.unmount();
 
     renderDrawer({ activeKey: "yuanbao" });
-    expect(screen.getByText("API Domain")).toBeTruthy();
+    expect(screen.getByText("channels.fieldAPIDomain")).toBeTruthy();
   });
 
   it("renders sip fields and the livekit block when sip_mode=livekit", () => {
@@ -270,7 +552,7 @@ describe("ChannelDrawer builtin channel rendering", () => {
       activeKey: "onebot",
       initialValues: { ws_host: "127.0.0.1" },
     });
-    expect(screen.getByText("WebSocket Host")).toBeTruthy();
+    expect(screen.getByText("channels.fieldWebSocketHost")).toBeTruthy();
     expect(screen.queryByText("channels.onebotMediaBase64MaxMb")).toBeNull();
     unmount();
 
@@ -308,91 +590,142 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.queryByText("channels.streamingEnabled")).toBeNull();
   });
 
-  it("hides tool-call/result length inputs when the toggles are off", () => {
-    const { unmount } = renderDrawer({ activeKey: "telegram" });
-    // default: both toggles on, length fields present
-    expect(screen.getByText("channels.toolCallMaxLength")).toBeTruthy();
-    expect(screen.getByText("channels.toolResultMaxLength")).toBeTruthy();
+  it("shows auto-collapse thinking only for Feishu with streaming on", () => {
+    const { unmount } = renderDrawer({
+      activeKey: "feishu",
+      initialValues: { streaming_enabled: true },
+    });
+    expect(screen.getByText("channels.autoCollapseThinking")).toBeTruthy();
     unmount();
 
-    renderDrawer({
-      activeKey: "telegram",
-      initialValues: { show_tool_calls: false, show_tool_results: false },
+    // Hidden while streaming output is disabled.
+    const off = renderDrawer({
+      activeKey: "feishu",
+      initialValues: { streaming_enabled: false },
     });
-    expect(screen.queryByText("channels.toolCallMaxLength")).toBeNull();
-    expect(screen.queryByText("channels.toolResultMaxLength")).toBeNull();
+    expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
+    off.unmount();
+
+    // Not offered on other streaming channels: only Feishu renders a
+    // collapsible reasoning panel.
+    renderDrawer({
+      activeKey: "dingtalk",
+      initialValues: { streaming_enabled: true },
+    });
+    expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
+  });
+
+  it.each([
+    ["show_tool_calls", "toolCallMaxLength"],
+    ["show_tool_results", "toolResultMaxLength"],
+  ])("saves %s when its length field unmounts", async (field, length) => {
+    const onSubmit = vi.fn();
+    renderDrawer({
+      activeKey: "console",
+      onSubmit,
+      initialValues: {
+        show_tool_calls: true,
+        show_tool_results: true,
+        tool_call_max_length: 200,
+        tool_result_max_length: 500,
+      },
+    });
+    expect(screen.getByText(`channels.${length}`)).toBeTruthy();
+    fireEvent.click(document.getElementById(field)!);
+    expect(screen.queryByText(`channels.${length}`)).toBeNull();
+    await waitFor(
+      () =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({ [field]: false }),
+        ),
+      { timeout: 2000 },
+    );
   });
 });
 
 // ---- QR-code auth callbacks ------------------------------------------------
 
 describe("ChannelDrawer qrcode auth callbacks", () => {
-  it("dingtalk success fills credentials and reports error states", () => {
-    const { form } = renderDrawer({ activeKey: "dingtalk" });
-    fireEvent.click(screen.getByTestId("qr-success-dingtalk"));
-    expect(form.getFieldValue("client_id")).toBe("cid");
-    expect(form.getFieldValue("client_secret")).toBe("cs");
-    expect(mockMessage.success).toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId("qr-expired-dingtalk"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-dingtalk"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("feishu success fills app credentials", () => {
-    const { form } = renderDrawer({ activeKey: "feishu" });
-    fireEvent.click(screen.getByTestId("qr-success-feishu"));
-    expect(form.getFieldValue("app_id")).toBe("aid");
-    expect(form.getFieldValue("app_secret")).toBe("as");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-feishu"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-feishu"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("wechat success fills bot token and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "wechat" });
-    fireEvent.click(screen.getByTestId("qr-success-wechat"));
-    expect(form.getFieldValue("bot_token")).toBe("bt");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-wechat"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-wechat"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("qq success fills credentials and reports failures", () => {
-    const { form } = renderDrawer({ activeKey: "qq" });
-    fireEvent.click(screen.getByTestId("qr-success-qq"));
-    expect(form.getFieldValue("app_id")).toBe("aid");
-    expect(form.getFieldValue("client_secret")).toBe("cs");
-    expect(mockMessage.success).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-expired-qq"));
-    expect(mockMessage.warning).toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("qr-failed-qq"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
-
-  it("wecom success fills bot credentials and any error reports failure", () => {
-    const { form } = renderDrawer({ activeKey: "wecom" });
-    fireEvent.click(screen.getByTestId("qr-success-wecom"));
-    expect(form.getFieldValue("bot_id")).toBe("bid");
-    expect(form.getFieldValue("secret")).toBe("sec");
-    expect(mockMessage.success).toHaveBeenCalled();
-    // wecom uses a single onError handler for every failure type
-    fireEvent.click(screen.getByTestId("qr-expired-wecom"));
-    expect(mockMessage.error).toHaveBeenCalled();
-    mockMessage.error.mockClear();
-    fireEvent.click(screen.getByTestId("qr-failed-wecom"));
-    expect(mockMessage.error).toHaveBeenCalled();
-  });
+  it.each([
+    {
+      channel: "dingtalk",
+      credentials: { client_id: "cid", client_secret: "cs" },
+      expired: "warning",
+    },
+    {
+      channel: "feishu",
+      credentials: { app_id: "aid", app_secret: "as" },
+      expired: "warning",
+    },
+    {
+      channel: "wechat",
+      credentials: {
+        bot_token: "bt",
+        base_url: "https://wechat-auth.example.test",
+      },
+      expired: "warning",
+    },
+    {
+      channel: "qq",
+      credentials: { app_id: "aid", client_secret: "cs" },
+      expired: "warning",
+    },
+    {
+      channel: "wecom",
+      credentials: { bot_id: "bid", secret: "sec" },
+      expired: "error",
+    },
+  ] as const)(
+    "$channel fills and saves authorized credentials",
+    async ({ channel, credentials, expired }) => {
+      const onSubmit = vi.fn();
+      const onSubmitSnapshot = vi.fn().mockResolvedValue(true);
+      const { form } = renderDrawer({
+        activeKey: channel,
+        isBuiltin: false,
+        onSubmit,
+        onSubmitSnapshot,
+      });
+      fireEvent.click(screen.getByTestId(`qr-success-${channel}`));
+      for (const [field, value] of Object.entries(credentials)) {
+        expect(form.getFieldValue(field)).toBe(value);
+      }
+      expect(mockMessage.success).toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+      await waitFor(() => expect(onSubmitSnapshot).toHaveBeenCalledOnce());
+      expect(onSubmitSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "agent-a",
+          channel,
+          authSession: `auth-${channel}`,
+          body: expect.objectContaining(credentials),
+        }),
+      );
+      expect(onSubmit).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId(`qr-expired-${channel}`));
+      expect(mockMessage[expired]).toHaveBeenCalled();
+      mockMessage.error.mockClear();
+      fireEvent.click(screen.getByTestId(`qr-failed-${channel}`));
+      expect(mockMessage.error).toHaveBeenCalled();
+    },
+  );
 });
 
 // ---- Plugin schema fields + resolveLocalized --------------------------------
 
 describe("ChannelDrawer plugin schema rendering", () => {
+  it("renders the official form declared by a channel schema", () => {
+    renderDrawer({
+      activeKey: "renamed-dingtalk",
+      isBuiltin: false,
+      channelSchema: {
+        form_kind: "dingtalk",
+        config_fields: [],
+      },
+    });
+    expect(screen.getByText("channels.fieldClientID")).toBeTruthy();
+    expect(screen.getByText("channels.fieldClientSecret")).toBeTruthy();
+  });
   it("renders all schema field types with localized labels", () => {
     const schema = {
       description: "Plugin description",
@@ -592,14 +925,19 @@ describe("ChannelDrawer matrix submit", () => {
     const onSubmit = vi.fn();
     renderDrawer({
       activeKey: "matrix",
+      isBuiltin: false,
       onSubmit,
       initialValues: {
         homeserver: "https://matrix.org",
         user_id: "@bot:matrix.org",
         access_token: "syt_token",
+        auth_method: "token",
       },
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.password).toBe("");
@@ -612,6 +950,7 @@ describe("ChannelDrawer matrix submit", () => {
     const onSubmit = vi.fn();
     renderDrawer({
       activeKey: "matrix",
+      isBuiltin: false,
       onSubmit,
       initialValues: {
         homeserver: "https://matrix.org",
@@ -622,10 +961,13 @@ describe("ChannelDrawer matrix submit", () => {
     // wait for the password-auth effect to flip auth_method
     await waitFor(() => {
       expect(
-        screen.getByPlaceholderText("Account password for login"),
+        screen.getByPlaceholderText("channels.fieldPassword"),
       ).toBeTruthy();
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.access_token).toBe("");
@@ -639,19 +981,89 @@ describe("ChannelDrawer matrix submit", () => {
       onSubmit,
       initialValues: { bot_token: "xoxb-1", app_token: "xapp-1" },
     });
-    fireEvent.click(screen.getByText("common.save"));
+    fireEvent.change(document.querySelector("input#bot_prefix")!, {
+      target: { value: "@new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     const values = onSubmit.mock.calls[0][0];
     expect(values.bot_token).toBe("xoxb-1");
     expect(values.app_token).toBe("xapp-1");
   });
 
-  it("cancel button closes the drawer without submitting", () => {
+  it("closing an unchanged drawer does not submit", async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn();
     renderDrawer({ activeKey: "slack", onClose, onSubmit });
-    fireEvent.click(screen.getByText("common.cancel"));
-    expect(onClose).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("lets users continue or discard a Telegram draft without its required token", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    renderDrawer({
+      activeKey: "telegram",
+      initialValues: { enabled: false, bot_token: "" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => mockConfirm.mock.calls[0][0].onCancel());
+    expect(document.querySelector("input#http_proxy_auth")).toHaveValue("1");
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(2));
+    await act(async () => mockConfirm.mock.calls[1][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("offers to discard a valid draft when the save request fails", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const view = renderDrawer({
+      activeKey: "telegram",
+      initialValues: { enabled: false, bot_token: "test-token" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    await act(async () => mockConfirm.mock.calls[0][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
+    view.unmount();
+    await act(async () => {});
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("offers to discard when submission reports an unsuccessful save", async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue(false);
+    renderDrawer({
+      activeKey: "telegram",
+      initialValues: { bot_token: "test-token" },
+      onClose,
+      onSubmit,
+    });
+    fireEvent.change(document.querySelector("input#http_proxy_auth")!, {
+      target: { value: "draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => mockConfirm.mock.calls[0][0].onOk());
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

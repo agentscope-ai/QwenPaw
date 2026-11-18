@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -27,13 +29,24 @@ from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import (
+    decision_model_configured,
+    session_model,
+    session_preference,
+    thinking_view,
+)
+from ...config.config import ModelSlotConfig, load_agent_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
+from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
+from ..notification_store import snapshot as notification_snapshot
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +74,8 @@ _bg_lock = asyncio.Lock()
 class MarkInboxReadRequest(BaseModel):
     event_ids: list[str] = []
     all: bool = False
+    source_types: list[str] | None = None
+    agent_id: str | None = None
 
 
 MAX_DEBUG_LOG_LINES = 1000
@@ -97,6 +112,11 @@ def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
 
 
+def _safe_log_token(value: str) -> str:
+    """Neutralize CR/LF so untrusted IDs cannot forge log lines (CWE-117)."""
+    return value.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     """Return ``(placeholder_name, first_user_text)`` for a new chat.
 
@@ -123,7 +143,51 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         first_text = ""
     if not first_text:
         return "Media Message", ""
-    return first_text[:10], first_text
+    return first_text, first_text
+
+
+async def _persist_pending_model_settings(workspace, chat, request_context):
+    """Bind first-turn model and reasoning before building the runtime."""
+    pending_model = request_context.pop(f"session_model", None)
+    if pending_model is not None and session_model(chat.meta) is None:
+        try:
+            selected = ModelSlotConfig.model_validate(pending_model)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid session model") from exc
+        view = await thinking_view(workspace, model_override=selected)
+        if view[f"model"] is None:
+            raise HTTPException(422, f"Model provider is unavailable")
+        chat = await workspace.chat_manager.set_session_model(
+            chat.id,
+            selected.model_dump(),
+        )
+        if chat is None:
+            raise HTTPException(409, f"Session disappeared before saving")
+
+    pending_thinking = request_context.pop(f"session_thinking", None)
+    if pending_thinking is not None:
+        try:
+            preference = ThinkingPreference.model_validate(pending_thinking)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid thinking preference") from exc
+        view = await thinking_view(
+            workspace,
+            preference,
+            session_model(chat.meta),
+        )
+        if preference.level != f"inherit" and view[f"reason"] is not None:
+            raise HTTPException(422, f"Invalid session thinking setting")
+        if session_preference(chat.meta, view[f"model_key"]) is None:
+            updated = await workspace.chat_manager.set_session_thinking(
+                chat.id,
+                preference,
+                view[f"model_key"],
+            )
+            if updated is None:
+                raise HTTPException(409, f"Session disappeared before saving")
+            chat = updated
+
+    return chat
 
 
 async def _persist_pending_project_dirs(
@@ -154,6 +218,22 @@ async def _persist_pending_project_dirs(
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
+
+    chat = await _persist_pending_model_settings(
+        workspace,
+        chat,
+        request_context,
+    )
+    if str(request_context.get("approval_level", "")).upper() == "JEV":
+        config = await run_sync_io(load_agent_config, workspace.agent_id)
+        configured = await run_sync_io(
+            decision_model_configured,
+            config,
+        )
+        if not configured:
+            # A requested decision review must not become automatic execution
+            # when the model is unavailable.
+            request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
@@ -330,6 +410,7 @@ def _empty_sse_response() -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -386,6 +467,9 @@ async def post_console_chat(
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    is_reconnect = _is_reconnect_request(request_data)
+    if not is_reconnect and not native_payload["content_parts"]:
+        raise HTTPException(status_code=400, detail="Chat input is empty")
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
@@ -401,7 +485,6 @@ async def post_console_chat(
         **_chat_registration_fields(native_payload),
     )
     tracker = workspace.task_tracker
-    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
@@ -412,6 +495,21 @@ async def post_console_chat(
             # history. Returning a JSON null here left the chat blank.
             return _empty_sse_response()
     else:
+        # The web UI allocates a Chat UUID before its first message. Give
+        # that explicit placeholder the same first-turn naming behavior as
+        # get_or_create_chat, without overwriting a user's renamed Chat.
+        if (
+            first_text
+            and not chat.last_finished_at
+            and chat.meta.get("console_placeholder_name") == chat.name
+        ):
+            renamed = await workspace.chat_manager.patch_chat_if_name_matches(
+                chat.id,
+                chat.name,
+                ChatUpdate(name=name),
+            )
+            if renamed is not None:
+                chat = renamed
         chat = await _persist_pending_project_dirs(
             workspace,
             chat,
@@ -446,6 +544,7 @@ async def post_console_chat(
                     chat_id=chat.id,
                     user_message=first_text,
                     placeholder_name=name,
+                    request=native_payload,
                 ),
             )
 
@@ -469,6 +568,7 @@ async def post_console_chat(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -481,43 +581,79 @@ async def post_console_chat(
 async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
+    cancel_reason: CancelReason = Query(default=CancelReason.USER),
+    initiator: str = Query(
+        default="",
+        description=(
+            "Session that initiated the stop (e.g. the caller session of a "
+            "cancelled chat_with_agent). Used for cancel traceability."
+        ),
+    ),
 ) -> dict:
-    """Stop the running chat. Only stops when called."""
+    """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
 
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
-    )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
-
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
-        logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
-        )
-        chat_manager = workspace.chat_manager
-        if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+    resolved_chat_id = chat_id
+    runtime_session_id: str | None = None
+    chat_manager = workspace.chat_manager
+    if chat_manager:
+        chat = await chat_manager.get_chat(chat_id)
+        if chat is None:
+            candidate = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
                 channel="console",
             )
-            if resolved_chat_id:
+            if candidate:
+                resolved_chat_id = candidate
+                chat = await chat_manager.get_chat(candidate)
                 logger.debug(
                     "[STOP API] Resolved session_id=%s to chat_id=%s",
                     chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
+                    candidate,
                 )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+        if chat is not None:
+            runtime_session_id = chat.session_id
+
+    tool_cancelled = 0
+    app_services = getattr(request.app.state, "app_services", None)
+    coordinator = getattr(app_services, "tool_coordinator", None)
+    cancel_session = getattr(
+        coordinator,
+        "cancel_running_for_session",
+        None,
+    )
+    if runtime_session_id and callable(cancel_session):
+        # Tool calls have their own task owner. Cancel them before cancelling
+        # the producer so subprocess bridges can observe cancel_event and tear
+        # down the process tree deterministically.
+        tool_cancelled = await cancel_session(
+            runtime_session_id,
+            agent_id=workspace.agent_id,
+            reason=cancel_reason,
+        )
 
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
+    run_stopped = await workspace.task_tracker.request_stop(
+        resolved_chat_id,
+        reason=cancel_reason.value,
+    )
+    stopped = run_stopped or tool_cancelled > 0
+
+    # One INFO audit line so a cancelled session can be traced back to WHO
+    # stopped it and WHY (user stop / upstream timeout cascade / shutdown),
+    # without enabling DEBUG (GH-8252).
+    logger.info(
+        "[STOP API] chat stop: chat_id=%s reason=%s initiator=%s "
+        "stopped=%s run_stopped=%s tools_cancelled=%s",
+        _safe_log_token(resolved_chat_id),
+        cancel_reason.value,
+        _safe_log_token(initiator) or "-",
         stopped,
+        run_stopped,
+        tool_cancelled,
     )
     return {"stopped": stopped}
 
@@ -541,6 +677,38 @@ async def post_console_upload(
     data = await file.read()
     check_upload_size(data)
     safe_name = _safe_filename(file.filename or "file")
+    if file.content_type in {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    } or Path(
+        safe_name,
+    ).suffix.lower() in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+    }:
+        from io import BytesIO
+        from PIL import Image
+
+        try:
+            with Image.open(BytesIO(data)) as image:
+                image.verify()
+        except (OSError, SyntaxError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The image is damaged or unsupported. "
+                    "Please upload it again."
+                ),
+            ) from exc
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
 
     path = (media_dir / stored_name).resolve()
@@ -642,7 +810,11 @@ async def get_push_messages(
         for p in all_pending
     ]
 
-    return {"messages": messages, "pending_approvals": approvals_data}
+    return {
+        f"messages": messages,
+        f"pending_approvals": approvals_data,
+        f"notification_events": notification_snapshot(),
+    }
 
 
 @router.get("/inbox/events")
@@ -654,54 +826,160 @@ async def get_inbox_events(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
+    exclude_acl_pending: bool = Query(False),
+    event_id: str | None = Query(None),
 ):
     from ..inbox_store import query_events
+    from .. import community_store
 
     selected_sources = set(source_types or [])
     if source_type:
         selected_sources.add(source_type)
-    events, total, unread_count = await query_events(
-        limit=limit,
-        offset=offset,
+    # The local store caps itself at 5000. Combine both sources before
+    # pagination, so filters/counts also cover community history beyond page 1.
+    events, _, _ = await query_events(
+        limit=5000,
         source_types=selected_sources or None,
         status=status,
         agent_id=agent_id,
-        unread_only=unread_only,
+        event_id=event_id,
     )
-    return {
-        "events": events,
-        "total": total,
+    source_errors = {}
+    community_scope = None
+    community_scope_known = False
+    if not agent_id and (
+        not selected_sources or "community" in selected_sources
+    ):
+        try:
+            (
+                community_events,
+                community_scope,
+            ) = await community_store.inbox_snapshot()
+            if any(
+                not isinstance(event, dict)
+                or not isinstance(event.get("created_at"), (int, float))
+                or not math.isfinite(event["created_at"])
+                for event in community_events
+            ):
+                raise ValueError("Invalid community event history")
+            events.extend(
+                e
+                for e in community_events
+                if (not status or e.get("status") == status)
+                and (not event_id or e.get("id") == event_id)
+            )
+            community_scope_known = True
+        except Exception as exc:
+            # A separate credential/history file must not disable local mail.
+            # Keep the corrupt file intact; never include its content in logs.
+            logger.warning(
+                "Community inbox unavailable (%s)",
+                type(exc).__name__,
+            )
+            source_errors["community"] = "community_history_unavailable"
+    if exclude_acl_pending:
+        events = [
+            e
+            for e in events
+            if not isinstance(e.get("payload"), dict)
+            or e["payload"].get("acl_status") != "pending"
+        ]
+    events.sort(key=lambda e: e.get("created_at", 0), reverse=True)
+    unread_count = sum(not bool(e.get("read")) for e in events)
+    if unread_only:
+        events = [e for e in events if not e.get("read")]
+    result = {
+        "events": events[offset : offset + limit],
+        "total": len(events),
         "unread_count": unread_count,
     }
+    if source_errors:
+        result["source_errors"] = source_errors
+    if community_scope_known:
+        result["community_scope"] = community_scope
+    return result
 
 
 @router.post("/inbox/read")
 async def post_mark_inbox_read(payload: MarkInboxReadRequest):
-    from ..inbox_store import mark_all_read, mark_read
+    from ..inbox_store import mark_all_read, mark_read, query_events
+    from .. import community_store
 
+    sources = set(payload.source_types or [])
+    source_errors = {}
     if payload.all:
-        updated = await mark_all_read()
+        updated = 0
+        if not sources and not payload.agent_id:
+            updated = await mark_all_read()
+        elif sources != {"community"}:
+            events, _, _ = await query_events(
+                limit=5000,
+                source_types=sources or None,
+                agent_id=payload.agent_id,
+                unread_only=True,
+            )
+            updated = await mark_read([e["id"] for e in events])
+        if not payload.agent_id and (not sources or "community" in sources):
+            try:
+                updated += await community_store.mark_read()
+            except Exception as exc:
+                if sources == {"community"}:
+                    raise HTTPException(
+                        503,
+                        "community_history_unavailable",
+                    ) from None
+                logger.warning(
+                    "Community inbox unavailable (%s)",
+                    type(exc).__name__,
+                )
+                source_errors["community"] = "community_history_unavailable"
     else:
-        updated = await mark_read(payload.event_ids)
-    return {"updated": updated}
+        local_ids = [
+            key
+            for key in payload.event_ids
+            if not key.startswith("community:")
+        ]
+        community_ids = [
+            key for key in payload.event_ids if key.startswith("community:")
+        ]
+        updated = await mark_read(local_ids) if local_ids else 0
+        if community_ids:
+            try:
+                updated += await community_store.mark_read(community_ids)
+            except Exception as exc:
+                if not local_ids:
+                    raise HTTPException(
+                        503,
+                        "community_history_unavailable",
+                    ) from None
+                logger.warning(
+                    "Community inbox unavailable (%s)",
+                    type(exc).__name__,
+                )
+                source_errors["community"] = "community_history_unavailable"
+    result = {"updated": updated}
+    if source_errors:
+        result["source_errors"] = source_errors
+    return result
 
 
 @router.delete("/inbox/events/{event_id}")
 async def delete_inbox_event(event_id: str):
     from ..inbox_store import delete_event
     from ..inbox_trace_store import delete_trace
+    from .. import community_store
 
+    if event_id.startswith("community:"):
+        if not await community_store.delete_event(event_id):
+            raise HTTPException(status_code=404, detail="event not found")
+        return {"deleted": True, "trace_deleted": False, "run_id": None}
     deleted, run_id, run_id_still_referenced = await delete_event(event_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="event not found")
     trace_deleted = False
     if run_id and not run_id_still_referenced:
         trace_deleted = await delete_trace(run_id)
-    return {
-        "deleted": True,
-        "trace_deleted": trace_deleted,
-        "run_id": run_id,
-    }
+    return {"deleted": True, "trace_deleted": trace_deleted, "run_id": run_id}
 
 
 @router.get("/inbox/traces/{run_id}")

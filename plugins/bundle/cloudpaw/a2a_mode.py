@@ -63,6 +63,7 @@ class A2AMode(AgentMode):
     """Bundle for A2A mode behaviour."""
 
     name = "a2a"
+    loop_entry = f"a2a"
 
     def commands(self) -> list[CommandSpec]:
         """Register ``/a2a`` as a standard command."""

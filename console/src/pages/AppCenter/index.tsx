@@ -36,13 +36,15 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import { pawappApi } from "../../api/modules/pawapp";
 import type { InstallPluginResult } from "../../api/modules/plugin";
 import { useRoutes } from "../../plugins/registry/hooks";
+import { PawAppAccessGate } from "../../plugins/PawAppAccessGate";
 import { loadPawApp, reloadPawApp } from "../../plugins/usePluginLoader";
 import { removePluginAppState } from "../../os/osCleanup";
 import {
   getPawAppIdFromPath,
   setActivePawAppId,
 } from "../../plugins/pawapp-sdk/context";
-import { AppCard, pickAppDescription, type AppCardData } from "./AppCard";
+import { AppCard, type AppCardData } from "./AppCard";
+import { pickAppDescription } from "./appDescription";
 import { ChunkErrorBoundary } from "@/components/ChunkErrorBoundary";
 import {
   addRouterBasename,
@@ -119,6 +121,7 @@ export default function AppCenterPage() {
           entry_page: app.entry_page ?? "",
           launch_scope: app.launch_scope ?? "page",
           status: app.status,
+          installation_origin: app.installation_origin,
         })),
       );
     } catch (err) {
@@ -388,20 +391,22 @@ export default function AppCenterPage() {
         </div>
 
         <div className={styles.embedFrame}>
-          {AppComponent ? (
-            <ChunkErrorBoundary resetKey={activeApp.id}>
-              <AppComponent />
-            </ChunkErrorBoundary>
-          ) : (
-            <Empty
-              image={<AppWindow size={48} strokeWidth={1} />}
-              description={t(
-                "appCenter.appNotLoaded",
-                "This app is not loaded yet.",
-              )}
-              style={{ marginTop: 48 }}
-            />
-          )}
+          <PawAppAccessGate appId={activeApp.id} loadEntry>
+            {AppComponent ? (
+              <ChunkErrorBoundary resetKey={activeApp.id}>
+                <AppComponent />
+              </ChunkErrorBoundary>
+            ) : (
+              <Empty
+                image={<AppWindow size={48} strokeWidth={1} />}
+                description={t(
+                  "appCenter.appNotLoaded",
+                  "This app is not loaded yet.",
+                )}
+                style={{ marginTop: 48 }}
+              />
+            )}
+          </PawAppAccessGate>
         </div>
       </div>
     );

@@ -43,7 +43,7 @@ describe("AgentEventFeed", () => {
     render(<AgentEventFeed />);
     expect(screen.getByText("制作流程")).toBeInTheDocument();
     expect(
-      screen.getByText(/R2V 生成导演 · 时间线内容 · 等待制作结果/),
+      screen.getByText(/R2V 生成导演 · 时间线内容 · 等待后台任务完成/),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/故事规划 · 主时间轴 · 正在构思/),

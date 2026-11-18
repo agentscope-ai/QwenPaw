@@ -98,13 +98,21 @@ class ContextGateway:
             ) from exc
         return response.json()
 
-    async def proxy(self, path: str, request: Request) -> Response:
+    async def proxy(
+        self,
+        path: str,
+        request: Request,
+        *,
+        model_binding: str | None = None,
+    ) -> Response:
         upstream_path = self._proxy_upstream_path(path)
         headers = {
             key: value
             for key, value in request.headers.items()
             if key.lower() in _FORWARDED_REQUEST_HEADERS
         }
+        if model_binding is not None:
+            headers["x-qwenpaw-model-binding"] = model_binding
         body = await request.body()
         response = await self._send(
             request.method,

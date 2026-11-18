@@ -4,13 +4,32 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Literal
+
+from .config_migration import migrate_hub_settings
 
 _SCHEMA_GENERATION = "hub-v1"
 _JSON_DEFAULT = '{"schema_version":1}'
+
+
+class _HubConnection(sqlite3.Connection):
+    """Close the database handle after committing or rolling back."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def utc_now() -> str:
@@ -20,11 +39,21 @@ def utc_now() -> str:
 
 def connect_hub_database(database_path: Path) -> sqlite3.Connection:
     """Open a consistently configured Hub database connection."""
-    connection = sqlite3.connect(database_path, timeout=5)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA busy_timeout = 5000")
-    return connection
+    connection = sqlite3.connect(
+        database_path,
+        timeout=5,
+        factory=_HubConnection,
+    )
+    configured = False
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        configured = True
+        return connection
+    finally:
+        if not configured:
+            connection.close()
 
 
 def initialize_hub_database(database_path: Path) -> None:
@@ -40,6 +69,8 @@ def initialize_hub_database(database_path: Path) -> None:
             )
         _validate_existing_columns(connection)
         connection.executescript(_SCHEMA_SQL)
+        connection.execute("BEGIN IMMEDIATE")
+        migrated = migrate_hub_settings(connection, utc_now())
         connection.execute(
             "INSERT OR IGNORE INTO hub_schema(key, value) VALUES (?, ?)",
             ("schema_generation", _SCHEMA_GENERATION),
@@ -48,7 +79,7 @@ def initialize_hub_database(database_path: Path) -> None:
             "INSERT OR IGNORE INTO hub_settings("
             "key, value_json, schema_version, revision, updated_at) "
             "VALUES (?, ?, 1, 1, ?)",
-            ("registration_enabled", "false", utc_now()),
+            ("registration_mode", '"closed"', utc_now()),
         )
         connection.execute(
             "INSERT OR IGNORE INTO hub_settings("
@@ -57,6 +88,10 @@ def initialize_hub_database(database_path: Path) -> None:
             ("registration_default_role", '"user"', utc_now()),
         )
         _validate_schema(connection)
+    if migrated:
+        logging.getLogger(__name__).info(
+            "Upgraded legacy Hub registration and model settings",
+        )
 
 
 def ensure_tenant(

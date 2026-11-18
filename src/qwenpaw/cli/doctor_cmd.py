@@ -16,6 +16,7 @@ from pathlib import Path
 import click
 import httpx
 
+from ..utils.io_utils import run_sync_io
 from ..__version__ import __version__
 from ..app.auth import has_registered_users, is_auth_enabled
 from ..config import load_config
@@ -322,7 +323,7 @@ async def _check_active_llm(
     deep: bool,
 ) -> tuple[bool, str, list[str]]:
     manager = ProviderManager.get_instance()
-    slot = manager.get_active_model()
+    slot = await run_sync_io(manager.get_active_model)
     if (
         slot is None
         or not (slot.provider_id or "").strip()
@@ -334,7 +335,7 @@ async def _check_active_llm(
             "an active model",
             [],
         )
-    provider = manager.get_provider(slot.provider_id)
+    provider = await run_sync_io(manager.get_provider, slot.provider_id)
     if provider is None:
         return False, f"provider not found: {slot.provider_id!r}", []
     ok, reason = _provider_is_configured(provider)

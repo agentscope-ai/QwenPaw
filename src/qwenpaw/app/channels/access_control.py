@@ -215,6 +215,38 @@ class AccessControlStore:
 
     # ── Query ───────────────────────────────────────────────────────────
 
+    def check_or_add_pending(
+        self,
+        channel: str,
+        user_id: str,
+        first_message: str = "",
+        *,
+        username: str = "",
+    ) -> str:
+        """Refresh, decide and persist one inbound decision under one lock."""
+        with self._lock:
+            self._reload_if_stale()
+            acl = self._acl(channel)
+            if user_id in acl.whitelist:
+                return "allow"
+            if user_id in acl.blacklist:
+                return "blocked"
+            if not any(
+                p.user_id == user_id and p.channel == channel
+                for p in acl.pending
+            ):
+                acl.pending.append(
+                    PendingEntry(
+                        user_id=user_id,
+                        channel=channel,
+                        timestamp=time.time(),
+                        first_message=first_message[:200],
+                        username=username,
+                    ),
+                )
+                self._save()
+            return "pending"
+
     def is_whitelisted(self, channel: str, user_id: str) -> bool:
         with self._lock:
             self._reload_if_stale()

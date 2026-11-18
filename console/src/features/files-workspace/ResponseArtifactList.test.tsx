@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -9,6 +8,7 @@ vi.mock("react-i18next", () => ({
       ({
         "files.artifactCreated": "已新增",
         "files.artifactModified": "已修改",
+        "files.artifactSent": "已发送",
         "files.artifactsCollapse": "收起",
         "files.artifactsExpand": "展开更多",
       })[key] ?? key,
@@ -32,6 +32,84 @@ function successfulFileIo(path: string, name = "write_file") {
           },
         },
         { data: { call_id: `call-${path}`, state: "success" } },
+      ],
+    },
+  ];
+}
+
+/**
+ * A successful ``send_file_to_user`` result in block or chat-history form.
+ *
+ * The DataBlock source shape varies with the delivery path: text files arrive
+ * as ``{type: "url", url: "file://…"}`` while images are inlined as
+ * ``{type: "base64", data: …}``. Detection keys on the block type, so the
+ * base64 shape is deliberately used here as the stricter fixture — it fails
+ * immediately if any ``source.url`` coupling is reintroduced.
+ */
+function successfulSendFile(path: string, serializedOutput = false) {
+  const name = path.split("/").pop() ?? path;
+  const output = [
+    {
+      type: "data",
+      source: { type: "base64", data: "iVBORw0KGgoAAAANSUhEUg" },
+      name,
+    },
+    { type: "text", text: "File sent successfully." },
+  ];
+  return [
+    {
+      id: `result-send-${path}`,
+      type: "tool_call_output",
+      status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-send-${path}`,
+            name: "send_file_to_user",
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        {
+          data: {
+            call_id: `call-send-${path}`,
+            state: "success",
+            output: serializedOutput ? JSON.stringify(output) : output,
+          },
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * A failed ``send_file_to_user`` result. The backend reports state=success
+ * even for errors, but the result carries only a TextBlock (no DataBlock),
+ * so ResponseArtifactList must not surface an artifact.
+ */
+function failedSendFile(path: string, serializedOutput = false) {
+  const output = [
+    { type: "text", text: `Error: The file ${path} does not exist.` },
+  ];
+  return [
+    {
+      id: `result-sendfail-${path}`,
+      type: "tool_call_output",
+      status: "completed",
+      content: [
+        {
+          data: {
+            call_id: `call-sendfail-${path}`,
+            name: "send_file_to_user",
+            arguments: JSON.stringify({ file_path: path }),
+          },
+        },
+        {
+          data: {
+            call_id: `call-sendfail-${path}`,
+            state: "success",
+            output: serializedOutput ? JSON.stringify(output) : output,
+          },
+        },
       ],
     },
   ];
@@ -153,7 +231,7 @@ describe("ResponseArtifactList", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders a live SSE file after ResponseCard merges its tool result", () => {
+  it("renders a live SSE file by pairing its tool call and result", () => {
     const liveOutput = [
       {
         id: "write-call",
@@ -174,11 +252,7 @@ describe("ResponseArtifactList", () => {
         content: [{ data: { call_id: "write-call", state: "success" } }],
       },
     ];
-    const messages = AgentScopeRuntimeResponseBuilder.mergeToolMessages(
-      liveOutput as never,
-    );
-
-    render(<ResponseArtifactList messages={messages} />);
+    render(<ResponseArtifactList messages={liveOutput} />);
 
     expect(
       screen.getByRole("button", { name: "result.md result.md" }),
@@ -204,6 +278,121 @@ describe("ResponseArtifactList", () => {
             ],
           },
         ]}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("surfaces a successfully sent file as an artifact", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/summary.pdf")}
+      />,
+    );
+
+    expect(screen.getByText("summary.pdf")).toBeInTheDocument();
+    expect(screen.getByText("reports/summary.pdf")).toBeInTheDocument();
+  });
+
+  it("surfaces a sent file from serialized chat history output", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/summary.pdf", true)}
+      />,
+    );
+
+    expect(screen.getByText("summary.pdf")).toBeInTheDocument();
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
+  it("marks sent files with the sent status", () => {
+    render(<ResponseArtifactList messages={successfulSendFile("notes.txt")} />);
+
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
+  it("does not show send_file_to_user when the result has no DataBlock", () => {
+    const { container } = render(
+      <ResponseArtifactList messages={failedSendFile("missing.pdf")} />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("requires a data block for serialized send artifacts", () => {
+    const { container } = render(
+      <ResponseArtifactList messages={failedSendFile("missing.pdf", true)} />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("surfaces an absolute path as an attachment artifact", () => {
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("/tmp/workspace/export.csv")}
+      />,
+    );
+
+    expect(screen.getByText("export.csv")).toBeInTheDocument();
+    expect(screen.getByText("已发送")).toBeInTheDocument();
+  });
+
+  it("routes a ~ path to the attachment preview the backend expands", () => {
+    // parseInternalFileLink would treat `~` as a workspace-relative segment;
+    // the preview endpoint expanduser()s it instead, so it must reach the
+    // attachment branch.
+    const listener = vi.fn();
+    window.addEventListener("qwenpaw:open-file-preview", listener);
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("~/reports/summary.md")}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "summary.md ~/reports/summary.md",
+      }),
+    );
+
+    const event = listener.mock.calls[0][0] as CustomEvent;
+    expect(event.detail.target.source).toBe("attachment");
+    expect(event.detail.target.path).toBe("~/reports/summary.md");
+    window.removeEventListener("qwenpaw:open-file-preview", listener);
+  });
+
+  it("surfaces a filename containing a literal #", () => {
+    // Tool paths are filesystem paths, not Markdown hrefs: `#` must stay part
+    // of the name instead of being parsed as a line-reference fragment.
+    const listener = vi.fn();
+    window.addEventListener("qwenpaw:open-file-preview", listener);
+    render(
+      <ResponseArtifactList
+        messages={successfulSendFile("reports/Report #3.pdf")}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Report #3.pdf reports/Report #3.pdf",
+      }),
+    );
+
+    const event = listener.mock.calls[0][0] as CustomEvent;
+    expect(event.detail.target).toEqual({
+      source: "workspace",
+      path: "reports/Report #3.pdf",
+      root: "project",
+    });
+    window.removeEventListener("qwenpaw:open-file-preview", listener);
+  });
+
+  it("still rejects parent-segment traversal", () => {
+    const { container } = render(
+      <ResponseArtifactList
+        messages={successfulSendFile("../shared/report.pdf")}
       />,
     );
 

@@ -1,0 +1,244 @@
+{
+  "schema_version": 2,
+  "channel_key": "matrix",
+  "label": {
+    "en": "Matrix",
+    "zh": "Matrix"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_matrix.driver",
+    "qualname": "MatrixDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean"
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean"
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean"
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "homeserver": {
+        "title": "Homeserver",
+        "type": "string",
+        "default": "",
+        "x-qwenpaw-normalizer": "strip_trailing_slash"
+      },
+      "user_id": {
+        "title": "User Id",
+        "type": "string",
+        "default": ""
+      },
+      "access_token": {
+        "title": "Access Token",
+        "type": "string",
+        "default": ""
+      },
+      "group_allow_from": {
+        "title": "Group Allow From",
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": []
+      },
+      "groups": {
+        "title": "Groups",
+        "type": "object",
+        "additionalProperties": true,
+        "default": {}
+      },
+      "encryption": {
+        "title": "Encryption",
+        "type": "boolean",
+        "default": false
+      },
+      "vision_enabled": {
+        "title": "Vision Enabled",
+        "type": "boolean",
+        "default": true
+      },
+      "history_limit": {
+        "title": "History Limit",
+        "type": "integer",
+        "default": 50
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "default": ""
+      },
+      "device_name": {
+        "title": "Device Name",
+        "type": "string",
+        "default": "qwenpaw-worker"
+      },
+      "sync_timeout_ms": {
+        "title": "Sync Timeout Ms",
+        "type": "integer",
+        "default": 30000,
+        "minimum": 5000,
+        "maximum": 300000
+      },
+      "mention_pill_in_body": {
+        "title": "Mention Pill In Body",
+        "type": "boolean",
+        "default": false
+      },
+      "outbound_structured_mentions": {
+        "title": "Outbound Structured Mentions",
+        "type": "boolean",
+        "default": true
+      },
+      "streaming_enabled": {
+        "title": "Streaming Enabled",
+        "type": "boolean",
+        "default": false
+      },
+      "share_session_in_group": {
+        "title": "Share Session In Group",
+        "type": "boolean",
+        "default": true
+      }
+    },
+    "title": "MatrixConfig",
+    "description": "Matrix channel configuration.",
+    "type": "object"
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "homeserver",
+    "user_id",
+    "access_token",
+    "group_allow_from",
+    "groups",
+    "encryption",
+    "vision_enabled",
+    "history_limit",
+    "password",
+    "device_name",
+    "sync_timeout_ms",
+    "mention_pill_in_body",
+    "outbound_structured_mentions",
+    "streaming_enabled",
+    "share_session_in_group"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "media",
+    "response.prepare",
+    "send.content_source.v1",
+    "streaming"
+  ]
+}

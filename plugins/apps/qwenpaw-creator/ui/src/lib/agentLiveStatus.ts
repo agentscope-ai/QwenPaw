@@ -576,7 +576,7 @@ export function deriveAgentLiveStatus(
       Number.isFinite(labelledTask.progress) &&
       labelledTask.progress >= 0 &&
       labelledTask.progress <= 1
-        ? taskProgressPercent(labelledTask.progress)
+        ? taskProgressPercent(labelledTask.progress, labelledTask.kind)
         : null;
     const activity = firstIncompleteActivity(subagentActivities);
     const preparing = preparingToolOperation(toolCalls, subagentActivities);

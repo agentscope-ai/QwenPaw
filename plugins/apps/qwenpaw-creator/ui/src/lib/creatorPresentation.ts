@@ -2,6 +2,7 @@ import type {
   ProjectDocument,
   RefSearchItem,
   SpecialistRunStatus,
+  SpecialistRunView,
   TaskStatus,
   TaskView,
   WorkGraphNode,
@@ -54,6 +55,48 @@ export function creatorStatusLabel(
   if (!status) return i18n.t("presentation.dash");
   const key = STATUS_LABEL_KEYS[status];
   return key ? i18n.t(key) : i18n.t("presentation.processing");
+}
+
+export function creatorTaskStatusLabel(
+  task: Pick<TaskView, "kind" | "status">,
+): string {
+  if (task.status === "RUNNING")
+    return i18n.t("presentation.taskRunning", {
+      kind: taskKindLabel(task.kind),
+    });
+  if (task.status === "QUEUED")
+    return i18n.t("presentation.taskQueued", {
+      kind: taskKindLabel(task.kind),
+    });
+  return creatorStatusLabel(task.status);
+}
+
+export function creatorRunStatusLabel(
+  run: SpecialistRunView,
+  tasks: TaskView[],
+): string {
+  if (run.status === "WAITING_RUNTIME") {
+    const linked = tasks.filter(
+      (task) =>
+        task.specialistRunId === run.id || run.taskRefs?.includes(task.id),
+    );
+    const running = linked.find((task) => task.status === "RUNNING");
+    if (running)
+      return i18n.t("presentation.waitingForTask", {
+        kind: taskKindLabel(running.kind),
+      });
+    const queued = linked.find((task) => task.status === "QUEUED");
+    if (queued)
+      return i18n.t("presentation.waitingForTaskStart", {
+        kind: taskKindLabel(queued.kind),
+      });
+    if (
+      linked.length > 0 &&
+      linked.every((task) => task.status === "SUCCEEDED")
+    )
+      return i18n.t("presentation.taskResultsReady");
+  }
+  return creatorStatusLabel(run.status);
 }
 
 const CREATOR_REF_PATTERN =
@@ -423,6 +466,8 @@ export function creatorToolLabel(
     ground_image_objects: i18n.t("presentation.tools.ground_image_objects"),
     browser_use: i18n.t("presentation.tools.browser_use"),
     computer_use: i18n.t("presentation.tools.computer_use"),
+    recall_media: i18n.t("presentation.tools.recall_media"),
+    recall_history: i18n.t("presentation.tools.recall_history"),
   };
   return labels[name] ?? i18n.t("presentation.unknownTool");
 }
@@ -493,6 +538,8 @@ const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
   ground_image_objects: "presentation.toolRunning.ground_image_objects",
   browser_use: "presentation.toolRunning.browser_use",
   computer_use: "presentation.toolRunning.computer_use",
+  recall_media: "presentation.toolRunning.recall_media",
+  recall_history: "presentation.toolRunning.recall_history",
 };
 
 export function getToolRunningLabel(

@@ -2,12 +2,16 @@
 """Tests for the stable QwenPaw Hub database shape."""
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
+from qwenpaw.hub import database as database_module
 from qwenpaw.hub.database import (
     HubExtensionStore,
+    connect_hub_database,
     initialize_hub_database,
 )
 from qwenpaw.hub.registry import RuntimeRegistry
@@ -18,6 +22,60 @@ def _columns(database: Path, table: str) -> set[str]:
     with sqlite3.connect(database) as connection:
         rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
     return {str(row[1]) for row in rows}
+
+
+def _assert_closed(connection: sqlite3.Connection) -> None:
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")
+
+
+def test_connection_context_commits_and_closes(tmp_path: Path) -> None:
+    database = tmp_path / "control.db"
+    connection = connect_hub_database(database)
+
+    with connection:
+        connection.execute("CREATE TABLE example(value TEXT)")
+        connection.execute("INSERT INTO example VALUES ('committed')")
+
+    _assert_closed(connection)
+    with closing(sqlite3.connect(database)) as probe:
+        rows = probe.execute("SELECT value FROM example").fetchall()
+    assert rows == [("committed",)]
+
+
+def test_connection_context_rolls_back_and_closes(tmp_path: Path) -> None:
+    database = tmp_path / "control.db"
+    with connect_hub_database(database) as setup:
+        setup.execute("CREATE TABLE example(value TEXT)")
+    connection = connect_hub_database(database)
+
+    with pytest.raises(RuntimeError, match="rollback"):
+        with connection:
+            connection.execute("INSERT INTO example VALUES ('discarded')")
+            raise RuntimeError("rollback")
+
+    _assert_closed(connection)
+    with closing(sqlite3.connect(database)) as probe:
+        rows = probe.execute("SELECT value FROM example").fetchall()
+    assert rows == []
+
+
+def test_connection_closes_when_configuration_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    connection = MagicMock()
+    connection.execute.side_effect = sqlite3.OperationalError("pragma failed")
+    monkeypatch.setattr(
+        database_module.sqlite3,
+        "connect",
+        MagicMock(return_value=connection),
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="pragma failed"):
+        connect_hub_database(tmp_path / "control.db")
+
+    connection.close.assert_called_once_with()
 
 
 def test_runtime_schema_uses_versioned_documents_for_variable_data(

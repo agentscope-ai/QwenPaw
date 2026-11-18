@@ -89,6 +89,7 @@ from .dependencies import (
     CreatorErrorRoute,
     project_file_services,
     resolve_idempotency_key,
+    semantic_etag,
 )
 
 
@@ -172,16 +173,10 @@ def _etag_header(etag: str) -> str:
     return f'"{etag}"'
 
 
-def _semantic_etag(value: str) -> str:
-    """Reduce HTTP entity-tag forms (weak prefix, quotes) to the raw tag."""
-
-    return value.strip().removeprefix("W/").strip().strip('"')
-
-
 def _etag_matches(header: str | None, etag: str) -> bool:
     if not header:
         return False
-    return any(_semantic_etag(item) == etag for item in header.split(","))
+    return any(semantic_etag(item) == etag for item in header.split(","))
 
 
 def _project_headers(
@@ -566,7 +561,7 @@ def _build_patch_candidate(
         request.base_generation == current.generation
         # The frontend echoes the HTTP ETag header, so accept the quoted
         # entity-tag form alongside the raw semantic tag.
-        and _semantic_etag(request.base_etag) != current.etag
+        and semantic_etag(request.base_etag) != current.etag
     ):
         raise CasConflictError("相同 generation 的 Project ETag 不匹配")
     active_blocks = services.blocks(project_id).list_active(
@@ -1059,22 +1054,15 @@ async def active_project_reviews(
     if_none_match: str | None = Header(None, alias="If-None-Match"),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> Response:
-    lifecycle_lock = None
     try:
-        lifecycle_lock = await _acquire_existing_project_lifecycle(
-            services,
-            project_id,
-        )
-        reviews = await services.active_reviews(
-            project_id,
-            _lifecycle_lock_held=True,
-        )
+        # Poll immutable review heads without competing with media commits.
+        # The decision endpoint takes lifecycle admission and validates its
+        # decision token again; a GET neither creates nor repairs records.
+        await _require_existing_project(services, project_id)
+        reviews = await services.active_reviews(project_id)
     except Exception as exc:
         _translate_storage_error(exc)
         raise
-    finally:
-        if lifecycle_lock is not None:
-            lifecycle_lock.release()
     if not reviews:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     composite_token = "|".join(r.decision_token for r in reviews)

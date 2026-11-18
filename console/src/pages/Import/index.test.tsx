@@ -1,6 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { useAgentStore } from "@/stores/agentStore";
 import { useImportJob } from "./useImportJob";
 import ImportPage from ".";
 
@@ -31,22 +39,55 @@ const actions = {
 function state(overrides = {}) {
   return {
     sources: [
-      { source: "codex", name: "Codex", detected: true },
-      { source: "qoder", name: "Qoder", detected: true },
+      {
+        source: "codex",
+        name: "Codex",
+        detected: true,
+        plugin_id: "qwenpaw-harness-codex",
+        plugin_state: "available",
+      },
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
     ],
     job: null,
     selectedAgent: "agent",
     loading: false,
     error: "",
+    detectError: "",
     ...actions,
     ...overrides,
   };
 }
 
+function jobSnapshot(jobState: string) {
+  return {
+    job_id: "job",
+    agent_id: "agent",
+    state: jobState,
+    seq: 2,
+    logs: [],
+    providers: [],
+  };
+}
+
 function renderPage() {
+  function Location() {
+    const location = useLocation();
+    return (
+      <output data-testid="location">
+        {location.pathname + location.search}
+      </output>
+    );
+  }
   return render(
     <MemoryRouter>
       <ImportPage />
+      <Location />
     </MemoryRouter>,
   );
 }
@@ -54,20 +95,241 @@ function renderPage() {
 describe("ImportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAgentStore.setState({
+      selectedAgent: "agent",
+      agents: ["qwenpaw", "codex", "qoder"].map((backend) => ({
+        id: backend === "qwenpaw" ? "agent" : backend,
+        name: backend,
+        description: "",
+        workspace_dir: "",
+        enabled: true,
+        backend,
+      })),
+    });
     vi.mocked(actions.detect).mockResolvedValue([]);
   });
+
+  it.each(["codex", "qoder"])(
+    "blocks direct access and unmounts the workflow when switching to %s",
+    (backend) => {
+      vi.mocked(useImportJob).mockReturnValue(state() as never);
+      useAgentStore.setState({ selectedAgent: backend });
+      renderPage();
+      expect(useImportJob).not.toHaveBeenCalled();
+      expect(screen.getByText("portabilityImport.qwenpawOnly")).toBeVisible();
+
+      act(() => useAgentStore.setState({ selectedAgent: "agent" }));
+      expect(actions.detect).toHaveBeenCalled();
+      const calls = vi.mocked(useImportJob).mock.calls.length;
+
+      act(() => useAgentStore.setState({ selectedAgent: backend }));
+      expect(useImportJob).toHaveBeenCalledTimes(calls);
+      expect(screen.getByText("portabilityImport.qwenpawOnly")).toBeVisible();
+      expect(screen.queryByRole("button")).toBeNull();
+    },
+  );
 
   it("detects applications and supports multi-source selection", () => {
     vi.mocked(useImportJob).mockReturnValue(state() as never);
     renderPage();
 
     expect(actions.detect).toHaveBeenCalled();
-    expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("Qoder")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Codex" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Qoder" })).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "portabilityImport.continue" }),
     );
     expect(actions.scan).toHaveBeenCalledWith(["codex", "qoder"]);
+  });
+
+  it.each([
+    ["missing", "source", "pluginManager.installBtn", "official"],
+    ["disabled", "source", "common.enable", "installed"],
+    ["failed", "error", "pluginManager.repair", "installed"],
+  ])(
+    "guides a %s Harness requirement to plugin management",
+    (pluginState, origin, action, view) => {
+      const plugin_id = "qwenpaw-harness-codex";
+      vi.mocked(useImportJob).mockReturnValue(
+        state(
+          origin === "source"
+            ? {
+                sources: [
+                  {
+                    source: "codex",
+                    name: "Codex",
+                    detected: true,
+                    plugin_id,
+                    plugin_state: pluginState,
+                  },
+                ],
+              }
+            : {
+                sources: [],
+                error: "Harness plugin required",
+                requirement: {
+                  code: "harness_plugin_required",
+                  source: "codex",
+                  plugin_id,
+                  state: pluginState,
+                },
+              },
+        ) as never,
+      );
+      renderPage();
+      if (origin === "source")
+        expect(screen.getByRole("checkbox", { name: "Codex" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        `/market?tab=plugins&view=${view}&plugin=${plugin_id}`,
+      );
+      expect(actions.scan).not.toHaveBeenCalled();
+    },
+  );
+
+  it("isolates stale Agent A sources while Agent B retries detection", async () => {
+    vi.mocked(actions.detect)
+      .mockReset()
+      .mockRejectedValueOnce(new Error("Sources unavailable"))
+      .mockResolvedValueOnce([
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
+      ]);
+    vi.mocked(useImportJob).mockReturnValue(
+      state({
+        selectedAgent: "agent-b",
+        sources: [
+          {
+            source: "codex",
+            name: "Agent A Codex",
+            detected: true,
+            plugin_id: "qwenpaw-harness-codex",
+            plugin_state: "available",
+          },
+        ],
+        error: "Sources unavailable",
+        detectError: "Sources unavailable",
+      }) as never,
+    );
+    const view = renderPage();
+
+    const retry = screen.getByRole("button", { name: "common.retry" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Sources unavailable");
+    expect(screen.queryByText("Agent A Codex")).toBeNull();
+    expect(screen.queryByText("portabilityImport.noSources")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "portabilityImport.continue" }),
+    ).toBeNull();
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(actions.detect).toHaveBeenCalledTimes(2));
+    expect(actions.scan).not.toHaveBeenCalled();
+    expect(actions.start).not.toHaveBeenCalled();
+    expect(actions.retry).not.toHaveBeenCalled();
+
+    vi.mocked(useImportJob).mockReturnValue(
+      state({
+        selectedAgent: "agent-b",
+        sources: [
+          {
+            source: "qoder",
+            name: "Qoder",
+            detected: true,
+            plugin_id: "qwenpaw-harness-qoder",
+            plugin_state: "available",
+          },
+        ],
+      }) as never,
+    );
+    view.rerender(
+      <MemoryRouter>
+        <ImportPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Agent A Codex")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Qoder" })).toBeChecked();
+    expect(
+      screen.getByRole("button", { name: "portabilityImport.continue" }),
+    ).toBeEnabled();
+    expect(actions.scan).not.toHaveBeenCalled();
+    expect(actions.start).not.toHaveBeenCalled();
+    expect(actions.retry).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful empty detection distinct from failure", () => {
+    vi.mocked(useImportJob).mockReturnValue(
+      state({ sources: [], error: "" }) as never,
+    );
+    renderPage();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "common.retry" })).toBeNull();
+    expect(screen.getByText("portabilityImport.noSources")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "portabilityImport.continue" }),
+    ).toBeDisabled();
+  });
+
+  it("previews source changes and the destination without starting an import", async () => {
+    vi.mocked(useImportJob).mockReturnValue(state() as never);
+    renderPage();
+    const route = within(
+      screen.getByRole("region", { name: "portabilityImport.title" }),
+    );
+    await waitFor(() => expect(route.getByText("Codex")).toBeVisible());
+    expect(
+      route.getByText("portabilityImport.targetAgent:qwenpaw"),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Codex" }));
+    await waitFor(() => expect(route.queryByText("Codex")).toBeNull());
+    expect(route.getByText("Qoder")).toBeVisible();
+    expect(actions.scan).not.toHaveBeenCalled();
+    expect(actions.start).not.toHaveBeenCalled();
+  });
+
+  it("keeps scanning in the inventory stage without import progress", () => {
+    vi.mocked(useImportJob).mockReturnValue(
+      state({ job: jobSnapshot("scanning") }) as never,
+    );
+    renderPage();
+
+    expect(screen.getByText("portabilityImport.scanning")).toBeVisible();
+    expect(screen.queryByText("portabilityImport.importing")).toBeNull();
+    expect(screen.queryByText("portabilityImport.keepOpen")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(
+      screen
+        .getByText("portabilityImport.steps.inventory")
+        .closest(".ant-steps-item"),
+    ).toHaveClass("ant-steps-item-process");
+  });
+
+  it.each([
+    ["running", "portabilityImport.importing", "portabilityImport.keepOpen"],
+    [
+      "cancelling",
+      "portabilityImport.cancelling",
+      "portabilityImport.cancellingHint",
+    ],
+    ["completed", "portabilityImport.finished", "portabilityImport.keepOpen"],
+    ["failed", "portabilityImport.finished", "portabilityImport.keepOpen"],
+  ])("shows %s progress with its matching copy", (jobState, title, hint) => {
+    vi.mocked(useImportJob).mockReturnValue(
+      state({ job: jobSnapshot(jobState) }) as never,
+    );
+    renderPage();
+
+    expect(screen.queryByText("portabilityImport.scanning")).toBeNull();
+    expect(screen.getByRole("heading", { name: title })).toBeVisible();
+    expect(screen.getByText(hint)).toBeVisible();
+    expect(screen.getByRole("progressbar")).toBeVisible();
   });
 
   it("shows default-selected conversations and grouped assets", () => {
@@ -121,6 +383,10 @@ describe("ImportPage", () => {
     );
     renderPage();
 
+    expect(screen.queryByText("portabilityImport.scanning")).toBeNull();
+    expect(screen.queryByText("portabilityImport.importing")).toBeNull();
+    expect(screen.queryByText("portabilityImport.keepOpen")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
     expect(
       screen.getByText("portabilityImport.conversations"),
     ).toBeInTheDocument();

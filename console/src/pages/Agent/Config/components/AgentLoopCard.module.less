@@ -8,6 +8,7 @@
   --loop-surface-subtle: var(--app-surface-subtle);
   --loop-border: var(--app-border);
   --loop-border-hover: var(--app-accent-border);
+  --loop-control-radius: 8px;
   --loop-text: var(--app-text);
   --loop-text-secondary: var(--app-text-secondary);
   --loop-text-tertiary: var(--app-text-tertiary);
@@ -17,60 +18,54 @@
 .loopCard {
   overflow: hidden;
 
-  :global(.ant-card-body) {
+  :global(.ant-card-body),
+  :global(.qwenpaw-card-body) {
     padding: 14px 18px 20px;
   }
 
-  :global(.ant-tabs-nav) {
+  :global(.ant-tabs-nav),
+  :global(.qwenpaw-tabs-nav) {
     margin: 0 -2px;
   }
 
-  :global(.ant-tabs-nav::before) {
-    border-bottom-color: var(--loop-border);
+  :global(.ant-tabs-nav::before),
+  :global(.qwenpaw-tabs-nav::before) {
+    border-bottom: 1px solid var(--loop-border) !important;
   }
 
-  :global(.ant-tabs-nav-wrap) {
+  :global(.ant-tabs-nav-wrap),
+  :global(.qwenpaw-tabs-nav-wrap) {
     overflow-x: auto;
     scrollbar-width: none;
   }
 
-  :global(.ant-tabs-nav-list) {
+  :global(.ant-tabs-nav-list),
+  :global(.qwenpaw-tabs-nav-list) {
     align-items: flex-end;
     gap: 3px;
   }
 
-  :global(.ant-tabs-tab) {
+  :global(.ant-tabs-tab),
+  :global(.qwenpaw-tabs-tab) {
     margin: 0;
-    padding: 10px 20px 11px;
-    border: 1px solid transparent;
-    border-bottom: 0;
-    border-radius: 9px 9px 0 0;
+    padding: 10px 16px 11px;
+    border: 0;
+    border-radius: 0;
     transition:
-      border-color 160ms ease,
+      color 160ms ease,
       background-color 160ms ease;
   }
 
-  :global(.ant-tabs-tab:hover) {
+  :global(.ant-tabs-tab:hover),
+  :global(.qwenpaw-tabs-tab:hover) {
     background: var(--loop-accent-soft);
   }
 
-  :global(.ant-tabs-tab-active) {
-    border-color: var(--loop-border);
-    background: var(--loop-surface);
-  }
-
-  :global(.ant-tabs-tab-active::after) {
-    position: absolute;
-    right: 0;
-    bottom: -1px;
-    left: 0;
+  :global(.ant-tabs-ink-bar),
+  :global(.qwenpaw-tabs-ink-bar) {
     height: 2px;
-    background: var(--loop-surface);
-    content: "";
-  }
-
-  :global(.ant-tabs-ink-bar) {
-    display: none;
+    border-radius: 2px;
+    background: var(--loop-accent);
   }
 }
 
@@ -83,13 +78,13 @@
 
 .templateIntro strong {
   color: var(--loop-text);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 650;
 }
 
 .templateIntro span {
   color: var(--loop-text-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
 }
 
 .builtInTab,
@@ -127,7 +122,8 @@
   }
 }
 
-:global(.ant-tabs-tab-active) .customTab {
+:global(.ant-tabs-tab-active) .customTab,
+:global(.qwenpaw-tabs-tab-active) .customTab {
   color: var(--loop-accent-strong);
   font-weight: 650;
 }
@@ -153,7 +149,7 @@
 .customHeader p {
   margin: 0 0 14px;
   color: var(--loop-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.6;
 }
 
@@ -180,7 +176,7 @@
   overflow: hidden;
   margin: 0;
   color: var(--loop-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -191,14 +187,14 @@
   align-items: center;
   gap: 6px;
   color: var(--loop-text-secondary);
-  font-size: 10px;
+  font-size: var(--app-font-caption);
   white-space: nowrap;
 }
 
 .builtInTag,
 .customTag {
   margin: 0;
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -225,7 +221,7 @@
 .pipelineHeader {
   margin-bottom: 10px;
   color: var(--loop-text-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   font-weight: 650;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -234,6 +230,10 @@
 .gateList {
   display: grid;
   gap: 8px;
+}
+
+.modeEditor > .gateCard + .gateCard {
+  margin-top: var(--app-space-2);
 }
 
 .gateCard {
@@ -268,7 +268,12 @@
   text-align: left;
 }
 
-.lockSlot,
+.builtInGateSummary {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding-right: var(--app-space-4);
+  padding-left: var(--app-space-4);
+}
+
 .dragHandle {
   display: grid;
   width: 28px;
@@ -307,14 +312,14 @@
 }
 
 .gateCopy strong {
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 650;
 }
 
 .gateCopy small {
   overflow: hidden;
   color: var(--loop-text-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -330,19 +335,31 @@
 }
 
 .gateDetails {
-  padding: 18px 22px 5px 76px;
+  padding: var(--app-space-6);
   border-top: 1px solid var(--loop-border);
   background: var(--loop-surface-subtle);
+
+  :global(.ant-input),
+  :global(.qwenpaw-input),
+  :global(.ant-input-affix-wrapper),
+  :global(.qwenpaw-input-affix-wrapper),
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector),
+  :global(.ant-btn),
+  :global(.qwenpaw-btn) {
+    border-radius: var(--loop-control-radius);
+  }
 }
 
 .gateForm {
-  max-width: 760px;
+  max-width: 880px;
+  margin: 0 auto;
 }
 
 .subsectionTitle {
   margin: 2px 0 10px;
   color: var(--loop-text-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -350,29 +367,60 @@
 
 .ruleList {
   display: grid;
+  container-type: inline-size;
   gap: 9px;
   margin-bottom: 14px;
 }
 
 .ruleRow {
   display: grid;
-  grid-template-columns: 90px 170px minmax(220px, 1fr) 32px;
+  grid-template-columns: 140px 180px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
+  gap: var(--app-space-3);
 }
 
-.ruleRow > :global(.ant-btn) {
+.ruleRow > .removeRule {
+  width: var(--app-control-md);
+  height: var(--app-control-md);
+  padding: 0;
+}
+
+.ruleRow:first-child > .removeRule {
   margin-top: 30px;
 }
 
-.gateDetails :global(.ant-form-item:last-child) {
+.ruleRow :global(.ant-select),
+.ruleRow :global(.qwenpaw-select) {
+  height: var(--app-control-md);
+}
+
+.ruleRow :global(textarea.ant-input),
+.ruleRow :global(textarea.qwenpaw-input) {
+  min-height: var(--app-control-md);
+  padding: 6px 10px;
+}
+
+@container (max-width: 640px) {
+  .ruleRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ruleRow > .removeRule,
+  .ruleRow:first-child > .removeRule {
+    justify-self: end;
+    margin-top: 0;
+  }
+}
+
+.gateDetails :global(.ant-form-item:last-child),
+.gateDetails :global(.qwenpaw-form-item:last-child) {
   margin-bottom: 14px;
 }
 
 .readOnlyCopy {
   margin: 0 0 16px;
   color: var(--loop-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
 }
 
 .fieldGrid {
@@ -417,7 +465,7 @@
 .editorHint {
   margin: -2px 0 14px;
   color: var(--loop-text-tertiary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 }
 
@@ -441,14 +489,14 @@
 .createForm label {
   margin-top: 6px;
   color: var(--loop-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   font-weight: 600;
 }
 
 .fieldError {
   margin-top: -3px;
   color: var(--app-error-text);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
 }
 
 .templatePreview {
@@ -463,7 +511,7 @@
 
 .templatePreview > span {
   color: var(--loop-text-secondary);
-  font-size: 11px;
+  font-size: calc(11px * var(--app-font-scale));
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -481,7 +529,7 @@
   border-radius: 999px;
   background: var(--loop-surface);
   color: var(--loop-accent-strong);
-  font-size: 10px;
+  font-size: calc(10px * var(--app-font-scale));
 }
 
 @media (max-width: 720px) {
@@ -532,18 +580,14 @@
     padding-left: 7px;
   }
 
+  .builtInGateSummary {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
   .gateDetails {
-    padding-right: 13px;
-    padding-left: 13px;
-  }
-
-  .ruleRow {
-    grid-template-columns: 1fr;
-  }
-
-  .ruleRow > :global(.ant-btn) {
-    justify-self: end;
-    margin-top: 0;
+    padding: var(--app-space-4);
   }
 
   .gateActions > :nth-child(-n + 2) {
@@ -553,4 +597,28 @@
   .toolLimitRow {
     grid-template-columns: minmax(0, 1fr) 88px 32px;
   }
+}
+
+@media (any-pointer: coarse) {
+  .ruleRow > .removeRule {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
+}
+
+.gateSummaryRow {
+  display: flex;
+  align-items: center;
+}
+
+.gateSummaryRow .gateSummary {
+  flex: 1;
+  min-width: 0;
+}
+
+.gateExtra {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 14px;
 }

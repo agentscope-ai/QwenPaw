@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from collections import deque
@@ -17,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..utils.io_utils import read_json_async, write_json_atomic_async
 from .adaptation_loop import drain_adaptation_workers, has_draining_workers
+from .compatibility import failure_message
 from .compatibility_safety import redact_sensitive_text
 from .importer import ProviderImportService
 from .models import (
@@ -25,6 +27,7 @@ from .models import (
     ImportSelection,
     MigrationPlan,
 )
+from .providers import require_harness_plugin
 from .selection import (
     PLAN_SELECTION_FIELDS as _TYPE_FIELDS,
     validate_plan_selection,
@@ -129,6 +132,8 @@ class PortabilityImportJobManager:
             item not in _SUPPORTED_SOURCES for item in normalized
         ):
             raise ValueError("sources must contain codex or qoder")
+        for source in normalized:
+            require_harness_plugin(source)
         job_id = f"import-{uuid4().hex}"
         snapshot = ImportRun(
             job_id=job_id,
@@ -168,6 +173,8 @@ class PortabilityImportJobManager:
         }
         if set(selections) != ready:
             raise ValueError("selection must cover every detected source")
+        for source in selections:
+            require_harness_plugin(source)
         for source, selection in selections.items():
             validate_plan_selection(live.plans[source], selection)
         if not any(
@@ -221,6 +228,8 @@ class PortabilityImportJobManager:
         providers = {item.source: item for item in previous.snapshot.providers}
         if not selected_sources <= set(providers):
             raise ValueError("retry source is not part of the original import")
+        for source in selections:
+            require_harness_plugin(source)
         for source, selection in selections.items():
             self._validate_retry_selection(providers[source], selection)
         retry_id = f"import-{uuid4().hex}"
@@ -264,7 +273,7 @@ class PortabilityImportJobManager:
         )
         return snapshot.model_copy(deep=True)
 
-    async def shutdown(self, *, drain_timeout: float = 5) -> None:
+    async def shutdown(self, *, drain_timeout: float = 5) -> bool:
         """Stop active jobs before their workspace services close."""
         self._closing = True
         await asyncio.gather(
@@ -275,9 +284,9 @@ class PortabilityImportJobManager:
             ),
             return_exceptions=True,
         )
-        await self.drain(timeout=drain_timeout)
+        return await self.drain(timeout=drain_timeout)
 
-    async def drain(self, *, timeout: float = 5) -> None:
+    async def drain(self, *, timeout: float = 5) -> bool:
         """Give live jobs and registered Mission workers one bounded drain."""
         tasks = [
             live.task
@@ -299,6 +308,8 @@ class PortabilityImportJobManager:
                 len(pending),
                 worker_count,
             )
+            return False
+        return True
 
     async def cancel(
         self,
@@ -593,7 +604,7 @@ class PortabilityImportJobManager:
                     provider.sessions_imported = len(imported_sessions)
                 provider.state = "completed"
             except Exception as exc:  # pylint: disable=broad-except
-                provider.error = redact_sensitive_text(exc, limit=500)
+                provider.error = failure_message("来源导入未完成", exc)
                 provider.state = "failed"
                 _fail_unfinished_assets(provider, provider.error)
             await self._emit(live, persist=True)
@@ -817,7 +828,20 @@ class PortabilityImportJobManager:
             dict[tuple[str, str, str], ImportAssetResult] | None
         ) = None,
     ) -> None:
-        result = message.split("\t")
+        if message.startswith("\x1easset_json\t"):
+            try:
+                fields = json.loads(message.split("\t", 1)[1])
+            except ValueError:
+                return
+            if not isinstance(fields, list) or not all(
+                isinstance(item, str) for item in fields
+            ):
+                return
+            result = ["\x1easset", *fields]
+        else:
+            result = message.split("\t")
+            if result[0] == "\x1easset" and len(result) != 5:
+                return
         if len(result) == 5 and result[0] == "\x1esessions":
             (
                 provider.sessions_processed,
@@ -826,8 +850,14 @@ class PortabilityImportJobManager:
                 _,
             ) = map(int, result[1:])
             return
-        if len(result) == 5 and result[0] == "\x1easset":
-            asset_type, state, enabled, source_id = result[1:]
+        if len(result) in {5, 6} and result[0] == "\x1easset":
+            asset_type, state, enabled, source_id = result[1:5]
+            try:
+                asset_state = ImportAssetState(state)
+            except ValueError:
+                return
+            if enabled not in {"-", "0", "1"}:
+                return
             asset = (
                 asset_index.get((provider.source, asset_type, source_id))
                 if asset_index is not None
@@ -842,8 +872,15 @@ class PortabilityImportJobManager:
                 )
             )
             if asset is not None:
-                asset.state = ImportAssetState(state)
+                asset.state = asset_state
                 asset.enabled = None if enabled == "-" else enabled == "1"
+                if asset.state is not ImportAssetState.FAILED:
+                    asset.message = ""
+                elif len(result) == 6 and result[5]:
+                    asset.message = redact_sensitive_text(
+                        result[5],
+                        limit=1000,
+                    )
 
     @staticmethod
     def _log(live: _LiveJob, message: str) -> None:

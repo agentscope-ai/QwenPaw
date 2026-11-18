@@ -14,6 +14,7 @@ import {
   Paperclip,
   Search,
   SquarePen,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { MenuUnfoldOutlined } from "@ant-design/icons";
@@ -25,6 +26,8 @@ import PromptEditorModal, {
 import { refImageThumbUrl } from "@/components/workbench/referenceThumbs";
 import {
   createCharacterVoice,
+  CreatorHttpError,
+  deleteSourceAssetVersion,
   getArtifactVersionMediaUrl,
   getAssetVersionMediaUrl,
   getVoiceCapabilities,
@@ -43,7 +46,12 @@ import type {
   VisualCastLineupDocument,
   VisualVariantDocument,
 } from "@/contracts/creator";
-import { navigate, useParams, useSearchParams } from "@/routing/navigation";
+import {
+  navigate,
+  useParams,
+  usePathname,
+  useSearchParams,
+} from "@/routing/navigation";
 import {
   useReviewFieldFocus,
   useReviewMediaFocus,
@@ -51,6 +59,8 @@ import {
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { useCreatorSessionStore } from "@/store/creatorSessionStore";
+import { nodeGenerating } from "@/lib/generationActivity";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import type { ProjectEditOperation } from "@/store/projectSnapshotStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -64,9 +74,13 @@ import PageSkeleton from "@/components/PageSkeleton";
 import WorkspaceEmptyState from "@/components/WorkspaceEmptyState";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import { isVoiceOnlyVisualEntity } from "@/selectors/blueprintSelectors";
+import RelatedAssetPicker from "@/components/workbench/RelatedAssetPicker";
 import { visualVariantLabel } from "@/lib/visualVariants";
 import { useTranslation } from "react-i18next";
-import { projectJsonPointer } from "@/lib/projectJsonPointer";
+import {
+  creatorFieldForPointer,
+  projectJsonPointer,
+} from "@/lib/projectJsonPointer";
 import InlineReviewDiff from "@/components/agent/InlineReviewDiff";
 
 type FilterKey = "all" | "character" | "scene" | "prop" | "video" | "audio";
@@ -141,6 +155,159 @@ const ORIGINS: Array<{ key: OriginKey; labelKey: string }> = [
   { key: "artifact", labelKey: "assets.artifact" },
   { key: "source", labelKey: "assets.source" },
 ];
+
+/**
+ * One entry of the structured ``details.timelineReferences`` a 409
+ * ASSET_IN_USE carries: which timeline element still points at the asset and
+ * whether a force delete may clear that pointer in place.
+ */
+type AssetInUseReference = {
+  timelineId: string;
+  timelineName: string;
+  isSnapshot: boolean;
+  elementId: string;
+  elementLabel: string;
+  creationType: string;
+  refKind: string;
+  detachable: boolean;
+  pointer?: string;
+};
+
+const ASSET_REF_KIND_LABEL_KEYS: Record<string, string> = {
+  "i2v-first-frame": "assets.refKind.i2vFirstFrame",
+  "s2v-portrait": "assets.refKind.s2vPortrait",
+  "s2v-drive-audio": "assets.refKind.s2vDriveAudio",
+  "r2v-storyboard-ref": "assets.refKind.r2vStoryboardRef",
+  "r2v-video-ref": "assets.refKind.r2vVideoRef",
+  "overlay-ref": "assets.refKind.overlayRef",
+  "render-source": "assets.refKind.renderSource",
+  "audio-source": "assets.refKind.audioSource",
+};
+
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+/**
+ * Timeline references behind an ``ASSET_IN_USE`` conflict, or null when the
+ * error says something else. null keeps the generic failure toast in charge so
+ * an unexpected payload never turns into a silently unexplained delete.
+ */
+function assetInUseReferences(error: unknown): AssetInUseReference[] | null {
+  if (
+    !(error instanceof CreatorHttpError) ||
+    error.status !== 409 ||
+    error.code !== "ASSET_IN_USE"
+  ) {
+    return null;
+  }
+  const raw = error.details.timelineReferences;
+  if (!Array.isArray(raw)) return null;
+  const references = raw.filter(
+    (item): item is AssetInUseReference =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      typeof (item as AssetInUseReference).refKind === "string",
+  );
+  return references.length ? references : null;
+}
+
+function assetInUseItem(ref: AssetInUseReference, t: Translate): string {
+  const labelKey = ASSET_REF_KIND_LABEL_KEYS[ref.refKind];
+  return t("assets.deleteInUseItem", {
+    timeline: ref.timelineName || ref.timelineId,
+    element: ref.elementLabel || ref.elementId,
+    refKind: labelKey ? t(labelKey) : ref.refKind,
+  });
+}
+
+function assetInUseBlockedItem(ref: AssetInUseReference, t: Translate): string {
+  const reasonKey =
+    ref.refKind === "audio-source" || ref.creationType === "audio"
+      ? "assets.blockedReason.audio"
+      : ref.creationType === "edit"
+      ? "assets.blockedReason.edit"
+      : ref.creationType === "overlay"
+      ? "assets.blockedReason.overlay"
+      : "assets.blockedReason.default";
+  return t("assets.deleteInUseBlockedItem", {
+    timeline: ref.timelineName || ref.timelineId,
+    element: ref.elementLabel || ref.elementId,
+    reason: t(reasonKey),
+  });
+}
+
+/** Ask for the force retry, naming every reference the delete will clear.
+ *
+ * Only one force dialog may be visible at a time: a late 409 racing a
+ * prior cancel must never re-open the confirmation the user already
+ * dismissed.  The guard ref is owned by the page instance so navigation
+ * (and the matching ``Modal.destroyAll``) releases it even when Ant
+ * Design's imperative ``Modal.confirm`` never fires ``onCancel``. */
+function confirmAssetForceDelete(
+  references: AssetInUseReference[],
+  t: Translate,
+  forceActiveRef: React.MutableRefObject<boolean>,
+): Promise<boolean> {
+  if (forceActiveRef.current) return Promise.resolve(false);
+  forceActiveRef.current = true;
+  return new Promise((resolve) => {
+    const done = (value: boolean) => {
+      forceActiveRef.current = false;
+      resolve(value);
+    };
+    Modal.confirm({
+      title: t("assets.deleteInUseTitle"),
+      content: (
+        <div className="space-y-2">
+          <p>{t("assets.deleteInUseContent")}</p>
+          <ul className="list-disc pl-5">
+            {references.map((ref) => (
+              <li key={ref.pointer ?? `${ref.elementId}:${ref.refKind}`}>
+                {assetInUseItem(ref, t)}
+              </li>
+            ))}
+          </ul>
+          {references.some((ref) => ref.isSnapshot) && (
+            <p className="text-[var(--color-text-secondary)]">
+              {t("assets.deleteInUseSnapshotHint")}
+            </p>
+          )}
+        </div>
+      ),
+      okText: t("assets.deleteInUseOk"),
+      okType: "danger",
+      cancelText: t("common.cancel"),
+      onOk: () => done(true),
+      onCancel: () => done(false),
+    });
+  });
+}
+
+/**
+ * Tell the user to delete the element first: an audio or edit element cannot
+ * survive losing its source version, and neither can a text-free sticker whose
+ * only payload is this asset, so no retry could succeed here.
+ */
+function showAssetInUseBlocked(
+  references: AssetInUseReference[],
+  t: Translate,
+): void {
+  Modal.warning({
+    title: t("assets.deleteInUseBlockedTitle"),
+    content: (
+      <div className="space-y-2">
+        <p>{t("assets.deleteInUseBlockedContent")}</p>
+        <ul className="list-disc pl-5">
+          {references.map((ref) => (
+            <li key={ref.pointer ?? `${ref.elementId}:${ref.refKind}`}>
+              {assetInUseBlockedItem(ref, t)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ),
+    okText: t("common.close"),
+  });
+}
 
 function fileMedia(
   project: ProjectDocument,
@@ -885,18 +1052,60 @@ function variantReferenceTokens(
     ...variant.reference_asset_version_ids,
     ...variant.reference_artifact_version_ids,
   ];
-  return versionIds.map((versionId, position) => ({
-    index: position + 1,
-    name: referenceVersionDisplayName(project, versionId),
+  return versionIds.map((versionId, position) => {
+    const anchor = visualAnchorToken(project, versionId);
+    if (anchor) return { ...anchor, index: position + 1 };
+    return {
+      index: position + 1,
+      name: referenceVersionDisplayName(project, versionId),
+      kind: "artifact" as const,
+      thumbUrl: refImageThumbUrl(
+        project,
+        null,
+        project.assets.artifact_versions_by_id[versionId]
+          ? `artifact-version:${versionId}`
+          : `asset-version:${versionId}`,
+      ),
+    };
+  });
+}
+
+/** A style anchor `visual:<entityId>:<variantId>` presents as the base
+    entity itself; before the base image exists the token has no thumb. */
+function resolveVisualAnchor(
+  project: ProjectDocument,
+  ref: string,
+): { name: string; versionId: string | null } | null {
+  if (!ref.startsWith("visual:")) return null;
+  for (const entityId of project.visual.entities.order) {
+    const entity = project.visual.entities.items[entityId];
+    if (!entity) continue;
+    for (const variantId of entity.variants.order) {
+      if (ref !== `visual:${entityId}:${variantId}`) continue;
+      return {
+        name: entity.name || entityId,
+        versionId:
+          entity.variants.items[variantId]?.selected_artifact_version_id ??
+          null,
+      };
+    }
+  }
+  return { name: ref, versionId: null };
+}
+
+function visualAnchorToken(
+  project: ProjectDocument,
+  ref: string,
+): Omit<PromptRichToken, "index"> | null {
+  const anchor = resolveVisualAnchor(project, ref);
+  if (!anchor) return null;
+  return {
+    name: anchor.name,
     kind: "artifact" as const,
-    thumbUrl: refImageThumbUrl(
-      project,
-      null,
-      project.assets.artifact_versions_by_id[versionId]
-        ? `artifact-version:${versionId}`
-        : `asset-version:${versionId}`,
-    ),
-  }));
+    thumbUrl: anchor.versionId
+      ? refImageThumbUrl(project, null, `artifact-version:${anchor.versionId}`)
+      : null,
+  };
 }
 
 /** Project image assets not yet referenced by this variant — pickable in the
@@ -910,6 +1119,12 @@ function variantReferenceCandidates(
     ...variant.reference_artifact_version_ids,
     ...variant.generated_artifact_version_ids,
   ]);
+  // A style anchor occupies its base image's slot: offering that image
+  // again would duplicate the reference and break [Image N] numbering.
+  for (const ref of variant.reference_artifact_version_ids) {
+    const versionId = resolveVisualAnchor(project, ref)?.versionId;
+    if (versionId) taken.add(versionId);
+  }
   // Artifact versions produced by a visual entity's variants carry that
   // entity's kind so the condensed asset-library picker can offer real
   // category tabs; loose versions stay "material".
@@ -1166,6 +1381,7 @@ export function GenerationPromptEditor({
   onRegenerate,
   regenerateLabel,
   saving,
+  regenerating = false,
 }: {
   target: PromptTarget;
   onSave: (
@@ -1176,9 +1392,16 @@ export function GenerationPromptEditor({
   onRegenerate?: () => void;
   regenerateLabel: string;
   saving: boolean;
+  regenerating?: boolean;
 }) {
   const { t } = useTranslation();
   const [editOpen, setEditOpen] = useState(false);
+  // An empty prompt is a planned-but-unwritten target only until someone
+  // writes it: a user clearing the prompt to rewrite must not lock the
+  // editor out, so the awaiting state is sticky-off once non-empty.
+  const everWritten = useRef(!!target.value.trim());
+  if (target.value.trim()) everWritten.current = true;
+  const awaitingAgent = !everWritten.current;
   const softPill =
     "inline-flex h-10 shrink-0 cursor-pointer select-none items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 text-sm font-medium leading-6 text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50";
   return (
@@ -1191,14 +1414,22 @@ export function GenerationPromptEditor({
         {target.label}
       </span>
       <div className="space-y-2 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 p-3">
-        <p className="max-h-[135px] overflow-y-auto whitespace-pre-wrap text-xs leading-[1.6] text-[var(--color-text-primary)]">
-          {target.value || t("assets.promptPlaceholder")}
+        <p
+          data-creator-field={creatorFieldForPointer(target.pointer)}
+          data-creator-path={target.pointer}
+          data-creator-field-label={target.label}
+          className="max-h-[135px] select-text overflow-y-auto whitespace-pre-wrap text-xs leading-[1.6] text-[var(--color-text-primary)]"
+        >
+          {target.value ||
+            (awaitingAgent
+              ? t("r2v.awaitAgentPrompt")
+              : t("r2v.generateAndEdit", { label: target.label }))}
         </p>
         <div className="flex justify-end gap-3">
           <button
             type="button"
             data-prompt-edit={target.pointer}
-            disabled={saving}
+            disabled={saving || awaitingAgent}
             className={softPill}
             onClick={() => setEditOpen(true)}
           >
@@ -1210,7 +1441,8 @@ export function GenerationPromptEditor({
               <RegeneratePill
                 field={target.pointer}
                 label={regenerateLabel}
-                disabled={saving}
+                loading={regenerating}
+                disabled={saving || awaitingAgent}
                 onClick={onRegenerate}
               />
             </span>
@@ -1227,9 +1459,14 @@ export function GenerationPromptEditor({
         disabled={saving}
         onCancel={() => setEditOpen(false)}
         onDone={(next, addedReferenceIds) => {
-          setEditOpen(false);
-          if (next !== target.value || addedReferenceIds.length > 0)
-            void onSave(target, next, addedReferenceIds);
+          if (next === target.value && !addedReferenceIds.length) {
+            setEditOpen(false);
+            return;
+          }
+          // Preserve the modal draft when persistence or a CAS check fails.
+          void onSave(target, next, addedReferenceIds)
+            .then(() => setEditOpen(false))
+            .catch(() => {});
         }}
       />
     </div>
@@ -1238,7 +1475,7 @@ export function GenerationPromptEditor({
 
 /** Voice generation dialog: design prompt (when the TTS model supports it)
  *  and/or an audio sample; submits straight to the enrollment executor. */
-function VoiceGenerationModal({
+export function VoiceGenerationModal({
   open,
   projectId,
   entity,
@@ -1258,11 +1495,13 @@ function VoiceGenerationModal({
   );
   const [voicePrompt, setVoicePrompt] = useState("");
   const [sampleId, setSampleId] = useState<string | null>(null);
+  const [samplePickerOpen, setSamplePickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open || !entity) return;
-    setVoicePrompt(entity.voice?.voice_prompt || entity.description || "");
+    setVoicePrompt(entity.voice?.voice_prompt || "");
     setSampleId(entity.voice?.sample_source_version_id ?? null);
+    setSamplePickerOpen(false);
     setCapabilities(null);
     void getVoiceCapabilities(projectId)
       .then(setCapabilities)
@@ -1281,7 +1520,7 @@ function VoiceGenerationModal({
     : [];
   const submit = async () => {
     if (!entity) return;
-    const prompt = supportsDesign ? voicePrompt.trim() : "";
+    const prompt = supportsDesign && !sampleId ? voicePrompt.trim() : "";
     if (!prompt && !sampleId) {
       message.error(t("assets.voiceNeedInput"));
       return;
@@ -1291,7 +1530,7 @@ function VoiceGenerationModal({
       await createCharacterVoice(projectId, {
         characterRef: `asset:${entity.entity_id}`,
         ...(prompt ? { voicePrompt: prompt } : {}),
-        ...(!prompt && sampleId ? { sampleSourceVersionId: sampleId } : {}),
+        ...(sampleId ? { sampleSourceVersionId: sampleId } : {}),
         preferredName: entity.name,
       });
       message.success(t("assets.voiceDone"));
@@ -1322,6 +1561,7 @@ function VoiceGenerationModal({
             </span>
             <Input.TextArea
               value={voicePrompt}
+              disabled={Boolean(sampleId)}
               onChange={(event) => setVoicePrompt(event.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
               placeholder={t("assets.voicePromptPlaceholder")}
@@ -1335,16 +1575,48 @@ function VoiceGenerationModal({
               ? t("assets.voiceSampleOptional")
               : t("assets.voiceSampleRequired")}
           </span>
-          <Select
-            className="!w-full"
-            allowClear
-            placeholder={t("assets.voiceSamplePlaceholder")}
-            value={sampleId}
-            options={audioOptions}
-            onChange={(next) => setSampleId(next ?? null)}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              className="min-w-0 flex-1"
+              onClick={() => setSamplePickerOpen(true)}
+            >
+              {audioOptions.find((item) => item.value === sampleId)?.label ??
+                t("assets.voiceSamplePlaceholder")}
+            </Button>
+            {sampleId && (
+              <Button onClick={() => setSampleId(null)}>
+                {t("common.clear")}
+              </Button>
+            )}
+          </div>
+          {sampleId && (
+            <audio
+              src={getAssetVersionMediaUrl(sampleId)}
+              controls
+              preload="none"
+              className="mt-2 h-9 w-full"
+            />
+          )}
         </div>
       </div>
+      <RelatedAssetPicker
+        open={samplePickerOpen}
+        title={t("assets.voiceSamplePlaceholder")}
+        candidates={audioOptions.map((option) => ({
+          id: option.value,
+          name: option.label,
+          kind: "material",
+          thumbUrl: null,
+          audioUrl: getAssetVersionMediaUrl(option.value),
+        }))}
+        boundIds={sampleId ? [sampleId] : []}
+        singleSelection
+        onCancel={() => setSamplePickerOpen(false)}
+        onConfirm={(ids) => {
+          setSampleId(ids[0] ?? null);
+          setSamplePickerOpen(false);
+        }}
+      />
     </Modal>
   );
 }
@@ -1352,6 +1624,7 @@ function VoiceGenerationModal({
 export default function AssetsPage() {
   const { t } = useTranslation();
   const { id = "" } = useParams();
+  const pathname = usePathname();
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
     state.projectId === id ? state.project : null,
@@ -1369,7 +1642,42 @@ export default function AssetsPage() {
   const patching = useProjectSnapshotStore((state) => state.patching);
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
   const tasks = useCreatorTaskViewStore((state) => state.tasks);
+  const refreshSession = useCreatorSessionStore(
+    (state) => state.refreshSession,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // A delete response can land after the user already switched Project (or
+  // left this page). The refreshes below rebind the global snapshot/task
+  // stores and the selection cleanup navigates, so every step that follows an
+  // await must still belong to the page instance that issued the request.
+  const liveAssetProjectId = useRef(id);
+  liveAssetProjectId.current = id;
+  const liveAssetsPath = useRef(pathname);
+  liveAssetsPath.current = pathname;
+  const liveSelectedAsset = useRef<string | null>(query.get("asset"));
+  liveSelectedAsset.current = query.get("asset");
+  const assetsPageAlive = useRef(true);
+  // A force-delete dialog opened while the user navigates away is destroyed
+  // by the cleanup Modal.destroyAll() below, but Ant Design's imperative
+  // Modal.confirm never calls onCancel in that path.  Own the guard ref here
+  // so the page instance lifecycle frees it regardless of how the dialog
+  // disappeared.
+  const forceDialogRef = useRef(false);
+  useEffect(() => {
+    assetsPageAlive.current = true;
+    return () => {
+      assetsPageAlive.current = false;
+      // Release the force-dialog guard so the next visit to this page
+      // (or any other project) can open a fresh confirmation.  The
+      // pending promise below settles with false, preventing a leak.
+      forceDialogRef.current = false;
+      // Force-delete confirmation dialogs outlive navigation: a dialog
+      // opened on project P1 stays visible on P2 and sends P1's
+      // ?force=true. Destroy every modal this page owns on unmount so a
+      // stale confirmation never mutates a project the user left.
+      Modal.destroyAll();
+    };
+  }, []);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [origin, setOrigin] = useState<OriginKey>("any");
   const sidebarOpen = useAgentDockUiStore((state) => state.open);
@@ -1601,8 +1909,17 @@ export default function AssetsPage() {
     setUploading(true);
     setUploadError(null);
     try {
-      await ingestAssetFile(id, file, "ATTACH_SOURCE");
-      message.success(t("assets.uploadSuccess"));
+      const accepted = await ingestAssetFile(id, file, "ATTACH_SOURCE");
+      if (accepted.reused) {
+        // The Project already held these exact bytes, so nothing new landed:
+        // reporting a successful upload would promise a card that never came.
+        // Name the card that is really there, which survives a re-rename.
+        message.info(
+          t("assets.uploadReused", { name: accepted.reusedName || file.name }),
+        );
+      } else {
+        message.success(t("assets.uploadSuccess"));
+      }
       await refreshAfterIngest();
     } catch (error) {
       // Keep a persistent inline banner besides the transient toast so the
@@ -1624,17 +1941,24 @@ export default function AssetsPage() {
     setUploading(true);
     setUploadError(null);
     try {
-      await ingestAssetValue(id, {
+      const name = inputName.trim();
+      const accepted = await ingestAssetValue(id, {
         kind: inputKind,
-        name: inputName.trim(),
+        name,
         value: inputValue.trim(),
         postIngestAction: "ATTACH_SOURCE",
       });
-      message.success(
-        inputKind === "url"
-          ? t("assets.linkSubmitted")
-          : t("assets.textSubmitted"),
-      );
+      if (accepted.reused) {
+        message.info(
+          t("assets.uploadReused", { name: accepted.reusedName || name }),
+        );
+      } else {
+        message.success(
+          inputKind === "url"
+            ? t("assets.linkSubmitted")
+            : t("assets.textSubmitted"),
+        );
+      }
       setAddOpen(false);
       setInputName("");
       setInputValue("");
@@ -1647,6 +1971,102 @@ export default function AssetsPage() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleDeleteSourceAsset = async (versionId: string, name: string) => {
+    Modal.confirm({
+      title: t("assets.deleteConfirmTitle"),
+      content: t("assets.deleteConfirmContent", { name }),
+      okText: t("assets.deleteConfirmOk"),
+      okType: "danger",
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        const scopeProjectId = id;
+        const ownsScope = () => {
+          if (
+            !assetsPageAlive.current ||
+            liveAssetProjectId.current !== scopeProjectId
+          ) {
+            return false;
+          }
+          // Router also matches "/project/p1/assets/" and keeps that slash in
+          // location.pathname, so compare the normalized path: an exact match
+          // would read a user who never left the page as gone and skip both
+          // the refreshes and the selection cleanup below.
+          const expected = `/project/${scopeProjectId}/assets`;
+          return (
+            (liveAssetsPath.current.replace(/\/+$/, "") || "/") === expected
+          );
+        };
+        // Delete failure and post-delete refresh must be isolated: a refresh
+        // error must never be reported as "delete failed" once the 204 landed.
+        const reportFailure = (error: unknown) => {
+          const text =
+            error instanceof Error ? error.message : t("assets.deleteFailed");
+          message.error(text, 6);
+        };
+        try {
+          if (!ownsScope()) return;
+          await deleteSourceAssetVersion(id, versionId);
+        } catch (error) {
+          const references = assetInUseReferences(error);
+          if (!references) {
+            reportFailure(error);
+            return;
+          }
+          const blocking = references.filter((ref) => !ref.detachable);
+          if (blocking.length) {
+            // The backend refused even a force delete: only removing those
+            // Elements frees the bytes, so no retry can succeed here.
+            showAssetInUseBlocked(blocking, t);
+            return;
+          }
+          if (!ownsScope()) return;
+          if (!(await confirmAssetForceDelete(references, t, forceDialogRef)))
+            return;
+          if (!ownsScope()) return;
+          try {
+            await deleteSourceAssetVersion(id, versionId, { force: true });
+          } catch (retryError) {
+            // The project may have changed while the dialog was open, and a
+            // late 409 still has to name the Element that holds the bytes
+            // rather than surface the backend's internal sentence.
+            const late = assetInUseReferences(retryError);
+            const lateBlocking = late?.filter((ref) => !ref.detachable) ?? [];
+            if (lateBlocking.length) {
+              showAssetInUseBlocked(lateBlocking, t);
+            } else {
+              reportFailure(retryError);
+            }
+            return;
+          }
+        }
+        message.success(t("assets.deleteSuccess"));
+        if (!ownsScope()) return;
+        // Refreshes are best-effort and settle independently. Stale
+        // "素材理解中" cards converge via the backend terminal subagent events,
+        // not via refreshSession directly.
+        try {
+          const refreshes = await Promise.allSettled([
+            pollOnce(id),
+            refreshTasks(id),
+            refreshSession(),
+          ]);
+          refreshes.forEach((result) => {
+            if (result.status === "rejected") console.error(result.reason);
+          });
+        } catch (error) {
+          console.error(error);
+        }
+        if (!ownsScope()) return;
+        // Clear the selection this delete invalidated — read the current URL
+        // rather than the render-time item, so a selection the user made while
+        // the request was in flight survives it.
+        if (liveSelectedAsset.current === versionId) {
+          selectItem(null);
+        }
+      },
+    });
   };
 
   // Hooks must run unconditionally, before the loading early-returns.
@@ -1938,6 +2358,23 @@ export default function AssetsPage() {
                                   {t("assets.memoryBuilt")}
                                 </span>
                               )}
+                            {item.kind === "source" && (
+                              <button
+                                type="button"
+                                data-asset-delete={item.id}
+                                title={t("assets.deleteTooltip")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeleteSourceAsset(
+                                    item.id,
+                                    display.name,
+                                  );
+                                }}
+                                className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-red-500/80 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                           <div className="p-3">
                             <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
@@ -2052,7 +2489,11 @@ export default function AssetsPage() {
                         <h3 className="mt-2 text-base font-semibold text-[var(--color-text-primary)]">
                           {selected.name}
                         </h3>
-                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]">
+                        <p
+                          data-creator-field={`${selected.ref}/description`}
+                          data-creator-field-label={selected.name}
+                          className="mt-1 select-text whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]"
+                        >
                           {selected.description}
                         </p>
                       </div>
@@ -2064,7 +2505,14 @@ export default function AssetsPage() {
                           <h4 className="text-xs font-semibold">
                             {reviewedVisualField.label}
                           </h4>
-                          <p className="whitespace-pre-wrap text-xs leading-5">
+                          <p
+                            data-creator-field={creatorFieldForPointer(
+                              reviewedVisualField.pointer,
+                            )}
+                            data-creator-path={reviewedVisualField.pointer}
+                            data-creator-field-label={reviewedVisualField.label}
+                            className="select-text whitespace-pre-wrap text-xs leading-5"
+                          >
                             {reviewedVisualField.value || "—"}
                           </p>
                           <InlineReviewDiff
@@ -2294,6 +2742,10 @@ export default function AssetsPage() {
                             key={promptTarget.pointer}
                             target={promptTarget}
                             saving={patching}
+                            regenerating={nodeGenerating(
+                              tasks,
+                              dispatchNodeIdForPrompt(promptTarget.pointer),
+                            )}
                             regenerateLabel={
                               selected.mediaKind === "video"
                                 ? t("r2v.regenerateVideo")
@@ -2309,11 +2761,13 @@ export default function AssetsPage() {
                               return () => {
                                 void dispatchWorkGraphNode(id, nodeId)
                                   .then((result) => {
-                                    message.success(
-                                      result.dispatched
-                                        ? t("r2v.regenQueued")
-                                        : t("r2v.regenUpToDate"),
-                                    );
+                                    if (result.dispatched) {
+                                      message.success(t("r2v.regenQueued"));
+                                    } else if (result.status === "running") {
+                                      message.info(t("r2v.regenRunning"));
+                                    } else {
+                                      message.info(t("r2v.regenUpToDate"));
+                                    }
                                     void refreshTasks(id);
                                     void pollOnce(id);
                                   })

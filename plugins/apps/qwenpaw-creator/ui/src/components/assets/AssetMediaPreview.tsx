@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import PreviewImage from "./PreviewImage";
 
 export type AssetPreviewState =
   | "planned"
@@ -102,6 +103,15 @@ export default function AssetMediaPreview({
     );
   }
   if (canRender && mediaType === "image") {
+    if (controls)
+      return (
+        <PreviewImage
+          src={previewUrl}
+          alt={name}
+          onError={() => setLoadFailed(true)}
+          className={mediaClassName}
+        />
+      );
     return (
       <img
         src={previewUrl}

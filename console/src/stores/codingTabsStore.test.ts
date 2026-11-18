@@ -124,6 +124,46 @@ describe("codingTabsStore", () => {
     expect(tab?.dirty).toBe(true);
   });
 
+  it("refreshes content, diff and ETag in a single notification", () => {
+    const store = useCodingTabsStore.getState();
+    store.openTab("a1", { ...TAB_FOO, content: "old", etag: "v1" });
+    store.setDiff("a1", "foo.ts", { original: "baseline", modified: "old" });
+    const versions: unknown[] = [];
+    const unsubscribe = useCodingTabsStore.subscribe((state) => {
+      versions.push([
+        state.tabsByAgent.a1[0].content,
+        state.diffsByAgent.a1["foo.ts"],
+        state.tabsByAgent.a1[0].etag,
+      ]);
+    });
+
+    store.refreshTab("a1", "foo.ts", "new", "v2");
+    unsubscribe();
+
+    expect(versions).toEqual([
+      ["new", { original: "baseline", modified: "new" }, "v2"],
+    ]);
+  });
+
+  it("does not refresh dirty content or its pending diff", () => {
+    const store = useCodingTabsStore.getState();
+    store.openTab("a1", {
+      ...TAB_FOO,
+      content: "old",
+      etag: "v1",
+      dirty: true,
+    });
+    store.setDiff("a1", "foo.ts", {
+      original: "baseline",
+      modified: "user edit",
+    });
+    const before = useCodingTabsStore.getState();
+
+    store.refreshTab("a1", "foo.ts", "new", "v2");
+
+    expect(useCodingTabsStore.getState()).toBe(before);
+  });
+
   it("resolveDiff updates content and removes the diff atomically", () => {
     useCodingTabsStore.getState().openTab("a1", {
       path: "foo.ts",

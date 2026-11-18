@@ -1,0 +1,58 @@
+.frame {
+  height: 100%;
+  display: flex;
+  min-width: 0;
+}
+
+.surface {
+  border-radius: var(--app-radius-card);
+  position: relative;
+  min-width: 0;
+  --reflection-highlight: var(--app-accent-faint);
+  --reflection-silver: transparent;
+  --reflection-edge: var(--app-accent-border);
+  --reflection-shadow: rgb(0 0 0 / 12%);
+
+  :global(.dark-mode) & {
+    --reflection-shadow: rgb(0 0 0 / 20%);
+  }
+}
+
+.frame > .surface {
+  flex: 1;
+}
+
+.reflection {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at var(--reflection-x, 50%) var(--reflection-y, 50%),
+    var(--reflection-highlight) 0%,
+    var(--reflection-silver) 38%,
+    transparent 76%
+  );
+  box-shadow:
+    inset 0 0 0 1px var(--reflection-edge),
+    0 8px 24px -10px var(--reflection-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .surface {
+    transform: none !important;
+  }
+
+  .reflection {
+    display: none;
+  }
+}
+
+.surface > :global(.ant-card),
+.surface > :global(.qwenpaw-card) {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}

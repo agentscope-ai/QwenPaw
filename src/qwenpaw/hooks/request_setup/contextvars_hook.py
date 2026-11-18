@@ -9,7 +9,7 @@ directories for a turn: console routers no longer pre-resolve, they
 only persist pending picks onto the chat. Resolution precedence is
 fork worktree → mode pin → trusted request override → session list
 (per-chat, or inherited from a parent agent, or pending from the
-client) → agent default (single dir) → workspace fallback.
+client) → agent default (ordered list) → workspace fallback.
 """
 
 from __future__ import annotations
@@ -115,6 +115,7 @@ class ContextVarsSetupHook(LifecycleHook):
         set_current_approval_route(approval_route)
 
         agent_project_dir = None
+        agent_project_dirs = None
         try:
             from ...config.config import load_agent_config
 
@@ -131,6 +132,11 @@ class ContextVarsSetupHook(LifecycleHook):
                 running.shell_command_executable or None,
             )
             agent_project_dir = cfg.project_dir
+            from ...services.project_directory import (
+                agent_project_dirs_from_config,
+            )
+
+            agent_project_dirs = agent_project_dirs_from_config(cfg)
         except Exception:
             logger.warning(
                 "contextvars_setup: config-derived vars failed; "
@@ -185,6 +191,7 @@ class ContextVarsSetupHook(LifecycleHook):
             _resolve_turn_project_dirs,
             workspace_dir=workspace_dir,
             agent_project_dir=agent_project_dir,
+            agent_project_dirs=agent_project_dirs,
             session_project_dirs=session_project_dirs,
             request_context=(
                 request_context if isinstance(request_context, dict) else None
@@ -251,6 +258,7 @@ def _resolve_turn_project_dirs(
     session_project_dirs: Optional[list],
     request_context: Optional[dict],
     mission_loop_dir: str | None,
+    agent_project_dirs: Optional[list] = None,
 ) -> Optional[_ResolvedTurn]:
     """Resolve this turn's project directories in one blocking pass.
 
@@ -286,8 +294,11 @@ def _resolve_turn_project_dirs(
         from ...agents.fork_project import resolve_allowed_fork_project_dir
 
         allowed_dirs: list[str] = []
-        if isinstance(agent_project_dir, str) and agent_project_dir:
-            allowed_dirs.append(agent_project_dir)
+        allowed_dirs.extend(
+            _entry_path_strings(agent_project_dirs)
+            if agent_project_dirs
+            else ([agent_project_dir] if agent_project_dir else []),
+        )
         allowed_dirs.extend(_entry_path_strings(session_project_dirs))
         fork_dir = resolve_allowed_fork_project_dir(
             request_context.get("fork_project_dir"),
@@ -320,6 +331,7 @@ def _resolve_turn_project_dirs(
         resolved = resolve_effective_project_dirs(
             workspace_dir,
             agent_project_dir=agent_project_dir,
+            agent_project_dirs=agent_project_dirs,
             session_project_dirs=session_project_dirs,
             request_override=request_override,
             mode_override=mode_override,

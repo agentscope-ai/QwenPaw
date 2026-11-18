@@ -9,13 +9,15 @@
  * Reachable at /os (registered in App.tsx) — isolated from MainLayout so the
  * classic sidebar layout is untouched.
  */
-import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
+import { useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
 import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
+import { PawAppAccessGate } from "../plugins/PawAppAccessGate";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
+import { ChunkRecoverySuspense } from "../components/ChunkRecoverySuspense";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAgentStore } from "../stores/agentStore";
 import { useSyncCodingMode } from "../stores/useSyncCodingMode";
@@ -25,7 +27,6 @@ import { useOsPlugins } from "./osPluginStore";
 import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
-import { useOsNotifyPoller } from "./useOsNotifyPoller";
 import { isAgentAvailableInChat } from "../utils/agentVisibility";
 import { purgeAppState, removePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
@@ -45,7 +46,7 @@ import SettingsApp from "./SettingsApp";
 import MissionControl from "./MissionControl";
 import NotificationCenter from "./NotificationCenter";
 import BootScreen from "./BootScreen";
-import ConsolePollService from "../components/ConsolePollService";
+import DesktopPollingServices from "./DesktopPollingServices";
 import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
@@ -127,9 +128,6 @@ export default function DesktopOS() {
       /* storage unavailable — splash will just replay next mount */
     }
   }, []);
-
-  // Poll approvals + unread inbox events → macOS-style notifications.
-  useOsNotifyPoller();
 
   // Load agents once so Mission Control can list them as spaces.
   useEffect(() => {
@@ -446,7 +444,7 @@ export default function DesktopOS() {
           lowest layer and never intercepts pointer events, so it reads as a
           backdrop behind icons and app windows rather than a card. */}
       <div className={styles.emptyHint}>
-        <img src="/qwenpaw.png" alt="" />
+        <img src={`${import.meta.env.BASE_URL}qwenpaw.png`} alt="" />
         <div className={styles.emptyBrandName}>QwenPaw OS</div>
       </div>
 
@@ -458,6 +456,11 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
+          const appRoute = routeById.get(win.id);
+          const pawAppId =
+            appRoute && getPawAppIdFromPath(appRoute.path)
+              ? appRoute.source
+              : undefined;
           if (!isStore && !isSettings && !Component) {
             return null;
           }
@@ -474,7 +477,7 @@ export default function DesktopOS() {
               minH={def.minH}
             >
               <ChunkErrorBoundary resetKey={win.id}>
-                <Suspense
+                <ChunkRecoverySuspense
                   fallback={
                     <div className={styles.loading}>
                       <Spin tip={t("common.loading")} />
@@ -489,10 +492,18 @@ export default function DesktopOS() {
                     <WindowRouter
                       routeId={win.id}
                       base={baseFromRoutePath(routeById.get(win.id)?.path)}
-                      element={<Component />}
+                      element={
+                        pawAppId ? (
+                          <PawAppAccessGate appId={pawAppId}>
+                            <Component />
+                          </PawAppAccessGate>
+                        ) : (
+                          <Component />
+                        )
+                      }
                     />
                   ) : null}
-                </Suspense>
+                </ChunkRecoverySuspense>
               </ChunkErrorBoundary>
             </WindowFrame>
           );
@@ -505,10 +516,8 @@ export default function DesktopOS() {
 
       <NotificationCenter />
 
-      {/* Global approval/message feed (same as MainLayout). Populates the
-          shared ApprovalContext so the Inbox + Chat windows show pending
-          tool approvals inside the OS, matching the browser layout. */}
-      <ConsolePollService />
+      {/* One push-message owner plus the independent OS inbox feed. */}
+      <DesktopPollingServices />
 
       <SpacesPanel visible={topHot} />
       <MenuBar hidden={isMobile} />
@@ -519,7 +528,7 @@ export default function DesktopOS() {
           open
           trigger={[]}
           placement="bottomLeft"
-          overlayClassName={styles.desktopContextMenu}
+          rootClassName={styles.desktopContextMenu}
           menu={{ items: desktopMenuItems }}
           popupRender={(menu) => (
             <div

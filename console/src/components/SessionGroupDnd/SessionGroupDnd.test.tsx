@@ -1,9 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { SessionGroupDndProvider } from "./index";
+import { DraggableSession, SessionGroupDndProvider } from "./index";
 
-const { mockMeasureDroppableContainers } = vi.hoisted(() => ({
+const { mockMeasureDroppableContainers, mockPointerDown } = vi.hoisted(() => ({
   mockMeasureDroppableContainers: vi.fn(),
+  mockPointerDown: vi.fn(),
 }));
 
 vi.mock("@dnd-kit/core", () => ({
@@ -14,7 +16,14 @@ vi.mock("@dnd-kit/core", () => ({
     onDragOver,
     onDragCancel,
     measuring,
-  }: any) => (
+  }: {
+    children: ReactNode;
+    onDragStart: (event: unknown) => void;
+    onDragEnd: (event: unknown) => void;
+    onDragOver: (event: unknown) => void;
+    onDragCancel: () => void;
+    measuring?: { droppable?: { strategy?: string } };
+  }) => (
     <div
       data-testid="dnd-context"
       data-measuring-strategy={measuring?.droppable?.strategy}
@@ -59,7 +68,7 @@ vi.mock("@dnd-kit/core", () => ({
       <button onClick={onDragCancel}>cancel dragging</button>
     </div>
   ),
-  DragOverlay: ({ children }: any) => children,
+  DragOverlay: ({ children }: { children: ReactNode }) => children,
   MeasuringStrategy: { Always: "always" },
   MouseSensor: class {},
   TouchSensor: class {},
@@ -68,7 +77,17 @@ vi.mock("@dnd-kit/core", () => ({
   useDndContext: vi.fn(() => ({
     measureDroppableContainers: mockMeasureDroppableContainers,
   })),
-  useDraggable: vi.fn(),
+  useDraggable: vi.fn(() => ({
+    attributes: {
+      "aria-describedby": "DndDescribedBy-0",
+      role: "button",
+      tabIndex: 0,
+    },
+    isDragging: false,
+    listeners: { onPointerDown: mockPointerDown },
+    setNodeRef: vi.fn(),
+    transform: null,
+  })),
   useDroppable: vi.fn(),
 }));
 
@@ -115,5 +134,27 @@ describe("SessionGroupDndProvider", () => {
 
     expect(onDragStateChange).toHaveBeenNthCalledWith(1, true);
     expect(onDragStateChange).toHaveBeenNthCalledWith(2, false);
+  });
+});
+
+describe("DraggableSession", () => {
+  it("keeps the drag wrapper out of the tab order and accessibility tree", () => {
+    const { container } = render(
+      <DraggableSession
+        sessionId="session-1"
+        groupId="work"
+        label="Conversation"
+      >
+        <button type="button">Conversation</button>
+      </DraggableSession>,
+    );
+
+    const wrapper = container.firstElementChild;
+    expect(wrapper).not.toHaveAttribute("role");
+    expect(wrapper).not.toHaveAttribute("tabindex");
+    expect(wrapper).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.pointerDown(wrapper!);
+    expect(mockPointerDown).toHaveBeenCalledOnce();
   });
 });

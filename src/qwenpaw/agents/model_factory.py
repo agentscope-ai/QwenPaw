@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Factory for creating chat models and formatters.
+"""Factory for creating chat and decision models.
 
-This module provides a unified factory for creating chat model instances
-and their corresponding formatters based on configuration.
+This module creates configured provider models and chat formatters.
 
 Example:
     >>> from qwenpaw.agents.model_factory import create_model_and_formatter
@@ -27,7 +26,7 @@ from agentscope.formatter import (
     FormatterBase,
     OpenAIChatFormatter,
 )
-from agentscope.message import Base64Source, TextBlock
+from agentscope.message import Base64Source, Msg, TextBlock
 from agentscope.model import ChatModelBase
 
 try:
@@ -43,11 +42,30 @@ except ImportError:
 from agentscope.formatter import OpenAIResponseFormatter
 
 from .utils.message_request_normalizer import (
-    normalize_messages_for_model_request,
+    normalize_messages_for_model_request_async,
 )
+from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
-from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.provider import ModelInfo, agent_thinking_level
+from ..providers.hub_managed import (
+    PROVIDER_ID,
+    hub_mode,
+    managed_provider,
+    managed_slot,
+)
+from ..providers.model_selection import resolve_model_slot_override
+from ..providers.capping_formatter import (
+    CappingFormatterMixin,
+    MAX_INLINE_MEDIA_BYTES,
+    SEEN_MEDIA_KEYS as _FORMATTER_SEEN_MEDIA_KEYS,
+    inline_media_size as _inline_media_size,
+    media_dedup_key as _anthropic_media_dedup_key,
+)
+from ..providers.typesafe_provider import (
+    TypeSafeEvaluationError,
+    resolve_decision_model,
+)
 from ..utils.tool_call_extra import tool_call_extras_for_provider
 from ..providers.retry_chat_model import (
     RetryChatModel,
@@ -62,9 +80,25 @@ from ..utils.image_resize import (
 )
 from ..utils.logging import sanitize_log_value
 from ..utils.media_paths import (
+    media_basename,
     file_url_to_path as _file_url_to_path,
     local_media_path as _local_media_path,
 )
+
+# Only SDK single-request consumers opt into construction-time ownership.
+# Normal agent construction retains its existing provider lifecycle.
+_model_creation_observer = ContextVar("model_creation_observer", default=None)
+
+
+def _create_provider_model(provider, model_id):
+    observer = _model_creation_observer.get()
+    if observer is not None:
+        observer.before_create(provider)
+    model = provider.get_chat_model_instance(model_id)
+    if observer is not None:
+        observer.capture(model)
+    return model
+
 
 # TODO(AgentScope compatibility): This is a temporary workaround for
 # AgentScope releases that emit random promoted-media identifiers. Remove it
@@ -126,10 +160,10 @@ class _LocalMediaRead:
     size_known: bool = True
 
 
-_FORMATTER_SEEN_MEDIA_KEYS: ContextVar[set[str] | None] = ContextVar(
-    "qwenpaw_formatter_seen_media_keys",
-    default=None,
-)
+# The per-request media dedup scope lives with the formatter media policy
+# in ``providers.capping_formatter`` (imported above as
+# ``_FORMATTER_SEEN_MEDIA_KEYS``) so the per-request inline-media budget
+# can reset it between its measuring and enforcing passes.
 
 
 def _read_local_media(
@@ -173,6 +207,16 @@ def _media_source_value(source: Any, key: str, default: Any = None) -> Any:
     return getattr(source, key, default)
 
 
+# PDF attachments reach the formatters as ``DataBlock`` blocks whose
+# ``media_type`` is ``application/pdf``.  They are not one of the
+# ``_MEDIA_BLOCK_TYPES`` block types, but they carry media payload like
+# images and audio, so the asynchronous preparation stage reads them
+# too: a local PDF that stays a ``URLSource`` cannot be measured by the
+# per-request inline-media budget, and the base formatter would read it
+# from disk — blocking the event loop — while formatting.
+_PDF_MEDIA_TYPE = "application/pdf"
+
+
 def _media_kind(block: Any) -> str | None:
     """Return the logical media kind represented by a content block."""
     block_type = (
@@ -190,6 +234,12 @@ def _media_kind(block: Any) -> str | None:
         else getattr(block, "source", None)
     )
     media_type = str(_media_source_value(source, "media_type", "") or "")
+    if media_type == _PDF_MEDIA_TYPE:
+        # A PDF attachment is media payload too: the asynchronous
+        # preparation stage has to read it, otherwise it stays a
+        # ``URLSource`` the per-request inline-media budget cannot
+        # measure and the base formatter reads from disk inline.
+        return "file"
     kind = media_type.split("/", 1)[0]
     return kind if kind in _MEDIA_BLOCK_TYPES else None
 
@@ -259,6 +309,9 @@ def _remote_media_requires_download(
         base_formatter_class,
         AnthropicChatFormatter,
     ):
+        # A PDF attachment is not downloaded for Anthropic: the wrapper
+        # narrows its input types to image and video, so the formatter
+        # drops the block before it would download anything.
         return kind == "image"
     if GeminiChatFormatter is not None and issubclass(
         base_formatter_class,
@@ -267,7 +320,9 @@ def _remote_media_requires_download(
         return True
     if issubclass(base_formatter_class, DashScopeChatFormatter):
         return False
-    return kind == "audio" and issubclass(
+    # The OpenAI chat / Responses formatters inline a PDF attachment as a
+    # data URL, so they download it while formatting as well.
+    return kind in ("audio", "file") and issubclass(
         base_formatter_class,
         (OpenAIChatFormatter, OpenAIResponseFormatter),
     )
@@ -414,6 +469,7 @@ async def _prepare_media_sources(
     *,
     include_hint_videos: bool = False,
     max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+    resize_images_to_max_bytes: bool = False,
 ) -> None:
     """Prepare media so downstream formatting performs no blocking I/O."""
     references: list[_MediaReference] = []
@@ -426,20 +482,36 @@ async def _prepare_media_sources(
                 include_hint_videos=include_hint_videos,
             )
 
-    pending: dict[tuple[str, str], asyncio.Task[_LocalMediaRead]] = {}
-    prepared_keys: list[tuple[str, str] | None] = []
+    pending: dict[tuple[str, str, int], asyncio.Task[_LocalMediaRead]] = {}
+    prepared_keys: list[tuple[str, str, int] | None] = []
     for reference in references:
         url = str(_media_source_value(reference.source, "url", "") or "")
         local_path = _local_media_path(url)
-        key: tuple[str, str] | None = None
+        resize_image = (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and max_bytes > 0
+        )
+        # Image inputs may be larger than their request-local preview. Keep
+        # reads bounded, then let resizing enforce the inline limit.
+        read_limit = (
+            max(max_bytes, MAX_SNAPSHOT_IMAGE_BYTES)
+            if resize_image
+            else max_bytes
+        )
+        key: tuple[str, str, int] | None = None
         if local_path is not None:
-            key = ("local", os.path.normcase(os.path.normpath(local_path)))
+            key = (
+                "local",
+                os.path.normcase(os.path.normpath(local_path)),
+                read_limit,
+            )
             if key not in pending:
                 pending[key] = asyncio.create_task(
                     run_sync_io(
                         _read_local_media,
                         local_path,
-                        max_bytes,
+                        read_limit,
                     ),
                 )
             prepared_keys.append(key)
@@ -447,15 +519,16 @@ async def _prepare_media_sources(
 
         parsed = urlparse(url)
         if parsed.scheme in ("http", "https") and (
-            _remote_media_requires_download(
+            resize_image
+            or _remote_media_requires_download(
                 reference.kind,
                 base_formatter_class,
             )
         ):
-            key = ("remote", url)
+            key = ("remote", url, read_limit)
             if key not in pending:
                 pending[key] = asyncio.create_task(
-                    _download_remote_media(url, max_bytes),
+                    _download_remote_media(url, read_limit),
                 )
             prepared_keys.append(key)
             continue
@@ -471,17 +544,30 @@ async def _prepare_media_sources(
         if key is None:
             continue
         url = str(_media_source_value(reference.source, "url", "") or "")
+        prepared = _prepared_task_result(pending[key])
+        if (
+            resize_images_to_max_bytes
+            and reference.kind == "image"
+            and 0 < key[2] < prepared.size
+        ):
+            raise ValueError(
+                f"Image exceeds the {key[2]}-byte preparation limit.",
+            )
         _replace_media_reference(
             reference,
-            _prepared_task_result(pending[key]),
+            prepared,
             url,
             base_formatter_class,
             local=key[0] == "local",
-            max_bytes=max_bytes,
+            max_bytes=key[2],
         )
 
 
-def _resize_base64_images(items: list, max_pixels: int) -> int:
+def _resize_base64_images(
+    items: list,
+    max_pixels: int,
+    max_bytes: int = 0,
+) -> int:
     """Resize base64 images in a copied request message tree.
 
     Resize failures intentionally propagate so unsupported or corrupt
@@ -501,6 +587,7 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
             resized_data, changed = resize_base64_image(
                 str(data),
                 max_pixels,
+                max_bytes=max_bytes,
             )
             if changed:
                 if isinstance(source, dict):
@@ -528,32 +615,42 @@ def _resize_base64_images(items: list, max_pixels: int) -> int:
                 else getattr(block, "hint", None)
             )
         if isinstance(nested, list):
-            resized_count += _resize_base64_images(nested, max_pixels)
+            resized_count += _resize_base64_images(
+                nested,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
-async def _resize_request_images(msgs: list) -> int:
+async def _resize_request_images(msgs: list, max_bytes: int = 0) -> int:
     """Resize oversized images in request copies when explicitly enabled."""
     max_pixels = get_max_image_pixels()
-    if max_pixels <= 0:
+    if max_pixels <= 0 and max_bytes <= 0:
         return 0
     return await run_sync_io(
         _resize_base64_images_in_messages,
         msgs,
         max_pixels,
+        max_bytes,
     )
 
 
 def _resize_base64_images_in_messages(
     msgs: list,
     max_pixels: int,
+    max_bytes: int = 0,
 ) -> int:
     """Synchronously resize images across copied request messages."""
     resized_count = 0
     for msg in msgs:
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            resized_count += _resize_base64_images(content, max_pixels)
+            resized_count += _resize_base64_images(
+                content,
+                max_pixels,
+                max_bytes,
+            )
     return resized_count
 
 
@@ -566,25 +663,12 @@ def _prepared_task_result(
     return task.result()
 
 
-def _supports_multimodal_for_current_model() -> bool:
-    """Best-effort lookup of current model multimodal support."""
-    try:
-        from .prompt import get_active_model_supports_multimodal
-
-        return get_active_model_supports_multimodal()
-    except Exception:  # pragma: no cover - config lookup safety
-        logger.debug(
-            "Falling back to multimodal=True during request-time "
-            "message normalization",
-            exc_info=True,
-        )
-        return True
-
-
-def _normalize_messages_for_formatter(
+async def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -604,11 +688,13 @@ def _normalize_messages_for_formatter(
         base_formatter_class,
         OpenAIResponseFormatter,
     )
-    supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
     strip_audio = bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
+    )
+    strip_video = bool(
+        getattr(formatter_instance, "_qwenpaw_force_strip_video", False),
     )
 
     if is_anthropic_formatter:
@@ -618,11 +704,12 @@ def _normalize_messages_for_formatter(
     else:
         target_family = "openai"
 
-    normalized_msgs = normalize_messages_for_model_request(
+    normalized_msgs = await normalize_messages_for_model_request_async(
         msgs,
         supports_multimodal=supports_multimodal,
         target_family=target_family,
         strip_audio=strip_audio,
+        strip_video=strip_video,
     )
 
     return (
@@ -633,30 +720,39 @@ def _normalize_messages_for_formatter(
     )
 
 
-def _anthropic_media_dedup_key(
-    source: Any,
-) -> tuple[str, str, str] | None:
-    """Return a hashable key identifying a media source for dedup.
+# The media dedup key itself lives with the formatter media policy in
+# ``providers.capping_formatter`` (imported above as
+# ``_anthropic_media_dedup_key``) so the per-request inline-media budget
+# and the dedup scope agree on which occurrences carry the same payload.
 
-    A user-uploaded image often re-appears inside ``view_image``'s
-    ``ToolResultBlock.output``.  Without dedup both copies get
-    base64-encoded into the wire request, doubling payload size and
-    occasionally tripping gateway limits (e.g. dash_anthropic's 6 MB
-    cap).  This key lets the formatter spot the second occurrence and
-    swap it for a short text placeholder.
+
+def _carries_media_payload(formatted: Any) -> bool:
+    """Whether a formatted Anthropic block carries a media payload.
+
+    A block that carries media reached the wire; a text placeholder did
+    not.  Only media that reached the wire may suppress a later copy of
+    the same source.
     """
-    media_type = getattr(source, "media_type", "") or ""
-    url = getattr(source, "url", None)
-    if url is not None:
-        return ("url", media_type, str(url))
-    data = getattr(source, "data", "") or ""
-    if data:
-        # Base64 is already a canonical immutable representation here.
-        # Using the string itself avoids decoding and hashing every media
-        # block again on every accumulated-history request. Python caches
-        # string hashes and set equality still compares the full content.
-        return ("base64", media_type, data)
-    return None
+    return isinstance(formatted, dict) and isinstance(
+        formatted.get("source"),
+        dict,
+    )
+
+
+def _qwenpaw_cap_media(
+    formatter: Any,
+    source: Any,
+    kind: str,
+) -> dict[str, Any] | None:
+    """Apply the formatter's media caps to *source*, if it has any.
+
+    The capping formatters expose ``_cap_media``; formatters without it
+    (a plain agentscope formatter) have no caps to apply.
+    """
+    cap = getattr(formatter, "_cap_media", None)
+    if cap is None:
+        return None
+    return cap(source, kind)
 
 
 _WIRE_MEDIA_BLOCK_TYPES = frozenset(
@@ -702,6 +798,38 @@ def _count_wire_audio_blocks(value: Any) -> int:
     if isinstance(media_type, str) and media_type.startswith("audio/"):
         return 1
     return sum(_count_wire_audio_blocks(item) for item in value.values())
+
+
+def _count_wire_video_blocks(value: Any) -> int:
+    """Count video parts actually emitted by any supported formatter."""
+    if isinstance(value, list):
+        return sum(_count_wire_video_blocks(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+
+    if value.get("type") in ("video", "video_url", "input_video"):
+        return 1
+    media_type = value.get("mime_type") or value.get("media_type")
+    if isinstance(media_type, str) and media_type.startswith("video/"):
+        return 1
+    return sum(_count_wire_video_blocks(item) for item in value.values())
+
+
+# Marker carried by a video block that the formatter wrapper accounts
+# against the per-request media budget.  The block keeps its media type,
+# so the formatter still recognises it as video, while the marker lets
+# the wrapper find the substitution entry again after formatting.
+_VIDEO_SUBSTITUTION_PREFIX = "__QWENPAW_VID_"
+
+
+def _video_substitution_marker(block: Any) -> str | None:
+    """Return the substitution marker carried by *block*, if any."""
+    name = getattr(block, "name", None)
+    if isinstance(name, str) and name.startswith(
+        _VIDEO_SUBSTITUTION_PREFIX,
+    ):
+        return name
+    return None
 
 
 def _video_oversize_placeholder(
@@ -761,8 +889,12 @@ def _format_anthropic_video_data_block(
     # Base64Source — pass data straight through (after the size cap).
     data_attr = getattr(source, "data", None)
     if data_attr is not None:
-        # base64 length -> approximate raw byte count.
-        size = len(data_attr or "") * 3 // 4
+        # Measure through the shared ``inline_media_size`` helper so the
+        # base64 padding is excluded here exactly like the capping
+        # formatters size every inline payload: a video that is exactly
+        # at the cap is not rejected for the padding characters of its
+        # encoding (#8034 review).
+        size = _inline_media_size(source) or 0
         if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
@@ -836,7 +968,21 @@ def _format_openai_video_block(
     source = video_block["source"]
     if source["type"] == "base64":
         media_type = source["media_type"]
-        size = len(source.get("data") or "") * 3 // 4
+        # Measure through the shared ``inline_media_size`` helper so the
+        # base64 padding is excluded here exactly like the capping
+        # formatters size every inline payload: a video that is exactly
+        # at the cap is not rejected for the padding characters of its
+        # encoding (#8034 review).
+        size = (
+            _inline_media_size(
+                Base64Source(
+                    type="base64",
+                    media_type=media_type,
+                    data=source.get("data") or "",
+                ),
+            )
+            or 0
+        )
         if 0 < max_inline_media_bytes < size:
             return _video_oversize_placeholder(
                 size,
@@ -941,12 +1087,24 @@ def _block_to_dict(block: Any) -> dict:
 
 def _substitute_video_blocks(
     msgs: list,
+    *,
+    mark: bool = False,
 ) -> dict[str, dict]:
     """Replace video blocks in msgs with text placeholders.
 
     Returns a mapping from placeholder text to the original
     video block so they can be restored later.  Handles both
     dict blocks (1.x) and Pydantic DataBlock objects (2.0).
+
+    With *mark* set, a Pydantic video block is not replaced but
+    *marked*: its ``name`` becomes the placeholder text and the block
+    itself stays in the message.  The formatter then still sees the
+    video as a media block, so the per-request media budget can
+    account for it at its own position in the wire order instead of
+    having it slip in behind the budget's back.  The formatter renders
+    a marked block as the placeholder text, and the placeholder is
+    resolved to the real video wire dict afterwards, exactly as for a
+    replaced block.
 
     Assistant messages are skipped because video blocks are
     not valid in assistant content for most providers.
@@ -978,11 +1136,16 @@ def _substitute_video_blocks(
                 is_video = mt.startswith("video/")
 
             if is_video:
-                ph = f"__QWENPAW_VID_{id(blk)}__"
+                ph = f"{_VIDEO_SUBSTITUTION_PREFIX}{id(blk)}__"
                 video_subs[ph] = (
                     blk if isinstance(blk, dict) else blk.model_dump()
                 )
-                msg.content[i] = TextBlock(type="text", text=ph)
+                if mark and not isinstance(blk, dict):
+                    # Keep the media block so the formatter's media hook
+                    # can account the video against the media budget.
+                    msg.content[i] = blk.model_copy(update={"name": ph})
+                else:
+                    msg.content[i] = TextBlock(type="text", text=ph)
     return video_subs
 
 
@@ -1275,6 +1438,18 @@ def _is_block_dropped_by_formatter(
     return True
 
 
+def _effective_thinking_omit_ids(formatter: "FormatterBase") -> set[str]:
+    """Share active reasoning omissions between wire relay and counting."""
+    if getattr(formatter, "_qwenpaw_require_reasoning_content", False) or not (
+        getattr(formatter, "relay_reasoning_content", True)
+    ):
+        return set()
+    return {
+        str(item)
+        for item in getattr(formatter, "_qwenpaw_omit_thinking_ids", set())
+    }
+
+
 def _reasoning_by_assistant_segment(
     blocks: list[Any],
     formatter: "FormatterBase",
@@ -1295,20 +1470,7 @@ def _reasoning_by_assistant_segment(
     aligned: list[str | None] = []
     reasoning_parts: list[str] = []
     segment_survives = False
-    omitted_ids = {
-        str(item)
-        for item in getattr(
-            formatter,
-            "_qwenpaw_omit_thinking_ids",
-            set(),
-        )
-    }
-    if getattr(formatter, "_qwenpaw_require_reasoning_content", False):
-        # Some OpenAI-compatible providers require the exact reasoning text
-        # from every previous assistant tool-call turn. Once that capability
-        # is known, a stale request-time fold must never replace the original
-        # content with either omission or a placeholder.
-        omitted_ids.clear()
+    omitted_ids = _effective_thinking_omit_ids(formatter)
 
     for block in blocks:
         block_type = _get(block, "type")
@@ -1442,7 +1604,9 @@ def _fixup_media_list(items: list) -> None:
             )
             filename = (
                 fname_hint
-                or (readable_path.rsplit("/", 1)[-1] if readable_path else "")
+                # Accept both separators, including Windows session paths
+                # processed on a different host platform.
+                or (media_basename(readable_path) if readable_path else "")
                 or "file"
             )
             items[i] = TextBlock(
@@ -1490,6 +1654,8 @@ def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
     provider_id: str | None = None,
     model_id: str | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1504,6 +1670,8 @@ def _create_file_block_support_formatter(
         model_id: Model served by the provider. This is used together with
             ``provider_id`` for request-protocol capabilities that cannot be
             inferred from the shared formatter base class.
+        supports_multimodal: Resolved capability of the selected model.
+            Unknown capability preserves media for provider-side handling.
 
     Returns:
         Enhanced formatter class with file block support
@@ -1522,8 +1690,34 @@ def _create_file_block_support_formatter(
     )
     supports_thinking_omission = (
         supports_reasoning_content_relay
+        # Only this relay owns OpenAI-chat reasoning end to end. Native
+        # formatters (e.g. Gemini and DashScope) can emit thinking themselves,
+        # so omitting relay text would not remove their original wire blocks.
+        # TODO: Custom OpenAI formatter subclasses may emit thinking outside
+        # this relay, letting counting omit content still sent on the wire.
+        # Revisit this inheritance check when supporting custom formatters;
+        # their omission behavior is not validated here.
+        and issubclass(base_formatter_class, OpenAIChatFormatter)
         and not requires_exact_reasoning_replay
     )
+
+    # The Responses API names its text parts ``input_text``; the chat
+    # formats use ``text``.  A video block rendered as a substitution
+    # placeholder has to use the format's own text type.
+    _video_placeholder_text_type = (
+        "input_text"
+        if issubclass(base_formatter_class, OpenAIResponseFormatter)
+        else "text"
+    )
+
+    # Whether the base formatter exposes a media hook the wrapper can
+    # intercept video in.  Only then may a video block be *marked*
+    # instead of replaced: a replaced block never reaches a media hook,
+    # so the per-request media budget would not see the video.
+    _has_media_data_block_hook = hasattr(
+        base_formatter_class,
+        "_format_openai_data_block",
+    ) or hasattr(base_formatter_class, "_format_dashscope_data_block")
 
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
@@ -1569,6 +1763,36 @@ def _create_file_block_support_formatter(
             setattr(self, "_qwenpaw_omit_thinking_ids", accepted_ids)
             return can_omit
 
+        def _prepare_messages_for_token_counting(
+            self,
+            messages: list[Msg],
+        ) -> list[Msg]:
+            """Project accepted omissions without changing replayable input.
+
+            The default counter reads Msg blocks rather than formatter output.
+            Give it a shallow view; provider fallbacks must still receive the
+            original reasoning if their protocol requires exact replay.
+            """
+            if not supports_thinking_omission:
+                return messages
+            omitted_ids = _effective_thinking_omit_ids(self)
+            if not omitted_ids:
+                return messages
+            projected = list(messages)
+            for index, msg in enumerate(messages):
+                content = [
+                    block
+                    for block in msg.content
+                    if not (
+                        block.type == "thinking" and block.id in omitted_ids
+                    )
+                ]
+                if len(content) != len(msg.content):
+                    projected[index] = msg.model_copy(
+                        update={"content": content},
+                    )
+            return projected
+
         def _format_anthropic_data_block(self, block):
             """Route video ``DataBlock``s to our local helper; defer
             everything else to the upstream Anthropic formatter.
@@ -1576,6 +1800,13 @@ def _create_file_block_support_formatter(
             Also dedups the same media within one ``format()`` call:
             the second appearance of a given source becomes a short
             text placeholder instead of another base64 copy.
+
+            Only media that actually reaches the wire is remembered as
+            seen.  Media the per-request inline-media budget dropped is
+            *not* part of the request, so a later copy of the same
+            source has to stay eligible — otherwise the newest copy of
+            a repeated image would be folded as "already shown above"
+            while the copy that was dropped is nowhere in the request.
 
             Only the Anthropic base invokes this method — it lives on
             our subclass as dead code for OpenAI / Gemini bases.
@@ -1588,26 +1819,99 @@ def _create_file_block_support_formatter(
                 seen = set()
                 _FORMATTER_SEEN_MEDIA_KEYS.set(seen)
             key = _anthropic_media_dedup_key(source) if source else None
-            if key is not None:
-                if key in seen:
-                    main_type = media_type.split("/")[0] or "media"
-                    return {
-                        "type": "text",
-                        "text": (
-                            f"[{main_type.title()} omitted — "
-                            f"already shown above]"
-                        ),
-                    }
-                seen.add(key)
+            if key is not None and key in seen:
+                # The media is already inlined into this request, so this
+                # copy is redundant.  Keep the request's occurrence
+                # accounting aligned: the folded copy still takes a slot
+                # in the wire order the budget measured, but — folded —
+                # it sends no payload bytes and costs the budget nothing.
+                account = getattr(self, "_account_media_occurrence", None)
+                if account is not None:
+                    account(source, key)
+                main_type = media_type.split("/")[0] or "media"
+                return {
+                    "type": "text",
+                    "text": (
+                        f"[{main_type.title()} omitted — "
+                        f"already shown above]"
+                    ),
+                }
 
             if media_type.startswith("video/"):
-                return _format_anthropic_video_data_block(
+                # Video never reaches the formatter's ``_format_source``
+                # hook, so the per-request media budget would not see it
+                # at all.  Account it here — at the block's own position
+                # in the wire order — so a request carrying video is
+                # bounded like any other media.
+                capped = _qwenpaw_cap_media(self, source, "video")
+                if capped is not None:
+                    return capped
+                formatted = _format_anthropic_video_data_block(
                     block,
                     max_inline_media_bytes=(
                         getattr(self, "max_bytes", MAX_INLINE_MEDIA_BYTES)
                     ),
                 )
-            return super()._format_anthropic_data_block(block)
+            else:
+                formatted = super()._format_anthropic_data_block(block)
+            if key is not None and _carries_media_payload(formatted):
+                seen.add(key)
+            return formatted
+
+        def _qwenpaw_video_block(self, block):
+            """Render a marked video block as its substitution placeholder.
+
+            Video is substituted into the request around the formatter's
+            ``format()`` call, so it would otherwise never reach the
+            media hooks the per-request media budget watches.  A marked
+            video block is therefore rendered here — at the block's own
+            position in the wire order — so the budget can account for
+            it like any other media.
+
+            Returns the placeholder text for a video the budget keeps,
+            or a text placeholder for a video the budget drops.
+            """
+            marker = _video_substitution_marker(block)
+            if marker is None:
+                return None
+            source = getattr(block, "source", None)
+            capped = _qwenpaw_cap_media(self, source, "video")
+            if capped is not None:
+                return capped
+            return {
+                "type": _video_placeholder_text_type,
+                "text": marker,
+            }
+
+        def _format_openai_data_block(self, block):
+            """Account marked video blocks before the OpenAI formatter
+            rejects them.
+
+            The OpenAI chat format has no native video input; the video
+            wire dict is substituted into the request after formatting.
+            Rendering the marked block here keeps it visible to the
+            per-request media budget.
+
+            Only a base that defines this hook calls it — on the other
+            bases it lives on our subclass as dead code.
+            """
+            video = self._qwenpaw_video_block(block)
+            if video is not None:
+                return video
+            return super()._format_openai_data_block(block)
+
+        def _format_dashscope_data_block(self, block):
+            """Account marked video blocks before the DashScope formatter
+            handles them.
+
+            Only the DashScope base invokes this method — it lives on our
+            subclass as dead code for the OpenAI / Anthropic / Gemini
+            bases.
+            """
+            video = self._qwenpaw_video_block(block)
+            if video is not None:
+                return video
+            return super()._format_dashscope_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
         async def format(self, msgs):
@@ -1619,6 +1923,7 @@ def _create_file_block_support_formatter(
             # previous request behind for the capability fallback layer.
             self._qwenpaw_last_wire_media_count = 0
             self._qwenpaw_last_wire_audio_count = 0
+            self._qwenpaw_last_wire_video_count = 0
 
             def _battr(block, key, default=None):
                 """Get attribute from dict or Pydantic block."""
@@ -1631,10 +1936,11 @@ def _create_file_block_support_formatter(
                 is_anthropic_formatter,
                 _is_gemini_formatter,
                 _is_response_formatter,
-            ) = _normalize_messages_for_formatter(
+            ) = await _normalize_messages_for_formatter(
                 msgs,
                 base_formatter_class,
                 self,
+                supports_multimodal=supports_multimodal,
             )
 
             has_reasoning = False
@@ -1693,8 +1999,20 @@ def _create_file_block_support_formatter(
                     "max_bytes",
                     MAX_INLINE_MEDIA_BYTES,
                 ),
+                resize_images_to_max_bytes=getattr(
+                    self,
+                    "resize_images_to_max_bytes",
+                    False,
+                ),
             )
-            await _resize_request_images(normalized_msgs)
+            await _resize_request_images(
+                normalized_msgs,
+                max_bytes=(
+                    self.max_bytes
+                    if getattr(self, "resize_images_to_max_bytes", False)
+                    else 0
+                ),
+            )
 
             # Per-wire-request dedup scope — second occurrence of the
             # same media source becomes a text placeholder. Set this only
@@ -1713,7 +2031,10 @@ def _create_file_block_support_formatter(
                 )
                 video_subs: dict[str, dict] = {}
                 if _needs_video:
-                    video_subs = _substitute_video_blocks(normalized_msgs)
+                    video_subs = _substitute_video_blocks(
+                        normalized_msgs,
+                        mark=_has_media_data_block_hook,
+                    )
 
                 messages = await super().format(normalized_msgs)
 
@@ -1851,6 +2172,9 @@ def _create_file_block_support_formatter(
             self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
                 wire_messages,
             )
+            self._qwenpaw_last_wire_video_count = _count_wire_video_blocks(
+                wire_messages,
+            )
             return wire_messages
 
         def convert_tool_result_to_string(
@@ -1937,45 +2261,6 @@ def _strip_top_level_message_name(
     return messages
 
 
-def _resolve_model_slot_override(model_slot_override: Any):
-    """Parse an optional per-request model override into a model slot."""
-    from ..config.config import ModelSlotConfig
-
-    slot = None
-    if isinstance(model_slot_override, ModelSlotConfig):
-        slot = model_slot_override
-    if isinstance(model_slot_override, dict):
-        try:
-            slot = ModelSlotConfig.model_validate(model_slot_override)
-        except Exception:
-            logger.warning(
-                "Ignoring invalid model_slot_override dict: %r",
-                model_slot_override,
-            )
-    if isinstance(model_slot_override, str):
-        # Use partition so version-tagged model names can contain ':'.
-        provider_id, sep, model_name = model_slot_override.partition(":")
-        if sep and provider_id.strip() and model_name.strip():
-            slot = ModelSlotConfig(
-                provider_id=provider_id.strip(),
-                model=model_name.strip(),
-            )
-        else:
-            logger.warning(
-                "Ignoring invalid model_slot_override string: %r",
-                model_slot_override,
-            )
-    if model_slot_override is not None and not isinstance(
-        model_slot_override,
-        (ModelSlotConfig, dict, str),
-    ):
-        logger.warning(
-            "Unsupported model_slot_override type: %s",
-            type(model_slot_override).__name__,
-        )
-    return slot
-
-
 def _bind_provider_id_to_model(
     model: ChatModelBase,
     provider_id: str,
@@ -2039,6 +2324,7 @@ class _AgentModelSettings:
     fallback_enabled: bool = False
     fallback_free_only: bool = False
     thinking_level: Any = "inherit"
+    thinking_budget: int | None = None
     compact_threshold: Optional[float] = None
 
 
@@ -2061,6 +2347,11 @@ def _load_agent_model_settings(
             agent_config,
             "thinking_level",
             "inherit",
+        )
+        settings.thinking_budget = getattr(
+            agent_config,
+            f"thinking_budget",
+            None,
         )
         settings.fallback_slots = list(
             getattr(agent_config, "fallback_models", []),
@@ -2101,17 +2392,19 @@ def _apply_model_fallbacks(
     fallback_enabled: bool,
     fallback_free_only: bool,
     thinking_level: str,
+    thinking_budget: int | None = None,
     compact_threshold: Optional[float],
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
     has_model_override: bool,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> ChatModelBase:
     """Build an ordered fallback chain around the primary model."""
     if not fallback_enabled or has_model_override or not fallback_slots:
         return wrapped_model
 
     from ..providers.fallback_chat_model import FallbackChatModel
-    from ..providers.provider import agent_thinking_level
 
     fallback_models: list[ChatModelBase] = [wrapped_model]
     primary_model_name = getattr(wrapped_model, "model", "")
@@ -2119,7 +2412,7 @@ def _apply_model_fallbacks(
     manager = ProviderManager.get_instance()
     for fallback_slot in fallback_slots:
         fallback_provider = manager.get_provider(fallback_slot.provider_id)
-        if fallback_provider is None:
+        if fallback_provider is None or not fallback_provider.enabled:
             continue
         fallback_provider_id = _resolved_provider_id(
             fallback_provider,
@@ -2131,14 +2424,18 @@ def _apply_model_fallbacks(
         fallback_info = fallback_provider.get_model_info(fallback_slot.model)
         if fallback_info is None:
             continue
+        if require_image_support and fallback_info.supports_image is not True:
+            continue
         if fallback_free_only and not fallback_info.is_free:
             continue
         # A broken fallback slot (stale provider config, deleted chat
         # model class, ...) must never keep a healthy primary model
         # from being built: skip the slot instead of propagating.
         try:
-            with agent_thinking_level(thinking_level):
-                fallback_model = fallback_provider.get_chat_model_instance(
+            with agent_thinking_level(thinking_level, thinking_budget):
+                fallback_provider.validate_chat_model(fallback_slot.model)
+                fallback_model = _create_provider_model(
+                    fallback_provider,
                     fallback_slot.model,
                 )
             fallback_provider_id = _bind_provider_id_to_model(
@@ -2150,10 +2447,18 @@ def _apply_model_fallbacks(
                 fallback_provider,
                 fallback_slot.model,
             )
-            _install_model_formatter(
+            fallback_formatter = _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
+                model_info=fallback_provider.resolve_model_info(
+                    fallback_slot.model,
+                ),
             )
+            if resize_images_to_max_bytes and isinstance(
+                fallback_formatter,
+                CappingFormatterMixin,
+            ):
+                fallback_formatter.resize_images_to_max_bytes = True
         except Exception:
             logger.warning(
                 "Skipping fallback model slot %s:%s "
@@ -2184,10 +2489,42 @@ def _apply_model_fallbacks(
     return wrapped_model
 
 
+def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
+    """Share agent settings without adding retries or personal fallbacks."""
+    selected, catalog = managed_slot(model_slot, explicit=explicit)
+    if selected is None:
+        raise ProviderError(message="No organization model available")
+    provider = managed_provider(catalog)
+
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        provider.validate_chat_model(selected.model)
+        model = _create_provider_model(provider, selected.model)
+    _ensure_model_context_size(model, provider, selected.model)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=PROVIDER_ID,
+        model_info=provider.resolve_model_info(selected.model),
+    )
+    wrapped = TokenRecordingModelWrapper(
+        PROVIDER_ID,
+        model,
+        compact_threshold=settings.compact_threshold,
+    )
+    info = provider.get_model_info(selected.model)
+    wrapped.display_name = info.name if info else None
+    return wrapped, formatter
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -2205,6 +2542,9 @@ def create_model_and_formatter(
             only the first ``:`` is treated as the separator.
         agent_config: Optional config already loaded by an async caller.
             Synchronous callers may omit it to preserve legacy loading.
+        require_image_support: Keep only confirmed image-capable fallbacks
+            when the primary supports images, for image-memory jobs.
+        resize_images_to_max_bytes: Fit images to each candidate's inline cap.
     Returns:
         Tuple of (model_instance, formatter_instance)
 
@@ -2222,52 +2562,44 @@ def create_model_and_formatter(
 
     settings = _load_agent_model_settings(agent_id, agent_config)
     model_slot = settings.model_slot
-    slot = _resolve_model_slot_override(model_slot_override)
+    slot = resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        from ..providers.provider import agent_thinking_level
-
-        with agent_thinking_level(settings.thinking_level):
-            model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
-        selected_model_id = model_slot.model
-    else:
-        # Fallback to global active model
-        manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
-        if (
-            global_model is None
-            or not global_model.provider_id
-            or not global_model.model
+    if hub_mode() and model_slot is None:
+        model_slot = ProviderManager.get_instance().active_model
+    if hub_mode() and model_slot and model_slot.provider_id == PROVIDER_ID:
+        model, formatter = _create_hub_model_and_formatter(
+            settings,
+            model_slot,
+            explicit=slot is not None,
+        )
+        if resize_images_to_max_bytes and isinstance(
+            formatter,
+            CappingFormatterMixin,
         ):
-            raise ProviderError(
-                message=(
-                    "No active model configured. "
-                    "Please configure a model using 'qwenpaw models config' "
-                    "or set an agent-specific model."
-                ),
-            )
-        provider = manager.get_provider(global_model.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=(
-                    f"Active provider '{global_model.provider_id}' not found."
-                ),
-            )
-        provider_id = _resolved_provider_id(provider, global_model.provider_id)
-        selected_model_id = global_model.model
-        model = provider.get_chat_model_instance(selected_model_id)
+            formatter.resize_images_to_max_bytes = True
+        return model, formatter
+
+    manager = ProviderManager.get_instance()
+    model_slot = model_slot or manager.get_active_model()
+    if not model_slot or not model_slot.provider_id or not model_slot.model:
+        raise ProviderError(message=f"No active model configured")
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+    if not provider.enabled:
+        raise ProviderError(message=f"Provider is disabled")
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        provider.validate_chat_model(model_slot.model)
+        model = _create_provider_model(provider, model_slot.model)
+    provider_id = _resolved_provider_id(provider, model_slot.provider_id)
+    selected_model_id = model_slot.model
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
     _ensure_model_context_size(model, provider, selected_model_id)
@@ -2276,7 +2608,17 @@ def create_model_and_formatter(
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
-    formatter = _install_model_formatter(model, provider_id=provider_id)
+    model_info = provider.resolve_model_info(selected_model_id)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=provider_id,
+        model_info=model_info,
+    )
+    if resize_images_to_max_bytes and isinstance(
+        formatter,
+        CappingFormatterMixin,
+    ):
+        formatter.resize_images_to_max_bytes = True
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
@@ -2306,19 +2648,47 @@ def create_model_and_formatter(
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
         thinking_level=settings.thinking_level,
+        thinking_budget=settings.thinking_budget,
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
         has_model_override=slot is not None,
+        require_image_support=(
+            require_image_support
+            and model_info is not None
+            and model_info.supports_image is True
+        ),
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
+    info = provider.get_model_info(selected_model_id)
+    wrapped_model.display_name = info.name if info else None
     return wrapped_model, formatter
+
+
+def _decision_model_settings(agent_config):
+    """Resolve and validate the agent or global decision model slot."""
+    try:
+        provider, model = resolve_decision_model(agent_config.decision_model)
+    except TypeSafeEvaluationError as exc:
+        raise ProviderError(message=str(exc)) from exc
+    provider.validate_model_selection(model, "decision")
+    return provider, model
+
+
+async def create_decision_model_async(agent_config):
+    """Build a host-owned decision model from the configured provider."""
+    provider, model = await run_sync_io(_decision_model_settings, agent_config)
+    return await provider.as_decision_model_async(model)
 
 
 async def create_model_and_formatter_async(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
     agent_config: Any = None,
+    *,
+    require_image_support: bool = False,
+    resize_images_to_max_bytes: bool = False,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Build a model and formatter without blocking the event loop."""
     return await run_sync_io(
@@ -2326,12 +2696,16 @@ async def create_model_and_formatter_async(
         agent_id=agent_id,
         model_slot_override=model_slot_override,
         agent_config=agent_config,
+        require_image_support=require_image_support,
+        resize_images_to_max_bytes=resize_images_to_max_bytes,
     )
 
 
 def _create_formatter_instance(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    supports_multimodal: bool = True,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -2367,6 +2741,7 @@ def _create_formatter_instance(
         base_formatter_class,
         provider_id=provider_id,
         model_id=str(getattr(model, "model", "") or ""),
+        supports_multimodal=supports_multimodal,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
@@ -2398,17 +2773,25 @@ def _create_formatter_instance(
 def _install_model_formatter(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
     formatter = _create_formatter_instance(
         model,
         provider_id=provider_id,
+        supports_multimodal=(
+            model_info is None
+            or bool(model_info.supports_image or model_info.supports_video)
+            or model_info.supports_multimodal is not False
+        ),
     )
     model.formatter = formatter
     return formatter
 
 
 __all__ = [
+    "create_decision_model_async",
     "create_model_and_formatter",
     "create_model_and_formatter_async",
 ]

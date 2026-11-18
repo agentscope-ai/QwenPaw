@@ -51,7 +51,7 @@ _CURRENCY = re.compile(
     r"\d(?:[\d,_]*\d)?(?:\.\d{2})?$",
 )
 _HEX = re.compile(r"^(?=[0-9a-fA-F]*\d)[0-9a-fA-F]{7,40}$")
-_CONST = re.compile(r"^[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+$")
+_CONST = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
 _TICKET = re.compile(r"^(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+$")
 _FLAG = re.compile(r"^--?[A-Za-z][\w-]+$", re.ASCII)
 _NUMBER = re.compile(r"^\d[\d,_]*$|^\d+\.\d+$")
@@ -95,7 +95,7 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?:^|[^\w-])(--?[A-Za-z][\w-]+)", re.ASCII),
     re.compile(r"\b\d[\d,_]{3,}\b", re.ASCII),
     re.compile(r"\b\d+\.\d+\b", re.ASCII),
-    re.compile(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b", re.ASCII),
+    re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b", re.ASCII),
     re.compile(r"\b(?:[a-z]+|[A-Z][a-z0-9]+)(?:[A-Z][a-z0-9]*)+\b", re.ASCII),
     re.compile(
         r"\b(?=[A-Z0-9-]{0,119}\d)[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+\b",

@@ -97,6 +97,47 @@ function incompleteNotice(container: HTMLElement) {
 }
 
 describe("TimelineLivePreview", () => {
+  it.each([
+    [true, true, true],
+    [true, false, false],
+    [false, true, false],
+  ])(
+    "matches launch music replacement in preview (%s, %s)",
+    (launch, bgmEnabled, silent) => {
+      const project = cloneProject();
+      const timeline = project.timelines.items["timeline:main"];
+      project.assets.source_versions_by_id["cat-video-v1"].media_kind = "audio";
+      timeline.elements_by_id["audio-bgm"].enabled = bgmEnabled;
+      if (launch) {
+        timeline.edit_plan = {
+          concept: "非正式发布会",
+          dials: { energy: "mid", density: "mid", decoration: "low" },
+          signature_device: "花字",
+          pacing: "",
+          design_floor: {
+            opening: "【官方固定模板：informal_launch】",
+            body: "",
+            transitions: "",
+            ending: "",
+          },
+          mechanical_exemption: false,
+          scene_ledger: [],
+        };
+      }
+      const { container } = renderPreview(project, 9000);
+      const video = container.querySelector(
+        '[data-live-layer="r2v-window"]',
+      ) as HTMLVideoElement;
+      expect(video.muted).toBe(silent);
+      if (bgmEnabled) {
+        const music = container.querySelector(
+          '[data-live-layer="audio-bgm"]',
+        ) as HTMLAudioElement;
+        expect(music.muted).toBe(false);
+      }
+    },
+  );
+
   it.each<[string, number, number, "pause" | "play"]>([
     ["holds finished entrances on their filled final frame", 600, 600, "pause"],
     [
@@ -252,6 +293,44 @@ describe("TimelineLivePreview", () => {
       container.querySelector('[data-live-placeholder="overlay-title"]'),
     ).not.toBeInTheDocument();
   });
+
+  it.each([false, true])(
+    "preserves launch lettering without changing generic captions (%s)",
+    (launch) => {
+      const project = cloneProject();
+      if (launch) {
+        project.timelines.items["timeline:main"].edit_plan = {
+          concept: "非正式发布会",
+          dials: { energy: "mid", density: "mid", decoration: "low" },
+          signature_device: "花字",
+          pacing: "",
+          design_floor: {
+            opening: "【官方固定模板：informal_launch】",
+            body: "",
+            transitions: "",
+            ending: "",
+          },
+          mechanical_exemption: false,
+          scene_ledger: [],
+        };
+      }
+      const custom =
+        '<html><head><style>.title{font-size:6vw;-webkit-text-stroke:1px purple}</style></head><body><span class="title">小猫出发</span></body></html>';
+      overlayCreation(project).motion!.html = custom;
+      overlayCreation(project).motion!.exit = "shrink";
+      const { container } = renderPreview(project, 5750);
+      const motion = container.querySelector(
+        '[data-live-motion-overlay="overlay-title"]',
+      ) as HTMLIFrameElement;
+      expect(motion.srcdoc).toContain("-webkit-text-stroke:1px purple");
+      expect(motion.srcdoc.includes("data-qwenpaw-viewport-safety")).toBe(
+        !launch,
+      );
+      // A legacy default exit must not introduce shrink/fade only in the
+      // preview. The launch renderer follows data-motion-exit in the HTML.
+      expect(Number(motion.style.opacity)).toBeCloseTo(launch ? 1 : 1 / 3);
+    },
+  );
 
   it("previews html_js overlays as backend posters, never script iframes", () => {
     const project = cloneProject();

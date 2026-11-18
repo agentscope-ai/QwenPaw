@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Modal, Form, Input, Select, Button, Card } from "antd";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Rocket, ChartNoAxesCombined, Building2 } from "lucide-react";
 import type { HarvestTemplate } from "../types";
 import styles from "./CreateHarvestModal.module.less";
 
@@ -15,11 +15,10 @@ interface CreateHarvestModalProps {
   }) => void;
 }
 
-const TEMPLATES: HarvestTemplate[] = [
+const TEMPLATES: Omit<HarvestTemplate, "emoji">[] = [
   {
     id: "tech-daily",
     name: "Tech Frontier Harvest",
-    emoji: "🚀",
     description: "Daily updates on AI, tech trends and open source.",
     estimatedReadTime: 8,
     defaultSchedule: { cron: "0 9 * * *", timezone: "Asia/Shanghai" },
@@ -27,7 +26,6 @@ const TEMPLATES: HarvestTemplate[] = [
   {
     id: "industry-weekly",
     name: "Industry Intelligence",
-    emoji: "📊",
     description: "Weekly deep-dive analysis of industry trends.",
     estimatedReadTime: 15,
     defaultSchedule: { cron: "0 10 * * 1", timezone: "Asia/Shanghai" },
@@ -35,7 +33,6 @@ const TEMPLATES: HarvestTemplate[] = [
   {
     id: "competitor-daily",
     name: "Competitor Watch",
-    emoji: "🏢",
     description: "Track competitor moves and key market signals.",
     estimatedReadTime: 6,
     defaultSchedule: { cron: "0 18 * * *", timezone: "Asia/Shanghai" },
@@ -94,7 +91,15 @@ export function CreateHarvestModal({
             onClick={() => handleSelectTemplate(template.id)}
           >
             <div className={styles.templateHeader}>
-              <span className={styles.templateEmoji}>{template.emoji}</span>
+              <span className={styles.templateEmoji}>
+                {template.id === "tech-daily" ? (
+                  <Rocket size={22} />
+                ) : template.id === "industry-weekly" ? (
+                  <ChartNoAxesCombined size={22} />
+                ) : (
+                  <Building2 size={22} />
+                )}
+              </span>
               <strong>{template.name}</strong>
             </div>
             <p className={styles.templateDesc}>{template.description}</p>

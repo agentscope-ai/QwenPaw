@@ -33,17 +33,17 @@ class RuntimeConfigPage(BasePage):
     # ========== Selector definitions ==========
 
     # Page-loaded indicator
-    PAGE_LOAD_INDICATOR = '.qwenpaw-tabs-tab-btn'
+    PAGE_LOAD_INDICATOR = '[role="tab"]'
 
     # Tabs
-    REACT_TAB = '[data-node-key="reactAgent"] .qwenpaw-tabs-tab-btn'
-    LLM_RETRY_TAB = '[data-node-key="llmRetry"] .qwenpaw-tabs-tab-btn'
-    LLM_RATE_LIMITER_TAB = '[data-node-key="llmRateLimiter"] .qwenpaw-tabs-tab-btn'
-    CONTEXT_COMPACT_TAB = '[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn'
-    TOOL_RESULT_COMPACT_TAB = '[data-node-key="lightContext"] .qwenpaw-tabs-tab-btn'  # Merged into the Context Management tab
-    MEMORY_SUMMARY_TAB = '[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn'
-    EMBEDDING_CONFIG_TAB = '[data-node-key="remeLightMemory"] .qwenpaw-tabs-tab-btn'  # Embedding model config merged into the Long-term Memory tab
-    TOOL_EXECUTION_LEVEL_TAB = '[data-node-key="toolExecutionLevel"] .qwenpaw-tabs-tab-btn'
+    REACT_TAB = '[role="tab"]:has-text("Workspace")'
+    LLM_RETRY_TAB = '[role="tab"]:has-text("Recovery")'
+    LLM_RATE_LIMITER_TAB = LLM_RETRY_TAB
+    CONTEXT_COMPACT_TAB = '[role="tab"]:has-text("Context budget")'
+    TOOL_RESULT_COMPACT_TAB = CONTEXT_COMPACT_TAB
+    MEMORY_SUMMARY_TAB = '[role="tab"]:has-text("Memory")'
+    EMBEDDING_CONFIG_TAB = MEMORY_SUMMARY_TAB
+    TOOL_EXECUTION_LEVEL_TAB = '[role="tab"]:has-text("Execution")'
 
     # Active panel
     ACTIVE_PANEL = '.qwenpaw-tabs-tabpane-active'
@@ -190,9 +190,19 @@ class RuntimeConfigPage(BasePage):
         Generic tab-switch method.
 
         Args:
-            tab_key: the tab's data-node-key value, e.g. "reactAgent", "llmRetry", etc.
+            tab_key: the runtime section key.
         """
-        tab_selector = f'[data-node-key="{tab_key}"] .qwenpaw-tabs-tab-btn'
+        selectors = {
+            "reactAgent": self.REACT_TAB,
+            "agentLoop": self.TOOL_EXECUTION_LEVEL_TAB,
+            "toolExecutionLevel": self.TOOL_EXECUTION_LEVEL_TAB,
+            "llmRetry": self.LLM_RETRY_TAB,
+            "llmRateLimiter": self.LLM_RATE_LIMITER_TAB,
+            "lightContext": self.CONTEXT_COMPACT_TAB,
+            "remeLightMemory": self.MEMORY_SUMMARY_TAB,
+            "embeddingModel": self.EMBEDDING_CONFIG_TAB,
+        }
+        tab_selector = selectors[tab_key]
         tab = self.page.locator(tab_selector).first
         expect(tab).to_be_visible(timeout=self.timeout)
         tab.click()
@@ -350,16 +360,9 @@ class RuntimeConfigPage(BasePage):
         return self.page.locator(self.SAVE_BTN).first
 
     def click_save(self) -> "RuntimeConfigPage":
-        """Click the save button."""
-        save_btn = self.get_save_button()
-        if not save_btn.is_visible():
-            # Try locating it inside the footer
-            save_btn = self.page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-
-        expect(save_btn).to_be_visible(timeout=self.timeout)
-        save_btn.click()
-        self.page.wait_for_timeout(2000)
-        logger.info("Clicked save button")
+        """Wait for the runtime workbench's debounced auto-save."""
+        self.page.wait_for_timeout(1500)
+        logger.info("Runtime configuration auto-save completed")
         return self
 
     # ========== Assertion methods ==========

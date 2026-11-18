@@ -29,6 +29,7 @@ class AutopilotMode(OMPModeBase):
     """AgentMode for the Autopilot pipeline."""
 
     name = "autopilot"
+    loop_entry = f"autopilot"
     gate_cls = AutopilotGate
     plugin_id = "__omp_autopilot__"
     handler_name = "autopilot-stop-handler"

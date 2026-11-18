@@ -34,6 +34,7 @@ from qwenpaw.modes.custom_loop import (
     LoopModeActivationStore,
     load_custom_loop_modes,
 )
+from qwenpaw.providers import typesafe_provider
 from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
@@ -290,6 +291,28 @@ async def test_qualitative_rubric_only_revises_text_responses() -> None:
     assert still_finished.action == StopAction.BYPASS
 
 
+@pytest.mark.parametrize("limit_first", [False, True])
+async def test_iteration_limit_skips_decision_model(limit_first, monkeypatch):
+    rubric = _gate(
+        "rubric",
+        "qualitative_rubric",
+        {"use_decision_model": True},
+    )
+    limit = _gate("limit", "iteration", {"max_iterations": 1})
+    gates = [limit, rubric] if limit_first else [rubric, limit]
+    handler = compile_loop_mode(_mode(*gates))
+    handler.reset_turn()
+    ctx, _ = _rubric_context()
+    ctx["agent"]._agent_config = SimpleNamespace(decision_model=None)
+    resolve = MagicMock()
+    monkeypatch.setattr(typesafe_provider, "resolve_decision_model", resolve)
+
+    result = await handler(ctx)
+
+    assert result.action == StopAction.TERMINATE
+    resolve.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_completion_rubric_accepts_configured_signal() -> None:
     gate = CompletionRubricGate(
@@ -522,19 +545,29 @@ def test_loader_registers_multiple_enabled_modes() -> None:
 
 @pytest.mark.asyncio
 async def test_token_budget_accumulates_each_iteration(monkeypatch) -> None:
-    gate = TokenBudgetGate(max_total_tokens=10)
+    gate = TokenBudgetGate(max_total_tokens=15)
+    usage = {"prompt_tokens": 4, "completion_tokens": 2}
+    monkeypatch.setattr(gate, "_current_usage", lambda: usage)
     gate.reset_turn()
-    monkeypatch.setattr(
-        gate,
-        "_current_usage",
-        lambda: {"prompt_tokens": 4, "completion_tokens": 2},
-    )
 
     first = await gate.check({"iteration": 1})
+    usage.update(prompt_tokens=8, completion_tokens=4)
     second = await gate.check({"iteration": 2})
 
     assert first.action == StopAction.BYPASS
-    assert second.action == StopAction.TERMINATE
+    assert second.action == StopAction.BYPASS
+
+    # Rubric continuations reset peer gates within the same user turn.
+    gate.reset_turn()
+    usage.update(prompt_tokens=12, completion_tokens=6)
+    after_peer_reset = await gate.check({"iteration": 1})
+    assert after_peer_reset.action == StopAction.TERMINATE
+
+    # The recording layer clears usage at the next user-turn boundary.
+    usage.clear()
+    gate.reset_turn()
+    next_turn = await gate.check({"iteration": 1})
+    assert next_turn.action == StopAction.BYPASS
 
 
 @pytest.mark.asyncio

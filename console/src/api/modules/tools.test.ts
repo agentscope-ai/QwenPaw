@@ -39,6 +39,14 @@ describe("toolsApi", () => {
     expect(result).toEqual(tools);
   });
 
+  it("lists tools for the captured agent", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await toolsApi.listTools("agent-a");
+    expect(request).toHaveBeenCalledWith("/tools", {
+      headers: { "X-Agent-Id": "agent-a" },
+    });
+  });
+
   it("toggleTool returns the updated ToolInfo with the new enabled state", async () => {
     const updated = {
       name: "calc",
@@ -100,5 +108,21 @@ describe("toolsApi", () => {
   it("propagates request errors for listTools", async () => {
     vi.mocked(request).mockRejectedValue(new Error("500"));
     await expect(toolsApi.listTools()).rejects.toThrow("500");
+  });
+});
+
+describe("tool config agent ownership", () => {
+  it("sends the captured agent explicitly instead of using the current identity", async () => {
+    vi.mocked(request).mockResolvedValue({ status: "ok" });
+    await toolsApi.updateToolConfig(
+      "custom/tool",
+      { value: "draft" },
+      "agent-a",
+    );
+    expect(request).toHaveBeenCalledWith("/tools/custom%2Ftool/config", {
+      method: "POST",
+      body: JSON.stringify({ config: { value: "draft" } }),
+      headers: { "X-Agent-Id": "agent-a" },
+    });
   });
 });

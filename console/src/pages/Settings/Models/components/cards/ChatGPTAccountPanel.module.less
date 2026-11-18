@@ -1,0 +1,72 @@
+.error,
+.warning {
+  margin: 0;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--app-error-text);
+}
+.warning {
+  color: var(--app-text-secondary);
+}
+.summaryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+.summaryValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.accountSummary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 14px 16px;
+  border-radius: var(--app-radius);
+  background: var(--app-surface-subtle);
+}
+.accountDetails {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.accountHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.accountName {
+  font-weight: 600;
+  color: var(--app-text);
+}
+.connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--app-success-text);
+}
+.accountEmail {
+  margin-top: 4px;
+  font-size: 0.875rem;
+  color: var(--app-text-secondary);
+  overflow-wrap: anywhere;
+}
+.accountActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

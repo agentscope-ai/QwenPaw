@@ -1,3 +1,4 @@
+import { NotificationBell } from "@/components/interaction/NotificationBell";
 import {
   Layout,
   Button,
@@ -12,43 +13,62 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Check, History, RotateCw, Settings, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  Grid2X2,
+  SlidersHorizontal,
+  Puzzle,
+  History,
+  RotateCw,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  SparkEmailLine,
-  SparkAgentLine,
-  SparkNewChatLine,
-  SparkOperateLeftLine,
-  SparkOperateRightLine,
-} from "@agentscope-ai/icons";
+  Bot as SparkAgentLine,
+  SquarePen as SparkNewChatLine,
+  ChevronLeft as SparkOperateLeftLine,
+  ChevronRight as SparkOperateRightLine,
+} from "lucide-react";
 import SidebarSessionList from "./SidebarSessionList";
+import DockableSidebar from "./DockableSidebar";
+import skin from "./sidebarA.module.less";
+import SidebarUsage from "./SidebarUsage";
+import { DEFAULT_AVATAR, useLocalAvatar } from "../stores/localAvatarStore";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { InteractiveCard } from "../components/interaction/InteractiveCard";
+import { RunningGlow } from "../components/interaction/RunningGlow";
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
-import { clearAuthToken } from "../api/config";
+import { clearAuthToken, getApiToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
-import {
-  syncSessionsGlobal,
-  type ExtendedSession,
-} from "../stores/sessionListStore";
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
-import { getOsRootHref } from "../utils/navigationMode";
+import { addRouterBasename, getOsRootHref } from "../utils/navigationMode";
+import { openExternalLink } from "../utils/openExternalLink";
+import {
+  getSidebarCollapsedPreference,
+  setSidebarCollapsedPreference,
+} from "../utils/sidebarCollapsedPreference";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
+import { useApprovalContext } from "../contexts/ApprovalContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import { flattenMenu } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
-import { filterMenuForAgentCapabilities } from "./registry/capabilities";
+import {
+  filterMenuForAgentCapabilities,
+  getAgentMenuCapabilities,
+} from "./registry/capabilities";
 import {
   filterSidebarMenuItems,
   orderSidebarEntries,
 } from "./registry/sidebarEntries";
-import type { ReactNode } from "react";
 import { hubApi } from "../api/modules/hub";
 import AppBrand from "./AppBrand";
 import { AgentStatusIndicator } from "../components/AgentStatusIndicator";
@@ -67,7 +87,25 @@ function isMobileSidebarViewport() {
     window.matchMedia(MOBILE_SIDEBAR_QUERY).matches
   );
 }
-const INBOX_BADGE_POLLING_MS = 6000;
+const TOOLS_MODE_KEY = "qwenpaw_sidebar_tools_mode";
+const TOOLS_LAST_OPEN_MODE_KEY = "qwenpaw_sidebar_tools_last_open_mode";
+function readToolsMode(): number {
+  try {
+    const value = Number(localStorage.getItem(TOOLS_MODE_KEY));
+    return [0, 1, 2].includes(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+function readLastOpenToolsMode(): number {
+  try {
+    const value = Number(localStorage.getItem(TOOLS_LAST_OPEN_MODE_KEY));
+    return value === 2 ? 2 : 1;
+  } catch {
+    return 1;
+  }
+}
+const INBOX_BADGE_POLLING_MS = 15000;
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -84,7 +122,27 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const localAvatar = useLocalAvatar((state) =>
+    state.selected ? state.images[state.selected] : undefined,
+  );
+  useEffect(() => {
+    const reload = () => {
+      useLocalAvatar.getState().reset();
+      if (getApiToken())
+        void useLocalAvatar
+          .getState()
+          .load()
+          .catch(() => {});
+    };
+    void useLocalAvatar
+      .getState()
+      .load()
+      .catch(() => {});
+    window.addEventListener("qwenpaw:auth-changed", reload);
+    return () => window.removeEventListener("qwenpaw:auth-changed", reload);
+  }, []);
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -95,19 +153,58 @@ export default function Sidebar({
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const [historyPopoverOpen, setHistoryPopoverOpen] = useState(false);
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [version, setVersion] = useState("");
   const [accountForm] = Form.useForm();
   // Start collapsed on mobile so the first paint does not overlay/obscure
-  // the main content on narrow viewports.
-  const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
+  // the main content on narrow viewports. On desktop, restore the persisted
+  // preference so a reload keeps the last collapsed/expanded state.
+  const [collapsed, setCollapsed] = useState(
+    () => isMobileSidebarViewport() || getSidebarCollapsedPreference(),
+  );
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const navScrollRef = useRef<HTMLDivElement>(null);
-  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const [toolsMode, setToolsMode] = useState(readToolsMode);
+  const lastOpenToolsModeRef = useRef(
+    toolsMode === 1 || toolsMode === 2 ? toolsMode : readLastOpenToolsMode(),
+  );
+  const toolsOpen = toolsMode !== 0;
+  const modeLabel = [
+    t("sidebar.toolsCompact", "Compact tools"),
+    t("sidebar.toolsDetailed", "Detailed tools"),
+    t("sidebar.foldTools", "Collapse tools"),
+  ][toolsMode];
+  const setPersistedToolsMode = (next: number) => {
+    if (next === 1 || next === 2) {
+      lastOpenToolsModeRef.current = next;
+    }
+    setToolsMode(next);
+    try {
+      localStorage.setItem(TOOLS_MODE_KEY, String(next));
+      localStorage.setItem(
+        TOOLS_LAST_OPEN_MODE_KEY,
+        String(lastOpenToolsModeRef.current),
+      );
+    } catch {
+      /* Storage can be disabled. */
+    }
+  };
+  const cycleTools = () => setPersistedToolsMode((toolsMode + 1) % 3);
+  const toggleToolsFromHeader = () =>
+    setPersistedToolsMode(toolsOpen ? 0 : lastOpenToolsModeRef.current);
+  const headerToggleLabel = toolsOpen
+    ? t("sidebar.foldTools", "Collapse tools")
+    : lastOpenToolsModeRef.current === 2
+    ? t("sidebar.toolsDetailed", "Detailed tools")
+    : t("sidebar.toolsCompact", "Compact tools");
+  const [unreadCount, setUnreadCount] = useState(0);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
   const [wobbleEnabled] = useInboxWobble();
+  const { approvals } = useApprovalContext();
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
@@ -121,16 +218,7 @@ export default function Sidebar({
     [agents],
   );
   const backendCapabilities = useMemo(
-    () =>
-      currentAgent
-        ? {
-            ...currentAgent.backend_capabilities,
-            workspace_ui:
-              currentAgent.backend === "qwenpaw"
-                ? currentAgent.backend_capabilities?.workspace_ui ?? true
-                : false,
-          }
-        : undefined,
+    () => getAgentMenuCapabilities(currentAgent),
     [currentAgent],
   );
 
@@ -178,29 +266,27 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
-  const inboxEntry = selectedFlatNav.find(
-    (entry) => entry.key === "core.inbox",
-  );
-  const marketplaceEntry = selectedFlatNav.find(
-    (entry) => entry.key === "core.marketplace",
-  );
-  const visibleSidebarNav = useMemo(
-    () =>
-      selectedFlatNav.filter(
-        (entry) =>
-          entry.key !== "core.inbox" && entry.key !== "core.marketplace",
-      ),
-    [selectedFlatNav],
-  );
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu, language]);
   // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const activeEntry = navScrollRef.current?.querySelector<HTMLElement>(
       '[aria-current="page"]',
     );
-    activeEntry?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedKey, visibleSidebarNav]);
+    if (toolsOpen && activeEntry && navScrollRef.current) {
+      const list = navScrollRef.current;
+      const itemTop =
+        activeEntry.getBoundingClientRect().top -
+        list.getBoundingClientRect().top +
+        list.scrollTop;
+      if (itemTop < list.scrollTop) list.scrollTop = itemTop;
+      else if (
+        itemTop + activeEntry.offsetHeight >
+        list.scrollTop + list.clientHeight
+      )
+        list.scrollTop = itemTop + activeEntry.offsetHeight - list.clientHeight;
+    }
+  }, [selectedKey, selectedFlatNav, toolsOpen]);
 
   useEffect(() => {
     api
@@ -238,9 +324,10 @@ export default function Sidebar({
     const mediaQuery = window.matchMedia(MOBILE_SIDEBAR_QUERY);
     const syncMobileSidebar = () => {
       setIsMobile(mediaQuery.matches);
-      // Collapse on mobile to avoid covering the main content; expand again
-      // when the viewport returns to desktop width.
-      setCollapsed(mediaQuery.matches);
+      // Collapse on mobile to avoid covering the main content. This is a
+      // transient viewport override: it never writes the preference, and
+      // returning to desktop width restores what the user last chose.
+      setCollapsed(mediaQuery.matches || getSidebarCollapsedPreference());
     };
 
     syncMobileSidebar();
@@ -259,70 +346,57 @@ export default function Sidebar({
   }, [collapsed]);
 
   useEffect(() => {
+    const currentIds = new Set(
+      approvals.map((approval) => approval.request_id),
+    );
+    currentApprovalIdsRef.current = currentIds;
+    const hasNewApprovals =
+      currentIds.size > 0 &&
+      [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
+    setShakeInbox(hasNewApprovals);
+    setHasPendingApprovals(currentIds.size > 0);
+  }, [approvals]);
+
+  useEffect(() => {
+    let inFlight = false;
+    let cancelled = false;
     const loadUnreadState = async () => {
+      if (inFlight || document.hidden) return;
+      inFlight = true;
       try {
-        const [inboxRes, pushRes] = await Promise.all([
-          api.getInboxEvents({
-            unread_only: true,
-            limit: 1,
-          }),
-          api.getPushMessages(),
-        ]);
+        const inboxRes = await api.getInboxEvents({
+          unread_only: true,
+          limit: 1,
+        });
+        if (cancelled) return;
         const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
-        const approvals = pushRes?.pending_approvals || [];
-        const currentIds = new Set(
-          approvals.map((a: { request_id: string }) => a.request_id),
+        setUnreadCount(
+          inboxRes?.unread_count ??
+            inboxRes?.total ??
+            (hasUnreadEvents ? 1 : 0),
         );
-        currentApprovalIdsRef.current = currentIds;
-        const hasNewApprovals =
-          currentIds.size > 0 &&
-          [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
-        setShakeInbox(hasNewApprovals);
-        setHasUnreadMessages(hasUnreadEvents);
-        setHasPendingApprovals(currentIds.size > 0);
       } catch {
         // Keep previous state when polling fails.
+      } finally {
+        inFlight = false;
       }
     };
     void loadUnreadState();
     const timer = window.setInterval(() => {
       void loadUnreadState();
     }, INBOX_BADGE_POLLING_MS);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  // ── Pre-fetch sessions on mount ───────────────────────────────────────────
-  // On mobile the sidebar starts collapsed so SidebarSessionList is unmounted
-  // and never fetches.  When the user expands the sidebar the list mounts fresh
-  // but the Zustand store may still be empty (ChatSessionInitializer may not
-  // have synced yet).  Proactively fetch sessions into the store so the data
-  // is ready the moment the user expands.  Fire on mount regardless of
-  // sidebar is expanded.
-  // Uses sessionApi.getSessionList() instead of raw api.listChats() to ensure
-  // the same data processing pipeline (dedup, realId, generating state) as
-  // the shared conversation-history list.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && list.length > 0) {
-          syncSessionsGlobal(list as ExtendedSession[]);
-        }
-      } catch {
-        // Best-effort: let SidebarSessionList retry on its own.
-      }
-    })();
+    const onVisibility = () => {
+      if (!document.hidden) void loadUnreadState();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
   // ── Inbox badge dot & wobble ─────────────────────────────────────────────
-  const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
-  const inboxDotColor = hasPendingApprovals
-    ? "var(--app-error)"
-    : "var(--app-accent-hover)";
   const effectiveShake = shakeInbox && wobbleEnabled;
 
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
@@ -336,24 +410,6 @@ export default function Sidebar({
   const collapsedNavItems = useMemo(() => {
     // Inbox in collapsed mode shows a dot overlay on its icon (kept Sidebar-local
     // for the same reason as decorateLabel: live state isn't menu data).
-    const decorateInboxIcon = (icon: ReactNode): ReactNode => (
-      <span style={{ position: "relative", display: "inline-flex" }}>
-        {icon ?? <SparkEmailLine size={18} />}
-        {hasInboxUnread && (
-          <span
-            style={{
-              position: "absolute",
-              top: -1,
-              right: -3,
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: inboxDotColor,
-            }}
-          />
-        )}
-      </span>
-    );
     const scrollableEntries = [
       ...flattenMenu(agentMenu, routes, 18),
       ...flattenMenu(selectedSettingsMenu, routes, 18),
@@ -361,24 +417,24 @@ export default function Sidebar({
     const inboxEntry = scrollableEntries.find(
       (entry) => entry.key === "core.inbox",
     );
-    const marketplaceEntry = scrollableEntries.find(
-      (entry) => entry.key === "core.marketplace",
-    );
     const orderedEntries = orderSidebarEntries(
-      scrollableEntries.filter(
-        (entry) =>
-          entry.key !== "core.inbox" && entry.key !== "core.marketplace",
-      ),
+      scrollableEntries.filter((entry) => entry.key !== "core.inbox"),
       focusItemIds,
     );
-    const flat = [
-      ...(inboxEntry ? [inboxEntry] : []),
-      ...(marketplaceEntry ? [marketplaceEntry] : []),
-      ...orderedEntries,
-    ];
+    const flat = [...(inboxEntry ? [inboxEntry] : []), ...orderedEntries];
     return flat.map((entry) =>
       entry.key === "core.inbox"
-        ? { ...entry, icon: decorateInboxIcon(entry.icon) }
+        ? {
+            ...entry,
+            icon: (
+              <NotificationBell
+                count={unreadCount}
+                attention={hasPendingApprovals}
+                animate={wobbleEnabled}
+                ring={effectiveShake}
+              />
+            ),
+          }
         : entry,
     );
   }, [
@@ -386,19 +442,35 @@ export default function Sidebar({
     focusItemIds,
     selectedSettingsMenu,
     routes,
-    hasInboxUnread,
-    inboxDotColor,
+    unreadCount,
+    hasPendingApprovals,
+    wobbleEnabled,
+    effectiveShake,
+    language,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   /**
+   * Explicit user toggle: the only path that persists the collapsed state.
+   * Viewport-driven collapsing stays transient so a narrow window does not
+   * permanently pin the desktop sidebar.
+   */
+  const handleSetCollapsed = useCallback((nextCollapsed: boolean) => {
+    setCollapsed(nextCollapsed);
+    setSidebarCollapsedPreference(nextCollapsed);
+  }, []);
+
+  /**
    * New chat: if we're already on the chat page, dispatch the event so
-   * ChatSessionInitializer (which is mounted) creates the session.
-   * If we're on another page, navigate to /chat without a session id —
-   * the chat page will auto-create a new session on mount.
+   * ChatSessionInitializer opens a blank composer. From another page,
+   * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
+    if (sessionApi.isSessionSwitching) {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-switch-done"));
+    }
     const onChatPage = location.pathname.startsWith("/chat");
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
@@ -427,18 +499,40 @@ export default function Sidebar({
 
   const handleLogout = useCallback(() => {
     clearAuthToken();
-    window.location.href = "/login";
+    window.location.href = addRouterBasename(
+      window.location.pathname,
+      "/login",
+    );
   }, []);
 
-  /**
-   * Session click: navigate directly without relying on ChatSessionInitializer.
-   * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
-   */
+  /** Preload the selected session while sidebar polling is paused. */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
-      navigate(targetPath);
+      const controller = sessionApi.startNewSwitch();
+      void sessionApi
+        .preloadSession(sessionId, controller.signal)
+        .then(({ realId }) => {
+          if (controller.signal.aborted) return;
+          const effectiveId = sessionApi.getEffectiveSessionId(
+            sessionId,
+            realId,
+          );
+          navigate(buildChatPath(effectiveId));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-switch-done"),
+            );
+          }
+        });
     },
     [navigate],
   );
@@ -485,7 +579,10 @@ export default function Sidebar({
       setAccountModalOpen(false);
       accountForm.resetFields();
       clearAuthToken();
-      window.location.href = "/login";
+      window.location.href = addRouterBasename(
+        window.location.pathname,
+        "/login",
+      );
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
       let msg = t("account.updateFailed");
@@ -533,18 +630,19 @@ export default function Sidebar({
         <button
           type="button"
           aria-label={typeof item.label === "string" ? item.label : undefined}
+          aria-current={isActive ? "page" : undefined}
           className={`${styles.collapsedNavItem} ${
             isActive ? styles.collapsedNavItemActive : ""
-          }${
-            item.key === "core.inbox" && effectiveShake
-              ? ` ${styles.inboxShake}`
-              : ""
           }`}
           onClick={() => {
             if (item.href) {
-              window.open(item.href, "_blank", "noopener,noreferrer");
+              openExternalLink(item.href);
             } else {
-              navigate(item.path);
+              navigate(
+                item.key === "core.inbox" && hasPendingApprovals
+                  ? `${item.path}?tab=approvals`
+                  : item.path,
+              );
             }
           }}
           onMouseEnter={
@@ -559,459 +657,580 @@ export default function Sidebar({
 
   const renderNavItem = (entry: FlatMenuEntry) => {
     const isActive = selectedKey === entry.key;
+    const isInbox = entry.key === "core.inbox";
     return (
-      <button
+      <Tooltip
         key={entry.key}
-        type="button"
-        aria-current={isActive ? "page" : undefined}
-        className={`${styles.navigationItem} ${
-          isActive ? styles.navigationItemActive : ""
-        }`}
-        onClick={() => {
-          if (entry.href) {
-            window.open(entry.href, "_blank", "noopener,noreferrer");
-          } else {
-            navigate(entry.path);
-          }
-        }}
+        title={toolsMode === 2 ? null : entry.label}
+        placement="top"
+        trigger={["hover", "focus"]}
+        styles={{ root: { pointerEvents: "none" } }}
       >
-        {entry.icon}
-        <span>{entry.label}</span>
-      </button>
+        <button
+          aria-label={typeof entry.label === "string" ? entry.label : undefined}
+          type="button"
+          aria-current={isActive ? "page" : undefined}
+          data-press
+          onMouseEnter={isInbox ? handleInboxHover : undefined}
+          className={`${styles.navigationItem} ${
+            isActive ? styles.navigationItemActive : ""
+          }`}
+          onClick={() => {
+            if (entry.href) {
+              openExternalLink(entry.href);
+            } else {
+              navigate(
+                isInbox && hasPendingApprovals
+                  ? `${entry.path}?tab=approvals`
+                  : entry.path,
+              );
+            }
+          }}
+        >
+          <span className={styles.inboxIcon}>
+            {isInbox ? (
+              <NotificationBell
+                count={unreadCount}
+                attention={hasPendingApprovals}
+                animate={wobbleEnabled}
+                ring={effectiveShake}
+              />
+            ) : (
+              entry.icon ?? <Puzzle size={18} />
+            )}
+          </span>
+          <motion.span
+            className={skin.navLabel}
+            animate={{ opacity: toolsMode === 2 ? 1 : 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.18 }}
+          >
+            {entry.label}
+          </motion.span>
+        </button>
+      </Tooltip>
     );
   };
 
   const siderWidth = collapsed ? (isMobile ? 56 : 72) : isMobile ? 240 : 280;
 
   return (
-    <Sider
+    <DockableSidebar
       width={siderWidth}
-      className={`${styles.sider}${
-        collapsed ? ` ${styles.siderCollapsed}` : ""
-      }${isDark ? ` ${styles.siderDark}` : ""}${
-        !collapsed ? ` ${styles.siderExpanded}` : ""
-      }`}
+      mobile={isMobile}
+      onMobileDismiss={() => handleSetCollapsed(true)}
     >
-      <AppBrand
-        hidden={collapsed}
-        version={version}
-        action={
-          <Button
-            type="text"
-            icon={<SparkOperateLeftLine size={18} />}
-            onClick={() => setCollapsed(true)}
-            className={styles.brandCollapseToggle}
-            aria-label={t("sidebar.collapse", "Collapse sidebar")}
-          />
-        }
-      />
+      <Sider
+        width={siderWidth}
+        className={`${styles.sider} ${skin.surface} ${
+          collapsed ? skin.compactRail : ""
+        }${collapsed ? ` ${styles.siderCollapsed}` : ""}${
+          isDark ? ` ${styles.siderDark}` : ""
+        }${!collapsed ? ` ${styles.siderExpanded}` : ""}`}
+      >
+        <AppBrand
+          hidden={collapsed}
+          version={version}
+          action={
+            <Button
+              type="text"
+              icon={<SparkOperateLeftLine size={18} />}
+              onClick={() => handleSetCollapsed(true)}
+              className={styles.brandCollapseToggle}
+              aria-label={t("sidebar.collapse", "Collapse sidebar")}
+            />
+          }
+        />
 
-      {collapsed ? (
-        <nav className={styles.collapsedNav}>
-          <div className={styles.collapsedNavPinned}>
-            <Tooltip
-              title={t("sidebar.expand", "Expand sidebar")}
-              placement="right"
-              mouseEnterDelay={0.5}
-            >
-              <button
-                type="button"
-                className={styles.collapsedNavItem}
-                aria-label={t("sidebar.expand", "Expand sidebar")}
-                onClick={() => setCollapsed(false)}
-              >
-                <SparkOperateRightLine size={18} />
-              </button>
-            </Tooltip>
-            <Popover
-              open={agentPopoverOpen}
-              onOpenChange={(open) => {
-                setAgentPopoverOpen(open);
-                if (open && agents.length === 0) {
-                  void refreshAgents().catch(() => {});
-                }
-              }}
-              placement="rightTop"
-              trigger="click"
-              arrow={false}
-              overlayClassName={styles.collapsedAgentPopover}
-              content={
-                <div className={styles.collapsedAgentPanel}>
-                  <div className={styles.collapsedPanelTitle}>
-                    {t("agent.selectAgent")}
-                  </div>
-                  <div className={styles.collapsedAgentList}>
-                    {availableAgents.map((agent) => (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        className={`${styles.collapsedAgentOption} ${
-                          agent.id === selectedAgent
-                            ? styles.collapsedAgentOptionActive
-                            : ""
-                        }`}
-                        onClick={() => {
-                          setSelectedAgent(agent.id);
-                          setAgentPopoverOpen(false);
-                          message.success(t("agent.switchSuccess"));
-                        }}
-                      >
-                        <AgentStatusIndicator
-                          status={agent.startup_status}
-                          enabled={agent.enabled}
-                        />
-                        <SparkAgentLine size={18} />
-                        <span className={styles.collapsedAgentName}>
-                          {getAgentDisplayName(agent, t)}
-                        </span>
-                        {agent.id === selectedAgent && <Check size={16} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              }
-            >
+        {collapsed ? (
+          <nav className={styles.collapsedNav}>
+            <div className={styles.collapsedNavPinned}>
               <Tooltip
-                title={
-                  currentAgent
-                    ? getAgentDisplayName(currentAgent, t)
-                    : t("agent.selectAgent")
-                }
+                title={t("sidebar.expand", "Expand sidebar")}
                 placement="right"
                 mouseEnterDelay={0.5}
               >
                 <button
                   type="button"
                   className={styles.collapsedNavItem}
-                  aria-label={t("agent.selectAgent")}
-                  aria-expanded={agentPopoverOpen}
+                  aria-label={t("sidebar.expand", "Expand sidebar")}
+                  onClick={() => handleSetCollapsed(false)}
                 >
-                  <SparkAgentLine size={18} />
+                  <SparkOperateRightLine size={18} />
                 </button>
               </Tooltip>
-            </Popover>
-            <Tooltip
-              title={t("chat.newTask", "New task")}
-              placement="right"
-              mouseEnterDelay={0.5}
-            >
-              <button
-                type="button"
-                className={styles.collapsedNavItem}
-                aria-label={t("chat.newTask", "New task")}
-                onClick={handleNewChat}
+              <Popover
+                open={agentPopoverOpen}
+                onOpenChange={(open) => {
+                  setAgentPopoverOpen(open);
+                  if (open && agents.length === 0) {
+                    void refreshAgents().catch(() => {});
+                  }
+                }}
+                placement="rightTop"
+                trigger="click"
+                arrow={false}
+                classNames={{ root: styles.collapsedAgentPopover }}
+                content={
+                  <div className={styles.collapsedAgentPanel}>
+                    <div className={styles.collapsedPanelTitle}>
+                      {t("agent.selectAgent")}
+                    </div>
+                    <div className={styles.collapsedAgentList}>
+                      {availableAgents.map((agent) => (
+                        <button
+                          key={agent.id}
+                          type="button"
+                          className={`${styles.collapsedAgentOption} ${
+                            agent.id === selectedAgent
+                              ? styles.collapsedAgentOptionActive
+                              : ""
+                          }`}
+                          onClick={() => {
+                            setSelectedAgent(agent.id);
+                            setAgentPopoverOpen(false);
+                            message.success(t("agent.switchSuccess"));
+                          }}
+                        >
+                          <AgentStatusIndicator
+                            status={agent.startup_status}
+                            enabled={agent.enabled}
+                          />
+                          <SparkAgentLine size={18} />
+                          <span className={styles.collapsedAgentName}>
+                            {getAgentDisplayName(agent, t)}
+                          </span>
+                          {agent.id === selectedAgent && <Check size={16} />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                }
               >
-                <SparkNewChatLine size={18} />
-              </button>
-            </Tooltip>
-            <Popover
-              open={historyPopoverOpen}
-              onOpenChange={setHistoryPopoverOpen}
-              placement="rightTop"
-              trigger="click"
-              arrow={false}
-              overlayClassName={styles.collapsedHistoryPopover}
-              content={
-                <div className={styles.collapsedHistoryPanel}>
-                  <SidebarSessionList
-                    onNewChat={() => {
-                      setHistoryPopoverOpen(false);
-                      handleNewChat();
-                    }}
-                    onSessionClick={(sessionId) => {
-                      setHistoryPopoverOpen(false);
-                      handleSidebarSessionClick(sessionId);
-                    }}
-                  />
-                </div>
-              }
-            >
+                <Tooltip
+                  title={
+                    currentAgent
+                      ? getAgentDisplayName(currentAgent, t)
+                      : t("agent.selectAgent")
+                  }
+                  placement="right"
+                  mouseEnterDelay={0.5}
+                >
+                  <button
+                    type="button"
+                    className={styles.collapsedNavItem}
+                    aria-label={t("agent.selectAgent")}
+                    aria-expanded={agentPopoverOpen}
+                  >
+                    <SparkAgentLine size={18} />
+                  </button>
+                </Tooltip>
+              </Popover>
               <Tooltip
-                title={t("chat.chatHistoryTooltip")}
+                title={t("chat.newTask", "New task")}
                 placement="right"
                 mouseEnterDelay={0.5}
               >
                 <button
                   type="button"
                   className={styles.collapsedNavItem}
-                  aria-label={t("chat.chatHistoryTooltip")}
-                  aria-expanded={historyPopoverOpen}
+                  aria-label={t("chat.newTask", "New task")}
+                  onClick={handleNewChat}
                 >
-                  <History size={18} />
+                  <SparkNewChatLine size={18} />
                 </button>
               </Tooltip>
-            </Popover>
-          </div>
-          <div className={styles.collapsedNavScroll}>
-            {collapsedNavItems.map(renderCollapsedNavItem)}
-          </div>
-        </nav>
-      ) : (
-        <>
-          {/* Unified sidebar: selected shortcuts and sessions. */}
-          <div
-            className={`${styles.agentScopedSection} ${styles.expandedAgentPanel}`}
-          >
-            <div className={styles.agentSelectorContainer}>
-              <AgentSelector collapsed={collapsed} />
+              <Popover
+                open={historyPopoverOpen}
+                onOpenChange={setHistoryPopoverOpen}
+                placement="rightTop"
+                trigger="click"
+                arrow={false}
+                classNames={{ root: styles.collapsedHistoryPopover }}
+                content={
+                  <div className={styles.collapsedHistoryPanel}>
+                    <SidebarSessionList
+                      onNewChat={() => {
+                        setHistoryPopoverOpen(false);
+                        handleNewChat();
+                      }}
+                      onSessionClick={(sessionId) => {
+                        setHistoryPopoverOpen(false);
+                        handleSidebarSessionClick(sessionId);
+                      }}
+                    />
+                  </div>
+                }
+              >
+                <Tooltip
+                  title={t("chat.chatHistoryTooltip")}
+                  placement="right"
+                  mouseEnterDelay={0.5}
+                >
+                  <button
+                    type="button"
+                    className={styles.collapsedNavItem}
+                    aria-label={t("chat.chatHistoryTooltip")}
+                    aria-expanded={historyPopoverOpen}
+                  >
+                    <History size={18} />
+                  </button>
+                </Tooltip>
+              </Popover>
             </div>
-            <Slot name="sider.top" kind="fill" />
+            <div className={styles.collapsedNavScroll}>
+              {collapsedNavItems.map(renderCollapsedNavItem)}
+            </div>
+          </nav>
+        ) : (
+          <>
+            <InteractiveCard
+              as="section"
+              tilt={2}
+              frameClassName={skin.toolFrame}
+              className={`${skin.toolPanel} ${
+                toolsOpen ? skin.toolPanelOpen : ""
+              }`}
+              aria-label={t("sidebar.tools", "Agent and shortcuts")}
+            >
+              <div className={skin.toolHeader}>
+                <button
+                  type="button"
+                  className={skin.toolHeaderHitArea}
+                  data-testid="tool-header-toggle"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  title={headerToggleLabel}
+                  onClick={toggleToolsFromHeader}
+                />
+                <div className={skin.agent}>
+                  <AgentSelector compact />
+                </div>
+                <button
+                  type="button"
+                  className={skin.toolButton}
+                  data-press
+                  aria-expanded={toolsOpen}
+                  title={modeLabel}
+                  aria-label={modeLabel}
+                  data-mode={toolsMode}
+                  onClick={cycleTools}
+                >
+                  <Grid2X2 size={16} />
+                </button>
+              </div>
+              <RunningGlow active />
+              <AnimatePresence initial={false}>
+                {toolsOpen && (
+                  <motion.div
+                    key="tools"
+                    layout="size"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={
+                      reducedMotion
+                        ? { duration: 0 }
+                        : { type: "spring", stiffness: 420, damping: 40 }
+                    }
+                    style={{ overflow: "hidden" }}
+                  >
+                    <motion.div
+                      layout
+                      transition={
+                        reducedMotion
+                          ? { duration: 0 }
+                          : {
+                              type: "spring",
+                              stiffness: 420,
+                              damping: 40,
+                            }
+                      }
+                      ref={navScrollRef}
+                      className={`${skin.navGrid} ${
+                        toolsMode === 2 ? skin.navDetailed : ""
+                      }`}
+                    >
+                      {selectedFlatNav.map((entry, index) => (
+                        <motion.div
+                          key={entry.key}
+                          layout="position"
+                          initial={reducedMotion ? false : { y: 7, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 420,
+                            damping: 30,
+                            delay: reducedMotion
+                              ? 0
+                              : Math.min(index * 0.025, 0.15),
+                          }}
+                        >
+                          {renderNavItem(entry)}
+                        </motion.div>
+                      ))}
+
+                      <Tooltip
+                        title={
+                          toolsMode === 2
+                            ? null
+                            : t("nav.moreSettings", "More settings")
+                        }
+                        placement="top"
+                        trigger={["hover", "focus"]}
+                      >
+                        <button
+                          type="button"
+                          className={skin.moreSettings}
+                          data-press
+                          aria-label={t("nav.moreSettings", "More settings")}
+                          onClick={handleOpenSettings}
+                        >
+                          <Settings size={18} />
+                          <span className={skin.navLabel}>
+                            {t("nav.moreSettings", "More settings")}
+                          </span>
+                        </button>
+                      </Tooltip>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </InteractiveCard>
             <button
               type="button"
-              className={styles.newTask}
+              data-press
+              className={skin.newTask}
               onClick={handleNewChat}
             >
               <SparkNewChatLine size={18} />
               <span>{t("chat.newTask", "New task")}</span>
             </button>
-            <div
-              ref={navScrollRef}
-              className={`${styles.navigationItems} ${styles.navigationScroll}`}
-            >
-              {inboxEntry && (
-                <button
-                  type="button"
-                  aria-current={
-                    selectedKey === inboxEntry.key ? "page" : undefined
-                  }
-                  className={`${styles.navigationItem} ${styles.inboxItem} ${
-                    selectedKey === inboxEntry.key
-                      ? styles.navigationItemActive
-                      : ""
-                  }${effectiveShake ? ` ${styles.inboxShake}` : ""}`}
-                  onMouseEnter={handleInboxHover}
-                  onClick={() => {
-                    if (inboxEntry.href) {
-                      window.open(
-                        inboxEntry.href,
-                        "_blank",
-                        "noopener,noreferrer",
-                      );
-                    } else {
-                      navigate(inboxEntry.path);
-                    }
-                  }}
-                >
-                  <span className={styles.inboxIcon}>
-                    {inboxEntry.icon ?? <SparkEmailLine size={16} />}
-                    {hasInboxUnread && (
-                      <span
-                        className={styles.inboxUnreadDot}
-                        style={{ background: inboxDotColor }}
-                      />
-                    )}
-                  </span>
-                  <span>{inboxEntry.label}</span>
-                </button>
-              )}
-              {marketplaceEntry && renderNavItem(marketplaceEntry)}
-              {visibleSidebarNav.map(renderNavItem)}
+            <div className={skin.pluginSlot}>
+              <Slot name="sider.top" kind="fill" />
             </div>
-            <button
-              type="button"
-              className={styles.moreSettings}
-              onClick={handleOpenSettings}
-            >
-              <Settings size={16} />
-              <span>{t("nav.moreSettings", "More settings")}</span>
-            </button>
-          </div>
 
-          {/* Session list — fills the primary space. */}
-          <div className={styles.sessionArea}>
-            <SidebarSessionList
-              onNewChat={handleNewChat}
-              onSessionClick={handleSidebarSessionClick}
-            />
-          </div>
-          <Slot name="sider.bottom" kind="fill" />
-        </>
-      )}
-
-      {authEnabled && hubAdmin && !collapsed && (
-        <div className={styles.authActions}>
-          <Button
-            type="text"
-            icon={<ShieldCheck size={16} />}
-            onClick={() => navigate("/hub/admin")}
-            block
-            className={styles.authBtn}
-          >
-            {t("hub.brand.title")}
-          </Button>
-        </div>
-      )}
-
-      <div className={styles.collapseToggleContainer}>
-        {authEnabled && !collapsed && (
-          <button
-            type="button"
-            className={styles.sidebarUser}
-            onClick={() => setSettingsOpen(true)}
-            aria-label={t("sidebar.quickMenu.settings", "Settings")}
-            aria-haspopup="menu"
-            aria-expanded={settingsOpen}
-          >
-            <span className={styles.sidebarUserAvatar} aria-hidden>
-              {(authUsername || "Q").slice(0, 2).toUpperCase()}
-            </span>
-            <span className={styles.sidebarUserText}>
-              <strong title={authUsername}>
-                {authUsername || t("common.loading")}
-              </strong>
-              <span>{hubMode ? t("hub.brand.title") : "QwenPaw"}</span>
-            </span>
-          </button>
+            {/* Session list — fills the primary space. */}
+            <div className={styles.sessionArea}>
+              <SidebarSessionList
+                defaultSearchOpen
+                hideNewTask
+                onNewChat={handleNewChat}
+                onSessionClick={handleSidebarSessionClick}
+              />
+            </div>
+            <div className={skin.pluginSlot}>
+              <Slot name="sider.bottom" kind="fill" />
+            </div>
+          </>
         )}
-        <Popover
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          placement={collapsed ? "rightBottom" : "topRight"}
-          trigger="click"
-          overlayClassName={styles.quickSettingsPopover}
-          destroyOnHidden
-          content={
-            <SidebarSettingsPanel
-              version={version}
-              onClose={() => setSettingsOpen(false)}
-              onOpenDesktopMode={handleOpenDesktopMode}
-              onOpenSettings={handleOpenSettings}
-              authEnabled={authEnabled}
-              onOpenAccount={handleOpenAccount}
-              onLogout={handleLogout}
-            />
-          }
-        >
-          <Button
-            type="text"
-            title={t("sidebar.quickMenu.settings", "Settings")}
-            aria-label={t("sidebar.quickMenu.settings", "Settings")}
-            aria-haspopup="menu"
-            aria-expanded={settingsOpen}
-            icon={<Settings size={18} />}
-            className={styles.collapseToggle}
-          />
-        </Popover>
-      </div>
 
-      <Modal
-        open={accountModalOpen}
-        onCancel={() => setAccountModalOpen(false)}
-        title={t("account.title")}
-        footer={null}
-        destroyOnHidden
-        centered
-      >
-        <Form
-          form={accountForm}
-          layout="vertical"
-          onFinish={handleUpdateProfile}
-        >
-          {hubMode ? (
-            <div className={styles.accountIdentity}>
-              <span>{t("account.username")}</span>
-              <strong>{hubUsername}</strong>
-            </div>
-          ) : (
-            <>
-              <Form.Item
-                name="currentPassword"
-                label={t("account.currentPassword")}
-                rules={[
-                  {
-                    required: true,
-                    message: t("account.currentPasswordRequired"),
-                  },
-                ]}
+        {authEnabled && hubAdmin && !collapsed && (
+          <div className={styles.authActions}>
+            <Button
+              type="text"
+              icon={<ShieldCheck size={16} />}
+              onClick={() => navigate("/hub/admin")}
+              block
+              className={styles.authBtn}
+            >
+              {t("hub.brand.title")}
+            </Button>
+          </div>
+        )}
+
+        {!collapsed && (
+          <SidebarUsage
+            mobile={isMobile}
+            agentId={selectedAgent ?? undefined}
+          />
+        )}
+        <div className={styles.collapseToggleContainer}>
+          <Popover
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            placement={collapsed ? "rightBottom" : "topRight"}
+            trigger="click"
+            classNames={{ root: styles.quickSettingsPopover }}
+            destroyOnHidden
+            content={
+              <div
+                role="dialog"
+                aria-label={t("sidebar.quickMenu.settings", "Settings")}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSettingsOpen(false);
+                  settingsTriggerRef.current?.focus();
+                }}
               >
-                <Input.Password />
-              </Form.Item>
-              <Form.Item name="newUsername" label={t("account.newUsername")}>
-                <Input placeholder={t("account.newUsernamePlaceholder")} />
-              </Form.Item>
-            </>
-          )}
-          <Form.Item
-            name="newPassword"
-            label={t("account.newPassword")}
-            rules={
-              hubMode
-                ? [
-                    {
-                      required: true,
-                      message: t("account.passwordRequired"),
-                    },
-                    { min: 8, message: t("hub.validation.passwordMin") },
-                  ]
-                : undefined
+                <SidebarSettingsPanel
+                  version={version}
+                  onClose={() => setSettingsOpen(false)}
+                  onOpenDesktopMode={handleOpenDesktopMode}
+                  onOpenSettings={handleOpenSettings}
+                  authEnabled={authEnabled}
+                  onOpenAccount={handleOpenAccount}
+                  onLogout={handleLogout}
+                />
+              </div>
             }
           >
-            <Input.Password
-              placeholder={t(
-                hubMode
-                  ? "account.hubPasswordPlaceholder"
-                  : "account.newPasswordPlaceholder",
-              )}
-            />
-          </Form.Item>
-          <Form.Item
-            name="confirmPassword"
-            label={t("account.confirmPassword")}
-            dependencies={["newPassword"]}
-            rules={[
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value && !getFieldValue("newPassword")) {
-                    return Promise.resolve();
-                  }
-                  if (value === getFieldValue("newPassword")) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(
-                    new Error(t("account.passwordMismatch")),
-                  );
-                },
-              }),
-            ]}
-          >
-            <Input.Password
-              placeholder={t("account.confirmPasswordPlaceholder")}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={accountLoading}
-              block
+            <button
+              ref={settingsTriggerRef}
+              type="button"
+              data-press
+              title={t("sidebar.quickMenu.settings", "Settings")}
+              aria-label={t("sidebar.quickMenu.settings", "Settings")}
+              aria-haspopup="dialog"
+              aria-expanded={settingsOpen}
+              className={collapsed ? styles.collapseToggle : skin.identity}
             >
-              {t("account.save")}
-            </Button>
-          </Form.Item>
-          {hubMode && (
-            <div className={styles.runtimeRecovery}>
-              <Divider />
-              <strong>{t("account.runtimeTitle")}</strong>
-              <p>{t("account.runtimeDescription")}</p>
-              <Popconfirm
-                title={t("account.runtimeRestartConfirmTitle")}
-                description={t("account.runtimeRestartConfirmDescription")}
-                onConfirm={handleRestartRuntime}
-                okText={t("account.runtimeRestart")}
-                cancelText={t("common.cancel")}
-              >
-                <Button
-                  icon={<RotateCw size={16} />}
-                  loading={runtimeRestarting}
-                  block
+              {collapsed ? (
+                <Settings size={18} />
+              ) : (
+                <>
+                  <span className={skin.avatar}>
+                    <img src={localAvatar ?? DEFAULT_AVATAR} alt="QwenPaw" />
+                  </span>
+                  <span className={skin.identityText}>
+                    <strong>
+                      {authUsername || t("sidebar.localWorkspace")}
+                    </strong>
+                    <small>
+                      {hubUsername
+                        ? "QwenPaw Hub"
+                        : authEnabled
+                        ? t("sidebar.consoleAccount")
+                        : t("sidebar.localMode")}
+                    </small>
+                  </span>
+                  <SlidersHorizontal size={17} />
+                </>
+              )}
+            </button>
+          </Popover>
+        </div>
+
+        <Modal
+          open={accountModalOpen}
+          onCancel={() => setAccountModalOpen(false)}
+          title={t("account.title")}
+          footer={null}
+          destroyOnHidden
+          centered
+        >
+          <Form
+            form={accountForm}
+            layout="vertical"
+            onFinish={handleUpdateProfile}
+          >
+            {hubMode ? (
+              <div className={styles.accountIdentity}>
+                <span>{t("account.username")}</span>
+                <strong>{hubUsername}</strong>
+              </div>
+            ) : (
+              <>
+                <Form.Item
+                  name="currentPassword"
+                  label={t("account.currentPassword")}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("account.currentPasswordRequired"),
+                    },
+                  ]}
                 >
-                  {t("account.runtimeRestart")}
-                </Button>
-              </Popconfirm>
-            </div>
-          )}
-        </Form>
-      </Modal>
-    </Sider>
+                  <Input.Password />
+                </Form.Item>
+                <Form.Item name="newUsername" label={t("account.newUsername")}>
+                  <Input placeholder={t("account.newUsernamePlaceholder")} />
+                </Form.Item>
+              </>
+            )}
+            <Form.Item
+              name="newPassword"
+              label={t("account.newPassword")}
+              rules={
+                hubMode
+                  ? [
+                      {
+                        required: true,
+                        message: t("account.passwordRequired"),
+                      },
+                      { min: 8, message: t("hub.validation.passwordMin") },
+                    ]
+                  : undefined
+              }
+            >
+              <Input.Password
+                placeholder={t(
+                  hubMode
+                    ? "account.hubPasswordPlaceholder"
+                    : "account.newPasswordPlaceholder",
+                )}
+              />
+            </Form.Item>
+            <Form.Item
+              name="confirmPassword"
+              label={t("account.confirmPassword")}
+              dependencies={["newPassword"]}
+              rules={[
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value && !getFieldValue("newPassword")) {
+                      return Promise.resolve();
+                    }
+                    if (value === getFieldValue("newPassword")) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(
+                      new Error(t("account.passwordMismatch")),
+                    );
+                  },
+                }),
+              ]}
+            >
+              <Input.Password
+                placeholder={t("account.confirmPasswordPlaceholder")}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={accountLoading}
+                block
+              >
+                {t("account.save")}
+              </Button>
+            </Form.Item>
+            {hubMode && (
+              <div className={styles.runtimeRecovery}>
+                <Divider />
+                <strong>{t("account.runtimeTitle")}</strong>
+                <p>{t("account.runtimeDescription")}</p>
+                <Popconfirm
+                  title={t("account.runtimeRestartConfirmTitle")}
+                  description={t("account.runtimeRestartConfirmDescription")}
+                  onConfirm={handleRestartRuntime}
+                  okText={t("account.runtimeRestart")}
+                  cancelText={t("common.cancel")}
+                >
+                  <Button
+                    icon={<RotateCw size={16} />}
+                    loading={runtimeRestarting}
+                    block
+                  >
+                    {t("account.runtimeRestart")}
+                  </Button>
+                </Popconfirm>
+              </div>
+            )}
+          </Form>
+        </Modal>
+      </Sider>
+    </DockableSidebar>
   );
 }

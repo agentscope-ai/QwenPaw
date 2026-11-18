@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { portabilityImportApi } from "../../api/modules/import";
+import { ApiError } from "../../api/request";
+import i18n from "../../i18n";
 import { useImportJob } from "./useImportJob";
 
 let selectedAgent = "agent-a";
@@ -31,6 +33,16 @@ const job = (agentId: string, jobId = `import-${agentId}`) => ({
   logs: [],
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, reject, resolve };
+}
+
 describe("useImportJob", () => {
   beforeEach(() => {
     selectedAgent = "agent-a";
@@ -54,6 +66,7 @@ describe("useImportJob", () => {
       }),
     );
     vi.mocked(portabilityImportApi.current).mockResolvedValue(null);
+    vi.mocked(portabilityImportApi.sources).mockResolvedValue([]);
     vi.mocked(portabilityImportApi.streamEvents).mockReturnValue(
       new Promise(() => undefined),
     );
@@ -97,6 +110,211 @@ describe("useImportJob", () => {
 
     expect(result.current.job?.job_id).toBe("import-agent-a");
   });
+
+  it("shows a localized Harness requirement from the API's 409 error format", async () => {
+    const detail = {
+      code: "harness_plugin_required",
+      source: "codex",
+      plugin_id: "qwenpaw-harness-codex",
+      state: "missing",
+    };
+    const raw = JSON.stringify({ detail });
+    vi.mocked(portabilityImportApi.create).mockRejectedValueOnce(
+      new ApiError(409, `${raw} - ${raw}`),
+    );
+    const { result } = renderHook(() => useImportJob());
+    await act(async () => {
+      await expect(result.current.scan(["codex"])).rejects.toThrow();
+    });
+    expect(result.current.requirement).toEqual(detail);
+    expect(result.current.error).toBe(
+      i18n.t("portabilityImport.harnessRequired", {
+        plugin: detail.plugin_id,
+        state: i18n.t("portabilityImport.pluginStates.missing"),
+      }),
+    );
+  });
+
+  it("ignores an older source detection response for the same agent", async () => {
+    const oldDetection =
+      deferred<Awaited<ReturnType<typeof portabilityImportApi.sources>>>();
+    vi.mocked(portabilityImportApi.sources)
+      .mockReturnValueOnce(oldDetection.promise)
+      .mockResolvedValueOnce([
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
+      ]);
+    const { result } = renderHook(() => useImportJob());
+
+    let oldRequest!: ReturnType<typeof result.current.detect>;
+    await act(async () => {
+      oldRequest = result.current.detect();
+      await result.current.detect();
+    });
+    expect(result.current.sources).toEqual([
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
+    ]);
+
+    await act(async () => {
+      oldDetection.resolve([
+        {
+          source: "codex",
+          name: "Codex",
+          detected: true,
+          plugin_id: "qwenpaw-harness-codex",
+          plugin_state: "available",
+        },
+      ]);
+      await oldRequest;
+    });
+    expect(result.current.sources).toEqual([
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
+    ]);
+  });
+
+  it("ignores an older source detection rejection after recovery", async () => {
+    const oldDetection =
+      deferred<Awaited<ReturnType<typeof portabilityImportApi.sources>>>();
+    vi.mocked(portabilityImportApi.sources)
+      .mockReturnValueOnce(oldDetection.promise)
+      .mockResolvedValueOnce([
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
+      ]);
+    const { result } = renderHook(() => useImportJob());
+
+    let oldRequest!: ReturnType<typeof result.current.detect>;
+    await act(async () => {
+      oldRequest = result.current.detect();
+      await result.current.detect();
+    });
+    await act(async () => {
+      oldDetection.reject(new Error("stale failure"));
+      await oldRequest.catch(() => undefined);
+    });
+
+    expect(result.current.sources).toEqual([
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
+    ]);
+    expect(result.current.error).toBe("");
+    expect(result.current.loading).toBe(false);
+  });
+
+  it.each(["success", "failure"])(
+    "keeps Agent B detection authoritative after late Agent A %s",
+    async (lateOutcome) => {
+      const agentA =
+        deferred<Awaited<ReturnType<typeof portabilityImportApi.sources>>>();
+      let agentBAttempts = 0;
+      vi.mocked(portabilityImportApi.sources).mockImplementation((agentId) => {
+        if (agentId === "agent-a") return agentA.promise;
+        agentBAttempts += 1;
+        return agentBAttempts === 1
+          ? Promise.reject(new Error("Agent B unavailable"))
+          : Promise.resolve([
+              {
+                source: "qoder",
+                name: "Agent B Qoder",
+                detected: true,
+                plugin_id: "qwenpaw-harness-qoder",
+                plugin_state: "available",
+              },
+            ]);
+      });
+      const { result, rerender } = renderHook(() => useImportJob());
+
+      let agentARequest!: ReturnType<typeof result.current.detect>;
+      await act(async () => {
+        agentARequest = result.current.detect();
+        await Promise.resolve();
+      });
+      selectedAgent = "agent-b";
+      rerender();
+
+      expect(result.current.sources).toEqual([]);
+      expect(result.current.loading).toBe(true);
+      expect(result.current.error).toBe("");
+      expect(result.current.detectError).toBe("");
+      await act(async () => {
+        await result.current.detect().catch(() => undefined);
+      });
+      expect(result.current.sources).toEqual([]);
+      expect(result.current.detectError).toBe("Agent B unavailable");
+      expect(result.current.loading).toBe(false);
+      expect(portabilityImportApi.create).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await result.current.detect();
+      });
+      expect(result.current.sources).toEqual([
+        {
+          source: "qoder",
+          name: "Agent B Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
+      ]);
+      expect(result.current.detectError).toBe("");
+
+      await act(async () => {
+        if (lateOutcome === "success") {
+          agentA.resolve([
+            {
+              source: "codex",
+              name: "Late Agent A",
+              detected: true,
+              plugin_id: "qwenpaw-harness-codex",
+              plugin_state: "available",
+            },
+          ]);
+          await agentARequest;
+        } else {
+          agentA.reject(new Error("Late Agent A failure"));
+          await agentARequest.catch(() => undefined);
+        }
+      });
+      expect(result.current.sources).toEqual([
+        {
+          source: "qoder",
+          name: "Agent B Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
+      ]);
+      expect(result.current.detectError).toBe("");
+      expect(portabilityImportApi.create).not.toHaveBeenCalled();
+    },
+  );
 
   it("starts and retries only the currently selected agent's job", async () => {
     vi.mocked(portabilityImportApi.retry).mockImplementation(

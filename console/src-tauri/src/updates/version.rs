@@ -32,7 +32,7 @@ struct Pep440Key {
 /// Tauri's SemVer parser preserves build metadata but does not order it.
 /// QwenPaw uses `+post.N` to carry PEP 440 post releases, so compare the
 /// version forms emitted by the packaging scripts using PEP 440 precedence.
-fn compare_pep440(a: &Version, b: &Version) -> Option<Ordering> {
+pub(crate) fn compare_pep440(a: &Version, b: &Version) -> Option<Ordering> {
     Some(pep440_key(a)?.cmp(&pep440_key(b)?))
 }
 

@@ -40,7 +40,7 @@ from .errors import (
     RuntimeFileValidationError,
     SequenceConflictError,
 )
-from .jsonl_store import DurableJsonlStore
+from .jsonl_store import DurableJsonlStore, JsonlReadCursor
 from .locking import DEFAULT_LOCK_TIMEOUT_SECONDS, CrossProcessFileLock
 from .models import (
     CreatorConversationRecord,
@@ -60,7 +60,11 @@ from .models import (
     SessionEventRecord,
     utc_now,
 )
-from .path_safety import require_safe_runtime_segment
+from .path_safety import (
+    is_link_path,
+    is_link_stat,
+    require_safe_runtime_segment,
+)
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.session_store")
 
@@ -329,19 +333,19 @@ class ProjectRuntimeSessionStore:
         staged_root = Path(project_root)
         if (
             not staged_root.is_absolute()
-            or staged_root.is_symlink()
+            or is_link_path(staged_root)
             or not staged_root.is_dir()
         ):
             raise UnsafeSessionPath(
                 "staged Project root must be an absolute, real directory",
             )
         project_file = staged_root / "project.json"
-        if project_file.is_symlink() or not project_file.is_file():
+        if is_link_path(project_file) or not project_file.is_file():
             raise SessionStoreIntegrityError(
                 "staged Project must contain a regular project.json",
             )
         runtime_root = staged_root / "runtime"
-        if runtime_root.is_symlink() or not runtime_root.is_dir():
+        if is_link_path(runtime_root) or not runtime_root.is_dir():
             raise SessionStoreIntegrityError(
                 "staged Project must contain a real runtime directory",
             )
@@ -1243,12 +1247,19 @@ class ProjectRuntimeSessionStore:
 
                 boundary: ReviewBoundary | None = None
                 project_state: RuntimeProjectState | None = None
-                requires_review = self._requires_review(
-                    session,
-                    channel=resolved_channel,
-                    classification=resolved_classification,
-                    initial_creation=initial_creation,
-                    hard_stop=hard_stop,
+                # Approval is a continuation of existing work, not a new
+                # revision. Capturing an interrupt here cancels sibling media
+                # still generating when the first output is accepted. Keep
+                # its durable user-message envelope and legacy replay hash.
+                requires_review = (
+                    source != "review_approval_resume"
+                    and self._requires_review(
+                        session,
+                        channel=resolved_channel,
+                        classification=resolved_classification,
+                        initial_creation=initial_creation,
+                        hard_stop=hard_stop,
+                    )
                 )
                 if requires_review:
                     self._assert_review_active_goal_unlocked(
@@ -1437,6 +1448,20 @@ class ProjectRuntimeSessionStore:
             store = self._events_store(project_id, session_id)
             records = store.read_records_after(after_seq, limit=limit)
             return records
+
+    def event_reader(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        after_seq: int = 0,
+    ) -> JsonlReadCursor[SessionEventRecord]:
+        """Keep one forward cursor for a live SSE connection's replay."""
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        _validate_window(after_seq, None)
+        return self._events_store(project_id, session_id).forward_reader(
+            after_seq,
+        )
 
     def append_queued_message(
         self,
@@ -2062,7 +2087,7 @@ class ProjectRuntimeSessionStore:
             return None
         session_files: list[Path] = []
         for child in sessions_root.iterdir():
-            if child.is_symlink():
+            if is_link_path(child):
                 raise SessionStoreIntegrityError(
                     f"Session directory cannot be a symlink: {child}",
                 )
@@ -2185,7 +2210,7 @@ class ProjectRuntimeSessionStore:
             return []
         records: list[CreatorConversationRecord] = []
         for path in sorted(root.glob("*.json")):
-            if path.is_symlink() or not path.is_file():
+            if is_link_path(path) or not path.is_file():
                 raise SessionStoreIntegrityError(
                     f"Conversation must be a regular file: {path}",
                 )
@@ -2269,13 +2294,13 @@ class ProjectRuntimeSessionStore:
             raise RuntimeSessionNotFound(
                 f"Project does not exist: {project_id}",
             ) from exc
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
+        if is_link_stat(root_stat) or not stat.S_ISDIR(
             root_stat.st_mode,
         ):
             raise UnsafeSessionPath(
                 "Project root must be a regular, non-symlink directory",
             )
-        if stat.S_ISLNK(project_stat.st_mode) or not stat.S_ISREG(
+        if is_link_stat(project_stat) or not stat.S_ISREG(
             project_stat.st_mode,
         ):
             raise UnsafeSessionPath(

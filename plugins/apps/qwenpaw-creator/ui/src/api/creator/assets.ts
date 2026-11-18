@@ -20,11 +20,13 @@ export function ingestAssetFile(
   projectId: string,
   file: File,
   postIngestAction: PostIngestAction,
-  clientRequestId = newClientId("asset"),
+  options?: { notifyAgent?: boolean; clientRequestId?: string },
 ): Promise<AssetIngestAccepted> {
+  const clientRequestId = options?.clientRequestId ?? newClientId("asset");
   const form = new FormData();
   form.append("clientRequestId", clientRequestId);
   form.append("postIngestAction", postIngestAction);
+  if (options?.notifyAgent === false) form.append("notifyAgent", "false");
   form.append("file", file, file.name);
   return creatorRequest(assetsPath(projectId), {
     method: "POST",
@@ -160,5 +162,24 @@ export function downloadSourceCache(
     { method: "POST" },
     // Original footage can be gigabytes; give the trigger call a long budget.
     { timeoutMs: 300_000 },
+  );
+}
+
+/** Delete an uploaded source asset version.
+ *
+ * `force` asks the backend to detach the timeline references an element can
+ * survive without instead of answering 409 ASSET_IN_USE; audio and edit
+ * elements still refuse until the caller deletes them.
+ */
+export function deleteSourceAssetVersion(
+  projectId: string,
+  versionId: string,
+  options?: { force?: boolean },
+): Promise<void> {
+  return creatorRequest(
+    `${assetsPath(projectId)}/${encodeURIComponent(versionId)}${
+      options?.force ? "?force=true" : ""
+    }`,
+    { method: "DELETE" },
   );
 }

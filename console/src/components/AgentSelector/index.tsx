@@ -11,7 +11,10 @@ import {
   Power,
   PowerOff,
 } from "lucide-react";
-import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
+import {
+  ChevronDown as SparkDownLine,
+  ChevronUp as SparkUpLine,
+} from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import type { AgentSummary } from "../../api/types/agents";
@@ -26,10 +29,12 @@ import styles from "./index.module.less";
 
 interface AgentSelectorProps {
   collapsed?: boolean;
+  compact?: boolean;
 }
 
 export default function AgentSelector({
   collapsed = false,
+  compact = false,
 }: AgentSelectorProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -335,7 +340,7 @@ export default function AgentSelector({
         onOpenChange={setDropdownOpen}
         placement="rightTop"
         trigger="click"
-        overlayClassName={styles.collapsedAgentPopover}
+        classNames={{ root: styles.collapsedAgentPopover }}
         content={
           <div
             className={`${styles.dropdownContent} ${styles.collapsedAgentContent}`}
@@ -472,25 +477,32 @@ export default function AgentSelector({
   }
 
   return (
-    <div className={styles.agentSelectorWrapper}>
-      <div className={styles.agentSelectorLabel}>
-        <span>
-          {t("agent.currentWorkspace")}
-          {enabledAgents.length > 0 && (
-            <span className={styles.agentCountBadge}>
-              {` (${enabledAgents.length})`}
-            </span>
-          )}
-        </span>
-      </div>
+    <div
+      className={`${styles.agentSelectorWrapper} ${
+        compact ? styles.compact : ""
+      }`}
+    >
+      {!compact && (
+        <div className={styles.agentSelectorLabel}>
+          <span>
+            {t("agent.currentWorkspace")}
+            {enabledAgents.length > 0 && (
+              <span className={styles.agentCountBadge}>
+                {` (${enabledAgents.length})`}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
       <Select
+        aria-label={t("agent.selectAgent")}
         value={selectedAgent}
         onChange={handleChange}
         loading={loading}
         className={styles.agentSelector}
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
-        popupClassName={styles.agentSelectorDropdown}
+        classNames={{ popup: { root: styles.agentSelectorDropdown } }}
         onOpenChange={setDropdownOpen}
         suffixIcon={
           dropdownOpen ? <SparkUpLine size={20} /> : <SparkDownLine size={20} />

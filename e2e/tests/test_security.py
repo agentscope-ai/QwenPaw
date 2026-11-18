@@ -73,8 +73,8 @@ class TestSecurityToolGuardAndTabSwitch:
 
         # Step 3: Verify the tabs exist
         log_test_step("3. Verify the tabs exist")
-        tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
-        file_guard_tab = page.locator('[data-node-key="fileGuard"] .qwenpaw-tabs-tab-btn').first
+        tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
+        file_guard_tab = page.get_by_role("tab", name="File Guard")
 
         expect(tool_guard_tab).to_be_visible(timeout=5000)
         logger.info("Tool Guard tab visible")
@@ -84,10 +84,7 @@ class TestSecurityToolGuardAndTabSwitch:
 
         # Step 4: Verify the Tool Guard tab is active by default
         log_test_step("4. Verify the Tool Guard tab is active by default")
-        active_panel = page.locator('#rc-tabs-0-panel-toolGuard').first
-        if not active_panel.is_visible():
-            # The tab ID may differ; use a generic selector
-            active_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        active_panel = page.locator('[role="tabpanel"]:visible').first
         expect(active_panel).to_be_visible(timeout=5000)
         logger.info("Tool Guard tab panel is active")
 
@@ -124,7 +121,7 @@ class TestSecurityToolGuardAndTabSwitch:
         file_guard_tab.click()
         page.wait_for_timeout(1500)
 
-        file_guard_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        file_guard_panel = page.locator('[role="tabpanel"]:visible').first
         expect(file_guard_panel).to_be_visible(timeout=5000)
         logger.info("File Guard tab panel is active")
 
@@ -137,7 +134,9 @@ class TestSecurityToolGuardAndTabSwitch:
 
         # Step 9: Verify the File Guard path input
         log_test_step("9. Verify the File Guard path input")
-        path_input = file_guard_panel.locator('input[placeholder*="文件或目录路径"], input[placeholder*="file or directory"], input[placeholder*="File or directory"], input[placeholder*="path"]').first
+        add_path = file_guard_panel.get_by_role("button", name="Add")
+        add_path.click()
+        path_input = file_guard_panel.get_by_role("textbox", name="Path")
         expect(path_input).to_be_visible(timeout=5000)
         logger.info("File Guard path input is visible")
 
@@ -174,24 +173,23 @@ class TestSecurityFileGuardPathAndToolSelect:
 
         # Step 2: Switch to the File Guard tab
         log_test_step("2. Switch to the File Guard tab")
-        file_guard_tab = page.locator('[data-node-key="fileGuard"] .qwenpaw-tabs-tab-btn').first
+        file_guard_tab = page.get_by_role("tab", name="File Guard")
         expect(file_guard_tab).to_be_visible(timeout=5000)
         file_guard_tab.click()
         page.wait_for_timeout(1500)
 
-        file_guard_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        file_guard_panel = page.locator('[role="tabpanel"]:visible').first
         expect(file_guard_panel).to_be_visible(timeout=5000)
 
         # Step 3: Verify the add-button initial state (should be disabled on empty input)
         log_test_step("3. Verify the add-button initial state")
-        add_button = file_guard_panel.locator('button.qwenpaw-btn-primary').first
+        add_button = file_guard_panel.get_by_role("button", name="Add")
         expect(add_button).to_be_visible(timeout=5000)
-        initial_disabled = add_button.is_disabled()
-        logger.info(f"Add button initial disabled state: {initial_disabled}")
+        add_button.click()
 
         # Step 4: Type a path and verify the add-button state changes
         log_test_step("4. Type a path and verify the add-button")
-        path_input = file_guard_panel.locator('input[placeholder*="文件或目录路径"], input[placeholder*="file or directory"], input[placeholder*="File or directory"], input[placeholder*="path"]').first
+        path_input = file_guard_panel.get_by_role("textbox", name="Path")
         expect(path_input).to_be_visible(timeout=5000)
 
         path_input.fill("~/.ssh/")
@@ -211,11 +209,11 @@ class TestSecurityFileGuardPathAndToolSelect:
 
         # Step 6: Switch back to the Tool Guard tab
         log_test_step("6. Switch back to the Tool Guard tab")
-        tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+        tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
         tool_guard_tab.click()
         page.wait_for_timeout(1500)
 
-        tool_guard_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        tool_guard_panel = page.locator('[role="tabpanel"]:visible').first
         expect(tool_guard_panel).to_be_visible(timeout=5000)
 
         # Step 7: Click the protected-tools dropdown to expand it
@@ -285,12 +283,12 @@ class TestSecurityConfigSaveAndPersist:
 
         # Step 2: Record the current Tool Guard switch state
         log_test_step("2. Record the Tool Guard switch initial state")
-        tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+        tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
         expect(tool_guard_tab).to_be_visible(timeout=5000)
         tool_guard_tab.click()
         page.wait_for_timeout(1500)
 
-        tool_guard_panel = page.locator('.qwenpaw-tabs-tabpane-active').first
+        tool_guard_panel = page.locator('[role="tabpanel"]:visible').first
         expect(tool_guard_panel).to_be_visible(timeout=5000)
 
         tool_guard_switch = tool_guard_panel.locator('button.qwenpaw-switch[role="switch"]').first
@@ -310,13 +308,8 @@ class TestSecurityConfigSaveAndPersist:
             assert new_checked != initial_checked, f"Switch state did not flip: {initial_checked} -> {new_checked}"
             logger.info(f"Switch toggled: {initial_checked} -> {new_checked}")
 
-            # Step 4: Find and click the Save button
-            log_test_step("4. Click the Save button")
-            save_btn = page.locator('button.qwenpaw-btn-primary:has-text("保存"), button:has-text("保 存")').first
-            if not save_btn.is_visible():
-                save_btn = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-            expect(save_btn).to_be_visible(timeout=5000)
-            save_btn.click()
+            # Step 4: Wait for the debounced auto-save.
+            log_test_step("4. Wait for auto-save")
             page.wait_for_timeout(2000)
 
             # Step 5: Verify the save success toast
@@ -335,12 +328,16 @@ class TestSecurityConfigSaveAndPersist:
 
             # Step 7: Verify the Tool Guard switch state is persisted
             log_test_step("7. Verify the Tool Guard switch state is persisted")
-            tool_guard_tab_refreshed = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+            tool_guard_tab_refreshed = page.get_by_role(
+                "tab", name="Tool Guard"
+            )
             expect(tool_guard_tab_refreshed).to_be_visible(timeout=5000)
             tool_guard_tab_refreshed.click()
             page.wait_for_timeout(1500)
 
-            tool_guard_panel_refreshed = page.locator('.qwenpaw-tabs-tabpane-active').first
+            tool_guard_panel_refreshed = page.locator(
+                '[role="tabpanel"]:visible'
+            ).first
             expect(tool_guard_panel_refreshed).to_be_visible(timeout=5000)
 
             tool_guard_switch_refreshed = tool_guard_panel_refreshed.locator('button.qwenpaw-switch[role="switch"]').first
@@ -355,7 +352,9 @@ class TestSecurityConfigSaveAndPersist:
             # Step 8: Restore the original state and save
             log_test_step("8. Restore the original state and save")
             try:
-                tool_guard_switch_refreshed = page.locator('.qwenpaw-tabs-tabpane-active').first.locator('button.qwenpaw-switch[role="switch"]').first
+                tool_guard_switch_refreshed = page.locator(
+                    '[role="tabpanel"]:visible'
+                ).first.locator('button.qwenpaw-switch[role="switch"]').first
                 if tool_guard_switch_refreshed.is_visible():
                     current_state = tool_guard_switch_refreshed.get_attribute('aria-checked')
                     if current_state != initial_checked:
@@ -368,14 +367,8 @@ class TestSecurityConfigSaveAndPersist:
                         )
                         logger.info(f"Switch restored to initial state: {restored_checked}")
 
-                        # Save again
-                        save_btn_refreshed = page.locator('button.qwenpaw-btn-primary:has-text("保存"), button:has-text("保 存")').first
-                        if not save_btn_refreshed.is_visible():
-                            save_btn_refreshed = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
-                        if save_btn_refreshed.is_visible():
-                            save_btn_refreshed.click()
-                            page.wait_for_timeout(2000)
-                            logger.info("Restored state saved")
+                        page.wait_for_timeout(2000)
+                        logger.info("Restored state auto-saved")
                     else:
                         logger.info("Switch already at initial state; no restore needed")
             except Exception as e:
@@ -383,7 +376,7 @@ class TestSecurityConfigSaveAndPersist:
 
         # Step 9: Switch to the Skill Scanner tab (if present)
         log_test_step("9. Check and switch to the Skill Scanner tab")
-        skill_scanner_tab = page.locator('[data-node-key="skillScanner"] .qwenpaw-tabs-tab-btn').first
+        skill_scanner_tab = page.get_by_role("tab", name="Skill Scanner")
 
         if skill_scanner_tab.is_visible():
             logger.info("Skill Scanner tab found")
@@ -440,7 +433,7 @@ class TestSecurityRuleCrud:
 
         # Step 2: Verify the Tool Guard tab and switch to it
         log_test_step("2. Switch to the Tool Guard tab")
-        tool_guard_tab = page.locator('[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn').first
+        tool_guard_tab = page.get_by_role("tab", name="Tool Guard")
         expect(tool_guard_tab).to_be_visible(timeout=5000)
         tool_guard_tab.click()
         page.wait_for_timeout(1500)
@@ -501,11 +494,21 @@ class TestSecurityRuleCrud:
             confirm_btn.click()
             page.wait_for_timeout(2000)
 
-            # Step 8: Verify the rule was added to the table
-            log_test_step("8. Verify the rule was added to the table")
-            rule_row = tool_guard_panel.locator(f'tr:has-text("{rule_id}")').first
+            # Step 8: Open the rule category and verify the new rule card.
+            log_test_step("8. Verify the rule was added to its category")
+            category_btn = tool_guard_panel.locator(
+                'button:has-text("Command injection"), '
+                'button:has-text("命令注入")'
+            ).first
+            expect(category_btn).to_be_visible(timeout=5000)
+            category_btn.click()
+            category_dialog = page.locator('[role="dialog"]:visible').last
+            expect(category_dialog).to_be_visible(timeout=5000)
+            rule_row = category_dialog.locator(
+                f'article:has-text("{rule_id}")'
+            ).first
             expect(rule_row).to_be_visible(timeout=5000)
-            logger.info(f"Rule {rule_id} appeared in the table")
+            logger.info(f"Rule {rule_id} appeared in the category")
 
             # Step 9: Verify the rule's severity tag (default HIGH)
             log_test_step("9. Verify the rule's severity tag")
@@ -518,8 +521,9 @@ class TestSecurityRuleCrud:
 
             # Step 10: Disable the rule
             log_test_step("10. Disable the rule")
-            # Each row has two switches: autoDeny (col 5) and enabled (col 6). Use .last to pick the enabled switch.
-            enable_switch = rule_row.locator('button.qwenpaw-switch[role="switch"]').last
+            enable_switch = rule_row.locator(
+                'button.qwenpaw-switch[role="switch"]'
+            ).first
             expect(enable_switch).to_be_visible(timeout=5000)
 
             initial_switch_state = enable_switch.get_attribute('aria-checked')
@@ -527,7 +531,9 @@ class TestSecurityRuleCrud:
             page.wait_for_timeout(1500)
 
             # Re-fetch the switch element
-            enable_switch = rule_row.locator('button.qwenpaw-switch[role="switch"]').last
+            enable_switch = rule_row.locator(
+                'button.qwenpaw-switch[role="switch"]'
+            ).first
             after_disable = enable_switch.get_attribute('aria-checked')
             assert initial_switch_state != after_disable, "Rule switch did not toggle"
             logger.info("Rule disabled")
@@ -538,13 +544,15 @@ class TestSecurityRuleCrud:
             page.wait_for_timeout(2000)
 
             # Re-fetch the switch element (DOM may have updated)
-            enable_switch = rule_row.locator('button.qwenpaw-switch[role="switch"]').last
+            enable_switch = rule_row.locator(
+                'button.qwenpaw-switch[role="switch"]'
+            ).first
 
             after_enable = enable_switch.get_attribute('aria-checked')
             if after_enable != 'true':
                 # Retry once
                 page.wait_for_timeout(1500)
-                after_enable = disable_switch.get_attribute('aria-checked')
+                after_enable = enable_switch.get_attribute('aria-checked')
             assert after_enable == 'true', f"Rule was not re-enabled: {after_enable}"
             logger.info("Rule re-enabled")
 
@@ -561,7 +569,7 @@ class TestSecurityRuleCrud:
 
             # Step 13: Verify the edit modal appears
             log_test_step("13. Verify the edit modal appears")
-            edit_modal = page.locator('.qwenpaw-modal').first
+            edit_modal = page.locator('.qwenpaw-modal:visible').last
             expect(edit_modal).to_be_visible(timeout=5000)
             logger.info("Edit modal opened")
 
@@ -581,14 +589,20 @@ class TestSecurityRuleCrud:
             # Cleanup: delete the test rule
             if rule_id:
                 try:
-                    cleanup_rule_row = tool_guard_panel.locator(f'tr:has-text("{rule_id}")').first
+                    cleanup_rule_row = page.locator(
+                        '[role="dialog"]:visible '
+                        f'article:has-text("{rule_id}")'
+                    ).first
                     if cleanup_rule_row.count() > 0:
                         delete_btn = cleanup_rule_row.locator('button:not([role="switch"]):has(svg.lucide-trash-2), button:not([role="switch"]):has(svg.lucide-Trash2)').first
                         if delete_btn.count() == 0:
                             delete_btn = cleanup_rule_row.locator('button:not([role="switch"]):has(svg)').last
                         delete_btn.click()
                         page.wait_for_timeout(1500)
-                        confirm_delete_btn = page.locator('.qwenpaw-modal-confirm button.qwenpaw-btn-primary, .qwenpaw-modal button:has-text("确认"), .qwenpaw-modal button:has-text("Delete")').first
+                        confirm_delete_btn = page.locator(
+                            '[role="dialog"]:visible '
+                            'button.qwenpaw-btn-primary'
+                        ).last
                         if confirm_delete_btn.count() > 0:
                             confirm_delete_btn.click()
                             page.wait_for_timeout(2000)
@@ -638,7 +652,7 @@ class TestSkillScannerModeSwitch:
 
         # Step 2: Check and switch to the Skill Scanner tab
         log_test_step("2. Check and switch to the Skill Scanner tab")
-        skill_scanner_tab = page.locator('[data-node-key="skillScanner"] .qwenpaw-tabs-tab-btn').first
+        skill_scanner_tab = page.get_by_role("tab", name="Skill Scanner")
 
         if not skill_scanner_tab.is_visible():
             pytest.skip("Skill Scanner tab not present, skipping this test")
@@ -789,9 +803,8 @@ class TestDeniedToolsConfig:
 
         log_test_step("Ensure we are on the Tool Guard tab")
         tool_guard_tab = page.locator(
-            '[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Tool Guard"), '
-            '.qwenpaw-tabs-tab-btn:has-text("工具防护")'
+            '[role="tab"]:has-text("Tool Guard"), '
+            '[role="tab"]:has-text("工具防护")'
         ).first
         if tool_guard_tab.count() > 0:
             tool_guard_tab.click()
@@ -889,9 +902,8 @@ class TestRulePreview:
 
         log_test_step("Ensure we are on the Tool Guard tab")
         tool_guard_tab = page.locator(
-            '[data-node-key="toolGuard"] .qwenpaw-tabs-tab-btn, '
-            '.qwenpaw-tabs-tab-btn:has-text("Tool Guard"), '
-            '.qwenpaw-tabs-tab-btn:has-text("工具防护")'
+            '[role="tab"]:has-text("Tool Guard"), '
+            '[role="tab"]:has-text("工具防护")'
         ).first
         if tool_guard_tab.count() > 0:
             tool_guard_tab.click()

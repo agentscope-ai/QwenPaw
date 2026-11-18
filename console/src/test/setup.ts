@@ -1,6 +1,16 @@
 import "@testing-library/jest-dom";
 import { vi } from "vitest";
 
+// jsdom has no scrolling engine; native scroll completion is dispatched by tests.
+Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+  configurable: true,
+  writable: true,
+  value: function (options: ScrollToOptions) {
+    this.scrollTop = options.top ?? this.scrollTop;
+    this.scrollLeft = options.left ?? this.scrollLeft;
+  },
+});
+
 // localStorage mock
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -40,6 +50,15 @@ Object.defineProperty(window, "matchMedia", {
 
 // ResizeObserver (required by antd rc-resize-observer — must be a constructor, not arrow fn)
 global.ResizeObserver = vi.fn().mockImplementation(function () {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  };
+});
+
+// Visibility-aware Motion components pause when outside the viewport.
+global.IntersectionObserver = vi.fn().mockImplementation(function () {
   return {
     observe: vi.fn(),
     unobserve: vi.fn(),

@@ -15,6 +15,8 @@ const storeState = vi.hoisted(() => ({
 }));
 const mockCancel = vi.hoisted(() => vi.fn());
 const mockStopWatcher = vi.hoisted(() => vi.fn());
+const mockStartStream = vi.hoisted(() => vi.fn());
+const mockStopStream = vi.hoisted(() => vi.fn());
 const mockMessage = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
@@ -37,10 +39,6 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("../../../contexts/ThemeContext", () => ({
-  useTheme: () => ({ isDark: false }),
-}));
-
 vi.mock("../../../stores/backgroundTasksStore", () => ({
   useBackgroundTasksStore: (selector: (s: typeof storeState) => unknown) =>
     selector(storeState),
@@ -55,6 +53,9 @@ vi.mock("../../../hooks/useBackgroundTaskWatcher", () => ({
     mockCancel(sessionId, toolCallId),
   stopBackgroundTaskWatcher: (toolCallId: string) =>
     mockStopWatcher(toolCallId),
+  startBackgroundTaskStream: (sessionId: string, toolCallId: string) =>
+    mockStartStream(sessionId, toolCallId),
+  stopBackgroundTaskStream: (toolCallId: string) => mockStopStream(toolCallId),
 }));
 
 vi.mock("antd", () => ({
@@ -81,6 +82,8 @@ beforeEach(() => {
   storeState.removeTasks.mockClear();
   mockCancel.mockReset();
   mockStopWatcher.mockClear();
+  mockStartStream.mockClear();
+  mockStopStream.mockClear();
   mockMessage.info.mockClear();
   mockMessage.error.mockClear();
 });
@@ -140,6 +143,60 @@ describe("BackgroundTaskPanel basics", () => {
 });
 
 describe("BackgroundTaskPanel finished filter and statuses", () => {
+  it("uses semantic tokens for running, done and cancelled states", () => {
+    storeState.tasks = [
+      baseTask({ toolCallId: "r", toolName: "running-tool" }),
+      baseTask({
+        toolCallId: "d",
+        toolName: "done-tool",
+        status: "done",
+        endTime: Date.now(),
+      }),
+      baseTask({
+        toolCallId: "c",
+        toolName: "cancelled-tool",
+        status: "cancelled",
+        endTime: Date.now(),
+      }),
+    ];
+    render(
+      <div className="dark-mode">
+        <BackgroundTaskPanel sessionId="sess-1" />
+      </div>,
+    );
+
+    const badge = screen.getByText("1");
+    expect(badge).toHaveStyle({
+      background: "var(--app-warning-bg)",
+      color: "var(--app-warning-text)",
+    });
+
+    fireEvent.click(screen.getByText("Background tasks"));
+    const runningRow = screen
+      .getByText("running-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    expect(runningRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-accent)",
+    });
+    expect(screen.getByText("Cancel")).toHaveStyle({
+      color: "var(--app-error-text)",
+    });
+
+    fireEvent.click(screen.getByLabelText("Show completed"));
+    const doneRow = screen
+      .getByText("done-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    const cancelledRow = screen
+      .getByText("cancelled-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    expect(doneRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-success)",
+    });
+    expect(cancelledRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-status-idle)",
+    });
+  });
+
   it("formats done and cancelled status texts with durations", () => {
     const start = Date.now() - 125000; // 2m 5s
     storeState.tasks = [
@@ -238,6 +295,32 @@ describe("BackgroundTaskPanel batch actions", () => {
 });
 
 describe("BackgroundTaskPanel output pane and embedded mode", () => {
+  it("opens the output stream on expand and aborts it on collapse", () => {
+    storeState.tasks = [baseTask({ toolCallId: "lazy-1" })];
+    render(<BackgroundTaskPanel sessionId="sess-1" />);
+
+    expect(mockStartStream).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Background tasks"));
+    const row = screen.getByText("run_tool_batch").closest("[role=button]")!;
+    fireEvent.click(row);
+    expect(mockStartStream).toHaveBeenCalledWith("sess-1", "lazy-1");
+
+    fireEvent.click(row);
+    expect(mockStopStream).toHaveBeenCalledWith("lazy-1");
+  });
+
+  it("aborts the expanded output stream when the panel closes", () => {
+    storeState.tasks = [baseTask({ toolCallId: "lazy-1" })];
+    render(<BackgroundTaskPanel sessionId="sess-1" />);
+    fireEvent.click(screen.getByText("Background tasks"));
+    fireEvent.click(
+      screen.getByText("run_tool_batch").closest("[role=button]")!,
+    );
+
+    fireEvent.click(screen.getByText("Background tasks"));
+    expect(mockStopStream).toHaveBeenCalledWith("lazy-1");
+  });
+
   it("expanding a running task shows live output; collapsing hides it", () => {
     storeState.tasks = [baseTask({ liveOutput: "live progress" })];
     render(<BackgroundTaskPanel sessionId="sess-1" />);

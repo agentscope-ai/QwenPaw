@@ -9,7 +9,7 @@ import {
   LayoutDashboard,
   AppWindow,
 } from "lucide-react";
-import { SparkWifiLine } from "@agentscope-ai/icons";
+import { Wifi as SparkWifiLine } from "lucide-react";
 import type { PluginType } from "@/api/modules/plugin";
 
 const PLUGIN_TYPE_CONFIG: Record<
@@ -55,6 +55,11 @@ const PLUGIN_TYPE_CONFIG: Record<
     label: "Memory",
     color: "purple",
     icon: <BrainCircuit size={11} />,
+  },
+  hub: {
+    label: "Hub",
+    color: "default",
+    icon: <Package size={11} />,
   },
   general: {
     label: "General",

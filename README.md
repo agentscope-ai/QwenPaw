@@ -34,7 +34,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | | |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and a self-evolving personal knowledge base powered by [ReMe](https://github.com/agentscope-ai/ReMe). Conversations and resources continuously become readable, editable, searchable, and linked Markdown memory. |
-| **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
+| **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B / 35B-A3B / 27B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
 | **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
 | **File workspace**                      | Unified file navigation, preview, editing, diffs, upload, and download across project and Agent files.                                                                            |
@@ -60,26 +60,15 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
+- [2026-11-11] **v2.3.0** | Piccolo local decision models, QwenPaw Community integration, Advisor Mode for collaboration between larger and smaller models, Code Mode; plugin-system refactoring, the plugin SDK, and channels as plugins; image memory, tag browsing, and Console and desktop multi-window improvements. [v2.3.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+
+- [2026-10-15] **v2.2.2** | Console updates, new QwenPaw-Flash models covering 9B/27B/35B-A3B, PawPort for importing Codex/Qoder data, Creator 2.0.1, and Data 0.3.0. [v2.2.2 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
+
 - [2026-09-10] **v2.2.1** | Creator 1.2 blueprint workbench, per-Agent model routing, and unified environment management. [v2.2.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
 
 - [2026-09-03] **v2.2.0** | Self-hosted multi-user QwenPaw Hub, QwenPaw Mail, native QwenPaw Data, unified model routing, Creator 1.1, a unified marketplace, and major Console, Skills, channel, and reliability improvements. [v2.2.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, unified Files workspace, QwenPaw Creator, Codex/Qoder Agent integration, Browser-use, Computer-use, workspace checkpoints, and long-running conversation continuity. [v2.1.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
-
-- [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
-
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, [ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base, and a bundled Terminal UI.
-
-  | Highlight | What's new |
-  |-----------|------------|
-  | **Agent OS — Workspace** | Three pillars per agent: **Resources** (transparent on disk), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
-  | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
-  | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
-  | **Scroll Context** | Every turn persisted; evicted turns indexed with on-demand recall — nothing summarized away. |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 Self-evolving Personal Knowledge Base** | Continuously turns conversations and resources into readable, editable, searchable, and linked Markdown memory. |
-  | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
-
-  Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 [All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -116,6 +105,8 @@ qwenpaw app
 ```
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
+
+Codex and Qoder backends are optional plugins installed separately in **Settings → Plugins**. The `full` extra excludes their SDKs; transitional `codex`/`qoder` extras only prepare dependencies. Existing users should follow the [prepared migration instructions](https://qwenpaw.agentscope.io/docs/plugins#optional-codex-and-qoder-backends) before restarting an upgraded host.
 
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
@@ -372,7 +363,7 @@ Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in 
 
 QwenPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
-QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B / 9B models for agent scenarios, with Q4 and Q8 quantizations. Available on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models).
+QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B / 9B / 35B-A3B / 27B models for agent scenarios, with Q4 and Q8 quantizations. Available on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models).
 
 | Backend              | Best for                                 | Install                                                              |
 | -------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
@@ -428,6 +419,10 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
 
+In Console chat, select assistant response text and click **Quote to follow-up** to append an editable quote to your draft. See [Console](https://qwenpaw.agentscope.io/docs/console).
+
+In the Console, `/clear` and a successful `/new` leave the chat empty when you reopen it or reload the page. See [Magic commands](https://qwenpaw.agentscope.io/docs/commands).
+
 Full documentation: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---
@@ -440,33 +435,20 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 ## Roadmap
 
-| Area                            | Item                                                                   | Status               |
-| ------------------------------- | ---------------------------------------------------------------------- | -------------------- |
-| **Horizontal Expansion**        | More channels, models, skills, and MCPs                                | Seeking Contributors |
-| **Existing Feature Extension**  | Display, download, and Windows improvements                            | Seeking Contributors |
-| **Models**                      | Multi-model switching                                                  | In Progress          |
-| **Safety & Approval**           | Batch preview and approval                                              | In Progress          |
-| **Automation**                  | Automated tasks                                                         | In Progress          |
-| **Agent Interaction**           | Agent task handoff                                                      | In Progress          |
-|                                 | Running task steering                                                   | In Progress          |
-| **Workspaces**                  | Multiple workspaces                                                    | In Progress          |
-| **Context**                     | System prompt compression                                               | In Progress          |
-| **Tooling**                     | Multi-location file changes                                             | In Progress          |
-|                                 | Persistent terminals and background tasks                              | In Progress          |
-| **Computer-use**                | On-screen target detection and actions                                  | In Progress          |
-| **Voice Interaction**           | Real-time voice tasks                                                   | In Progress          |
-| **Context Management & Memory** | Hot-swappable vector models and storage                                 | In Progress          |
-|                                 | Personal knowledge base                                                 | In Progress          |
-| **QwenPaw Applications**        | QwenPaw Insight                                                        | In Progress          |
-|                                 | QwenPaw Mail                                                           | In Progress          |
+| Area                            | Item                                                                                                                         | Status      |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| **Release Evaluation Rankings** | Evaluate each release and update the public leaderboard.                                                                     | In Progress |
+| **Lightweight Codebase**        | Split non-core components into plugins that can be installed and enabled on demand to reduce installation and runtime costs. | In Progress |
+| **Decision Model Integration**  | Integrate Jev and other decision models for collaborative decision-making.                                                   | In Progress |
+| **Deep UI/UX Optimization**     | Improve navigation, interactions, and visuals across screen sizes.                                                           | In Progress |
 
-_Status:_ **In Progress** — actively being worked on; **Seeking Contributors** — we strongly encourage community contributions.
+_Status:_ **In Progress** — actively being worked on.
 
 ---
 
 ## Contributing
 
-QwenPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+QwenPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.

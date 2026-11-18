@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addRouterBasename,
   getAppRelativeLocation,
@@ -77,5 +77,83 @@ describe("navigationMode", () => {
   it("builds basename-safe classic console paths", () => {
     expect(getConsoleRootHref("/console/os/apps/office")).toBe("/console/chat");
     expect(getConsoleRootHref("/os")).toBe("/chat");
+  });
+});
+
+describe("configured console basename", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function loadNavigation(basename: string | undefined) {
+    vi.stubEnv("VITE_CONSOLE_BASENAME", basename);
+    vi.resetModules();
+    return import("./navigationMode");
+  }
+
+  it.each([undefined, "", " "])(
+    "preserves the default basename for %j",
+    async (basename) => {
+      const navigation = await loadNavigation(basename);
+      expect(navigation.getRouterBasename("/console/chat")).toBe("/console");
+      expect(navigation.getRouterBasename("/chat")).toBeUndefined();
+      expect(navigation.getRouterBasename("/console-other")).toBeUndefined();
+    },
+  );
+
+  it.each(["/qwenpaw", "/qwenpaw/", "qwenpaw", " /qwenpaw// "])(
+    "normalizes the configured basename %j",
+    async (basename) => {
+      const navigation = await loadNavigation(basename);
+      expect(navigation.getRouterBasename("/qwenpaw/chat")).toBe("/qwenpaw");
+      expect(navigation.stripRouterBasename("/qwenpaw")).toBe("/");
+      expect(navigation.stripRouterBasename("/qwenpaw/")).toBe("/");
+      expect(navigation.getRouterBasename("/qwenpaw-other")).toBeUndefined();
+      expect(navigation.getRouterBasename("/console/chat")).toBeUndefined();
+    },
+  );
+
+  it("matches a nested basename literally at a path boundary", async () => {
+    const navigation = await loadNavigation("/apps/qwenpaw.v2+preview");
+    expect(navigation.getRouterBasename("/apps/qwenpaw.v2+preview/chat")).toBe(
+      "/apps/qwenpaw.v2+preview",
+    );
+    expect(
+      navigation.getRouterBasename("/apps/qwenpawXv22preview/chat"),
+    ).toBeUndefined();
+    expect(
+      navigation.getRouterBasename("/apps/qwenpaw.v2+preview-other"),
+    ).toBeUndefined();
+  });
+
+  it("preserves a custom basename in login and shell navigation", async () => {
+    const navigation = await loadNavigation("/apps/qwenpaw/");
+    const location = {
+      pathname: "/apps/qwenpaw/os/apps/office",
+      search: "?space=one",
+      hash: "#top",
+    };
+    expect(navigation.isOsPath(location.pathname)).toBe(true);
+    expect(navigation.getLoginHref(location)).toBe(
+      "/apps/qwenpaw/login?redirect=%2Fos%2Fapps%2Foffice%3Fspace%3Done%23top",
+    );
+    expect(navigation.isLoginPath("/apps/qwenpaw/login")).toBe(true);
+    expect(
+      navigation.getPostLoginHref("/apps/qwenpaw/login", "/os/apps/office"),
+    ).toBe("/apps/qwenpaw/os");
+    expect(navigation.getConsoleRootHref(location.pathname)).toBe(
+      "/apps/qwenpaw/chat",
+    );
+  });
+
+  it("supports an explicit root basename without duplicate slashes", async () => {
+    const navigation = await loadNavigation("/");
+    expect(navigation.getRouterBasename("/console/chat")).toBeUndefined();
+    expect(navigation.stripRouterBasename("/os")).toBe("/os");
+    expect(navigation.getLoginHref({ pathname: "/chat" })).toBe(
+      "/login?redirect=%2Fchat",
+    );
+    expect(navigation.getOsRootHref("/login")).toBe("/os");
   });
 });

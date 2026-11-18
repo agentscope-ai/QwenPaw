@@ -91,13 +91,7 @@ def _openai_session_history() -> list[Msg]:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+async def test_gemini_history_to_openai() -> None:
     history = _gemini_session_history()
     original_dict = history[1].to_dict()
 
@@ -106,7 +100,7 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
         is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -127,15 +121,9 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_anthropic(monkeypatch) -> None:
+async def test_gemini_history_to_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _gemini_session_history()
 
@@ -144,7 +132,7 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
         is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -158,15 +146,9 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_stays_gemini(monkeypatch) -> None:
+async def test_gemini_history_stays_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _gemini_session_history()
 
@@ -175,7 +157,7 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
         _is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -191,15 +173,9 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_openai_history_to_gemini(monkeypatch) -> None:
+async def test_openai_history_to_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _openai_session_history()
 
@@ -208,7 +184,7 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
         _is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -224,13 +200,7 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+async def test_gemini_multi_toolcall_to_openai() -> None:
     msgs = [
         Msg(
             name="assistant",
@@ -269,7 +239,7 @@ def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -307,19 +277,13 @@ def _history_with_thinking() -> list[Msg]:
     ]
 
 
-def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+async def test_thinking_blocks_preserved_for_openai() -> None:
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -333,22 +297,16 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
     assert thinking_blocks[0].thinking == "Let me consider..."
 
 
-def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
+async def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -363,15 +321,9 @@ def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
     assert len(text_blocks) == 1
 
 
-def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
+async def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = [
         Msg(
@@ -397,7 +349,7 @@ def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -411,22 +363,16 @@ def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
     assert thinking_blocks[0].signature == "sig-from-claude"
 
 
-def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
+async def test_thinking_blocks_preserved_for_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -467,15 +413,7 @@ def _history_with_raw_input_needing_repair() -> list[Msg]:
     ]
 
 
-def test_raw_input_repair_works_before_cross_provider_clean(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+async def test_raw_input_repair_works_before_cross_provider_clean() -> None:
     history = _history_with_raw_input_needing_repair()
 
     (
@@ -483,7 +421,7 @@ def test_raw_input_repair_works_before_cross_provider_clean(
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
         SimpleNamespace(),

@@ -1,0 +1,785 @@
+{
+  "api_urls": [
+    "https://api.siliconflow.com/v1"
+  ],
+  "remote_id": "siliconflow",
+  "template_owner": false,
+  "default_model_ids": [],
+  "models": [
+    {
+      "id": "baidu/ERNIE-4.5-300B-A47B",
+      "name": "baidu/ERNIE-4.5-300B-A47B",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-02"
+    },
+    {
+      "id": "stepfun-ai/Step-3.5-Flash",
+      "name": "stepfun-ai/Step-3.5-Flash",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-11"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V3",
+      "name": "deepseek-ai/DeepSeek-V3",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-12-26"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V4-Flash",
+      "name": "deepseek-ai/DeepSeek-V4-Flash",
+      "max_input_length": 1000000,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-24",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V3.1",
+      "name": "deepseek-ai/DeepSeek-V3.1",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-08-25"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V3.1-Terminus",
+      "name": "deepseek-ai/DeepSeek-V3.1-Terminus",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-29"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V3.2-Exp",
+      "name": "deepseek-ai/DeepSeek-V3.2-Exp",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-10"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-R1",
+      "name": "deepseek-ai/DeepSeek-R1",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-05-28"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V3.2",
+      "name": "deepseek-ai/DeepSeek-V3.2",
+      "max_input_length": 164000,
+      "max_output_length": 164000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-12-03"
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-V4-Pro",
+      "name": "deepseek-ai/DeepSeek-V4-Pro",
+      "max_input_length": 1000000,
+      "max_output_length": 384000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-24",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "inclusionAI/Ling-flash-2.0",
+      "name": "inclusionAI/Ling-flash-2.0",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-18"
+    },
+    {
+      "id": "google/gemma-4-31B-it",
+      "name": "google/gemma-4-31B-it",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-02",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "google/gemma-4-26B-A4B-it",
+      "name": "google/gemma-4-26B-A4B-it",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-02",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "zai-org/GLM-5.1",
+      "name": "zai-org/GLM-5.1",
+      "max_input_length": 205000,
+      "max_output_length": 205000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-08",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "zai-org/GLM-5V-Turbo",
+      "name": "zai-org/GLM-5V-Turbo",
+      "max_input_length": 200000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-01"
+    },
+    {
+      "id": "zai-org/GLM-4.5-Air",
+      "name": "zai-org/GLM-4.5-Air",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-28"
+    },
+    {
+      "id": "zai-org/GLM-5.2",
+      "name": "zai-org/GLM-5.2",
+      "max_input_length": 1049000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-06-13",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "zai-org/GLM-5",
+      "name": "zai-org/GLM-5",
+      "max_input_length": 205000,
+      "max_output_length": 205000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-12",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "name": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-30"
+    },
+    {
+      "id": "Qwen/Qwen3-VL-30B-A3B-Thinking",
+      "name": "Qwen/Qwen3-VL-30B-A3B-Thinking",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-11"
+    },
+    {
+      "id": "Qwen/Qwen3.5-27B",
+      "name": "Qwen/Qwen3.5-27B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-23"
+    },
+    {
+      "id": "Qwen/Qwen3-8B",
+      "name": "Qwen/Qwen3-8B",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-04-30"
+    },
+    {
+      "id": "Qwen/Qwen3-VL-32B-Thinking",
+      "name": "Qwen/Qwen3-VL-32B-Thinking",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-21"
+    },
+    {
+      "id": "Qwen/Qwen3-14B",
+      "name": "Qwen/Qwen3-14B",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-04-30"
+    },
+    {
+      "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "name": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-08-01"
+    },
+    {
+      "id": "Qwen/Qwen3.5-9B",
+      "name": "Qwen/Qwen3.5-9B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-03-03",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "Qwen/Qwen3.5-122B-A10B",
+      "name": "Qwen/Qwen3.5-122B-A10B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-23",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "Qwen/Qwen3-VL-235B-A22B-Instruct",
+      "name": "Qwen/Qwen3-VL-235B-A22B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-04"
+    },
+    {
+      "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+      "name": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-31"
+    },
+    {
+      "id": "Qwen/Qwen2.5-7B-Instruct",
+      "name": "Qwen/Qwen2.5-7B-Instruct",
+      "max_input_length": 33000,
+      "max_output_length": 4000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-09-18"
+    },
+    {
+      "id": "Qwen/Qwen2.5-72B-Instruct",
+      "name": "Qwen/Qwen2.5-72B-Instruct",
+      "max_input_length": 33000,
+      "max_output_length": 4000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2024-09-18"
+    },
+    {
+      "id": "Qwen/Qwen3.5-397B-A17B",
+      "name": "Qwen/Qwen3.5-397B-A17B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-15"
+    },
+    {
+      "id": "Qwen/Qwen3.5-35B-A3B",
+      "name": "Qwen/Qwen3.5-35B-A3B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-23"
+    },
+    {
+      "id": "Qwen/Qwen3-VL-32B-Instruct",
+      "name": "Qwen/Qwen3-VL-32B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-21"
+    },
+    {
+      "id": "Qwen/Qwen3-32B",
+      "name": "Qwen/Qwen3-32B",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-04-30"
+    },
+    {
+      "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+      "name": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-07-28"
+    },
+    {
+      "id": "Qwen/Qwen3.6-27B",
+      "name": "Qwen/Qwen3.6-27B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-22",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "Qwen/Qwen3-VL-8B-Instruct",
+      "name": "Qwen/Qwen3-VL-8B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-15"
+    },
+    {
+      "id": "Qwen/Qwen3.6-35B-A3B",
+      "name": "Qwen/Qwen3.6-35B-A3B",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-17",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "Qwen/Qwen3-VL-235B-A22B-Thinking",
+      "name": "Qwen/Qwen3-VL-235B-A22B-Thinking",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-04"
+    },
+    {
+      "id": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+      "name": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-10-05"
+    },
+    {
+      "id": "ByteDance-Seed/Seed-OSS-36B-Instruct",
+      "name": "ByteDance-Seed/Seed-OSS-36B-Instruct",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-09-04"
+    },
+    {
+      "id": "MiniMaxAI/MiniMax-M2.5",
+      "name": "MiniMaxAI/MiniMax-M2.5",
+      "max_input_length": 197000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-02-15",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "name": "openai/gpt-oss-20b",
+      "max_input_length": 131000,
+      "max_output_length": 8000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-08-13",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "name": "openai/gpt-oss-120b",
+      "max_input_length": 131000,
+      "max_output_length": 8000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-08-13",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "moonshotai/Kimi-K2.5",
+      "name": "moonshotai/Kimi-K2.5",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-01-27",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "moonshotai/Kimi-K2.6",
+      "name": "moonshotai/Kimi-K2.6",
+      "max_input_length": 262000,
+      "max_output_length": 262000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-21",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "tencent/Hunyuan-A13B-Instruct",
+      "name": "tencent/Hunyuan-A13B-Instruct",
+      "max_input_length": 131000,
+      "max_output_length": 131000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2025-06-30",
+      "billing": "paid",
+      "billing_source": "catalog",
+      "is_free": false,
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://www.siliconflow.com/pricing",
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "tencent/Hy3-preview",
+      "name": "tencent/Hy3-preview",
+      "max_input_length": 262144,
+      "max_output_length": 262144,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-04-20"
+    }
+  ]
+}

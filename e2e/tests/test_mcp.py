@@ -21,13 +21,8 @@ from utils.helpers import log_test_step, log_test_result
 logger = logging.getLogger(__name__)
 
 MCP_URL = f"{config.base_url}/mcp"
-MCP_CARD_SELECTOR = 'div[class*="mcpCard"]'
-TOGGLE_BTN_SELECTOR = (
-    'button[class*="toggleButton"]:has-text("启用"), '
-    'button[class*="toggleButton"]:has-text("禁用"), '
-    'button[class*="toggleButton"]:has-text("Enable"), '
-    'button[class*="toggleButton"]:has-text("Disable")'
-)
+MCP_CARD_SELECTOR = 'div[class*="mcpGrid"] div[class*="card"]'
+TOGGLE_BTN_SELECTOR = '[role="switch"]'
 CREATE_BTN_SELECTOR = 'button.qwenpaw-btn-primary:has-text("创建客户端"), button.qwenpaw-btn-primary:has-text("Create Client"), button.qwenpaw-btn-primary:has-text("Create")'
 
 
@@ -101,57 +96,44 @@ class TestMCPListAndOperations:
 
         # Verify info on the first card
         first_card = mcp_cards[0]
-        title_el = first_card.locator('h3[class*="mcpTitle"]').first
+        title_el = first_card.locator("h3 button").first
         expect(title_el).to_be_visible(timeout=5000)
         title_text = title_el.inner_text()
         assert len(title_text) > 0, "MCP client title is empty"
         logger.info(f"Client title: {title_text}")
 
-        type_badge = first_card.locator('span[class*="typeBadge"]').first
+        type_badge = first_card.locator(
+            'div[class*="metadata"] span'
+        ).first
         expect(type_badge).to_be_visible(timeout=3000)
         type_text = type_badge.inner_text()
         assert type_text in ["Local", "Remote", "local", "remote"], f"Unexpected type label: {type_text}"
         logger.info(f"Type: {type_text}")
-
-        status_el = first_card.locator('span[class*="statusText"]').first
-        expect(status_el).to_be_visible(timeout=3000)
-        status_text = status_el.inner_text()
-        assert status_text in ["已启用", "已禁用", "Enabled", "Disabled"], f"Unexpected status label: {status_text}"
-        logger.info(f"Status: {status_text}")
 
         # Step 5: Test enable/disable toggle
         log_test_step("5. Test enable/disable toggle")
         toggle_btn = first_card.locator(TOGGLE_BTN_SELECTOR).first
         expect(toggle_btn).to_be_visible(timeout=5000)
 
-        initial_text = toggle_btn.inner_text().strip()
-        initial_status = status_el.inner_text()
-        logger.info(f"Initial button text: {initial_text}, status: {initial_status}")
+        initial_status = toggle_btn.get_attribute("aria-checked")
+        logger.info(f"Initial switch state: {initial_status}")
 
         # Click to toggle
         toggle_btn.click()
         page.wait_for_timeout(2000)
 
-        new_text = toggle_btn.inner_text().strip()
-        new_status = status_el.inner_text()
-        assert new_text != initial_text, (
-            f"Toggle button text did not change: {initial_text} -> {new_text}"
-        )
+        new_status = toggle_btn.get_attribute("aria-checked")
         assert new_status != initial_status, (
-            f"Status label did not change: {initial_status} -> {new_status}"
+            f"Switch state did not change: {initial_status} -> {new_status}"
         )
-        logger.info(f"Toggle succeeded: {initial_text} -> {new_text}, {initial_status} -> {new_status}")
+        logger.info(f"Toggle succeeded: {initial_status} -> {new_status}")
 
         # Step 6: Restore original state
         log_test_step("6. Restore original state")
         toggle_btn.click()
         page.wait_for_timeout(2000)
 
-        restored_text = toggle_btn.inner_text().strip()
-        restored_status = status_el.inner_text()
-        assert restored_text == initial_text, (
-            f"Button text did not restore: expected {initial_text}, actual {restored_text}"
-        )
+        restored_status = toggle_btn.get_attribute("aria-checked")
         assert restored_status == initial_status, (
             f"Status did not restore: expected {initial_status}, actual {restored_status}"
         )
@@ -199,19 +181,24 @@ class TestCreateMCPClient:
 
         # Step 3: Verify dialog opens
         log_test_step("3. Verify dialog opens")
-        modal = page.locator('.qwenpaw-modal-content').first
+        modal = page.locator('[role="dialog"]:visible').first
         expect(modal).to_be_visible(timeout=5000)
         logger.info("Create dialog opened")
 
         # Step 4: Verify dialog title
         log_test_step("4. Verify dialog title")
-        modal_title = modal.locator('.qwenpaw-spark-modal-title').first
+        modal_title = modal.locator('.qwenpaw-modal-title').first
         expect(modal_title).to_be_visible(timeout=3000)
         title_text = modal_title.inner_text()
         assert "创建客户端" in title_text or "Create" in title_text, f"Unexpected dialog title: {title_text}"
         logger.info(f"Dialog title: {title_text}")
 
-        # Step 5: Verify format hint
+        # Step 5: Switch from the default form editor to JSON import.
+        json_tab = modal.get_by_role("tab", name="JSON Import")
+        expect(json_tab).to_be_visible(timeout=3000)
+        json_tab.click()
+
+        # Verify format hint.
         log_test_step("5. Verify format hint")
         import_hint = modal.locator('[class*="importHint"]').first
         expect(import_hint).to_be_visible(timeout=3000)
@@ -324,9 +311,13 @@ class TestMCPClientCreateAndDelete:
 
             # Step 4: Verify dialog opens
             log_test_step("4. Verify dialog opens")
-            modal = page.locator('.qwenpaw-modal-content').first
+            modal = page.locator('[role="dialog"]:visible').first
             expect(modal).to_be_visible(timeout=5000)
             logger.info("Create dialog opened")
+
+            json_tab = modal.get_by_role("tab", name="JSON Import")
+            expect(json_tab).to_be_visible(timeout=3000)
+            json_tab.click()
 
             # Step 5: Fill stdio-type JSON config
             log_test_step("5. Fill stdio-type config")
@@ -356,7 +347,10 @@ class TestMCPClientCreateAndDelete:
 
             # Step 6: Click confirm/create button
             log_test_step("6. Click confirm/create button")
-            confirm_btn = modal.locator('button.qwenpaw-btn-primary:has-text("确 定"), button:has-text("确定"), button:has-text("创建")').first
+            confirm_btn = modal.locator(
+                'button.qwenpaw-btn-primary:has-text("Create"), '
+                'button.qwenpaw-btn-primary:has-text("创建")'
+            ).first
             if not confirm_btn.is_visible():
                 confirm_btn = modal.locator('button.qwenpaw-btn-primary').last
             expect(confirm_btn).to_be_visible(timeout=5000)
@@ -388,7 +382,7 @@ class TestMCPClientCreateAndDelete:
             log_test_step("8. Find the new client card")
             new_client_card = None
             for card in updated_cards:
-                title_el = card.locator('h3[class*="mcpTitle"]').first
+                title_el = card.locator("h3 button").first
                 if title_el.is_visible():
                     title_text = title_el.inner_text()
                     if client_name in title_text:
@@ -410,19 +404,21 @@ class TestMCPClientCreateAndDelete:
                     page.wait_for_timeout(2000)
                     cleanup_cards = page.locator(MCP_CARD_SELECTOR).all()
                     for card in cleanup_cards:
-                        title_el = card.locator('h3[class*="mcpTitle"]').first
+                        title_el = card.locator("h3 button").first
                         if title_el.is_visible():
                             title_text = title_el.inner_text()
                             if client_name in title_text:
-                                delete_btn = card.locator('button:has-text("删除"), button[title="删除"], button[class*="deleteBtn"]').first
-                                if not delete_btn.is_visible():
-                                    card_footer = card.locator('div[class*="cardFooter"], div[class*="actions"]').first
-                                    if card_footer.is_visible():
-                                        delete_btn = card_footer.locator('button:has-text("删除")').first
+                                delete_btn = card.locator(
+                                    'button[aria-label="Delete"], '
+                                    'button[aria-label="删除"]'
+                                ).first
                                 if delete_btn.is_visible():
                                     delete_btn.click()
                                     page.wait_for_timeout(1000)
-                                    confirm_delete_btn = page.locator('button.qwenpaw-btn-danger:has-text("删除"), .qwenpaw-modal-confirm button.qwenpaw-btn-primary, button:has-text("确 定"), button:has-text("确定")').first
+                                    confirm_delete_btn = page.locator(
+                                        '[role="dialog"]:visible '
+                                        'button.qwenpaw-btn-primary'
+                                    ).first
                                     if confirm_delete_btn.is_visible():
                                         confirm_delete_btn.click()
                                         page.wait_for_timeout(2000)

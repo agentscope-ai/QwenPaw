@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Helpers for creating backups: agents, global config, secrets, skill pool."""
+
 from __future__ import annotations
 
 import logging
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -13,12 +15,26 @@ from .._utils.constants import (
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
 )
+from .._utils.history_sqlite import (
+    archive_history_db_filename,
+    configured_history_db_path,
+    history_agent_config_bytes,
+)
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...agents.context.scroll.history import (
+    backup_history_database,
+    validate_history_database,
+)
+from .sqlite_snapshot import stage_workspace_files
 
 logger = logging.getLogger(__name__)
 
 
-def add_agent_workspaces(
+class BackupCancelled(Exception):
+    """Raised when cooperative cancellation stops archive creation."""
+
+
+def add_agent_workspaces(  # pylint: disable=too-many-branches
     zf: zipfile.ZipFile,
     valid_agents: list[tuple[str, Any]],
     progress_callback=None,
@@ -28,7 +44,15 @@ def add_agent_workspaces(
 
     Returns:
         False if stop_event was set (cancelled), True otherwise.
+
+    Raises:
+        BackupCancelled: If cancellation interrupts a history snapshot.
     """
+
+    def check_cancelled() -> None:
+        if stop_event and stop_event.is_set():
+            raise BackupCancelled()
+
     total = len(valid_agents)
     logger.info(
         "Backing up %d agent(s): %s",
@@ -47,27 +71,70 @@ def add_agent_workspaces(
         if ws.is_dir():
             file_count = 0
             skipped = 0
-            for entry in sorted(ws.rglob("*")):
-                if stop_event and stop_event.is_set():
+            with tempfile.TemporaryDirectory(
+                prefix=f"qwenpaw-history-{aid}-",
+            ) as snapshot_dir:
+                staging = Path(snapshot_dir)
+                entries = [
+                    entry for entry in sorted(ws.rglob("*")) if entry.is_file()
+                ]
+                staged = stage_workspace_files(entries, staging, stop_event)
+                if staged is None:
                     return False
-                if not entry.is_file():
-                    continue
-                rel = entry.relative_to(ws).as_posix()
-                arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                try:
-                    zf.write(entry, arcname)
-                except (PermissionError, OSError) as exc:
-                    # A file that can't be added (e.g. an open Chromium
-                    # cache file the backend has locked) must not abort
-                    # the whole backup; skip it and continue (#4916).
-                    skipped += 1
-                    logger.warning(
-                        "Skipping %s (could not be added to backup): %s",
-                        entry,
-                        exc,
+                snapshots, sidecars = staged
+                config_path = Path(
+                    snapshots.get(str(ws / "agent.json"), staging / "absent"),
+                )
+                history_db = configured_history_db_path(
+                    ws,
+                    config_path=config_path,
+                )
+                history_filename = archive_history_db_filename(ws, history_db)
+                if history_db.is_relative_to(ws):
+                    history_snapshot = snapshots.get(str(history_db))
+                    if history_snapshot is not None:
+                        validate_history_database(
+                            history_snapshot,
+                            check_integrity=False,
+                        )
+                elif history_db.is_file():
+                    external_snapshot = staging / "history.db"
+                    backup_history_database(
+                        history_db,
+                        external_snapshot,
+                        check_cancelled=check_cancelled,
                     )
-                    continue
-                file_count += 1
+                    zf.write(
+                        external_snapshot,
+                        f"{PREFIX_WORKSPACES}{aid}/{history_filename}",
+                    )
+                    file_count += 1
+                for entry in entries:
+                    if stop_event and stop_event.is_set():
+                        return False
+                    if str(entry) in sidecars:
+                        continue
+                    source = snapshots.get(str(entry))
+                    if source is None:
+                        skipped += 1
+                        logger.warning(
+                            "Skipping inaccessible backup file: %s",
+                            entry,
+                        )
+                        continue
+                    rel = entry.relative_to(ws).as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    if rel == "agent.json":
+                        zf.writestr(
+                            arcname,
+                            history_agent_config_bytes(
+                                Path(source).read_bytes(),
+                                history_filename,
+                            ),
+                        )
+                    else:
+                        zf.write(source, arcname)
+                    file_count += 1
             if skipped:
                 logger.warning(
                     "Agent '%s': skipped %d file(s) that could not be "
@@ -111,7 +178,7 @@ def add_secrets(zf: zipfile.ZipFile, stop_event=None) -> bool:
     (cancelled), ``True`` otherwise.
     """
     if not SECRET_DIR.is_dir():
-        logger.warning("Secrets directory not found: %s", SECRET_DIR)
+        logger.warning("Secrets directory not found")
         return True
     file_count = 0
     for entry in sorted(SECRET_DIR.rglob("*")):
@@ -123,11 +190,7 @@ def add_secrets(zf: zipfile.ZipFile, stop_event=None) -> bool:
             )
             zf.write(entry, arcname)
             file_count += 1
-    logger.info(
-        "Secrets backed up: %d file(s) from %s",
-        file_count,
-        SECRET_DIR,
-    )
+    logger.info("Secrets backed up: %d file(s)", file_count)
     return True
 
 

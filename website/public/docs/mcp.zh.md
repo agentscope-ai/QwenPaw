@@ -141,6 +141,8 @@ Tavily 是一个专为 AI 优化的网络搜索服务，可让智能体进行实
 
 > **内置支持**：系统启动时会自动创建名为 `tavily_search` 的客户端。如果环境变量中已设置 `TAVILY_API_KEY`，该客户端会自动启用。你也可以直接修改tavily mcp的配置。
 
+这是 Tavily 的 **MCP 客户端**配置。QwenPaw 的内置 `web_search` 工具可选择 Tavily、AnySearch 或 Firecrawl，配置方式见下方[网页搜索](#网页搜索web_search)。
+
 #### 远程 MCP 服务
 
 ```json
@@ -261,6 +263,8 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 | 文件操作     | `append_file`             | 追加内容到文件末尾                                    |
 | 文件搜索     | `grep_search`             | 按内容搜索文件，支持正则表达式和上下文                |
 | 文件搜索     | `glob_search`             | 按文件名模式查找文件                                  |
+| 网页搜索     | `web_search`              | 搜索网页，支持 Tavily、AnySearch 和 Firecrawl         |
+| 网页读取     | `web_fetch`               | 读取网页内容并转换为 Markdown                         |
 | 命令执行     | `execute_shell_command`   | 执行 Shell 命令，支持异步执行                         |
 | 智能体委托   | `delegate_external_agent` | 通过 ACP 将任务委托给外部智能体 runner                |
 | 浏览器自动化 | `browser`                 | 通过 Unified Browser SDK 执行异步 Python 浏览器自动化 |
@@ -273,6 +277,32 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 | 统计         | `get_token_usage`         | 查询 LLM Token 使用量统计                             |
 
 ### 工具详细说明
+
+#### 网页搜索（`web_search`）
+
+在 **智能体 → 工具** 中启用 `web_search`，选择搜索供应商，并按需填写该供应商的 API Key。每个智能体可独立配置；未选择供应商时默认使用 AnySearch。
+
+- **AnySearch**（默认）：支持无密钥的匿名搜索，但受匿名额度限制。填写 AnySearch API Key 后使用带密钥的请求；匿名额度用尽时，服务端也可能返回自动注册的密钥，工具会尝试保存并重试。
+- **Tavily**：无需 API Key 即可使用匿名搜索；填写 Tavily API Key 后优先使用带密钥的请求。带密钥请求遇到 HTTP 401、429 或 432 时会回退到匿名搜索。
+- **Firecrawl**：API Key 可选。填写后优先使用带密钥的请求；若返回 HTTP 401，会尝试一次无密钥请求。无密钥请求是否可用及额度取决于服务端。
+
+在工具卡片中切换供应商后，填写对应供应商的 API Key 即可。密钥保存在当前智能体的凭据存储中；**内置工具**不读取上方 Tavily MCP 示例的 `TAVILY_API_KEY` 环境变量。手动编辑 `agent.json` 时，供应商位于 `tools.builtin_tools.web_search.config.provider`：
+
+```json
+{
+  "tools": {
+    "builtin_tools": {
+      "web_search": {
+        "name": "web_search",
+        "enabled": true,
+        "config": { "provider": "anysearch" }
+      }
+    }
+  }
+}
+```
+
+`provider` 可设为 `tavily`、`anysearch` 或 `firecrawl`。API Key 请通过控制台填写，不要写入此配置文件。`web_search` 接受 `search_term` 参数；`web_fetch` 接受 `url` 参数，用于读取搜索结果中的网页。
 
 **文件操作**
 

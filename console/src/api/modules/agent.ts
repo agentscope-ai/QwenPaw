@@ -69,10 +69,11 @@ export const agentApi = {
   listMemoryBackends: () =>
     request<MemoryBackendDescriptor[]>("/agents/memory/backends"),
 
-  updateAgentRunningConfig: (config: AgentsRunningConfig) =>
+  updateAgentRunningConfig: (config: AgentsRunningConfig, agentId?: string) =>
     request<AgentsRunningConfig>("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       timeout: 10 * 60 * 1000,
     }),
 
@@ -127,6 +128,15 @@ export const agentApi = {
         body: JSON.stringify({ transcription_provider_type }),
       },
     ),
+
+  getTranscriptionModel: () =>
+    request<{ transcription_model: string }>("/workspace/transcription-model"),
+
+  updateTranscriptionModel: (transcription_model: string) =>
+    request<{ transcription_model: string }>("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({ transcription_model }),
+    }),
 
   getLocalWhisperStatus: () =>
     request<{

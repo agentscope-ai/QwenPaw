@@ -1,12 +1,23 @@
+import { InteractiveCard } from "@/components/interaction/InteractiveCard";
+import styles from "./ModelConfigEditor.module.less";
+import InlineHelp from "../../../../../components/InlineHelp";
+import { ThinkingControl } from "@/features/thinking/ThinkingControl";
+import type { ThinkingLevel } from "@/features/thinking/types";
+import { ThinkingCapabilityFields } from "./ThinkingCapabilityFields";
+import type { ThinkingControlSpec } from "@/features/thinking/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
-import { Segmented } from "antd";
-import { RotateCcw } from "lucide-react";
+import { Button, Switch } from "@agentscope-ai/design";
+import { Select, Space } from "antd";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
+import {
+  ModelCapabilitiesFields,
+  type CapabilityOverrides,
+} from "./ModelCapabilitiesFields";
 
 function requestMaxTokens(model: ModelInfo): number | null {
   const value = model.generate_kwargs?.max_tokens;
@@ -45,13 +56,21 @@ export function ModelConfigEditor({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
+  const [thinkingDeclaration, setThinkingDeclaration] = useState<
+    ThinkingControlSpec | null | undefined
+  >();
+  const [capabilities, setCapabilities] = useState<CapabilityOverrides>({});
+  const [modelType, setModelType] = useState<ModelInfo["model_type"]>();
+  const isDecision = (modelType ?? model.model_type) === "decision";
   const configuredMaxTokens = requestMaxTokens(model);
 
   const [maxTokens, setMaxTokens] = useState<number | null>(
     configuredMaxTokens,
   );
+  const resolvedContext =
+    model.effective_max_input_length ?? model.max_input_length;
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
+    resolvedContext,
   );
   const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
@@ -76,11 +95,39 @@ export function ModelConfigEditor({
 
   const [text, setText] = useState(initialText);
   const [dirty, setDirty] = useState(false);
+  const [thinkingBudgetMinimum, thinkingBudgetMaximum] = thinkingBudgetRange;
+
+  const inheritedThinkingControl = useMemo<ThinkingControlSpec | null>(() => {
+    if (model.thinking_control) return model.thinking_control;
+    if (!thinkingParamStyle) return null;
+    return {
+      kind: thinkingParamStyle === "budget" ? "budget" : "effort",
+      supports_off: true,
+      efforts: (reasoningEffortOptions ?? ["low", "medium", "high"]).filter(
+        (value) => value !== "none",
+      ) as ThinkingLevel[],
+      budget_min: thinkingBudgetMinimum,
+      budget_max: thinkingBudgetMaximum,
+    };
+  }, [
+    model.thinking_control,
+    thinkingParamStyle,
+    reasoningEffortOptions,
+    thinkingBudgetMinimum,
+    thinkingBudgetMaximum,
+  ]);
+  const previewThinkingControl =
+    thinkingDeclaration === undefined
+      ? inheritedThinkingControl
+      : thinkingDeclaration;
 
   useEffect(() => {
+    setCapabilities({});
+    setModelType(undefined);
+    setThinkingDeclaration(undefined);
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
-    setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLength(resolvedContext);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
@@ -88,16 +135,19 @@ export function ModelConfigEditor({
     setReasoningEffort(model.reasoning_effort ?? null);
     setDirty(false);
   }, [
+    model.id,
+    model.model_type,
     initialText,
     configuredMaxTokens,
-    model.max_input_length,
+    resolvedContext,
     model.relay_reasoning,
     model.thinking_enabled,
     model.thinking_budget,
     model.reasoning_effort,
   ]);
 
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
+  const effectiveMaxInputLength =
+    maxInputLength ?? model.automatic_max_input_length ?? resolvedContext;
 
   const handleChange = useCallback((val: string) => {
     setText(val);
@@ -115,8 +165,52 @@ export function ModelConfigEditor({
     setDirty(true);
   }, []);
 
+  const handleThinkingDeclarationChange = useCallback(
+    (next: ThinkingControlSpec | null) => {
+      setThinkingDeclaration(next);
+      setDirty(true);
+      if (!next) {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (next.kind === "unsupported" || next.kind === "unknown") {
+        setThinkingEnabled(null);
+        setThinkingBudget(null);
+        setReasoningEffort(null);
+        return;
+      }
+
+      if (!next.supports_off && thinkingEnabled === false) {
+        setThinkingEnabled(null);
+      }
+      if (next.kind === "budget") {
+        setReasoningEffort(null);
+        if (thinkingBudget !== null) {
+          const minimum = next.budget_min ?? 1;
+          const maximum = next.budget_max ?? minimum;
+          setThinkingBudget(
+            Math.min(maximum, Math.max(minimum, thinkingBudget)),
+          );
+        }
+        return;
+      }
+
+      setThinkingBudget(null);
+      if (
+        reasoningEffort !== null &&
+        !next.efforts.includes(reasoningEffort as ThinkingLevel)
+      ) {
+        setReasoningEffort(null);
+      }
+    },
+    [reasoningEffort, thinkingBudget, thinkingEnabled],
+  );
+
   const handleSave = async () => {
-    const trimmed = text.trim();
+    const trimmed = isDecision ? "" : text.trim();
     let parsed: Record<string, unknown> = {};
     if (trimmed) {
       try {
@@ -139,14 +233,23 @@ export function ModelConfigEditor({
     setSaving(true);
     try {
       const updated = await api.configureModel(providerId, model.id, {
-        ...(maxInputLengthDirty
-          ? { max_input_length: effectiveMaxInputLength }
+        model_type: modelType,
+        ...(!isDecision
+          ? {
+              ...capabilities,
+              ...(thinkingDeclaration !== undefined
+                ? { thinking_control: thinkingDeclaration }
+                : {}),
+              ...(maxInputLengthDirty
+                ? { max_input_length: maxInputLength }
+                : {}),
+              generate_kwargs: parsed,
+              relay_reasoning: relayReasoning,
+              thinking_enabled: thinkingEnabled,
+              thinking_budget: thinkingBudget,
+              reasoning_effort: reasoningEffort,
+            }
           : {}),
-        generate_kwargs: parsed,
-        relay_reasoning: relayReasoning,
-        thinking_enabled: thinkingEnabled,
-        thinking_budget: thinkingBudget,
-        reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
@@ -165,297 +268,148 @@ export function ModelConfigEditor({
     }
   };
 
-  const labelStyle: React.CSSProperties = {
-    fontSize: 13,
-    color: "var(--app-text)",
-    marginBottom: 4,
-  };
-
-  return (
-    <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              ...labelStyle,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>{t("models.maxTokensLabel", "Max Tokens")}</span>
-            {maxTokens !== null && (
-              <Button
-                type="text"
-                size="small"
-                icon={<RotateCcw size={14} />}
-                aria-label={t("models.resetMaxTokens", "Reset to auto")}
-                title={t("models.resetMaxTokens", "Reset to auto")}
-                onClick={() => handleMaxTokensChange(null)}
-              />
-            )}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
+  const chatFields = !isDecision && (
+    <>
+      <InteractiveCard as="section" tilt={0} className={styles.capabilities}>
+        <ModelCapabilitiesFields
+          model={model}
+          changes={capabilities}
+          onChange={(value) => {
+            setCapabilities(value);
+            setDirty(true);
+          }}
+        />
+      </InteractiveCard>
+      <div className={styles.basics}>
+        <InteractiveCard as="section" tilt={0} className={styles.limits}>
+          <OutputTokenLimitField
             value={maxTokens}
-            placeholder={t("models.providerDefault", "Provider default")}
             onChange={handleMaxTokensChange}
+            model={model}
+            chatModel={chatModel}
           />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-            <br />
-            {t("models.maxOutputCapabilityLabel", "Model capability")}:{" "}
-            {model.max_output_length?.toLocaleString() ??
-              t("models.unknown", "Unknown")}
-            {model.max_output_length_source &&
-              model.max_output_length_source !== "unknown" && (
-                <> · {model.max_output_length_source}</>
-              )}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder="131072"
+          <ContextLengthField
+            value={effectiveMaxInputLength}
             onChange={handleMaxInputLengthChange}
+            source={
+              maxInputLengthDirty && maxInputLength !== null
+                ? "user"
+                : maxInputLength === null
+                ? "automatic"
+                : model.context_length_source
+            }
+            onReset={
+              model.max_input_length_configured ||
+              (maxInputLengthDirty && maxInputLength !== null)
+                ? () => handleMaxInputLengthChange(null)
+                : undefined
+            }
           />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-          </div>
-        </div>
-      </div>
-      {/* Enable Thinking (only for providers that support thinking config) */}
-      {thinkingParamStyle && (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              padding: "6px 0",
-            }}
-          >
-            <div>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "var(--app-text)",
-                }}
-              >
-                {t("models.thinkingModeLabel")}
-              </span>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--app-text-quaternary)",
-                  marginTop: 2,
-                }}
-              >
-                {t("models.thinkingModeHint")}
-              </div>
+        </InteractiveCard>
+        {previewThinkingControl && (
+          <InteractiveCard as="section" tilt={0} className={styles.thinking}>
+            <div className={styles.thinkingHeading}>
+              <span>{t("thinkingControl.title")}</span>
+              <InlineHelp>{t("thinkingControl.modelSettingHint")}</InlineHelp>
             </div>
-            <Switch
-              checked={thinkingEnabled === true}
-              onChange={(checked) => {
-                setThinkingEnabled(checked);
+            <ThinkingControl
+              tone="quiet"
+              control={previewThinkingControl}
+              value={
+                thinkingEnabled === false || reasoningEffort === "none"
+                  ? { level: "off" }
+                  : thinkingBudget != null
+                  ? { level: "budget", budget_tokens: thinkingBudget }
+                  : { level: (reasoningEffort || "inherit") as ThinkingLevel }
+              }
+              onChange={(next) => {
+                setThinkingEnabled(
+                  next.level === "inherit" ? null : next.level !== "off",
+                );
+                setThinkingBudget(
+                  next.level === "budget" ? next.budget_tokens ?? null : null,
+                );
+                setReasoningEffort(
+                  next.level !== "inherit" &&
+                    next.level !== "off" &&
+                    next.level !== "budget"
+                    ? next.level
+                    : null,
+                );
                 setDirty(true);
               }}
             />
-          </div>
+          </InteractiveCard>
+        )}
+      </div>
+      <InteractiveCard tilt={0} className={styles.advanced}>
+        <details>
+          <summary>{t("common.advancedSettings")}</summary>
+          <ThinkingCapabilityFields
+            value={
+              thinkingDeclaration === undefined
+                ? model.thinking_control
+                : thinkingDeclaration
+            }
+            onChange={handleThinkingDeclarationChange}
+          />
 
-          {thinkingEnabled === true && (
-            <div style={{ marginBottom: 12 }}>
-              {thinkingParamStyle === "budget" ? (
-                <div>
-                  <div
-                    style={{
-                      ...labelStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>{t("models.thinkingBudgetLabel")}</span>
-                    <a
-                      style={{ fontSize: 11, cursor: "pointer" }}
-                      onClick={() => {
-                        setThinkingBudget(
-                          thinkingBudget === null
-                            ? thinkingBudgetRange[0]
-                            : null,
-                        );
-                        setDirty(true);
-                      }}
-                    >
-                      {thinkingBudget === null
-                        ? t("models.switchToManual")
-                        : t("models.switchToAuto")}
-                    </a>
-                  </div>
-                  {thinkingBudget !== null ? (
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 12 }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <Slider
-                          min={thinkingBudgetRange[0]}
-                          max={thinkingBudgetRange[1]}
-                          step={1024}
-                          value={thinkingBudget}
-                          onChange={(val: number) => {
-                            setThinkingBudget(val);
-                            setDirty(true);
-                          }}
-                        />
-                      </div>
-                      <InputNumber
-                        style={{ width: 100 }}
-                        min={thinkingBudgetRange[0]}
-                        max={thinkingBudgetRange[1]}
-                        step={1024}
-                        value={thinkingBudget}
-                        onChange={(val) => {
-                          setThinkingBudget(val);
-                          setDirty(true);
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "var(--app-text-quaternary)",
-                        marginTop: 2,
-                      }}
-                    >
-                      {t("models.thinkingBudgetHint")}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div style={labelStyle}>
-                    {t("models.reasoningEffortLabel")}
-                  </div>
-                  <Segmented
-                    block
-                    value={reasoningEffort ?? "__auto__"}
-                    onChange={(val) => {
-                      const v = val as string;
-                      setReasoningEffort(v === "__auto__" ? null : v);
-                      setDirty(true);
-                    }}
-                    options={[
-                      { label: t("models.switchToAuto"), value: "__auto__" },
-                      ...(
-                        reasoningEffortOptions ?? [
-                          "none",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                        ]
-                      ).map((v) => ({
-                        label: v.charAt(0).toUpperCase() + v.slice(1),
-                        value: v,
-                      })),
-                    ]}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-      {/* Responses API models handle reasoning via native reasoning items
+          {/* Responses API models handle reasoning via native reasoning items
          that the API requires to be echoed back; relay_reasoning has no
          effect, so hide the toggle to avoid confusion. */}
-      {chatModel !== "OpenAIResponseModel" && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 8,
-            padding: "6px 0",
-          }}
-        >
-          <div>
-            <span
-              style={{
-                fontSize: 13,
-                color: "var(--app-text)",
-              }}
-            >
-              {t("models.relayReasoningLabel")}
-            </span>
-            <div
-              style={{
-                fontSize: 11,
-                color: "var(--app-text-quaternary)",
-                marginTop: 2,
-              }}
-            >
-              {t("models.relayReasoningHint")}
+          {chatModel !== "OpenAIResponseModel" && (
+            <div className={styles.settingRow}>
+              <div>
+                <span className={styles.settingLabel}>
+                  {t("models.relayReasoningLabel")}
+                </span>
+                <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>
+              </div>
+              <Switch
+                checked={relayReasoning}
+                onChange={(checked) => {
+                  setRelayReasoning(checked);
+                  setDirty(true);
+                }}
+              />
             </div>
-          </div>
-          <Switch
-            checked={relayReasoning}
-            onChange={(checked) => {
-              setRelayReasoning(checked);
-              setDirty(true);
-            }}
-          />
-        </div>
-      )}
+          )}
 
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--app-text-tertiary)",
-          marginBottom: 4,
-        }}
-      >
-        {t("models.modelGenerateConfigHint")}
-      </div>
-      <JsonConfigEditor
-        value={text}
-        onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
-      />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: 8,
-          gap: 8,
-        }}
-      >
+          <div className={styles.jsonHeading}>
+            <span>JSON</span>
+            <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
+          </div>
+          <JsonConfigEditor
+            value={text}
+            onChange={handleChange}
+            placeholder="{}"
+          />
+        </details>
+      </InteractiveCard>
+    </>
+  );
+
+  return (
+    <div className={styles.editor}>
+      <Space>
+        <span>{t("models.modelType")}</span>
+        <Select
+          size="small"
+          style={{ width: 128 }}
+          aria-label={t("models.modelType")}
+          value={modelType ?? model.model_type ?? "chat"}
+          options={[
+            { value: "chat", label: t("models.modelTypeChat") },
+            { value: "decision", label: t("models.modelTypeDecision") },
+          ]}
+          onChange={(value) => {
+            setModelType(value);
+            setDirty(true);
+          }}
+        />
+      </Space>
+      {chatFields}
+      <div className={styles.actions}>
         <Button
           type="primary"
           size="small"

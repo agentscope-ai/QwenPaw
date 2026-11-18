@@ -1,0 +1,40 @@
+.usage {
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 20px;
+  > :global(.qwenpaw-select),
+  > :global(.ant-select) {
+    min-width: 180px;
+  }
+}
+.timezone {
+  margin-left: auto;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .toolbar > :global(.qwenpaw-picker),
+  .toolbar > :global(.ant-picker) {
+    width: 100%;
+  }
+  .toolbar > :global(.qwenpaw-select),
+  .toolbar > :global(.ant-select) {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+.usage :global(.qwenpaw-card) {
+  border: 1px solid var(--app-border) !important;
+  border-radius: 14px;
+  background: var(--app-surface);
+  box-shadow: 0 2px 8px #00000003;
+}
+.usage :global(.qwenpaw-card-body) {
+  background: transparent !important;
+}

@@ -10,9 +10,10 @@ import re
 import shutil
 from copy import deepcopy
 from pathlib import Path
+from contextlib import nullcontext
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -24,6 +25,7 @@ from ...agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
 from ...agents.memory.action_provider import MemoryActionProvider
+from ...agents.memory.reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -33,6 +35,7 @@ from ..mail.driver_config import (
     sync_qwenpawmail_driver_card as _sync_qwenpawmail_driver_card,
 )
 from ..utils import safe_join, schedule_agent_reload
+from .model_validation import validate_model_slot
 from ...config.config import (
     AgentMailConfig,
     AgentProfileConfig,
@@ -56,16 +59,24 @@ from ...agents.utils import (
     normalize_agent_language,
 )
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
-from ...harnesses.registry import ProviderCatalogItem, get_provider
+from ...plugins._harness_http import backend_catalog
+from ...plugins.registry import PluginRegistry
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
-from ...utils.io_utils import run_sync_io, write_json_atomic
+from ...utils.io_utils import read_json_async, run_sync_io, write_json_atomic
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/backends")
+async def list_backends(request: Request) -> dict:
+    """Describe registered backends using metadata only."""
+    registry = getattr(request.app.state, "plugin_registry", None)
+    return {"backends": backend_catalog(registry or PluginRegistry())}
 
 
 @router.get("/memory/backends")
@@ -88,6 +99,13 @@ class AgentSummary(BaseModel):
     startup_status: AgentStartupStatus
     backend: str = "qwenpaw"
     backend_capabilities: dict[str, Any] = Field(default_factory=dict)
+    backend_status: Literal[
+        "available",
+        "missing",
+        "disabled",
+        "failed",
+    ] = "available"
+    backend_plugin_id: str | None = None
     backend_model: str | None = None
     backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
@@ -130,6 +148,44 @@ class MemoryGraphSnapshot(BaseModel):
     edges: list[MemoryGraphEdge]
 
 
+class MemoryTag(BaseModel):
+    """A canonical tag and the number of indexed files carrying it."""
+
+    tag: str
+    file_count: int
+
+
+class MemoryTagPage(BaseModel):
+    """One page of tags, ordered by file count."""
+
+    items: list[MemoryTag]
+    total_tags: int
+    page: int
+    page_size: int
+
+
+class MemoryTagFile(BaseModel):
+    """Indexed metadata for a workspace-relative memory file."""
+
+    path: str
+    source: Literal["daily", "digest", "workspace"]
+    relative_path: str
+    name: str = ""
+    description: str = ""
+    modified_at: float
+    memory_tags: list[str]
+
+
+class MemoryTagFilePage(BaseModel):
+    """One page of complete files carrying a tag."""
+
+    tag: str
+    items: list[MemoryTagFile]
+    total_files: int
+    page: int
+    page_size: int
+
+
 class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
@@ -144,7 +200,10 @@ class BackendSettingsRequest(BaseModel):
 
 
 class AgentModelSettingsPatch(BaseModel):
-    """Model-routing fields editable from the Chat model selector."""
+    """Model-routing fields editable from the model settings page."""
+
+    active_model: ModelSlotConfig | None = None
+    decision_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
@@ -153,12 +212,17 @@ class AgentModelSettingsPatch(BaseModel):
         Literal[
             "inherit",
             "off",
+            "minimal",
             "low",
             "medium",
             "high",
+            "xhigh",
+            "max",
+            "budget",
         ]
         | None
     ) = None
+    thinking_budget: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def reject_null_non_nullable_fields(self):
@@ -265,9 +329,30 @@ class CreateAgentRequest(BaseModel):
         default_factory=FallbackPolicyConfig,
     )
     subagent_model: ModelSlotConfig | None = None
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
     mail: AgentMailConfig | None = None
     backend: str = "qwenpaw"
     backend_settings: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Reject incomplete numeric reasoning preferences at the API edge."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
 
     @field_validator("id", mode="before")
     @classmethod
@@ -311,20 +396,40 @@ _COPYABLE_MD_FILES = (
 )
 
 
+def _backend_metadata(backend: str) -> dict[str, Any]:
+    """Read the existing declaration snapshot without probing vendors."""
+    return next(
+        (
+            row
+            for row in backend_catalog(PluginRegistry())
+            if row["id"] == backend
+        ),
+        {
+            "id": backend,
+            "status": "missing",
+            "plugin_id": None,
+            "capabilities": {},
+        },
+    )
+
+
 def _get_available_third_party_provider(
     backend: str,
-) -> ProviderCatalogItem:
-    """Resolve an available third-party backend for API mutations."""
-    try:
-        provider = get_provider(backend)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if provider.coming_soon:
+    *,
+    snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Require a live SDK contribution when selecting a new backend."""
+    row = _backend_metadata(backend) if snapshot is None else snapshot
+    if row["status"] != "available":
         raise HTTPException(
             status_code=409,
-            detail=f"{provider.name} is not available yet",
+            detail={
+                "code": "backend_unavailable",
+                "backend_id": backend,
+                "status": row["status"],
+            },
         )
-    return provider
+    return row
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -461,15 +566,12 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                 if template_id.startswith("pawapp:")
                 else None
             )
-            if agent_config.backend == "qwenpaw":
-                backend_capabilities = {"workspace_ui": True}
-            else:
-                try:
-                    backend_capabilities = get_provider(
-                        agent_config.backend,
-                    ).capabilities.model_dump()
-                except ValueError:
-                    backend_capabilities = {}
+            backend_metadata = _backend_metadata(agent_config.backend)
+            backend_capabilities = (
+                {"workspace_ui": True}
+                if agent_config.backend == "qwenpaw"
+                else backend_metadata["capabilities"]
+            )
 
             agents.append(
                 AgentSummary(
@@ -482,6 +584,8 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     startup_status=startup_status,
                     backend=agent_config.backend,
                     backend_capabilities=backend_capabilities,
+                    backend_status=backend_metadata["status"],
+                    backend_plugin_id=backend_metadata["plugin_id"],
                     backend_model=agent_config.backend_settings.get("model"),
                     backend_reasoning_effort=(
                         agent_config.backend_settings.get(
@@ -620,15 +724,15 @@ async def update_backend_settings(
                 status_code=409,
                 detail="QwenPaw models use the native model configuration",
             )
-        provider = _get_available_third_party_provider(agent_config.backend)
+        capabilities = _backend_metadata(agent_config.backend)["capabilities"]
         settings = dict(agent_config.backend_settings)
-        if provider.capabilities.model_selection and "model" in values:
+        if capabilities.get("model_selection") and "model" in values:
             if values["model"]:
                 settings["model"] = values["model"]
             else:
                 settings.pop("model", None)
         if (
-            provider.capabilities.reasoning_effort
+            capabilities.get("reasoning_effort")
             and "reasoning_effort" in values
         ):
             if values["reasoning_effort"]:
@@ -830,18 +934,6 @@ async def create_agent(
     active_model = (
         request.active_model if request.backend == "qwenpaw" else None
     )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
-
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -858,6 +950,8 @@ async def create_agent(
         fallback_models=request.fallback_models,
         fallback_policy=request.fallback_policy,
         subagent_model=request.subagent_model,
+        thinking_level=request.thinking_level,
+        thinking_budget=request.thinking_budget,
         mail=request.mail,
     )
 
@@ -1134,6 +1228,28 @@ async def update_agent(  # pylint: disable=too-many-statements
     ).expanduser()
     canonical_workspace_dir = str(workspace_dir)
 
+    backend_snapshot = None
+    if (
+        "backend" in agent_config.model_fields_set
+        and agent_config.backend != "qwenpaw"
+    ):
+        # Capture mutable registry state on the loop, not in the file worker.
+        backend_snapshot = {
+            "status": _backend_metadata(agent_config.backend)["status"],
+        }
+        if backend_snapshot["status"] != "available":
+            # Normal config loading can persist legacy migrations. Reject an
+            # unavailable switch before invoking that mutating reader.
+            try:
+                saved = await read_json_async(workspace_dir / "agent.json")
+            except FileNotFoundError:
+                saved = {}
+            if saved.get("backend", "qwenpaw") != agent_config.backend:
+                _get_available_third_party_provider(
+                    agent_config.backend,
+                    snapshot=backend_snapshot,
+                )
+
     existing_config_snap = deepcopy(
         await run_sync_io(load_agent_config, agentId),
     )
@@ -1175,6 +1291,15 @@ async def update_agent(  # pylint: disable=too-many-statements
         requested = AgentProfileConfig.model_validate(
             {**existing_config.model_dump(), **update_data},
         )
+        if (
+            backend_snapshot is not None
+            and requested.backend != existing_config.backend
+            and requested.backend != "qwenpaw"
+        ):
+            _get_available_third_party_provider(
+                requested.backend,
+                snapshot=backend_snapshot,
+            )
         if mail_was_set:
             requested.mail = (
                 _merge_unchanged_mail_secrets(
@@ -1305,6 +1430,34 @@ async def update_agent_model_settings(
     values = {field: getattr(body, field) for field in body.model_fields_set}
 
     def apply_settings(existing_config: AgentProfileConfig) -> None:
+        updated = AgentProfileConfig.model_validate(
+            {
+                **existing_config.model_dump(),
+                **values,
+            },
+        )
+        for field in (
+            "active_model",
+            "decision_model",
+            "subagent_model",
+            "fallback_models",
+        ):
+            value = values.get(field)
+            if field == "fallback_models":
+                if not updated.fallback_policy.enabled:
+                    continue
+                if "fallback_policy" in values:
+                    value = updated.fallback_models
+            slots = value if isinstance(value, list) else [value]
+            for slot in slots:
+                if slot is not None:
+                    validate_model_slot(
+                        request.app.state.provider_manager,
+                        slot.provider_id,
+                        slot.model,
+                        "decision" if field == "decision_model" else "chat",
+                    )
+
         for key, value in values.items():
             setattr(existing_config, key, value)
 
@@ -1314,7 +1467,9 @@ async def update_agent_model_settings(
             agentId,
             apply_settings,
         )
-    except (ValueError, AppBaseException) as exc:
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AppBaseException as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     schedule_agent_reload(request, agentId)
     return updated
@@ -1577,6 +1732,106 @@ async def get_agent_memory_status(
         ) from exc
 
 
+async def _run_memory_tag_action(
+    agent_id: str,
+    request: Request,
+    action: str,
+    **kwargs: Any,
+) -> Any:
+    """Resolve an agent and run a read-only action on its live memory index."""
+
+    def check_config() -> None:
+        if agent_id not in load_config().agents.profiles:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        config = load_agent_config(agent_id)
+        if config.running.memory_manager_backend != "remelight":
+            raise HTTPException(
+                status_code=400,
+                detail="Memory tags are only supported by ReMe Light",
+            )
+
+    await run_sync_io(check_config)
+    workspace = await _get_multi_agent_manager(request).get_agent(agent_id)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+    if not isinstance(memory_manager, MemoryActionProvider):
+        raise HTTPException(
+            status_code=501,
+            detail="Memory backend does not support actions",
+        )
+    try:
+        response = await memory_manager.run_action(action, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory tag index is unavailable",
+        ) from exc
+    if response is None or not response.success:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory tag index is unavailable",
+        )
+    return response.answer
+
+
+@router.get("/{agentId}/memory/tags", response_model=MemoryTagPage)
+async def get_agent_memory_tags(
+    agentId: str,
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> MemoryTagPage:
+    """List canonical tags and distinct file counts across this agent."""
+    answer = await _run_memory_tag_action(
+        agentId,
+        request,
+        "list_tags",
+        page=page,
+        page_size=page_size,
+        order_by="file_count",
+        order="desc",
+    )
+    return MemoryTagPage(
+        items=[
+            MemoryTag(tag=tag, file_count=count)
+            for tag, count in answer["items"]
+        ],
+        total_tags=answer["total_tags"],
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{agentId}/memory/tag-files", response_model=MemoryTagFilePage)
+async def get_agent_memory_tag_files(
+    agentId: str,
+    request: Request,
+    tag: str = Query(
+        ...,
+        min_length=1,
+        max_length=MAX_MEMORY_TAG_QUERY_LENGTH,
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> MemoryTagFilePage:
+    """Browse all tagged files without semantic ranking or chunk limits."""
+    answer = await _run_memory_tag_action(
+        agentId,
+        request,
+        "list_tag_files",
+        tag=tag,
+        page=page,
+        page_size=page_size,
+    )
+    return MemoryTagFilePage.model_validate(answer)
+
+
 @router.get(
     "/{agentId}/memory/graph",
     response_model=MemoryGraphSnapshot,
@@ -1684,7 +1939,6 @@ async def delete_agent(
             status_code=409,
             detail=f"Agent '{agentId}' cannot be deleted while starting",
         )
-    await manager.stop_agent(agentId)
 
     def remove_agent(latest_config: Any) -> None:
         if agentId not in latest_config.agents.profiles:
@@ -1697,7 +1951,11 @@ async def delete_agent(
             latest_config,
         )
 
-    await run_sync_io(mutate_config, remove_agent)
+    sessions = getattr(request.app.state, "channel_qrcode_sessions", None)
+    guard = sessions.operation_guard(agentId) if sessions else nullcontext()
+    async with guard:
+        await manager.stop_agent(agentId)
+        await run_sync_io(mutate_config, remove_agent)
 
     return {"success": True, "agent_id": agentId}
 
@@ -1739,9 +1997,6 @@ async def toggle_agent_enabled(
             ),
         )
 
-    if not enabled and getattr(agent_ref, "enabled", True):
-        await manager.stop_agent(agentId)
-
     def apply_enabled(latest_config: Any) -> None:
         if agentId not in latest_config.agents.profiles:
             raise HTTPException(
@@ -1750,7 +2005,16 @@ async def toggle_agent_enabled(
             )
         latest_config.agents.profiles[agentId].enabled = enabled
 
-    await run_sync_io(mutate_config, apply_enabled)
+    sessions = getattr(request.app.state, "channel_qrcode_sessions", None)
+    guard = (
+        sessions.operation_guard(agentId)
+        if sessions is not None and not enabled
+        else nullcontext()
+    )
+    async with guard:
+        if not enabled and getattr(agent_ref, "enabled", True):
+            await manager.stop_agent(agentId)
+        await run_sync_io(mutate_config, apply_enabled)
 
     if enabled:
         manager.schedule_agent_startup(agentId)
@@ -2000,6 +2264,22 @@ def _validate_mail_config(mail: AgentMailConfig) -> None:
                 f"allowed: {sorted(_ALLOWED_MAIL_DOMAINS)}"
             ),
         )
+
+    # A legacy full address in name must name the same domain the
+    # monitor uses. Otherwise MCP logs into one provider and IMAP
+    # into another (user@qq.com + domain 163.com).
+    account_name = credential.name or ""
+    if "@" in account_name:
+        address_domain = account_name.rsplit("@", 1)[-1].strip()
+        if address_domain and domain and address_domain.lower() != domain:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Account name domain '{address_domain}' "
+                    "conflicts with credential.domain "
+                    f"'{credential.domain}'"
+                ),
+            )
 
     if mail.push is not None:
         if len(mail.push.rules) > 50:

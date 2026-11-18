@@ -24,6 +24,29 @@ describe("channelApi", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("updates bundled channel code without changing channel settings", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ id: "matrix", status: "active" })),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await channelApi.updateChannelPlugin({
+      installed_version: "0.1.0.dev0",
+      version: "0.1.0",
+      source: "bundled:matrix",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toMatch(/\/plugins\/install$/);
+    expect(JSON.parse(init.body)).toEqual({
+      source: "bundled:matrix",
+      force: true,
+    });
+    expect(request).not.toHaveBeenCalled();
   });
 
   // ---- listing & shape ---------------------------------------------------
@@ -40,6 +63,35 @@ describe("channelApi", () => {
     const cfg = { dingtalk: { enabled: true } } as unknown;
     vi.mocked(request).mockResolvedValue(cfg);
     expect(await channelApi.listChannels()).toBe(cfg);
+  });
+
+  it("uses an explicit agent identity for the three initial reads", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await channelApi.listChannels("agent-a");
+    await channelApi.listChannelTypes("agent-a");
+    await channelApi.listChannelSchemas("agent-a");
+
+    expect(request).toHaveBeenCalledTimes(3);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual({ headers: { "X-Agent-Id": "agent-a" } });
+    }
+  });
+
+  it("keeps the cancellation signal with the explicit owner of plugin catalogue reads", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    const controller = new AbortController();
+    const scope = { agentId: "agent-a", signal: controller.signal };
+    await channelApi.listChannels(scope);
+    await channelApi.listChannelTypes(scope);
+    await channelApi.listChannelSchemas(scope);
+
+    expect(request).toHaveBeenCalledTimes(3);
+    for (const [, options] of vi.mocked(request).mock.calls) {
+      expect(options).toEqual({
+        headers: { "X-Agent-Id": "agent-a" },
+        signal: controller.signal,
+      });
+    }
   });
 
   it("updateChannels returns the persisted ChannelConfig", async () => {
@@ -63,6 +115,25 @@ describe("channelApi", () => {
     vi.mocked(request).mockResolvedValue(single);
     const r = await channelApi.updateChannelConfig("dingtalk", single as never);
     expect(r).toBe(single);
+  });
+
+  it("binds a validated QR save to its captured agent and authorization session", async () => {
+    vi.mocked(request).mockResolvedValue({ enabled: true });
+    const body = { enabled: true, bot_token: "captured-token" };
+    await channelApi.updateChannelConfig(
+      "telegram",
+      body as never,
+      "agent-a",
+      "auth-a",
+    );
+    expect(request).toHaveBeenCalledWith(expect.stringContaining("/telegram"), {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: {
+        "X-Agent-Id": "agent-a",
+        "X-Channel-Auth-Session": "auth-a",
+      },
+    });
   });
 
   it("checkChannelConflict posts the proposed channel config", async () => {

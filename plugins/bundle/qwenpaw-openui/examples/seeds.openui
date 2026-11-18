@@ -1,0 +1,5 @@
+root = Stack([control, total, next])
+$seeds = [5]
+control = Slider("seeds", "continuous", 1, 20, 1, [5], "Seeds", {}, $seeds)
+total = TextContent("Total Runs: " + ($seeds[0] * 7))
+next = Button("Continue analysis", Action([@ToAssistant("Continue the analysis using " + $seeds[0] + " seeds")]))

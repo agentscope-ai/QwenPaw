@@ -1,5 +1,6 @@
 import { clearAuthToken, getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
+import { addRouterBasename } from "../../utils/navigationMode";
 
 export interface HubUser {
   user_id: string;
@@ -15,6 +16,7 @@ export interface HubRuntime {
   tenant_id: string;
   owner_user_id: string;
   owner_username: string | null;
+  owner_role: HubUser["role"] | null;
   provisioner: string;
   host: string;
   port: number;
@@ -96,6 +98,13 @@ export interface HubOverview {
     cpu_percent: number;
     memory_percent: number;
     disk_percent: number;
+    memory_used: number;
+    memory_total: number;
+    memory_available: number;
+    disk_used: number;
+    disk_total: number;
+    disk_free: number;
+    disk_path: string;
   };
   recent_events: HubAuditEvent[];
 }
@@ -134,7 +143,7 @@ export interface HubConfig {
   control_plane: {
     public_base_url: string | null;
     registration: {
-      enabled: boolean;
+      mode: "open" | "invite" | "closed";
       default_role: "user";
     };
     security: {
@@ -224,7 +233,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (response.status === 401) {
     clearAuthToken();
-    window.location.assign("/login");
+    window.location.assign(
+      addRouterBasename(window.location.pathname, "/login"),
+    );
     throw new Error("Authentication expired");
   }
   if (!response.ok) {

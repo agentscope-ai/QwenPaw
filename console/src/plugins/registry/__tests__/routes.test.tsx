@@ -15,10 +15,34 @@ beforeEach(() => {
 });
 
 describe("routeRegistry.add", () => {
-  it("registers and snapshots", () => {
+  it("keeps legacy routes without metadata compatible", () => {
     routeRegistry.add("core", { id: "r1", path: "/r1", component: Base });
     const snap = routeRegistry.snapshot();
     expect(snap.map((r) => r.id)).toContain("r1");
+    expect(snap[0].meta).toBeUndefined();
+  });
+
+  it("keeps metadata on the resolved route", () => {
+    routeRegistry.add("core", {
+      id: "r1",
+      path: "/r1",
+      component: Base,
+      meta: {
+        domain: "workspace",
+        title: "Files",
+        scope: "agent",
+        layout: "workbench",
+        navigation: "context",
+      },
+    });
+
+    expect(routeRegistry.snapshot()[0].meta).toEqual({
+      domain: "workspace",
+      title: "Files",
+      scope: "agent",
+      layout: "workbench",
+      navigation: "context",
+    });
   });
 
   it("rejects duplicate id with conflict audit", () => {
@@ -61,6 +85,26 @@ describe("routeRegistry.replace", () => {
     const Comp = routeRegistry.snapshot().find((r) => r.id === "p")?.Component!;
     const { getByTestId } = render(<Comp />);
     expect(getByTestId("base")).toBeInTheDocument();
+  });
+
+  it("preserves base metadata when a plugin replaces the component", () => {
+    const meta = {
+      domain: "settings" as const,
+      title: "Models",
+      scope: "global" as const,
+      layout: "standard" as const,
+      navigation: "settings" as const,
+    };
+    routeRegistry.add("core", {
+      id: "p",
+      path: "/p",
+      component: Base,
+      meta,
+    });
+
+    routeRegistry.replace("p1", "p", PluginPage);
+
+    expect(routeRegistry.snapshot()[0].meta).toBe(meta);
   });
 });
 
@@ -113,6 +157,26 @@ describe("routeRegistry.wrap — onion composition", () => {
     const { queryByTestId } = render(<Comp />);
     expect(queryByTestId("wrap")).not.toBeInTheDocument();
     expect(queryByTestId("base")).toBeInTheDocument();
+  });
+
+  it("preserves base metadata when plugins wrap the component", () => {
+    const meta = {
+      domain: "chat" as const,
+      title: "Chat",
+      scope: "session" as const,
+      layout: "workbench" as const,
+      navigation: "rail" as const,
+    };
+    routeRegistry.add("core", {
+      id: "p",
+      path: "/p",
+      component: Base,
+      meta,
+    });
+
+    routeRegistry.wrap("p1", "p", (Inner) => Inner);
+
+    expect(routeRegistry.snapshot()[0].meta).toBe(meta);
   });
 });
 

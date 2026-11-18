@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
@@ -12,6 +11,8 @@ const hoisted = vi.hoisted(() => {
     warning: vi.fn(),
   };
   const apiMocks = {
+    listChannelTypes: vi.fn().mockResolvedValue([]),
+    listChannelSchemas: vi.fn().mockResolvedValue({}),
     listSkills: vi.fn(),
     refreshSkills: vi.fn(),
     createSkill: vi.fn(),
@@ -41,6 +42,7 @@ const hoisted = vi.hoisted(() => {
   const handleScanErrorMock = vi.fn().mockReturnValue(false);
   const checkScanWarningsMock = vi.fn().mockResolvedValue(undefined);
   const showScanErrorModalMock = vi.fn();
+  const cancelConflictRenameModalMock = vi.fn();
   const harnessMocks = { listSkills: vi.fn() };
   const agentState = {
     selectedAgent: "agent-1",
@@ -56,6 +58,7 @@ const hoisted = vi.hoisted(() => {
     handleScanErrorMock,
     checkScanWarningsMock,
     showScanErrorModalMock,
+    cancelConflictRenameModalMock,
     harnessMocks,
     agentState,
     stableT,
@@ -93,7 +96,9 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => hoisted.agentState,
+  useAgentStore: Object.assign(() => hoisted.agentState, {
+    getState: () => hoisted.agentState,
+  }),
 }));
 
 vi.mock("../../../api/modules/harness", () => ({
@@ -132,6 +137,7 @@ vi.mock("./components", async () => {
     parseFrontmatter: vi.fn(),
     useConflictRenameModal: () => ({
       showConflictRenameModal: vi.fn().mockResolvedValue(null),
+      cancelConflictRenameModal: hoisted.cancelConflictRenameModalMock,
       conflictRenameModal: React.createElement("div", null, "conflict-modal"),
     }),
   };
@@ -361,7 +367,7 @@ describe("useSkillsPage — toggle event bubbling (#3504)", () => {
     // stopPropagation must be called to prevent event bubbling to card click
     expect(stopPropagation).toHaveBeenCalledTimes(1);
     // The underlying toggleEnabled should have been called (disableSkill for enabled skill)
-    expect(apiMocks.disableSkill).toHaveBeenCalledWith("toggle-me");
+    expect(apiMocks.disableSkill).toHaveBeenCalledWith("toggle-me", "agent-1");
   });
 
   it("handleDelete calls e?.stopPropagation() when event is provided", async () => {

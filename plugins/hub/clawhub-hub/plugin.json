@@ -1,0 +1,15 @@
+{
+  "id": "clawhub-hub",
+  "name": "ClawHub Skill Hub",
+  "publish": false,
+  "version": "1.0.0",
+  "type": "hub",
+  "description": "ClawHub Skill marketplace source.",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "qwenpaw_version": {
+    "min": "2.2.2"
+  }
+}

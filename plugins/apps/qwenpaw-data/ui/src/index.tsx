@@ -1,7 +1,6 @@
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
-import { requireQwenPawDataSdk } from "./sdk";
 import styles from "./styles.css?inline";
 
 function installStyles(): () => void {
@@ -13,7 +12,13 @@ function installStyles(): () => void {
 }
 
 try {
-  const paw = requireQwenPawDataSdk();
+  const factory = window.QwenPaw?.paw;
+  if (!factory) {
+    throw new Error(
+      "This QwenPaw-Data build requires the app-scoped PawApp SDK",
+    );
+  }
+  const paw = factory.forApp("qwenpaw-data");
   paw.ui.registerPage({
     path: "/apps/qwenpaw-data",
     label: "QwenPaw-Data",
@@ -22,7 +27,7 @@ try {
     mount(container) {
       const removeStyles = installStyles();
       const root = createRoot(container);
-      root.render(<App paw={paw} />);
+      root.render(<App />);
       return () => {
         root.unmount();
         removeStyles();

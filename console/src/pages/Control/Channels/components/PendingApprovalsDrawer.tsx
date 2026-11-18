@@ -1,6 +1,13 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import {
-  Drawer,
+  useState,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import {
   Table,
   Button,
   Space,
@@ -10,10 +17,10 @@ import {
   Popconfirm,
 } from "antd";
 import {
-  CheckOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-} from "@ant-design/icons";
+  Check as CheckOutlined,
+  X as CloseOutlined,
+  Trash2 as DeleteOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
@@ -44,33 +51,92 @@ const ACTION_SUCCESS_KEY: Record<PendingAction, string> = {
 
 interface PendingApprovalsDrawerProps {
   open: boolean;
+  ownerAgentId: string | null;
+  canMutate: (ownerAgentId: string) => boolean;
+  onStale: () => void;
   onClose: () => void;
 }
 
 export function PendingApprovalsDrawer({
   open,
+  ownerAgentId,
+  canMutate,
+  onStale,
   onClose,
 }: PendingApprovalsDrawerProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [pending, setPending] = useState<PendingEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionLoadingKeys, setActionLoadingKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [batchLoading, setBatchLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const loadVersionRef = useRef(0);
+  const actionSequenceRef = useRef(0);
+  const actionTokensRef = useRef(new Map<string, number>());
+
+  const ensureCanMutate = useCallback(() => {
+    if (ownerAgentId && canMutate(ownerAgentId)) return true;
+    onStale();
+    return false;
+  }, [canMutate, onStale, ownerAgentId]);
+
+  useLayoutEffect(() => {
+    loadVersionRef.current += 1;
+    actionTokensRef.current.clear();
+    setPending([]);
+    setSelectedRowKeys([]);
+    setSelectedChannels([]);
+    setLoading(false);
+    setActionLoadingKeys(new Set());
+    setBatchLoading(false);
+  }, [open, ownerAgentId]);
+
+  const beginAction = (key: string) => {
+    if (!ensureCanMutate() || actionTokensRef.current.has(key)) return null;
+    const token = ++actionSequenceRef.current;
+    actionTokensRef.current.set(key, token);
+    return { key, token, ownerAgentId };
+  };
+
+  const ownsAction = (action: {
+    key: string;
+    token: number;
+    ownerAgentId: string | null;
+  }) =>
+    action.ownerAgentId !== null &&
+    action.ownerAgentId === ownerAgentId &&
+    actionTokensRef.current.get(action.key) === action.token &&
+    canMutate(action.ownerAgentId);
+
+  const finishAction = (action: {
+    key: string;
+    token: number;
+    ownerAgentId: string | null;
+  }) => {
+    if (!ownsAction(action)) return false;
+    actionTokensRef.current.delete(action.key);
+    return true;
+  };
 
   const fetchPending = useCallback(async () => {
+    if (!ownerAgentId || !canMutate(ownerAgentId)) return;
+    const loadVersion = ++loadVersionRef.current;
     setLoading(true);
     try {
       const data = await accessControlApi.getAclAllPending();
+      if (loadVersion !== loadVersionRef.current || !canMutate(ownerAgentId))
+        return;
       setPending(data);
     } catch {
       // silent
     } finally {
-      setLoading(false);
+      if (loadVersion === loadVersionRef.current) setLoading(false);
     }
-  }, []);
+  }, [canMutate, ownerAgentId]);
 
   useEffect(() => {
     if (open) {
@@ -99,12 +165,14 @@ export function PendingApprovalsDrawer({
   );
 
   const handleRemarkSave = async (entry: PendingEntry, remark: string) => {
+    if (!ensureCanMutate()) return;
     try {
       await accessControlApi.updatePendingRemark(
         entry.channel,
         entry.user_id,
         remark,
       );
+      if (!ensureCanMutate()) return;
       setPending((prev) =>
         prev.map((p) =>
           p.channel === entry.channel && p.user_id === entry.user_id
@@ -113,17 +181,19 @@ export function PendingApprovalsDrawer({
         ),
       );
     } catch {
-      message.error(t("channels.operationFailed"));
+      if (ensureCanMutate()) message.error(t("channels.operationFailed"));
     }
   };
 
   const handleUsernameSave = async (entry: PendingEntry, username: string) => {
+    if (!ensureCanMutate()) return;
     try {
       await accessControlApi.updateUsername(
         entry.channel,
         entry.user_id,
         username,
       );
+      if (!ensureCanMutate()) return;
       setPending((prev) =>
         prev.map((p) =>
           p.channel === entry.channel && p.user_id === entry.user_id
@@ -132,39 +202,55 @@ export function PendingApprovalsDrawer({
         ),
       );
     } catch {
-      message.error(t("channels.operationFailed"));
+      if (ensureCanMutate()) message.error(t("channels.operationFailed"));
     }
   };
 
   const handleAction = async (entry: PendingEntry, action: PendingAction) => {
     const key = `${entry.channel}:${entry.user_id}`;
-    setActionLoading(key);
+    const actionOwner = beginAction(key);
+    if (!actionOwner) return;
+    setActionLoadingKeys((current) => new Set(current).add(key));
     try {
       await ACTION_API_MAP[action]([
         { channel: entry.channel, user_id: entry.user_id },
       ]);
+      if (!ownsAction(actionOwner)) return;
       message.success(t(ACTION_SUCCESS_KEY[action]));
       await fetchPending();
     } catch {
-      message.error(t("channels.operationFailed"));
+      if (ownsAction(actionOwner)) {
+        message.error(t("channels.operationFailed"));
+      }
     } finally {
-      setActionLoading(null);
+      if (finishAction(actionOwner)) {
+        setActionLoadingKeys((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
+      }
     }
   };
 
   const handleBatchAction = async (action: PendingAction) => {
+    const actionOwner = beginAction("batch");
+    if (!actionOwner) return;
     setBatchLoading(true);
     try {
       await ACTION_API_MAP[action](selectedEntries);
+      if (!ownsAction(actionOwner)) return;
       message.success(
         t("channels.batchSuccess", { count: selectedEntries.length }),
       );
       setSelectedRowKeys([]);
       await fetchPending();
     } catch {
-      message.error(t("channels.operationFailed"));
+      if (ownsAction(actionOwner)) {
+        message.error(t("channels.operationFailed"));
+      }
     } finally {
-      setBatchLoading(false);
+      if (finishAction(actionOwner)) setBatchLoading(false);
     }
   };
 
@@ -257,7 +343,7 @@ export function PendingApprovalsDrawer({
       fixed: "right" as const,
       render: (_: unknown, record: PendingEntry) => {
         const key = `${record.channel}:${record.user_id}`;
-        const isLoading = actionLoading === key;
+        const isLoading = actionLoadingKeys.has(key);
         return (
           <Space size={0}>
             <Button
@@ -343,7 +429,7 @@ export function PendingApprovalsDrawer({
             <Button
               type="primary"
               size="small"
-              icon={<CheckOutlined />}
+              icon={<CheckOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >
@@ -359,7 +445,7 @@ export function PendingApprovalsDrawer({
           >
             <Button
               size="small"
-              icon={<CloseOutlined />}
+              icon={<CloseOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >
@@ -376,7 +462,7 @@ export function PendingApprovalsDrawer({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               disabled={!hasSelection}
               loading={batchLoading}
             >

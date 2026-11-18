@@ -1,0 +1,27 @@
+{
+  "pins": [
+    {
+      "provider": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "liquid/lfm-2.5-2.6b:free",
+      "secret": "MODEL_CANARY_OPENROUTER_API_KEY",
+      "anonymous_verified": false
+    },
+    {
+      "provider": "opencode",
+      "base_url": "https://opencode.ai/zen/v1",
+      "model": "mimo-v2.5-free",
+      "secret": "MODEL_CANARY_OPENCODE_API_KEY",
+      "anonymous_verified": false,
+      "session_header": "x-opencode-session"
+    },
+    {
+      "provider": "kilo",
+      "base_url": "https://api.kilo.ai/api/gateway",
+      "model": "inclusionai/ling-3.0-flash-fin:free",
+      "secret": "MODEL_CANARY_KILO_API_KEY",
+      "anonymous_verified": false,
+      "session_header": "X-KiloCode-TaskId"
+    }
+  ]
+}

@@ -20,8 +20,8 @@ pytestmark = pytest.mark.unit
 NOW = datetime(2026, 8, 15, tzinfo=UTC)
 
 
-def _project() -> Project:
-    project = Project.new(project_id="p-script", name="Script")
+def _project(project_id: str = "p-script") -> Project:
+    project = Project.new(project_id=project_id, name="Script")
     project.timelines.items["timeline:ep2"] = Timeline(
         timeline_id="timeline:ep2",
         title="第二集 · 旧宅疑云",
@@ -95,3 +95,16 @@ def test_same_content_replays_idempotently() -> None:
     assert len(slot.version_ids) == 2
     # 复放只是重新选中旧版本。
     assert slot.selected_version_id == first.version_id
+
+
+def test_version_id_is_project_scoped() -> None:
+    """同一内容导入两个 Project 必须得到不同 version_id。
+
+    媒体读取路由 ``/media/artifacts/{version_id}`` 跨所有 Project 扫描并要求
+    唯一命中；若 version_id 只按 timeline+内容寻址，两个 Project 导入同一剧本
+    会碰撞 → StorageIntegrityError → HTTP 503。
+    """
+    text = "## 场 1 · 内景 · 旧宅大厅 · 夜\n\n开场。\n"
+    first = _add(_project("p-a"), text)
+    second = _add(_project("p-b"), text)
+    assert first.version_id != second.version_id

@@ -1,5 +1,5 @@
 import React from "react";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus as PlusOutlined } from "lucide-react";
 import { Button } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
@@ -61,7 +61,7 @@ export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
         </div>
         <Button
           className={styles.accessClientAddButton}
-          icon={<PlusOutlined />}
+          icon={<PlusOutlined size="1em" />}
           onClick={addClientAccessRule}
         >
           {t("mcp.access.addRule")}

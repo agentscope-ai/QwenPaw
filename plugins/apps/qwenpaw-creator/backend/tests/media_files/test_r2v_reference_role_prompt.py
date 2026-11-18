@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Runtime-injected reference-image role mapping for r2v video prompts."""
+
 from __future__ import annotations
 
 import pytest
@@ -8,12 +9,12 @@ from services.media_files.r2v_execution import (
     _REFERENCE_ROLE_MARKER,
     _append_reference_role_mapping,
 )
+from services.prompt_text import video_prompt_time_error
 from services.project_files.models import (
     ArtifactVersion,
     Project,
     SourceAssetVersion,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -174,3 +175,19 @@ def test_no_references_leaves_prompt_untouched(monkeypatch) -> None:
         )
         == "纯文本。"
     )
+
+
+@pytest.mark.parametrize(
+    "prompt,invalid",
+    [
+        ("0–2秒站起，2.0s-7s转身", False),
+        ("7秒至14秒转身", True),
+        ("00:07–00:14 转身", True),
+        ("00:00–00:07 转身", False),
+        ("3s–2s转身", True),
+        ("4-9格，24-30fps，16:9画幅", False),
+        ("０～７秒连续动作", False),
+    ],
+)
+def test_local_action_ranges(prompt, invalid):
+    assert bool(video_prompt_time_error(prompt, 7)) is invalid

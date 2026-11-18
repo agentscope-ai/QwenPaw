@@ -1,3 +1,4 @@
+import { message } from "antd";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ModelConfigModal, {
@@ -5,13 +6,18 @@ import ModelConfigModal, {
   EMBEDDING_PROTOCOLS,
   IMAGE_PROTOCOLS,
   LLM_PROTOCOLS,
+  OPENCODE_BASE_URL_OPTIONS,
+  OPENCODE_MODELS,
   PRESETS_BY_TYPE,
   PROTOCOL_LABEL_KEYS,
   S2V_PROTOCOLS,
   TTS_PROTOCOLS,
   VIDEO_PROTOCOLS,
   VLM_PROTOCOLS,
+  modelSupportsImage,
+  ttsModelsForProtocol,
 } from "../ModelConfigModal";
+import type { HostProviderInfo } from "@/api/creator";
 import { installMockFetch } from "@/test/mockFetch";
 import en from "@/locales/en.json";
 import zh from "@/locales/zh.json";
@@ -219,6 +225,43 @@ function configRoutes(json: unknown, testJson?: Record<string, unknown>) {
 }
 
 describe("ModelConfigModal configuration lifecycle", () => {
+  it("preserves the saved governance mode when returning to full confirmation", async () => {
+    const { calls } = installMockFetch(
+      configRoutes({
+        ...speechBaseConfig,
+        creationCheckpoints: { mode: "skip", executionMode: "delegated" },
+      }),
+    );
+    render(<ModelConfigModal open onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: /执行模式/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^全程确认/ }));
+
+    await waitFor(() =>
+      expect(
+        calls.some((call) =>
+          call.url.endsWith("/models/config/permission-mode"),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.getByRole("radio", { name: /^委派/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("radio", { name: /^共创/ })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: /^共创/ }));
+    await waitFor(() =>
+      expect(
+        calls.find((call) =>
+          call.url.endsWith("/models/config/creation-checkpoints"),
+        )?.body,
+      ).toEqual({ mode: "required", execution_mode: "co_creation" }),
+    );
+  });
+
   it("keeps a VLM that reuses the LLM enabled after an LLM connectivity test", async () => {
     // A successful test flips llm.enabled via updateItem; that update must
     // not cascade into vlm.use_llm/enabled=false before a save.
@@ -268,6 +311,74 @@ describe("ModelConfigModal configuration lifecycle", () => {
         screen.getByRole("checkbox", { name: /复用 LLM 配置/ }),
       ).toBeChecked(),
     );
+  });
+
+  /** Opens the LLM card and answers its connectivity test with *probe*. */
+  async function testLlmCardProbe(probe: Record<string, unknown>) {
+    installMockFetch([
+      ...configRoutes(
+        {
+          ...emptyConfig,
+          llm: {
+            ...emptyConfig.llm,
+            model_name: "qwen3.7-plus",
+            api_key: "saved-secret",
+            base_url: "https://provider.test/v1",
+          },
+        },
+        probe,
+      ),
+      {
+        match: "/models/real-api-key/llm",
+        method: "GET",
+        response: { json: { apiKey: "saved-secret" } },
+      },
+    ]);
+    render(<ModelConfigModal open onClose={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getAllByText("qwen3.7-plus").length).toBeGreaterThan(0),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /测试连通性/ }));
+  }
+
+  it("downgrades a credential-only probe to a separate verdict", async () => {
+    // A free read-only request proves the key and nothing about the
+    // modality, so a green light must not be worded as a verified model.
+    // The toast itself is spied rather than queried: antd keeps an earlier
+    // test's message mounted, which would satisfy a DOM absence check by
+    // accident and hide the branch this is meant to pin down.
+    const warned = vi
+      .spyOn(message, "warning")
+      .mockImplementation(() => undefined);
+    const passed = vi
+      .spyOn(message, "success")
+      .mockImplementation(() => undefined);
+
+    await testLlmCardProbe({ ok: true, ms: 8, capability_verified: false });
+
+    await waitFor(() =>
+      expect(warned).toHaveBeenCalledWith(
+        zh.modelConfig.connectionTestCredentialOnly,
+      ),
+    );
+    expect(passed).not.toHaveBeenCalledWith(
+      zh.modelConfig.connectionTestSuccess,
+    );
+    warned.mockRestore();
+    passed.mockRestore();
+  });
+
+  it("keeps reporting a real request as a verified capability", async () => {
+    const passed = vi
+      .spyOn(message, "success")
+      .mockImplementation(() => undefined);
+
+    await testLlmCardProbe({ ok: true, ms: 8, capability_verified: true });
+
+    await waitFor(() =>
+      expect(passed).toHaveBeenCalledWith(zh.modelConfig.connectionTestSuccess),
+    );
+    passed.mockRestore();
   });
 
   it("stays unconfigured until the user tests and saves entered model data", async () => {
@@ -523,5 +634,109 @@ describe("ModelConfigModal speech section", () => {
     );
     expect(values).toContain(DASH);
     expect(values).toContain("wan2.2-s2v");
+  });
+});
+
+describe("ModelConfigModal OpenCode support", () => {
+  it("keeps the OpenCode catalog usable on both Zen and Go endpoints", () => {
+    // Guards the reported bug where only Zen-only *-free IDs were offered,
+    // so no listed model worked after switching to the Go endpoint.
+    expect(LLM_PROTOCOLS).toContain("OpenCode");
+    expect(VLM_PROTOCOLS).toContain("OpenCode");
+    expect(OPENCODE_BASE_URL_OPTIONS.map((o) => o.value)).toEqual([
+      "https://opencode.ai/zen/v1",
+      "https://opencode.ai/zen/go/v1",
+    ]);
+
+    const ids = OPENCODE_MODELS.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const model of OPENCODE_MODELS) {
+      expect(model.free === true).toBe(model.id.endsWith("-free"));
+    }
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "grok-4.6",
+        "kimi-k3",
+        "glm-5.3",
+        "deepseek-v4-pro",
+        "qwen3.6-plus",
+        "minimax-m3",
+        "gpt-5.6-luna",
+      ]),
+    );
+    // Vision flags mirror the host model catalog so the VLM picker can
+    // filter to image-capable routes only.
+    const vision = OPENCODE_MODELS.filter((m) => m.vision).map((m) => m.id);
+    expect(vision.sort()).toEqual(
+      [
+        "mimo-v2.5-free",
+        "kimi-k3",
+        "kimi-k2.7-code",
+        "kimi-k2.6",
+        "kimi-k2.5",
+        "deepseek-v4-flash-vision-exp",
+        "qwen3.6-plus",
+        "qwen3.5-plus",
+        "minimax-m3",
+        "gpt-5.6-luna",
+      ].sort(),
+    );
+  });
+
+  it("resolves image support from host metadata first, then the catalog", () => {
+    const hostProviders: HostProviderInfo[] = [
+      {
+        id: "opencode",
+        name: "OpenCode",
+        base_url: "https://opencode.ai/zen/v1",
+        freeze_url: false,
+        // A host probe verdict (kimi-k3 → false) outranks the plugin
+        // catalog flag; a null verdict falls through to the catalog.
+        models: [
+          { id: "kimi-k3", name: "Kimi K3", supports_image: false },
+          { id: "glm-5.3", name: "GLM-5.3", supports_image: null },
+        ],
+        extra_models: [],
+      },
+    ];
+    expect(modelSupportsImage("opencode", "kimi-k3", hostProviders)).toBe(
+      false,
+    );
+    expect(modelSupportsImage("opencode", "glm-5.3", hostProviders)).toBe(
+      false,
+    );
+    expect(modelSupportsImage("opencode", "qwen3.6-plus", hostProviders)).toBe(
+      true,
+    );
+    expect(
+      modelSupportsImage("deepseek", "deepseek-chat", hostProviders),
+    ).toBeUndefined();
+  });
+});
+
+describe("ttsModelsForProtocol", () => {
+  const models = [
+    { model: "qwen-audio-3.0-tts-plus", label: "Qwen-Audio 3.0 TTS Plus" },
+    { model: "qwen-audio-3.0-tts-flash", label: "Qwen-Audio 3.0 TTS Flash" },
+    { model: "cosyvoice-v3.5-plus", label: "CosyVoice 3.5 Plus" },
+  ];
+
+  it("narrows Token Plan to the plan's documented synthesis model", () => {
+    // The plan's model table lists exactly one speech-synthesis model; the
+    // others here are Bailian-direct models the plan gateway answers
+    // "Model not exist" for.
+    expect(
+      ttsModelsForProtocol(models, "Aliyun Token Plan").map((o) => o.value),
+    ).toEqual(["qwen-audio-3.0-tts-plus"]);
+  });
+
+  it("keeps the whole capability table where no roster exists", () => {
+    expect(
+      ttsModelsForProtocol(models, "DashScope（百炼）").map((o) => o.value),
+    ).toEqual([
+      "qwen-audio-3.0-tts-plus",
+      "qwen-audio-3.0-tts-flash",
+      "cosyvoice-v3.5-plus",
+    ]);
   });
 });

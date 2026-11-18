@@ -113,7 +113,8 @@ def test_observability_config_migrates_legacy_env_once_then_file_is_authoritativ
         logLevel="WARNING",
         captureContent=True,
     )
-    assert observability_config_path().stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert observability_config_path().stat().st_mode & 0o777 == 0o600
     # The file is now authoritative: env flips no longer apply.
     monkeypatch.setenv("CREATOR_TRACING_ENABLED", "true")
     assert load_observability_config().enabled is False
@@ -127,6 +128,7 @@ def test_observability_config_migrates_legacy_env_once_then_file_is_authoritativ
 def test_file_logging_and_traces_are_isolated_and_symlink_safe(
     tmp_path,
     monkeypatch,
+    directory_link,
 ):
     data_root = _data_root(tmp_path, monkeypatch)
     _create_project(data_root, "project-log-1")
@@ -137,7 +139,7 @@ def test_file_logging_and_traces_are_isolated_and_symlink_safe(
     for sub in ("logs", "traces"):
         (observability_root / sub).rmdir()
     observability_root.rmdir()
-    observability_root.symlink_to(outside, target_is_directory=True)
+    directory_link(outside, observability_root)
 
     try:
         system_log_path = configure_creator_file_logging(data_root)
@@ -165,7 +167,8 @@ def test_file_logging_and_traces_are_isolated_and_symlink_safe(
             handler.flush()
 
         project_log = creator_log_path(data_root, project_id="project-log-1")
-        assert system_log_path.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert system_log_path.stat().st_mode & 0o777 == 0o600
         # Log files carry business lines only; traces go to jsonl files.
         system_content = system_log_path.read_text(encoding="utf-8")
         assert "system logging is active" in system_content
@@ -186,7 +189,8 @@ def test_file_logging_and_traces_are_isolated_and_symlink_safe(
         assert '"name":"creator.test.file_logging"' not in system_trace
         project_trace = project_traces[0].read_text(encoding="utf-8")
         assert '"name":"creator.test.file_logging"' in project_trace
-        assert project_traces[0].stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert project_traces[0].stat().st_mode & 0o777 == 0o600
     finally:
         shutdown_creator_file_logging()
 

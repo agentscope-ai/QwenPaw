@@ -68,6 +68,18 @@ export function storyboardOfOwner(
   ownerRef: string,
 ): string | null {
   if (!ownerRef.startsWith("element:")) return null;
+  // The slot's selection is authoritative: artifact_versions_by_id is a
+  // key-sorted map, so "the last matching version" is id order, not the
+  // user's current choice (a revised storyboard regressed to v1 this way).
+  for (const slot of Object.values(project.assets.artifact_slots_by_id)) {
+    if (slot.owner_ref !== ownerRef || !`${slot.kind}`.includes("storyboard"))
+      continue;
+    return (
+      slot.selected_version_id ??
+      slot.version_ids[slot.version_ids.length - 1] ??
+      null
+    );
+  }
   const candidates = Object.values(
     project.assets.artifact_versions_by_id,
   ).filter(

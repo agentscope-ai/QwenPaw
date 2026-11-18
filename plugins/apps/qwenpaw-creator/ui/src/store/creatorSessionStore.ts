@@ -36,12 +36,27 @@ async function createStableConversation(projectId: string) {
   return created;
 }
 
+type SendMessageInput = Omit<
+  SendCreatorMessageRequest,
+  "clientMessageId" | "conversationId"
+> & {
+  message?: string;
+  clientMessageId?: string;
+  /** Uploads can finish after navigation; keep the submitted conversation. */
+  conversationId?: string;
+};
+
 interface QueuedUiMessage {
   clientMessageId: string;
+  conversationId: string;
   requestSignature: string;
   text: string;
   state: "sending" | "queued" | "failed";
   error?: string;
+  /** The full original request: a failed send retries verbatim (same
+      selections/context/refs and the same clientMessageId), never a
+      plain-text reconstruction. */
+  request?: SendMessageInput;
 }
 
 export interface StreamingAssistantMessage {
@@ -199,15 +214,8 @@ interface CreatorSessionState {
   loadOlderMessages: () => Promise<void>;
   refreshSession: () => Promise<void>;
   refreshMessages: (after?: number) => Promise<void>;
-  sendMessage: (
-    request: Omit<
-      SendCreatorMessageRequest,
-      "clientMessageId" | "conversationId"
-    > & {
-      message?: string;
-      clientMessageId?: string;
-    },
-  ) => Promise<void>;
+  sendMessage: (request: SendMessageInput) => Promise<void>;
+  retryQueuedMessage: (clientMessageId: string) => Promise<void>;
   stopAllAgents: () => Promise<void>;
   ingestEvents: (events: CreatorEvent[]) => void;
   ingestEvent: (event: CreatorEvent) => void;
@@ -548,7 +556,11 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           ).length;
           const removable = new Set(
             state.queuedUi
-              .filter((item) => item.state !== "failed")
+              .filter(
+                (item) =>
+                  item.conversationId === conversationId &&
+                  item.state !== "failed",
+              )
               .slice(0, appendedUserCount)
               .map((item) => item.clientMessageId),
           );
@@ -626,7 +638,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         const sessionGeneration = ++sessionRefreshGeneration;
         const state = get();
         const sameProject = state.projectId === projectId;
-        const initialResumeAfter = sameProject ? state.lastEventSeq : 0;
         const preferredConversationId = sameProject
           ? state.activeConversationId
           : null;
@@ -662,7 +673,18 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             return;
           // Mainline IDLE/ERROR does not settle detached specialist work.
           // Replay from the local cursor to rebuild its independent lifecycle.
-          const resumeAfter = initialResumeAfter;
+          // Same-project reconnect resumes at the local cursor. First entry /
+          // project switch replays the whole event log: the durable session
+          // snapshot carries status, head pointers and the progress bar only —
+          // no terminal projection for `subagentActivities` or run
+          // cancellation, which is what ToolCallCard reads to tell "delegation
+          // accepted" from "specialist finally failed". Clipping the replay to
+          // a recent window therefore rebuilds nothing and silently downgrades
+          // an old failed delegation to a success (and a cancelled mainline run
+          // to unknown). The bounded window this used to apply existed to stop
+          // the feed cascading downward, which AgentDock now handles directly
+          // by suppressing bottom-follow during replay.
+          const resumeAfter = sameProject ? state.lastEventSeq : 0;
           replayUntilSeq = sessionResponse.session.lastEventSeq;
           let conversations = conversationPage.items;
           let activeConversationId =
@@ -946,8 +968,11 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
       },
 
       sendMessage: async (input) => {
-        const { projectId, session, activeConversationId } = get();
-        if (!projectId || !session || !activeConversationId)
+        const { projectId, session } = get();
+        const conversationId =
+          input.conversationId ?? get().activeConversationId;
+        const generation = lifecycleGeneration;
+        if (!projectId || !session || !conversationId)
           throw new Error(i18n.t("store.sessionNotInit"));
         const text =
           input.message ??
@@ -958,7 +983,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           content: input.content,
           assetVersionRefs: input.assetVersionRefs,
           context: input.context,
-          conversationId: activeConversationId,
+          conversationId,
         });
         const failedRetry = get().queuedUi.find(
           (item) =>
@@ -972,7 +997,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         set((state) => {
           if (
             state.projectId !== projectId ||
-            state.activeConversationId !== activeConversationId
+            lifecycleGeneration !== generation
           )
             return {};
           return {
@@ -980,7 +1005,14 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               ...state.queuedUi.filter(
                 (item) => item.clientMessageId !== clientMessageId,
               ),
-              { clientMessageId, requestSignature, text, state: "sending" },
+              {
+                clientMessageId,
+                conversationId,
+                requestSignature,
+                text,
+                state: "sending" as const,
+                request: input,
+              },
             ],
           };
         });
@@ -989,17 +1021,17 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             ...input,
             clientMessageId,
             creatorSessionId: session.id,
-            conversationId: activeConversationId,
+            conversationId,
           });
           if (
             get().projectId !== projectId ||
-            get().activeConversationId !== activeConversationId
+            lifecycleGeneration !== generation
           )
             return;
           set((state) => {
             if (
               state.projectId !== projectId ||
-              state.activeConversationId !== activeConversationId
+              lifecycleGeneration !== generation
             )
               return {};
             return {
@@ -1011,18 +1043,20 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             };
           });
           if (accepted.appendState === "appended") {
-            const page = await listMessages(projectId, activeConversationId, {
+            const page = await listMessages(projectId, conversationId, {
               after: Math.max(0, accepted.messageSeq - 1),
               limit: 1,
             });
             set((state) => {
               if (
                 state.projectId !== projectId ||
-                state.activeConversationId !== activeConversationId
+                lifecycleGeneration !== generation
               )
                 return {};
               return {
-                messages: mergeMessages(state.messages, page.items),
+                ...(state.activeConversationId === conversationId
+                  ? { messages: mergeMessages(state.messages, page.items) }
+                  : {}),
                 queuedUi: state.queuedUi.filter(
                   (item) => item.clientMessageId !== clientMessageId,
                 ),
@@ -1033,7 +1067,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           set((state) => {
             if (
               state.projectId !== projectId ||
-              state.activeConversationId !== activeConversationId
+              lifecycleGeneration !== generation
             )
               return {};
             return {
@@ -1049,6 +1083,34 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             };
           });
           throw error;
+        }
+      },
+
+      retryQueuedMessage: async (clientMessageId) => {
+        const item = get().queuedUi.find(
+          (entry) =>
+            entry.clientMessageId === clientMessageId &&
+            entry.conversationId === get().activeConversationId &&
+            entry.state === "failed",
+        );
+        if (!item?.request) return;
+        const projectId = get().projectId;
+        await get().sendMessage({ ...item.request, clientMessageId });
+        // The Dock flushes delivered userEdits after its own send; a card
+        // retry delivers the same context, so it must flush too or the
+        // edits ride the next message twice.
+        const edits = (
+          item.request.context as
+            | { userEdits?: { lastEntryAt?: string | null } }
+            | undefined
+        )?.userEdits;
+        if (projectId && edits) {
+          const { useCreatorEditBufferStore } = await import(
+            "@/store/creatorEditBufferStore"
+          );
+          useCreatorEditBufferStore
+            .getState()
+            .markFlushed(projectId, edits.lastEntryAt ?? null);
         }
       },
 

@@ -79,6 +79,42 @@ const headerOf = (
 afterEach(() => store().reset());
 
 describe("file-native Project Review store", () => {
+  it("retries startup 404s with last-good reviews and stops only on API not-found", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(activeResponse(review()))
+        .mockResolvedValueOnce(response(404, { detail: "Not Found" }))
+        .mockResolvedValueOnce(activeResponse(review("token-2", 4)))
+        .mockResolvedValueOnce(response(404, { code: "NOT_FOUND" }));
+      vi.stubGlobal("fetch", fetchMock);
+      store().startPolling("p1", { jitterRatio: 0 });
+      await vi.advanceTimersByTimeAsync(0);
+      const lastGood = store().reviews;
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(store()).toMatchObject({
+        syncStatus: "degraded",
+        polling: true,
+      });
+      expect(store().reviews).toBe(lastGood);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(store().reviews[0].decision_token).toBe("token-2");
+      expect(store().syncStatus).toBe("healthy");
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(store()).toMatchObject({
+        syncStatus: "not_found",
+        polling: false,
+        reviews: [],
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      store().reset();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps last-good on 304/errors and clears on 204/404 (fail-closed sync)", async () => {
     const fetchMock = vi
       .fn()
@@ -216,4 +252,76 @@ describe("file-native Project Review store", () => {
     }
     expect(store().reviews).toEqual([]);
   });
+
+  it("retries a stale keep once without accepting newly arrived background results", async () => {
+    const original = review();
+    const incoming = { ...original.operations[0], operation_id: "new-result" };
+    const fresh = review("token-2", 4, {
+      operations: [...original.operations, incoming],
+    });
+    const accepted = review("token-3", 4, {
+      operations: [
+        { ...original.operations[0], decision: "ACCEPTED" },
+        incoming,
+      ],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(409, { code: "CAS_CONFLICT" }))
+      .mockResolvedValueOnce(activeResponse(fresh))
+      .mockResolvedValueOnce(response(200, accepted, { ETag: '"token-3"' }));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([original]);
+    const decisions = [
+      { operation_id: "operation-1", decision: "ACCEPT" as const },
+    ];
+    await expect(store().decide("p1", "review-1", decisions)).resolves.toEqual(
+      accepted,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(bodyOf(fetchMock, 2)).toMatchObject({
+      decisionToken: "token-2",
+      decisions,
+    });
+    expect(bodyOf(fetchMock, 2).decisionId).not.toBe(
+      bodyOf(fetchMock, 0).decisionId,
+    );
+    expect(store().reviews[0].operations[1].decision).toBe("PENDING");
+  });
+
+  it.each(["changed", "resolved", "reject", "second-conflict"])(
+    "does not silently repeat decisions after %s",
+    async (scenario) => {
+      const original = review();
+      const fresh = review("token-2", 4, {
+        operations: original.operations.map((operation) => ({
+          ...operation,
+          ...(scenario === "changed"
+            ? { after_hash: "different-content" }
+            : {}),
+          ...(scenario === "resolved" ? { decision: "ACCEPTED" as const } : {}),
+        })),
+        ...(scenario === "resolved" ? { status: "RESOLVED" as const } : {}),
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(response(409, { code: "CAS_CONFLICT" }))
+        .mockResolvedValueOnce(activeResponse(fresh))
+        .mockResolvedValueOnce(response(409, { code: "CAS_CONFLICT" }));
+      vi.stubGlobal("fetch", fetchMock);
+      seed([original]);
+      await expect(
+        store().decide("p1", "review-1", [
+          {
+            operation_id: "operation-1",
+            decision: scenario === "reject" ? "REJECT" : "ACCEPT",
+          },
+        ]),
+      ).rejects.toMatchObject({ code: "CAS_CONFLICT" });
+      expect(fetchMock).toHaveBeenCalledTimes(
+        scenario === "reject" ? 1 : scenario === "second-conflict" ? 3 : 2,
+      );
+      expect(store().decisionInFlight).toBe(false);
+    },
+  );
 });

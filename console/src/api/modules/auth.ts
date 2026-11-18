@@ -13,6 +13,7 @@ export interface AuthStatusResponse {
   mode?: "hub";
   bootstrap_required?: boolean;
   registration_enabled?: boolean;
+  registration_mode?: "open" | "invite" | "closed";
 }
 
 export interface AuthUserResponse {
@@ -36,11 +37,16 @@ export const authApi = {
   register: async (
     username: string,
     password: string,
+    invite_code?: string,
   ): Promise<LoginResponse> => {
     const res = await fetch(getApiUrl("/auth/register"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        ...(invite_code ? { invite_code } : {}),
+      }),
     });
     if (!res.ok) {
       throw new Error(await responseErrorMessage(res, "Registration failed"));

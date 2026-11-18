@@ -46,6 +46,10 @@ async def _clear_local_runtime_provider_state(
         },
     )
     await provider_manager.clear_active_model_async("qwenpaw-local")
+    await provider_manager.clear_active_model_async(
+        "qwenpaw-local",
+        model_type="decision",
+    )
 
 
 class ServerStatus(BaseModel):
@@ -316,6 +320,7 @@ async def start_llamacpp_server(
         await provider_manager.activate_model(
             provider_id="qwenpaw-local",
             model_id=setup_result.model_info.id,
+            model_type=setup_result.model_info.model_type,
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

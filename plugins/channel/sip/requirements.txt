@@ -1,0 +1,5 @@
+# Exact base sip extra; no installation is performed at startup.
+pyVoIP>=1.6.0
+dashscope>=1.0.0
+dashscope-realtime>=0.1.0
+audioop-lts; python_version >= '3.13'

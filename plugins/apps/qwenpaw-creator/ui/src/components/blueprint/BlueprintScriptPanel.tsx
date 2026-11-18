@@ -462,7 +462,7 @@ export default function BlueprintScriptPanel({
           <button
             type="button"
             onClick={() => onOpenTimeline(timelineId)}
-            className="inline-flex items-center gap-2 rounded-[10px] bg-[var(--color-text-primary)] px-5 py-2.5 text-sm font-bold leading-none text-[var(--color-bg-primary)] shadow-[0_2px_8px_rgba(0,0,0,.2)] transition-all hover:-translate-y-px hover:opacity-90 hover:shadow-[0_4px_14px_rgba(0,0,0,.25)]"
+            className="creator-view-switch"
           >
             <LayoutList className="h-4 w-4" />
             {t("blueprint.enterTimeline")}

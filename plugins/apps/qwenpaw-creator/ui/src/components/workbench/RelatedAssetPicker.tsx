@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Modal } from "antd";
-import { Check, Image as ImageIcon } from "lucide-react";
+import { Check, Image as ImageIcon, Music } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export type PickerKind = "character" | "scene" | "prop" | "material";
@@ -10,6 +10,7 @@ export interface PickerCandidate {
   kind: PickerKind;
   name: string;
   thumbUrl: string | null;
+  audioUrl?: string;
 }
 
 /**
@@ -24,12 +25,16 @@ export default function RelatedAssetPicker({
   boundIds,
   onCancel,
   onConfirm,
+  singleSelection = false,
+  title,
 }: {
   open: boolean;
   candidates: PickerCandidate[];
   boundIds: string[];
   onCancel: () => void;
   onConfirm: (selectedIds: string[]) => void;
+  singleSelection?: boolean;
+  title?: string;
 }) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<"all" | PickerKind>("all");
@@ -63,6 +68,7 @@ export default function RelatedAssetPicker({
         next.delete(candidate.id);
         return next;
       }
+      if (singleSelection) next.clear();
       if (candidate.kind === "scene") {
         for (const other of candidates) {
           if (other.kind === "scene") next.delete(other.id);
@@ -78,7 +84,9 @@ export default function RelatedAssetPicker({
       onCancel={onCancel}
       width="min(720px, 94vw)"
       title={
-        <span className="text-sm font-bold">{t("r2v.assetPickerTitle")}</span>
+        <span className="text-sm font-bold">
+          {title ?? t("r2v.assetPickerTitle")}
+        </span>
       }
       footer={
         <div className="flex justify-end gap-2">
@@ -103,6 +111,28 @@ export default function RelatedAssetPicker({
         </div>
       ) : (
         <div className="space-y-4">
+          {visible
+            .filter(
+              (candidate) => selected.has(candidate.id) && candidate.audioUrl,
+            )
+            .map((candidate) => (
+              <div
+                key={candidate.id}
+                className="rounded-lg bg-[var(--color-bg-secondary)] p-3"
+              >
+                <span className="mb-2 flex items-center gap-2 text-xs">
+                  <Music size={14} />
+                  {candidate.name}
+                </span>
+                <audio
+                  aria-label={candidate.name}
+                  src={candidate.audioUrl}
+                  controls
+                  preload="none"
+                  className="h-9 w-full"
+                />
+              </div>
+            ))}
           {presentKinds.length > 1 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {(["all", ...presentKinds] as const).map((kind) => {
@@ -154,9 +184,15 @@ export default function RelatedAssetPicker({
                       />
                     ) : (
                       <span className="flex h-full w-full flex-col items-center justify-center gap-1">
-                        <ImageIcon className="h-5 w-5 text-[var(--color-text-tertiary)]" />
+                        {candidate.audioUrl ? (
+                          <Music className="h-5 w-5 text-[var(--color-accent)]" />
+                        ) : (
+                          <ImageIcon className="h-5 w-5 text-[var(--color-text-tertiary)]" />
+                        )}
                         <span className="text-[10px] text-[var(--color-text-tertiary)]">
-                          {t("blueprint.notGenerated")}
+                          {candidate.audioUrl
+                            ? t("assets.audioSample")
+                            : t("blueprint.notGenerated")}
                         </span>
                       </span>
                     )}

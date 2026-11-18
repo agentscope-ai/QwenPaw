@@ -1,0 +1,34 @@
+@import (reference) "../../styles/controlIcons.less";
+
+.modal {
+  :global(.ant-modal-close),
+  :global(.qwenpaw-modal-close) {
+    display: grid;
+    place-items: center;
+    width: var(--app-control-md);
+    height: var(--app-control-md);
+    border-radius: var(--app-radius);
+
+    &:focus-visible {
+      outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+      outline-offset: var(--app-focus-ring-offset);
+    }
+  }
+
+  :global(.ant-modal-content),
+  :global(.qwenpaw-modal-content) {
+    border-radius: var(--app-radius-panel);
+    overflow: hidden;
+  }
+  .button-icon-alignment();
+}
+
+@media (any-pointer: coarse) {
+  .modal {
+    :global(.ant-modal-close),
+    :global(.qwenpaw-modal-close) {
+      width: var(--app-hit-touch);
+      height: var(--app-hit-touch);
+    }
+  }
+}

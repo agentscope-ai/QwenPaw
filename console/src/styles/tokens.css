@@ -20,6 +20,69 @@
  */
 
 :root {
+  --app-radius: 10px;
+  --app-radius-card: 16px;
+  --app-radius-panel: 24px;
+  --app-glass: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 3%), 0 24px 64px rgb(0 0 0 / 12%);
+
+  /* Layout and density use a 4px grid. Consumers choose a semantic density
+   * instead of introducing local control heights or row dimensions. */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 20px;
+  --app-space-6: 24px;
+  --app-space-8: 32px;
+  --app-space-10: 40px;
+  --app-space-12: 48px;
+  --app-control-sm: 32px;
+  --app-control-md: 36px;
+  --app-control-lg: 44px;
+  --app-hit-desktop: 32px;
+  --app-hit-touch: 44px;
+  --app-hit-target: var(--app-hit-desktop);
+  --app-row-compact: 36px;
+  --app-row-default: 44px;
+  --app-row-comfortable: 52px;
+
+  /* Overlay values include their mobile viewport ceiling. */
+  --app-overlay-popover-width: min(320px, calc(100vw - 32px));
+  --app-overlay-modal-width: min(560px, calc(100vw - 32px));
+  --app-overlay-drawer-width: min(520px, calc(100vw - 32px));
+
+  /* Interaction motion is short and state-driven. The distance and scale
+   * contracts let reduced-motion collapse movement without local overrides. */
+  --app-motion-fast: 120ms;
+  --app-motion-base: 180ms;
+  --app-motion-slow: 240ms;
+  --app-easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --app-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --app-motion-distance: 8px;
+  --app-motion-scale: 0.98;
+
+  /* Typography scale. `--app-font-scale` is driven by the console font-size
+   * setting (App.tsx -> applyUiFontSizeToRoot); default 1 keeps the baseline.
+   * Project styles use these role tokens (px baseline * scale) so explicit
+   * font sizes track the setting without compounding the root percentage. */
+  --app-font-scale: 1;
+  --app-font-caption: calc(12px * var(--app-font-scale));
+  --app-font-secondary: calc(13px * var(--app-font-scale));
+  --app-font-body: calc(14px * var(--app-font-scale));
+  --app-font-subtitle: calc(16px * var(--app-font-scale));
+  --app-font-title: calc(20px * var(--app-font-scale));
+
+  /* Icons paired with text follow the same scale. Logo, avatars, media and
+   * decorative illustrations intentionally keep their own dimensions. Icon
+   * button/box tokens never shrink below the existing click target. */
+  --app-icon-xs: calc(12px * var(--app-font-scale));
+  --app-icon-sm: calc(14px * var(--app-font-scale));
+  --app-icon-md: calc(16px * var(--app-font-scale));
+  --app-icon-lg: calc(18px * var(--app-font-scale));
+  --app-icon-default: calc(20px * var(--app-font-scale));
+  --app-icon-box: max(34px, calc(34px * var(--app-font-scale)));
+  --app-icon-button: max(32px, calc(32px * var(--app-font-scale)));
   /* Surfaces */
   --app-bg: #f9f8f4;
   --app-surface: #ffffff;
@@ -48,31 +111,46 @@
   --app-text-tertiary: rgba(20, 20, 19, 0.45);
   --app-text-quaternary: rgba(20, 20, 19, 0.25);
   --app-text-inverse: #ffffff;
+  --app-disabled-bg: rgba(20, 20, 19, 0.04);
+  --app-disabled-border: rgba(20, 20, 19, 0.12);
+  --app-disabled-text: rgba(20, 20, 19, 0.4);
+  --app-disabled-opacity: 0.55;
 
-  /* Brand accent — identical in both themes (matches OS shell ACCENT) */
+  /* Built-in brand accent (matches the OS shell accent). */
   --app-accent: #ff7f16;
   --app-accent-hover: #ff9d4d;
-  --app-accent-active: #d96806;
-  /* Accent used as text: darkened in light mode so small labels stay legible
-   * on an accent-soft background. */
-  --app-accent-text: #bd5100;
-  --app-accent-faint: rgba(255, 127, 22, 0.04);
-  --app-accent-soft: rgba(255, 127, 22, 0.1);
-  --app-accent-soft-hover: rgba(255, 127, 22, 0.16);
-  --app-accent-border: rgba(255, 127, 22, 0.42);
-  --app-accent-ring: rgba(255, 127, 22, 0.2);
+  --app-accent-active: color-mix(in srgb, var(--app-accent) 80%, black);
+  /* Accent text is mixed toward black for contrast on light surfaces. */
+  --app-accent-text: color-mix(in srgb, var(--app-accent) 72%, black);
+  --app-accent-faint: color-mix(in srgb, var(--app-accent) 4%, transparent);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 10%, transparent);
+  --app-accent-soft-hover: color-mix(
+    in srgb,
+    var(--app-accent-hover) 16%,
+    transparent
+  );
+  --app-accent-border: color-mix(in srgb, var(--app-accent) 42%, transparent);
+  --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
+  --app-focus-ring: var(--app-accent-text);
+  --app-focus-ring-width: 2px;
+  --app-focus-ring-offset: 2px;
 
-  /* Navigation selection stays neutral in the light shell. */
-  --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
-  --app-nav-selected-bg-hover: rgba(43, 18, 0, 0.1);
-  --app-nav-selected-text: var(--app-text);
+  /* Generic interaction aliases keep hover, active and selected surfaces
+   * aligned with the theme-specific fill and accent palette. */
+  --app-state-hover-bg: var(--app-fill-subtle);
+  --app-state-active-bg: var(--app-fill);
+  --app-state-selected-bg: var(--app-selected-bg);
+  --app-state-selected-border: var(--app-selected-border);
 
-  /* Selected row / active item. Still antd blue: kept as-is so the token
-   * extraction stays visually neutral. Switching selection to the brand
-   * orange is a design decision and only needs an edit here. */
-  --app-selected-bg: #e6f4ff;
-  --app-selected-bg-hover: #d6eaff;
-  --app-selected-border: #1677ff;
+  /* Navigation and selection share the current brand accent. */
+  --app-nav-selected-bg: var(--app-accent-soft);
+  --app-nav-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-nav-selected-text: color-mix(in srgb, var(--app-accent) 65%, black);
+
+  /* Selection follows the active theme in both color schemes. */
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts (also antd blue) */
   --app-info-bg: rgba(22, 119, 255, 0.06);
@@ -116,6 +194,8 @@
 }
 
 html.dark-mode {
+  --app-accent: #ff9d4d;
+  --app-shadow-panel: 0 2px 6px rgb(0 0 0 / 12%), 0 24px 64px rgb(0 0 0 / 36%);
   /* Surfaces */
   --app-bg: #141414;
   --app-surface: #1f1f1f;
@@ -141,13 +221,21 @@ html.dark-mode {
   --app-text-secondary: rgba(255, 255, 255, 0.65);
   --app-text-tertiary: rgba(255, 255, 255, 0.45);
   --app-text-quaternary: rgba(255, 255, 255, 0.35);
+  --app-disabled-bg: rgba(255, 255, 255, 0.08);
+  --app-disabled-border: rgba(255, 255, 255, 0.12);
+  --app-disabled-text: rgba(255, 255, 255, 0.45);
 
-  /* Accent softs need more opacity to read on dark surfaces */
-  --app-accent-text: #ff9a47;
-  --app-accent-faint: rgba(255, 127, 22, 0.08);
-  --app-accent-soft: rgba(255, 127, 22, 0.16);
-  --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
-  --app-accent-border: rgba(255, 127, 22, 0.5);
+  /* Accent text is mixed toward white for contrast on dark surfaces. */
+  --app-accent-text: color-mix(in srgb, var(--app-accent) 60%, white);
+  --app-accent-faint: color-mix(in srgb, var(--app-accent) 8%, transparent);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent);
+  --app-accent-soft-hover: color-mix(
+    in srgb,
+    var(--app-accent-hover) 22%,
+    transparent
+  );
+  --app-accent-border: color-mix(in srgb, var(--app-accent) 50%, transparent);
+  --app-focus-ring: var(--app-accent-text);
 
   /* Dark navigation uses the brand accent for a clear active state. */
   --app-nav-selected-bg: var(--app-accent-soft);
@@ -155,9 +243,9 @@ html.dark-mode {
   --app-nav-selected-text: var(--app-accent-text);
 
   /* Selection */
-  --app-selected-bg: rgba(22, 119, 255, 0.12);
-  --app-selected-bg-hover: rgba(22, 119, 255, 0.18);
-  --app-selected-border: #4096ff;
+  --app-selected-bg: var(--app-accent-soft);
+  --app-selected-bg-hover: var(--app-accent-soft-hover);
+  --app-selected-border: var(--app-accent-border);
 
   /* Informational callouts */
   --app-info-bg: rgba(22, 119, 255, 0.12);
@@ -195,4 +283,20 @@ html.dark-mode {
   /* Elevation */
   --app-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+@media (any-pointer: coarse) {
+  :root {
+    --app-hit-target: var(--app-hit-touch);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --app-motion-fast: 1ms;
+    --app-motion-base: 1ms;
+    --app-motion-slow: 1ms;
+    --app-motion-distance: 0px;
+    --app-motion-scale: 1;
+  }
 }

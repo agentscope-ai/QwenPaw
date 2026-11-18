@@ -52,6 +52,7 @@ class CommandRegistry:
 
         # Command prefix → priority level (fast lookup)
         self._command_to_level: Dict[str, int] = {}
+        self._command_owners: Dict[str, str] = {}
 
         # Default priority level for unknown commands
         self._default_level = 20  # normal
@@ -96,6 +97,8 @@ class CommandRegistry:
         command_prefix: str,
         priority: str | None = None,
         priority_level: int | None = None,
+        *,
+        owner: str | None = None,
     ) -> None:
         """Register command to priority level.
 
@@ -131,7 +134,22 @@ class CommandRegistry:
 
         # Register to lookup table
         prefix_lower = command_prefix.lower()
+        if owner is not None and prefix_lower in self._command_to_level:
+            existing = self._command_owners.get(prefix_lower)
+            occupant = existing or "core"
+            if occupant != owner:
+                from ...runtime.occupancy import occupancy_conflict
+
+                raise ValueError(
+                    occupancy_conflict(
+                        "control_command",
+                        prefix_lower.lstrip("/"),
+                        occupant,
+                    ),
+                )
         self._command_to_level[prefix_lower] = level
+        if owner is not None:
+            self._command_owners[prefix_lower] = owner
 
         logger.info(
             f"Registered command: {command_prefix} → level={level}",
@@ -258,11 +276,17 @@ class CommandRegistry:
         """
         return dict(self._command_to_level)
 
-    def unregister_command(self, command_prefix: str) -> bool:
+    def unregister_command(
+        self,
+        command_prefix: str,
+        *,
+        owner: str | None = None,
+    ) -> bool:
         """Remove a command from the priority registry.
 
         Args:
             command_prefix: Command prefix to remove (e.g. ``"/mystatus"``).
+            owner: Plugin id that must still own the row.
 
         Returns:
             ``True`` if the command was found and removed, ``False``
@@ -274,7 +298,10 @@ class CommandRegistry:
                 f"unregister_command: '{command_prefix}' not registered",
             )
             return False
+        if owner is not None and self._command_owners.get(key) != owner:
+            return False
         del self._command_to_level[key]
+        self._command_owners.pop(key, None)
         logger.info(f"Unregistered command from priority registry: {key}")
         return True
 

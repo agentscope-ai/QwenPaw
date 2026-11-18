@@ -28,6 +28,8 @@ from .models import (
     RuntimeState,
 )
 from .registry import RuntimeRegistry
+from .user_profile import HubUserProfile, runtime_workspace
+from .runtime_paths import prepare_workspace_paths
 
 _RUNTIME_ID_PATTERN = re.compile(
     r"^[a-z0-9](?:[a-z0-9_.-]{0,62}[a-z0-9_-])?$",
@@ -62,6 +64,10 @@ class RuntimeService:
         self.registry = registry
         self.provisioners = dict(provisioners)
         self.credential_provider = credential_provider
+        self.profile_provider: Callable[
+            [RuntimeRecord],
+            Mapping[str, object],
+        ] = lambda _: {}
         self.hub_config = hub_config or HubConfig()
         self.default_provisioner = self.hub_config.default_provisioner
         self._validate_provisioner_policy()
@@ -215,10 +221,19 @@ class RuntimeService:
 
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
-        record = self.get(runtime_id)
+        record = self._status_locked(runtime_id)
+        if record.state is RuntimeState.RUNNING:
+            return record
         if not is_loopback_host(record.host):
             raise ValueError("Managed runtime host must be loopback-only.")
         self.require_provisioner_available(record.provisioner)
+        failure_metadata = record.metadata
+        previous_workspace = runtime_workspace(record)
+        profile = HubUserProfile.model_validate(self.profile_provider(record))
+        record = replace(
+            record,
+            metadata={**record.metadata, "user_profile": profile.model_dump()},
+        )
         provisioner = self._provisioner(record)
         with self._admission_lock:
             capacity = self.hub_config.capacity
@@ -249,6 +264,8 @@ class RuntimeService:
                 ),
             )
         try:
+            prepare_workspace_paths(starting, previous_workspace)
+            failure_metadata = starting.metadata
             credentials = self.credential_provider(starting)
             running = provisioner.start(starting, credentials)
         except Exception as exc:
@@ -256,6 +273,7 @@ class RuntimeService:
                 replace(
                     starting,
                     state=RuntimeState.FAILED,
+                    metadata=failure_metadata,
                     pid=None,
                     last_error=str(exc),
                 ),

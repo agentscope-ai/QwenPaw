@@ -1,0 +1,29 @@
+.icon-action(@size; @radius; @duration) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: @size;
+  height: @size;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: @radius;
+  color: var(--app-text-secondary);
+  padding: 0;
+  transition:
+    background @duration,
+    color @duration;
+}
+
+.button-icon-alignment() {
+  :global(.ant-btn-icon),
+  :global(.qwenpaw-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    > svg {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+    }
+  }
+}

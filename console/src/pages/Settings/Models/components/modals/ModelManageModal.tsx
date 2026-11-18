@@ -31,6 +31,7 @@ export function ModelManageModal({
 
   return (
     <RemoteModelManageModal
+      key={provider.id}
       provider={provider}
       open={open}
       onClose={onClose}

@@ -21,7 +21,41 @@ from pathlib import Path
 from typing import Awaitable, Callable, Mapping, Optional, Sequence
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
+
 logger = logging.getLogger(__name__)
+
+
+class ManagedServiceUnavailable(RuntimeError):
+    """An expected environment failure, with a browser-safe explanation."""
+
+    def __init__(self, code: str, message: str, diagnostic: str = ""):
+        super().__init__(diagnostic or message)
+        self.code = code
+        self.message = message
+
+
+class ManagedServiceHealthTimeout(ManagedServiceUnavailable, TimeoutError):
+    """Preserve the public timeout contract for readiness failures."""
+
+
+class ManagedServiceConfigurationError(ManagedServiceUnavailable, ValueError):
+    """Preserve URL validation errors while identifying environment issues."""
+
+
+class ManagedServiceNotReady(HTTPException, RuntimeError):
+    """Expose known dependency failures to legacy HTTP and runtime callers."""
+
+    def __init__(self, name: str, error: ManagedServiceUnavailable):
+        HTTPException.__init__(
+            self,
+            status_code=503,
+            detail={
+                "code": error.code,
+                "message": error.message,
+                "dependency_id": name,
+            },
+        )
 
 
 def _validate_loopback_host(host: str) -> None:
@@ -134,10 +168,18 @@ class ManagedService:
         self._log_tasks: list[asyncio.Task] = []
         self._recent_logs: deque[str] = deque(maxlen=30)
         self._external = False
+        self.startup_error: ManagedServiceUnavailable | None = None
+        self._start_task: asyncio.Task[None] | None = None
+        self._closed = False
 
     @property
     def base_url(self) -> str:
         if self._base_url is None:
+            if self.startup_error is not None:
+                raise ManagedServiceNotReady(
+                    self.spec.name,
+                    self.startup_error,
+                )
             raise RuntimeError(
                 f"managed service '{self.spec.name}' is not ready",
             )
@@ -195,6 +237,28 @@ class ManagedService:
         }
 
     async def start(self) -> None:
+        if self._closed:
+            raise RuntimeError("managed service has been closed")
+        if self._start_task is None or self._start_task.done():
+            self._start_task = asyncio.create_task(self._start())
+            self._start_task.add_done_callback(self._observe_start)
+        task = self._start_task
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        except ManagedServiceUnavailable as exc:
+            self.startup_error = exc
+            raise
+        self.startup_error = None
+
+    @staticmethod
+    def _observe_start(task: asyncio.Task[None]) -> None:
+        if not task.cancelled():
+            task.exception()
+
+    async def _start(self) -> None:
         if self.is_ready:
             return
 
@@ -207,7 +271,9 @@ class ManagedService:
             else "managed"
         )
         if mode not in {"managed", "external"}:
-            raise RuntimeError(
+            raise ManagedServiceUnavailable(
+                "SERVICE_CONFIGURATION_INVALID",
+                "Service mode must be 'managed' or 'external'",
                 f"{self.spec.mode_env} must be 'managed' or 'external'",
             )
 
@@ -218,11 +284,19 @@ class ManagedService:
         )
         if mode == "external" or external_url:
             if not external_url:
-                raise RuntimeError(
+                raise ManagedServiceUnavailable(
+                    "SERVICE_CONFIGURATION_INVALID",
+                    "External service URL is not configured",
                     "external service mode requires "
                     f"{self.spec.external_url_env}",
                 )
-            normalized_external_url = _normalize_external_url(external_url)
+            try:
+                normalized_external_url = _normalize_external_url(external_url)
+            except ValueError as exc:
+                raise ManagedServiceConfigurationError(
+                    "SERVICE_CONFIGURATION_INVALID",
+                    str(exc),
+                ) from exc
             self._external = True
             self._base_url = normalized_external_url
             try:
@@ -252,7 +326,9 @@ class ManagedService:
                 if self.spec.mode_env and self.spec.external_url_env
                 else ""
             )
-            raise RuntimeError(
+            raise ManagedServiceUnavailable(
+                "RUNTIME_MISSING",
+                "Service runtime is not provisioned",
                 f"managed service '{self.spec.name}' executable does not "
                 f"exist: {command[0]}. Provision the service runtime{hint}",
             )
@@ -276,6 +352,12 @@ class ManagedService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+        except OSError as exc:
+            self._base_url = None
+            raise ManagedServiceUnavailable(
+                "SERVICE_START_FAILED",
+                "Service process could not be started; check its runtime",
+            ) from exc
         except BaseException:
             self._base_url = None
             raise
@@ -302,6 +384,11 @@ class ManagedService:
         )
 
     async def stop(self) -> None:
+        task = self._start_task
+        if task is not None and task is not asyncio.current_task():
+            if not task.done() and not task.cancelling():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         process = self._process
         self._base_url = None
         self._external = False
@@ -315,18 +402,36 @@ class ManagedService:
                     process.wait(),
                     timeout=self.spec.shutdown_timeout,
                 )
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+                # An outer close budget must not restart this grace period.
                 try:
                     process.kill()
                 except ProcessLookupError:
                     pass
                 await process.wait()
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
         self._process = None
         for task in self._log_tasks:
             task.cancel()
         if self._log_tasks:
             await asyncio.gather(*self._log_tasks, return_exceptions=True)
         self._log_tasks.clear()
+
+    async def aclose(self) -> None:
+        """Final hosted cleanup also prevents later dependency starts."""
+        self._closed = True
+        await self.stop()
+
+    def reopen(self) -> None:
+        """Allow a new plugin generation only after hosted cleanup finished."""
+        if not self._closed:
+            return
+        if (self._start_task is not None and not self._start_task.done()) or (
+            self._process is not None and self._process.returncode is None
+        ):
+            raise RuntimeError("previous managed service has not stopped")
+        self._closed = False
 
     async def restart(self) -> None:
         """Restart the managed process with the existing safe spec."""
@@ -350,7 +455,9 @@ class ManagedService:
         health_url = f"{self.base_url}{self.spec.health_path}"
         while asyncio.get_running_loop().time() < deadline:
             if self._process and self._process.returncode is not None:
-                raise RuntimeError(
+                raise ManagedServiceUnavailable(
+                    "SERVICE_EXITED",
+                    "Service process exited before becoming ready",
                     f"managed service '{self.spec.name}' exited with "
                     f"code {self._process.returncode}",
                 )
@@ -358,7 +465,9 @@ class ManagedService:
                 return
             await asyncio.sleep(0.15)
         details = "\n".join(self._recent_logs)
-        raise TimeoutError(
+        raise ManagedServiceHealthTimeout(
+            "SERVICE_HEALTH_TIMEOUT",
+            "Service did not become healthy within its startup timeout",
             f"managed service '{self.spec.name}' did not become healthy "
             f"within {self.spec.startup_timeout:g}s"
             + (f"; recent output:\n{details}" if details else ""),

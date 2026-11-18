@@ -359,7 +359,7 @@ def test_with_generated_data(self, chat_page):
 
 - [Playwright docs](https://playwright.dev/python/)
 - [pytest docs](https://docs.pytest.org/)
-- [Page Object Pattern](https://playwright.dev/python/docs/test-pom)
+- [Page Object Pattern](https://playwright.dev/python/docs/pom)
 - [Allure reports](https://docs.qameta.io/allure/)
 
 ## Maintainers

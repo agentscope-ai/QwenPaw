@@ -382,6 +382,24 @@ def test_only_active_agentdock_mutation_persists_review_boundary(tmp_path):
         hard_stop=True,
         classification=MessageClassification.WORKSPACE_COMMAND,
     )
+    approval = _admit(
+        store,
+        "request-approval",
+        "用户已保留当前产物",
+        source="review_approval_resume",
+        classification=MessageClassification.REVIEW_REVISE,
+    )
+    assert (
+        _admit(
+            store,
+            "request-approval",
+            "用户已保留当前产物",
+            source="review_approval_resume",
+            classification=MessageClassification.REVIEW_REVISE,
+        ).message
+        == approval.message
+    )
+    assert store.get_project_session(PROJECT_ID).active_run_id == "run-1"
     store.set_session_status(
         PROJECT_ID,
         SESSION_ID,
@@ -398,7 +416,7 @@ def test_only_active_agentdock_mutation_persists_review_boundary(tmp_path):
     assert idle.review_policy is ReviewPolicy.REQUIRE_REVIEW
     assert idle.review_boundary is not None
     assert idle.message.review_boundary == idle.review_boundary
-    for result in (read_only, hard_stop):
+    for result in (read_only, hard_stop, approval):
         assert result.review_policy is ReviewPolicy.AUTO_FIX
         assert result.review_boundary is None
         assert result.message.review_boundary is None

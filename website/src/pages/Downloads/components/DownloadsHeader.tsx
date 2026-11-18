@@ -1,6 +1,8 @@
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { DOWNLOADS_HEADER_BG_URL } from "../constants";
+
+const SOURCE_URL = "https://github.com/agentscope-ai/QwenPaw";
 
 export type DownloadsTab = "desktop" | "plugins";
 
@@ -19,6 +21,35 @@ interface DownloadsHeaderProps {
   onTabChange: (tab: DownloadsTab) => void;
   showDesktopTab: boolean;
   showPluginsTab: boolean;
+}
+
+export function DownloadsOpenSourceNotice({
+  className,
+}: {
+  className?: string;
+}) {
+  return (
+    <p
+      className={cn(
+        "relative mx-auto max-w-3xl text-sm leading-relaxed text-site-text-muted",
+        className,
+      )}
+    >
+      <Trans
+        i18nKey="downloads.openSourceNotice"
+        components={{
+          repo: (
+            <a
+              href={SOURCE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-accent no-underline hover:text-site-text"
+            />
+          ),
+        }}
+      />
+    </p>
+  );
 }
 
 export function DownloadsHeader({
@@ -48,9 +79,10 @@ export function DownloadsHeader({
       <h1 className="relative mb-3 mt-8 text-4xl font-bold tracking-tight text-site-text md:text-[2.75rem]">
         {t("downloads.title")}
       </h1>
-      <p className="relative mb-10 text-base text-site-text-muted md:text-lg">
+      <p className="relative text-base text-site-text-muted md:text-lg">
         {t("downloads.subtitle")}
       </p>
+      <DownloadsOpenSourceNotice className="mb-10 mt-2" />
 
       {showTabs && (
         <nav className="relative" aria-label={t("downloads.tabNavLabel")}>

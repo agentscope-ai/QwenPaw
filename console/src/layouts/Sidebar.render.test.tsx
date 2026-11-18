@@ -5,13 +5,24 @@
  * The existing Sidebar.test.tsx only covers menu data; these tests render
  * the full component with mocked registries/child panels.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  afterAll,
+} from "vitest";
+import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useLocation } from "react-router-dom";
 
 // ---- Hoisted mocks ---------------------------------------------------------
+
+vi.hoisted(() => vi.stubEnv("VITE_CONSOLE_BASENAME", "/qwenpaw"));
+afterAll(() => vi.unstubAllEnvs());
 
 const mocks = vi.hoisted(() => ({
   sidebar: {
@@ -22,24 +33,46 @@ const mocks = vi.hoisted(() => ({
   routes: [] as unknown[],
   authStatus: { enabled: false, mode: "normal" },
   inboxEvents: [] as unknown[],
-  pushMessages: { pending_approvals: [] as unknown[] },
+  approvals: [] as Array<{ request_id: string }>,
+  getInboxEvents: vi.fn(),
+  getPushMessages: vi.fn(),
   sessionList: [] as unknown[],
+  isSessionSwitching: false,
+  getEffectiveSessionId: vi.fn(
+    (id: string, realId?: string | null) => realId ?? `real-${id}`,
+  ),
+  startNewSwitch: vi.fn(() => new AbortController()),
+  preloadSession: vi.fn().mockResolvedValue({ realId: "real-s-1" }),
+  finishSessionSwitch: vi.fn(),
   updateProfile: vi.fn().mockResolvedValue({}),
   changePassword: vi.fn().mockResolvedValue({}),
   restartRuntime: vi.fn().mockResolvedValue({}),
   setSelectedAgent: vi.fn(),
   refreshAgents: vi.fn().mockResolvedValue(undefined),
+  language: "en",
+  renderActualSettingsPanel: false,
 }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
-    i18n: { language: "en" },
+    i18n: {
+      get language() {
+        return mocks.language;
+      },
+      get resolvedLanguage() {
+        return mocks.language;
+      },
+    },
   }),
 }));
 
 vi.mock("../contexts/ThemeContext", () => ({
-  useTheme: () => ({ isDark: false }),
+  useTheme: () => ({
+    isDark: false,
+    themeMode: "light",
+    setThemeMode: vi.fn(),
+  }),
 }));
 
 vi.mock("../stores/sidebarStore", () => ({
@@ -74,11 +107,20 @@ vi.mock("../plugins/registry/hooks", () => ({
 }));
 
 vi.mock("../plugins/registry/Slot", () => ({
-  Slot: () => null,
+  Slot: ({ name }: { name: string }) => (
+    <input aria-label={`Plugin ${name}`} defaultValue="plugin state" />
+  ),
 }));
 
 vi.mock("../hooks/useInboxWobble", () => ({
   useInboxWobble: () => [true, vi.fn()],
+}));
+
+vi.mock("../contexts/ApprovalContext", () => ({
+  useApprovalContext: () => ({
+    approvals: mocks.approvals,
+    setApprovals: vi.fn(),
+  }),
 }));
 
 vi.mock("../hooks/useAppMessage", () => ({
@@ -95,8 +137,8 @@ vi.mock("../hooks/useAppMessage", () => ({
 vi.mock("../api", () => ({
   default: {
     getVersion: () => Promise.resolve({ version: "2.2.0b3" }),
-    getInboxEvents: () => Promise.resolve({ events: mocks.inboxEvents }),
-    getPushMessages: () => Promise.resolve(mocks.pushMessages),
+    getInboxEvents: (...args: unknown[]) => mocks.getInboxEvents(...args),
+    getPushMessages: (...args: unknown[]) => mocks.getPushMessages(...args),
     getUserTimezone: () => Promise.resolve({ timezone: "UTC" }),
   },
 }));
@@ -124,7 +166,14 @@ vi.mock("../api/modules/hub", () => ({
 vi.mock("../pages/Chat/sessionApi", () => ({
   default: {
     getSessionList: () => Promise.resolve(mocks.sessionList),
-    getEffectiveSessionId: (id: string) => `real-${id}`,
+    get isSessionSwitching() {
+      return mocks.isSessionSwitching;
+    },
+    getEffectiveSessionId: (...args: [string, string?]) =>
+      mocks.getEffectiveSessionId(...args),
+    startNewSwitch: () => mocks.startNewSwitch(),
+    preloadSession: (...args: unknown[]) => mocks.preloadSession(...args),
+    finishSessionSwitch: () => mocks.finishSessionSwitch(),
   },
 }));
 
@@ -169,34 +218,24 @@ vi.mock("./SidebarSessionList", () => ({
   ),
 }));
 
-vi.mock("./SidebarSettingsPanel", () => ({
-  default: ({ onOpenAccount }: { onOpenAccount?: () => void }) => (
-    <div data-testid="settings-panel">
-      <button onClick={onOpenAccount}>account.title</button>
-    </div>
-  ),
-}));
-
-vi.mock("motion/react", () => ({
-  AnimatePresence: ({ children }: { children?: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  motion: new Proxy(
-    {},
-    {
-      get: (_t, tag: string) => {
-        const MotionEl = ({
-          children,
-          ...rest
-        }: {
-          children?: React.ReactNode;
-        }) => React.createElement(tag, { ...rest }, children);
-        return MotionEl;
-      },
+vi.mock("./SidebarSettingsPanel", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("./SidebarSettingsPanel")
+  >();
+  return {
+    default: (props: React.ComponentProps<typeof actual.default>) => {
+      if (mocks.renderActualSettingsPanel) {
+        return React.createElement(actual.default, props);
+      }
+      return (
+        <div data-testid="settings-panel">
+          <button onClick={props.onOpenAccount}>account.title</button>
+          <button onClick={props.onLogout}>login.logout</button>
+        </div>
+      );
     },
-  ),
-  useReducedMotion: () => true,
-}));
+  };
+});
 
 const iconStubs = vi.hoisted(() => {
   const make = (name: string) => {
@@ -223,7 +262,8 @@ const iconStubs = vi.hoisted(() => {
 
 vi.mock("@agentscope-ai/icons", () => iconStubs);
 
-vi.mock("lucide-react", () => {
+vi.mock("lucide-react", async () => {
+  const actual = await vi.importActual<object>("lucide-react");
   const stub = ({ size }: { size?: number }) =>
     React.createElement(
       "span",
@@ -231,6 +271,7 @@ vi.mock("lucide-react", () => {
       size ?? 16,
     );
   return {
+    ...actual,
     Check: stub,
     ChevronDown: stub,
     History: stub,
@@ -242,11 +283,17 @@ vi.mock("lucide-react", () => {
 });
 
 import Sidebar from "./Sidebar";
+import { clearAuthToken } from "../api/config";
 
 /** Renders the location so navigation can be asserted. */
 function LocationProbe() {
   const location = useLocation();
-  return <div data-testid="probe-path">{location.pathname}</div>;
+  return (
+    <div data-testid="probe-path">
+      {location.pathname}
+      {location.search}
+    </div>
+  );
 }
 
 function renderSidebar(
@@ -263,20 +310,49 @@ function renderSidebar(
   );
 }
 
+/**
+ * Mutable viewport state so a test can resize the window and notify the
+ * media-query listener the sidebar subscribes to on mount.
+ */
+const viewportState = {
+  matches: false,
+  listeners: [] as Array<() => void>,
+};
+
 function mockMobileViewport(matches: boolean) {
+  viewportState.matches = matches;
+  viewportState.listeners = [];
   vi.mocked(window.matchMedia).mockImplementation(
     (query) =>
       ({
-        matches: matches && query === "(max-width: 768px)",
+        get matches() {
+          return viewportState.matches && query === "(max-width: 768px)";
+        },
         media: query,
         onchange: null,
         addListener: vi.fn(),
         removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
+        addEventListener: (_type: string, listener: () => void) => {
+          viewportState.listeners.push(listener);
+        },
+        removeEventListener: (_type: string, listener: () => void) => {
+          viewportState.listeners = viewportState.listeners.filter(
+            (current) => current !== listener,
+          );
+        },
         dispatchEvent: vi.fn(),
-      }) as MediaQueryList,
+      }) as unknown as MediaQueryList,
   );
+}
+
+/** Resize the viewport and fire the sidebar's media-query change event. */
+function resizeViewport(matches: boolean) {
+  viewportState.matches = matches;
+  act(() => {
+    for (const listener of [...viewportState.listeners]) {
+      listener();
+    }
+  });
 }
 
 async function openAccountModal() {
@@ -299,6 +375,12 @@ const workspaceItem = {
   label: "Workspace",
   route: "core.workspace",
 };
+const marketplaceItem = {
+  id: "core.marketplace",
+  location: "primary.agentScoped",
+  label: "Marketplace",
+  route: "core.marketplace",
+};
 const modelsItem = {
   id: "core.models",
   location: "primary.settings",
@@ -307,8 +389,42 @@ const modelsItem = {
 };
 
 describe("Sidebar", () => {
+  it("opens deferred quick settings without deprecated Tooltip props", async () => {
+    mocks.renderActualSettingsPanel = true;
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      renderWithProviders(<Sidebar selectedKey="core.chat" />);
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      expect(
+        await screen.findByRole("button", { name: "Appearance" }),
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          consoleError.mock.calls.filter(([message]) =>
+            String(message).includes(
+              "[antd: Tooltip] `overlayClassName` is deprecated",
+            ),
+          ),
+        ).toHaveLength(0);
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("shows a local identity capsule when authentication is disabled", () => {
+    renderWithProviders(<Sidebar selectedKey="core.chat" />);
+    const label = screen.getByText("sidebar.localWorkspace");
+    expect(label.closest("button")).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByText("sidebar.localMode")).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     mockMobileViewport(false);
+    localStorage.removeItem("qwenpaw_sidebar_collapsed");
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "2");
     mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
     mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
@@ -320,13 +436,143 @@ describe("Sidebar", () => {
     ];
     mocks.authStatus = { enabled: false, mode: "normal" };
     mocks.inboxEvents = [];
-    mocks.pushMessages = { pending_approvals: [] };
+    mocks.approvals = [];
+    mocks.getInboxEvents
+      .mockReset()
+      .mockImplementation(() => Promise.resolve({ events: mocks.inboxEvents }));
+    mocks.getPushMessages.mockReset().mockResolvedValue({
+      pending_approvals: [],
+    });
     mocks.sessionList = [];
+    mocks.isSessionSwitching = false;
+    mocks.getEffectiveSessionId.mockClear();
+    mocks.startNewSwitch.mockClear();
+    mocks.preloadSession.mockReset().mockResolvedValue({ realId: "real-s-1" });
+    mocks.finishSessionSwitch.mockClear();
     mocks.updateProfile.mockClear().mockResolvedValue({});
     mocks.changePassword.mockClear().mockResolvedValue({});
     mocks.restartRuntime.mockClear().mockResolvedValue({});
     mocks.setSelectedAgent.mockClear();
     mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
+    mocks.language = "en";
+    mocks.renderActualSettingsPanel = false;
+  });
+
+  it("keeps plugin fills and navigation alive through floating and docking", async () => {
+    renderSidebar();
+    const slot = screen.getByRole("textbox", { name: "Plugin sider.top" });
+    fireEvent.change(slot, { target: { value: "unsaved plugin input" } });
+    const handle = screen.getByRole("button", {
+      name: "Drag sidebar to float; Enter to toggle docking",
+    });
+    fireEvent.keyDown(handle, { key: "Enter" });
+    expect(
+      document.querySelector('[data-sidebar-placement="floating"]'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(
+      screen.getByRole("button", { name: "Collapse tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Return sidebar to left edge" }),
+    );
+    expect(screen.getByRole("textbox", { name: "Plugin sider.top" })).toBe(
+      slot,
+    );
+    expect(slot).toHaveValue("unsaved plugin input");
+    expect(
+      screen.getAllByRole("textbox", { name: "Plugin sider.bottom" }),
+    ).toHaveLength(1);
+  });
+
+  it("cycles collapsed, compact and detailed tools without folding on navigation", () => {
+    localStorage.removeItem("qwenpaw_sidebar_tools_mode");
+    renderSidebar();
+    expect(
+      screen.queryByRole("button", { name: "Workspace" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compact tools" }));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(
+      screen.getByRole("button", { name: "Detailed tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Detailed tools" }));
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    expect(
+      screen.queryByRole("button", { name: "Pin tools" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows navigation labels as tooltips in compact tools mode", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    renderSidebar();
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Workspace" }));
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Workspace");
+  });
+
+  it("keeps compact navigation tooltips from blocking adjacent items", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    mocks.sidebar.focusItemIds = ["core.marketplace", "core.inbox"];
+    mocks.menuItems = [marketplaceItem, inboxItem, modelsItem];
+    mocks.routes = [
+      { id: "core.marketplace", path: "/market" },
+      { id: "core.inbox", path: "/inbox" },
+      { id: "core.models", path: "/models" },
+      { id: "core.chat", path: "/chat" },
+    ];
+    renderSidebar({ selectedKey: "core.marketplace" });
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Marketplace" }));
+    expect(await screen.findByRole("tooltip")).toHaveStyle({
+      pointerEvents: "none",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/inbox");
+  });
+
+  it("collapses tools when the open header blank area is clicked", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "1");
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Workspace" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Compact tools" })).toBeVisible();
+  });
+
+  it("restores the previous detailed mode after a header collapse", async () => {
+    localStorage.setItem("qwenpaw_sidebar_tools_mode", "2");
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("0");
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_last_open_mode")).toBe(
+      "2",
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Workspace" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("tool-header-toggle"));
+
+    expect(localStorage.getItem("qwenpaw_sidebar_tools_mode")).toBe("2");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible(),
+    );
   });
 
   it("renders the unified desktop sidebar with agent and settings menus", async () => {
@@ -340,12 +586,57 @@ describe("Sidebar", () => {
     expect(screen.getByText("Models")).toBeTruthy();
   });
 
-  it("navigates to the chat path from the sticky chat button", async () => {
-    renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "New task" }));
-    await waitFor(() => {
-      expect(screen.getByTestId("probe-path").textContent).toContain("/chat");
-    });
+  it("resolves menu labels again when the language changes", async () => {
+    mocks.menuItems = [
+      {
+        ...workspaceItem,
+        label: () => (mocks.language === "ja" ? "ワークスペース" : "Workspace"),
+      },
+    ];
+
+    const view = renderSidebar();
+    expect(await screen.findByText("Workspace")).toBeVisible();
+
+    mocks.language = "ja";
+    view.rerender(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+    );
+
+    expect(await screen.findByText("ワークスペース")).toBeVisible();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+  });
+
+  it("refreshes collapsed menu labels when the language changes", async () => {
+    mockMobileViewport(true);
+    mocks.menuItems = [
+      {
+        ...workspaceItem,
+        label: () => (mocks.language === "ja" ? "ワークスペース" : "Workspace"),
+      },
+    ];
+
+    const view = renderSidebar();
+    expect(
+      await screen.findByRole("button", { name: "Workspace" }),
+    ).toBeVisible();
+
+    mocks.language = "ja";
+    view.rerender(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "ワークスペース" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Workspace" }),
+    ).not.toBeInTheDocument();
   });
 
   it("distinguishes full settings navigation from quick settings", async () => {
@@ -355,7 +646,7 @@ describe("Sidebar", () => {
       await screen.findByRole("button", { name: "More settings" }),
     ).toBeVisible();
     const quickSettings = screen.getByRole("button", { name: "Settings" });
-    expect(quickSettings).toHaveAttribute("aria-haspopup", "menu");
+    expect(quickSettings).toHaveAttribute("aria-haspopup", "dialog");
     expect(quickSettings).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(quickSettings);
@@ -364,14 +655,50 @@ describe("Sidebar", () => {
   });
 
   it("handles session clicks by navigating to the resolved session path", async () => {
+    mocks.preloadSession.mockResolvedValueOnce({ realId: "uuid-1" });
     renderSidebar();
     const openBtn = await screen.findByTestId("sl-click");
     fireEvent.click(openBtn);
+    expect(mocks.startNewSwitch).toHaveBeenCalled();
+    expect(mocks.preloadSession).toHaveBeenCalledWith(
+      "s-1",
+      expect.any(AbortSignal),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-path").textContent).toContain("uuid-1");
+    });
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1", "uuid-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalled();
+  });
+
+  it("clears the sidebar switch on an identity abort without navigating", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(
+      new DOMException("Identity changed", "AbortError"),
+    );
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderSidebar();
+    const pathBefore = screen.getByTestId("probe-path").textContent;
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("probe-path").textContent).toBe(pathBefore);
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+  });
+
+  it("navigates to the effective id when preload fails", async () => {
+    mocks.preloadSession.mockRejectedValueOnce(new Error("Preload failed"));
+    renderSidebar();
+    fireEvent.click(await screen.findByTestId("sl-click"));
+
     await waitFor(() => {
       expect(screen.getByTestId("probe-path").textContent).toContain(
         "real-s-1",
       );
     });
+    expect(mocks.getEffectiveSessionId).toHaveBeenCalledWith("s-1");
+    expect(mocks.finishSessionSwitch).toHaveBeenCalledOnce();
   });
 
   it("dispatches the new-chat flow from the session list", async () => {
@@ -388,6 +715,44 @@ describe("Sidebar", () => {
     window.removeEventListener("qwenpaw:sidebar-new-chat", listener);
   });
 
+  it("cancels an in-flight sidebar switch before opening a new task", async () => {
+    const controller = new AbortController();
+    let completePreload!: (value: { realId: string }) => void;
+    const pending = new Promise<{ realId: string }>((resolve) => {
+      completePreload = resolve;
+    });
+    mocks.startNewSwitch.mockReturnValueOnce(controller);
+    mocks.preloadSession.mockReturnValueOnce(pending);
+    mocks.finishSessionSwitch.mockImplementationOnce(() => {
+      controller.abort();
+      mocks.isSessionSwitching = false;
+    });
+    const onDone = vi.fn();
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    renderWithProviders(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/workspace"] },
+    );
+
+    fireEvent.click(await screen.findByTestId("sl-click"));
+    mocks.isSessionSwitching = true;
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    expect(controller.signal.aborted).toBe(true);
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+
+    await act(async () => {
+      completePreload({ realId: "old-session" });
+      await pending;
+    });
+    expect(screen.getByTestId("probe-path").textContent).toBe("/chat");
+    window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+    sessionStorage.removeItem("qwenpaw_pending_new_chat");
+  });
+
   it("collapses into the icon nav and expands back", async () => {
     renderSidebar();
     await waitFor(() => {
@@ -398,6 +763,10 @@ describe("Sidebar", () => {
       // Collapsed nav has no menu labels, only tooltips/buttons
       expect(screen.queryByText("Workspace")).toBeNull();
     });
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(screen.getByTestId("app-brand")).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => {
@@ -455,6 +824,51 @@ describe("Sidebar", () => {
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
   });
 
+  it("separates agent selection from the menu header hit area", () => {
+    renderSidebar();
+    const agent = screen.getByTestId("agent-selector");
+    const header = agent.parentElement!.parentElement!;
+    const background = header.querySelector<HTMLButtonElement>(
+      'button[aria-hidden="true"]',
+    )!;
+    const toggle =
+      header.querySelector<HTMLButtonElement>("button[data-mode]")!;
+    const initial = Number(toggle.dataset.mode);
+    fireEvent.click(agent);
+    expect(Number(toggle.dataset.mode)).toBe(initial);
+    fireEvent.click(background);
+    expect(Number(toggle.dataset.mode)).toBe((initial + 1) % 3);
+    fireEvent.click(toggle);
+    expect(Number(toggle.dataset.mode)).toBe((initial + 2) % 3);
+  });
+
+  it("keeps external plugin links working while floating", () => {
+    mocks.menuItems.push({
+      id: "plugin.docs",
+      location: "primary.settings",
+      label: "Plugin docs",
+      href: "https://example.com/plugin-docs",
+    });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderSidebar();
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "Drag sidebar to float; Enter to toggle docking",
+      }),
+      { key: "Enter" },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Plugin docs" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://example.com/plugin-docs",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(
+      screen.getByRole("button", { name: "Collapse tools" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    open.mockRestore();
+  });
+
   it("renders registered plugin shortcuts unless the user hides them", async () => {
     const pluginItem = {
       id: "plugin.cloud.dashboard",
@@ -477,26 +891,92 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Cloud dashboard")).not.toBeInTheDocument();
   });
 
-  it("shows the unified panel with the session list", async () => {
-    renderSidebar();
-    await waitFor(() => {
-      expect(screen.getAllByTestId("session-list").length).toBeGreaterThan(0);
-    });
-  });
-
   it("opens the account modal when auth is enabled and warns on empty update", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
     await openAccountModal();
     // Modal form renders; submit with only the current password filled
-    const inputs = document.querySelectorAll("input");
-    // currentPassword is the first input
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
     const submitBtn = screen.getByText("account.save");
     fireEvent.click(submitBtn);
     await waitFor(() => {
       expect(mocks.updateProfile).not.toHaveBeenCalled();
     });
+  });
+
+  describe("authentication navigation", () => {
+    const originalLocation = Object.getOwnPropertyDescriptor(
+      window,
+      "location",
+    )!;
+    let location: { pathname: string; href: string };
+
+    beforeEach(() => {
+      mocks.authStatus = { enabled: true, mode: "normal" };
+      vi.mocked(clearAuthToken).mockClear();
+      location = { pathname: "/qwenpaw/chat", href: "" };
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: location,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", originalLocation);
+    });
+
+    it.each([
+      ["/chat", "/login"],
+      ["/qwenpaw/chat", "/qwenpaw/login"],
+    ])(
+      "logs out from %s without losing the deployment prefix",
+      async (pathname, target) => {
+        location.pathname = pathname;
+        renderSidebar();
+        const username = await screen.findByText("testuser");
+        fireEvent.click(username.closest("button")!);
+        fireEvent.click(
+          await screen.findByRole("button", { name: "login.logout" }),
+        );
+
+        expect(clearAuthToken).toHaveBeenCalledOnce();
+        expect(location.href).toBe(target);
+      },
+    );
+
+    it.each([false, true])(
+      "preserves the deployment prefix after an account update (Hub: %s)",
+      async (hubMode) => {
+        renderSidebar({ hubMode });
+        await openAccountModal();
+        if (!hubMode) {
+          fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+            target: { value: "current-pw" },
+          });
+        }
+        fireEvent.change(screen.getByLabelText("account.newPassword"), {
+          target: { value: "new-password" },
+        });
+        fireEvent.change(screen.getByLabelText("account.confirmPassword"), {
+          target: { value: "new-password" },
+        });
+        fireEvent.click(screen.getByText("account.save"));
+
+        await waitFor(() => expect(location.href).toBe("/qwenpaw/login"));
+        expect(clearAuthToken).toHaveBeenCalledOnce();
+        if (hubMode) {
+          expect(mocks.changePassword).toHaveBeenCalledWith("new-password");
+        } else {
+          expect(mocks.updateProfile).toHaveBeenCalledWith(
+            "current-pw",
+            undefined,
+            "new-password",
+          );
+        }
+      },
+    );
   });
 
   it("opens quick settings from the authenticated user area", async () => {
@@ -512,13 +992,31 @@ describe("Sidebar", () => {
     );
   });
 
+  it("returns focus to the quick settings trigger on Escape", async () => {
+    mocks.renderActualSettingsPanel = true;
+    renderSidebar();
+    const trigger = await screen.findByRole("button", {
+      name: "Settings",
+    });
+    fireEvent.click(trigger);
+
+    const panel = await screen.findByRole("dialog", { name: "Settings" });
+    fireEvent.keyDown(panel, { key: "Escape" });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
   it("flags a whitespace-only new password", async () => {
     mocks.authStatus = { enabled: true, mode: "normal" };
     renderSidebar();
     await openAccountModal();
-    const inputs = document.querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
-    fireEvent.change(inputs[2], { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
+    fireEvent.change(screen.getByLabelText("account.newPassword"), {
+      target: { value: "   " },
+    });
     fireEvent.click(screen.getByText("account.save"));
     // newPassword present but empty → early error, no API call
     await waitFor(() => {
@@ -531,9 +1029,12 @@ describe("Sidebar", () => {
     mocks.updateProfile.mockRejectedValue(new Error("password is incorrect"));
     renderSidebar();
     await openAccountModal();
-    const inputs = document.querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "current-pw" } });
-    fireEvent.change(inputs[1], { target: { value: "new-user" } });
+    fireEvent.change(screen.getByLabelText("account.currentPassword"), {
+      target: { value: "current-pw" },
+    });
+    fireEvent.change(screen.getByLabelText("account.newUsername"), {
+      target: { value: "new-user" },
+    });
     fireEvent.click(screen.getByText("account.save"));
     await waitFor(() => {
       expect(mocks.updateProfile).toHaveBeenCalledWith(
@@ -573,9 +1074,7 @@ describe("Sidebar", () => {
   });
 
   it("lights the inbox badge when there are pending approvals", async () => {
-    mocks.pushMessages = {
-      pending_approvals: [{ request_id: "req-1" }],
-    };
+    mocks.approvals = [{ request_id: "req-1" }];
     renderSidebar();
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeTruthy();
@@ -583,5 +1082,187 @@ describe("Sidebar", () => {
     // The inbox label is wrapped in a Badge span with a ref callback
     const inboxSpans = screen.getAllByText("Inbox");
     expect(inboxSpans.length).toBeGreaterThan(0);
+  });
+
+  it("polls inbox events without starting a second push-message chain", async () => {
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(mocks.getInboxEvents).toHaveBeenCalledWith({
+        unread_only: true,
+        limit: 1,
+      });
+    });
+    expect(mocks.getPushMessages).not.toHaveBeenCalled();
+  });
+
+  it("slows inbox polling and refreshes when the tab becomes visible", async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const view = renderSidebar();
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(14999));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+
+      hidden.mockReturnValue(true);
+      await act(() => vi.advanceTimersByTimeAsync(30000));
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
+
+      hidden.mockReturnValue(false);
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(3);
+    } finally {
+      view.unmount();
+      hidden.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { collapsed: false, pending: false },
+    { collapsed: false, pending: true },
+    { collapsed: true, pending: false },
+    { collapsed: true, pending: true },
+  ])(
+    "opens the inbox destination (collapsed=$collapsed, pending=$pending)",
+    async ({ collapsed, pending }) => {
+      if (collapsed) {
+        localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      }
+      mocks.approvals = pending ? [{ request_id: "req-1" }] : [];
+      await act(async () => {
+        renderSidebar();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Inbox" }));
+
+      expect(screen.getByTestId("probe-path").textContent).toBe(
+        pending ? "/inbox?tab=approvals" : "/inbox",
+      );
+    },
+  );
+
+  // TC-CON-01 checkpoint 3: the collapsed/expanded state must survive a
+  // page reload through localStorage.
+  describe("collapsed state persistence", () => {
+    function renderedSider() {
+      return document.querySelector<HTMLElement>(".ant-layout-sider");
+    }
+
+    it("restores the collapsed state after a reload", async () => {
+      const view = renderSidebar();
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+      await waitFor(() => {
+        expect(screen.queryByText("Workspace")).toBeNull();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+      view.unmount();
+
+      // Remount simulates the reload: it must start collapsed (72px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+      expect(screen.queryByText("Workspace")).toBeNull();
+      expect(screen.getByTestId("app-brand")).not.toBeVisible();
+    });
+
+    it("restores the expanded state after a reload", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      const view = renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Expand sidebar" }),
+      );
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+      view.unmount();
+
+      // Remount simulates the reload: it must start expanded (280px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({
+        width: "280px",
+        minWidth: "280px",
+      });
+      expect(screen.getByText("Workspace")).toBeTruthy();
+    });
+
+    it("keeps the mobile collapse transient so desktop is not pinned", async () => {
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      // A viewport-driven collapse must not write the user preference.
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+    });
+
+    it("does not override the stored preference on mobile", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+    });
+
+    it("restores the stored collapsed preference when back on desktop", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+
+      resizeViewport(true);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "56px",
+          minWidth: "56px",
+        });
+      });
+
+      resizeViewport(false);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "72px",
+          minWidth: "72px",
+        });
+      });
+    });
+
+    it("re-expands on desktop when no collapsed preference is stored", async () => {
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({
+        width: "280px",
+        minWidth: "280px",
+      });
+
+      resizeViewport(true);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "56px",
+          minWidth: "56px",
+        });
+      });
+      // The viewport override must stay transient.
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+
+      resizeViewport(false);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "280px",
+          minWidth: "280px",
+        });
+      });
+    });
   });
 });

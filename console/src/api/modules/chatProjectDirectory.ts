@@ -60,9 +60,10 @@ export interface ProjectDirPayloadEntry {
 export const chatProjectDirectoryApi = {
   // ── Plural (session-scoped ordered list) ──────────────────────────────
   /** Get the chat's effective project-directory list, primary first. */
-  getProjectDirs: (chatId: string) =>
+  getProjectDirs: (chatId: string, agentId?: string) =>
     request<ChatProjectDirs>(
       `/chats/${encodeURIComponent(chatId)}/project-dirs`,
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
     ),
 
   /**
@@ -91,8 +92,9 @@ export const chatProjectDirectoryApi = {
    * Files workspace and navigator), and as the fallback display value when
    * the chat has no override and the plural list comes back empty.
    */
-  get: (chatId: string) =>
+  get: (chatId: string, agentId?: string) =>
     request<EffectiveProjectDirectory>(
       `/chats/${encodeURIComponent(chatId)}/project-dir`,
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
     ),
 };

@@ -3,6 +3,8 @@ import { baseFromRoutePath, pathToRouteId } from "./osRouteMap";
 
 const routes = [
   { id: "core.chat", path: "/chat/*", source: "core" },
+  { id: "core.acp", path: "/acp", source: "core" },
+  { id: "core.acp-alias", path: "/ACP", source: "core" },
   { id: "core.marketplace", path: "/market", source: "core" },
   {
     id: "core.app-center.embed",
@@ -26,6 +28,11 @@ describe("osRouteMap", () => {
 
   it("routes dynamic children to their owning app", () => {
     expect(pathToRouteId("/chat/session-1", routes)).toBe("core.chat");
+  });
+
+  it("maps canonical and uppercase ACP paths to the ACP app", () => {
+    expect(pathToRouteId("/acp", routes)).toBe("core.acp");
+    expect(pathToRouteId("/ACP", routes)).toBe("core.acp");
   });
 
   it("prefers a concrete PawApp over the aggregate apps route", () => {

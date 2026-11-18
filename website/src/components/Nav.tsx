@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Menu, X, BookOpen, Globe, Download, ChevronDown } from "lucide-react";
+import {
+  Menu,
+  X,
+  BookOpen,
+  Globe,
+  Download,
+  ChevronDown,
+  ChartNoAxesCombined,
+} from "lucide-react";
 import { QwenpawMascot } from "./QwenpawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
@@ -36,7 +44,7 @@ const agentscopeLogoStyle: React.CSSProperties = {
 function AgentScopeLogo() {
   return (
     <img
-      src="/agentscope.svg"
+      src={`${import.meta.env.BASE_URL}agentscope.svg`}
       alt=""
       width={AGENTSCOPE_LOGO_SIZE}
       height={AGENTSCOPE_LOGO_SIZE}
@@ -236,6 +244,14 @@ export function Nav() {
                     <SparkChatAnywhereLineIcon size={18} />
                     <span>{t("nav.discussion")}</span>
                   </a>
+                  <Link
+                    to="/evaluation"
+                    className={exploreMenuItemClass}
+                    onClick={() => setExploreOpen(false)}
+                  >
+                    <ChartNoAxesCombined size={18} />
+                    {t("nav.index")}
+                  </Link>
                 </div>
               </div>
             )}
@@ -378,6 +394,14 @@ export function Nav() {
           <SparkChatAnywhereLineIcon size={18} />
           {t("nav.discussion")}
         </a>
+        <Link
+          to="/evaluation"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+        >
+          <ChartNoAxesCombined size={18} />
+          {t("nav.index")}
+        </Link>
         <Link
           to="/downloads"
           className={navLinkOrangeClass}

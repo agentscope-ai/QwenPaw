@@ -2,18 +2,20 @@ name: Creator App Tests
 
 on:
   push:
-    branches: [main, master, dev, develop, "dev/**"]
+    branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
+      - ".nvmrc"
       - ".github/workflows/creator-app-tests.yml"
   pull_request:
     # Default types plus ready_for_review: converting a draft PR to
     # ready must re-trigger this workflow so the checks really run
     # right after the author leaves draft state.
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main, master, dev, develop, "dev/**"]
+    branches: [main, master, dev, develop, "dev/**", "release/**"]
     paths:
       - "plugins/apps/qwenpaw-creator/**"
+      - ".nvmrc"
       - ".github/workflows/creator-app-tests.yml"
 
 jobs:
@@ -25,13 +27,19 @@ jobs:
       author: ${{ github.event.pull_request.user.login }}
 
   backend-tests:
-    name: Creator Backend Tests
+    name: ${{ matrix.os == 'windows-latest' && 'Creator Backend Tests (Windows)' || 'Creator Backend Tests' }}
     needs: [spam-gate]
     if: |
       always() &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -41,14 +49,33 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           # Host package supplies the shared framework deps (fastapi, httpx,
           # pydantic, agentscope, ...); the plugin requirements add the
           # Creator-specific extras (oss2, imageio-ffmpeg).
           pip install -e ".[test]"
           pip install -r plugins/apps/qwenpaw-creator/requirements.txt
+
+      - name: Install Windows media tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress --yes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+
+      - name: Install Linux caption renderer
+        if: runner.os == 'Linux'
+        run: |
+          python -m playwright install --with-deps chromium
+          sudo apt-get install --yes fonts-noto-cjk
 
       - name: Run Creator backend tests
         working-directory: plugins/apps/qwenpaw-creator/backend
@@ -71,7 +98,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: plugins/apps/qwenpaw-creator/ui/package-lock.json
 

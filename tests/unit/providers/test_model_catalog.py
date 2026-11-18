@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.providers import model_catalog
+from qwenpaw.providers.model_metadata import (
+    model_metadata,
+    provider_catalog_models,
+)
 from qwenpaw.providers.provider import ModelInfo
 
 
@@ -18,7 +22,7 @@ def _write_catalog(
     path: Path,
     providers: dict[str, list[dict[str, object]]],
     *,
-    schema_version: int = 1,
+    schema_version: int = 2,
     catalog_version: str = "2026.08.27",
     published_at: str | None = "2026-08-27T00:00:00Z",
 ) -> bytes:
@@ -26,7 +30,9 @@ def _write_catalog(
         "schema_version": schema_version,
         "catalog_version": catalog_version,
         "published_at": published_at,
-        "providers": providers,
+        "providers": {
+            key: {"models": value} for key, value in providers.items()
+        },
     }
     content = json.dumps(payload).encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -37,19 +43,18 @@ def _write_catalog(
 def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
-    assert len(catalog) == 21
-    assert sum(len(models) for models in catalog.values()) == 133
-    assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
-    assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
-    assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
-    assert [model.id for model in catalog["DEEPSEEK_MODELS"]] == [
-        "deepseek-chat",
-        "deepseek-reasoner",
-        "deepseek-v4-flash",
+    assert len(catalog) == 31
+    assert sum(len(models) for models in catalog.values()) == 228
+    assert catalog["dashscope"][0].id == "qwen3.8-max"
+    assert catalog["dashscope"][0].supports_image is True
+    assert catalog["dashscope"][0].thinking_enabled is True
+    assert [model.id for model in catalog["deepseek"]] == [
         "deepseek-v4-pro",
+        "deepseek-flash",
     ]
-    assert catalog["GEMINI_MODELS"][0].id == "gemini-3.1-pro-preview"
-    assert [model.id for model in catalog["MINIMAX_MODELS"]] == [
+    assert catalog["gemini"][0].id == "gemini-4-argon"
+    assert [model.id for model in catalog["minimax-cn"]] == [
+        "MiniMax-M3.1-Flash",
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -59,8 +64,8 @@ def test_packaged_catalog_snapshot() -> None:
         "MiniMax-M2.1-highspeed",
         "MiniMax-M2",
     ]
-    assert catalog["MINIMAX_MODELS"][0].supports_image is True
-    assert catalog["MINIMAX_MODELS"][0].supports_video is True
+    assert catalog["minimax-cn"][0].supports_image is True
+    assert catalog["minimax-cn"][0].supports_video is True
     recommended = {
         (provider_id, model.id)
         for provider_id, models in catalog.items()
@@ -68,40 +73,70 @@ def test_packaged_catalog_snapshot() -> None:
         if model.is_recommended
     }
     assert recommended == {
-        ("DASHSCOPE_MODELS", "qwen3.7-max"),
-        ("OPENAI_MODELS", "gpt-5.2"),
-        ("MINIMAX_MODELS", "MiniMax-M3"),
-        ("KIMI_MODELS", "kimi-k3"),
-        ("DEEPSEEK_MODELS", "deepseek-chat"),
-        ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
+        ("dashscope", "qwen3.7-max"),
+        ("openai", "gpt-5.6-sol"),
+        ("openai-response", "gpt-6.1-sol"),
+        ("minimax", "MiniMax-M3.1-Flash"),
+        ("kimi-intl", "kimi-k3.1-pro"),
+        ("minimax-cn", "MiniMax-M3.1-Flash"),
+        ("kimi-cn", "kimi-k3.1-pro"),
+        ("gemini", "gemini-4-argon"),
     }
+    chat = {model.id: model for model in catalog[f"openai"]}
+    responses = {model.id: model for model in catalog[f"openai-response"]}
+    sol = responses[f"gpt-6.1-sol"]
+    assert sol.max_input_length == 1_050_000
+    assert sol.input_token_limit == 922_000
+    assert sol.max_output_length == 128_000
+    assert sol.supports_image is True
+    assert sol.supports_video is False
+    assert sol.supports_tool_calling is True
+    assert chat[f"gpt-6.1-sol"].supports_tool_calling is False
+    for provider_id, expected in (
+        (f"openai", False),
+        (f"openai-response", True),
+    ):
+        endpoint = f"https://api.openai.com/v1"
+        matches = model_metadata(provider_id, endpoint, sol.id)
+        assert matches[0].model.supports_tool_calling is expected
+        pool = provider_catalog_models(provider_id, endpoint)
+        candidate = next(model for model in pool if model.id == sol.id)
+        assert candidate.supports_tool_calling is expected
+    assert sol.pricing == {
+        f"prompt": f"0.000002",
+        f"completion": f"0.00001",
+        f"input_cache_read": f"0.0000001",
+    }
+    assert (
+        sol.capability_provenance[f"pricing"][f"context_threshold"] == 272000
+    )
+    assert sol.thinking_control.supports_off is False
+    assert responses[f"gpt-6-luna"].thinking_control.supports_off is True
     assert {
-        model.id: model.max_input_length
-        for model in catalog["DASHSCOPE_MODELS"]
+        model.id: model.max_input_length for model in catalog["dashscope"]
     } == {
-        "qwen3.8-max": 131_072,
+        "qwen3.8-max": 1_000_000,
         "qwen3.7-max": 1_000_000,
         "qwen3.7-plus": 1_000_000,
         "qwen3.6-plus": 1_000_000,
-        "deepseek-v4-pro": 131_072,
+        "deepseek-v4-pro": 1_000_000,
         "glm-5.2": 1_000_000,
     }
     assert all(
-        model.max_input_length == 1_048_576
-        for model in catalog["GEMINI_MODELS"]
+        model.max_input_length == 1_048_576 for model in catalog["gemini"]
     )
     assert {
         model.id: model.max_input_length
-        for model in catalog["OPENAI_MODELS"]
+        for model in catalog["openai"]
         if model.id in {"gpt-5.2", "gpt-4.1", "o4-mini"}
     } == {
-        "gpt-5.2": 272_000,
+        "gpt-5.2": 400_000,
         "gpt-4.1": 1_047_576,
         "o4-mini": 200_000,
     }
     assert {
         model.id: model.max_input_length
-        for model in catalog["VOLCENGINE_CODINGPLAN_MODELS"]
+        for model in catalog["volcengine-cn-codingplan"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
     } == {
@@ -111,7 +146,7 @@ def test_packaged_catalog_snapshot() -> None:
     }
     assert {
         model.id: model.max_input_length
-        for model in catalog["VOLCENGINE_AGENTPLAN_MODELS"]
+        for model in catalog["volcengine-cn-agentplan"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
     } == {
@@ -119,9 +154,9 @@ def test_packaged_catalog_snapshot() -> None:
         "kimi-k2.7-code": 262_144,
         "ark-code-latest": 262_144,
     }
-    assert {
-        model.id: model.max_input_length for model in catalog["MIMO_MODELS"]
-    } == {
+    assert {model.id: model.max_input_length for model in catalog["mimo"]} == {
+        "mimo-v2.6-pro": 1_048_576,
+        "mimo-v2.6-flash": 1_048_576,
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,
     }
@@ -192,13 +227,15 @@ def test_catalog_rejects_legacy_output_limit() -> None:
             {
                 "catalog_version": "2026.08.27",
                 "providers": {
-                    "MODELS": [
-                        {
-                            "id": "legacy-model",
-                            "name": "Legacy Model",
-                            "max_tokens": 8192,
-                        },
-                    ],
+                    "MODELS": {
+                        "models": [
+                            {
+                                "id": "legacy-model",
+                                "name": "Legacy Model",
+                                "max_tokens": 8192,
+                            },
+                        ],
+                    },
                 },
             },
         )
@@ -213,7 +250,11 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
     assert all(
         "max_tokens" not in model
         for models in payload["providers"].values()
-        for model in models
+        for model in json.loads(
+            (
+                model_catalog.PACKAGED_CATALOG_PATH.parent / models[f"path"]
+            ).read_text(),
+        )[f"models"]
     )
     assert all(
         model.max_output_length_source == "catalog"
@@ -221,6 +262,42 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
         for model in models
         if model.max_output_length is not None
     )
+
+
+@pytest.mark.parametrize(
+    "version,published_at",
+    [
+        ("2026.10.26.1", "2026-10-26T00:00:00Z"),
+        ("2026.10.27.1", "2026-10-27T00:00:00Z"),
+    ],
+)
+def test_packaged_refresh_ignores_previous_release_ota(
+    tmp_path: Path,
+    version: str,
+    published_at: str,
+) -> None:
+    """The refreshed catalog must supersede previous release caches."""
+    ota = tmp_path / "ota.json"
+    missing = tmp_path / "missing.json"
+    _write_catalog(
+        ota,
+        {
+            "mimo-tokenplan": [
+                {"id": "mimo-v2.5-pro", "name": "Previous default"},
+            ],
+        },
+        catalog_version=version,
+        published_at=published_at,
+    )
+    expected = model_catalog.load_model_catalog(
+        ota_path=missing,
+        local_path=missing,
+    )
+    actual = model_catalog.load_model_catalog(
+        ota_path=ota,
+        local_path=missing,
+    )
+    assert actual == expected
 
 
 def test_stale_ota_is_ignored_but_local_override_still_applies(
@@ -365,7 +442,7 @@ def test_models_for_catalog_key_returns_independent_copies(
     monkeypatch.setattr(
         model_catalog,
         "load_model_catalog",
-        lambda: {"MODELS": [source]},
+        lambda **kwargs: {"MODELS": [source]},
     )
 
     first = model_catalog.models_for_catalog_key("MODELS")
@@ -406,7 +483,7 @@ def test_catalog_update_validates_hash_and_replaces_atomically(
     )
 
     assert document.catalog_version == "2026.08.27"
-    assert destination.read_bytes() == payload
+    assert model_catalog._read_document(destination) == document
     assert not list(destination.parent.glob("*.tmp"))
 
 

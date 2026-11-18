@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Async background task that asks the LLM to generate a chat title.
 
-The console handler creates a chat with a placeholder name (truncated first
-message) so the UI has something to show immediately. Once the chat exists
+The console handler creates a chat with a placeholder name from the first
+message so the UI has something to show immediately. Once the chat exists
 we spawn :func:`generate_and_update_title` as an ``asyncio`` task that asks
 the active chat model for a concise title and persists it via
 ``ChatManager.patch_chat``. Failures are logged and swallowed so title
@@ -14,14 +14,21 @@ accepts plain dicts — the formatter is now built-in and asserts on
 ``Msg`` instances), await ``model(messages)`` directly, and tolerate the
 same ``(ValueError, AppBaseException)`` factory failures.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.providers.model_selection import request_model_override
+from qwenpaw.services.session_thinking import (
+    apply_chat_model_settings,
+    get_session_chat,
+)
 from qwenpaw.utils.io_utils import run_sync_io
 from qwenpaw.utils.model_response import consume_model_response
 
@@ -41,7 +48,6 @@ TITLE_PROMPT = (
 )
 
 MAX_INPUT_CHARS = 500
-MAX_TITLE_CHARS = 60
 _LEADING_REASONING_BLOCK_RE = re.compile(
     r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
     + r".*?</(?P=tag)\s*>",
@@ -64,16 +70,17 @@ def _clean_title(raw: str) -> str:
     title = title.strip().strip("\"'`“”‘’")
     while title and title[-1] in ".,;:!?":
         title = title[:-1].rstrip()
-    if len(title) > MAX_TITLE_CHARS:
-        title = title[:MAX_TITLE_CHARS].rstrip()
     return title
 
 
+# pylint: disable-next=too-many-return-statements
 async def generate_and_update_title(
     workspace: "Workspace",
     chat_id: str,
     user_message: str,
     placeholder_name: str,
+    *,
+    request=None,
 ) -> None:
     """Generate a chat title via the active LLM and persist it.
 
@@ -123,9 +130,23 @@ async def generate_and_update_title(
             timeout = title_cfg.timeout_seconds
 
             try:
+                chat = await workspace.chat_manager.get_chat(chat_id)
+                if chat is None:
+                    return
+                settings_chat = await get_session_chat(
+                    SimpleNamespace(workspace=workspace, request=request),
+                    chat=chat,
+                )
+                model_override = request_model_override(request)
+                agent_config = await apply_chat_model_settings(
+                    agent_config,
+                    settings_chat.meta if settings_chat else None,
+                    model_override=model_override,
+                )
                 model, _ = await create_model_and_formatter_async(
                     agent_id=workspace.agent_id,
                     agent_config=agent_config,
+                    model_slot_override=model_override,
                 )
             except (ValueError, AppBaseException) as exc:
                 # Same exception shape as ``skills_stream.get_model``: missing

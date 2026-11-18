@@ -1,3 +1,15 @@
+.loginTitle {
+  margin: 0;
+  font-size: var(--app-font-title);
+  font-weight: 600;
+}
+
+.loginHint {
+  margin: 8px 0 0;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-secondary);
+}
+
 .hubDisclaimer {
   --login-disclaimer-border: #f1d5bc;
   --login-disclaimer-text: #5c4030;
@@ -23,14 +35,14 @@
   margin: 8px 0 10px;
   padding-left: 18px;
   color: var(--login-disclaimer-muted);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 }
 
 .consentText {
   margin-left: 8px;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   line-height: 1.55;
 
   button {
@@ -50,7 +62,7 @@
   align-items: center;
   gap: 7px;
   color: var(--login-disclaimer-accent);
-  font-size: 13px;
+  font-size: var(--app-font-secondary);
   font-weight: 600;
 }
 
@@ -85,7 +97,7 @@
     background: none;
     cursor: pointer;
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--app-font-caption);
     transition: color 160ms ease;
 
     &:hover,
@@ -102,7 +114,7 @@
     a,
     button {
       gap: 4px;
-      font-size: 11px;
+      font-size: var(--app-font-caption);
     }
 
     svg {
@@ -138,7 +150,7 @@
   }
 
   :global(.ant-modal-title) {
-    font-size: 18px;
+    font-size: calc(18px * var(--app-font-scale));
   }
 }
 
@@ -149,6 +161,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   color: var(--login-terms-body);
+  font-size: var(--app-font-secondary);
   scrollbar-gutter: stable;
 
   section {
@@ -158,12 +171,12 @@
   h3 {
     margin: 0 0 7px;
     color: var(--login-terms-heading);
-    font-size: 14px;
+    font-size: var(--app-font-body);
   }
 
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: inherit;
     line-height: 1.72;
   }
 }
@@ -180,7 +193,7 @@
 .scrollHint {
   margin: 12px 0 0;
   color: var(--login-terms-accent);
-  font-size: 12px;
+  font-size: var(--app-font-caption);
   text-align: right;
 }
 

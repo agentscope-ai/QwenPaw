@@ -32,8 +32,9 @@ function pendingEntry(path: string, label: string | null): ProjectDirEntry {
 }
 
 /**
- * Resolve the session's bound directories: the chat's persisted list, else the
- * pending pick a brand-new chat holds locally, else the agent default.
+ * Resolve the session's bound directories: an unconfirmed local selection,
+ * else the chat's persisted list, else the agent default. A new Chat already
+ * has an ID before its first message persists the selected directories.
  *
  * The returned list always has at least one entry. When nothing is configured
  * that entry is the agent workspace (with `source: "workspace_fallback"`), so
@@ -45,8 +46,17 @@ export async function loadSessionProjectDirs(
   sessionId: string,
   chatId?: string,
 ): Promise<SessionProjectDirsSnapshot> {
+  const pending = getPendingProjectDirs(agentId, sessionId);
+  if (pending) {
+    return {
+      dirs: pending.dirs.map((entry) => pendingEntry(entry.path, entry.label)),
+      source: "session",
+      agentProjectDir: null,
+    };
+  }
+
   if (chatId) {
-    const next = await chatProjectDirectoryApi.getProjectDirs(chatId);
+    const next = await chatProjectDirectoryApi.getProjectDirs(chatId, agentId);
     if (next.project_dirs.length > 0) {
       return {
         dirs: next.project_dirs,
@@ -56,7 +66,7 @@ export async function loadSessionProjectDirs(
     }
     // Nothing bound (workspace fallback): the plural endpoint reports an empty
     // list, so fall back to the singular view for the directory to display.
-    const single = await chatProjectDirectoryApi.get(chatId);
+    const single = await chatProjectDirectoryApi.get(chatId, agentId);
     return {
       dirs: [
         {
@@ -75,31 +85,26 @@ export async function loadSessionProjectDirs(
     };
   }
 
-  // Brand-new chat: no server id yet, so the pick lives in sessionStorage.
-  const pending = getPendingProjectDirs(agentId, sessionId);
-  if (pending) {
+  // Nothing pending: the agent default is the starting point.
+  const next = await projectDirectoryApi.getDirs();
+  if (next.project_dirs.length > 0) {
     return {
-      dirs: pending.dirs.map((entry) => pendingEntry(entry.path, entry.label)),
-      source: "session",
-      agentProjectDir: null,
+      dirs: next.project_dirs,
+      source: next.source,
+      agentProjectDir: next.project_dirs[0].path,
     };
   }
-
-  // Nothing pending: the agent default is the starting point.
-  const next = await projectDirectoryApi.get();
   return {
     dirs: [
       {
-        path: next.path,
+        path: next.workspace_dir,
         label: null,
-        exists: next.exists ?? true,
+        exists: next.workspace_exists ?? true,
         nested_with: null,
-        // The agent default either is the workspace or is a directory of its
-        // own, and this endpoint already says which — no path comparison.
-        is_workspace: next.is_workspace_default,
+        is_workspace: true,
       },
     ],
-    source: next.is_workspace_default ? "workspace_fallback" : "agent",
-    agentProjectDir: next.is_workspace_default ? null : next.path,
+    source: "workspace_fallback",
+    agentProjectDir: null,
   };
 }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 from types import SimpleNamespace
 
 from pydantic import ValidationError
@@ -218,6 +219,53 @@ def test_invoke_translates_project_schema_errors_with_paths(tmp_path):
     assert "visual.entities.items" in message
     assert "项目未被修改" in message
     assert store.read("project-1").etag == base.etag
+
+
+def test_project_pages_supply_replayable_utf8_cursor_and_reject_stale_pages(
+    tmp_path,
+):
+    store, _ = make_store(tmp_path)
+    tools = _tools(store)
+    text = "对白片段：花儿本是心里的话。"
+    tools.jq_project(
+        project_id="project-1",
+        program=f".description = {json.dumps(text)}",
+    )
+    request = {
+        "projectId": "project-1",
+        "fields": ["description", "name"],
+        "maxBytes": 11,
+    }
+    first = tools.invoke("read_project", request)
+    page = first
+    chunks = []
+    while True:
+        assert len(page["content"].encode()) <= 11
+        chunks.append(page["content"])
+        if page["eof"]:
+            assert page["nextPage"] is None
+            break
+        assert isinstance(page["nextPage"]["pointer"], str)
+        page = tools.invoke("read_project", page["nextPage"])
+    assert json.loads("".join(chunks)) == {
+        "description": text,
+        "name": store.read("project-1").project.name,
+    }
+    with pytest.raises(AgentProjectToolError, match="Fields do not exist"):
+        tools.invoke(
+            "read_project",
+            {"projectId": "project-1", "fields": ["missing"]},
+        )
+    missing_etag = dict(first["nextPage"])
+    missing_etag.pop("expectedEtag")
+    with pytest.raises(AgentProjectToolError, match="expectedEtag"):
+        tools.invoke("read_project", missing_etag)
+    tools.jq_project(
+        project_id="project-1",
+        program='.description = "new text"',
+    )
+    with pytest.raises(AgentProjectToolError, match="changed between pages"):
+        tools.invoke("read_project", first["nextPage"])
 
 
 def test_read_project_file_pages_only_verified_indexed_utf8_text(tmp_path):

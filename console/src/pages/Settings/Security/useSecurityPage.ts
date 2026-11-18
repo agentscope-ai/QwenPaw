@@ -1,17 +1,16 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useCallback } from "react";
 import { Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import type { ToolGuardRule } from "../../../api/modules/security";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
 
 const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
   "browser",
-  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
-  "browser",
-  // ── END DEPRECATED BROWSER ──
   "desktop_screenshot",
   "view_image",
   "read_file",
@@ -105,54 +104,78 @@ export function useSecurityPage() {
   const { message } = useAppMessage();
 
   // Form handlers
-  const handleSave = useCallback(async () => {
-    try {
-      setSaving(true);
-      const values = await form.validateFields();
-      const guardedTools: string[] = values.guarded_tools ?? [];
-      const savedBody = buildSaveBody();
-      const body = {
-        enabled: values.enabled,
-        guarded_tools: guardedTools.length > 0 ? guardedTools : null,
-        denied_tools: values.denied_tools ?? [],
-        custom_rules: customRules,
-        disabled_rules: Array.from(savedBody.disabled_rules),
-        auto_denied_rules: savedBody.auto_denied_rules,
-        shell_evasion_checks: savedBody.shell_evasion_checks,
-      };
-      // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
-      // Tool Guard has not been touched — avoiding a partial-save state
-      // where Tool Guard is persisted but sandbox is not.
-      // Only call the API when the value actually changed to skip
-      // unnecessary requests (and potential 403s) on unchanged toggles.
-      if (sandboxEnabled !== savedSandboxEnabled) {
-        await api.updateSandbox({ enabled: sandboxEnabled });
+  const persistToolGuard = useCallback(
+    async (
+      nextCustomRules: ToolGuardRule[],
+      automatic = false,
+    ): Promise<boolean> => {
+      try {
+        setSaving(true);
+        const values = await form.validateFields();
+        const guardedTools: string[] = values.guarded_tools ?? [];
+        const savedBody = buildSaveBody();
+        const body = {
+          enabled: values.enabled,
+          guarded_tools: guardedTools.length > 0 ? guardedTools : null,
+          denied_tools: values.denied_tools ?? [],
+          custom_rules: nextCustomRules,
+          disabled_rules: Array.from(savedBody.disabled_rules),
+          auto_denied_rules: savedBody.auto_denied_rules,
+          shell_evasion_checks: savedBody.shell_evasion_checks,
+        };
+        // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
+        // Tool Guard has not been touched — avoiding a partial-save state
+        // where Tool Guard is persisted but sandbox is not.
+        // Only call the API when the value actually changed to skip
+        // unnecessary requests (and potential 403s) on unchanged toggles.
+        if (sandboxEnabled !== savedSandboxEnabled) {
+          await api.updateSandbox({ enabled: sandboxEnabled });
+        }
+        const saved = await api.updateToolGuard(body);
+        const savedRuleIds = new Set(saved.custom_rules.map((rule) => rule.id));
+        if (
+          saved.custom_rules.length !== nextCustomRules.length ||
+          nextCustomRules.some((rule) => !savedRuleIds.has(rule.id))
+        ) {
+          throw new Error(t("security.saveFailed"));
+        }
+        setEnabled(body.enabled);
+        markSandboxSaved();
+        if (!automatic) message.success(t("security.saveSuccess"));
+        return true;
+      } catch (err) {
+        if (err && typeof err === "object" && "errorFields" in err) {
+          return false;
+        }
+        if (automatic) throw err;
+        const errMsg =
+          err instanceof Error ? err.message : t("security.saveFailed");
+        message.error(errMsg);
+        return false;
+      } finally {
+        setSaving(false);
       }
-      await api.updateToolGuard(body);
-      setEnabled(body.enabled);
-      markSandboxSaved();
-      message.success(t("security.saveSuccess"));
-    } catch (err) {
-      if (err instanceof Error && "errorFields" in err) {
-        return;
-      }
-      const errMsg =
-        err instanceof Error ? err.message : t("security.saveFailed");
-      message.error(errMsg);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    customRules,
-    buildSaveBody,
-    form,
-    t,
-    sandboxEnabled,
-    savedSandboxEnabled,
-    markSandboxSaved,
-    setEnabled,
-    message,
-  ]);
+    },
+    [
+      buildSaveBody,
+      form,
+      t,
+      sandboxEnabled,
+      savedSandboxEnabled,
+      markSandboxSaved,
+      setEnabled,
+      message,
+    ],
+  );
+
+  const handleSave = useCallback(
+    (automatic = false) => persistToolGuard(customRules, automatic),
+    [customRules, persistToolGuard],
+  );
+
+  const { schedule: scheduleSave, flush: flushSave } = useAutoSave(() =>
+    handleSave(true),
+  );
 
   const handleReset = useCallback(() => {
     form.resetFields();
@@ -211,8 +234,11 @@ export function useSecurityPage() {
         remediation: values.remediation || "",
       };
 
+      let nextCustomRules: ToolGuardRule[];
       if (editingRule) {
-        updateCustomRule(editingRule.id, rule);
+        nextCustomRules = customRules.map((existing) =>
+          existing.id === editingRule.id ? rule : existing,
+        );
       } else {
         const allIds = [
           ...builtinRules.map((r) => r.id),
@@ -222,6 +248,14 @@ export function useSecurityPage() {
           message.error(t("security.rules.duplicateId"));
           return;
         }
+        nextCustomRules = [...customRules, rule];
+      }
+      if (!(await persistToolGuard(nextCustomRules))) {
+        return;
+      }
+      if (editingRule) {
+        updateCustomRule(editingRule.id, rule);
+      } else {
         addCustomRule(rule);
       }
       setEditModal(false);
@@ -229,14 +263,26 @@ export function useSecurityPage() {
       // validation failed
     }
   }, [
+    editForm,
     editingRule,
+    persistToolGuard,
+    updateCustomRule,
     builtinRules,
     customRules,
-    updateCustomRule,
     addCustomRule,
-    editForm,
+    message,
     t,
   ]);
+
+  const handleDeleteCustomRule = useCallback(
+    async (ruleId: string) => {
+      const nextCustomRules = customRules.filter((rule) => rule.id !== ruleId);
+      if (await persistToolGuard(nextCustomRules)) {
+        deleteCustomRule(ruleId);
+      }
+    },
+    [customRules, deleteCustomRule, persistToolGuard],
+  );
 
   const toolOptions = BUILTIN_TOOLS.map((name) => ({
     label: name,
@@ -252,9 +298,15 @@ export function useSecurityPage() {
     form,
     config,
     enabled,
-    setEnabled,
+    setEnabled: (value: boolean) => {
+      setEnabled(value);
+      scheduleSave();
+    },
     sandboxEnabled,
-    setSandboxEnabled,
+    setSandboxEnabled: (value: boolean) => {
+      void setSandboxEnabled(value);
+      scheduleSave();
+    },
     sandboxEffective,
     sandboxReason,
     // Deny paths protection
@@ -266,21 +318,34 @@ export function useSecurityPage() {
     toolOptions,
     saving,
     handleSave,
+    scheduleSave,
+    flushSave,
     handleReset,
 
     // Rules
     mergedRules,
     builtinRules,
     customRules,
-    toggleRule,
-    toggleAutoDeny,
-    deleteCustomRule,
+    toggleRule: (...args: Parameters<typeof toggleRule>) => {
+      toggleRule(...args);
+      scheduleSave();
+    },
+    toggleAutoDeny: (...args: Parameters<typeof toggleAutoDeny>) => {
+      toggleAutoDeny(...args);
+      scheduleSave();
+    },
+    deleteCustomRule: handleDeleteCustomRule,
     openAddRule,
     openEditRule,
 
     // Shell Evasion
     shellEvasionChecks,
-    toggleShellEvasionCheck,
+    toggleShellEvasionCheck: (
+      ...args: Parameters<typeof toggleShellEvasionCheck>
+    ) => {
+      toggleShellEvasionCheck(...args);
+      scheduleSave();
+    },
 
     // Modals
     editModal,

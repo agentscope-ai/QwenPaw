@@ -93,37 +93,40 @@ class CronMemoryRestoreHook(LifecycleHook):
     priority = 80
 
     async def run(self, ctx: HookContext) -> HookResult:
-        snapshot = ctx.extras.get(_CRON_CONTEXT_SNAPSHOT_KEY)
-        if snapshot is None:
-            return HookResult()
-        agent = ctx.agent
-        if agent is None:
-            return HookResult()
-        state = getattr(agent, "state", None)
-        if state is None or not hasattr(state, "context"):
-            return HookResult()
-        try:
-            new_messages = list(state.context)
-            old_summary = ctx.extras.get(_CRON_SUMMARY_SNAPSHOT_KEY, "")
-            state.context.clear()
-            state.context.extend(snapshot)
-            state.context.extend(new_messages)
-            if hasattr(state, "summary") and old_summary:
-                state.summary = old_summary
-            logger.debug(
-                "cron_memory_restore: restored %d historical + %d new "
-                "messages for session_id=%s",
-                len(snapshot),
-                len(new_messages),
-                ctx.session_id,
-            )
-        except Exception:
-            logger.warning(
-                "cron_memory_restore: failed for session_id=%s",
-                ctx.session_id,
-                exc_info=True,
-            )
+        restore_cron_context(ctx)
         return HookResult()
+
+
+def restore_cron_context(ctx: HookContext) -> None:
+    """Rejoin isolated cron history synchronously before any session save.
+
+    Consume the snapshot only after restoration succeeds, making repeated
+    calls safe. Errors must reach the caller so it cannot persist an
+    isolated context over the historical session.
+    """
+    extras = getattr(ctx, "extras", {})
+    snapshot = extras.get(_CRON_CONTEXT_SNAPSHOT_KEY)
+    if snapshot is None:
+        return
+    state = getattr(getattr(ctx, "agent", None), "state", None)
+    if state is None or not hasattr(state, "context"):
+        raise RuntimeError("Cannot restore isolated cron session history")
+
+    new_messages = list(state.context)
+    restored = [*snapshot, *new_messages]
+    old_summary = extras.get(_CRON_SUMMARY_SNAPSHOT_KEY, "")
+    if hasattr(state, "summary") and old_summary:
+        state.summary = old_summary
+    state.context = restored
+    extras.pop(_CRON_CONTEXT_SNAPSHOT_KEY)
+    extras.pop(_CRON_SUMMARY_SNAPSHOT_KEY, None)
+    logger.debug(
+        "cron_memory_restore: restored %d historical + %d new "
+        "messages for session_id=%s",
+        len(snapshot),
+        len(new_messages),
+        ctx.session_id,
+    )
 
 
 __all__ = [
@@ -131,4 +134,5 @@ __all__ = [
     "CronMemoryIsolateHook",
     "CronMemoryRestoreHook",
     "IS_CRON_KEY",
+    "restore_cron_context",
 ]

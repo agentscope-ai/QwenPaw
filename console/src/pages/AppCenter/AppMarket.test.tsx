@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { Modal } from "antd";
@@ -598,6 +599,28 @@ describe("AppMarket", () => {
     const confirmOptions = confirmSpy.mock.calls[0][0];
     await confirmOptions.onOk?.();
     await waitFor(() => expect(hoisted.installPlugin).toHaveBeenCalledTimes(1));
+  });
+
+  it("previews the full description without installing or leaving the page", async () => {
+    const description =
+      "Full application description with configuration and usage details.";
+    hoisted.fetchMarketPlugins.mockResolvedValue({
+      plugins: [
+        makeEntry("preview-app", {
+          locales: { en: { description, category: "app" } },
+        }),
+      ],
+      total: 1,
+    });
+    render(<AppMarket onInstalled={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "preview-app" }));
+    const dialog = await screen.findByRole("dialog", { name: "preview-app" });
+    expect(within(dialog).getByText(description)).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "appCenter.install" }),
+    ).toBeVisible();
+    expect(hoisted.installPlugin).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
   });
 
   it("opens details through the shared external-link guard", async () => {

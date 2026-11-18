@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import stat
 import sys
 import zipfile
 from pathlib import Path
@@ -108,6 +109,73 @@ class TestGetProject:
         assert body["path"] == str(custom)
         assert body["is_workspace_default"] is False
         assert body["name"] == "demo"
+
+
+class TestAgentDefaultDirs:
+    def test_set_list_and_reset(self, client, workspace_dirs, monkeypatch):
+        first = workspace_dirs / "first"
+        second = workspace_dirs / "second"
+        first.mkdir()
+        second.mkdir()
+        config = SimpleNamespace(
+            id="pd-test",
+            project_dir=None,
+            project_dirs=[],
+        )
+        monkeypatch.setattr(
+            "qwenpaw.config.config.load_agent_config",
+            lambda _agent_id: config,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.config.config.save_agent_config",
+            lambda _agent_id, _config: None,
+        )
+        endpoint = "/api/workspace/project-directory/dirs"
+        response = client.put(
+            endpoint,
+            json={
+                "project_dirs": [
+                    {"path": str(first), "label": "primary"},
+                    {"path": str(second)},
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert [
+            entry["path"] for entry in response.json()["project_dirs"]
+        ] == [
+            str(first),
+            str(second),
+        ]
+        assert config.project_dir == str(first)
+        assert (
+            client.get(endpoint).json()["project_dirs"][0]["label"]
+            == "primary"
+        )
+
+        rejected = client.put(
+            endpoint,
+            json={"project_dirs": [{"path": str(workspace_dirs / "missing")}]},
+        )
+        assert rejected.status_code == 422
+        assert len(config.project_dirs) == 2
+
+        legacy = client.put(
+            "/api/workspace/project-directory",
+            json={"path": str(second)},
+        )
+        assert legacy.status_code == 200
+        assert config.project_dirs == [
+            {"path": str(second), "label": None},
+            {"path": str(first), "label": "primary"},
+        ]
+
+        cleared = client.delete(endpoint)
+        assert cleared.status_code == 200
+        assert cleared.json()["source"] == "workspace_fallback"
+        assert cleared.json()["project_dirs"] == []
+        assert config.project_dir is None
+        assert config.project_dirs == []
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +351,16 @@ def _zip_bytes(entries: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
+def _symlink_zip_bytes(name: str, target: str) -> bytes:
+    buffer = io.BytesIO()
+    info = zipfile.ZipInfo(name)
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(info, target)
+    return buffer.getvalue()
+
+
 class TestUploadZip:
     def test_extracts_and_activates(
         self,
@@ -339,6 +417,15 @@ class TestUploadZip:
         )
         assert response.status_code == 400
         assert "Absolute path" in response.json()["detail"]
+
+    def test_symlink_member_returns_400(self, client):
+        data = _symlink_zip_bytes("link", "/etc")
+        response = client.post(
+            "/api/workspace/project-directory/upload-zip?name=symlink",
+            files={"file": ("proj.zip", data, "application/zip")},
+        )
+        assert response.status_code == 400
+        assert "Symlink in zip not allowed" in response.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

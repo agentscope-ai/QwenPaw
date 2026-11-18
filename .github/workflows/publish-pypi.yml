@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   # ── Stage 1: Build wheel ───────────────────────────────────────────────────
@@ -37,10 +38,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Set up Node (for console build)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: console/package-lock.json
 
@@ -62,11 +69,13 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install setuptools wheel build
+          pip install -r scripts/pack/channel-contract-requirements.txt
 
       - name: Build package
-        run: python -m build
+        run: |
+          python scripts/pack/validate_channel_contracts.py
+          python -m build
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -90,9 +99,18 @@ jobs:
       verify_pip: true
       verify_script_install: true
 
+  plugin-versions:
+    needs: [build]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
+    uses: ./.github/workflows/plugin-release-guard.yml
+    with:
+      host-artifact: qwenpaw-dist
+      check-source: false
+    secrets: inherit
+
   # ── Stage 3: Publish to PyPI ───────────────────────────────────────────────
   publish:
-    needs: [verify, build]
+    needs: [verify, build, plugin-versions]
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
     steps:

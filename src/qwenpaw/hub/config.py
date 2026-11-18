@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
 import sqlite3
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 
+from .config_migration import upgrade_registration
 from .database import (
     connect_hub_database,
     initialize_hub_database,
@@ -44,13 +46,13 @@ class RegistrationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool | None = None
+    mode: Literal["open", "invite", "closed"] | None = None
     default_role: Literal["user"] | None = None
 
     @model_validator(mode="after")
     def validate_explicit_values(self) -> RegistrationConfig:
         """Reject null for settings that cannot be cleared in SQLite."""
-        for field_name in ("enabled", "default_role"):
+        for field_name in ("mode", "default_role"):
             if (
                 field_name in self.model_fields_set
                 and getattr(self, field_name) is None
@@ -280,10 +282,10 @@ class HubConfigStore:
         available_provisioners: set[str] | None = None,
     ) -> HubConfig:
         """Apply explicit YAML or return the database-owned settings."""
-        overlay = load_hub_config(path) if path is not None else None
-        if overlay is not None and available_provisioners is not None:
-            _validate_provisioners(overlay, available_provisioners)
         with self._connect() as connection:
+            overlay = load_hub_config(path) if path is not None else None
+            if overlay is not None and available_provisioners is not None:
+                _validate_provisioners(overlay, available_provisioners)
             persisted = self._load_persisted(connection)
             if overlay is not None:
                 if persisted is None:
@@ -434,11 +436,11 @@ class HubConfigStore:
         config: HubConfig,
     ) -> None:
         registration = config.control_plane.registration
-        if registration.enabled is not None:
+        if registration.mode is not None:
             self._write_setting(
                 connection,
-                "registration_enabled",
-                registration.enabled,
+                "registration_mode",
+                registration.mode,
             )
         if registration.default_role is not None:
             self._write_setting(
@@ -455,7 +457,7 @@ class HubConfigStore:
         registration = config.control_plane.registration
         values: dict[str, object] = {}
         for field_name, key in (
-            ("enabled", "registration_enabled"),
+            ("mode", "registration_mode"),
             ("default_role", "registration_default_role"),
         ):
             row = connection.execute(
@@ -496,7 +498,9 @@ class HubConfigStore:
         )
 
 
-def load_hub_config(path: Path | None) -> HubConfig:
+def load_hub_config(
+    path: Path | None,
+) -> HubConfig:
     """Load one strict YAML file or return built-in defaults."""
     if path is None:
         return HubConfig()
@@ -513,6 +517,14 @@ def load_hub_config(path: Path | None) -> HubConfig:
         )
     if "version" not in raw:
         raise ValueError(f"Hub config is missing version: {resolved}")
+    raw, upgraded = upgrade_registration(raw)
+    if upgraded:
+        logging.getLogger(__name__).warning(
+            "Hub config %s uses deprecated registration.enabled; "
+            "use registration.mode (open, invite, or closed). "
+            "The file was not modified.",
+            resolved,
+        )
     try:
         config = HubConfig.model_validate(raw)
     except ValidationError as exc:

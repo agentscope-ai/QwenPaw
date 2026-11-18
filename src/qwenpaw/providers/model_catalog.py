@@ -11,17 +11,19 @@ import tempfile
 import time
 import urllib.request
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urljoin, urlsplit
 
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..constant import EnvVarLoader, WORKING_DIR
-from .provider import ModelInfo
+from .model_info import ModelInfo, release_date
 
-CATALOG_SCHEMA_VERSION = 1
-PACKAGED_CATALOG_PATH = Path(__file__).parent / "data" / "model_catalog.json"
+CATALOG_SCHEMA_VERSION = 2
+PACKAGED_CATALOG_PATH = Path(__file__).parent / f"data" / f"index.json"
 CATALOG_CACHE_DIR = WORKING_DIR / "model_catalog"
 OTA_CATALOG_PATH = CATALOG_CACHE_DIR / "model_catalog.json"
 LOCAL_CATALOG_PATH = CATALOG_CACHE_DIR / "model_catalog.local.json"
@@ -29,6 +31,23 @@ CATALOG_URL_ENV = "QWENPAW_MODEL_CATALOG_URL"
 CATALOG_SHA256_ENV = "QWENPAW_MODEL_CATALOG_SHA256"
 
 logger = logging.getLogger(__name__)
+
+
+class CatalogProvider(BaseModel):
+    """One service's models, endpoint identity, and curated defaults."""
+
+    model_config = ConfigDict(extra=f"forbid")
+    api_urls: list[str] = Field(default_factory=list)
+    remote_id: str | None = None
+    protocols: dict[
+        str,
+        Literal["chat", "responses", "anthropic", "gemini"],
+    ] = Field(default_factory=dict)
+    template_owner: bool = False
+    template_model_ids: list[str] | None = None
+    template_families: list[str] = Field(default_factory=list)
+    default_model_ids: list[str] | None = None
+    models: list[ModelInfo] = Field(default_factory=list)
 
 
 class CatalogDocument(BaseModel):
@@ -39,17 +58,94 @@ class CatalogDocument(BaseModel):
     schema_version: int = Field(default=CATALOG_SCHEMA_VERSION)
     catalog_version: str
     published_at: str | None = None
-    providers: dict[str, list[ModelInfo]] = Field(default_factory=dict)
+    source_url: str | None = None
+    providers: dict[str, CatalogProvider] = Field(default_factory=dict)
 
 
-def _read_document(path: Path) -> CatalogDocument:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+@lru_cache(maxsize=64)
+def _read_json(path: Path, _modified: int) -> dict:
+    """Cache one immutable-on-disk catalog revision."""
+    return json.loads(path.read_text(encoding=f"utf-8"))
+
+
+def _read_document(
+    path: Path,
+    provider_ids: tuple[str, ...] | None = None,
+    *,
+    defaults_only: bool = False,
+) -> CatalogDocument:
+    payload = _read_json(path, path.stat().st_mtime_ns)
+    entries = {}
+    for key, entry in payload.get(f"providers", {}).items():
+        if provider_ids is not None and key not in provider_ids:
+            continue
+        if defaults_only and f"defaults" in entry:
+            entry = entry[f"defaults"]
+        elif f"path" in entry:
+            shard = (path.parent / entry[f"path"]).resolve()
+            if not shard.is_relative_to(path.parent.resolve()):
+                raise ValueError(f"Catalog shard escapes its directory")
+            entry = _read_shard(
+                shard,
+                shard.stat().st_mtime_ns,
+                entry[f"sha256"],
+            )
+        entries[key] = entry
+    payload = {**payload, f"providers": entries}
     document = CatalogDocument.model_validate(payload)
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
         )
     return document
+
+
+@lru_cache(maxsize=64)
+def _read_shard(path: Path, _modified: int, digest: str) -> dict:
+    """Verify each provider shard once per revision."""
+    payload = path.read_bytes()
+    verify_catalog_hash(payload, digest, label=f"Provider shard")
+    return json.loads(payload)
+
+
+def matching_catalog_keys(
+    provider_id: str,
+    endpoint: str,
+    model_id: str,
+    template_id: str | None,
+) -> tuple[str, ...]:
+    """Locate exact service and template shards without reading cards."""
+    keys = set()
+    for path in (
+        PACKAGED_CATALOG_PATH,
+        METADATA_CACHE_PATH,
+        OTA_CATALOG_PATH,
+        LOCAL_CATALOG_PATH,
+    ):
+        try:
+            payload = _read_json(path, path.stat().st_mtime_ns)
+        except (OSError, ValueError):
+            continue
+        for key, entry in payload.get(f"providers", {}).items():
+            templates = entry.get(f"templates")
+            if templates is None:
+                templates = entry.get(f"template_model_ids") or [
+                    model[f"id"]
+                    for model in entry.get(f"models", [])
+                    if entry.get(f"template_owner")
+                ]
+            service_match = key == provider_id or endpoint in entry.get(
+                f"api_urls",
+                [],
+            )
+            template_match = (
+                template_id.split(f"/", 1)[0] == key
+                if template_id
+                else model_id in templates
+            )
+            if service_match or template_match:
+                keys.add(key)
+    return tuple(sorted(keys))
 
 
 def _catalog_version_key(value: str) -> Version | None:
@@ -100,9 +196,14 @@ def _with_output_source(
 ) -> dict[str, list[ModelInfo]]:
     """Attach field-level provenance to explicit output capabilities."""
     providers: dict[str, list[ModelInfo]] = {}
-    for provider_id, models in document.providers.items():
+    for provider_id, entry in document.providers.items():
         providers[provider_id] = []
-        for model in models:
+        for model in entry.models:
+            if (
+                entry.default_model_ids is not None
+                and model.id not in entry.default_model_ids
+            ):
+                continue
             update: dict[str, Any] = {}
             if model.max_output_length is not None:
                 update["max_output_length_source"] = source
@@ -138,13 +239,24 @@ def load_model_catalog(
     packaged_path: Path = PACKAGED_CATALOG_PATH,
     ota_path: Path = OTA_CATALOG_PATH,
     local_path: Path = LOCAL_CATALOG_PATH,
+    provider_ids: tuple[str, ...] | None = None,
+    *,
+    defaults_only: bool = False,
 ) -> dict[str, list[ModelInfo]]:
     """Load packaged, OTA, and local model catalogs in priority order."""
-    packaged = _read_document(packaged_path)
+    packaged = _read_document(
+        packaged_path,
+        provider_ids,
+        defaults_only=defaults_only,
+    )
     catalog = _with_output_source(packaged, "catalog")
     if ota_path.is_file():
         try:
-            overlay = _read_document(ota_path)
+            overlay = _read_document(
+                ota_path,
+                provider_ids,
+                defaults_only=defaults_only,
+            )
         except (OSError, ValueError, json.JSONDecodeError):
             overlay = None
         if overlay is not None:
@@ -163,7 +275,7 @@ def load_model_catalog(
                 )
     if local_path.is_file():
         try:
-            local = _read_document(local_path)
+            local = _read_document(local_path, provider_ids)
         except (OSError, ValueError, json.JSONDecodeError):
             local = None
         if local is not None:
@@ -178,7 +290,10 @@ def models_for_catalog_key(catalog_key: str) -> list[ModelInfo]:
     """Return independent model objects for one catalog key."""
     return [
         model.model_copy(deep=True)
-        for model in load_model_catalog().get(catalog_key, [])
+        for model in load_model_catalog(
+            provider_ids=(catalog_key,),
+            defaults_only=True,
+        ).get(catalog_key, [])
     ]
 
 
@@ -257,6 +372,67 @@ def verify_catalog_hash(
             raise ValueError(f"{label} SHA-256 mismatch")
 
 
+def install_catalog_document(
+    document: CatalogDocument,
+    destination: Path,
+) -> None:
+    """Publish immutable provider shards before atomically switching index."""
+    index = document.model_dump(mode=f"json", exclude_none=True)
+    for key, provider in document.providers.items():
+        payload = provider.model_dump_json(exclude_unset=True).encode(f"utf-8")
+        digest = hashlib.sha256(payload).hexdigest()
+        relative = f"shards/{digest}.json"
+        target = destination.parent / relative
+        if not target.is_file():
+            install_catalog_payload(payload, target, expected_sha256=digest)
+        index[f"providers"][key] = {
+            f"path": relative,
+            f"sha256": digest,
+            f"api_urls": provider.api_urls,
+            f"defaults": {
+                **provider.model_dump(mode=f"json", exclude_none=True),
+                f"models": [
+                    model.model_dump(mode=f"json", exclude_none=True)
+                    for model in provider.models
+                    if provider.default_model_ids is None
+                    or model.id in provider.default_model_ids
+                ],
+            },
+            f"templates": provider.template_model_ids
+            or (
+                [model.id for model in provider.models]
+                if provider.template_owner
+                else []
+            ),
+        }
+    install_catalog_payload(
+        json.dumps(index, ensure_ascii=False).encode(f"utf-8"),
+        destination,
+    )
+    read_catalog_cached.cache_clear()
+
+
+def _download_document(payload: bytes, url: str, timeout: float):
+    """Validate remote shard references and hashes before publishing any."""
+    data = json.loads(payload)
+    for key, entry in data.get(f"providers", {}).items():
+        if f"path" not in entry:
+            continue
+        relative = entry[f"path"]
+        parts = urlsplit(relative)
+        if (
+            any((parts.scheme, parts.netloc, parts.query, parts.fragment))
+            or relative.startswith(f"/")
+            or f"\\" in relative
+            or f".." in relative.split(f"/")
+        ):
+            raise ValueError(f"Invalid catalog shard reference")
+        shard = _download_bytes(urljoin(url, relative), timeout)
+        verify_catalog_hash(shard, entry[f"sha256"], label=f"Remote shard")
+        data[f"providers"][key] = json.loads(shard)
+    return CatalogDocument.model_validate(data)
+
+
 def update_model_catalog(
     url: str | None = None,
     expected_sha256: str | None = None,
@@ -271,7 +447,7 @@ def update_model_catalog(
     digest = expected_sha256 or EnvVarLoader.get_str(CATALOG_SHA256_ENV)
     payload = _download_bytes(resolved_url, timeout)
     verify_catalog_hash(payload, digest, label="Model catalog")
-    document = CatalogDocument.model_validate_json(payload)
+    document = _download_document(payload, resolved_url, timeout)
     if document.schema_version != CATALOG_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported model catalog schema: {document.schema_version}",
@@ -289,12 +465,7 @@ def update_model_catalog(
             f"{packaged.catalog_version!r}",
         )
 
-    install_catalog_payload(
-        payload,
-        destination,
-        expected_sha256=None,
-        label="Model catalog",
-    )
+    install_catalog_document(document, destination)
     return document
 
 
@@ -308,6 +479,174 @@ def catalog_payload(
     document = CatalogDocument(
         catalog_version=version,
         published_at=published_at,
-        providers=providers,
+        providers={
+            key: CatalogProvider(models=models)
+            for key, models in providers.items()
+        },
     )
     return document.model_dump(mode="json", exclude_none=True)
+
+
+@lru_cache(maxsize=128)
+def read_catalog_cached(
+    path: Path,
+    _modified: int,
+    provider_ids: tuple[str, ...] | None = None,
+) -> CatalogDocument:
+    """Read a validated document once per on-disk revision."""
+    return _read_document(path, provider_ids)
+
+
+def catalog_documents(
+    provider_ids: tuple[str, ...] | None = None,
+) -> list[tuple[CatalogDocument, str]]:
+    """Return available metadata layers without network I/O."""
+    documents = []
+    for path, source in (
+        (PACKAGED_CATALOG_PATH, f"catalog"),
+        (METADATA_CACHE_PATH, f"catalog"),
+        (OTA_CATALOG_PATH, f"catalog"),
+        (LOCAL_CATALOG_PATH, f"user"),
+    ):
+        try:
+            document = read_catalog_cached(
+                path,
+                path.stat().st_mtime_ns,
+                provider_ids,
+            )
+        except (OSError, ValueError):
+            continue
+        if (
+            source != f"user"
+            and documents
+            and _catalog_freshness(
+                document,
+                documents[0][0],
+            )
+            != f"current"
+        ):
+            continue
+        documents.append((document, source))
+    return documents
+
+
+METADATA_CACHE_PATH = CATALOG_CACHE_DIR / f"model_info.remote.json"
+METADATA_URL = f"https://models.dev/api.json"
+METADATA_ENABLED_ENV = f"QWENPAW_MODEL_METADATA_ENABLED"
+METADATA_REFRESH_INTERVAL = 24 * 60 * 60
+
+
+# Keep metadata ingestion gates adjacent to their provenance updates.
+# pylint: disable-next=too-many-branches,too-many-statements
+def update_model_metadata(timeout: float = 10) -> None:
+    """Refresh public metadata in the same schema as the packaged catalog."""
+    destination = METADATA_CACHE_PATH
+    if destination.is_file():
+        age = time.time() - destination.stat().st_mtime
+        if 0 <= age < METADATA_REFRESH_INTERVAL:
+            try:
+                _read_document(destination)
+                return
+            except (OSError, ValueError):
+                pass
+    payload = json.loads(_download_bytes(METADATA_URL, timeout))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid remote model metadata")
+    baseline = _read_document(PACKAGED_CATALOG_PATH)
+    providers = {}
+    for key, provider in baseline.providers.items():
+        remote = payload.get(provider.remote_id, {})
+        if not isinstance(remote, dict):
+            continue
+        rows = remote.get(f"models", {})
+        if not isinstance(rows, dict):
+            continue
+        models = []
+        template_ids = []
+        documented = {model.id: model for model in provider.models}
+        for model_id, row in rows.items():
+            if not isinstance(row, dict):
+                continue
+            limits = row.get(f"limit", {})
+            if not isinstance(limits, dict):
+                continue
+            fields = {}
+            released = release_date(row.get(f"release_date"))
+            if released:
+                fields[f"released_at"] = released
+            if type(row.get(f"tool_call")) is bool:
+                fields[f"supports_tool_calling"] = row[f"tool_call"]
+            modalities = row.get(f"modalities")
+            modalities = (
+                modalities.get(f"input")
+                if isinstance(modalities, dict)
+                else None
+            )
+            if isinstance(modalities, list):
+                for kind in (f"image", f"audio", f"video"):
+                    fields[f"supports_{kind}"] = kind in modalities
+            for source, target, minimum in (
+                (f"context", f"max_input_length", 1000),
+                (f"input", f"input_token_limit", 1),
+                (f"output", f"max_output_length", 1),
+            ):
+                value = limits.get(source)
+                if type(value) is int and value >= minimum:
+                    fields[target] = value
+            baseline_model = documented.get(model_id)
+            provenance = {}
+            if baseline_model is not None:
+                for (
+                    field,
+                    origin,
+                ) in baseline_model.capability_provenance.items():
+                    if origin.get(f"source") == f"documentation":
+                        fields[field] = getattr(baseline_model, field)
+                        provenance[field] = origin
+            if fields:
+                if row.get(f"family") in provider.template_families:
+                    template_ids.append(model_id)
+                models.append(
+                    ModelInfo(
+                        id=model_id,
+                        name=model_id,
+                        capability_provenance=provenance,
+                        **fields,
+                    ),
+                )
+        if models:
+            providers[key] = provider.model_copy(
+                update={
+                    f"models": models,
+                    f"default_model_ids": [],
+                    f"template_model_ids": (
+                        template_ids
+                        if provider.template_families
+                        else provider.template_model_ids
+                    ),
+                },
+            )
+    if not providers:
+        raise ValueError(f"Remote catalog contains no model limits")
+    document = CatalogDocument(
+        schema_version=CATALOG_SCHEMA_VERSION,
+        catalog_version=baseline.catalog_version,
+        published_at=datetime.now(timezone.utc).isoformat(),
+        source_url=METADATA_URL,
+        providers=providers,
+    )
+    install_catalog_document(document, destination)
+    read_catalog_cached.cache_clear()
+
+
+def packaged_free_model_ids(provider_id: str, base_url: str) -> set[str]:
+    """Read the derived pricing summary without loading any model shards."""
+    payload = _read_json(
+        PACKAGED_CATALOG_PATH,
+        PACKAGED_CATALOG_PATH.stat().st_mtime_ns,
+    )
+    entry = payload.get(f"providers", {}).get(provider_id, {})
+    urls = {url.rstrip(f"/") for url in entry.get(f"api_urls", [])}
+    if base_url.rstrip(f"/") not in urls:
+        return set()
+    return set(entry.get(f"free_model_ids", []))
