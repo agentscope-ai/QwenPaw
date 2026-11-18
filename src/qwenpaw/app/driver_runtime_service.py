@@ -263,6 +263,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             raw = json.loads(
                 await asyncio.to_thread(
                     (self._workspace.workspace_dir / "agent.json").read_text,
+                    encoding="utf-8",
                 ),
             )
             version = raw.get("mcp", {}).get("migration_version", 0)
@@ -280,9 +281,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 evidence["mcp"] = {**raw["mcp"], "clients": {}}
             cards = []
             for path in await self.card_store.list_paths(protocols={"mcp"}):
-                cards.append(
-                    yaml.safe_load(await asyncio.to_thread(path.read_text)),
+                raw_card = await asyncio.to_thread(
+                    path.read_text,
+                    encoding="utf-8",
                 )
+                cards.append(yaml.safe_load(raw_card))
             decision = classify_mcp_usage(
                 MCPUsageSnapshot(
                     (
