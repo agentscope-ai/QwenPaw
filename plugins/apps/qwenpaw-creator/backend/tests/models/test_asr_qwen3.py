@@ -152,7 +152,7 @@ def test_qwen_audio_asr_uses_format_params_and_text_output(
                 "output": {
                     "text": "你好世界",
                     "sentence": {
-                        "text": "你好世界",
+                        "text": "世界",
                         "begin_time": 0,
                         "end_time": 1000,
                     },
@@ -548,3 +548,18 @@ def test_asr_audio_url_token_plan_refuses_local_audio(
                 media_type="audio/wav",
             ),
         )
+
+
+def test_qwen_audio_keeps_segmented_and_gateway_responses():
+    assert asr_model._qwen3_sentences(
+        {"output": {"sentence": [{"text": "First."}, {"text": "Last."}]}},
+        prefer_cumulative=True,
+    ) == ["First.", "Last."]
+    assert asr_model._qwen3_sentences(
+        {"text": "Full."}, prefer_cumulative=True
+    ) == ["Full."]
+    mixed = {"output": {"text": "Full.", "sentence": {"text": "Last."}}}
+    assert asr_model._qwen3_sentences(mixed) == ["Last."]
+    assert asr_model._qwen3_sentences(mixed, prefer_cumulative=True) == [
+        "Full."
+    ]

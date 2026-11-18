@@ -441,6 +441,54 @@ def _video_with_audio(tmp_path_factory):
     return path.read_bytes()
 
 
+@pytest.mark.parametrize("sound", ["preserve", "mute", " MUTE "])
+def test_local_render_applies_sound_intent_to_existing_clips(
+    tmp_path,
+    video_with_audio,
+    sound,
+):
+    from domain.enums import CreatorCommandType
+    from services.media_files.local_execution import (
+        FfmpegLocalMediaRunner,
+        LocalMediaExecutionSpec,
+        LocalMediaInput,
+    )
+    from services.runtime_files.media_probe import probe_media
+
+    source = tmp_path / "existing-provider.mp4"
+    source.write_bytes(video_with_audio)
+    output = tmp_path / "final.mp4"
+    spec = LocalMediaExecutionSpec(
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:main",
+        task_id="silent-local",
+        work_dir=tmp_path,
+        output_path=output,
+        inputs=(
+            LocalMediaInput(
+                version_id="source-1",
+                file_id="file-1",
+                checksum=hashlib.sha256(video_with_audio).hexdigest(),
+                media_type="video/mp4",
+                path=source,
+                source_ref="element:shot",
+                start_seconds=0,
+                end_seconds=4,
+                duration_seconds=4,
+                playback_rate=2,
+                original_sound=sound,
+            ),
+        ),
+        transitions=(),
+        audio_plan="",
+        expected_duration_seconds=2,
+        canvas_size=(64, 36),
+    )
+    asyncio.run(FfmpegLocalMediaRunner().render(spec))
+    assert probe_media(output).has_audio is (sound == "preserve")
+    assert source.read_bytes() == video_with_audio
+
+
 def test_video_edit_rejected_for_wan_models(tmp_path, monkeypatch) -> None:
     services = _services(tmp_path, monkeypatch)
     monkeypatch.setenv("VIDEO_MODEL_NAME", "wan2.7-r2v")

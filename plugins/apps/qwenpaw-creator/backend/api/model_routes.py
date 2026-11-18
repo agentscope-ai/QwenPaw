@@ -646,8 +646,9 @@ def mutate_model_config(
     config_path = _config_paths()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with CrossProcessFileLock(config_path.parent / ".model-config.lock"):
+        raw_config = _load_json(config_path)
         persisted = _assemble_model_config(
-            _load_json(config_path),
+            raw_config,
             include_environment=False,
         )
         updated = mutator(persisted)
@@ -658,6 +659,11 @@ def mutate_model_config(
         updated_dict = updated.model_dump(
             exclude={"self_review": {"env_overrides", "operator_status"}},
         )
+        # Operator runtime limits are not part of the model-settings form.
+        # Preserve them under the same lock so a model or review-mode save
+        # cannot reset the media budget and concurrency to their defaults.
+        if isinstance(raw_config.get("agent_runtime"), dict):
+            updated_dict["agent_runtime"] = raw_config["agent_runtime"]
         _encrypt_secret_fields(updated_dict)
 
         atomic_replace_bytes(
@@ -2576,7 +2582,7 @@ def _grade_qwen3_document(document: Mapping[str, Any]) -> tuple[bool, str]:
         # ``qwen-audio-*-asr-*`` answers through ``output.sentence`` rather
         # than ``choices``; either shape the reader walks is the working route.
         return True, ""
-    if "text" in document:
+    if isinstance(readable.get("text"), str) or "text" in document:
         return True, ""
     return False, ""
 

@@ -1,10 +1,12 @@
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CREATOR_ROUTE_OBJECTS } from "@/app/router";
 import type { FileProjectReviewRecord } from "@/contracts/creator";
 import { ev } from "@/test/sessionEventBuilders";
 import ProjectLayout from "@/components/layout/ProjectLayout";
+import { navigateToLocator } from "@/routing/locators";
+import { useNavigationStore } from "@/store/navigationStore";
 import { NavigationRuntime } from "@/routing/navigation";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
@@ -43,33 +45,33 @@ const sessionState = {
   lastEventSeq: 0,
 } as const;
 
-function commonRoutes(review?: FileProjectReviewRecord) {
+function commonRoutes(review?: FileProjectReviewRecord, projectId = "p1") {
   return [
     {
-      match: "/projects/p1/runtime/reviews/active",
+      match: `/projects/${projectId}/runtime/reviews/active`,
       response: review
         ? { json: [review], headers: { ETag: `"${review.decision_token}"` } }
         : { status: 204 },
     },
     {
-      match: "/projects/p1/project",
+      match: `/projects/${projectId}/project`,
       response: {
         json: {
-          projectId: "p1",
+          projectId,
           generation: 3,
           etag: '"sha256:g3"',
           syncStatus: "healthy",
-          project: cloneProject(),
+          project: { ...cloneProject(), project_id: projectId },
         },
         headers: { ETag: '"sha256:g3"' },
       },
     },
     ...["conversations/c1/messages", "specialist-runs", "tasks"].map((p) => ({
-      match: `/projects/p1/${p}`,
+      match: `/projects/${projectId}/${p}`,
       response: { json: { items: [] } },
     })),
     {
-      match: "/projects/p1/conversations",
+      match: `/projects/${projectId}/conversations`,
       response: {
         json: {
           items: [
@@ -84,14 +86,19 @@ function commonRoutes(review?: FileProjectReviewRecord) {
       },
     },
     {
-      match: "/projects/p1/session",
-      response: { json: { session: sessionState, agentStatusBar: status } },
-    },
-    {
-      match: "/projects/p1/work-graph",
+      match: `/projects/${projectId}/session`,
       response: {
         json: {
-          projectId: "p1",
+          session: { ...sessionState, projectId },
+          agentStatusBar: status,
+        },
+      },
+    },
+    {
+      match: `/projects/${projectId}/work-graph`,
+      response: {
+        json: {
+          projectId,
           counts: {},
           nodes: [],
           generation: 0,
@@ -129,7 +136,7 @@ function elementReview() {
   });
 }
 
-/** Mounts ProjectLayout with a stub /plan child route. */
+/** Mounts ProjectLayout with a stub workspace for all locator destinations. */
 function renderShell(testId: string) {
   const router = createMemoryRouter(
     [
@@ -142,7 +149,7 @@ function renderShell(testId: string) {
           </>
         ),
         children: [
-          { path: "plan", element: <div data-testid={testId}>route</div> },
+          { path: "*", element: <div data-testid={testId}>route</div> },
         ],
       },
     ],
@@ -160,7 +167,65 @@ describe("ProjectLayout visible shell", () => {
     useCreatorInteractionStore.getState().reset();
     useProjectSnapshotStore.getState().reset();
     useFileProjectReviewStore.getState().reset();
+    useNavigationStore.getState().clear();
     seedProject();
+  });
+
+  it("keeps the current project's reviews when a previous completion poll returns", async () => {
+    const p2Review = {
+      ...elementReview(),
+      project_id: "p2",
+      review_id: "p2-review",
+    };
+    const { fetchMock } = installMockFetch([
+      ...commonRoutes(elementReview()),
+      ...commonRoutes(p2Review, "p2"),
+    ]);
+    const router = renderShell("project-review-owner");
+    await waitFor(() =>
+      expect(useFileProjectReviewStore.getState().syncStatus).toBe("healthy"),
+    );
+    const fetch = fetchMock.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let p1Reads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/projects/p1/runtime/reviews/active")) {
+        p1Reads++;
+        await pending;
+      }
+      return fetch(input, init);
+    });
+    act(() =>
+      useCreatorSessionStore
+        .getState()
+        .ingestEvents([
+          ev(1, "agent.run.completed", {
+            runId: "finished",
+            reviewIds: ["review-element-1"],
+          }),
+        ]),
+    );
+    await waitFor(() => expect(p1Reads).toBe(1));
+    await act(() => router.navigate("/project/p2/plan"));
+    await waitFor(() =>
+      expect(useFileProjectReviewStore.getState().reviews[0]?.review_id).toBe(
+        "p2-review",
+      ),
+    );
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(p1Reads).toBe(1);
+    expect(useFileProjectReviewStore.getState().projectId).toBe("p2");
+    expect(useFileProjectReviewStore.getState().reviews[0]?.review_id).toBe(
+      "p2-review",
+    );
+    expect(router.state.location.pathname).toBe("/project/p2/plan");
+    expect(router.state.location.search).toBe("");
   });
 
   it("ignores the replay tail for navigation and still handles a live completion", async () => {
@@ -290,4 +355,106 @@ describe("ProjectLayout visible shell", () => {
       "element:r2v-window",
     );
   });
+
+  it.each([
+    "before completion",
+    "while polling",
+    "navigate away",
+    "closed media banner",
+  ])(
+    "preserves manual navigation %s instead of opening the first Review item",
+    async (timing) => {
+      const review = elementReview();
+      const secondPointer = changedPointer.replace(
+        "video_prompt",
+        "storyboard_prompt",
+      );
+      const secondLocator = {
+        ...review.operations[0].ui_locator,
+        field: secondPointer,
+      };
+      review.operations.push(
+        makeReviewOperation({
+          operation_id: "operation-2",
+          json_pointer: secondPointer,
+          target_ref: "element:r2v-window",
+          ui_locator: secondLocator,
+        }),
+      );
+      installMockFetch(commonRoutes(review));
+      const router = renderShell("manual-review-route");
+      await screen.findByTestId("manual-review-route");
+      await waitFor(() =>
+        expect(useFileProjectReviewStore.getState().reviews).toHaveLength(1),
+      );
+      const openSecond = () =>
+        navigateToLocator(
+          "p1",
+          timing === "closed media banner"
+            ? { page: "assets", assetId: "character-alice", versionId: "v1" }
+            : secondLocator,
+          {
+            review: true,
+            reviewId:
+              timing === "closed media banner" ? review.review_id : undefined,
+          },
+        );
+      if (timing === "before completion") act(openSecond);
+      if (timing === "closed media banner") {
+        act(openSecond);
+        // The visible banner's close action clears navigation-stack state,
+        // but the chosen media review remains open in the route.
+        act(() => useNavigationStore.getState().clear());
+      }
+
+      let finishPoll!: () => void;
+      const pendingPoll = new Promise<void>((resolve) => {
+        finishPoll = resolve;
+      });
+      const poll = vi
+        .spyOn(useFileProjectReviewStore.getState(), "pollOnce")
+        .mockReturnValue(pendingPoll);
+      try {
+        act(() =>
+          useCreatorSessionStore.getState().ingestEvents([
+            {
+              eventId: "run-with-review",
+              seq: 1,
+              type: "agent.run.completed",
+              projectId: "p1",
+              creatorSessionId: "s1",
+              at: "now",
+              data: {
+                runId: "run-element-1",
+                reviewIds: ["review-element-1"],
+              },
+            },
+          ]),
+        );
+        await waitFor(() => expect(poll).toHaveBeenCalledTimes(1));
+        if (timing === "while polling") act(openSecond);
+        if (timing === "navigate away") {
+          await act(() => router.navigate("/project/p1/plan?user=selected"));
+        }
+        const manualSearch = router.state.location.search;
+        await act(async () => {
+          finishPoll();
+          await pendingPoll;
+        });
+        expect(poll).toHaveBeenCalledTimes(2);
+        expect(router.state.location.search).toBe(manualSearch);
+        if (timing === "closed media banner") {
+          expect(new URLSearchParams(manualSearch).get("reviewId")).toBe(
+            review.review_id,
+          );
+        } else if (timing !== "navigate away") {
+          expect(new URLSearchParams(manualSearch).get("field")).toBe(
+            secondPointer,
+          );
+        }
+      } finally {
+        poll.mockRestore();
+      }
+    },
+  );
 });
