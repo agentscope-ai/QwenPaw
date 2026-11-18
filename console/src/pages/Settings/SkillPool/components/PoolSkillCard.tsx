@@ -208,11 +208,7 @@ export function PoolSkillCard({
             </time>
           )}
         </div>
-        <Tooltip title={description} trigger={["hover", "focus"]}>
-          <p className={cardStyles.description} tabIndex={0}>
-            {description}
-          </p>
-        </Tooltip>
+        <p className={cardStyles.description}>{description}</p>
         {!!skill.tags?.length && (
           <div className={cardStyles.tags}>
             {skill.tags.map((tag) => (

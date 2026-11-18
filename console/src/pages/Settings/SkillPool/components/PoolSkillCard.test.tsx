@@ -201,7 +201,7 @@ describe("PoolSkillCard description", () => {
     );
   });
 
-  it("shows the description after its status and preserves both full-text hints", async () => {
+  it("shows the description after its status with one keyboard-accessible hint", async () => {
     const user = userEvent.setup();
     const description =
       "A long skill description that remains available in full.";
@@ -220,14 +220,19 @@ describe("PoolSkillCard description", () => {
         .getByText("skillPool.statusOutdated")
         .compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(summary).toHaveAttribute("tabindex", "0");
-    expect(
-      screen.getByRole("button", { name: description }),
-    ).toBeInTheDocument();
+    const help = screen.getByRole("button", { name: description });
+    await user.tab(); // Actions
+    await user.tab(); // Skill title
+    await user.tab(); // Description help
+    expect(help).toHaveFocus();
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent(description);
 
     await user.hover(summary);
 
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(description);
+    expect(summary).not.toHaveAttribute("tabindex");
+    expect(summary).not.toHaveAttribute("aria-describedby");
+    expect(screen.getAllByRole("tooltip")).toEqual([tooltip]);
   });
 
   it("uses the existing fallback when the description is missing", () => {
