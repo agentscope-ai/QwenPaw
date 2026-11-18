@@ -1,5 +1,5 @@
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CREATOR_ROUTE_OBJECTS } from "@/app/router";
 import type { FileProjectReviewRecord } from "@/contracts/creator";
@@ -18,6 +18,7 @@ import {
   configuredModelConfig,
   makeReviewOperation,
   makeReviewRecord,
+  seedCreatorSession,
 } from "@/test/agentFixtures";
 import { projectDocument, status } from "@/test/creatorFixtures";
 import { installMockFetch } from "@/test/mockFetch";
@@ -159,11 +160,38 @@ function renderShell(testId: string) {
   return router;
 }
 
+/** Mounts the real ProjectLayout shell, whose WorkspaceSidebar owns AgentDock. */
+function renderShellWithDock() {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/project/:id",
+        element: (
+          <>
+            <NavigationRuntime />
+            <ProjectLayout />
+          </>
+        ),
+        children: [
+          { path: "plan", element: <div data-testid="dock-plan-route" /> },
+        ],
+      },
+    ],
+    { initialEntries: ["/project/p1/plan"] },
+  );
+  render(<RouterProvider router={router} />);
+  return router;
+}
+
+const composerBox = () =>
+  screen.getByRole("textbox", { name: "输入修改意图，@ 可引用对象…" });
+
 describe("ProjectLayout visible shell", () => {
   beforeEach(() => {
     useCreatorSessionStore.getState().reset();
     useCreatorTaskViewStore.getState().reset();
     useAgentDockUiStore.getState().reset();
+    useAgentDockUiStore.getState().clearUnsentDrafts();
     useCreatorInteractionStore.getState().reset();
     useProjectSnapshotStore.getState().reset();
     useFileProjectReviewStore.getState().reset();
@@ -354,6 +382,56 @@ describe("ProjectLayout visible shell", () => {
     expect(useCreatorInteractionStore.getState().selectedRef).toBe(
       "element:r2v-window",
     );
+  });
+
+  it("keeps a Project draft across the layout reset on a Project switch", async () => {
+    seedCreatorSession();
+    installMockFetch([...commonRoutes(), ...commonRoutes(undefined, "p2")]);
+    const router = renderShellWithDock();
+    const box = await screen.findByRole("textbox", {
+      name: "输入修改意图，@ 可引用对象…",
+    });
+    fireEvent.input(box, { target: { textContent: "Draft for p1" } });
+
+    await act(() => router.navigate("/project/p2/plan"));
+
+    // The layout resets the dock on every Project switch; the draft parked by
+    // the outgoing composer must survive that reset for the return trip.
+    await waitFor(() =>
+      expect(useAgentDockUiStore.getState().unsentDrafts).toEqual({
+        p1: ["Draft for p1"],
+      }),
+    );
+    expect(useAgentDockUiStore.getState().open).toBe(true);
+
+    await act(() => router.navigate("/project/p1/plan"));
+    await waitFor(() =>
+      expect(composerBox().textContent).toBe("Draft for p1"),
+    );
+  });
+
+  it("keeps both Project drafts across an A → B → A → B round trip", async () => {
+    seedCreatorSession();
+    installMockFetch([...commonRoutes(), ...commonRoutes(undefined, "p2")]);
+    const router = renderShellWithDock();
+    await screen.findByRole("textbox", {
+      name: "输入修改意图，@ 可引用对象…",
+    });
+    fireEvent.input(composerBox(), { target: { textContent: "Draft A" } });
+
+    await act(() => router.navigate("/project/p2/plan"));
+    await waitFor(() => expect(composerBox().textContent ?? "").toBe(""));
+    fireEvent.input(composerBox(), { target: { textContent: "Draft B" } });
+
+    await act(() => router.navigate("/project/p1/plan"));
+    await waitFor(() => expect(composerBox().textContent).toBe("Draft A"));
+    // Restoring A consumed only A: B must still be parked for its own return.
+    expect(useAgentDockUiStore.getState().unsentDrafts).toEqual({
+      p2: ["Draft B"],
+    });
+
+    await act(() => router.navigate("/project/p2/plan"));
+    await waitFor(() => expect(composerBox().textContent).toBe("Draft B"));
   });
 
   it.each([

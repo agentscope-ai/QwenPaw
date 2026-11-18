@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { message } from "antd";
 import {
   Check,
@@ -74,7 +74,7 @@ function trayItemsOf(
   ];
 }
 
-export default function DecisionTray({ projectId }: { projectId: string }) {
+function DecisionTray({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const authorizations = useExecutionAuthorizationStore((state) => state.items);
   const authProjectId = useExecutionAuthorizationStore(
@@ -431,3 +431,5 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     </section>
   );
 }
+
+export default memo(DecisionTray);

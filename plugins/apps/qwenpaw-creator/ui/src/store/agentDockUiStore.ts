@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { MentionInputDraft } from "@/components/agent/MentionInput";
+
 export interface SelectionAttachment {
   text: string;
   ref: string | null;
@@ -32,6 +34,16 @@ interface AgentDockUiState {
   overviewHeight: number | null;
   runFilter: string;
   draft: string;
+  /**
+   * Unsent composer drafts keyed by the Project that produced them. Live
+   * typing never reaches the store — that re-rendered the whole dock per
+   * keystroke — but folding, unmounting, or switching Projects used to eat an
+   * unsent instruction. Keying by Project lets A and B each keep their own
+   * draft across a round trip, and this map deliberately survives `reset()`:
+   * the layout resets the dock on every Project switch, so clearing here would
+   * erase the draft just parked by the unmounting editor.
+   */
+  unsentDrafts: Record<string, MentionInputDraft>;
   selection: SelectionAttachment | null;
   allowExpandDetails: boolean;
   /**
@@ -46,6 +58,15 @@ interface AgentDockUiState {
   setOverviewHeight: (height: number | null) => void;
   setRunFilter: (filter: string) => void;
   setDraft: (draft: string) => void;
+  /** Stashes (or, with null/empty, drops) one Project's unsent draft. */
+  parkUnsentDraft: (
+    projectId: string,
+    content: MentionInputDraft | null,
+  ) => void;
+  /** Drops one Project's stashed draft without restoring it. */
+  clearUnsentDraft: (projectId: string) => void;
+  /** Drops every stashed draft; test isolation only. */
+  clearUnsentDrafts: () => void;
   setSelection: (selection: SelectionAttachment | null) => void;
   setAllowExpandDetails: (allow: boolean) => void;
   setDecisionTrayCollapsed: (collapsed: boolean) => void;
@@ -61,6 +82,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   overviewHeight: null,
   runFilter: "all",
   draft: "",
+  unsentDrafts: {},
   selection: null,
   allowExpandDetails: false,
   decisionTrayCollapsed: false,
@@ -74,6 +96,30 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   setOverviewHeight: (overviewHeight) => set({ overviewHeight }),
   setRunFilter: (runFilter) => set({ runFilter }),
   setDraft: (draft) => set({ draft }),
+  parkUnsentDraft: (projectId, content) =>
+    set((state) => {
+      const parked = state.unsentDrafts[projectId];
+      if (!content || !content.length) {
+        if (!parked) return state;
+        const unsentDrafts = { ...state.unsentDrafts };
+        delete unsentDrafts[projectId];
+        return { unsentDrafts };
+      }
+      return {
+        unsentDrafts: { ...state.unsentDrafts, [projectId]: content },
+      };
+    }),
+  clearUnsentDraft: (projectId) =>
+    set((state) => {
+      if (!(projectId in state.unsentDrafts)) return state;
+      const unsentDrafts = { ...state.unsentDrafts };
+      delete unsentDrafts[projectId];
+      return { unsentDrafts };
+    }),
+  clearUnsentDrafts: () =>
+    set((state) =>
+      Object.keys(state.unsentDrafts).length ? { unsentDrafts: {} } : state,
+    ),
   setSelection: (selection) =>
     set({ selection, tab: "conversation", open: true }),
   setAllowExpandDetails: (allowExpandDetails) => set({ allowExpandDetails }),
@@ -88,6 +134,9 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
       overviewHeight: null,
       runFilter: "all",
       draft: "",
+      // `unsentDrafts` intentionally survives: the layout resets the dock on
+      // every Project switch, and that map is the hand-off point for drafts
+      // that must survive the trip. Tests call `clearUnsentDrafts`.
       selection: null,
       allowExpandDetails: false,
       decisionTrayCollapsed: false,
