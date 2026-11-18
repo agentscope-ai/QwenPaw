@@ -313,7 +313,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         """Persist intent without installing or opening a protocol."""
         self._guard()
         # Reuse storage's protocol/path validation before accepting metadata.
-        self.card_store.path_for("monitoring", protocol=protocol)
+        await run_sync_io(
+            self.card_store.path_for,
+            "monitoring",
+            protocol=protocol,
+        )
         async with self._metadata_lock:
             self._guard()
 

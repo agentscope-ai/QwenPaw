@@ -891,7 +891,10 @@ async def management_source(services, protocol, source_id):
     descriptor.guard()
     workspace = await services.workspace()
     services.guard()
-    store = AsyncDriverCardStore(workspace.workspace_dir / "drivers")
+    store = await run_sync_io(
+        AsyncDriverCardStore,
+        workspace.workspace_dir / "drivers",
+    )
     try:
         card = await store.load(source_id, protocol=protocol)
         validate_card(card)
@@ -903,10 +906,12 @@ async def management_source(services, protocol, source_id):
         raise SDKAccessError("Driver source belongs to another protocol")
     overlay = getattr(services.legacy, "_driver_management_grant", None)
     credential_card = card
-    credentials = AsyncCredentialStore(
-        workspace.workspace_dir / "credentials.yaml",
-    )
-    if overlay is not None:
+    if overlay is None:
+        credentials = await run_sync_io(
+            AsyncCredentialStore,
+            workspace.workspace_dir / "credentials.yaml",
+        )
+    else:
         if not isinstance(overlay, CredentialOverlayGrant):
             raise SDKAccessError("Invalid Driver management grant")
         if card != overlay.card:
