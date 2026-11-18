@@ -97,13 +97,13 @@ def test_reset_clears_counters(gate):
     state = gate._ensure_state()
     state.consecutive_hits = 5
     state.prompt = "some warning"
-    state.recorded_tool_call_ids.add(f"call-{state.consecutive_hits}")
+    state.recorded_calls[f"call-{state.consecutive_hits}"] = None
     state.history_dirty = True
     gate.reset_turn()
     state = gate._ensure_state()
     assert state.consecutive_hits == 0
     assert state.prompt == ""
-    assert state.recorded_tool_call_ids == set()
+    assert state.recorded_calls == {}
     assert state.history_dirty is False
 
 
