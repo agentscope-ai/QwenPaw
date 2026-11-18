@@ -9,6 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from qwenpaw.agents.tools.agent_management import (
+    _build_spawn_request_context,
+    build_agent_chat_request,
+)
 from qwenpaw.app import inbox_store, notification_store
 from qwenpaw.app.channels.console.channel import ConsoleChannel
 from qwenpaw.schemas import RunStatus
@@ -165,3 +169,81 @@ async def test_only_successful_console_turns_publish(ending, monkeypatch):
     if events:
         assert events[0][f"session_id"] == f"chat-1"
         assert events[0][f"agent_id"] == f"agent-a"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"started_by", f"expected"),
+    [
+        (f"user", 1),
+        (f"user_with_context", 1),
+        (f"spawn_subagent", 0),
+        (f"chat_with_agent", 0),
+    ],
+)
+async def test_turns_started_by_another_agent_do_not_publish(
+    started_by,
+    expected,
+    monkeypatch,
+):
+    channel = ConsoleChannel(
+        process=MagicMock(),
+        enabled=True,
+        bot_prefix=f"",
+    )
+    channel._workspace = SimpleNamespace(
+        agent_id=f"agent-b",
+        chat_manager=SimpleNamespace(
+            touch_chat_by_session=AsyncMock(
+                return_value=SimpleNamespace(id=f"chat-1"),
+            ),
+        ),
+    )
+    request_context = {
+        f"user": None,
+        f"user_with_context": {f"session_model": f"model-1"},
+        f"spawn_subagent": _build_spawn_request_context(f"agent-a"),
+        f"chat_with_agent": build_agent_chat_request(
+            f"agent-b",
+            f"hello",
+            from_agent=f"agent-a",
+        )[1][f"request_context"],
+    }[started_by]
+    request = SimpleNamespace(
+        session_id=f"session-1",
+        user_id=f"user-1",
+        channel=f"console",
+        channel_meta={},
+        input=[],
+        request_context=request_context,
+    )
+    response = SimpleNamespace(
+        object=f"response",
+        status=RunStatus.Completed,
+        type=f"response",
+        output=[],
+    )
+
+    async def process(_request):
+        yield response
+
+    monkeypatch.setattr(channel, f"_process", process)
+    monkeypatch.setattr(
+        channel,
+        f"_serialize_event_for_sse",
+        lambda *_: f"{{}}",
+    )
+    monkeypatch.setattr(channel, f"_clear_session_turn_usage", MagicMock())
+    monkeypatch.setattr(
+        channel,
+        f"_commit_turn_usage",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(channel, f"_on_response_cycle_end", AsyncMock())
+    monkeypatch.setattr(
+        channel,
+        f"_get_response_error_message",
+        lambda _: f"",
+    )
+    _ = [item async for item in channel.stream_one(request)]
+    assert len(notification_store.snapshot()) == expected
