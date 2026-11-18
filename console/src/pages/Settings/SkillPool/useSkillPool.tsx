@@ -1138,6 +1138,7 @@ export function useSkillPool() {
         ? t("skillPool.deleteBuiltinConfirm")
         : t("skillPool.deleteConfirm"),
       okText: t("common.delete"),
+      cancelText: t("common.cancel"),
       okType: "danger",
       onOk: async () => {
         await api.deleteSkillPoolSkill(skill.name);
