@@ -66,6 +66,9 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         self._stopped = False
         self._started = False
         self._start_task = None
+        self._reload_owner = None
+        self._reload_protocols = {}
+        self._reload_baseline = None
 
     @property
     def manager(self):
@@ -116,24 +119,32 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         self._started = True
 
     async def _initialize(self):
-        path = self.cards_dir / ".monitoring.json"
-        try:
-            metadata = json.loads(await asyncio.to_thread(path.read_text))
-            if metadata.get("version") == 1:
-                self._explicit_monitoring.update(
-                    item
-                    for item in metadata.get("protocols", [])
-                    if isinstance(item, str)
-                )
-        except FileNotFoundError:
-            pass
+        self._explicit_monitoring.update(await self._read_monitoring())
         self._monitoring.update(self._explicit_monitoring)
         if workspace_is_current(self._registry, self._workspace):
             await self.activate_registered_protocols()
 
+    async def _read_monitoring(self):
+        path = self.cards_dir / ".monitoring.json"
+        try:
+            metadata = json.loads(await asyncio.to_thread(path.read_text))
+            if metadata.get("version") == 1:
+                return {
+                    item
+                    for item in metadata.get("protocols", [])
+                    if isinstance(item, str)
+                }
+        except FileNotFoundError:
+            pass
+        return set()
+
     async def activate_registered_protocols(self):
         """Apply protocol intents after workspace publication commits."""
         self._guard()
+        await self._ensure_configured_protocols()
+        await self._project_protocols(self._registry._driver_protocols.copy())
+
+    async def _ensure_configured_protocols(self):
         # Compatibility consumers can create configured sources after the
         # global inventory. They use the same offline coordinator.
         if self._ensure_protocol:
@@ -149,18 +160,90 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                     continue
             for protocol in protocols:
                 await self._ensure_protocol(protocol)
-        for protocol, descriptor in tuple(
-            self._registry._driver_protocols.items(),
-        ):
+
+    async def _project_protocols(self, protocols, *, preparing=False):
+        for protocol, descriptor in protocols.items():
             if descriptor.projected:
                 await self._registry.projector.project_one(
                     self._workspace,
                     "driver_protocol",
                     protocol,
                     descriptor.owner.plugin_id,
+                    owned_start=preparing,
                 )
             else:
                 await self.activate_protocol(protocol)
+
+    def is_preparing_registration(self, descriptor):
+        protocol = descriptor.spec.protocol
+        return (
+            self._reload_owner is not None
+            and not self._stopped
+            and self._reload_owner()
+            and self._reload_protocols.get(protocol) is descriptor
+            and self._registry._driver_protocols.get(protocol) is descriptor
+            and self._available(protocol)
+            and self._registry.projector.start_allowed(
+                "driver_protocol",
+                protocol,
+                descriptor.owner.plugin_id,
+                self._workspace,
+            )
+        )
+
+    async def prepare_reload(self, owner):
+        """Build connections without publishing requests or polling edits."""
+        if not owner():
+            raise RuntimeError("Driver preparation is stale")
+        await self._ensure_configured_protocols()
+        self._reload_owner = owner
+        self._reload_protocols = self._registry._driver_protocols.copy()
+        await self._project_protocols(self._reload_protocols, preparing=True)
+
+    async def verify_reload_snapshot(self):
+        if await self._read_monitoring() != self._explicit_monitoring:
+            raise RuntimeError("Driver monitoring changed during reload")
+        if self._reload_baseline is not None:
+            watcher, snapshot = self._reload_baseline
+            if await watcher._snapshot() != snapshot:
+                raise RuntimeError(
+                    "Driver configuration changed during reload",
+                )
+
+    def check_reload(self):
+        if (
+            not self._reload_owner()
+            or self._reload_protocols != self._registry._driver_protocols
+        ):
+            raise RuntimeError("Driver preparation is stale")
+        if self._reload_baseline is None:
+            return
+        watcher, _ = self._reload_baseline
+        for protocol in watcher._protocols:
+            descriptor = self._reload_protocols[protocol]
+            descriptor.guard()
+            if (
+                not self.is_preparing_registration(descriptor)
+                or descriptor.plugin._instance.activity.blocked
+            ):
+                raise RuntimeError("Driver protocol is changing")
+
+    def commit_reload(self):
+        protocols = self._watch_protocols()
+        if protocols and self._reload_baseline is not None:
+            watcher, snapshot = self._reload_baseline
+            watcher._protocols = protocols
+            watcher.start_polling(
+                {
+                    path: state
+                    for path, state in snapshot.items()
+                    if path.split("/", 1)[0] in protocols
+                },
+            )
+            self._watcher = watcher
+        self._reload_baseline = None
+        self._reload_owner = None
+        self._reload_protocols = {}
 
     async def _migrate_legacy_config(self):
         """Convert confirmed raw usage only after host protocol activation.
@@ -287,20 +370,32 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 await coordinator.check_workspace(self._workspace)
 
     async def activate_protocol(self, protocol):
-        self._guard()
+        preparing = self._reload_owner is not None
+        if not preparing:
+            self._guard()
         await self._check_protocol_workspace(protocol)
         self._inactive.discard(protocol)
         if not self._available(protocol):
             return
+        if preparing and not self.is_preparing_registration(
+            self._reload_protocols[protocol],
+        ):
+            raise RuntimeError("Driver preparation is stale")
         if protocol == "mcp":
-            await self._migrate_legacy_config()
+            if preparing:
+                await run_async_to_completion(self._migrate_legacy_config())
+            else:
+                await self._migrate_legacy_config()
+        if preparing:
+            await self._prepare_watcher(protocol)
         if protocol not in self._monitoring and await self._configured_cards(
             protocol,
         ):
             self._monitoring.add(protocol)
         # Establish the baseline before reading the sources to activate. A
         # write during intent discovery must not be acknowledged without apply.
-        await self._reconcile_watcher()
+        if not preparing:
+            await self._reconcile_watcher()
         cards = (
             await self._configured_cards(protocol)
             if protocol in self._monitoring
@@ -309,25 +404,34 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         for card in cards:
             if card.enabled:
                 try:
-                    await self._refresh(card, ensure=False)
+                    if preparing:
+                        manager = await self._runtime(
+                            protocol,
+                            ensure=False,
+                            preparing=True,
+                        )
+                        await manager.refresh_driver(card.name)
+                    else:
+                        await self._refresh(card, ensure=False)
                 except Exception:
                     logger.warning(
                         "Could not start Driver %s",
                         card.name,
                         exc_info=True,
                     )
-        if protocol == "mcp":
+        if protocol == "mcp" and not preparing:
             sync = getattr(self._workspace, "sync_mcp_features", None)
             if sync is not None:
                 await sync(True)
 
     async def deactivate_protocol(self, protocol):
         self._inactive.add(protocol)
-        if protocol == "mcp":
+        if protocol == "mcp" and self._reload_owner is None:
             sync = getattr(self._workspace, "sync_mcp_features", None)
             if sync is not None:
                 await sync(False)
-        await self._reconcile_watcher()
+        if self._reload_owner is None:
+            await self._reconcile_watcher()
         pending = {
             task
             for task, protocols in self._operations.items()
@@ -340,50 +444,71 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             await self._manager.close_protocol(protocol)
             await self._reclaim()
 
+    def _watch_protocols(self):
+        return frozenset(
+            protocol
+            for protocol in self._monitoring
+            if not self._stopped and self._available(protocol)
+        )
+
+    async def _prepare_watcher(self, protocol):
+        # Record empty directories too: the live workspace can add a first
+        # source without triggering an agent config revision.
+        protocols = frozenset({protocol})
+        if self._reload_baseline is not None:
+            protocols |= self._reload_baseline[0]._protocols
+        watcher = DriverConfigWatcher(
+            self,
+            self.cards_dir,
+            protocols=protocols,
+        )
+        snapshot = await watcher._snapshot()
+        if self._reload_baseline is not None:
+            previous_watcher, previous = self._reload_baseline
+            self._merge_watcher_baseline(
+                snapshot,
+                previous,
+                previous_watcher._protocols,
+            )
+        self._reload_baseline = watcher, snapshot
+
+    @staticmethod
+    def _merge_watcher_baseline(snapshot, previous, retained_protocols):
+        # A change made during activation still needs to be applied.
+        for path in tuple(snapshot):
+            if path.split("/", 1)[0] in retained_protocols:
+                del snapshot[path]
+        snapshot.update(
+            (path, state)
+            for path, state in previous.items()
+            if path.split("/", 1)[0] in retained_protocols
+        )
+
     async def _reconcile_watcher(self):
         async with self._watch_lock:
-            protocols = frozenset(
-                protocol
-                for protocol in self._monitoring
-                if not self._stopped and self._available(protocol)
-            )
-            previous = {}
-            retained_protocols = frozenset()
-            if self._watcher is not None:
-                if self._watcher._protocols == protocols:
-                    return
-                retained_protocols = self._watcher._protocols & protocols
-                await self._watcher.stop()
-                previous = self._watcher._last_snapshot
-                self._watcher = None
+            protocols = self._watch_protocols()
+            previous = self._watcher
+            if previous is not None and previous._protocols == protocols:
+                return
+            watcher = None
             if protocols:
-                self._watcher = DriverConfigWatcher(
+                watcher = DriverConfigWatcher(
                     self,
                     self.cards_dir,
                     protocols=protocols,
                 )
-                await self._watcher.start()
-
-                # Changing the watched protocol set must not acknowledge an
-                # unapplied edit in an already monitored protocol.
-                def retained(path):
-                    return any(
-                        path.startswith(protocol + "/")
-                        for protocol in retained_protocols
+                snapshot = await watcher._snapshot()
+            if previous is not None:
+                await previous.stop()
+            if watcher is not None:
+                if previous is not None:
+                    self._merge_watcher_baseline(
+                        snapshot,
+                        previous._last_snapshot,
+                        previous._protocols & protocols,
                     )
-
-                self._watcher._last_snapshot = {
-                    **{
-                        path: state
-                        for path, state in self._watcher._last_snapshot.items()
-                        if not retained(path)
-                    },
-                    **{
-                        path: state
-                        for path, state in previous.items()
-                        if retained(path)
-                    },
-                }
+                watcher.start_polling(snapshot)
+            self._watcher = watcher
 
     @asynccontextmanager
     async def _operation(self, *owned_protocols):
@@ -400,15 +525,23 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 self._operations.pop(task, None)
             await self._reclaim()
 
-    async def _runtime(self, protocol, *, ensure=True):
+    def _guard_runtime(self, protocol, preparing):
+        if not preparing:
+            self._guard()
+        elif not self.is_preparing_registration(
+            self._reload_protocols[protocol],
+        ):
+            raise RuntimeError("Driver preparation is stale")
+
+    async def _runtime(self, protocol, *, ensure=True, preparing=False):
         await self._check_protocol_workspace(protocol)
         if not self._available(protocol) and ensure and self._ensure_protocol:
             await self._ensure_protocol(protocol)
-        self._guard()
+        self._guard_runtime(protocol, preparing)
         if not self._available(protocol):
             raise UnsupportedProtocolError(protocol)
         async with self._manager_lock:
-            self._guard()
+            self._guard_runtime(protocol, preparing)
             if self._manager is None:
                 from .approvals.driver_gate import QwenPawDriverApprovalGate
 
@@ -422,6 +555,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 self._manager,
                 self._registry,
                 self._workspace,
+                prepare=self.is_preparing_registration if preparing else None,
             )
             return self._manager
 
@@ -454,6 +588,9 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             await self._manager.shutdown_all()
             detach_driver_protocols(self._manager, self._registry)
             self._manager = None
+        self._reload_baseline = None
+        self._reload_owner = None
+        self._reload_protocols = {}
 
     async def _load(self, name):
         path = await self.card_store.stored_path(name)

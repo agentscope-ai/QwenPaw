@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 _OLD_WORKSPACE_TASK_WAIT_SECONDS = 60.0
 _OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS = 24 * 60
 _OLD_WORKSPACE_CLEANUP_RETRY_SECONDS = 5.0
+_DRIVER_RELOAD_PREPARE_TIMEOUT = 120.0
 
 
 class MultiAgentManager:
@@ -75,6 +76,7 @@ class MultiAgentManager:
         self._agent_stop_tasks: Dict[int, asyncio.Task] = {}
         self._unloaded_stop_tasks: Dict[str, asyncio.Task] = {}
         self._reloading_agents: Dict[str, int] = {}
+        self._driver_preparations: dict[str, asyncio.Task] = {}
         self._history_transition_agents: Set[str] = set()
         self._config_generations: Dict[str, int] = {}
         self._operation_locks: dict[str, asyncio.Lock] = {}
@@ -630,6 +632,9 @@ class MultiAgentManager:
     async def _activate_ready_workspace(self, workspace):
         """Release requests and scheduling at the same activation boundary."""
         await self._activate_workspace_drivers(workspace)
+        self._publish_workspace_ready(workspace)
+
+    def _publish_workspace_ready(self, workspace):
         future = self._workspace_startup_future(workspace)
         if future is not None and future.done():
             future.result()
@@ -711,11 +716,30 @@ class MultiAgentManager:
         old_instance,
         new_instance,
         agent_id,
+        *,
+        drivers_prepared=False,
     ):
         """Finish both sides of a committed swap before caller cancellation."""
         try:
+            if drivers_prepared:
+                await self._stop_old_config_watcher(old_instance, agent_id)
             await self._graceful_stop_old_instance(old_instance, agent_id)
-            await self._activate_ready_workspace(new_instance)
+            if not drivers_prepared:
+                await self._activate_ready_workspace(new_instance)
+            elif self.agents.get(agent_id) is new_instance:
+                try:
+                    from .mcp.feature_gate import is_mcp_ready
+
+                    if is_mcp_ready(
+                        workspace_id=agent_id,
+                        workspace=new_instance,
+                    ):
+                        await new_instance.sync_mcp_features(True)
+                except Exception:
+                    logger.warning(
+                        "Could not start MCP features after reload",
+                        exc_info=True,
+                    )
         except BaseException:
             self._fail_workspace_startup(new_instance)
             raise
@@ -956,6 +980,9 @@ class MultiAgentManager:
 
     async def stop_agent(self, agent_id: str) -> bool:
         instance = self.agents.get(agent_id)
+        if preparing := self._driver_preparations.get(agent_id):
+            self.note_agent_config_changed(agent_id)
+            preparing.cancel()
         self._fail_workspace_startup(instance)
         task = self._unloaded_stop_tasks.get(
             agent_id,
@@ -1151,6 +1178,23 @@ class MultiAgentManager:
             if not self._reloading_agents[agent_id]:
                 self._reloading_agents.pop(agent_id)
 
+    async def _run_driver_preparation(self, agent_id, operation, *args):
+        async def prepare():
+            async with asyncio.timeout(_DRIVER_RELOAD_PREPARE_TIMEOUT):
+                await operation(*args)
+
+        task = asyncio.create_task(
+            prepare(),
+            name=f"driver-prepare:{agent_id}",
+        )
+        self._driver_preparations[agent_id] = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            raise RuntimeError("Driver preparation was stopped") from None
+
     # One transaction keeps the candidate/old ownership rollback explicit.
     # pylint: disable=too-many-branches,too-many-statements,protected-access
     async def _reload_agent(self, agent_id: str) -> bool:
@@ -1244,6 +1288,7 @@ class MultiAgentManager:
             [ch.channel for ch in old_manager.channels] if old_manager else []
         )
         handoff = AsyncExitStack()
+        prepared_driver = None
         try:
             self._begin_workspace_startup(new_instance)
             reusable = await self._prepare_reload_candidate(
@@ -1254,6 +1299,25 @@ class MultiAgentManager:
 
             from ..plugins.registry import PluginRegistry
             from ..plugins.lifecycle import QuiescenceError
+            from .driver_runtime_service import LazyDriverService
+
+            def owns_preparation():
+                return (
+                    not self._closing
+                    and self.agents.get(agent_id) is old_instance
+                    and self._config_generations.get(agent_id, 0) == generation
+                    and agent_id not in self._uninstalling_agents
+                    and id(old_instance) not in self._agent_stop_tasks
+                )
+
+            driver = getattr(new_instance, "driver_manager", None)
+            if isinstance(driver, LazyDriverService):
+                await self._run_driver_preparation(
+                    agent_id,
+                    driver.prepare_reload,
+                    owns_preparation,
+                )
+                prepared_driver = driver
 
             if (
                 self.agents.get(agent_id) is not old_instance
@@ -1289,7 +1353,13 @@ class MultiAgentManager:
                 raise RuntimeError(
                     "Workspace config changed during channel handoff",
                 )
-            await self._stop_old_config_watcher(old_instance, agent_id)
+            if prepared_driver is not None:
+                await self._run_driver_preparation(
+                    agent_id,
+                    prepared_driver.verify_reload_snapshot,
+                )
+            else:
+                await self._stop_old_config_watcher(old_instance, agent_id)
 
             # Step 4: Atomic swap (minimal lock time). Do not await candidate
             # cleanup while holding this lock.
@@ -1302,9 +1372,11 @@ class MultiAgentManager:
                     discard_reason = "stopping"
                 elif agent_id not in self.agents:
                     discard_reason = "removed"
-                elif self._config_generations.get(agent_id, 0) != generation:
+                elif not owns_preparation():
                     discard_reason = "stale"
                 else:
+                    if prepared_driver is not None:
+                        prepared_driver.check_reload()
                     old_instance = self.agents[agent_id]
                     cron_manager = getattr(new_instance, "cron_manager", None)
                     if cron_manager is not None:
@@ -1316,6 +1388,9 @@ class MultiAgentManager:
                     self.agents[agent_id] = new_instance
                     self._retired_instances[id(old_instance)] = old_instance
                     candidate_committed = True
+                    if prepared_driver is not None:
+                        prepared_driver.commit_reload()
+                        self._publish_workspace_ready(new_instance)
         except BaseException as error:
             if candidate_committed:
                 self._fail_workspace_startup(new_instance)
@@ -1373,6 +1448,7 @@ class MultiAgentManager:
                     )
             finally:
                 self._history_transition_agents.discard(agent_id)
+                self._driver_preparations.pop(agent_id, None)
                 await handoff.aclose()
 
         logger.info(
@@ -1394,6 +1470,7 @@ class MultiAgentManager:
                     old_instance,
                     new_instance,
                     agent_id,
+                    drivers_prepared=prepared_driver is not None,
                 )
             except BaseException:
                 self._fail_workspace_startup(new_instance)

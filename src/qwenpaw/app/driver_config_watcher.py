@@ -46,7 +46,13 @@ class DriverConfigWatcher:
         """Take an initial snapshot and start the polling task."""
         if self._task is not None:
             return
-        self._last_snapshot = await self._snapshot()
+        self.start_polling(await self._snapshot())
+
+    def start_polling(self, snapshot: dict[str, tuple[str, float]]) -> None:
+        """Start from a baseline already captured by the workspace owner."""
+        if self._task is not None:
+            return
+        self._last_snapshot = snapshot
         self._task = asyncio.create_task(
             self._poll_loop(),
             name="driver_config_watcher",

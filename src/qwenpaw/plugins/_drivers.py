@@ -436,7 +436,11 @@ def register(context, spec):
         service = getattr(workspace, "driver_manager", None)
         if service is None or not hasattr(service, "activate_protocol"):
             return None
-        if not workspace_is_current(registry, workspace) or service._stopped:
+        preparing = getattr(service, "is_preparing_registration", None)
+        if service._stopped or (
+            not workspace_is_current(registry, workspace)
+            and not (preparing and preparing(descriptor))
+        ):
             return None
         try:
             with context._activation():
@@ -460,7 +464,7 @@ def register(context, spec):
     return handle
 
 
-def attach_driver_protocols(manager, registry, workspace):
+def attach_driver_protocols(manager, registry, workspace, *, prepare=None):
     """Attach current descriptors to a real manager for this workspace object.
 
     The lazy runtime calls this before building cards and after protocol
@@ -489,6 +493,7 @@ def attach_driver_protocols(manager, registry, workspace):
                 descriptor=descriptor,
                 workspace=workspace,
                 registry=registry,
+                prepare=prepare,
             )
 
         manager.register_handler_type(
@@ -510,7 +515,15 @@ def detach_driver_protocols(manager, registry):
 
 
 class SDKDriverHandler(DriverHandler):
-    def __init__(self, *args, descriptor, workspace, registry, **kwargs):
+    def __init__(
+        self,
+        *args,
+        descriptor,
+        workspace,
+        registry,
+        prepare=None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.descriptor, self.workspace, self.registry = (
             descriptor,
@@ -524,6 +537,8 @@ class SDKDriverHandler(DriverHandler):
         self.stopping = False
         self.closed = False
         self.metadata_revision = 0
+        self._prepare = prepare
+        self._opening = False
 
     def bind_source(self, manager, revision, session_scope):
         self.manager, self.revision, self.session_scope = (
@@ -535,7 +550,7 @@ class SDKDriverHandler(DriverHandler):
 
     def guard(self):
         self.descriptor.guard()
-        _workspace_guard(self.registry, self.workspace, allow_draining=True)
+        self._guard_workspace(allow_draining=True)
         if self.stopping or not self.manager.source_is_current(
             self.name,
             self.revision,
@@ -588,9 +603,25 @@ class SDKDriverHandler(DriverHandler):
     def invalidate(self):
         self.guard()
 
+    def _guard_workspace(self, *, allow_draining=False):
+        if not (
+            self._opening and self._prepare and self._prepare(self.descriptor)
+        ):
+            _workspace_guard(
+                self.registry,
+                self.workspace,
+                allow_draining=allow_draining,
+            )
+
     async def _setup(self):
-        # Only the current workspace may start a new connection.
-        _workspace_guard(self.registry, self.workspace)
+        self._opening = True
+        try:
+            self._guard_workspace()
+            await self._open()
+        finally:
+            self._opening = False
+
+    async def _open(self):
         plugin = self.descriptor.plugin
         with self.admission():
             self.scope = plugin.resources.child(

@@ -6,8 +6,22 @@
   "description": "Connect MCP servers and manage their OAuth authorization.",
   "author": "QwenPaw Team",
   "publish": true,
-  "qwenpaw_version": {"min": "2.3.1"},
-  "entry": {"backend": "plugin.py", "frontend": "frontend/dist/index.js"},
-  "capabilities": ["drivers", "apps"],
-  "sdk": {"version": "1.2.0", "capabilities": ["drivers", "apps"]}
+  "qwenpaw_version": {
+    "min": "2.3.0post1"
+  },
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "capabilities": [
+    "drivers",
+    "apps"
+  ],
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "drivers",
+      "apps"
+    ]
+  }
 }
