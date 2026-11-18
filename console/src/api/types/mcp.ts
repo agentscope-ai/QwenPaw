@@ -3,6 +3,7 @@
  */
 
 export interface MCPClientOAuthStatus {
+  can_revoke?: boolean;
   /** Whether a valid access token is present */
   authorized: boolean;
   /** Unix timestamp when the access token expires (0 = unknown) */

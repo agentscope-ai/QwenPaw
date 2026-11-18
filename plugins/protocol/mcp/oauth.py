@@ -78,7 +78,6 @@ class OAuthManagement:
             ("/oauth/start/{client_key:path}", "POST", self.start),
             ("/oauth/callback", "POST", self.callback),
             ("/oauth/status/{client_key:path}", "GET", self.status),
-            ("/oauth/{client_key:path}", "DELETE", self.revoke),
         ):
             app.route(path, methods=(method,))(handler)
         return app
@@ -268,20 +267,3 @@ class OAuthManagement:
                 "expires_at": expiry,
                 "scope": str(record.public.get("scope") or ""),
             }
-
-    async def revoke(self, context, request):
-        async with context.driver_source(
-            "mcp",
-            request.path_params["client_key"],
-        ) as source:
-            record = await source.credentials.resolve("oauth")
-            sensitive = dict(record.secrets)
-            sensitive.pop("access_token", None)
-            sensitive.pop("refresh_token", None)
-            await source.credentials.update(
-                "oauth",
-                expected_revision=record.revision,
-                public=record.public,
-                secrets=sensitive,
-            )
-        return {"message": "OAuth tokens cleared"}

@@ -126,6 +126,11 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
   // Capture before any type narrowing caused by isAuthorized/isExpired guards
   const isRevoking = phase === "revoking";
+  const canRevoke =
+    isAuthorized ||
+    isExpired ||
+    isRevoking ||
+    (!isNewClient && currentOAuthStatus?.can_revoke);
 
   const handleStartOAuth = useCallback(async () => {
     if (!url.trim()) {
@@ -173,6 +178,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
   const handleRevoke = useCallback(async () => {
     if (!clientKey) return;
+    setErrorMsg("");
     setPhase("revoking");
     try {
       await api.revokeOAuth(clientKey);
@@ -180,8 +186,9 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       onAuthChanged?.();
     } catch {
       setPhase("idle");
+      setErrorMsg(t("mcp.oauth.failed"));
     }
-  }, [clientKey, onAuthChanged]);
+  }, [clientKey, onAuthChanged, t]);
 
   if (!oauthEnabled) {
     return null;
@@ -224,7 +231,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         )}
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {(isAuthorized || isExpired) && clientKey && (
+          {canRevoke && clientKey && (
             <Button size="small" onClick={handleRevoke} loading={isRevoking}>
               <span
                 style={{ display: "inline-flex", alignItems: "center", gap: 4 }}

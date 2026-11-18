@@ -8,6 +8,7 @@ Storage uses the same single-process locks as ordinary configuration writers.
 
 # pylint: disable=protected-access
 from collections.abc import Callable, Collection, Mapping
+from dataclasses import replace
 
 from .contracts import DriverCard, iter_credential_refs
 from .credentials.store import AsyncCredentialStore
@@ -22,6 +23,10 @@ from .storage import (
 from ..utils.io_utils import run_sync_io
 
 
+class CredentialCleanupError(RuntimeError):
+    """The card was committed but retiring its secrets failed."""
+
+
 async def commit_credential_binding(
     card_store: AsyncDriverCardStore,
     credential_store: AsyncCredentialStore,
@@ -31,6 +36,8 @@ async def commit_credential_binding(
     candidate_card: DriverCard,
     candidate_record: CredentialRecord | None,
     guard: Callable[[], None],
+    clear_secrets: Mapping[str, Collection[str]] | None = None,
+    require_unshared: Collection[str] = (),
 ) -> None:
     """Reject stale owners and publish a new record without overwriting."""
     previous = (
@@ -76,13 +83,42 @@ async def commit_credential_binding(
                 != expected_card
             ):
                 raise DriverCardError("Driver source changed")
+            retiring = {}
             for ref, expected in expected_credentials.items():
                 try:
-                    _, revision = credential_store.get_versioned_sync(ref)
+                    record, revision = credential_store.get_versioned_sync(ref)
                 except CredentialNotFoundError:
-                    revision = None
+                    record, revision = None, None
                 if revision != expected:
                     raise DriverCardError("Driver credential changed")
+                fields = clear_secrets.get(ref, ()) if clear_secrets else ()
+                if record is not None and record.secrets.keys() & set(fields):
+                    retiring[ref] = replace(
+                        record,
+                        secrets={
+                            key: value
+                            for key, value in record.secrets.items()
+                            if key not in fields
+                        },
+                    )
+            if retiring:
+                referenced = {ref.ref for ref in bindings}
+                current_path = card_store.path_for(
+                    candidate_card.name,
+                    protocol=candidate_card.protocol,
+                )
+                referenced.update(
+                    _referenced_credentials(card_store, skip=current_path),
+                )
+                if referenced.intersection(retiring, require_unshared):
+                    raise DriverCardError(
+                        "Credential is shared by another source",
+                    )
+                retiring = {
+                    ref: record
+                    for ref, record in retiring.items()
+                    if ref not in referenced
+                }
             if (
                 candidate_record is not None
                 and not credential_store.put_if_absent_sync(candidate_record)
@@ -92,7 +128,7 @@ async def commit_credential_binding(
             if expected_card is None:
                 if not card_store._save_if_absent_sync(candidate_card):
                     raise DriverCardError("Driver source already exists")
-            else:
+            elif clear_secrets is None or candidate_card != expected_card:
                 dump_card(
                     candidate_card,
                     card_store.path_for(
@@ -100,6 +136,16 @@ async def commit_credential_binding(
                         protocol=candidate_card.protocol,
                     ),
                 )
+            try:
+                for ref, record in retiring.items():
+                    if record.secrets:
+                        credential_store.put_sync(record)
+                    else:
+                        credential_store.delete_sync(ref)
+            except Exception as exc:
+                raise CredentialCleanupError(
+                    "Could not clear credential secrets",
+                ) from exc
 
     # A cancelled caller cannot clean up while this worker is still writing.
     await run_sync_io(commit)
@@ -118,11 +164,7 @@ async def cleanup_credential_candidates(
 
     def cleanup():
         with card_store._lock, credential_store._lock:
-            referenced = {
-                ref.ref
-                for path in list_card_paths(card_store.cards_dir)
-                for ref in iter_credential_refs(load_card(path)).values()
-            }
+            referenced = _referenced_credentials(card_store)
             referenced.update(retained_refs)
             for ref in credential_store.list_refs_sync():
                 record = credential_store.get_sync(ref)
@@ -137,3 +179,12 @@ async def cleanup_credential_candidates(
                     credential_store.delete_sync(ref)
 
     await run_sync_io(cleanup)
+
+
+def _referenced_credentials(card_store, *, skip=None):
+    return {
+        ref.ref
+        for path in list_card_paths(card_store.cards_dir)
+        if path != skip
+        for ref in iter_credential_refs(load_card(path)).values()
+    }

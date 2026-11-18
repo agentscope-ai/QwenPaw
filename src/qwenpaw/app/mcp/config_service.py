@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -33,10 +34,13 @@ from ...drivers.adapters.mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
 )
+from ...drivers.adapters.mcp_card_builder import (
+    OAUTH_TOKEN_FIELDS,
+    mcp_oauth_alias,
+)
 from ...drivers.capabilities import mcp_tool_is_enabled, mcp_tool_whitelist
 from ...drivers.constants import (
     CAPABILITY_KIND_TOOL,
-    CREDENTIAL_ALIAS_OAUTH,
     CREDENTIAL_ALIAS_STATIC,
     CREDENTIAL_KIND_OAUTH_AUTH_CODE,
     CREDENTIAL_KIND_STATIC,
@@ -55,6 +59,7 @@ from ...drivers.contracts import (
     iter_credential_refs,
 )
 from ...drivers.credential_commit import (
+    CredentialCleanupError,
     commit_credential_binding,
     cleanup_credential_candidates,
 )
@@ -67,6 +72,7 @@ from ...drivers.policy_types import (
     PolicyRule,
     PolicyTarget,
 )
+from .oauth_pending import CANDIDATE_OWNER
 
 logger = logging.getLogger(__name__)
 _CREDENTIAL_OWNER = "mcp-config-static"
@@ -112,21 +118,21 @@ class MCPConfigService:
             if static_ref is not None
             else None
         )
-        oauth_ref = _credential_ref_by_alias_or_kind(
-            credentials,
-            alias=CREDENTIAL_ALIAS_OAUTH,
-            kind=CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+        oauth_credential, can_revoke = await saved_oauth_records(
+            self._driver_config,
+            card,
         )
-        oauth_credential = await self._driver_config.load_optional_credential(
-            (
-                oauth_ref.ref
-                if oauth_ref is not None
-                else mcp_oauth_credential_ref(card.name)
-            ),
+        payload = build_mcp_client_info_payload(
+            card,
+            credential,
+            oauth_credential,
         )
-        return MCPClientInfo.model_validate(
-            build_mcp_client_info_payload(card, credential, oauth_credential),
-        )
+        if can_revoke:
+            payload["oauth_status"] = {
+                **(payload["oauth_status"] or {}),
+                "can_revoke": True,
+            }
+        return MCPClientInfo.model_validate(payload)
 
     async def list_clients(self) -> list[MCPClientInfo]:
         return list(
@@ -321,7 +327,7 @@ class MCPConfigService:
 
         credential = build_mcp_credential_record(client_key, client)
         credential = (
-            self._versioned_credential(credential, client_key)
+            versioned_static_credential(credential, client_key)
             if credential.secrets
             else None
         )
@@ -399,7 +405,7 @@ class MCPConfigService:
             or credential.public != existing_credential.public
             or _credential_context(card) != _credential_context(existing_card)
         ):
-            credential = self._versioned_credential(credential, client_key)
+            credential = versioned_static_credential(credential, client_key)
             card = replace(
                 card,
                 credentials={
@@ -412,26 +418,27 @@ class MCPConfigService:
             )
         else:
             credential = None
+        clear_secrets = None
+        if (
+            any(
+                name.lower() == "authorization"
+                for name in (updates.headers or {})
+            )
+            and mcp_oauth_alias(card) is None
+        ):
+            clear_secrets = await oauth_secrets_to_clear(
+                self._driver_config,
+                existing_card,
+                expected,
+            )
         await self._commit_client(
             card,
             credential,
             previous=existing_card,
             expected=expected,
+            clear_secrets=clear_secrets,
         )
         return await self.build_info_from_card(card)
-
-    @staticmethod
-    def _versioned_credential(record, client_key):
-        return replace(
-            record,
-            ref=f"{mcp_credential_ref(client_key)}/static/{uuid4().hex}",
-            meta={
-                **record.meta,
-                "candidate_owner": _CREDENTIAL_OWNER,
-                "candidate_source": client_key,
-                "candidate_expires_at": time.time() + _CREDENTIAL_TTL,
-            },
-        )
 
     async def _commit_client(
         self,
@@ -441,6 +448,7 @@ class MCPConfigService:
         previous,
         expected,
         reload_driver=True,
+        clear_secrets=None,
     ):
         from .oauth_bridge import _workspace_commit_lock
 
@@ -467,6 +475,7 @@ class MCPConfigService:
             if directory.resolve() != self._workspace.workspace_dir.resolve():
                 raise DriverCardError("MCP workspace directory changed")
 
+        cleanup_failure = None
         async with _workspace_commit_lock(manager):
             try:
                 await commit_credential_binding(
@@ -477,7 +486,10 @@ class MCPConfigService:
                     candidate_card=card,
                     candidate_record=record,
                     guard=guard,
+                    clear_secrets=clear_secrets,
                 )
+            except CredentialCleanupError as exc:
+                cleanup_failure = exc
             except DriverCardError as exc:
                 raise HTTPException(
                     409,
@@ -489,6 +501,11 @@ class MCPConfigService:
                 await self._driver_config.reload_driver_best_effort(card.name)
         except Exception:
             logger.warning("MCP configuration saved; runtime refresh deferred")
+        if cleanup_failure is not None:
+            raise HTTPException(
+                500,
+                "MCP configuration saved, but OAuth tokens could not be cleared",
+            ) from cleanup_failure
 
     async def _cleanup_credentials(self, discarded_refs=()):
         store = self._driver_config.credential_store
@@ -531,6 +548,68 @@ class MCPConfigService:
         return {
             "message": f"MCP client '{client_key}' deleted successfully",
         }
+
+
+def versioned_static_credential(record, client_key):
+    return replace(
+        record,
+        ref=f"{mcp_credential_ref(client_key)}/static/{uuid4().hex}",
+        meta={
+            **record.meta,
+            "candidate_owner": _CREDENTIAL_OWNER,
+            "candidate_source": client_key,
+            "candidate_expires_at": time.time() + _CREDENTIAL_TTL,
+        },
+    )
+
+
+async def saved_oauth_records(service, card):
+    """Read the current binding and whether Console can clear saved tokens."""
+    alias = mcp_oauth_alias(card)
+    if alias is not None:
+        return (
+            await service.load_optional_credential(
+                card.credentials[alias].ref,
+            ),
+            True,
+        )
+    legacy = await service.load_optional_credential(
+        mcp_oauth_credential_ref(card.name),
+    )
+    return None, (
+        legacy is not None
+        and legacy.kind == CREDENTIAL_KIND_OAUTH_AUTH_CODE
+        and bool(OAUTH_TOKEN_FIELDS.intersection(legacy.secrets))
+    )
+
+
+async def oauth_secrets_to_clear(service, card, expected):
+    """Snapshot only bound OAuth records and this client's owned leftovers."""
+    alias = mcp_oauth_alias(card)
+    bound_ref = card.credentials[alias].ref if alias else None
+    legacy = mcp_oauth_credential_ref(card.name)
+    refs = {legacy, bound_ref} - {None}
+    store = service.credential_store
+    prefix = legacy + "/"
+    refs.update(
+        ref
+        for ref in await store.list_refs()
+        if ref.startswith(prefix)
+        and re.fullmatch(r"[0-9a-f]{32}", ref[len(prefix) :])
+    )
+    clear = {}
+    for ref in sorted(refs):
+        try:
+            record, revision = await store.get_versioned(ref)
+        except CredentialNotFoundError:
+            continue
+        if record.kind == CREDENTIAL_KIND_OAUTH_AUTH_CODE and (
+            ref in {bound_ref, legacy}
+            or record.meta.get("candidate_owner") == CANDIDATE_OWNER
+        ):
+            expected.setdefault(ref, revision)
+            clear[ref] = OAUTH_TOKEN_FIELDS
+    return clear
 
 
 def _credential_context(card):

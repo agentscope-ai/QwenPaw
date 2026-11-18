@@ -54,6 +54,7 @@ class OAuthStatusResponse(BaseModel):
     authorized: bool
     expires_at: float
     scope: str
+    can_revoke: bool | None = None
     attempt_status: Optional[
         Literal["pending", "succeeded", "failed", "expired"]
     ] = None

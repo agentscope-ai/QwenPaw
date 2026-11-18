@@ -7,7 +7,7 @@ import asyncio
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -16,13 +16,23 @@ from ...drivers.adapters.mcp_console import (
     attach_mcp_oauth_credential,
     mcp_oauth_credential_ref,
 )
+from ...drivers.adapters.mcp_card_builder import (
+    detach_mcp_oauth_credential,
+    mcp_oauth_alias,
+)
+from ...drivers.constants import (
+    CREDENTIAL_ALIAS_STATIC,
+    CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+    CREDENTIAL_KIND_STATIC,
+)
 from ...drivers.credentials.types import CredentialRecord
 from ...drivers.credential_commit import (
+    CredentialCleanupError,
     commit_credential_binding,
     cleanup_credential_candidates,
 )
 from ...drivers.errors import CredentialNotFoundError, DriverCardError
-from ...drivers.contracts import iter_credential_refs
+from ...drivers.contracts import CredentialRef, iter_credential_refs
 from ...plugins._driver_management import CredentialOverlayGrant
 from ...pawapp.context import PawAppContext
 from ...plugins.apps import HttpRequest
@@ -30,6 +40,11 @@ from ...plugins.errors import SDKAccessError, StaleContextError
 from ...plugins._drivers import _instance_id, _revision, workspace_is_current
 from ..driver_config_service import DriverConfigService
 from ...utils.io_utils import run_async_to_completion, run_sync_io
+from .config_service import (
+    oauth_secrets_to_clear,
+    saved_oauth_records,
+    versioned_static_credential,
+)
 from .oauth_pending import (
     PendingAuthorization,
     attempts,
@@ -150,10 +165,9 @@ async def start(request, client_key, body):
         )
     except Exception:
         logger.warning("Deferred MCP OAuth candidate cleanup")
-    alias = card.credentials.get("oauth")
-    old_ref = alias.ref if alias else mcp_oauth_credential_ref(client_key)
+    alias = mcp_oauth_alias(card)
+    old_ref = card.credentials[alias].ref if alias else None
     refs = {item.ref for item in iter_credential_refs(card).values()}
-    refs.add(old_ref)
     expected = {}
     existing = None
     for ref in refs:
@@ -297,41 +311,28 @@ async def _callback(request, body, grant, attempt):
             raise StaleContextError("OAuth source changed")
 
     async def publish():
-        async with _workspace_commit_lock(manager):
-            # Retain custody through publication and status update.
-            with (
-                # pylint: disable-next=protected-access
-                dispatcher.plugin._admission(),
-            ):
-                # Publication and its terminal status share one owner. Plugin
-                # interruption must drain it like an SDK terminal callback.
-                # pylint: disable-next=protected-access
-                dispatcher.plugin._instance.activity.retain_cleanup(
-                    asyncio.current_task(),
+        async with _oauth_publication(manager, dispatcher):
+            try:
+                await commit_credential_binding(
+                    service.card_store,
+                    service.credential_store,
+                    expected_card=attempt.overlay.card,
+                    expected_credentials=attempt.expected_credentials,
+                    candidate_card=attach_mcp_oauth_credential(
+                        card,
+                        record.ref,
+                    ),
+                    candidate_record=record,
+                    guard=guard,
                 )
-                try:
-                    await commit_credential_binding(
-                        service.card_store,
-                        service.credential_store,
-                        expected_card=attempt.overlay.card,
-                        expected_credentials=attempt.expected_credentials,
-                        candidate_card=attach_mcp_oauth_credential(
-                            card,
-                            record.ref,
-                        ),
-                        candidate_record=record,
-                        guard=guard,
-                    )
-                except DriverCardError as exc:
-                    raise HTTPException(409, "OAuth source changed") from exc
-                except (StaleContextError, SDKAccessError) as exc:
-                    raise HTTPException(409, "OAuth source changed") from exc
-                except Exception as exc:
-                    raise HTTPException(
-                        400,
-                        "OAuth credentials could not be saved",
-                    ) from exc
-                attempt.finish("succeeded", time.monotonic())
+            except (DriverCardError, StaleContextError, SDKAccessError) as exc:
+                raise HTTPException(409, "OAuth source changed") from exc
+            except Exception as exc:
+                raise HTTPException(
+                    400,
+                    "OAuth credentials could not be saved",
+                ) from exc
+            attempt.finish("succeeded", time.monotonic())
         await service.reload_driver_best_effort(grant.client_key)
 
     await run_async_to_completion(publish())
@@ -347,6 +348,19 @@ async def _workspace_commit_lock(manager):
             yield
     else:
         yield
+
+
+@asynccontextmanager
+async def _oauth_publication(manager, dispatcher):
+    # Plugin interruption must drain publication and its terminal status.
+    async with _workspace_commit_lock(manager):
+        # pylint: disable-next=protected-access
+        with dispatcher.plugin._admission():
+            # pylint: disable-next=protected-access
+            dispatcher.plugin._instance.activity.retain_cleanup(
+                asyncio.current_task(),
+            )
+            yield
 
 
 async def callback(request, body):
@@ -369,18 +383,141 @@ async def callback(request, body):
 
 
 async def revoke(request, client_key):
-    dispatcher, identity, workspace, card = await _prepare(request, client_key)
-    if "oauth" not in card.credentials:
-        return {"message": "OAuth tokens cleared"}
-    result = await _call(
-        dispatcher,
-        identity,
-        "DELETE",
-        "/oauth/{client_key:path}",
-        client_key,
+    dispatcher, _, workspace, card = await _prepare(request, client_key)
+    state = request.app.state
+    manager = state.multi_agent_manager
+    registry = state.plugin_registry
+    service = DriverConfigService(workspace)
+    expected = {}
+    clear_secrets = await oauth_secrets_to_clear(service, card, expected)
+    candidate, remainder = await _detach_oauth(service, card, expected)
+
+    def guard():
+        from ...config.utils import load_config
+
+        dispatcher.plugin._guard()  # pylint: disable=protected-access
+        protocol = registry.describe_driver_protocol("mcp")
+        profile = load_config().agents.profiles.get(workspace.agent_id)
+        if (
+            protocol is None
+            or not protocol.active
+            or protocol.plugin_id != dispatcher.app_id
+            or protocol.generation != dispatcher.generation
+            or not dispatcher.admitted()
+            or not workspace_is_current(registry, workspace)
+            or getattr(manager, "_closing", False)
+            or id(workspace) in getattr(manager, "_agent_stop_tasks", {})
+            or workspace.agent_id
+            in getattr(manager, "_uninstalling_agents", ())
+            or profile is None
+            or not profile.enabled
+        ):
+            raise StaleContextError("OAuth source changed")
+
+    async def publish():
+        cleanup_failure = None
+        async with _oauth_publication(manager, dispatcher):
+            try:
+                await commit_credential_binding(
+                    service.card_store,
+                    service.credential_store,
+                    expected_card=card,
+                    expected_credentials=expected,
+                    candidate_card=candidate,
+                    candidate_record=remainder,
+                    guard=guard,
+                    clear_secrets=clear_secrets,
+                    require_unshared={
+                        mcp_oauth_credential_ref(client_key),
+                        *(ref.ref for ref in card.credentials.values()),
+                    },
+                )
+            except CredentialCleanupError as exc:
+                cleanup_failure = exc
+            except (DriverCardError, StaleContextError, SDKAccessError) as exc:
+                raise HTTPException(
+                    409,
+                    "OAuth source changed or the credential is shared",
+                ) from exc
+            grants = _ledger(request)
+            for key, attempt in attempts(request).items():
+                overlay = attempt.overlay
+                if (
+                    attempt.phase == "pending"
+                    and overlay.workspace_id == workspace.agent_id
+                    and overlay.card.name == client_key
+                ):
+                    attempt.finish("failed", time.monotonic())
+                    grants.pop(key, None)
+        if candidate != card:
+            await service.reload_driver_best_effort(client_key)
+        if cleanup_failure:
+            raise HTTPException(
+                500,
+                "OAuth tokens could not be cleared; retry revoke",
+            ) from cleanup_failure
+
+    await run_async_to_completion(publish())
+    return {"message": "OAuth tokens cleared"}
+
+
+async def _detach_oauth(service, card, expected):
+    alias = mcp_oauth_alias(card)
+    if alias is None:
+        if any(
+            ref.kind == CREDENTIAL_KIND_OAUTH_AUTH_CODE
+            for ref in card.credentials.values()
+        ):
+            raise HTTPException(409, "OAuth source has ambiguous bindings")
+        return card, None
+    # Legacy cards can reference unrelated secrets from the OAuth record.
+    remainder_alias = (
+        CREDENTIAL_ALIAS_STATIC
+        if CREDENTIAL_ALIAS_STATIC not in card.credentials
+        else f"static-{uuid4().hex}"
     )
-    await DriverConfigService(workspace).reload_driver_best_effort(client_key)
-    return result
+    candidate = detach_mcp_oauth_credential(
+        card,
+        alias,
+        remainder_alias=remainder_alias,
+    )
+    fields = {
+        spec["field"]
+        for section in ("headers", "env")
+        for spec in (candidate.endpoint.get(section) or {}).values()
+        if isinstance(spec, dict) and spec.get("credential") == remainder_alias
+    }
+    if not fields:
+        return candidate, None
+    ref = card.credentials[alias].ref
+    try:
+        record, revision = await service.credential_store.get_versioned(ref)
+    except CredentialNotFoundError as exc:
+        raise HTTPException(409, "OAuth credential is missing") from exc
+    if expected.setdefault(ref, revision) != revision:
+        raise HTTPException(409, "OAuth credential changed")
+    remainder = versioned_static_credential(
+        CredentialRecord(
+            ref="",
+            kind=CREDENTIAL_KIND_STATIC,
+            secrets={
+                field: record.secrets[field]
+                for field in fields
+                if field in record.secrets
+            },
+        ),
+        card.name,
+    )
+    return (
+        replace(
+            candidate,
+            credentials={
+                **candidate.credentials,
+                remainder_alias: CredentialRef(remainder.kind, remainder.ref),
+            },
+        ),
+        remainder,
+    )
 
 
 async def saved_status(request, client_key, session_id=None):
@@ -389,14 +526,7 @@ async def saved_status(request, client_key, session_id=None):
     workspace = await configuration_workspace(request)
     service = DriverConfigService(workspace)
     card = await service.load_card(client_key, protocol="mcp")
-    refs = iter_credential_refs(card)
-    alias = refs.get("oauth") or next(
-        (item for item in refs.values() if item.kind == "oauth2_auth_code"),
-        None,
-    )
-    record = await service.load_optional_credential(
-        alias.ref if alias else mcp_oauth_credential_ref(client_key),
-    )
+    record, can_revoke = await saved_oauth_records(service, card)
     result = {"authorized": False, "expires_at": 0.0, "scope": ""}
     if record is not None and record.secrets.get("access_token"):
         expiry = float(record.public.get("expires_at") or 0)
@@ -405,6 +535,8 @@ async def saved_status(request, client_key, session_id=None):
             "expires_at": expiry,
             "scope": str(record.public.get("scope") or ""),
         }
+    if can_revoke:
+        result["can_revoke"] = True
     if session_id is not None:
         _ledger(request)
         attempt = attempts(request).get(session_id)
