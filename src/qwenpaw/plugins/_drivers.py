@@ -444,7 +444,11 @@ def register(context, spec):
             return None
         try:
             with context._activation():
-                await service.activate_protocol(spec.protocol)
+                # Lifecycle activation grants admission to this task only.
+                await service.activate_protocol(
+                    spec.protocol,
+                    allow_parallel=not context._instance.activity.blocked,
+                )
         except BaseException as exc:
             exc.binding = service
             raise

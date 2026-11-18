@@ -7,7 +7,7 @@
   "author": "QwenPaw Team",
   "publish": true,
   "qwenpaw_version": {
-    "min": "2.3.0post1"
+    "min": "2.3.1"
   },
   "entry": {
     "backend": "plugin.py",

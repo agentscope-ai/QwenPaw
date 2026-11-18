@@ -37,6 +37,8 @@ from .mcp_plugin_migration import (
 
 logger = logging.getLogger(__name__)
 
+_MCP_STARTUP_CONCURRENCY = 4
+
 
 class LazyDriverService:  # pylint: disable=too-many-public-methods
     """Own one workspace's optional runtime and conditional config watcher."""
@@ -376,7 +378,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             if coordinator is not None:
                 await coordinator.check_workspace(self._workspace)
 
-    async def activate_protocol(self, protocol):
+    async def activate_protocol(self, protocol, *, allow_parallel=False):
         preparing = self._reload_owner is not None
         if not preparing:
             self._guard()
@@ -408,24 +410,47 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             if protocol in self._monitoring
             else []
         )
-        for card in cards:
-            if card.enabled:
-                try:
-                    if preparing:
-                        manager = await self._runtime(
-                            protocol,
-                            ensure=False,
-                            preparing=True,
-                        )
-                        await manager.refresh_driver(card.name)
-                    else:
-                        await self._refresh(card, ensure=False)
-                except Exception:
-                    logger.warning(
-                        "Could not start Driver %s",
-                        card.name,
-                        exc_info=True,
+        cards = [card for card in cards if card.enabled]
+
+        async def start_source(card):
+            try:
+                if preparing:
+                    manager = await self._runtime(
+                        protocol,
+                        ensure=False,
+                        preparing=True,
                     )
+                    await manager.refresh_driver(card.name)
+                else:
+                    await self._refresh(card, ensure=False)
+            except Exception:
+                logger.warning(
+                    "Could not start Driver %s",
+                    card.name,
+                    exc_info=True,
+                )
+
+        if protocol == "mcp" and allow_parallel and len(cards) > 1:
+            limit = asyncio.Semaphore(_MCP_STARTUP_CONCURRENCY)
+            # Multiple card files may resolve to the same runtime source.
+            sources = {card.name: card for card in cards}
+
+            async def start_limited(card):
+                async with limit:
+                    await start_source(card)
+
+            async with asyncio.TaskGroup() as group:
+                tasks = [
+                    group.create_task(start_limited(card))
+                    for card in sources.values()
+                ]
+                # A source cancellation must still abort activation, including
+                # sources queued for a slot.
+                await asyncio.gather(*tasks)
+        else:
+            for card in cards:
+                await start_source(card)
+
         if protocol == "mcp" and not preparing:
             sync = getattr(self._workspace, "sync_mcp_features", None)
             if sync is not None:
