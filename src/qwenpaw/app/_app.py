@@ -902,10 +902,21 @@ def _resolve_console_static_dir() -> str:
 
 
 _CONSOLE_STATIC_DIR = _resolve_console_static_dir()
-_CONSOLE_INDEX = (
-    Path(_CONSOLE_STATIC_DIR) / "index.html" if _CONSOLE_STATIC_DIR else None
-)
+_console_path = Path(_CONSOLE_STATIC_DIR)
+_CONSOLE_INDEX = _console_path / "index.html" if _CONSOLE_STATIC_DIR else None
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
+
+
+# Match health probes and Console bundles before the general API routers.
+# FastAPI can build validation metadata when it first visits an API router.
+app.include_router(healthz_router, prefix="/api")
+_assets_dir = _console_path / "assets"
+if _assets_dir.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(_assets_dir)),
+        name="assets",
+    )
 
 # The SPA entry (index.html) must never be cached: it references content-hashed
 # JS/CSS bundles, so a stale cached index.html would keep pointing the WebView
@@ -978,8 +989,6 @@ app.include_router(browser_chrome_ws_router, prefix="/api")
 app.include_router(browser_chrome_status_router, prefix="/api")
 register_builtin_control_links()
 
-app.include_router(healthz_router, prefix="/api")
-
 app.include_router(tool_calls_router, prefix="/api")
 
 # Approval router: /api/approval/approve, /api/approval/deny, etc.
@@ -1003,10 +1012,8 @@ app.include_router(agent_scoped_router, prefix="/api")
 app.include_router(voice_router, tags=["voice"])
 
 
-# Console static files and SPA fallback
-# Register these AFTER API routes to ensure proper routing priority
+# Keep the Console SPA fallback after the API routes.
 if os.path.isdir(_CONSOLE_STATIC_DIR):
-    _console_path = Path(_CONSOLE_STATIC_DIR)
     _console_static = StaticFiles(
         directory=str(_console_path),
         check_dir=False,
@@ -1020,14 +1027,6 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
             )
 
         raise HTTPException(status_code=404, detail="Not Found")
-
-    _assets_dir = _console_path / "assets"
-    if _assets_dir.is_dir():
-        app.mount(
-            "/assets",
-            StaticFiles(directory=str(_assets_dir)),
-            name="assets",
-        )
 
     @app.get("/console")
     @app.get("/console/")
