@@ -21,7 +21,6 @@ from typing import Any
 
 # pylint: disable=no-name-in-module
 from utils.logger import setup_logger
-from services.media_files import media_gate
 from services.media_files.motion_blueprints import subtitle_pack_typography
 from services.media_files.motion_templates import (
     DEFAULT_CAPTION_LOCATION,
@@ -566,7 +565,7 @@ def _composite_overlay(
         str(output_path),
     ]
     try:
-        result = media_gate.run(
+        result = subprocess.run(
             command,
             # Detach stdin so ffmpeg is not suspended by SIGTTIN when it
             # reads the tty from a background process group.

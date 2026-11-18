@@ -27,9 +27,6 @@ import i18n from "@/i18n";
 
 const conversationRetryIds = new Map<string, string>();
 
-/** Events kept in memory by `ingestEvents`; older ones are dropped. */
-const EVENT_WINDOW = 500;
-
 async function createStableConversation(projectId: string) {
   const requestId =
     conversationRetryIds.get(projectId) ?? newClientId("conversation");
@@ -208,13 +205,6 @@ interface CreatorSessionState {
   connectionState: CreatorConnectionState;
   stopping: boolean;
   isReplaying: boolean;
-  /**
-   * The durable head the current replay was asked to reach. Read-only
-   * companion to `isReplaying`: consumers need to tell "still replaying"
-   * apart from "replayed past the boundary but the flag has not been
-   * cleared yet", and only the latter is a stale label.
-   */
-  replayUntilSeq: number;
   error: string | null;
   stream: CreatorEventStream | null;
   rateLimitRetry: RateLimitRetryState | null;
@@ -452,7 +442,6 @@ function defaultState() {
     connectionState: "disconnected" as CreatorConnectionState,
     stopping: false,
     isReplaying: false,
-    replayUntilSeq: 0,
     error: null,
     stream: null as CreatorEventStream | null,
     rateLimitRetry: null as RateLimitRetryState | null,
@@ -503,16 +492,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
         current.session?.lastEventSeq ?? 0,
       );
       if (response.session.lastEventSeq < currentEventSeq) return {};
-      const patch: Partial<CreatorSessionState> = {
-        session:
-          current.stopping &&
-          current.session?.status === "INTERRUPT_REQUESTED" &&
-          !["CANCELLED", "INTERRUPT_REQUESTED"].includes(
-            response.session.status,
-          )
-            ? { ...response.session, status: "INTERRUPT_REQUESTED" }
-            : response.session,
-      };
+      const patch: Partial<CreatorSessionState> = { session: response.session };
       const currentProgressSeq =
         current.agentStatusBar?.progress.sourceEventSeq ?? -1;
       if (
@@ -693,11 +673,19 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             return;
           // Mainline IDLE/ERROR does not settle detached specialist work.
           // Replay from the local cursor to rebuild its independent lifecycle.
-          // A first view has no local cursor, so it replays a bounded window
-          // off the durable head instead of the Project's whole event history.
-          const replayUntilHead = sessionResponse.session.lastEventSeq;
+          // Same-project reconnect resumes at the local cursor. First entry /
+          // project switch replays the whole event log: the durable session
+          // snapshot carries status, head pointers and the progress bar only —
+          // no terminal projection for `subagentActivities` or run
+          // cancellation, which is what ToolCallCard reads to tell "delegation
+          // accepted" from "specialist finally failed". Clipping the replay to
+          // a recent window therefore rebuilds nothing and silently downgrades
+          // an old failed delegation to a success (and a cancelled mainline run
+          // to unknown). The bounded window this used to apply existed to stop
+          // the feed cascading downward, which AgentDock now handles directly
+          // by suppressing bottom-follow during replay.
           const resumeAfter = sameProject ? state.lastEventSeq : 0;
-          replayUntilSeq = replayUntilHead;
+          replayUntilSeq = sessionResponse.session.lastEventSeq;
           let conversations = conversationPage.items;
           let activeConversationId =
             preferredConversationId &&
@@ -727,7 +715,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           // backward on demand (scroll-up in AgentDock).
           const page = await listMessages(projectId, activeConversationId, {
             tail: true,
-            limit: 200,
+            limit: 50,
           });
           if (
             bootstrapGeneration !== lifecycleGeneration ||
@@ -760,7 +748,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               ),
               hasMoreMessages: page.nextBefore != null,
               lastEventSeq: resumeAfter,
-              replayUntilSeq,
               loading: false,
               stopping: false,
             };
@@ -1137,8 +1124,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           (get().projectId ?? get().session?.projectId) === projectId;
         const sessionId = session?.id;
         const previousStatus = session?.status;
-        // A poll started before stop must not restore RUNNING afterwards.
-        sessionRefreshGeneration += 1;
         set((state) => ({
           stopping: true,
           session: state.session
@@ -1146,27 +1131,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             : state.session,
         }));
         try {
-          const response = await interruptCreator(projectId);
-          if (!isCurrentStop()) return;
-          set((state) => {
-            if (
-              state.session?.id !== response.creatorSessionId ||
-              !["CANCELLED", "INTERRUPT_REQUESTED"].includes(response.status)
-            )
-              return { stopping: false };
-            // Also invalidate polls made during cleanup. A newer SSE RUNNING
-            // state belongs to resumed work and is left alone by the guard.
-            sessionRefreshGeneration += 1;
-            if (state.session.status !== "INTERRUPT_REQUESTED")
-              return { stopping: false };
-            return {
-              stopping: false,
-              session: {
-                ...state.session,
-                status: response.status as CreatorSessionView["status"],
-              },
-            };
-          });
+          await interruptCreator(projectId);
         } catch (error) {
           // A stop belongs to the project lifecycle that requested it. A late
           // rejection must not clear a new stop or surface in another project.
@@ -1182,6 +1147,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           }));
           throw error;
         }
+        if (isCurrentStop()) set({ stopping: false });
       },
 
       ingestEvents: (incoming) => {
@@ -1199,26 +1165,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           const accepted = [...bySeq.values()].sort(
             (left, right) => left.seq - right.seq,
           );
-          // The replay boundary is judged on what arrived, never on what
-          // survived the two filters above. A first view of an imported
-          // Project can deliver its entire replay while every event is
-          // dropped -- the stream may still carry the previous project's id,
-          // or the local cursor already covers those seqs -- and the early
-          // return below then skipped the check at the end of the batch,
-          // leaving 加载中 up until the next /session poll recomputed
-          // isReplaying. Measured on such a Project: replay finished in 0.07 s,
-          // the label cleared 10-20 s later.
-          const arrivedSeq = incoming.reduce(
-            (highest, event) =>
-              event.projectId === current.projectId
-                ? Math.max(highest, event.seq)
-                : highest,
-            current.lastEventSeq,
-          );
-          const caughtUp =
-            current.isReplaying && arrivedSeq >= current.replayUntilSeq;
-          if (accepted.length === 0)
-            return caughtUp ? { isReplaying: false } : {};
+          if (accepted.length === 0) return {};
           let messages = current.messages;
           let streamingAssistantMessages = current.streamingAssistantMessages;
           let subagentActivities = current.subagentActivities;
@@ -1226,7 +1173,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           let session = current.session;
           let rateLimitRetry = current.rateLimitRetry;
           accepted.forEach((event) => {
-            const historical = current.isReplaying && event.seq <= current.replayUntilSeq;
             if (event.type === "agent.run.started") rateLimitRetry = null;
             if (
               rateLimitRetry &&
@@ -1579,7 +1525,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   streamingAssistantMessages = remaining;
                 }
               }
-              if (event.type === "agent.run.failed" && session && !historical) {
+              if (event.type === "agent.run.failed" && session) {
                 const errorPayload = event.data.error as
                   | {
                       code?: string;
@@ -1642,18 +1588,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               const alreadyDurable = messageId
                 ? messages.some((message) => message.messageId === messageId)
                 : false;
-              // Duplication is judged on whether the message is already
-              // durable, not on whether we are inside a replay. The backend
-              // deliberately keeps an active run's historical deltas because
-              // no durable message exists for them yet; discarding them here
-              // was stripping the prefix of a partial reply a returning user
-              // had every right to see (review #243 P2: bootstrap RUNNING,
-              // replay delta0 "Hello ", live delta1 "world" -> only
-              // "world" survived). A replayed delta whose run later reaches
-              // a terminal event in the same batch is dropped by the
-              // streamingAssistantMessages cleanup on run.completed /
-              // run.failed / run.cancelled above, so terminated history
-              // cannot leak a stale bubble.
               if (
                 messageId &&
                 Number.isInteger(deltaIndex) &&
@@ -1702,11 +1636,6 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               const alreadyDurable = messageId
                 ? messages.some((message) => message.messageId === messageId)
                 : false;
-              // Same rule as the delta branch: replayed progress is a
-              // duplicate only when the message already has a durable
-              // projection; a live run's progress is exactly what a fresh
-              // view needs to rebuild, and the terminal cleanup above
-              // bounds the stale case (review #243 P2).
               if (messageId && toolCallId && toolName && !alreadyDurable) {
                 const existing = streamingAssistantMessages[messageId];
                 const currentTool = existing?.toolCall;
@@ -1798,22 +1727,13 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 typeof event.data.messageId === "string" ||
                 typeof event.data.messageSeq === "number");
             if (persistsConversationMessage) {
-              // Bootstrap already loaded the conversation tail. Historical
-              // lifecycle replay must not undo pagination by pulling from the
-              // first old message again (large projects contain huge tool logs).
               const message = event.data.message as CreatorMessage | undefined;
-              if (message && !historical) {
+              if (message) {
                 messages = mergeMessages(messages, [message]);
-              }
-              const durableMessageId =
-                message?.messageId ?? eventString(event.data, "messageId");
-              if (
-                (historical || message) &&
-                durableMessageId &&
-                streamingAssistantMessages[durableMessageId]
-              ) {
-                streamingAssistantMessages = { ...streamingAssistantMessages };
-                delete streamingAssistantMessages[durableMessageId];
+                streamingAssistantMessages = withoutDurableStreamingMessages(
+                  streamingAssistantMessages,
+                  [message],
+                );
               }
               const clientMessageId = event.data.clientMessageId as
                 | string
@@ -1822,57 +1742,45 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                 queuedUi = queuedUi.filter(
                   (item) => item.clientMessageId !== clientMessageId,
                 );
-              if (!historical) {
-                const rawMessageSeq = event.data.messageSeq ?? event.data.seq;
-                const cursor =
-                  typeof rawMessageSeq === "number"
-                    ? Math.max(0, rawMessageSeq - 1)
-                    : messages.at(-1)?.messageSeq ?? 0;
-                messageRefreshAfter =
-                  messageRefreshAfter == null
-                    ? cursor
-                    : Math.min(messageRefreshAfter, cursor);
-              }
+              const rawMessageSeq = event.data.messageSeq ?? event.data.seq;
+              const cursor =
+                typeof rawMessageSeq === "number"
+                  ? Math.max(0, rawMessageSeq - 1)
+                  : messages.at(-1)?.messageSeq ?? 0;
+              messageRefreshAfter =
+                messageRefreshAfter == null
+                  ? cursor
+                  : Math.min(messageRefreshAfter, cursor);
             }
             if (
               event.type === "session.status_changed" ||
               event.type === "creator.woken"
             ) {
-              // A first view replays the run's own status history. Writing that
-              // into the live session made the *current* status flip several
-              // times inside a second: measured on a real Project, the failure
-              // notice under the conversation (condition: status === ERROR)
-              // was unmounted and remounted 8 times in 830 ms, which is the
-              // flicker users describe as "this part keeps refreshing". The
-              // authoritative status is already in the snapshot this stream was
-              // opened from, so only post-replay transitions are news.
-              if (!historical) {
-                const status =
-                  event.type === "creator.woken"
-                    ? "RUNNING"
-                    : ((event.data.status ?? event.data.to) as
-                        | CreatorSessionView["status"]
-                        | undefined);
-                if (status && session) {
-                  session = { ...session, status, lastEventSeq: event.seq };
-                  if (
-                    status === "IDLE" ||
-                    status === "CANCELLED" ||
-                    status === "ERROR"
-                  ) {
-                    rateLimitRetry = null;
-                    // Mainline terminal state is not a specialist terminal
-                    // event. Detached runs settle through subagent lifecycle.
-                  }
+              const status =
+                event.type === "creator.woken"
+                  ? "RUNNING"
+                  : ((event.data.status ?? event.data.to) as
+                      | CreatorSessionView["status"]
+                      | undefined);
+              if (status && session) {
+                session = { ...session, status, lastEventSeq: event.seq };
+                if (
+                  status === "IDLE" ||
+                  status === "CANCELLED" ||
+                  status === "ERROR"
+                ) {
+                  rateLimitRetry = null;
+                  // Mainline terminal state is not a specialist terminal
+                  // event. Detached runs settle through subagent lifecycle.
                 }
               }
             }
           });
           const lastEventSeq = accepted.at(-1)!.seq;
-          if (session && session.lastEventSeq < lastEventSeq)
+          if (session && session.lastEventSeq !== lastEventSeq)
             session = { ...session, lastEventSeq };
           const combinedEvents = [...current.events, ...accepted];
-          const recentStart = Math.max(0, combinedEvents.length - EVENT_WINDOW);
+          const recentStart = Math.max(0, combinedEvents.length - 500);
           // A superseded run may have no tool-result message. Preserve its
           // authoritative end event after high-volume streaming deltas leave
           // the recent window, including when rebuilding from durable SSE.
@@ -1886,7 +1794,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             events,
             lastEventSeq,
           };
-          if (current.isReplaying && lastEventSeq >= current.replayUntilSeq)
+          if (current.isReplaying && lastEventSeq >= replayUntilSeq)
             patch.isReplaying = false;
           if (messages !== current.messages) patch.messages = messages;
           if (

@@ -9,9 +9,6 @@ mounts the router at ``/qwenpaw-creator`` and standalone development mounts it a
 
 from __future__ import annotations
 
-import json
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -78,31 +75,6 @@ configured_router.include_router(subtitle_styles_router)
 configured_router.include_router(skill_router)
 configured_router.include_router(voice_router)
 router.include_router(configured_router)
-
-
-@lru_cache(maxsize=1)
-def _creator_plugin_identity() -> dict[str, str]:
-    """Read the plugin's id/version straight from plugin.json (single source)."""
-
-    manifest = Path(__file__).resolve().parents[2] / "plugin.json"
-    data = json.loads(manifest.read_text(encoding="utf-8"))
-    return {
-        "plugin_id": str(data.get("id", "")),
-        "version": str(data.get("version", "")),
-    }
-
-
-@router.get("/version", tags=["infrastructure"])
-async def version() -> dict[str, str]:
-    """Return the Creator plugin version (public-safe payload).
-
-    Mirrors the host ``/api/version`` contract so tooling can probe this
-    deployment. Reads plugin.json directly with no service or auth
-    dependency, so it answers even when the filesystem runtime is degraded
-    and doubles as a readiness probe.
-    """
-
-    return {**_creator_plugin_identity(), "runtime": "creator-filesystem"}
 
 
 @router.get("/health", tags=["infrastructure"])

@@ -744,9 +744,7 @@ def test_ffmpeg_invocations_detach_stdin() -> None:
         (source_observation, 2),
     ):
         source = inspect.getsource(module)
-        # Media spawns go through the process-wide gate, which adds the new
-        # session; each caller still has to detach stdin itself.
-        runs = source.count("media_gate.run(")
+        runs = source.count("subprocess.run(")
         detached = source.count("stdin=subprocess.DEVNULL")
         assert runs == expected_runs
         assert detached == runs

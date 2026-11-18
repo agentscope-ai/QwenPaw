@@ -480,15 +480,13 @@ function publicVersionCodeNames(
   project?: ProjectDocument | null,
 ): string {
   if (!project) return text;
-  // Resolve only code spans actually present in this message. Building labels
-  // for every generated version on every render dominates large-project chats.
-  const versionName = (id: string): string | undefined => {
-    if (project.assets?.artifact_versions_by_id?.[id])
-      return creatorTargetLabel(`artifact-version:${id}`, project);
-    if (project.assets?.source_versions_by_id?.[id])
-      return creatorTargetLabel(`asset-version:${id}`, project);
-    return undefined;
-  };
+  const names = new Map<string, string>();
+  for (const id of Object.keys(project.assets?.artifact_versions_by_id ?? {}))
+    names.set(id, creatorTargetLabel(`artifact-version:${id}`, project));
+  for (const id of Object.keys(project.assets?.source_versions_by_id ?? {}))
+    if (!names.has(id))
+      names.set(id, creatorTargetLabel(`asset-version:${id}`, project));
+  if (names.size === 0) return text;
 
   let fence: { character: string; length: number } | null = null;
   return text
@@ -516,7 +514,7 @@ function publicVersionCodeNames(
       return line.replace(
         /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>]+|(?<![`\\])(`+)([^`\n]+)\1(?!`)/gu,
         (token, _delimiter: string | undefined, id: string | undefined) =>
-          id === undefined ? token : versionName(id) ?? token,
+          id === undefined ? token : names.get(id) ?? token,
       );
     })
     .join("\n");
@@ -844,22 +842,14 @@ function runtimeResultText(message: CreatorMessage): string {
     .trim();
 }
 
-// Token/progress events re-project tool cards, but their durable messages are
-// immutable. Avoid repeatedly parsing large read_project_file results.
-const parsedResults = new WeakMap<CreatorMessage, unknown>();
-
 function safeResult(message: CreatorMessage): unknown {
-  if (parsedResults.has(message)) return parsedResults.get(message);
   const text = runtimeResultText(message);
   if (!text) return undefined;
-  let result: unknown;
   try {
-    result = JSON.parse(text) as unknown;
+    return JSON.parse(text) as unknown;
   } catch {
-    result = text;
+    return text;
   }
-  parsedResults.set(message, result);
-  return result;
 }
 
 const BEFORE_PRODUCTION_REASONS = new Set([

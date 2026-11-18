@@ -142,13 +142,8 @@ export interface AgentLiveStatusInput {
   stopping: boolean;
   hasQueuedInput: boolean;
   isReplaying: boolean;
-  /** Local cursor and the replay boundary, both read-only (see below). */
-  lastEventSeq?: number;
-  replayUntilSeq?: number;
   subagentActivities: Record<string, SubagentActivity>;
   toolCalls: ToolCallPresentation[];
-  /** Current main model reasoning, shown in the fixed status row only. */
-  mainThinking?: boolean;
   tasks: TaskView[];
   project: ProjectDocument | null;
   /** Current project's actual undecided review units, including media reviews. */
@@ -412,11 +407,8 @@ export function deriveAgentLiveStatus(
     hasQueuedInput: hasOptimisticInput,
     messages = [],
     isReplaying,
-    lastEventSeq,
-    replayUntilSeq,
     subagentActivities,
     toolCalls,
-    mainThinking = false,
     tasks,
     project,
     rateLimitRetry,
@@ -448,15 +440,7 @@ export function deriveAgentLiveStatus(
     };
 
   // During replay show loading and suppress the "working" animation.
-  //
-  // The boundary is part of the test because the flag is only cleared by a
-  // batch that survives de-duplication: a first view can replay everything
-  // while every event is dropped as already durable, leaving isReplaying set
-  // long after the stream finished. Measured on such a Project: replay
-  // delivered everything in 0.07 s, the label stayed 加载中 for 10-20 s until
-  // a /session poll recomputed the flag. Without a known boundary this defers
-  // to isReplaying exactly as before.
-  if (isReplaying && (lastEventSeq ?? 0) < (replayUntilSeq ?? Infinity))
+  if (isReplaying)
     return {
       state: "idle",
       indicatorPhase: "waiting",
@@ -626,10 +610,6 @@ export function deriveAgentLiveStatus(
       // terminal results. It has no run identity proving current ownership.
       (hasQueuedInput && session?.status !== "RUNNING"
         ? i18n.t("liveStatus.commandSent")
-        : mainThinking &&
-          session?.status === "RUNNING" &&
-          !toolCalls.some((call) => call.status === "started")
-        ? i18n.t("agentActivity.thinking")
         : i18n.t("agent.processing"));
     return {
       state: "working",

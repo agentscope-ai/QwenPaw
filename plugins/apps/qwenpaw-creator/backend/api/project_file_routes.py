@@ -61,10 +61,8 @@ from services.project_files.review import (
     ReviewRejectionFeedback,
     ReviewNotFound,
 )
-from services.project_files.serialization import (
-    load_project_document,
-    project_document_etag,
-)
+from services.project_files.models import Project
+from services.project_files.serialization import project_etag
 from services.project_files.store import (
     BUILTIN_EXAMPLE_MARKER,
     ProjectConflict,
@@ -360,21 +358,21 @@ def _recover_patch_response(
     # A changed transaction stores its exact published snapshot.  A no-change
     # transaction may omit final.json, in which case only an authority snapshot
     # with the journal's exact ETag is a valid reconstruction source.
-    final_document = AtomicJsonRecordStore(
+    project = AtomicJsonRecordStore(
         transaction_root / "final.json",
+        Project,
     ).read_or_none()
-    if final_document is None:
+    if project is None:
         current = services.projects.read(project_id)
         if current.etag != journal.final_etag:
             raise StorageIntegrityError(
                 "Project Patch no-change response snapshot 已不可重建",
             )
         project = current.project
-        final_etag = current.etag
-    else:
-        project = load_project_document(final_document)
-        final_etag = project_document_etag(final_document, project=project)
-    if project.project_id != project_id or final_etag != journal.final_etag:
+    if (
+        project.project_id != project_id
+        or project_etag(project) != journal.final_etag
+    ):
         raise StorageIntegrityError(
             "Project Patch final snapshot 与 journal 不一致",
         )

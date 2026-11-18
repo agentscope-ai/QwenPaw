@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 import sys
-import threading
 from pathlib import Path
 
 from qwenpaw.pawapp import PawApp
@@ -50,7 +49,6 @@ from services.media_files import (  # noqa: E402
 )
 from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
 from services.media_files.task_scratch import (
-    budget_from_environment,
     release_orphaned_scratch,
 )  # noqa: E402
 from services.observability import trace_event  # noqa: E402
@@ -58,7 +56,6 @@ from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
     clear_creator_file_service_registry,
     creator_file_services,
-    mark_runtime_preparing,
 )
 from services.runtime_files.runtime_dependencies import (  # noqa: E402
     CreatorBinaryDependencyError,
@@ -83,7 +80,6 @@ from services.media.source_video_reader import (  # noqa: E402
     drain_source_video_reader_services,
     recover_interrupted_source_video_reads,
 )
-from utils.io_pool import configure_io_thread_pool  # noqa: E402
 from utils.logger import configure_creator_file_logging  # noqa: E402
 
 
@@ -158,12 +154,9 @@ app.include_router(creator_router)
 
 # Creator file runtime handle kept for the lifetime of the app.
 _file_services: CreatorFileServices | None = None
-_scratch_sweep: tuple[threading.Event, asyncio.Task[None]] | None = None
 
 
-async def _sweep_orphaned_scratch(
-    services: CreatorFileServices, stop: threading.Event,
-) -> None:
+async def _sweep_orphaned_scratch(services: CreatorFileServices) -> None:
     """Collect scratch a killed process left behind, without gating startup.
 
     A finished Task releases its own scratch through the execution store the
@@ -172,11 +165,7 @@ async def _sweep_orphaned_scratch(
     """
 
     try:
-        sweep = await asyncio.to_thread(
-            release_orphaned_scratch,
-            services,
-            budget=budget_from_environment(stop_event=stop),
-        )
+        sweep = await asyncio.to_thread(release_orphaned_scratch, services)
     except Exception:  # noqa: BLE001 - cleanup must never gate startup
         logger.warning("orphaned task scratch sweep failed", exc_info=True)
         return
@@ -192,9 +181,7 @@ async def _sweep_orphaned_scratch(
 
 @app.hook("startup", priority=90)
 async def _startup() -> None:
-    global _file_services, _scratch_sweep
-    configure_io_thread_pool()
-    mark_runtime_preparing(True)
+    global _file_services
     try:
         configure_creator_runtime_environment()
         data_root = require_creator_data_root()
@@ -211,7 +198,7 @@ async def _startup() -> None:
             ensure_creator_runtime_dependencies,
         )
         await asyncio.to_thread(ensure_vendor_libs)
-        services = await asyncio.to_thread(creator_file_services, data_root)
+        services = creator_file_services(data_root)
         await asyncio.to_thread(
             recover_interrupted_source_analysis,
             services,
@@ -231,12 +218,10 @@ async def _startup() -> None:
             "QwenPaw Creator runtime dependency preparation failed; startup aborted",
         )
         raise
-    finally:
-        mark_runtime_preparing(False)
     try:
         await start_file_media_execution_services(services)
         await start_creator_agent_runtime(services)
-        await asyncio.to_thread(recover_interrupted_source_memory, services)
+        recover_interrupted_source_memory(services)
         # Observation/read workers live only in process memory: fail their
         # orphaned QUEUED/RUNNING Tasks closed so waiters see a retryable
         # error instead of polling a record no worker will ever finish.
@@ -268,6 +253,7 @@ async def _startup() -> None:
         raise
     _file_services = services
     logger.info("QwenPaw Creator file runtime ready at %s", data_root)
+    await _sweep_orphaned_scratch(services)
     # Loud, not silent: explicitly set review env vars take full control
     # and the settings-center toggles are ignored — a field incident had
     # review running with the UI switched off because a stale env stayed
@@ -338,28 +324,16 @@ async def _startup() -> None:
             "environment variables.",
         )
 
-    if _scratch_sweep is None or _scratch_sweep[1].done():
-        stop = threading.Event()
-        _scratch_sweep = (
-            stop,
-            asyncio.create_task(_sweep_orphaned_scratch(services, stop)),
-        )
-
 
 @app.hook("shutdown", priority=90)
 async def _shutdown() -> None:
-    global _file_services, _scratch_sweep
+    global _file_services
     trace_event(
         "creator.runtime.stopping",
         component="pawapp",
     )
     _file_services = None
     try:
-        if _scratch_sweep is not None:
-            stop, task = _scratch_sweep
-            stop.set()
-            await asyncio.shield(task)
-            _scratch_sweep = None
         await drain_remote_ingest_tasks()
     finally:
         try:

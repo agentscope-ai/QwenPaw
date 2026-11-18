@@ -14,7 +14,6 @@ import io
 
 from PIL import Image
 import pytest
-import httpx
 
 from models import config as model_config
 from models import video_model
@@ -36,10 +35,6 @@ from utils.exceptions import ModelError
 
 class _FakeResponse:
     status_code = 200
-    # A real httpx response always carries both, and the submit path reads them
-    # to decide whether a failure is worth another paid attempt.
-    text = ""
-    headers: dict = {}
 
     def raise_for_status(self) -> None:
         return None
@@ -1411,40 +1406,3 @@ def test_wan_remote_reference_passes_through_public_url(monkeypatch) -> None:
 
     assert url == "https://public.example/remote.mp4"
     assert kind == "video"
-
-
-@pytest.mark.parametrize(
-    ("status", "expected_waits"),
-    [
-        (503, []),
-        (429, [15, 30, 45]),
-    ],
-)
-def test_video_submission_retries_follow_the_endpoint(
-    monkeypatch, status, expected_waits
-):
-    captured = {}
-    response = httpx.Response(
-        status,
-        text="temporarily unavailable",
-        headers={"Retry-After": "90"},
-        request=httpx.Request("POST", "https://video.example.com"),
-    )
-    _bind(monkeypatch, "wan2.7-r2v", captured, response=response)
-    waits = []
-
-    async def capture_wait(delay):
-        waits.append(delay)
-
-    monkeypatch.setattr(video_model.asyncio, "sleep", capture_wait)
-    with pytest.raises(ModelError):
-        asyncio.run(
-            video_model.submit_video_task(
-                "角色向前走",
-                reference_image_url="/generated/storyboard.png",
-                ratio="16:9",
-                duration=5,
-                resolution="720p",
-            )
-        )
-    assert waits == expected_waits

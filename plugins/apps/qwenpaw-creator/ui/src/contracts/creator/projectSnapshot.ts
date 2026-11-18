@@ -223,7 +223,6 @@ export interface R2VCreationDocument extends ProjectJsonRecord {
   storyboard_prompt: string;
   storyboard_reference_version_ids: string[];
   video_prompt: string;
-  generate_audio?: boolean;
   video_reference_version_ids: string[];
   /** Server-owned provenance. Presentation consumes the prompt-sync API. */
   prompt_sync?: {
@@ -240,7 +239,6 @@ export interface T2VCreationDocument extends ProjectJsonRecord {
   narrative: string;
   continuity: string;
   video_prompt: string;
-  generate_audio?: boolean;
   recipe: GenerationRecipeDocument | null;
 }
 
@@ -251,7 +249,6 @@ export interface I2VCreationDocument extends ProjectJsonRecord {
   continuity: string;
   first_frame_version_id: string | null;
   video_prompt: string;
-  generate_audio?: boolean;
   recipe: GenerationRecipeDocument | null;
 }
 
@@ -473,7 +470,6 @@ export interface ProjectDocument extends ProjectJsonRecord {
   created_at: string;
   updated_at: string;
   name: string;
-  name_source?: "user" | "auto" | null;
   description: string;
   scenario: "short_drama" | "video_edit" | "general";
   settings: ProjectSettingsDocument;

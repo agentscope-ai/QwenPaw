@@ -15,7 +15,6 @@ from pathlib import Path
 
 import numpy as np
 
-from services.media_files import media_gate
 from services.runtime_files.runtime_dependencies import (
     resolve_ffmpeg,
     resolve_ffprobe,
@@ -75,7 +74,7 @@ def probe_info(video_path: Path) -> dict:
 
 
 def _run_ffmpeg(command: list[str]) -> bytes:
-    proc = media_gate.run(  # nosec B603
+    proc = subprocess.run(  # nosec B603
         command,
         stdin=subprocess.DEVNULL,
         capture_output=True,

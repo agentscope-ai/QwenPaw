@@ -104,48 +104,12 @@ function countsOf(items: AgentProgressItem[]) {
 function phaseOf(status: string): AgentProgressPhase {
   if (["done", "SUCCEEDED"].includes(status)) return "completed";
   if (
-    [
-      "running",
-      "RUNNING",
-      "RUNNING_MODEL",
-      "WAITING_RUNTIME",
-      "QUEUED",
-      "QUEUED_CAPACITY",
-    ].includes(status)
+    ["running", "RUNNING", "RUNNING_MODEL", "WAITING_RUNTIME"].includes(status)
   )
     return "running";
-  if (["ready", "gated"].includes(status)) return "preparing";
+  if (["ready", "gated", "QUEUED", "QUEUED_CAPACITY"].includes(status))
+    return "preparing";
   return "attention";
-}
-
-function waitingReason(
-  node: WorkGraphNode,
-  nodes: WorkGraphNode[],
-  project: ProjectDocument | null,
-): string {
-  const dependencies = nodes.filter(
-    (dependency) =>
-      node.deps.includes(dependency.id) && dependency.status !== "done",
-  );
-  const outdated = dependencies.find(
-    (dependency) => dependency.status === "stale",
-  );
-  if (outdated)
-    return i18n.t("agentProgress.waitingForUpdate", {
-      target: creatorWorkNodeLabel(outdated, project),
-    });
-  if (dependencies.length)
-    return i18n.t("agentProgress.waitingForTarget", {
-      target: creatorWorkNodeLabel(dependencies[0], project),
-    });
-  if (
-    node.missing.some((reason) =>
-      /^(?:visual_prompt|storyboard_prompt|video_prompt) 缺失$/.test(reason),
-    )
-  ) {
-    return i18n.t("agentProgress.waitingForPrompt");
-  }
-  return i18n.t("agentActivity.waitingDeps");
 }
 function percent(
   value: number | null,
@@ -554,8 +518,6 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
                 : "image_generation",
             status: "RUNNING",
           })
-        : node.status === "gated"
-        ? waitingReason(node, nodes, project)
         : i18n.t(`agentActivity.${graphStates[node.status] ?? "currentStage"}`),
       phase,
       locator: operationLocator(
@@ -580,24 +542,6 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
   const superseded = new Set(
     input.runs.map((run) => run.supersedesRunId).filter(Boolean),
   );
-  // A later successful re-run owns the outcome: the earlier unsuccessful
-  // attempt against the same target is history, not an open item. Runs carry
-  // no explicit supersedes link for retries, so the same-target rule the task
-  // projection uses below is mirrored here.
-  const sameRefs = (left: string[], right: string[]) =>
-    left.length > 0 &&
-    left.length === right.length &&
-    [...left].sort().join("\u0000") === [...right].sort().join("\u0000");
-  const retriedSuccessfully = (run: SpecialistRunView) =>
-    ["FAILED", "BLOCKED", "STALE", "CANCELLED"].includes(run.status) &&
-    input.runs.some(
-      (other) =>
-        other.id !== run.id &&
-        other.status === "SUCCEEDED" &&
-        other.role === run.role &&
-        sameRefs(other.targetRefs ?? [], run.targetRefs ?? []) &&
-        isLater(other, run),
-    );
   const onlySnapshotTargets = (refs: string[]) =>
     refs.length > 0 &&
     refs.every(
@@ -615,9 +559,7 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
     );
   const runs = input.runs.filter(
     (run) =>
-      !superseded.has(run.id) &&
-      !retriedSuccessfully(run) &&
-      !onlySnapshotTargets(run.targetRefs ?? []),
+      !superseded.has(run.id) && !onlySnapshotTargets(run.targetRefs ?? []),
   );
   const visibleRunIds = new Set<string>();
   for (const run of runs) {
@@ -625,18 +567,6 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       (task) =>
         task.specialistRunId === run.id || run.taskRefs?.includes(task.id),
     );
-    // Recovery reaps admissions that outlived their process before a Task
-    // existed (ORPHANED_QUEUED_RUN). Nothing ever executed, no task carries
-    // the outcome, and the target is already satisfied or failed elsewhere:
-    // listing it as an operation would keep a dead enqueue on the board
-    // forever, which is exactly the "waiting" row this projection exists to
-    // prevent.
-    if (
-      run.status === "CANCELLED" &&
-      linkedTasks.length === 0 &&
-      (run.finalSummaryText ?? "").startsWith("ORPHANED_QUEUED_RUN")
-    )
-      continue;
     if (
       !["RUNNING_MODEL", "WAITING_AUTHORIZATION", "BLOCKED"].includes(
         run.status,
@@ -647,14 +577,7 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       continue;
     visibleRunIds.add(run.id);
     const group = groupFor(run.targetRefs ?? []);
-    // Run and task polls can arrive in either order. A terminal run must not
-    // hide an admitted child task that still reports active work. Prefer a
-    // running child over a queued sibling, keeping its actual status/progress.
-    const activeTask = ["WAITING_AUTHORIZATION", "BLOCKED"].includes(run.status)
-      ? undefined
-      : linkedTasks.find((task) => task.status === "RUNNING") ??
-        linkedTasks.find((task) => task.status === "QUEUED");
-    const phase = phaseOf(activeTask?.status ?? run.status);
+    const phase = phaseOf(run.status);
     const sourceResultSaved =
       phase === "running" &&
       String(run.role).includes("source_intelligence") &&
@@ -688,18 +611,13 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         creatorRoleLabel(run.role),
         ...targetLabels.filter((label) => label !== group.label),
       ].join(" · "),
-      ...(activeTask ? { task: activeTask } : {}),
-      status: activeTask?.status ?? run.status,
+      status: run.status,
       statusLabel: sourceResultSaved
         ? i18n.t("progressOverview.finishingSource")
-        : activeTask
-        ? creatorTaskStatusLabel(activeTask)
         : creatorRunStatusLabel(run, tasks),
       phase,
       locator: group.locator,
-      progressPercent: activeTask
-        ? percent(activeTask.progress, phase, activeTask.kind)
-        : null,
+      progressPercent: null,
     });
   }
   for (const task of tasks) {

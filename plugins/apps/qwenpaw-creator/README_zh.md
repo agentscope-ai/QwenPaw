@@ -177,8 +177,6 @@ Agent 生成的媒体和修改的文本会进入决策托盘；你手动编辑�
 
 Creator 会使用若干本地工具，但不会改动系统安装：`ffmpeg` 负责媒体处理与合成（可用 `CREATOR_FFMPEG_PATH` 指定，否则回退系统 `ffmpeg` 或 `imageio-ffmpeg`）；`jq` 支撑 Agent 对项目文件的结构化编辑（`CREATOR_JQ_PATH` 或 `PATH`）。依赖缺失时 Creator 以降级模式启动，可通过 `GET /api/qwenpaw-creator/health` 查看缺失项。
 
-Creator 根据运行环境可用的 CPU 和内存限制并发运行的 FFmpeg 进程数，也可以用 `QWENPAW_FFMPEG_CONCURRENCY` 指定上限。后台文件操作影响请求响应时，可以通过 `CREATOR_IO_THREADS` 为尚未配置执行器的事件循环指定线程数。默认沿用宿主的执行器。
-
 ### 长会话的上下文预算
 
 Agent 每次请求模型前会先量一次输入，超限时先压缩历史、再降级可重取的媒体。下列变量在启动进程时设置，改动后需重启生效：

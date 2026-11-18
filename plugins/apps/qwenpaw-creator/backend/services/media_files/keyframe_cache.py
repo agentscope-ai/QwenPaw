@@ -15,7 +15,6 @@ from threading import Lock
 from uuid import uuid4
 
 from domain.errors import StorageIntegrityError, ValidationError
-from services.media_files import media_gate
 from services.project_files.assets import AssetFileStore
 from services.project_files.models import IndexedFile
 from services.runtime_files.atomic_store import fsync_directory
@@ -211,7 +210,7 @@ def materialize_keyframe(
             str(temporary),
         ]
         try:
-            result = media_gate.run(
+            result = subprocess.run(
                 command,
                 # Detach stdin so ffmpeg is not suspended by SIGTTIN when it
                 # reads the tty from a background process group.

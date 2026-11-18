@@ -833,8 +833,7 @@
     "subtitleStyleApplied": "字幕风格已更新，请点击「合成最终成片」刷新视频",
     "subtitleStyleFailed": "字幕风格更新失败：{{detail}}",
     "subtitleStyleSkippedDesign": "其中 {{count}} 条字幕的外观由其动效设计决定，风格包动效对它们不适用",
-    "subtitleStyleMotionUnowned": "这条字幕的外观由其动效设计决定，风格包不会重写它；入场/出场/循环请在动效设计里调整",
-    "applySuccessComposeWaiting": "修改已应用；实时预览已更新，成片已过期，点「成片」重新合成"
+    "subtitleStyleMotionUnowned": "这条字幕的外观由其动效设计决定，风格包不会重写它；入场/出场/循环请在动效设计里调整"
   },
   "r2v": {
     "title": "视频方案 / {{element}} / 制作工作台",
@@ -1289,9 +1288,7 @@
         "generate": "合成成片",
         "retry": "重新合成成片"
       }
-    },
-    "strandedAdmission": "制作请求未被受理（{{count}} 项已准入但从未开始执行），可重新提交。",
-    "strandedResubmit": "重新提交"
+    }
   },
   "decisionTray": {
     "productionConfirm": "生产确认 · ",
@@ -1452,8 +1449,7 @@
       "before": "修改前",
       "after": "修改后",
       "noReferenceImages": "未指定参考图"
-    },
-    "nativeAudio": "视频原声"
+    }
   },
   "rejectionFeedback": {
     "undoContent": "撤销内容",
@@ -1607,8 +1603,7 @@
     "snapshotDeleted": "快照已删除",
     "snapshotPreApplyBackup": "应用前备份",
     "snapshotInUse": "已应用",
-    "snapshotCurrentMatches": "内容与「{{name}}」一致",
-    "timingAppliedComposeWaiting": "时间调整已应用；成片已过期，点「成片」重新合成"
+    "snapshotCurrentMatches": "内容与「{{name}}」一致"
   },
   "editPlan": {
     "title": "剪辑契约",
@@ -2267,7 +2262,7 @@
       "done": "已成片",
       "run": "生成中",
       "wait": "剧本已写入",
-      "scriptStale": "剧本待同步",
+      "scriptStale": "剧本已过期",
       "idle": "待起草"
     },
     "episodeList": "剧集列表 · 线性 {{count}} 集",
@@ -2335,7 +2330,7 @@
       "researchReady": "调研完成",
       "researchRunning": "调研中",
       "scriptReady": "共 {{count}} 个版本",
-      "scriptStale": "创作依据已更新，剧本待同步",
+      "scriptStale": "剧本已过期，需要重审",
       "visualReady": "设计已生成",
       "visualPending": "待生成",
       "elementReady": "已生成",
@@ -2354,7 +2349,7 @@
     "finalCut": "最终成片",
     "scriptPanelTitle": "剧本 · {{title}}",
     "scriptVersion": "共 {{count}} 版",
-    "scriptStaleChip": "待同步",
+    "scriptStaleChip": "已过期",
     "requestChanges": "提出修改",
     "requestChangesDraft": "请修改《{{title}}》的剧本：",
     "requestChangesPrefilled": "已写入创作助手输入框，补充修改意见后发送",
@@ -2436,9 +2431,7 @@
     "sourceResultFailed": "理解结果读取失败",
     "sourceResultLoading": "正在读取理解结果",
     "pausePreview": "暂停预览",
-    "previewPosition": "预览进度",
-    "scriptSyncExplanation": "创作依据已更新，当前剧本尚未同步。生成过程中补全剧情分支或创作要求也会触发此状态，并不表示你提出过修改。已有正文仍可查看。",
-    "scriptSyncReason": "更新原因：{{reason}}"
+    "previewPosition": "预览进度"
   },
   "sidebar": {
     "assistant": "创作助手",
@@ -2531,11 +2524,7 @@
     "lastAttemptCancelled": "上次尝试已停止",
     "otherWork": "其他创作工作",
     "sources": "项目素材",
-    "timeline": "视频 / 剧集 {{index}}",
-    "visualState": "状态 {{index}}",
-    "waitingForUpdate": "等待「{{target}}」更新",
-    "waitingForTarget": "等待「{{target}}」完成",
-    "waitingForPrompt": "等待补全生成提示词"
+    "timeline": "视频 / 剧集 {{index}}"
   },
   "agentRetry": {
     "context_recovery": "正在整理任务信息，随后继续",
@@ -2546,13 +2535,5 @@
     "attempt": "第 {{attempt}} / {{max}} 次重试",
     "backoff": "{{seconds}} 秒后重试",
     "responding": "等待模型响应"
-  },
-  "storage": {
-    "pendingHint": "已有 {{size}} 沉淀历史等待你确认",
-    "confirmButton": "确认并释放",
-    "confirmTitle": "释放「{{name}}」中 {{size}} 的沉淀历史？",
-    "confirmBody": "将清理本项目符合条件的已结束事务记录和临时工作文件。此操作无法撤销。",
-    "confirmed": "已释放 {{size}} 沉淀历史",
-    "failed": "无法释放沉淀历史：{{message}}"
   }
 }

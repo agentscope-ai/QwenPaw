@@ -1013,12 +1013,6 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
                 locator={"page": "blueprint", "timelineId": timeline_id},
                 command="GENERATE_TIMELINE_SCRIPT",
                 target_ref=f"timeline:{timeline_id}",
-                dispatch_arguments=(
-                    {"source": "timeline"}
-                    if status is WorkNodeStatus.STALE
-                    and timeline.description.strip()
-                    else {}
-                ),
                 dispatch_fingerprint=fingerprint,
                 regeneration_of=(
                     selected if status is WorkNodeStatus.STALE else None
@@ -1384,8 +1378,6 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             command, dispatch_arguments = _video_dispatch_command(
                 creation_type,
             )
-            if creation_type != "s2v" and not creation.generate_audio:
-                dispatch_arguments["generateAudio"] = False
 
             add(
                 WorkNode(
@@ -1498,7 +1490,7 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             ),
             None,
         )
-        selected_final = next(
+        final_slot = next(
             (
                 slot.selected_version_id
                 for slot_id, slot in (
@@ -1510,16 +1502,8 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             ),
             None,
         )
-        # A cut existed for this Timeline even if it is about to be judged
-        # superseded: that is what separates "never composed" (compose it, the
-        # deliverable does not exist yet) from "composed, now stale"
-        # (re-compose only on request).
-        superseded_final = selected_final is not None
-        final_slot = selected_final
-        if selected_final is not None:
-            version = project.assets.artifact_versions_by_id.get(
-                selected_final,
-            )
+        if final_slot is not None:
+            version = project.assets.artifact_versions_by_id.get(final_slot)
             if version is not None and (
                 getattr(version, "stale", False)
                 or not _final_render_reads_current_versions(project, version)
@@ -1531,19 +1515,6 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             status = WorkNodeStatus.GATED
         elif final_slot:
             status = WorkNodeStatus.DONE
-        elif superseded_final:
-            # In co-creation, wait for the author's explicit re-compose.
-            # Delegated runs must still deliver an updated cut automatically.
-            from models.config import (
-                EXECUTION_MODE_DELEGATED,
-                get_execution_mode,
-            )
-
-            status = (
-                WorkNodeStatus.READY
-                if get_execution_mode() == EXECUTION_MODE_DELEGATED
-                else WorkNodeStatus.STALE
-            )
         else:
             status = WorkNodeStatus.READY
         add(
@@ -1657,21 +1628,13 @@ def _video_fingerprint_parts(
     storyboard_slot: str | None,
 ) -> tuple:
     """Return the fingerprint components for a video node by creation type."""
-    # Preserve the identity of pre-field projects using the default audio.
-    # Silent footage is a different production input and approval scope.
-    audio_parts = (
-        ("generateAudio", False)
-        if creation_type != "s2v" and not creation.generate_audio
-        else ()
-    )
     if creation_type == "t2v":
-        return (video_id, creation.video_prompt, *audio_parts)
+        return (video_id, creation.video_prompt)
     if creation_type == "i2v":
         return (
             video_id,
             creation.video_prompt,
             creation.first_frame_version_id,
-            *audio_parts,
         )
     if creation_type == "s2v":
         return (
@@ -1687,7 +1650,6 @@ def _video_fingerprint_parts(
         creation.video_prompt,
         storyboard_slot,
         sorted(creation.video_reference_version_ids),
-        *audio_parts,
     )
 
 

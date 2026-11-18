@@ -125,10 +125,14 @@ def test_token_plan_reference_inlines_base64_not_upload(
     """
     from PIL import Image
 
-    def refuse_upload(*args, **kwargs):
+    async def refuse_upload(*args, **kwargs):
         raise AssertionError("Token Plan reference reached the upload API")
 
-    monkeypatch.setattr(httpx, "Client", refuse_upload)
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
     reference = tmp_path / "ref.png"
     Image.new("RGB", (8, 8), "red").save(reference, format="PNG")
     model = DashScopeImageModel(
@@ -177,10 +181,14 @@ def test_token_plan_reference_over_inline_ceiling_errors(
     the ceiling is a provider constant, so retrying cannot help."""
     from PIL import Image
 
-    def refuse_upload(*args, **kwargs):
+    async def refuse_upload(*args, **kwargs):
         raise AssertionError("Token Plan reference reached the upload API")
 
-    monkeypatch.setattr(httpx, "Client", refuse_upload)
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
     # Force the tiny test image over the ceiling without building a 7MB file.
     # 16 bytes is below even the smallest ladder rung, so no downscale can
     # rescue it and the refusal path is what runs.
@@ -210,10 +218,14 @@ def test_token_plan_generate_reference_downscales_under_ceiling(
     """
     import base64
 
-    def refuse_upload(*args, **kwargs):
+    async def refuse_upload(*args, **kwargs):
         raise AssertionError("Token Plan reference reached the upload API")
 
-    monkeypatch.setattr(httpx, "Client", refuse_upload)
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
     monkeypatch.setattr(
         dashscope_provider,
         "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
@@ -243,10 +255,14 @@ def test_token_plan_edit_and_translate_references_never_downscale(
     on, so its pixels are never silently resampled even when the ladder
     could fit them: the request fails fast with guidance instead."""
 
-    def refuse_upload(*args, **kwargs):
+    async def refuse_upload(*args, **kwargs):
         raise AssertionError("Token Plan reference reached the upload API")
 
-    monkeypatch.setattr(httpx, "Client", refuse_upload)
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
     # The same bytes do downscale under mode=generate (see the test above),
     # so a refusal here can only come from the mode gate.
     monkeypatch.setattr(

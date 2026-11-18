@@ -40,7 +40,6 @@ from domain.errors import (
     ValidationError,
     BadRequestError,
 )
-from domain.enums import TaskStatus
 from models.config import (
     EXECUTION_AUTHORIZATION_REQUIRED,
     get_execution_authorization_mode,
@@ -87,7 +86,6 @@ from services.project_files.store import (
     _safe_project_id,
 )
 from services.runtime_files.errors import RuntimeFileError
-from services.runtime_files.execution_store import ProjectExecutionStore
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.session_store import (
@@ -359,7 +357,6 @@ async def list_projects(
 
     def _build_items() -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
-        executions = ProjectExecutionStore(services.root)
         for item in page:
             try:
                 session = services.sessions.get_project_session_snapshot(
@@ -379,25 +376,6 @@ async def list_projects(
                     exc,
                 )
                 session_status = None
-            # The home-page "working" badge used to cost one GET /tasks per
-            # Project: 1 + N round trips, each queued behind the Agent driver in
-            # the shared thread pool, and the page waited for the slowest before
-            # rendering anything.  The same predicate is answered here, once, for
-            # the whole page.
-            try:
-                tasks = executions.list_tasks(item.project_id)
-            except RuntimeFileError as exc:
-                logger.warning(
-                    "project list: task scan failed for %s: %s",
-                    item.project_id,
-                    exc,
-                )
-                has_active_task = False
-            else:
-                has_active_task = any(
-                    task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING)
-                    for task in tasks
-                )
             items.append(
                 {
                     "projectId": item.project_id,
@@ -413,7 +391,6 @@ async def list_projects(
                     "coverVersionSource": item.cover_version_source,
                     "finalVideoVersionId": item.final_video_version_id,
                     "status": session_status,
-                    "hasActiveTask": has_active_task,
                 },
             )
         return items
@@ -454,7 +431,6 @@ async def create_project(
         scenario=request.scenario,
         settings=_settings(request),
     )
-    project.name_source = request.name_source
     if request.template_id:
         from services.media_files.video_templates import (
             apply_video_template_to_project,

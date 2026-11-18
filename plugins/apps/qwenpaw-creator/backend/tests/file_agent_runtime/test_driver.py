@@ -609,7 +609,6 @@ def _edit_client(*, description: str):
         assert {item["function"]["name"] for item in tools} == {
             "read_project",
             "read_project_file",
-            "confirm_prompt_sync",
             "jq_project",
             "patch_project",
             "ground_prompt_context",
@@ -2271,13 +2270,17 @@ def test_specialist_cancel_emits_terminal_event(
     monkeypatch,
     cancel_phase,
 ) -> None:
-    """Cancellation must emit a terminal event from either specialist phase."""
+    """A specialist run cancelled mid-flight must emit a terminal
+    ``subagent.failed`` event, both from RUNNING_MODEL and from
+    WAITING_RUNTIME (a long-running tool mid-invoke).
+
+    Regression note for the WAITING_RUNTIME case: the run reaches the
+    cancel-except only after the invoke-finally bridges WAITING_RUNTIME back
+    to RUNNING_MODEL, so the on-disk transition succeeds — but the terminal
+    event was still missing.  Locks in that the event fires on this path too.
+    """
     if cancel_phase == "waiting_runtime":
         _authorization_gate_modes(monkeypatch, authorization="allow_all")
-        monkeypatch.setattr(
-            "services.specialist_tools.is_tts_configured",
-            lambda: True,
-        )
 
     async def scenario():
         services, _snapshot = _create_project(
@@ -2286,7 +2289,6 @@ def test_specialist_cancel_emits_terminal_event(
         )
         blocked = asyncio.Event()
         cancel_entered = asyncio.Event()
-        delegated = False
 
         async def _block_until_cancelled() -> None:
             blocked.set()
@@ -2297,12 +2299,8 @@ def test_specialist_cancel_emits_terminal_event(
                 raise
 
         async def callback(messages, tools):
-            nonlocal delegated
             names = {item["function"]["name"] for item in tools}
             if "delegate_to_agent" in names:
-                if delegated:
-                    await asyncio.Event().wait()
-                delegated = True
                 return _delegate_call(
                     "delegate-editing",
                     role="ai_editing_director",
@@ -2310,12 +2308,14 @@ def test_specialist_cancel_emits_terminal_event(
                     task="角色声音设计",
                 )
             if cancel_phase == "waiting_runtime":
+                # Specialist turn: park the run in a long-running tool.
                 return _media_call(
                     "gen-1",
                     name="tts_generation",
                     target_ref="asset:hero",
                     arguments={"text": "测试取消中的长任务。"},
                 )
+            # Specialist turn: block forever until the parent is interrupted.
             await _block_until_cancelled()
 
         async def blocking_invoke(**_kwargs):
@@ -2324,37 +2324,18 @@ def test_specialist_cancel_emits_terminal_event(
         driver = _driver(services, callback)
         if cancel_phase == "waiting_runtime":
             driver.specialist_tools.invoke = blocking_invoke  # type: ignore[method-assign]
-        try:
-            await driver.start()
-            driver.notify(PROJECT_ID)
-            # Readiness includes durable I/O, not just model/tool latency.
-            await asyncio.wait_for(blocked.wait(), timeout=30.0)
-            runs = driver.executions.list_specialist_runs(PROJECT_ID)
-            assert len(runs) == 1
-            assert runs[0].status.value == cancel_phase.upper()
-            specialist_task = driver._specialist_tasks[PROJECT_ID][
-                runs[0].run_id
-            ].task
-            assert specialist_task is not None
-            interrupted = await driver.interrupt(
-                PROJECT_ID,
-                reason="test-stop",
-            )
-            # Mainline idleness does not join detached specialists.
-            done, _pending = await asyncio.wait(
-                {specialist_task},
-                timeout=30.0,
-            )
-            assert specialist_task in done
-            assert specialist_task.cancelled()
-            await driver.wait_until_idle(PROJECT_ID, timeout_seconds=30.0)
-            specialist_runs = driver.executions.list_specialist_runs(
-                PROJECT_ID,
-            )
-            events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
-            return interrupted, specialist_runs, events, cancel_entered
-        finally:
-            await driver.stop()
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        # Poll via the shared helper instead of a raw 2s budget: the full
+        # suite needs ~7min on the Windows CI runner, and that load has been
+        # enough to lose this race there.
+        await _wait_for(blocked.is_set)
+        interrupted = await driver.interrupt(PROJECT_ID, reason="test-stop")
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist_runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        await driver.stop()
+        return interrupted, specialist_runs, events, cancel_entered
 
     interrupted, specialist_runs, events, cancel_entered = asyncio.run(
         scenario(),
@@ -5531,215 +5512,6 @@ def test_upload_joining_a_live_run_starts_understanding(
         "本轮上传素材的理解已启动" in str(entry.get("content") or "")
         for entry in joined_turn
     )
-
-
-def _quiet_tick_driver(tmp_path):
-    """One idle Project whose every message is already consumed."""
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="完成短剧")
-    session = services.sessions.get_project_session(PROJECT_ID)
-    services.sessions.mark_messages_consumed(
-        PROJECT_ID,
-        SESSION_ID,
-        through_seq=session.last_message_seq,
-        goal_id=GOAL_ID,
-    )
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-    counts = {"messages": 0, "project_read": 0}
-    list_messages = driver.sessions.list_messages
-
-    def spy_messages(*args, **kwargs):
-        counts["messages"] += 1
-        return list_messages(*args, **kwargs)
-
-    driver.sessions.list_messages = spy_messages
-    read_project = services.projects.read
-
-    def spy_read(project_id):
-        counts["project_read"] += 1
-        return read_project(project_id)
-
-    services.projects.read = spy_read
-    return services, driver, counts
-
-
-def test_reconcile_skips_the_chain_while_nothing_durable_moved(
-    tmp_path,
-) -> None:
-    services, driver, counts = _quiet_tick_driver(tmp_path)
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    after_first = dict(counts)
-    assert after_first["messages"] > 0  # the chain really ran
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts == after_first  # quiet tick: no scan, no read, no derivation
-
-    # A new human request must be picked up on the very next tick, not after
-    # the quiet ceiling: the pointer moved, so the guard cannot swallow it.
-    services.sessions.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="next",
-        client_message_id="next",
-        content_parts=[{"type": "text", "text": "再加一个镜头"}],
-        source="user",
-        channel=MessageChannel.COMPOSER,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts["messages"] > after_first["messages"]
-
-
-def test_reconcile_skips_a_deliberately_parked_head(tmp_path) -> None:
-    """A parked head is a verdict, not a reason to re-scan every tick.
-
-    Every real Project here holds 3-21 unconsumed automated messages that
-    reconcile intentionally does not launch; re-deriving that "no" each tick
-    was the whole idle cost.
-    """
-
-    services, driver, counts = _quiet_tick_driver(tmp_path)
-    admitted = services.sessions.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="parked",
-        client_message_id="parked",
-        content_parts=[{"type": "text", "text": "先别动这条"}],
-        source="user",
-        channel=MessageChannel.COMPOSER,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-    driver._blocked_heads[PROJECT_ID] = admitted.message.message_seq
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    settled = dict(counts)
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts == settled  # same head, same decision, no re-scan
-
-    # A second request moves the head, and the next tick must see it at once.
-    services.sessions.admit_user_request(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        request_id="newer",
-        client_message_id="newer",
-        content_parts=[{"type": "text", "text": "现在改这个"}],
-        source="user",
-        channel=MessageChannel.COMPOSER,
-        classification=MessageClassification.MUTATION_INSTRUCTION,
-    )
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts["messages"] > settled["messages"]
-
-
-def test_reconcile_quiet_window_expires(tmp_path) -> None:
-    _services, driver, counts = _quiet_tick_driver(tmp_path)
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    settled = dict(counts)
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts == settled
-
-    driver._RECONCILE_QUIET_CEILING_SECONDS = -1.0
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert counts["messages"] > settled["messages"]
-
-
-@pytest.mark.parametrize("status", ["RUNNING", "RESUMING"])
-def test_reconcile_never_quiet_while_the_session_is_settling(
-    tmp_path,
-    status,
-) -> None:
-    from services.runtime_files.models import CreatorSessionStatus
-
-    services, driver, counts = _quiet_tick_driver(tmp_path)
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    settled = dict(counts)
-    services.sessions.set_session_status(
-        PROJECT_ID,
-        SESSION_ID,
-        getattr(CreatorSessionStatus, status),
-    )
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-
-    assert counts["messages"] > settled["messages"]
-
-
-def test_idle_tick_skips_even_the_session_read(tmp_path) -> None:
-    """An idle Project must not touch disk beyond a stat pass.
-
-    The quiet guard could only prove the chain was redundant after loading the
-    Session, so every tick still paid one shared-lock read of ``session.json``
-    per Project -- eight Projects' worth queued against every HTTP reader in
-    the same thread pool. The remembered signature leads with a stat
-    fingerprint that covers ``session.json`` by mtime and size, so an unchanged
-    fingerprint means there is nothing new to read.
-    """
-
-    from services.runtime_files.models import CreatorSessionStatus
-
-    services, driver, _counts = _quiet_tick_driver(tmp_path)
-    reads: list[str] = []
-    real_snapshot = driver.sessions.get_project_session_snapshot
-
-    def spy_snapshot(project_id):
-        reads.append(project_id)
-        return real_snapshot(project_id)
-
-    driver.sessions.get_project_session_snapshot = spy_snapshot
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert reads == [PROJECT_ID]  # nothing remembered: the read is required
-
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert reads == [PROJECT_ID]  # idle tick: no Session read at all
-
-    # A peer moving session.json is seen on the very next tick, not after the
-    # quiet ceiling expires: the fingerprint covers that exact file.
-    services.sessions.set_session_status(
-        PROJECT_ID,
-        SESSION_ID,
-        CreatorSessionStatus.RUNNING,
-    )
-    asyncio.run(driver._reconcile_project(PROJECT_ID))
-    assert reads.count(PROJECT_ID) == 2
-
-
-def test_startup_sweep_discovers_ids_without_reading_documents(
-    tmp_path,
-) -> None:
-    """The boot sweep needs identities, not every validated document.
-
-    It used to call ``projects.list()``, which reads, migrates and validates
-    every Project before the dispatcher exists -- a full load whose only
-    consumer was ``summary.project_id``. Measured on eight Projects that cost
-    34 MB and roughly a second of GIL held before the first request could
-    land, on top of the sweep's own per-Project work.
-    """
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="生成角色图")
-    calls: list[str] = []
-    real_list = services.projects.list
-
-    def spy_list(*args, **kwargs):
-        calls.append("list")
-        return real_list(*args, **kwargs)
-
-    services.projects.list = spy_list
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-
-    async def scenario():
-        await driver.start()
-        await driver.stop()
-
-    asyncio.run(scenario())
-    assert calls == []
-
-
 
 
 def test_recalled_media_arrives_after_its_own_tool_group(

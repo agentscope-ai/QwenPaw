@@ -20,67 +20,7 @@ import httpx
 from models import config as model_config
 from models.concurrency import model_slot
 from models.output_budget import anthropic_output_limit
-from models.sse import read_chat_response
 from utils.exceptions import ModelError, redact_url, upstream_status_hint
-
-
-def _finish_reason_of(payload: dict) -> str:
-    """The provider's own ending reason, across the three reply shapes."""
-
-    for key, field in (
-        ("choices", "finish_reason"),
-        ("candidates", "finishReason"),
-    ):
-        rows = payload.get(key) or []
-        if rows and isinstance(rows[0], dict):
-            reason = str(rows[0].get(field) or "")
-            if reason:
-                return reason
-    return str(payload.get("stop_reason") or "")
-
-
-def _reasoning_only(payload: dict) -> bool:
-    """Whether the reply carried thinking but no answer, without reading it."""
-
-    choices = payload.get("choices") or []
-    if choices and isinstance(choices[0], dict):
-        reasoning = (choices[0].get("message") or {}).get("reasoning_content")
-        if isinstance(reasoning, str) and reasoning.strip():
-            return True
-    return bool(payload.get("_reasoning_content_dropped"))
-
-
-def _completion_tokens_of(payload: dict) -> str:
-    usage = payload.get("usage") or payload.get("usageMetadata") or {}
-    if isinstance(usage, dict):
-        for key in (
-            "completion_tokens",
-            "output_tokens",
-            "candidatesTokenCount",
-        ):
-            if usage.get(key) is not None:
-                return str(usage[key])
-    return "unknown"
-
-
-def _empty_content_detail(payload: dict, model_name: str) -> str:
-    """Why a 2xx reply held no text, always reported.
-
-    A contentless reply is otherwise undecidable: a reasoning model that spent
-    the whole budget on its thinking trace, a stream the gateway ended without
-    a closing frame, and a refusal all produce the same empty string. The
-    finish reason, token count and reasoning-only hint tell those apart, and
-    none of them is the model's private text.
-    """
-    reason = _finish_reason_of(payload) or "unknown"
-    if payload.get("_finish_reason_missing"):
-        reason += "(never_reported)"
-    detail = f"（模型：{model_name}，结束原因：{reason}，输出 token：{_completion_tokens_of(payload)}）"
-    if _reasoning_only(payload):
-        detail += "；模型仅返回了推理内容，没有最终结果"
-    if _finish_reason_of(payload) == "length":
-        detail += "。上游达到输出长度限制，请检查模型或服务的默认输出预算后重试"
-    return detail
 
 
 def _openai_chat_url() -> str:
@@ -185,14 +125,7 @@ async def _call_openai(
             model_name=model_name,
             url=url,
         )
-    # Some gateways answer with text/event-stream even though this request
-    # never asked to stream; decode both shapes into one chat.completion.
-    payload = read_chat_response(
-        response,
-        gateway=False,
-        model_name=model_name,
-        url=url,
-    )
+    payload = response.json()
     choices = payload.get("choices") or []
     content = (
         choices[0].get("message", {}).get("content")
@@ -200,23 +133,20 @@ async def _call_openai(
         else None
     )
     if not isinstance(content, str) or not content.strip():
-        raise ModelError(
-            "Text model 返回空内容"
-            + _empty_content_detail(payload, model_name),
-            model_name=model_name,
+        choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+        finish_reason = choice.get("finish_reason") or "unknown"
+        usage = payload.get("usage") or {}
+        completion_tokens = usage.get("completion_tokens", "unknown")
+        reasoning = (choice.get("message") or {}).get("reasoning_content")
+        detail = (
+            f"Text model 返回空内容（模型：{model_name}，"
+            f"结束原因：{finish_reason}，输出 token：{completion_tokens}）"
         )
-    if payload.get("_stream_truncated"):
-        # The gateway stopped talking without ever saying how the answer ended.
-        # What arrived is a prefix, and a half-written HTML page accepted as a
-        # finished work screen is worse than the 504 this replaces, because it
-        # fails silently. Nothing was completed, so asking again is safe.
-        raise ModelError(
-            "Text model 响应流被截断"
-            f"（结束原因未上报，输出 token：{_completion_tokens_of(payload)}，"
-            f"已收到 {len(content)} 字符但不完整）",
-            model_name=model_name,
-            retryable=True,
-        )
+        if isinstance(reasoning, str) and reasoning.strip():
+            detail += "；模型仅返回了推理内容，没有最终结果"
+        if finish_reason == "length":
+            detail += "。上游达到输出长度限制，请检查模型或服务的默认输出预算后重试"
+        raise ModelError(detail, model_name=model_name)
     return content.strip()
 
 
@@ -280,10 +210,7 @@ async def _call_anthropic(
     ]
     content = "\n".join(text_parts)
     if not content.strip():
-        raise ModelError(
-            "Text model 返回空内容",
-            model_name=model_name,
-        )
+        raise ModelError("Text model 返回空内容", model_name=model_name)
     return content.strip()
 
 
@@ -337,10 +264,7 @@ async def _call_gemini(
     payload = response.json()
     candidates = payload.get("candidates") or []
     if not candidates:
-        raise ModelError(
-            "Text model 返回空内容",
-            model_name=model_name,
-        )
+        raise ModelError("Text model 返回空内容", model_name=model_name)
     candidate = candidates[0] if isinstance(candidates[0], dict) else {}
     content_obj = candidate.get("content") or {}
     parts = content_obj.get("parts") or []
@@ -351,10 +275,7 @@ async def _call_gemini(
     ]
     content = "\n".join(text_parts)
     if not content.strip():
-        raise ModelError(
-            "Text model 返回空内容",
-            model_name=model_name,
-        )
+        raise ModelError("Text model 返回空内容", model_name=model_name)
     return content.strip()
 
 

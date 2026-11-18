@@ -1,6 +1,5 @@
 import {
   Fragment,
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -14,11 +13,7 @@ import type {
   ReactNode,
 } from "react";
 import { Button, Tooltip, message } from "antd";
-import { useShallow } from "zustand/react/shallow";
-import {
-  ArrowUpOutlined,
-  MenuFoldOutlined,
-} from "@ant-design/icons";
+import { ArrowUpOutlined, MenuFoldOutlined } from "@ant-design/icons";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -86,9 +81,9 @@ import {
   creatorActionEnvelope,
   deduplicateReviewFeedbackMessages,
   isReviewFeedbackMessage,
-  isUserAuthorityMessage,
   shouldRenderConversationMessage,
   toolCallPresentations,
+  type CreatorActionEnvelope,
   type ToolCallPresentation,
 } from "@/lib/creatorMessagePresentation";
 import {
@@ -99,11 +94,7 @@ import AgentProgressOverview from "./AgentProgressOverview";
 import AgentWaitHint from "./AgentWaitHint";
 import AgentActivityIndicator from "./AgentActivityIndicator";
 import DecisionTray from "./DecisionTray";
-import MentionInput, {
-  type MentionInputContent,
-  type MentionInputDraft,
-  type MentionInputHandle,
-} from "./MentionInput";
+import MentionInput, { type MentionInputHandle } from "./MentionInput";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { useTranslation } from "react-i18next";
@@ -399,6 +390,24 @@ function MessageParts({
   );
 }
 
+function ThinkingDisclosure({
+  children,
+  active,
+}: {
+  children: string;
+  active: boolean;
+}) {
+  const { t } = useTranslation();
+  if (!children || !active) return null;
+  // Thinking is intentionally status-only, including when legacy detail settings are enabled.
+  return (
+    <div data-agent-thinking className="agent-activity-row">
+      <AgentActivityIndicator phase="running" />
+      <span>{t("agentActivity.thinking")}</span>
+    </div>
+  );
+}
+
 // ``invalid`` must sit right beside ``temperature``: OpenAI-compatible
 // gateways wrap unrelated 400s as ``invalid_request_error`` that merely echo
 // the word. Mirrors ``models.config.is_temperature_unsupported_error``.
@@ -413,26 +422,71 @@ export function simplifyErrorMessage(text: string): string {
   return i18n.t("agentActivity.failureHint");
 }
 
-const ConversationMessage = memo(function ConversationMessage({
-  item,
+function ActionDisclosure({
+  envelope,
+  active,
 }: {
-  item: CreatorMessage;
+  envelope: CreatorActionEnvelope;
+  active: boolean;
 }) {
-  useTranslation();
+  const { t } = useTranslation();
+  const session = useCreatorSessionStore((state) => state.session);
+  const waiting =
+    envelope.action === "yield_until_runtime_event" &&
+    session?.status === "WAITING_RUNTIME";
+  if (!active && !waiting) return null;
+  return (
+    <div data-agent-action={envelope.action} className="agent-activity-row">
+      <AgentActivityIndicator phase="waiting" />
+      <span>
+        {waiting ? t("agentActivity.background") : t("agentActivity.preparing")}
+      </span>
+    </div>
+  );
+}
+
+function ConversationMessage({ item }: { item: CreatorMessage }) {
   const project = useProjectSnapshotStore((state) => state.project);
+  const waitingForRuntime = useCreatorSessionStore(
+    (state) => state.session?.status === "WAITING_RUNTIME",
+  );
   if (isReviewFeedbackMessage(item)) return <ReviewFeedbackCard item={item} />;
   if (item.role === "tool") return null;
   const envelope =
     item.role === "assistant" ? creatorActionEnvelope(item) : null;
   const streaming = item.metadata?.streaming === true;
-  const content =
+  const parts =
     item.role === "assistant"
       ? actionAwareConversationContent(item, envelope, project)
       : conversationContent(item, project);
-  // Transient thinking/preparation belongs in the fixed live-status row.
-  // Inserting then removing a message for each tool round shrinks the feed
-  // and makes bottom-following scroll backwards when the result is persisted.
-  if (!content.length) return null;
+  const content =
+    item.role === "assistant"
+      ? parts
+          .map((part) =>
+            part.type === "text"
+              ? {
+                  ...part,
+                  text: publicAssistantText(part.text, { streaming, project }),
+                }
+              : part,
+          )
+          .filter((part) => part.type !== "text" || part.text)
+      : parts;
+  const thinking =
+    typeof item.metadata?.providerThinking === "string"
+      ? item.metadata.providerThinking
+      : "";
+  const showThinking = !content.length && streaming && Boolean(thinking);
+  const showAction =
+    !content.length &&
+    !thinking &&
+    envelope &&
+    !(envelope.syntax === "native" && envelope.action === "tool_call") &&
+    (streaming ||
+      (envelope.action === "yield_until_runtime_event" && waitingForRuntime));
+  // A persisted tool envelope or hidden thinking has no conversation body.
+  // Do not leave an empty sibling between otherwise consecutive tool rows.
+  if (!content.length && !showThinking && !showAction) return null;
   if (item.role === "user") {
     // Sent attachments must stay visible on the message itself — the
     // composer chips are consumed by the send.
@@ -477,10 +531,16 @@ const ConversationMessage = memo(function ConversationMessage({
       data-streaming={streaming && content.length > 0}
       className="agent-assistant-message"
     >
-      <MessageParts parts={content} richText />
+      {showThinking && (
+        <ThinkingDisclosure active={streaming}>{thinking}</ThinkingDisclosure>
+      )}
+      {content.length > 0 && <MessageParts parts={content} richText />}
+      {showAction && (
+        <ActionDisclosure envelope={envelope} active={streaming} />
+      )}
     </div>
   );
-});
+}
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -697,65 +757,13 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
   );
 }
 
-/**
- * Delegated-only detail that needs the Project snapshot.
- *
- * Kept as its own subscriber so the ~every-tool-card path stays free of the
- * snapshot: a plain `read_project` row must not re-render when the Project
- * identity changes, and only specialist rows read it at all.
- */
-function SpecialistTargets({ refs }: { refs: string[] }) {
-  const project = useProjectSnapshotStore((state) => state.project);
-  if (refs.length === 0) return null;
-  return (
-    <div className="agent-targets">
-      {refs.map((ref) => (
-        <span key={ref}>{creatorTargetLabel(ref, project)}</span>
-      ))}
-    </div>
-  );
-}
-
-function SpecialistPreview({ activity }: { activity: SubagentActivity }) {
-  const project = useProjectSnapshotStore((state) => state.project);
-  const latestMessage =
-    activity &&
-    Object.values(activity.messages).sort(
-      (a, b) => b.firstEventSeq - a.firstEventSeq,
-    )[0];
-  const preview = latestMessage
-    ? publicAssistantText(subagentMessageText(latestMessage), {
-        streaming: !latestMessage.completed,
-        project,
-      })
-    : "";
-  if (!preview) return null;
-  return (
-    <div data-subagent-public-preview className="agent-specialist-preview">
-      <MarkdownContent compact>{preview}</MarkdownContent>
-    </div>
-  );
-}
-
-/**
- * One tool-activity row.
- *
- * Receives `sessionSettled` as a boolean rather than the session object: the
- * row only tests membership in a status set, and a boolean prop keeps memo
- * effective across session updates that do not change that answer. A large
- * project holds hundreds of these rows, so per-store-subscription fan-out and
- * per-render `publicAssistantText` both used to dominate interaction time.
- */
-const ToolCallCard = memo(function ToolCallCard({
-  data,
-  activity,
-  sessionSettled,
-}: {
-  data: ToolCallPresentation;
-  activity?: SubagentActivity;
-  sessionSettled: boolean;
-}) {
+function ToolCallCard({ data }: { data: ToolCallPresentation }) {
   const { t } = useTranslation();
+  const session = useCreatorSessionStore((state) => state.session);
+  const activity = useCreatorSessionStore(
+    (state) => state.subagentActivities[data.actionId],
+  );
+  const project = useProjectSnapshotStore((state) => state.project);
   const [expanded, setExpanded] = useState(false);
   const delegated = data.tool === "delegate_to_agent" || Boolean(activity);
   const role = creatorRoleLabel(
@@ -776,7 +784,9 @@ const ToolCallCard = memo(function ToolCallCard({
         )
       ? "failed"
       : "cancelled"
-    : data.status === "started" && sessionSettled
+    : data.status === "started" &&
+      session &&
+      ["IDLE", "ERROR", "CANCELLED"].includes(session.status)
     ? "unknown"
     : data.status;
   const activeTool =
@@ -803,6 +813,17 @@ const ToolCallCard = memo(function ToolCallCard({
       : !activity && data.executing !== true
       ? t("agentActivity.preparing")
       : statusCopy(status);
+  const latestMessage =
+    activity &&
+    Object.values(activity.messages).sort(
+      (a, b) => b.firstEventSeq - a.firstEventSeq,
+    )[0];
+  const preview = latestMessage
+    ? publicAssistantText(subagentMessageText(latestMessage), {
+        streaming: !latestMessage.completed,
+        project,
+      })
+    : "";
   return (
     <div
       data-agent-tool={data.actionId}
@@ -854,13 +875,23 @@ const ToolCallCard = memo(function ToolCallCard({
           </button>
         )}
       </div>
-      {delegated && <SpecialistTargets refs={targets} />}
+      {delegated && targets.length > 0 && (
+        <div className="agent-targets">
+          {targets.map((ref) => (
+            <span key={ref}>{creatorTargetLabel(ref, project)}</span>
+          ))}
+        </div>
+      )}
       {activeTool && status === "started" && (
         <p className="agent-specialist-subtitle">
           {creatorToolLabel(activeTool.tool, activeTool.arguments)}
         </p>
       )}
-      {!expanded && activity && <SpecialistPreview activity={activity} />}
+      {!expanded && preview && (
+        <div data-subagent-public-preview className="agent-specialist-preview">
+          <MarkdownContent compact>{preview}</MarkdownContent>
+        </div>
+      )}
       {status === "failed" && (
         <p className="agent-activity-notice">
           {t("agentActivity.toolFailureHint")}
@@ -874,7 +905,7 @@ const ToolCallCard = memo(function ToolCallCard({
       {expanded && activity && <SubagentActivityBubble activity={activity} />}
     </div>
   );
-});
+}
 
 function refTypeLabel(type: RefSearchItem["type"]): string {
   const labels: Record<RefSearchItem["type"], string> = {
@@ -1123,8 +1154,6 @@ export default function AgentDock({
   const width = useAgentDockUiStore((state) => state.width);
   const height = useAgentDockUiStore((state) => state.height);
   const draft = useAgentDockUiStore((state) => state.draft);
-  const unsentDraft = useAgentDockUiStore((state) => state.unsentDraft);
-  const setUnsentDraft = useAgentDockUiStore((state) => state.setUnsentDraft);
   const selectionAttachment = useAgentDockUiStore((state) => state.selection);
   const setOpen = useAgentDockUiStore((state) => state.setOpen);
   const setTab = useAgentDockUiStore((state) => state.setTab);
@@ -1137,7 +1166,6 @@ export default function AgentDock({
     (state) => state.setDecisionTrayCollapsed,
   );
 
-  const sessionProjectId = useCreatorSessionStore((state) => state.projectId);
   const session = useCreatorSessionStore((state) => state.session);
   const agentStatusBar = useCreatorSessionStore(
     (state) => state.agentStatusBar,
@@ -1146,11 +1174,7 @@ export default function AgentDock({
   const streamingAssistantMessages = useCreatorSessionStore(
     (state) => state.streamingAssistantMessages,
   );
-  const events = useCreatorSessionStore(
-    useShallow((state) =>
-      state.events.filter((event) => !event.type.endsWith("message_delta")),
-    ),
-  );
+  const events = useCreatorSessionStore((state) => state.events);
   const queuedUi = useCreatorSessionStore((state) => state.queuedUi);
   const activeConversationId = useCreatorSessionStore(
     (state) => state.activeConversationId,
@@ -1170,13 +1194,6 @@ export default function AgentDock({
   const sendMessage = useCreatorSessionStore((state) => state.sendMessage);
   const stopping = useCreatorSessionStore((state) => state.stopping);
   const isReplaying = useCreatorSessionStore((state) => state.isReplaying);
-  const replayUntilSeq = useCreatorSessionStore(
-    (state) => state.replayUntilSeq,
-  );
-  const lastEventSeq = useCreatorSessionStore((state) => state.lastEventSeq);
-  const refreshSession = useCreatorSessionStore(
-    (state) => state.refreshSession,
-  );
   const stopAllAgents = useCreatorSessionStore((state) => state.stopAllAgents);
   const connectionState = useCreatorSessionStore(
     (state) => state.connectionState,
@@ -1227,34 +1244,10 @@ export default function AgentDock({
     session &&
       ["RUNNING", "RESUMING", "INTERRUPT_REQUESTED"].includes(session.status),
   );
-  // A fresh view replays the session's history, and the four sources below
-  // land at different moments (measured: /session 2.8s, /tasks 3.0s,
-  // /specialist-runs 3.3s, the replay itself 5.2-10.4s). Until it catches up
-  // they describe the run's PAST intermediate states, not the present one: a
-  // Project whose session had already ended in ERROR rendered as stoppable
-  // three times inside 1.5s, because the replay was passing through the
-  // WAITING_EXECUTION_AUTH stretch of its own history. The status label
-  // already defers to replay; the button must too, or the two disagree and the
-  // dock visibly flickers between 发送 and 停止.
-  // Same composite test as the status label: a replay that has already passed
-  // its boundary must not keep the dock in the pre-replay shape. An unknown
-  // boundary (0) defers to isReplaying, which is the old behaviour.
-  const replayOutstanding =
-    isReplaying && lastEventSeq < (replayUntilSeq || Number.POSITIVE_INFINITY);
   const stoppable =
-    !replayOutstanding &&
-    (Object.values(subagentActivities).some(
-      (activity) => !activity.completed,
-    ) ||
-      tasks.some((task) => ["QUEUED", "RUNNING"].includes(task.status)) ||
-      runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)) ||
-      Boolean(session && STOPPABLE_SESSION_STATUSES.includes(session.status)));
-  // Derived once for every tool row: a row only asks whether the main session
-  // has settled, so a boolean keeps their memo effective across the session
-  // updates that do not change that answer.
-  const sessionSettled = Boolean(
-    session && ["IDLE", "ERROR", "CANCELLED"].includes(session.status),
-  );
+    Object.values(subagentActivities).some((activity) => !activity.completed) ||
+    runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)) ||
+    Boolean(session && STOPPABLE_SESSION_STATUSES.includes(session.status));
   const showWorkspace = tab === "activity";
 
   const currentProject = useRef(projectId);
@@ -1276,37 +1269,18 @@ export default function AgentDock({
   const [canSend, setCanSend] = useState(false);
   const [rateLimitResuming, setRateLimitResuming] = useState(false);
   const [inlineRefs, setInlineRefs] = useState<string[]>([]);
-  // Last refs written into `inlineRefs`, kept out of render state so it can
-  // gate the update without becoming a dependency of itself.
-  const inlineRefsSignature = useRef("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionOptions, setMentionOptions] = useState<RefSearchItem[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const previousProjectId = useRef<string | null>(null);
   useEffect(() => {
     setRemovedContextRefs([]);
     setRateLimitResuming(false);
     setPendingUploads([]);
     setUploadingAssets(false);
     setInterruptedDraft(null);
-    // Navigation between Projects must not carry the previous composer's
-    // in-memory state across. The unsent-draft stash is tagged with its
-    // producing Project (review #243 blocking #5) so a legitimate
-    // return-to-A still restores A's instruction; only the switch away
-    // from a Project wipes what the current mount shows. Doing this on
-    // first mount would erase the stash before the restore effect even
-    // got a chance to compare Project ids.
-    if (
-      previousProjectId.current !== null &&
-      previousProjectId.current !== projectId
-    ) {
-      setUnsentDraft(null);
-      inputRef.current?.clear();
-    }
-    previousProjectId.current = projectId;
     submissionVersion.current += 1;
     projectLifecycleVersion.current += 1;
-  }, [projectId, setUnsentDraft]);
+  }, [projectId]);
   const [showJump, setShowJump] = useState(false);
   const inputRef = useRef<MentionInputHandle>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -1354,59 +1328,13 @@ export default function AgentDock({
   const realignTimerIds = useRef<number[]>([]);
   const previousPendingAuthorizationCount = useRef(0);
   const lastOpenedFileReviewToken = useRef<string | null>(null);
-  const openedExecutionPauses = useRef(new Set<string>());
+  const lastOpenedExecutionPause = useRef<string | null>(null);
   const resizeRef = useRef<{
     startX: number;
     startY: number;
     startW: number;
     startH: number;
   } | null>(null);
-
-  const activeExecutionPause = useMemo(() => {
-    if (
-      sessionProjectId !== projectId ||
-      session?.projectId !== projectId ||
-      !activeConversationId ||
-      streaming ||
-      session.status === "WAITING_RUNTIME" ||
-      queued.some((item) => item.state !== "failed")
-    )
-      return null;
-    // The store loads messages for the current session/conversation and clears
-    // them on a switch. Later runtime rows or summaries do not end a pause.
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const notice = messages[index];
-      if (isUserAuthorityMessage(notice)) break;
-      const pause = recordValue(notice.metadata.executionPause);
-      if (
-        notice.role !== "assistant" ||
-        notice.source !== "creator_execution_notice" ||
-        !pause
-      )
-        continue;
-      const text = conversationContent(notice, project)
-        .map((part) => (part.type === "text" ? part.text : ""))
-        .filter(Boolean)
-        .join("\n\n");
-      return text
-        ? {
-            key: `${projectId}:${session.id}:${activeConversationId}:${notice.messageId}`,
-            text,
-          }
-        : null;
-    }
-    return null;
-  }, [
-    activeConversationId,
-    messages,
-    project,
-    projectId,
-    queued,
-    session,
-    sessionProjectId,
-    streaming,
-    t,
-  ]);
 
   const orderedMessages = useMemo(() => {
     const nextMessageSeq = (messages.at(-1)?.messageSeq ?? 0) + 1;
@@ -1488,17 +1416,6 @@ export default function AgentDock({
     [toolCalls],
   );
 
-  const mainThinking = useMemo(
-    () =>
-      Object.values(streamingAssistantMessages).some(
-        (item) =>
-          !item.toolCall &&
-          Object.keys(item.thinkingDeltas).length > 0 &&
-          Object.keys(item.deltas).length === 0,
-      ),
-    [streamingAssistantMessages],
-  );
-
   // Live status row above the input: derived purely on the frontend, no data
   // structures are mutated. `t` must stay in the deps: the labels come from
   // the global i18n singleton, so a runtime language switch has to recompute
@@ -1512,11 +1429,8 @@ export default function AgentDock({
         hasQueuedInput: queued.some((item) => item.state !== "failed"),
         messages,
         isReplaying,
-        lastEventSeq,
-        replayUntilSeq,
         subagentActivities,
         toolCalls,
-        mainThinking,
         tasks,
         project,
         rateLimitRetry,
@@ -1529,11 +1443,8 @@ export default function AgentDock({
       queued,
       messages,
       isReplaying,
-      lastEventSeq,
-      replayUntilSeq,
       subagentActivities,
       toolCalls,
-      mainThinking,
       tasks,
       project,
       rateLimitRetry,
@@ -1686,15 +1597,19 @@ export default function AgentDock({
   }, [fileReviews, pendingFileReviewCount, setOpen]);
 
   useEffect(() => {
+    const notice = messages.at(-1);
     if (
-      !activeExecutionPause ||
-      openedExecutionPauses.current.has(activeExecutionPause.key)
+      session?.projectId !== projectId ||
+      notice?.source !== "creator_execution_notice" ||
+      !notice.metadata.executionPause
     )
       return;
-    openedExecutionPauses.current.add(activeExecutionPause.key);
+    const token = `${projectId}:${notice.messageId}`;
+    if (lastOpenedExecutionPause.current === token) return;
+    lastOpenedExecutionPause.current = token;
     stickBottom.current = true;
     setOpen(true);
-  }, [activeExecutionPause, setOpen]);
+  }, [messages, projectId, session?.projectId, setOpen]);
 
   useEffect(() => {
     const stored = loadDockSize(sidebar);
@@ -1741,20 +1656,6 @@ export default function AgentDock({
   }, [mentionQuery, open, setOpen]);
 
   const suppressFollow = isReplaying && connectionState === "connected";
-
-  // Replay rebuilds what the event stream said, but the authoritative session
-  // row is not part of that stream. Without this the corrected status waits
-  // for the next ~10s poll batch -- measured: replay settled at 10.4s only
-  // because a poll happened to land at that moment -- and every consumer of
-  // session.status shows a historical value in between. Ask once, immediately,
-  // when the replay says it is caught up.
-  const prevReplayForRefresh = useRef(isReplaying);
-  useEffect(() => {
-    const settled = prevReplayForRefresh.current && !isReplaying;
-    prevReplayForRefresh.current = isReplaying;
-    if (!settled || !open) return;
-    void refreshSession().catch(() => undefined);
-  }, [isReplaying, open, refreshSession]);
 
   useLayoutEffect(() => {
     const replayJustEnded = prevIsReplaying.current && !isReplaying;
@@ -1847,48 +1748,7 @@ export default function AgentDock({
     if (!open || !draft || inputRef.current?.getContent().text) return;
     inputRef.current?.setText(draft);
     setCanSend(Boolean(draft.trim()));
-    // Consume the injection. Callers only set ``draft`` on the intent that
-    // spawned it (BlueprintScriptPanel request-changes), and leaving the
-    // value on the store meant the next fold + reopen re-fired this effect
-    // against a now-empty box, silently overwriting the user's edited
-    // text with the original injection (review #243 P2). Clearing here also
-    // lets the unsent-draft effect below see that no injection is pending,
-    // so the stash is restored on the reopen instead of the older prompt.
-    setDraft("");
-    // A fresh injection supersedes any stashed unsent draft.
-    setUnsentDraft(null);
-  }, [draft, open, setDraft, setUnsentDraft]);
-
-  // Folding or unmounting unmounts the input, and live typing never reaches
-  // the store, so an unsent instruction used to vanish with the component
-  // (review #243). The editor reports its own structured draft on the way out
-  // via onUnmountDraft below: a passive cleanup here would run after the
-  // handle's ref is already detached, so the parent cannot read it in time.
-
-  // MentionInput's unmount effect keys off the callback identity, so a
-  // fresh arrow per render would re-register the cleanup and call it
-  // every commit (the store write then loops back through Zustand).
-  // Memoizing here lets it fire only on the real fold/unmount, and the
-  // Project-tag keeps the review #243 blocking #5 guarantee: the stash
-  // names the Project it belongs to so another route cannot restore it.
-  const stashUnmountedDraft = useCallback(
-    (content: MentionInputDraft | null) =>
-      setUnsentDraft(content ? { projectId, content } : null),
-    [projectId, setUnsentDraft],
-  );
-
-  useEffect(() => {
-    if (!open || !unsentDraft || draft) return;
-    // A stash from a different Project is not this composer's business.
-    // Navigation between Projects can unmount the dock on the way out
-    // (which fires onUnmountDraft) and mount a fresh one on the way in;
-    // restoring across that boundary hands Project A's half-typed
-    // instruction to Project B's session (review #243 blocking #5).
-    if (unsentDraft.projectId !== projectId) return;
-    if (inputRef.current?.getContent().text) return;
-    inputRef.current?.setDraft(unsentDraft.content);
-    setCanSend(Boolean(inputRef.current?.getContent().text.trim()));
-  }, [open, unsentDraft, draft, projectId]);
+  }, [draft, open]);
 
   useEffect(() => {
     if (!open || !selectionAttachment) return;
@@ -2046,20 +1906,11 @@ export default function AgentDock({
     setShowJump(false);
   };
 
-  const handleInputChange = (_text: string, content: MentionInputContent) => {
-    setCanSend(Boolean(content.text.trim()));
-    // Compare before setting: allocating a fresh array on every keystroke made
-    // the dock re-render per character even when the referenced objects never
-    // changed. The refs already came from this keystroke's serialization, so
-    // there is no second getContent() DOM walk either.
-    const signature = content.refs.map((item) => item.ref).join("\u0000");
-    if (signature !== inlineRefsSignature.current) {
-      inlineRefsSignature.current = signature;
-      setInlineRefs(content.refs.map((item) => item.ref));
-    }
-    // The live text intentionally never reaches the store. `draft` is only the
-    // external-injection channel consumed below; writing every keystroke into
-    // it re-rendered this whole dock, and every tool card inside it, per key.
+  const handleInputChange = (text: string) => {
+    const content = inputRef.current?.getContent();
+    setCanSend(Boolean(content?.text.trim()));
+    setInlineRefs(content?.refs.map((item) => item.ref) ?? []);
+    setDraft(text);
   };
 
   const pickMention = (item: RefSearchItem) => {
@@ -2101,15 +1952,7 @@ export default function AgentDock({
     useCreatorInteractionStore.getState().setSelection(null);
     setSelectionAttachment(null);
     inputRef.current?.clearMentions();
-    // Read back the post-clear content explicitly rather than relying on the
-    // refresh() inside clearMentions: same values as that notification, so the
-    // signature gate makes this a no-op while the ref stays non-null-safe.
-    const cleared = inputRef.current?.getContent() ?? {
-      text: "",
-      refs: [],
-      selections: [],
-    };
-    handleInputChange(cleared.text, cleared);
+    handleInputChange(inputRef.current?.getContent().text ?? "");
   };
 
   const submit = async () => {
@@ -2274,9 +2117,7 @@ export default function AgentDock({
       ) === submittedSignature
     ) {
       inputRef.current?.clear();
-      setUnsentDraft(null);
       setCanSend(false);
-      inlineRefsSignature.current = "";
       setInlineRefs([]);
       setDraft("");
       setMentionQuery(null);
@@ -2511,20 +2352,6 @@ export default function AgentDock({
 
           <AgentProgressOverview projectId={projectId} />
 
-          {activeExecutionPause && (
-            <div
-              key={activeExecutionPause.key}
-              data-agent-execution-pause
-              role="alert"
-              tabIndex={0}
-              className="mx-4 mt-3 max-h-36 shrink-0 overflow-y-auto rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs leading-5 text-[var(--color-text-primary)]"
-            >
-              <p className="whitespace-pre-wrap break-words">
-                {activeExecutionPause.text}
-              </p>
-            </div>
-          )}
-
           {showWorkspace && (
             <div className="max-h-56 overflow-y-auto border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/40 px-4 py-3">
               <WorkspacePanel />
@@ -2582,24 +2409,14 @@ export default function AgentDock({
                         <ConversationMessage item={item} />
                         {(toolCallsByMessage.get(item.messageId) ?? []).map(
                           (call) => (
-                            <ToolCallCard
-                              key={call.actionId}
-                              data={call}
-                              activity={subagentActivities[call.actionId]}
-                              sessionSettled={sessionSettled}
-                            />
+                            <ToolCallCard key={call.actionId} data={call} />
                           ),
                         )}
                       </Fragment>
                     ))}
                     {conversationFlow.turns.length === 0 &&
                       unanchoredToolCalls.map((call) => (
-                        <ToolCallCard
-                          key={call.actionId}
-                          data={call}
-                          activity={subagentActivities[call.actionId]}
-                          sessionSettled={sessionSettled}
-                        />
+                        <ToolCallCard key={call.actionId} data={call} />
                       ))}
                   </div>
                 )}
@@ -2622,24 +2439,14 @@ export default function AgentDock({
                             <ConversationMessage item={item} />
                             {(toolCallsByMessage.get(item.messageId) ?? []).map(
                               (call) => (
-                                <ToolCallCard
-                                  key={call.actionId}
-                                  data={call}
-                                  activity={subagentActivities[call.actionId]}
-                                  sessionSettled={sessionSettled}
-                                />
+                                <ToolCallCard key={call.actionId} data={call} />
                               ),
                             )}
                           </Fragment>
                         ))}
                         {latest &&
                           unanchoredToolCalls.map((call) => (
-                            <ToolCallCard
-                              key={call.actionId}
-                              data={call}
-                              activity={subagentActivities[call.actionId]}
-                              sessionSettled={sessionSettled}
-                            />
+                            <ToolCallCard key={call.actionId} data={call} />
                           ))}
                       </div>
                     </div>
@@ -3028,7 +2835,6 @@ export default function AgentDock({
                   onMentionNavigate={navigateMention}
                   onMentionConfirm={confirmMention}
                   onMentionClose={() => setMentionQuery(null)}
-                  onUnmountDraft={stashUnmountedDraft}
                 />
                 {(stoppable || stopping) &&
                 !canSend &&
@@ -3038,9 +2844,7 @@ export default function AgentDock({
                     danger
                     aria-label={t("agent.stopAllAgents")}
                     icon={<Square className="h-3 w-3 fill-current" />}
-                    disabled={
-                      stopping || session?.status === "INTERRUPT_REQUESTED"
-                    }
+                    disabled={stopping}
                     onClick={() => {
                       const stopProject = projectId;
                       const stopVersion = submissionVersion.current;
@@ -3049,14 +2853,8 @@ export default function AgentDock({
                         submissionVersion.current === stopVersion;
                       void stopAllAgents()
                         .then(() => {
-                          if (isCurrent()) {
-                            if (
-                              useCreatorSessionStore.getState().session
-                                ?.status === "CANCELLED"
-                            )
-                              message.success(t("agent.stopAllSuccess"));
-                            else message.info(t("agent.stopRequested"));
-                          }
+                          if (isCurrent())
+                            message.success(t("agent.stopAllSuccess"));
                         })
                         .catch(() => {
                           if (isCurrent())

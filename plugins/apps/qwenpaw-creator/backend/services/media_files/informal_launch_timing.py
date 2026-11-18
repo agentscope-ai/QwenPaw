@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from domain.errors import ValidationError
-from services.media_files import media_gate
 from services.media_files.element_adapter import selected_element_output
 from services.media_files.informal_launch_template import (
     uses_informal_launch_captions,
@@ -65,7 +64,7 @@ def planned_shot_ranges(
 def detect_hard_cuts(path: Path, ffmpeg_path: str) -> list[float]:
     """Use decoded pixels, never planned timestamps, as cut evidence."""
     try:
-        result = media_gate.run(
+        result = subprocess.run(
             [
                 ffmpeg_path,
                 "-hide_banner",

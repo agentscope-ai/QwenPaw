@@ -48,7 +48,7 @@ from .json_pointer import (
 )
 from .store import ProjectSnapshot, ProjectStore
 from .models import Project
-from .serialization import load_project_document, project_document_etag
+from .serialization import project_etag
 from .review_bookkeeping import is_human_review_change
 
 logger = logging.getLogger("qwenpaw.creator.project_files.review")
@@ -1726,20 +1726,18 @@ class ProjectReviewService:
             raise ReviewDecisionConflict(
                 "finalized compensating transaction has no final ETag",
             )
-        final_document = AtomicJsonRecordStore(
+        final_project = AtomicJsonRecordStore(
             transaction_root / "final.json",
+            Project,
         ).read_or_none()
-        if final_document is None:
+        if final_project is None:
             current = self.store.read(journal.project_id)
             if current.etag != commit_journal.final_etag:
                 raise ReviewDecisionConflict(
                     "compensating transaction has no verifiable final snapshot",
                 )
             return current
-        final_project = load_project_document(final_document)
-        final_etag = project_document_etag(
-            final_document, project=final_project
-        )
+        final_etag = project_etag(final_project)
         if (
             final_project.project_id != journal.project_id
             or final_etag != commit_journal.final_etag
@@ -1751,7 +1749,6 @@ class ProjectReviewService:
             project=final_project,
             etag=final_etag,
             generation=final_project.generation,
-            source_document=final_document,
         )
 
     def _current_at_or_after(

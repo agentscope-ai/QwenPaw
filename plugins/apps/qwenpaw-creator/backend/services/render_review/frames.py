@@ -17,7 +17,6 @@ import tempfile
 from pathlib import Path
 
 from schemas.render_review import AudioProfile, LoudnessSegment, ReviewFrame
-from services.media_files import media_gate
 from services.runtime_files.media_probe import probe_media
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
 from utils.logger import setup_logger
@@ -125,7 +124,7 @@ def _run_frame_grab(
         "-y",
         str(frame_path),
     ]
-    return media_gate.run(
+    return subprocess.run(
         command,
         # Detach stdin so ffmpeg is not suspended by SIGTTIN when it reads
         # the tty from a background process group.
@@ -295,7 +294,7 @@ def probe_audio_profile(video_path: Path) -> AudioProfile:
         "null",
         "-",
     ]
-    result = media_gate.run(
+    result = subprocess.run(
         command,
         # Detach stdin so ffmpeg is not suspended by SIGTTIN when it reads
         # the tty from a background process group.

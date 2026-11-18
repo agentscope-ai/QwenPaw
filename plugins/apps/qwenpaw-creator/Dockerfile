@@ -29,8 +29,9 @@ ARG PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 # -----------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS creator-ui-builder
 WORKDIR /app
-COPY plugins/apps/qwenpaw-creator /app/plugin
-RUN cd /app/plugin/ui && npm ci --include=dev && npm run build
+COPY plugins/apps/qwenpaw-creator/ui /app/creator-ui
+COPY plugins/apps/qwenpaw-creator/templates /app/templates
+RUN cd /app/creator-ui && npm ci --include=dev && npm run build
 
 # Keep the pinned Node distribution available for the runtime stage.
 FROM ${NODE_IMAGE} AS node-runtime
@@ -88,7 +89,7 @@ COPY plugins/apps/qwenpaw-creator /app/bundled-plugins/qwenpaw-creator
 # Copy Creator UI build artifacts from Stage 1.
 # Vite outputs to dist/app/ (SPA files) and package-plugin.mjs generates
 # dist/index.js (plugin entry wrapper). Copy the full dist/ so both are included.
-COPY --from=creator-ui-builder /app/plugin/ui/dist/ /app/bundled-plugins/qwenpaw-creator/ui/dist/
+COPY --from=creator-ui-builder /app/creator-ui/dist/ /app/bundled-plugins/qwenpaw-creator/ui/dist/
 
 # Install Creator Python dependencies into the existing venv.
 # Extract hostname from PYPI_INDEX_URL for --trusted-host (strip protocol and path).

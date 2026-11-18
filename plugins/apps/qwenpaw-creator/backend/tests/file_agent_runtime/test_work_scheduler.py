@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
-from domain.enums import TaskKind, TaskStatus
+from domain.enums import TaskStatus
 from services.file_agent_runtime.work_graph import (
     WorkGraph,
     WorkNode,
@@ -21,11 +20,9 @@ from services.file_agent_runtime.work_graph import (
 from services.file_agent_runtime import work_scheduler
 from services.file_agent_runtime.work_scheduler import (
     WorkGraphScheduler,
-    _abandoned_queued_targets,
     _blocked_by_active_media_review,
     _blocked_by_active_sync_review,
 )
-from services.runtime_files.execution_models import TaskRecord
 from services.runtime_files.path_safety import require_safe_runtime_segment
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
@@ -427,31 +424,6 @@ def test_dispatched_idempotency_key_is_a_safe_runtime_segment(
     )
 
 
-def test_idempotency_key_is_a_safe_runtime_segment(tmp_path, monkeypatch):
-    """Regression: the ledger fingerprint carries "|img:<model>|vid:<model>"
-    and "|" is rejected by require_safe_runtime_segment. Media executors
-    persist the dispatch key verbatim as Task idempotency_key /
-    caused_by_request_id, so a raw fingerprint in the key failed every
-    work-graph dispatch ("caused_by_request_id is not a safe path
-    segment") and media generation never started."""
-    services = _services(tmp_path, monkeypatch, ready_variants=1)
-    _enable_yolo(monkeypatch)
-    dispatch = _RecordingDispatch()
-    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
-
-    async def scenario():
-        await scheduler.tick(PROJECT_ID)
-        await _drain()
-
-    asyncio.run(scenario())
-
-    key = dispatch.calls[0]["idempotency_key"]
-    assert "|" not in key
-    assert (
-        require_safe_runtime_segment(key, label="caused_by_request_id") == key
-    )
-
-
 def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
     """Field run 2026-08-07: the first commit of a four-wide storyboard
     wave staled the other three; their tasks went QUARANTINED (invisible
@@ -489,203 +461,6 @@ def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
 
     # 1 initial dispatch + 2 bounded rescue re-dispatches, then locked.
     assert len(dispatch.calls) == 3
-
-
-def _queued_task(target_ref, *, updated_at, last_attempt_seq=0):
-    return SimpleNamespace(
-        kind="image_generation",
-        status=TaskStatus.QUEUED,
-        updated_at=updated_at,
-        last_attempt_seq=last_attempt_seq,
-        metadata={"targetRef": target_ref},
-        input_refs=[target_ref],
-        error=None,
-        result=None,
-    )
-
-
-def test_abandoned_queued_targets_requires_no_attempt_and_age():
-    """Only a never-claimed QUEUED task past the grace window counts, so a
-    task with real progress or a fresh admission is never reopened."""
-
-    now = datetime(2026, 11, 6, 12, tzinfo=UTC)
-    stale = now - timedelta(minutes=16)
-    assert _abandoned_queued_targets(
-        [_queued_task("element:e1", updated_at=stale)],
-        now=now,
-    ) == {"element:e1"}
-    assert (
-        _abandoned_queued_targets(
-            [_queued_task("element:e1", updated_at=now)],
-            now=now,
-        )
-        == set()
-    )
-    assert (
-        _abandoned_queued_targets(
-            [_queued_task("element:e1", updated_at=stale, last_attempt_seq=1)],
-            now=now,
-        )
-        == set()
-    )
-
-
-def _stranded_admission_case(tmp_path, monkeypatch, *, age: timedelta):
-    """Dispatch once, then leave one QUEUED zero-attempt task of the given
-    age and report how many extra dispatches the following ticks admit."""
-    services = _services(tmp_path, monkeypatch, ready_variants=1)
-    _enable_yolo(monkeypatch)
-    dispatch = _RecordingDispatch()
-    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
-
-    async def scenario():
-        await scheduler.tick(PROJECT_ID)
-        await _drain()
-        target_ref = dispatch.calls[0]["target_ref"]
-        admitted = len(dispatch.calls)
-        monkeypatch.setattr(
-            scheduler.executions,
-            "list_tasks",
-            lambda _project_id: [
-                _queued_task(
-                    target_ref,
-                    updated_at=datetime.now(UTC) - age,
-                ),
-            ],
-        )
-        await scheduler.tick(PROJECT_ID)
-        await _drain()
-        reclaimed = len(dispatch.calls) - admitted
-        await scheduler.shutdown()
-        return reclaimed
-
-    return asyncio.run(scenario())
-
-
-def test_queued_task_without_attempt_reopens_dispatch(tmp_path, monkeypatch):
-    """Field case 2026-11-06: the dispatch coroutine admitted the run and
-    task, then died before recording a first attempt. The graph read the
-    node as running, none of the re-entry paths recognised a QUEUED task,
-    and the manual dispatch gate answers running with dispatched=false —
-    the node sat unclaimed for 69 hours with compose gated behind it."""
-    # The stub dispatch never records an attempt, so a still-stranded
-    # admission re-enters on each wake up to the transient hard cap; what
-    # is under test is that it re-enters at all.
-    assert (
-        _stranded_admission_case(
-            tmp_path,
-            monkeypatch,
-            age=timedelta(minutes=16),
-        )
-        >= 1
-    )
-
-
-def test_fresh_queued_admission_is_not_requeued(tmp_path, monkeypatch):
-    """A task admitted moments ago may still be starting; only the grace
-    window separates it from a stranded one."""
-
-    assert (
-        _stranded_admission_case(
-            tmp_path,
-            monkeypatch,
-            age=timedelta(minutes=1),
-        )
-        == 0
-    )
-
-
-def _admitted_failure_case(tmp_path, monkeypatch, *, last_attempt_seq):
-    """Dispatch that admits a task record and then fails deterministically.
-
-    Returns the dispatch count plus the scheduler's own warnings: the plugin
-    logger does not propagate to the root, so caplog can never see it and the
-    warning has to be recorded at its call site.
-    """
-    services = _services(tmp_path, monkeypatch, ready_variants=1)
-    _enable_yolo(monkeypatch)
-    notices: list[str] = []
-
-    def record_warning(message, *args, **kwargs):
-        notices.append(message % args if args else str(message))
-
-    monkeypatch.setattr(work_scheduler.logger, "warning", record_warning)
-    records: list = []
-    dispatch = _RecordingDispatch(
-        fail=True,
-        error="reference budget exceeded",
-        records=records,
-    )
-    scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)
-    # The stranded-node case is exactly the one where the paid-retry budget is
-    # already spent: an unrecognised RuntimeError classifies as transient, so
-    # only with no budget left does dispatch reach the zero-attempt reopen.
-    monkeypatch.setattr(
-        scheduler,
-        "_transient_budget_available",
-        lambda _key: False,
-    )
-    monkeypatch.setattr(
-        scheduler.executions,
-        "list_tasks",
-        lambda _project_id: [
-            SimpleNamespace(
-                kind="image_generation",
-                status=TaskStatus.FAILED,
-                error={"code": "IMAGE_GENERATION_FAILED", "message": "x"},
-                result=None,
-                metadata=record.metadata,
-                input_refs=record.input_refs,
-                idempotency_key=record.idempotency_key,
-                updated_at=record.updated_at,
-                last_attempt_seq=last_attempt_seq,
-            )
-            for record in records
-        ],
-    )
-
-    async def scenario():
-        for _ in range(4):
-            await scheduler.tick(PROJECT_ID)
-            await _drain()
-        await scheduler.shutdown()
-        return len(dispatch.calls)
-
-    dispatched = asyncio.run(scenario())
-    reopened = any("left no attempt" in line for line in notices)
-    return dispatched, reopened
-
-
-def test_failure_without_any_attempt_reopens_the_ledger(
-    tmp_path,
-    monkeypatch,
-):
-    """Field case 2026-11-06: the executor never claimed the admitted task, so
-    nothing was spent, yet the ledger mark stayed and the node stranded as
-    "running" with zero attempts for 69 hours."""
-
-    _, reopened = _admitted_failure_case(
-        tmp_path,
-        monkeypatch,
-        last_attempt_seq=0,
-    )
-    assert reopened
-
-
-def test_failure_after_an_attempt_keeps_the_ledger_mark(
-    tmp_path,
-    monkeypatch,
-):
-    """Once an attempt exists the provider may already have been paid, so the
-    zero-attempt reopen must not fire; the existing recordless path is a
-    separate decision and is not what this asserts about."""
-
-    _, reopened = _admitted_failure_case(
-        tmp_path,
-        monkeypatch,
-        last_attempt_seq=1,
-    )
-    assert not reopened
 
 
 def test_transient_budget_reopens_after_the_cooldown(tmp_path, monkeypatch):

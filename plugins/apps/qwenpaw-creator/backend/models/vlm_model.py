@@ -26,12 +26,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import mimetypes
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from PIL import Image
 
 from models import config as model_config
 from models.concurrency import model_slot
@@ -42,7 +44,6 @@ from models.media_transport import (
     upload_local_file_to_dashscope_temp,
 )
 from models.model_capability_cache import get_capability_cache
-from models.sse import read_chat_response
 from services.runtime_files.safe_remote_download import (
     SafeRemoteDownloadError,
     open_safe_remote_stream,
@@ -332,21 +333,11 @@ def _is_dashscope_provider(base_url: str, protocol: str = "") -> bool:
     )
 
 
-def uses_dashscope_transport(base_url: str = "", protocol: str = "") -> bool:
-    """True when local media travels through the DashScope model-bound
-    temporary OSS upload (48h TTL, <=1GB) instead of inline Base64 URLs.
-
-    *base_url* names the endpoint the caller is about to upload for and
-    defaults to the configured VLM. Passing it stops this predicate from
-    disagreeing with the transport the caller actually chose. *protocol*
-    names the credential in use the same way: pass it whenever *base_url*
-    comes from a section other than the VLM, because the upload identity is
-    a property of the key, not of the host.
-    """
-    return _is_dashscope_provider(
-        base_url or model_config.get_vlm_base_url(),
-        protocol,
-    )
+def uses_dashscope_transport() -> bool:
+    """True when the configured VLM transports local media through the
+    DashScope model-bound temporary OSS upload (48h TTL, <=1GB) instead
+    of inline Base64 data URLs."""
+    return _is_dashscope_provider(model_config.get_vlm_base_url())
 
 
 async def transport_local_media_url(
@@ -355,8 +346,6 @@ async def transport_local_media_url(
     api_key: str,
     model_name: str,
     media_type: str = "",
-    base_url: str = "",
-    protocol: str = "",
 ) -> str:
     """Return a URL for *local_path* that the configured VLM can ingest.
 
@@ -374,7 +363,7 @@ async def transport_local_media_url(
         if local_path.suffix.lower() in VIDEO_SUFFIXES
         else "image/png"
     )
-    if uses_dashscope_transport(base_url, protocol):
+    if uses_dashscope_transport():
         return await upload_local_file_to_dashscope_temp(
             local_path,
             api_key=api_key,
@@ -983,15 +972,7 @@ async def _call_openai_vlm(
                 json=body,
             )
     response.raise_for_status()
-    # A gateway may force text/event-stream on this call even though the body
-    # never asked for ``stream``; fold it back into the chat.completion shape
-    # that _parse_openai_response already expects.
-    return read_chat_response(
-        response,
-        gateway=False,
-        model_name=model_name,
-        url=f"{base_url.rstrip('/')}/chat/completions",
-    )
+    return response.json()
 
 
 async def _call_anthropic_vlm(

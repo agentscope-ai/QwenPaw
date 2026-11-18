@@ -833,8 +833,7 @@
     "subtitleStyleApplied": "Subtitle style updated. Click 'Compose Final Cut' to refresh the video.",
     "subtitleStyleFailed": "Subtitle style update failed: {{detail}}",
     "subtitleStyleSkippedDesign": "{{count}} caption(s) get their look from their own motion design, so the pack motion does not apply there",
-    "subtitleStyleMotionUnowned": "This caption's look comes from its own motion design, which the style pack never rewrites; tune entrance / exit / loop in the motion design",
-    "applySuccessComposeWaiting": "Changes applied; live preview updated, and the final cut is out of date — press Final Cut to recompose it."
+    "subtitleStyleMotionUnowned": "This caption's look comes from its own motion design, which the style pack never rewrites; tune entrance / exit / loop in the motion design"
   },
   "r2v": {
     "title": "Video Plan / {{element}} / Production Workbench",
@@ -1289,9 +1288,7 @@
         "generate": "Compose final film",
         "retry": "Recompose final film"
       }
-    },
-    "strandedAdmission": "{{count}} production request(s) were admitted but never started; resubmit them.",
-    "strandedResubmit": "Resubmit"
+    }
   },
   "decisionTray": {
     "productionConfirm": "Production Confirm · ",
@@ -1452,8 +1449,7 @@
       "before": "Before",
       "after": "After",
       "noReferenceImages": "No reference images selected"
-    },
-    "nativeAudio": "Native video audio"
+    }
   },
   "rejectionFeedback": {
     "undoContent": "Undo content",
@@ -1607,8 +1603,7 @@
     "snapshotDeleted": "Snapshot deleted",
     "snapshotPreApplyBackup": "Backup before apply",
     "snapshotInUse": "Applied",
-    "snapshotCurrentMatches": "Content matches “{{name}}”",
-    "timingAppliedComposeWaiting": "Timing applied; the final cut is out of date — press Final Cut to recompose it."
+    "snapshotCurrentMatches": "Content matches “{{name}}”"
   },
   "editPlan": {
     "title": "Edit plan",
@@ -2267,7 +2262,7 @@
       "done": "Final cut ready",
       "run": "Generating",
       "wait": "Script written",
-      "scriptStale": "Script needs syncing",
+      "scriptStale": "Script stale",
       "idle": "To draft"
     },
     "episodeList": "Episode list · Linear {{count}} episodes",
@@ -2335,7 +2330,7 @@
       "researchReady": "Research done",
       "researchRunning": "Researching",
       "scriptReady": "{{count}} versions",
-      "scriptStale": "Creative inputs updated; script needs syncing",
+      "scriptStale": "Script stale, re-review needed",
       "visualReady": "Design generated",
       "visualPending": "To generate",
       "elementReady": "Generated",
@@ -2354,7 +2349,7 @@
     "finalCut": "Final cut",
     "scriptPanelTitle": "Script · {{title}}",
     "scriptVersion": "{{count}} versions",
-    "scriptStaleChip": "Needs syncing",
+    "scriptStaleChip": "Stale",
     "requestChanges": "Request changes",
     "requestChangesDraft": "Please revise the script of “{{title}}”: ",
     "requestChangesPrefilled": "Drafted in the assistant composer — add your feedback and send",
@@ -2436,9 +2431,7 @@
     "sourceResultFailed": "Could not load understanding",
     "sourceResultLoading": "Loading understanding",
     "pausePreview": "Pause preview",
-    "previewPosition": "Preview position",
-    "scriptSyncExplanation": "The creative inputs have changed and this script has not yet been synchronized. Story branches or creative requirements added during generation can also trigger this state; it does not imply you requested an edit. The existing script remains readable.",
-    "scriptSyncReason": "Update reason: {{reason}}"
+    "previewPosition": "Preview position"
   },
   "sidebar": {
     "assistant": "Assistant",
@@ -2531,11 +2524,7 @@
     "lastAttemptCancelled": "Last attempt stopped",
     "otherWork": "Other creative work",
     "sources": "Project sources",
-    "timeline": "Video / episode {{index}}",
-    "visualState": "State {{index}}",
-    "waitingForUpdate": "Waiting for {{target}} to be updated",
-    "waitingForTarget": "Waiting for {{target}} to finish",
-    "waitingForPrompt": "Waiting for the generation prompt"
+    "timeline": "Video / episode {{index}}"
   },
   "agentRetry": {
     "context_recovery": "Organizing task information before continuing",
@@ -2546,13 +2535,5 @@
     "attempt": "Retry {{attempt}} / {{max}}",
     "backoff": "Retrying in {{seconds}}s",
     "responding": "Waiting for the model response"
-  },
-  "storage": {
-    "pendingHint": "{{size}} of settled history is waiting for your confirmation",
-    "confirmButton": "Confirm and free",
-    "confirmTitle": "Free {{size}} of settled history in \"{{name}}\"?",
-    "confirmBody": "This removes eligible completed transaction records and temporary work files from this project. This action cannot be undone.",
-    "confirmed": "Freed {{size}} of settled history",
-    "failed": "Could not free the settled history: {{message}}"
   }
 }

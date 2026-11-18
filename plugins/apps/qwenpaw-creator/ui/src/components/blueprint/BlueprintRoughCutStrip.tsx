@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
@@ -101,39 +101,6 @@ const SOURCE_STYLE: Record<RoughCutSource, string> = {
 
 /** Sentinel playing id of the whole-film chip (never a real timeline id). */
 const FULL_FILM_ID = "__full_film__";
-
-function RoughCutVideoThumbnail({ src }: { src: string }) {
-  const containerRef = useRef<HTMLSpanElement>(null);
-  const [visible, setVisible] = useState(
-    () => typeof IntersectionObserver === "undefined",
-  );
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof IntersectionObserver === "undefined") return;
-    // The horizontal strip can contain hundreds of shots. Mount a decoder
-    // only while its frame is visible, including clipping by the strip.
-    const observer = new IntersectionObserver(([entry]) => {
-      setVisible(entry.isIntersecting);
-    });
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <span ref={containerRef} className="block h-full w-full" aria-hidden="true">
-      {visible && (
-        <video
-          src={src}
-          muted
-          playsInline
-          preload="metadata"
-          className="h-full w-full object-cover"
-        />
-      )}
-    </span>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Cinema preview: a near-fullscreen floating overlay. The whole-film  */
@@ -533,7 +500,12 @@ export default function BlueprintRoughCutStrip({
                         <span className="relative block h-[82px] w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] transition-colors group-hover:border-[var(--color-accent)]">
                           {url &&
                             (frame.mediaKind === "video" ? (
-                              <RoughCutVideoThumbnail src={url} />
+                              <video
+                                src={url}
+                                muted
+                                preload="metadata"
+                                className="h-full w-full object-cover"
+                              />
                             ) : (
                               <img
                                 src={url}
