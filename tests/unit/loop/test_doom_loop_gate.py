@@ -97,13 +97,13 @@ def test_reset_clears_counters(gate):
     state = gate._ensure_state()
     state.consecutive_hits = 5
     state.prompt = "some warning"
-    state.recorded_tool_call_ids.add(f"call-{state.consecutive_hits}")
+    state.recorded_calls[f"call-{state.consecutive_hits}"] = None
     state.history_dirty = True
     gate.reset_turn()
     state = gate._ensure_state()
     assert state.consecutive_hits == 0
     assert state.prompt == ""
-    assert state.recorded_tool_call_ids == set()
+    assert state.recorded_calls == {}
     assert state.history_dirty is False
 
 
@@ -218,7 +218,7 @@ async def test_auto_record_consumes_blocks_appended_to_one_message():
     }
 
     actions = []
-    for index in range(4):
+    for index in range(5):
         message.content.append(
             {
                 "type": "tool_call",
@@ -228,8 +228,19 @@ async def test_auto_record_consumes_blocks_appended_to_one_message():
             },
         )
         actions.append((await g.check(ctx)).action)
+        if index < 4:
+            # The runner checks the gate before the call runs, so its result
+            # only lands on the context afterwards.
+            message.content.append(
+                {
+                    "type": "tool_result",
+                    "id": f"call-{index}",
+                    "output": "same failure",
+                },
+            )
 
     assert actions == [
+        StopAction.BYPASS,
         StopAction.BYPASS,
         StopAction.BYPASS,
         StopAction.INTERRUPT_AND_CONTINUE,
@@ -270,9 +281,9 @@ async def test_auto_record_ignores_snapshot_without_new_calls():
     }
 
     assert (await g.check(ctx)).action == StopAction.BYPASS
-    assert len(g._ensure_state().history) == 1
+    assert len(g._ensure_state().recorded_calls) == 1
     assert (await g.check(ctx)).action == StopAction.BYPASS
-    assert len(g._ensure_state().history) == 1
+    assert len(g._ensure_state().recorded_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -317,11 +328,18 @@ async def test_auto_record_survives_injected_continuation_message():
             },
         )
         actions.append((await g.check(ctx)).action)
+        first.content.append(
+            {
+                "type": "tool_result",
+                "id": f"call-{index}",
+                "output": "same failure",
+            },
+        )
 
     assert actions == [
         StopAction.BYPASS,
         StopAction.BYPASS,
-        StopAction.INTERRUPT_AND_CONTINUE,
+        StopAction.BYPASS,
     ]
 
     context.append(
@@ -333,16 +351,30 @@ async def test_auto_record_survives_injected_continuation_message():
     )
     second = SimpleNamespace(id=reply_id, role="assistant", content=[])
     context.append(second)
-    second.content.append(
-        {
-            "type": "tool_call",
-            "id": "call-3",
-            "name": "execute_readonly_sql",
-            "input": {"sql": "SELECT 1"},
-        },
-    )
 
-    terminal = await g.check(ctx)
+    for index in (3, 4):
+        second.content.append(
+            {
+                "type": "tool_call",
+                "id": f"call-{index}",
+                "name": "execute_readonly_sql",
+                "input": {"sql": "SELECT 1"},
+            },
+        )
+        terminal = await g.check(ctx)
+        if index == 3:
+            assert terminal.action == StopAction.INTERRUPT_AND_CONTINUE
+            second.content.append(
+                {
+                    "type": "tool_result",
+                    "id": f"call-{index}",
+                    "output": "same failure",
+                },
+            )
+
     assert terminal.action == StopAction.TERMINATE
     assert terminal.reason == "doom stop"
+    # Four calls completed; the last one is still pending and stays out of the
+    # completed history.
     assert len(g._ensure_state().history) == 4
+    assert len(g._ensure_state().recorded_calls) == 5

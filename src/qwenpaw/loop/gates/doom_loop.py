@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,12 +24,24 @@ from .loop_gate import LoopGate
 logger = logging.getLogger(__name__)
 
 
+# Characters of one result that take part in its digest. Results are digested
+# whole below this size; above it the first and last half are kept together
+# with the length, so a long static banner cannot hide a progress line that
+# changes at the tail.
+_RESULT_HASH_CHARS = 262_144
+
+
 @dataclass
 class _ToolCallRecord:
     """One recorded tool call for pattern analysis."""
 
     tool_name: str
     args_hash: str
+    # Filled in once the call's result is in the context. A poll whose output
+    # keeps moving is progress, not a loop, so the digest takes part in the
+    # repetition test; ``None`` means the result has not arrived yet and the
+    # comparison falls back to name and arguments.
+    result_hash: str | None = None
 
 
 @dataclass
@@ -38,7 +51,11 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
-    recorded_tool_call_ids: set[str] = field(default_factory=set)
+    # Call id -> record. The key doubles as the dedupe set: every message
+    # written during one reply carries the same message id, so position
+    # cannot tell two iterations apart. The record is kept so a result that
+    # arrives on a later check can be attached to the call it belongs to.
+    recorded_calls: dict[str, _ToolCallRecord] = field(default_factory=dict)
     history_dirty: bool = False
 
 
@@ -93,12 +110,19 @@ class DoomLoopGate(LoopGate):
         tool_name: str,
         args_hash: str,
     ) -> None:
-        """Record a completed tool call."""
+        """Record a completed tool call.
+
+        A call recorded here has already finished, so it carries an empty
+        result digest rather than ``None``: ``None`` means the result of an
+        auto-recorded call has not arrived yet, and such a call stays out of
+        the repetition window.
+        """
         state = self._ensure_state()
         state.history.append(
             _ToolCallRecord(
                 tool_name=tool_name,
                 args_hash=args_hash,
+                result_hash="",
             ),
         )
         state.history_dirty = True
@@ -110,7 +134,7 @@ class DoomLoopGate(LoopGate):
             state.history.clear()
             state.consecutive_hits = 0
             state.prompt = ""
-            state.recorded_tool_call_ids.clear()
+            state.recorded_calls.clear()
             state.history_dirty = False
 
     async def check(
@@ -201,6 +225,7 @@ class DoomLoopGate(LoopGate):
         )
         if not context:
             return
+
         last_msg = context[-1]
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
@@ -229,9 +254,8 @@ class DoomLoopGate(LoopGate):
                 # Dict-shaped blocks may omit the id; fall back to the
                 # block object so re-checking a snapshot stays a no-op.
                 call_id = f"object:{id(block)}"
-            if call_id in state.recorded_tool_call_ids:
+            if call_id in state.recorded_calls:
                 continue
-            state.recorded_tool_call_ids.add(call_id)
             name = (
                 block.get("name", "")
                 if isinstance(block, dict)
@@ -243,7 +267,162 @@ class DoomLoopGate(LoopGate):
                 else getattr(block, "input", "")
             )
             args_hash = self._hash_args(raw_input)
-            self.record(name, args_hash)
+            self._record_call(state, name, args_hash, call_id)
+
+        # Pair results after this turn's calls are recorded: the runner checks
+        # the gate before executing the pending call, so its result is never in
+        # the context yet, but a snapshot that already carries one must count
+        # on this very check.
+        self._attach_results(context, state)
+
+    @staticmethod
+    def _block_get(block: Any, key: str, default: Any = None) -> Any:
+        """Read a field from a block that may be an object or a dict."""
+        if isinstance(block, dict):
+            return block.get(key, default)
+        return getattr(block, key, default)
+
+    def _attach_results(
+        self,
+        context: list[Any],
+        state: _DoomState,
+    ) -> None:
+        """Fill in the result digest of calls already recorded.
+
+        A call is recorded before its result exists, so the digest is picked
+        up on a later check. Only calls still remembered by id matter, which
+        is why the lookup is by call id rather than by position.
+        """
+        if not any(
+            record.result_hash is None
+            for record in state.recorded_calls.values()
+        ):
+            return
+        for msg in context:
+            for block in getattr(msg, "content", None) or []:
+                if self._block_get(block, "type") not in (
+                    "tool_result",
+                    "tool_use_result",
+                ):
+                    continue
+                call_id = self._block_get(block, "id")
+                if not isinstance(call_id, str):
+                    continue
+                record = state.recorded_calls.get(call_id)
+                if record is None or record.result_hash is not None:
+                    continue
+                payload = self._block_get(block, "output", None)
+                if payload is None:
+                    payload = self._block_get(block, "content", "")
+                record.result_hash = self._result_digest(payload)
+                # The call only counts as completed now, so it joins the
+                # bounded history at this point rather than when it was seen.
+                state.history.append(record)
+                state.history_dirty = True
+
+    @staticmethod
+    def _visible_text(payload: Any) -> str:
+        """Reduce a tool result to what it says.
+
+        AgentScope hands back content blocks, and a block created for the same
+        text still differs by its generated id and timestamps. Digesting those
+        would make two identical answers look like progress, so only the text
+        of text blocks takes part. Other blocks contribute a stable reference
+        instead of the object itself: serialising a 4 MiB inline media block on
+        every check costs milliseconds on the event loop, and two blocks that
+        point at the same media must hash the same.
+        """
+        if payload is None:
+            return ""
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, (list, tuple)):
+            parts = []
+            for block in payload:
+                kind = DoomLoopGate._block_get(block, "type")
+                if kind in (None, "text"):
+                    text = DoomLoopGate._block_get(block, "text")
+                    if isinstance(text, str):
+                        parts.append(text)
+                else:
+                    parts.append(DoomLoopGate._block_reference(block))
+            if parts:
+                return "\n".join(parts)
+        return DoomLoopGate._block_reference(payload)
+
+    @staticmethod
+    def _block_reference(block: Any) -> str:
+        """Bounded, stable identity for a non-text content block."""
+        kind = DoomLoopGate._block_get(block, "type", "") or ""
+        kind = str(kind)
+        source = DoomLoopGate._block_get(block, "source", None)
+        url = DoomLoopGate._block_get(block, "url", None)
+        if url is None and source is not None:
+            url = DoomLoopGate._block_get(source, "url", None)
+        if isinstance(url, str) and url:
+            return f"{kind}:{url}"
+        path = DoomLoopGate._block_get(block, "path", None)
+        if isinstance(path, str) and path:
+            return f"{kind}:{path}"
+        data = (
+            DoomLoopGate._block_get(source, "data", None)
+            if source is not None
+            else None
+        )
+        if isinstance(data, str) and data:
+            digest = hashlib.md5(
+                data[: 1024 * 1024].encode("utf-8", "replace"),
+            ).hexdigest()[:16]
+            return f"{kind}:{len(data)}:{digest}"
+        name = getattr(block, "name", None) or getattr(block, "type", None)
+        return f"{kind}:{name or 'block'}"
+
+    @staticmethod
+    def _normalise_text(text: str) -> str:
+        """Strip measured values so a repeat still reads as a repeat.
+
+        Shell writes the measured RSS into its error text, and other tools do
+        the same with timings and sizes. The command, the limit and the failure
+        category are what repeat; the measurement is diagnostics. Parenthesised
+        detail and long numbers are therefore masked out, while short values
+        such as ``progress 1/8`` stay distinct.
+        """
+        text = re.sub(r"\([^()]*\)", "", text)
+        text = re.sub(r"\d{4,}", "<n>", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _result_digest(self, payload: Any) -> str:
+        """Digest the whole result, not just its opening bytes.
+
+        Hashing a fixed prefix loses any change that only shows up later: a
+        static banner followed by ``progress n/4`` hashed identically four
+        times and the gate stopped a poll that was still moving. Long results
+        keep both ends and their length, which is where progress appears.
+        """
+        text = self._normalise_text(self._visible_text(payload))
+        if len(text) > _RESULT_HASH_CHARS:
+            half = _RESULT_HASH_CHARS // 2
+            text = f"{len(text)}\x00{text[:half]}\x00{text[-half:]}"
+        return hashlib.md5(text.encode("utf-8", "replace")).hexdigest()[:8]
+
+    def _record_call(
+        self,
+        state: _DoomState,
+        tool_name: str,
+        args_hash: str,
+        call_id: str,
+    ) -> None:
+        """Remember a call whose result has not arrived yet.
+
+        Pending calls stay out of the bounded history: the runner checks the
+        gate before the batch runs, so four calls in flight would otherwise
+        fill four of the six deque slots and leave the window unable to hold
+        three completed results. They join the history when their result does.
+        """
+        state.recorded_calls[call_id] = _ToolCallRecord(
+            tool_name=tool_name,
+            args_hash=args_hash,
+        )
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:
@@ -268,7 +447,12 @@ class DoomLoopGate(LoopGate):
         self,
         state: _DoomState,
     ) -> bool:
-        """Check sliding window for repetition."""
+        """Check the window of completed calls for repetition.
+
+        The history only holds calls whose result has arrived — pending calls
+        wait in ``recorded_calls`` — so a batch in flight cannot crowd out the
+        completed results the window needs.
+        """
         if len(state.history) < self._window_size:
             return False
 
@@ -300,7 +484,7 @@ class DoomLoopGate(LoopGate):
         if not window or len(window) <= 1:
             return 0.0
 
-        sigs = [f"{r.tool_name}:{r.args_hash}" for r in window]
+        sigs = [(r.tool_name, r.args_hash, r.result_hash) for r in window]
         unique = len(set(sigs))
         total = len(sigs)
         return 1.0 - (unique - 1) / (total - 1)
