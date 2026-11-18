@@ -467,6 +467,9 @@ async def post_console_chat(
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    is_reconnect = _is_reconnect_request(request_data)
+    if not is_reconnect and not native_payload["content_parts"]:
+        raise HTTPException(status_code=400, detail="Chat input is empty")
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
@@ -482,7 +485,6 @@ async def post_console_chat(
         **_chat_registration_fields(native_payload),
     )
     tracker = workspace.task_tracker
-    is_reconnect = _is_reconnect_request(request_data)
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)
