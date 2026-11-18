@@ -167,3 +167,46 @@ def test_pending_workgraph_approval_expires_when_terms_drift(tmp_path):
         )
 
     asyncio.run(scenario())
+
+
+def test_drift_check_error_is_isolated_and_never_retires(tmp_path):
+    """H2: a drift-check error must not abort the sweep nor expire the card.
+
+    The sweep piggybacks on the tray's list poll; if one card's check raises
+    (e.g. an unsupported S2V node), the error is logged and skipped so the
+    endpoint still returns and the surviving card is left PENDING.
+    """
+
+    async def scenario():
+        services = create(tmp_path)
+        store = ProjectExecutionStore(services.root)
+        seed_pending_approval(services, store)
+        wg._drift_sweep_at.clear()
+
+        async def boom(*_args, **_kwargs):
+            raise RuntimeError("drift check exploded")
+
+        original = wg.workgraph_authorization_drift_reason
+        wg.workgraph_authorization_drift_reason = boom
+        try:
+            # The per-record error is swallowed; nothing is retired.
+            assert (
+                await retire_drifted_workgraph_authorizations(
+                    services,
+                    store,
+                    "drift-project",
+                )
+                == 0
+            )
+        finally:
+            wg.workgraph_authorization_drift_reason = original
+        # A failed check must never expire an approval.
+        assert (
+            store.get_execution_authorization(
+                "drift-project",
+                "auth-drift",
+            ).status
+            is ExecutionAuthorizationStatus.PENDING
+        )
+
+    asyncio.run(scenario())

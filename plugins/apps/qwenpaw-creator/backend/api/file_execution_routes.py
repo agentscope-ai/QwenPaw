@@ -724,11 +724,20 @@ async def list_execution_authorizations(
 
         # Stale cards must disappear on the tray's own poll, otherwise a
         # project edit leaves dead approvals that fail every approve click.
-        await retire_drifted_workgraph_authorizations(
-            services,
-            _store(services),
-            project_id,
-        )
+        # Best-effort: a drift-sweep failure must never blank the whole tray
+        # nor turn this list endpoint into a 500.
+        try:
+            await retire_drifted_workgraph_authorizations(
+                services,
+                _store(services),
+                project_id,
+            )
+        except Exception:
+            _logger.warning(
+                "authorization drift sweep failed for %s",
+                project_id,
+                exc_info=True,
+            )
         records = await asyncio.to_thread(
             _store(services).list_execution_authorizations,
             project_id,

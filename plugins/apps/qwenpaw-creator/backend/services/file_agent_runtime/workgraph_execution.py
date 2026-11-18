@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -32,6 +33,8 @@ from services.project_files import frontend_edit_hold
 from services.project_files.models import ArtifactVersion
 from services.project_files.production_stage import SCRIPT_ONLY_MESSAGE
 from services.specialist_tools import SpecialistToolSpec
+
+_logger = logging.getLogger(__name__)
 
 REQUEST_WORKGRAPH_EXECUTION = "request_workgraph_execution"
 MEDIA_NODE_KINDS = frozenset(
@@ -145,7 +148,7 @@ def _summarize_unstarted(
         detail.append(
             f"{script_gate} 项等待确认剧本" "（请点击蓝图页顶部的「确认剧本并继续」，确认后重新提出制作请求）",
         )
-    if other := known_unstarted - review - prompt_sync - script_gate:
+    if other := max(0, known_unstarted - review - prompt_sync - script_gate):
         detail.append(f"{other} 项制作条件尚未满足")
     return (
         "尚未启动制作："
@@ -200,6 +203,10 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         and item.get("reason") == "GATED"
         and not item.get("taskId")
         and SCRIPT_ONLY_MESSAGE in (item.get("missing") or [])
+        # Mutually exclusive with the prompt_sync bucket: a gated node that
+        # also needs a prompt sync is counted there, so the residual below
+        # can never go negative.
+        and item.get("promptSyncRequired") is not True
         for item in items
     )
     if known_unstarted == len(items):
@@ -235,7 +242,7 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         details.append(
             f"{script_gate} 项等待确认剧本，尚未开始" "（请点击蓝图页顶部的「确认剧本并继续」）",
         )
-    if other := known_unstarted - review - prompt_sync - script_gate:
+    if other := max(0, known_unstarted - review - prompt_sync - script_gate):
         details.append(f"{other} 项制作条件尚未满足，尚未开始")
     failed = sum(
         item.get("status") in {"FAILED", "CANCELLED", "QUARANTINED"}
@@ -741,6 +748,11 @@ async def ready_request_context(
 
 WORKGRAPH_DRIFT_RETIRE_REASON = "workgraph_terms_changed"
 WORKGRAPH_TARGET_RETIRE_REASON = "workgraph_target_removed"
+# Cards only exist for human-authorized media nodes; ``compose`` is auto-only
+# and never produces one. Derive from MEDIA_NODE_KINDS so a branch that adds a
+# node kind (e.g. interactive-video's ``interaction``) stays covered without
+# editing a literal here.
+_AUTHORIZABLE_NODE_KINDS = MEDIA_NODE_KINDS - {"compose"}
 # The decision tray polls the authorization list every few seconds; the
 # sweep piggybacks on that poll but never evaluates more often than this.
 _DRIFT_SWEEP_INTERVAL_SECONDS = 5.0
@@ -772,7 +784,7 @@ async def workgraph_authorization_drift_reason(
     node = graph.by_id.get(scope["workGraph"].get("nodeId"))
     if (
         node is None
-        or node.kind not in {"visual", "lineup", "storyboard", "video"}
+        or node.kind not in _AUTHORIZABLE_NODE_KINDS
         or record.target_scope != [node.target_ref]
     ):
         return WORKGRAPH_TARGET_RETIRE_REASON
@@ -837,7 +849,7 @@ async def retire_drifted_workgraph_authorizations(
     ]
     if not pending:
         return 0
-    snapshot, _tasks, graph, _blocked = await ready_request_context(
+    snapshot, _tasks, graph, blocked = await ready_request_context(
         services,
         store,
         project_id,
@@ -845,13 +857,29 @@ async def retire_drifted_workgraph_authorizations(
     )
     retired = 0
     for record in pending:
-        reason = await workgraph_authorization_drift_reason(
-            services,
-            project_id,
-            snapshot,
-            graph,
-            record,
+        node = graph.by_id.get(
+            (record.scope or {}).get("workGraph", {}).get("nodeId"),
         )
+        if node is not None and node.node_id in blocked:
+            # Mirror the approve path: a blocked node reports its own reason
+            # at approve time, so the sweep must not retire the card behind it
+            # (an unsupported S2V node would otherwise raise below).
+            continue
+        try:
+            reason = await workgraph_authorization_drift_reason(
+                services,
+                project_id,
+                snapshot,
+                graph,
+                record,
+            )
+        except Exception:
+            _logger.warning(
+                "workgraph drift check failed for authorization %s",
+                record.authorization_id,
+                exc_info=True,
+            )
+            continue
         if reason is None:
             continue
         try:
