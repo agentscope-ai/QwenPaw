@@ -268,6 +268,16 @@ export function ReactAgentCard({
         <RuntimeSwitch aria-label={t("agentConfig.autoGenerateSessionTitle")} />
       </SettingsField>
 
+      <SettingsField
+        className={styles.runtimeToggle}
+        label={t("agentConfig.autoGenerateFollowup")}
+        name={["followup", "enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.autoGenerateFollowupTooltip")}
+      >
+        <RuntimeSwitch aria-label={t("agentConfig.autoGenerateFollowup")} />
+      </SettingsField>
+
       <Collapse
         ghost
         items={[

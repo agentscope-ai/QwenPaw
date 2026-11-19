@@ -406,3 +406,14 @@ def test_read_last_dispatch_does_not_fall_back_to_agent_config(
     dispatch = read_last_dispatch("agent")
 
     assert dispatch is None
+
+
+def test_followup_setting_survives_agent_config_save(tmp_path, monkeypatch):
+    """Follow-up defaults off and persists without changing other settings."""
+    path, _raw = _prepare_agent(tmp_path, monkeypatch)
+    config = load_agent_config("agent")
+    assert config.running.followup.enabled is False
+    config.running.followup.enabled = True
+    config_module.save_agent_config("agent", config)
+    assert json.loads(path.read_text())["running"]["followup"]["enabled"]
+    assert load_agent_config("agent").running.followup.enabled is True

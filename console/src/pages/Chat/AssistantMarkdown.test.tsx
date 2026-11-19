@@ -7,6 +7,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FollowupContext, type FollowupSource } from "./followupContext";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { chatExtensions } from "../../plugins/registry/chatExtensions";
 import type { ChatCodeBlockProps } from "../../plugins/types/qwenpaw";
@@ -18,6 +19,10 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => ({
       getPrefixCls: (name: string) => name,
     }),
   }),
+}));
+
+vi.mock("../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { warning: vi.fn() } }),
 }));
 
 vi.mock("../../contexts/FontSizeContext", () => ({
@@ -503,4 +508,85 @@ describe("assistant code block plugins", () => {
     expect(view.container.textContent).toContain("After");
     log.mockRestore();
   });
+});
+
+describe("followup code blocks", () => {
+  const content =
+    'Answer\n\n```followup-suggestions\n[{"label":"Next","prompt":"Do the next step"}]\n```';
+  it("hides protocol text when there is no eligible final response", () => {
+    const { container } = render(
+      <AssistantMarkdown content={content} cursor={false} messageId="a" />,
+    );
+    expect(container.textContent?.trim()).toBe("Answer");
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  });
+});
+
+const followupSource: FollowupSource = {
+  agentId: "agent-a",
+  chatId: "session-a",
+  responseCardId: "card-a",
+  responseId: "response-a",
+  messageId: "a",
+  contentIndex: 0,
+  sourceText: "",
+};
+function followupMarkdown(
+  content: string,
+  streaming = false,
+  addFollowup = vi.fn(() => true),
+) {
+  return (
+    <FollowupContext.Provider
+      value={{
+        agentId: "agent-a",
+        chatId: "session-a",
+        blocked: false,
+        addFollowup,
+      }}
+    >
+      <AssistantMarkdown
+        content={content}
+        cursor={false}
+        isStreaming={streaming}
+        messageId="a"
+        followupSource={{ ...followupSource, sourceText: content }}
+      />
+    </FollowupContext.Provider>
+  );
+}
+const followupFence = (prompt = "Do the next step") =>
+  "```followup-suggestions\n" +
+  JSON.stringify([{ label: "Next", prompt }]) +
+  "\n```";
+
+it("renders only a closed terminal followup block and forwards the selected prompt", () => {
+  const add = vi.fn(() => true);
+  const view = render(
+    followupMarkdown(followupFence().slice(0, -3), true, add),
+  );
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  view.rerender(followupMarkdown(followupFence(), false, add));
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(add).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ responseId: "response-a" }),
+    "Do the next step",
+  );
+});
+
+it.each([
+  "> " + followupFence().replace(/\n/g, "\n> "),
+  followupFence() + "\n\nMore text",
+  followupFence() + "\n\n" + followupFence(),
+  followupFence("字".repeat(101)),
+  '```followup-suggestions\n[{"label":"Next","prompt":"ok","extra":true}]\n```',
+])("hides invalid or misplaced followup blocks: %s", (content) => {
+  const { container } = render(followupMarkdown(content));
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  expect(container.textContent).not.toContain('"prompt"');
+});
+
+it("accepts exactly 100 Unicode characters including emoji", () => {
+  render(followupMarkdown(followupFence("😀".repeat(100))));
+  expect(screen.getByRole("button", { name: "Next" })).toBeInTheDocument();
 });

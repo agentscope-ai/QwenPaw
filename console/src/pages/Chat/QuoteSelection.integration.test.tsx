@@ -14,6 +14,7 @@ import ComposedProvider from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/cor
 import SdkInput from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/Input";
 import { HostResponseCard } from "./HostBubbles";
 import { LongTextPasteInput } from "./LongTextPaste";
+import * as followup from "./followupContext";
 import { QuoteSelection } from "./QuoteSelection";
 import { useChatInputDraft } from "./chatInputDraft";
 import defaultConfig from "./OptionsPanel/defaultConfig";
@@ -304,4 +305,78 @@ describe("quote selection with the installed SDK renderer and sender", () => {
       screen.queryByRole("button", { name: "Quote to follow-up" }),
     ).toBeNull();
   });
+});
+
+it("adds a followup to the real SDK draft without sending and rejects stale sources", async () => {
+  const submit = vi.fn(emptyResponse);
+  render(<Chat submit={submit} />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(textarea, { target: { value: "Keep my edits" } });
+  const source = {
+    agentId: "agent-a",
+    chatId: "chat-a",
+    responseCardId: "card",
+    responseId: "response",
+    messageId: "answer",
+    contentIndex: 0,
+    sourceText: "Answer",
+  };
+  const response = {
+    id: "response",
+    status: "completed",
+    output: [
+      {
+        id: "answer",
+        role: "assistant",
+        type: "message",
+        content: [{ type: "text", text: "Answer" }],
+      },
+    ],
+  };
+  const state = {
+    agentId: "agent-a",
+    chatId: "chat-a",
+    blocked: false,
+    inputBusy: false,
+    textarea,
+    messages: [
+      {
+        id: "card",
+        role: "assistant",
+        cards: [{ code: "AgentScopeRuntimeResponseCard", data: response }],
+      },
+    ],
+  };
+  await act(async () => {
+    expect(followup.addFollowupToDraft(source, "Continue", state)).toBe(true);
+  });
+  expect(textarea).toHaveValue("Keep my edits\n\nContinue");
+  expect(submit).not.toHaveBeenCalled();
+  expect(
+    JSON.parse(localStorage.getItem("qwenpaw_chat_input_draft_agent-a_chat-a")!)
+      .value,
+  ).toBe("Keep my edits\n\nContinue");
+  for (const override of [
+    { chatId: "chat-b" },
+    { agentId: "agent-b" },
+    { blocked: true },
+    { inputBusy: true },
+    {
+      messages: [
+        ...state.messages,
+        { id: "new-user", role: "user", cards: [] },
+      ],
+    },
+    { invalidatedResponseId: "response" },
+  ]) {
+    expect(
+      followup.addFollowupToDraft(source, "Wrong", {
+        ...state,
+        ...override,
+      }),
+    ).toBe(false);
+  }
+  response.output[0].content[0].text = "Regenerated";
+  expect(followup.addFollowupToDraft(source, "Wrong", state)).toBe(false);
+  expect(textarea).toHaveValue("Keep my edits\n\nContinue");
 });

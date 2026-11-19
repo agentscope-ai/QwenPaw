@@ -1165,6 +1165,8 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "followupAdd": "Thêm vào ô nhập",
+    "followupFailed": "Không thể thêm gợi ý. Hãy kiểm tra cuộc trò chuyện và trạng thái nhập.",
     "longTextPaste": {
       "title": "Dán văn bản dài",
       "asText": "Dán dưới dạng văn bản",
@@ -2526,6 +2528,8 @@
     "openDirectory": "Mở {{name}}"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "Tạo gợi ý tiếp theo",
+    "autoGenerateFollowupTooltip": "Hiển thị gợi ý sau khi lượt mới nhất hoàn tất thành công. Nhấp để thêm vào bản nháp. Tắt sẽ ngừng tạo gợi ý cho các câu trả lời sau.",
     "title": "Cấu hình",
     "projectDirectoryTitle": "Workspace Agent mặc định",
     "projectDirectoryDescription": "Workspace Agent mặc định dùng cho tệp và lệnh.",

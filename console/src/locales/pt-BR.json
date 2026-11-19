@@ -2637,6 +2637,8 @@
     "openDirectory": "Abrir {{name}}"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "Gerar sugestões de acompanhamento",
+    "autoGenerateFollowupTooltip": "Mostrar sugestões após a última resposta terminar com sucesso. Clique para adicionar ao rascunho. Desativar interrompe a geração nas próximas respostas.",
     "title": "Configuracao",
     "projectDirectoryTitle": "Workspace padrão do Agent",
     "projectDirectoryDescription": "Workspace padrão do Agent usado para arquivos e comandos.",
@@ -3579,6 +3581,8 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "followupAdd": "Adicionar ao campo de texto",
+    "followupFailed": "Não foi possível adicionar a sugestão. Verifique a conversa e o estado da entrada.",
     "longTextPaste": {
       "title": "Colar texto longo",
       "asText": "Colar como texto",
