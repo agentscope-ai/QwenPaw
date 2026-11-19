@@ -67,7 +67,9 @@ async def _next_pending_request(
     task: asyncio.Task,
 ):
     # pylint: disable=protected-access
-    for _ in range(1000):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 5
+    while loop.time() < deadline:
         if service._pending:
             return next(iter(service._pending.values()))
         if task.done():
@@ -76,7 +78,9 @@ async def _next_pending_request(
                 "Driver invocation completed before creating approval "
                 f"request: {result}",
             )
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
     raise AssertionError("Timed out waiting for approval request")
 
 
