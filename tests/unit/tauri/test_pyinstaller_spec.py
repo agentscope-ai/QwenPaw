@@ -186,6 +186,7 @@ def test_desktop_spec_reaches_analysis_without_vendor_sdks(
     staged_pack.mkdir(parents=True)
     for name in ("qwenpaw.spec", "collect_runtime_metadata.py"):
         (staged_pack / name).symlink_to(SPEC_PATH.parent / name)
+    (staged_root / "pyproject.toml").symlink_to(REPO_ROOT / "pyproject.toml")
     for name in ("src", "packages", "plugins"):
         (staged_root / name).symlink_to(
             REPO_ROOT / name,
