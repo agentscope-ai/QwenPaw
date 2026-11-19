@@ -1098,3 +1098,50 @@ def test_legacy_migration_reads_the_legacy_dir_from_the_fake_home(
     # the legacy tree is copied, never moved, and nothing is written outside wd
     assert (copaw / "SOUL.md").read_text("utf-8") == marker
     assert list(home.iterdir()) == [copaw]
+
+
+def test_qwenpaw_language_env_overrides_fresh_agent_default(monkeypatch) -> None:
+    """QWENPAW_LANGUAGE drives fresh profile/config defaults (issue #8481).
+
+    Unattended Docker boots previously hardcoded ``zh``; pre-seeding
+    ``config.json`` loses the race against migration re-derivation, so no
+    environment lever existed.
+    """
+    monkeypatch.setenv("QWENPAW_LANGUAGE", "en")
+    profile = cfg_mod.AgentProfileConfig(id="a", name="A")
+    assert profile.language == "en"
+    agents = cfg_mod.AgentsConfig()
+    assert agents.language == "en"
+
+
+def test_qwenpaw_language_env_without_support_value_falls_back_to_zh(monkeypatch) -> None:
+    """Invalid or unknown values keep the default so workspace templates resolve."""
+    monkeypatch.setenv("QWENPAW_LANGUAGE", "klingon")
+    assert cfg_mod.AgentProfileConfig(id="a", name="A").language == "zh"
+    monkeypatch.setenv("QWENPAW_LANGUAGE", "")
+    assert cfg_mod.AgentsConfig().language == "zh"
+
+
+def test_qwenpaw_language_env_unset_defaults_to_zh(monkeypatch) -> None:
+    """Existing behavior is unchanged without the variable (regression)."""
+    monkeypatch.delenv("QWENPAW_LANGUAGE", raising=False)
+    assert cfg_mod.AgentProfileConfig(id="a", name="A").language == "zh"
+    assert cfg_mod.AgentsConfig().language == "zh"
+
+
+def test_qwenpaw_language_env_flows_into_first_agent_migration(
+    isolated_working_dir,
+    monkeypatch,
+) -> None:
+    """QWENPAW_LANGUAGE seeds the default agent's language on first boot (#8481)."""
+    wd, _home, config_path = isolated_working_dir
+    monkeypatch.setenv("QWENPAW_LANGUAGE", "en")
+    legacy = cfg_mod.Config()
+    legacy.agents.profiles = {}
+    _seed_config(config_path, legacy)
+
+    assert cfg_mod.migrate_legacy_config_to_multi_agent() is True
+    persisted = json.loads(
+        (wd / "workspaces" / "default" / "agent.json").read_text("utf-8"),
+    )
+    assert persisted["language"] == "en"
