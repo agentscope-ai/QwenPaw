@@ -159,9 +159,15 @@ def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     from qwenpaw.plugins.download_catalog import (
         build_plugin_catalog as catalog,
     )
+    from qwenpaw.plugins.local_whisper import SOURCE as whisper_source
 
     bundled = tmp_path / "bundled"
     shutil.copytree(get_builtin_hub_plugins_dir(), bundled / "hub")
+    shutil.copytree(
+        whisper_source,
+        bundled / "transcription" / "local-whisper",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     tool = bundled / "tool" / "bundled-tool"
     tool.mkdir(parents=True)
     (tool / "plugin.json").write_text(
@@ -198,6 +204,9 @@ def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     ):
         result = catalog()
 
+    assert all(
+        row["plugin_id"] != "local-whisper" for row in result["plugins"]
+    )
     qwenpaw = {
         entry["version"]: entry
         for entry in result["plugins"]
