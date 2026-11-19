@@ -100,6 +100,25 @@ def test_mount_root_redirects_to_slash_without_losing_the_query():
         assert response.headers["location"] == "/app/qwenpaw/web/?from=fnos"
 
 
+@pytest.mark.parametrize("base_path", [None, "", "/"])
+def test_root_console_index_preserves_file_response(tmp_path, base_path):
+    index = tmp_path / "index.html"
+    content = b'<base href="/" /><script>window.__qpBase = "";</script>'
+    index.write_bytes(content)
+    application = FastAPI()
+
+    @application.get("/")
+    def index_response():
+        return ConsoleIndexResponse(index, base_path=base_path)
+
+    with TestClient(application) as client:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.content == content
+        assert response.headers["etag"]
+        assert response.headers["last-modified"]
+
+
 def test_console_index_injects_only_base_path_tokens(tmp_path):
     index = tmp_path / "index.html"
     index.write_text(

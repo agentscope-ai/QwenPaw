@@ -67,8 +67,11 @@ example.com {
 `/api` 之前的后端地址。执行 `cd console && npm install && npm run build`，
 然后将 `QWENPAW_CONSOLE_STATIC_DIR` 设置为 `console/dist` 的绝对路径。
 
-这些变量会写入构建产物，修改后需要重新构建。标准安装包优先使用
-`QWENPAW_BASE_PATH`，不要将它与自定义构建时的 basename 叠加使用。
+修改这两个构建时变量后需要重新构建前端。例如，若两者都设为 `/qwenpaw`，而后端仍在 `/` 提供服务，请保持
+`QWENPAW_BASE_PATH` 未设置。将上方 Caddy 示例中的 `handle /qwenpaw/*` 改为
+`handle_path /qwenpaw/*`，代理就会剥离前缀：外部请求 `/qwenpaw/api/version`
+到达后端时为 `/api/version`。使用运行时前缀则保留 `handle`，后端收到的仍是
+`/qwenpaw/api/version`。不要混用两种模式。
 
 ---
 

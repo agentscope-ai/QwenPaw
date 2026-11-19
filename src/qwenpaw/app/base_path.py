@@ -80,7 +80,7 @@ class BasePathMiddleware:
 
 
 class ConsoleIndexResponse(FileResponse):
-    """Serve the small HTML entry with its two explicit deployment tokens set."""
+    """Serve the entry file unchanged unless a deployment prefix is set."""
 
     def __init__(
         self,
@@ -98,6 +98,10 @@ class ConsoleIndexResponse(FileResponse):
         receive: Receive,
         send: Send,
     ) -> None:
+        if not self.base_path:
+            await super().__call__(scope, receive, send)
+            return
+
         content = await asyncio.to_thread(Path(self.path).read_bytes)
         base_href = f'<base href="{escape(self.base_path, quote=True)}/">'
         content = content.replace(_BASE_HREF_TOKEN, base_href.encode("utf-8"))

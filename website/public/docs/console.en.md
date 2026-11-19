@@ -69,9 +69,13 @@ They set the router/asset prefix and the backend URL before `/api`, respectively
 Build with `cd console && npm install && npm run build`, then point
 `QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of `console/dist`.
 
-These variables are embedded during the build. Changing them afterward requires
-rebuilding the frontend. Prefer `QWENPAW_BASE_PATH` for a standard package build;
-do not combine it with a custom build-time basename.
+Changing these build-time variables requires rebuilding the frontend.
+For example, if both are `/qwenpaw` and the backend serves
+at `/`, leave `QWENPAW_BASE_PATH` unset. In the Caddy example above, change
+`handle /qwenpaw/*` to `handle_path /qwenpaw/*` so the proxy strips the prefix:
+`/qwenpaw/api/version` reaches the backend as `/api/version`. With the runtime
+setting, keep `handle` so the backend receives `/qwenpaw/api/version` instead.
+Do not combine the two modes.
 
 ---
 
