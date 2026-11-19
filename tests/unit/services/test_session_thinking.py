@@ -712,3 +712,109 @@ async def test_invalid_personal_selection_is_not_persisted(
         assert not (await manager.get_chat(chat.id)).meta.get(
             f"runtime_context",
         )
+
+
+# ---------------------------------------------------------------------------
+# Request-context thinking override (cron jobs)
+# ---------------------------------------------------------------------------
+
+
+def test_request_thinking_override_reads_context_forms():
+    from qwenpaw.services.session_thinking import request_thinking_override
+
+    assert request_thinking_override(
+        {"request_context": {"thinking_level": "off"}},
+    ) == ThinkingPreference(level="off")
+    assert request_thinking_override(
+        {"meta": {"request_context": {"thinking_level": "low"}}},
+    ) == ThinkingPreference(level="low")
+    assert request_thinking_override(
+        SimpleNamespace(request_context={"thinking_level": "off"}),
+    ) == ThinkingPreference(level="off")
+
+
+@pytest.mark.parametrize("context", [{}, {"thinking_level": "inherit"}])
+def test_request_thinking_override_ignores_unset_or_inherit(context):
+    from qwenpaw.services.session_thinking import request_thinking_override
+
+    assert request_thinking_override({"request_context": context}) is None
+
+
+@pytest.mark.asyncio
+async def test_request_context_thinking_overrides_agent_config():
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        thinking_level="high",
+    )
+    manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value=None),
+    )
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=manager),
+        session_id="cron-session",
+        request=SimpleNamespace(
+            request_context={"thinking_level": "off"},
+        ),
+    )
+
+    snapshot = await apply_session_thinking(ctx, config)
+
+    assert snapshot is not config
+    assert snapshot.thinking_level == "off"
+    assert snapshot.thinking_budget is None
+    # The agent's own configuration stays untouched.
+    assert config.thinking_level == "high"
+
+
+@pytest.mark.asyncio
+async def test_request_context_inherit_keeps_agent_thinking():
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        thinking_level="high",
+    )
+    manager = SimpleNamespace(
+        get_chat_id_by_session=AsyncMock(return_value=None),
+    )
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(chat_manager=manager),
+        session_id="cron-session",
+        request=SimpleNamespace(
+            request_context={"thinking_level": "inherit"},
+        ),
+    )
+
+    assert await apply_session_thinking(ctx, config) is config
+
+
+@pytest.mark.asyncio
+async def test_request_preference_wins_over_session_preference():
+    from qwenpaw.services.session_thinking import apply_chat_model_settings
+
+    config = AgentProfileConfig(
+        id="agent",
+        name="Agent",
+        thinking_level="high",
+    )
+    meta = {
+        "runtime_context": {
+            "model": {"provider_id": "p", "model": "m"},
+            "thinking": {"p:m": {"level": "low"}},
+        },
+    }
+
+    with patch(
+        "qwenpaw.services.session_thinking.ProviderManager.get_instance",
+    ) as factory:
+        factory.return_value.active_model = None
+        overridden = await apply_chat_model_settings(
+            config,
+            meta,
+            request_preference=ThinkingPreference(level="off"),
+        )
+        session_only = await apply_chat_model_settings(config, meta)
+
+    assert overridden.thinking_level == "off"
+    assert overridden.thinking_budget is None
+    assert session_only.thinking_level == "low"

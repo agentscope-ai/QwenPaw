@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Resolve conversation model and thinking without mutating agent defaults."""
 
+from typing import Any
+
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
 from ..providers.provider import Provider
@@ -148,6 +150,28 @@ def session_preference(
     )
     raw = settings.get(model_key)
     return ThinkingPreference.model_validate(raw) if raw is not None else None
+
+
+def request_thinking_override(request: Any) -> ThinkingPreference | None:
+    """Read a request-context thinking override.
+
+    Cron jobs carry ``request_context["thinking_level"]`` when the job's
+    runtime spec overrides the agent default. The value is validated like
+    any other preference; an absent or inheriting value means "no
+    override" and keeps the session/agent precedence untouched.
+    """
+    if isinstance(request, dict):
+        context = (
+            request.get(f"request_context")
+            or (request.get(f"meta") or {}).get(f"request_context")
+            or {}
+        )
+    else:
+        context = getattr(request, f"request_context", None) or {}
+    raw = context.get(f"thinking_level")
+    if raw is None or raw == f"inherit":
+        return None
+    return ThinkingPreference.model_validate({f"level": raw})
 
 
 def _with_session_model(config, selected):
@@ -331,22 +355,30 @@ async def get_session_chat(ctx, *, chat=None):
     return await manager.get_chat(chat_id) if chat_id else None
 
 
-async def apply_chat_model_settings(config, meta=None, *, model_override=None):
+async def apply_chat_model_settings(
+    config,
+    meta=None,
+    *,
+    model_override=None,
+    request_preference=None,
+):
     """Resolve thinking for the final model: request > session > defaults."""
     selected, _source = select_chat_model(meta, model_override=model_override)
     config = await run_sync_io(_with_session_model, config, selected)
-    if meta:
+    preference = request_preference
+    if preference is None:
+        if meta:
 
-        def selected_key():
-            slot = config.active_model or (
-                ProviderManager.get_instance().get_active_model()
-            )
-            return f"{slot.provider_id}:{slot.model}" if slot else f""
+            def selected_key():
+                slot = config.active_model or (
+                    ProviderManager.get_instance().get_active_model()
+                )
+                return f"{slot.provider_id}:{slot.model}" if slot else f""
 
-        model_key = await run_sync_io(selected_key)
-        preference = session_preference(meta, model_key)
-    else:
-        preference = None
+            model_key = await run_sync_io(selected_key)
+            preference = session_preference(meta, model_key)
+        else:
+            preference = None
     if preference is None or preference.level == f"inherit":
         return config
     return config.model_copy(
@@ -368,4 +400,5 @@ async def apply_session_thinking(ctx, config):
         config,
         chat.meta if chat else None,
         model_override=request_model_override(request),
+        request_preference=request_thinking_override(request),
     )

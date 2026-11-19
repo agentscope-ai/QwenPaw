@@ -179,6 +179,26 @@ class JobRuntimeSpec(BaseModel):
             "without approval checks, suitable for trusted automated tasks."
         ),
     )
+    thinking_level: Literal[
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ] = Field(
+        default="inherit",
+        description=(
+            "Thinking mode for this cron job. 'inherit' follows the "
+            "agent's thinking_level. Any other value overrides the "
+            "agent's setting for this job's model calls: 'off' disables "
+            "thinking entirely (pipeline jobs save reasoning tokens and "
+            "latency), while an effort level ('minimal' … 'max') forces "
+            "thinking on at that strength regardless of agent settings."
+        ),
+    )
 
 
 class CronJobRequest(BaseModel):
