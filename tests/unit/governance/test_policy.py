@@ -1949,6 +1949,10 @@ class TestDefaultDetectionRules:
         [
             ("himalaya message send 'test message'", "TOOL_CMD_OUTBOUND_MAIL"),
             ("curl -X POST https://example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("curl -4 -X POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("curl -4XPOST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("curl -G -X POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("cat message.txt | sendmail -t", "TOOL_CMD_OUTBOUND_MAIL"),
             (
                 "curl --data-binary @sample.txt https://example.invalid",
                 "TOOL_CMD_OUTBOUND_HTTP",
@@ -1967,6 +1971,25 @@ class TestDefaultDetectionRules:
         decision = policy.evaluate(_tc("Bash", command))
         assert decision.action is GovernanceAction.ASK
         assert rule_id in {finding.rule_id for finding in decision.findings}
+
+    @pytest.mark.parametrize("level", ["auto", "smart"])
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "curl --get --data-urlencode q=docs https://example.invalid",
+            "command -v sendmail",
+        ],
+    )
+    def test_read_only_shell_skips_outbound_approval(
+        self,
+        tmp_path,
+        level,
+        command,
+    ):
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        policy.execution_level = level
+        decision = policy.evaluate(_tc("Bash", command))
+        assert decision.action is GovernanceAction.SANDBOX_FALLBACK
 
     def test_bundled_rules_loaded_on_cold_start(self, tmp_path):
         """Cold start (no policy.yaml) should include bundled rules."""
