@@ -16,7 +16,7 @@ class Plugin:
         provider.handle = ctx.register_provider(
             ProviderSpec(
                 id="qwenpaw-local",
-                label="Local llama.cpp",
+                label="QwenPaw Local",
                 protocol="openai-chat",
                 connect=provider.connect,
                 require_api_key=False,

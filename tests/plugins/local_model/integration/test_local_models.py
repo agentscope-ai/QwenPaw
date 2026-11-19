@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from helpers import default_http_timeout
+from tests.integration.helpers import default_http_timeout
 
 pytestmark = pytest.mark.usefixtures("local_model_plugin")
 

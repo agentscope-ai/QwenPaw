@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import queue
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -142,37 +141,31 @@ class TestEstimateHuggingfaceSize:
 # ---------------------------------------------------------------------------
 
 
-class TestEstimateModelscopeSize:
-    def _install_fake_hub(self, monkeypatch, api):
-        fake_module = types.ModuleType("modelscope.hub.api")
-        fake_module.HubApi = lambda: api
-        monkeypatch.setitem(sys.modules, "modelscope.hub.api", fake_module)
+@pytest.fixture
+def modelscope_api(monkeypatch):
+    api = MagicMock()
+    monkeypatch.setitem(
+        sys.modules,
+        "modelscope_hub",
+        SimpleNamespace(HubApi=lambda: api, HubError=LookupError),
+    )
+    return api
 
-    def test_sums_dict_file_sizes(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.return_value = [
-            {"Name": "a.gguf", "Size": 200},
-            {"Name": "b.txt", "Size": 10},
-            "not-a-dict",
-            {"Name": "no-size"},
+
+class TestEstimateModelscopeSize:
+    def test_sums_file_sizes(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.return_value = [
+            SimpleNamespace(path="a.gguf", size=200),
+            SimpleNamespace(path="b.txt", size=10),
         ]
-        self._install_fake_hub(monkeypatch, api)
         assert manager._estimate_modelscope_size("org/repo") == 210
 
-    def test_returns_none_without_sized_entries(
-        self,
-        manager,
-        monkeypatch,
-    ):
-        api = MagicMock()
-        api.get_model_files.return_value = [{"Name": "x"}]
-        self._install_fake_hub(monkeypatch, api)
+    def test_returns_none_for_empty_repo(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.return_value = []
         assert manager._estimate_modelscope_size("org/repo") is None
 
-    def test_returns_none_on_api_error(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.side_effect = ValueError("bad repo")
-        self._install_fake_hub(monkeypatch, api)
+    def test_returns_none_on_api_error(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.side_effect = LookupError("bad repo")
         assert manager._estimate_modelscope_size("org/repo") is None
 
     def test_returns_none_when_modelscope_missing(
@@ -180,7 +173,7 @@ class TestEstimateModelscopeSize:
         manager,
         monkeypatch,
     ):
-        monkeypatch.setitem(sys.modules, "modelscope.hub.api", None)
+        monkeypatch.setitem(sys.modules, "modelscope_hub", None)
         assert manager._estimate_modelscope_size("org/repo") is None
 
 
@@ -242,48 +235,29 @@ class TestCheckGgufExists:
         assert exists is False
         assert "not installed" in msg
 
-    def _install_fake_ms_hub(self, monkeypatch, api):
-        fake_module = types.ModuleType("modelscope.hub.api")
-        fake_module.HubApi = lambda: api
-        monkeypatch.setitem(sys.modules, "modelscope.hub.api", fake_module)
-
-    def test_ms_gguf_present_by_name(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.return_value = [
-            {"Name": "model.gguf", "Size": 1},
-            {"Path": "other.txt"},
+    def test_ms_gguf_present_by_path(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.return_value = [
+            SimpleNamespace(path="sub/model.gguf"),
         ]
-        self._install_fake_ms_hub(monkeypatch, api)
-        exists, msg = manager._check_modelscope_gguf_exists("org/repo")
-        assert exists is True
-        # A successful check carries no error message.
-        assert msg == ""
-
-    def test_ms_gguf_present_by_path(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.return_value = [{"Path": "sub/model.gguf"}]
-        self._install_fake_ms_hub(monkeypatch, api)
         exists, _ = manager._check_modelscope_gguf_exists("org/repo")
         assert exists is True
 
-    def test_ms_no_gguf(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.return_value = [{"Name": "weights.bin"}]
-        self._install_fake_ms_hub(monkeypatch, api)
+    def test_ms_no_gguf(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.return_value = [
+            SimpleNamespace(path="weights.bin"),
+        ]
         exists, msg = manager._check_modelscope_gguf_exists("org/repo")
         assert exists is False
         assert "does not contain any .gguf" in msg
 
-    def test_ms_fetch_error(self, manager, monkeypatch):
-        api = MagicMock()
-        api.get_model_files.side_effect = OSError("no network")
-        self._install_fake_ms_hub(monkeypatch, api)
+    def test_ms_fetch_error(self, manager, modelscope_api):
+        modelscope_api.list_repo_files.side_effect = OSError("no network")
         exists, msg = manager._check_modelscope_gguf_exists("org/repo")
         assert exists is False
         assert "Failed to fetch info" in msg
 
     def test_ms_missing(self, manager, monkeypatch):
-        monkeypatch.setitem(sys.modules, "modelscope.hub.api", None)
+        monkeypatch.setitem(sys.modules, "modelscope_hub", None)
         exists, msg = manager._check_modelscope_gguf_exists("org/repo")
         assert exists is False
         assert "not installed" in msg
@@ -520,46 +494,6 @@ class TestRecommendedModels:
         )
         assert len(models) == len(expected)
         assert {model.id: model.source for model in models} == expected
-
-
-# ---------------------------------------------------------------------------
-# _get_modelscope_snapshot_download
-# ---------------------------------------------------------------------------
-
-
-class TestGetModelscopeSnapshotDownload:
-    def test_prefers_hub_submodule(self, monkeypatch):
-        sentinel = object()
-        fake = types.ModuleType("modelscope.hub.snapshot_download")
-        fake.snapshot_download = sentinel
-        monkeypatch.setitem(
-            sys.modules,
-            "modelscope.hub.snapshot_download",
-            fake,
-        )
-        assert ModelDownloads._get_modelscope_snapshot_download() is sentinel
-
-    def test_falls_back_to_top_level_module(self, monkeypatch):
-        monkeypatch.setitem(
-            sys.modules,
-            "modelscope.hub.snapshot_download",
-            None,
-        )
-        sentinel = object()
-        fake = types.ModuleType("modelscope")
-        fake.snapshot_download = sentinel
-        monkeypatch.setitem(sys.modules, "modelscope", fake)
-        assert ModelDownloads._get_modelscope_snapshot_download() is sentinel
-
-    def test_raises_when_modelscope_missing(self, monkeypatch):
-        monkeypatch.setitem(
-            sys.modules,
-            "modelscope.hub.snapshot_download",
-            None,
-        )
-        monkeypatch.setitem(sys.modules, "modelscope", None)
-        with pytest.raises(ImportError):
-            ModelDownloads._get_modelscope_snapshot_download()
 
 
 # ---------------------------------------------------------------------------

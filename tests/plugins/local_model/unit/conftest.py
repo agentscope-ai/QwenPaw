@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 source = (
-    Path(__file__).resolve().parents[3] / "plugins/provider/local-llamacpp"
+    Path(__file__).resolve().parents[4] / "plugins/provider/local-llamacpp"
 )
 spec = importlib.util.spec_from_file_location(
     "llamacpp",

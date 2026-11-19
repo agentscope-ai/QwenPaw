@@ -1,0 +1,97 @@
+name: Local Model Plugin
+
+on:
+  push:
+    branches: [main, master, dev, develop, "dev/**"]
+    paths:
+      - "plugins/provider/local-llamacpp/**"
+      - "tests/plugins/local_model/**"
+      - "tests/conftest.py"
+      - "src/qwenpaw/plugins/**"
+      - "src/qwenpaw/providers/**"
+      - "src/qwenpaw/runtime/**"
+      - "src/qwenpaw/app/**"
+      - "tests/integration/conftest.py"
+      - "tests/integration/helpers.py"
+      - "scripts/check_plugin_sdk_artifacts.py"
+      - "pyproject.toml"
+      - "setup.py"
+      - ".github/workflows/local-model-plugin-tests.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "plugins/provider/local-llamacpp/**"
+      - "tests/plugins/local_model/**"
+      - "tests/conftest.py"
+      - "src/qwenpaw/plugins/**"
+      - "src/qwenpaw/providers/**"
+      - "src/qwenpaw/runtime/**"
+      - "src/qwenpaw/app/**"
+      - "tests/integration/conftest.py"
+      - "tests/integration/helpers.py"
+      - "scripts/check_plugin_sdk_artifacts.py"
+      - "pyproject.toml"
+      - "setup.py"
+      - ".github/workflows/local-model-plugin-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  spam-gate:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
+  plugin:
+    needs: [spam-gate]
+    if: >-
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUTF8: "1"
+      QWENPAW_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Isolate runtime state
+        run: |
+          echo "QWENPAW_WORKING_DIR=$RUNNER_TEMP/local-model/working" >> "$GITHUB_ENV"
+          echo "QWENPAW_SECRET_DIR=$RUNNER_TEMP/local-model/secrets" >> "$GITHUB_ENV"
+      - name: Install host and plugin test dependencies
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install -e ".[test]"
+          python -m pip install -r plugins/provider/local-llamacpp/requirements.txt
+      - name: Run plugin tests
+        run: python -m pytest tests/plugins/local_model --ignore=tests/plugins/local_model/integration -q
+      - name: Run App integration tests
+        if: runner.os == 'Linux'
+        run: python -m pytest tests/plugins/local_model/integration -q
+      - name: Verify installed plugin
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install build mypy
+          python -m build --outdir "$RUNNER_TEMP/local-model-dist"
+          python -m venv --system-site-packages "$RUNNER_TEMP/local-model-wheel"
+          wheel=("$RUNNER_TEMP/local-model-dist/"*.whl)
+          sdist=("$RUNNER_TEMP/local-model-dist/"*.tar.gz)
+          "$RUNNER_TEMP/local-model-wheel/bin/python" -m pip install --ignore-installed --no-deps "${wheel[0]}"
+          python scripts/check_plugin_sdk_artifacts.py \
+            --wheel "${wheel[0]}" --sdist "${sdist[0]}" \
+            --python "$RUNNER_TEMP/local-model-wheel/bin/python" \
+            --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/local-model-author" \
+            --test-files test_sdk_context_lifecycle.py --local-provider

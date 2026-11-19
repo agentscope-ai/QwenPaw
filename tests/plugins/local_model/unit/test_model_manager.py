@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -493,8 +495,9 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
 
     captured: dict[str, object] = {}
 
-    def _fake_snapshot_download(*, model_id: str, local_dir: str) -> str:
-        captured["model_id"] = model_id
+    def download_repo(repo_id: str, repo_type: str, local_dir: Path) -> Path:
+        assert repo_type == "model"
+        captured["model_id"] = repo_id
         captured["local_dir"] = local_dir
         captured["stdout"] = sys.stdout
         captured["stderr"] = sys.stderr
@@ -502,12 +505,16 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
         sys.stderr.flush()
         return local_dir
 
+    api = SimpleNamespace(
+        resolve_endpoint_for_read=MagicMock(side_effect=OSError),
+        download_repo=download_repo,
+    )
     monkeypatch.setattr(sys, "stdout", _BrokenStream())
     monkeypatch.setattr(sys, "stderr", _BrokenStream())
-    monkeypatch.setattr(
-        ModelDownloads,
-        "_get_modelscope_snapshot_download",
-        staticmethod(lambda: _fake_snapshot_download),
+    monkeypatch.setitem(
+        sys.modules,
+        "modelscope_hub",
+        SimpleNamespace(HubApi=lambda: api, HubError=LookupError),
     )
 
     result = ModelDownloads._download_from_modelscope(
@@ -517,6 +524,6 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
 
     assert result == str(tmp_path / "download")
     assert captured["model_id"] == "AgentScope/demo"
-    assert captured["local_dir"] == str(tmp_path / "download")
+    assert captured["local_dir"] == tmp_path / "download"
     assert captured["stdout"] is not sys.stdout
     assert captured["stderr"] is not sys.stderr

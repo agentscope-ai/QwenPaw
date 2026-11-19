@@ -3,7 +3,6 @@
 from __future__ import annotations
 import contextlib
 import hashlib
-import importlib
 import logging
 import os
 import shutil
@@ -127,7 +126,7 @@ class ModelDownloads:
         """Download a model repository from ModelScope."""
         options = {}
         if repo_id in PICCOLO_REPO_IDS:
-            options["allow_file_pattern"] = PICCOLO_DOWNLOAD_PATTERNS
+            options["allow_patterns"] = PICCOLO_DOWNLOAD_PATTERNS
         with open(
             os.devnull,
             "a",
@@ -141,28 +140,24 @@ class ModelDownloads:
                 ),
                 contextlib.redirect_stderr(sink_stream),
             ):
-                return ModelDownloads._get_modelscope_snapshot_download()(
-                    model_id=repo_id,
-                    local_dir=str(local_dir),
-                    **options,
-                )
+                from modelscope_hub import HubApi, HubError
 
-    @staticmethod
-    def _get_modelscope_snapshot_download() -> Any:
-        """Return a compatible ModelScope snapshot downloader."""
-        try:
-            snapshot_module = importlib.import_module(
-                "modelscope.hub.snapshot_download",
-            )
-            return snapshot_module.snapshot_download
-        except ImportError:
-            try:
-                modelscope_module = importlib.import_module("modelscope")
-                return modelscope_module.snapshot_download
-            except ImportError as exc:
-                raise ImportError(
-                    "ModelScope snapshot download is required.",
-                ) from exc
+                api = HubApi()
+                try:
+                    endpoint = api.resolve_endpoint_for_read(repo_id)
+                except (HubError, OSError):
+                    # Try the configured site when discovery is unavailable.
+                    pass
+                else:
+                    api = HubApi(endpoint=endpoint)
+                return str(
+                    api.download_repo(
+                        repo_id,
+                        repo_type="model",
+                        local_dir=local_dir,
+                        **options,
+                    ),
+                )
 
     @staticmethod
     def _cleanup_path(path: Path) -> None:

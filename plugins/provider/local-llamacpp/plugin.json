@@ -1,6 +1,6 @@
 {
   "id": "local-llamacpp",
-  "name": "Local llama.cpp",
+  "name": "QwenPaw Local",
   "version": "1.0.0",
   "description": "Install and download local models; manage the llama.cpp server.",
   "type": "provider",

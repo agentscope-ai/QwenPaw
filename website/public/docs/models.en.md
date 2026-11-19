@@ -24,7 +24,7 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 > QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
-Open **Settings → Models**. If QwenPaw Local is missing, open **Plugin Manager**. Install **Local llama.cpp** (`local-llamacpp`) from **Official Plugins**, or enable it under **Installed Plugins** if already installed. Return to Models.
+Open **Settings → Models**. If QwenPaw Local is missing, open **Plugin Manager**. Install **QwenPaw Local** (`local-llamacpp`) from **Official Plugins**, or enable it under **Installed Plugins** if already installed. Return to Models.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 

@@ -4,7 +4,6 @@
 import io
 import os
 from pathlib import Path
-import re
 import runpy
 import shlex
 import subprocess
@@ -36,7 +35,6 @@ def test_acceptance_suites_collect_outside_checkout(tmp_path):
         "test_sdk_channel_routing_contract.py",
         "test_sdk_provider_contract.py",
         "test_sdk_native_provider_contract.py",
-        "test_sdk_local_model_contract.py",
         "test_sdk_resource_contract.py",
     }.intersection(selected)
     assert "test_sdk_dependency_environment.py" not in selected
@@ -152,15 +150,26 @@ def test_acceptance_scope_is_explicit(
     else:
         assert "test_sdk_channel_contract.py" in tests
         assert "test_sdk_install_transaction.py" in tests
-    assert "test_sdk_local_model_contract.py" not in tests
     assert "test_sdk_native_provider_contract.py" not in tests
 
 
 @pytest.mark.parametrize(
-    "workflow,local_provider",
-    [("tests.yml", True), ("harness-plugin-tests.yml", False)],
+    "workflow,local_provider,test_files",
+    [
+        ("tests.yml", False, None),
+        ("harness-plugin-tests.yml", False, ["test_sdk_harness.py"]),
+        (
+            "local-model-plugin-tests.yml",
+            True,
+            ["test_sdk_context_lifecycle.py"],
+        ),
+    ],
 )
-def test_ci_artifact_scope_matches_installed_extras(workflow, local_provider):
+def test_ci_artifact_scope_matches_installed_extras(
+    workflow,
+    local_provider,
+    test_files,
+):
     source = Path(__file__).resolve().parents[3]
     checker = runpy.run_path(
         str(source / "scripts/check_plugin_sdk_artifacts.py"),
@@ -182,15 +191,12 @@ def test_ci_artifact_scope_matches_installed_extras(workflow, local_provider):
                 continue
             args = checker["_parse_args"](argv[argv.index(script) + 1 :])
             assert args.local_provider is local_provider
-            extras = {
-                extra
-                for match in re.finditer(r"\.\[([\w,-]+)\]", commands)
-                for extra in match[1].split(",")
-            }
-            assert bool({"local", "full"} & extras) is local_provider
-            assert args.test_files == (
-                None if local_provider else ["test_sdk_harness.py"]
-            )
+            if local_provider:
+                assert (
+                    "plugins/provider/local-llamacpp/requirements.txt"
+                    in commands
+                )
+            assert args.test_files == test_files
             checked += 1
     assert checked, "No artifact checker invocation found"
 

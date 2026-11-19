@@ -24,7 +24,7 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 > QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
 
-打开 **设置 → 模型**。如果看不到 QwenPaw Local，请打开 **插件管理**，在 **官方插件** 中安装 **Local llama.cpp**（`local-llamacpp`），或在 **已安装插件** 中启用它。然后返回模型页面。
+打开 **设置 → 模型**。如果看不到 QwenPaw Local，请打开 **插件管理**，在 **官方插件** 中安装 **QwenPaw Local**（`local-llamacpp`），或在 **已安装插件** 中启用它。然后返回模型页面。
 
 ![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 

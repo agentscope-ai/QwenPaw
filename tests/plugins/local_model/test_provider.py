@@ -659,6 +659,7 @@ async def test_bundle_load_does_not_import_backend_or_download_packages(
 
     monkeypatch.setitem(sys.modules, "huggingface_hub", None)
     monkeypatch.setitem(sys.modules, "modelscope", None)
+    monkeypatch.setitem(sys.modules, "modelscope_hub", None)
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(bundled_local_source())
         binding = (

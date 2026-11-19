@@ -30,7 +30,6 @@ INTERNAL = {
     "test_sdk_channel_run_bridge.py",
     "test_sdk_provider_contract.py",
     "test_sdk_native_provider_contract.py",
-    "test_sdk_local_model_contract.py",
     "test_sdk_resource_contract.py",
 }
 
@@ -104,8 +103,11 @@ def prepare_local_provider_tests(source: Path, root: Path) -> list[str]:
     """Select installed local-provider checks separately from SDK authors."""
     suite = root / "local_provider_tests"
     suite.mkdir()
-    file = "test_sdk_local_model_contract.py"
-    shutil.copy2(source / "tests/unit/plugins" / file, suite)
+    file = "test_provider.py"
+    shutil.copy2(
+        source / "tests/plugins/local_model" / file,
+        suite,
+    )
     return [
         f"{suite / file}::{name}"
         for name in (

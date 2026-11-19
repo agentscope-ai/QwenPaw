@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import fnmatch
-import importlib
 import logging
 import shutil
 import uuid
@@ -483,33 +482,25 @@ class ModelManager(ModelDownloads):
     ) -> Optional[int]:
         """Estimate total download bytes from ModelScope metadata."""
         try:
-            hub_api_module = importlib.import_module("modelscope.hub.api")
+            from modelscope_hub import HubApi, HubError
         except ImportError:
             return None
 
         try:
-            files = hub_api_module.HubApi().get_model_files(
-                repo_id,
-            )
-        except (OSError, RuntimeError, TypeError, ValueError):
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
             return None
 
-        total = 0
-        found = False
-        for item in files:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("Path") or item.get("Name") or ""
-            if repo_id in PICCOLO_REPO_IDS and not any(
-                fnmatch.fnmatch(name, pattern)
-                for pattern in PICCOLO_DOWNLOAD_PATTERNS
-            ):
-                continue
-            size = item.get("Size")
-            if isinstance(size, int):
-                total += size
-                found = True
-        return total if found else None
+        if repo_id in PICCOLO_REPO_IDS:
+            files = [
+                file
+                for file in files
+                if any(
+                    fnmatch.fnmatch(file.path, pattern)
+                    for pattern in PICCOLO_DOWNLOAD_PATTERNS
+                )
+            ]
+        return sum(file.size for file in files) if files else None
 
     def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
         try:
@@ -535,19 +526,15 @@ class ModelManager(ModelDownloads):
 
     def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
         try:
-            hub_api_module = importlib.import_module("modelscope.hub.api")
+            from modelscope_hub import HubApi, HubError
         except ImportError:
-            return False, "`modelscope` is not installed"
+            return False, "`modelscope-hub` is not installed"
         try:
-            files = hub_api_module.HubApi().get_model_files(repo_id)
-        except (OSError, RuntimeError, TypeError, ValueError):
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
             return False, f"Failed to fetch info from {repo_id}"
 
-        if any(
-            isinstance(f, dict)
-            and (f.get("Name", "") or f.get("Path", "")).endswith(".gguf")
-            for f in files
-        ):
+        if any(file.path.endswith(".gguf") for file in files):
             return True, ""
         return (
             False,
