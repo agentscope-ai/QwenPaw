@@ -23,6 +23,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { Slot } from "../plugins/registry/Slot";
 import { isDesktopApp } from "../tauri/backendRuntime";
 import { openExternalLink } from "../utils/openExternalLink";
+import { copyText } from "../utils/clipboard";
 import {
   compareVersions,
   getReleaseNotesUrl,
@@ -37,10 +38,14 @@ function UpdateCodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    copyText(code)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Clipboard unavailable (e.g. insecure context without execCommand).
+      });
   };
 
   return (
