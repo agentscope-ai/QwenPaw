@@ -101,7 +101,8 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         # Chat metadata and workspace files can be written through the Console.
         # Keep execution routing in the host's private state directory.
         self._shell_targets_dir = shell_targets_dir
-        self._shell_namespace = shell_workspace_id or str(repo.path.resolve())
+        # Agent IDs can be reused by different workspaces.
+        self._shell_namespace = (shell_workspace_id, str(repo.path.resolve()))
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )

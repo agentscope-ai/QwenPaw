@@ -115,6 +115,7 @@ async def until_state(host, expected, workspace="one"):
 async def test_native_workflow_schedule_scope_result_and_reload(
     tmp_path,
     workflow_plugin,
+    caplog,
 ):
     assert check_plugin(workflow_plugin).ok
     async with PluginTestHost(tmp_path / "host") as host:
@@ -173,6 +174,12 @@ async def test_native_workflow_schedule_scope_result_and_reload(
                 ):
                     await asyncio.sleep(0.01)
             assert errors[0]["event_type"] == "plugin_workflow"
+            async with asyncio.timeout(5):
+                while (
+                    "Failed to execute sdk_workflow-contract cron job report"
+                    not in caplog.text
+                ):
+                    await asyncio.sleep(0.01)
             assert (await state(host, "two"))["number"] == 1
             assert (await host.set_enabled(PLUGIN, False)).ok
             assert all(m._scheduler.get_job(JOB) is None for m in managers)

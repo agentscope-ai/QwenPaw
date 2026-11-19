@@ -515,16 +515,24 @@ class Services:  # pylint: disable=protected-access
         # Keep related adapter declarations and lifecycle ordering together.
         # pylint: disable-next=too-many-branches,too-many-statements
         async def run(_payload):
+            from ..app.task_tracker import response_outcome
+
             # Do not execute author/model code until status persistence and
             # custody registration have both completed.
             await ready.wait()
             stream = worker.chat_stream(replace(request, session_id=sid))
-            outcome, error = "completed", ""
+            outcome, error = None, ""
             summary, truncated = "", False
             try:
                 async for event in stream:
-                    if event.status in {"failed", "cancelled"}:
-                        outcome = event.status
+                    outcome = (
+                        response_outcome(
+                            event.object,
+                            event.status,
+                            event.attributes.get("error"),
+                        )
+                        or outcome
+                    )
                     if event.output or (
                         event.object == "message"
                         and event.status == "completed"
@@ -582,6 +590,11 @@ class Services:  # pylint: disable=protected-access
                         retry = self.plugin._instance.activity.retry_cleanup
                         if await retry():
                             outcome = "cancelled"
+                if outcome is None:
+                    outcome, error = (
+                        "failed",
+                        "Stream ended without a response terminal",
+                    )
                 terminal = replace(
                     status,
                     status=outcome,

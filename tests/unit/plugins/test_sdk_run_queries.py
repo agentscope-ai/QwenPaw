@@ -16,6 +16,49 @@ from qwenpaw.plugins._runs import current_run, index
 from qwenpaw.schemas import AgentRequest
 
 
+@pytest.mark.parametrize("response_status", [None, "completed", "cancelled"])
+async def test_run_status_matches_host_completion(
+    sdk_component,
+    response_status,
+):
+    from qwenpaw.app.task_tracker import TaskTracker
+
+    @observe_stream
+    async def stream(workspace, request):
+        yield {"object": "message", "status": "completed", "content": []}
+        if response_status is not None:
+            yield {"object": "response", "status": response_status}
+
+    async with sdk_component() as (host, _):
+        workspace = await host._workspace("test")
+        request = AgentRequest(
+            session_id="selected",
+            user_id="alice",
+            channel="console",
+        )
+        finished = []
+
+        async def on_finished(run_key, _):
+            finished.append(run_key)
+
+        async def stream_sse(payload):
+            async for event in stream(workspace, payload):
+                yield f"data: {json.dumps(event)}\n\n"
+
+        tracker = TaskTracker()
+        queue, _ = await tracker.attach_or_start(
+            "chat",
+            request,
+            stream_sse,
+            on_finished=on_finished,
+        )
+        async for _ in tracker.stream_from_queue(queue, "chat"):
+            pass
+        run = next(iter(index().snapshots.values()))
+        assert run.status == (response_status or "failed")
+        assert finished == (["chat"] if response_status == "completed" else [])
+
+
 async def test_real_runs_query_snapshot_identity_and_reused_request_id(
     sdk_component,
 ):

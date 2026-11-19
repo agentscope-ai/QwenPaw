@@ -109,30 +109,19 @@ class ModelService:
         return result
 
     async def catalog(self) -> tuple[ModelDescription, ...]:
-        """List enabled chat-model choices, never provider secrets/endpoints."""
+        """List available chat-model choices without credentials or endpoints."""
         from ..providers.provider_manager import ProviderManager
 
         self._guard()
         await self._context.resources.run_sync(self._check_workspace)
-        providers = await ProviderManager.get_instance().list_provider_info()
+        models = (
+            await ProviderManager.get_instance().list_available_chat_models()
+        )
         self._guard()
-        result = {}
-        for provider in providers:
-            if not provider.enabled:
-                continue
-            hidden = set(provider.hidden_model_ids) | set(
-                provider.removed_model_ids,
-            )
-            for model in (*provider.models, *provider.extra_models):
-                if model.model_type != "chat" or model.id in hidden:
-                    continue
-                result[(provider.id, model.id)] = ModelDescription(
-                    provider.id,
-                    provider.name,
-                    model.id,
-                    model.name,
-                )
-        return tuple(result.values())
+        return tuple(
+            ModelDescription(provider.id, provider.name, model.id, model.name)
+            for provider, model in models
+        )
 
     # Keep the ownership state machine in one scope.
     # pylint: disable-next=too-many-statements
@@ -154,10 +143,7 @@ class ModelService:
             create_model_and_formatter,
             _model_creation_observer,
         )
-        from ..providers.provider_manager import (
-            ProviderManager,
-            ModelSlotConfig,
-        )
+        from ..config.config import ModelSlotConfig
         from ..utils.io_utils import run_sync_io
         import math
 
@@ -170,6 +156,11 @@ class ModelService:
             raise SDKError(
                 "provider_id and model_id must be supplied together",
             )
+        override = (
+            ModelSlotConfig(provider_id=provider_id, model=model_id)
+            if provider_id is not None
+            else None
+        )
         values = json_mapping({} if options is None else options)
         if unknown := values.keys() - _OPTIONS:
             raise SDKError(
@@ -231,24 +222,6 @@ class ModelService:
                     "The calling workspace is not configured and enabled",
                 )
             workspace = Path(reference.workspace_dir).expanduser()
-            override = None
-            if provider_id is not None:
-                provider = ProviderManager.get_instance().get_provider(
-                    provider_id,
-                )
-                if (
-                    provider is None
-                    or not provider.enabled
-                    or provider.get_model_info(model_id) is None
-                ):
-                    raise SDKError(
-                        "The selected provider/model is not configured and "
-                        "enabled",
-                    )
-                override = ModelSlotConfig(
-                    provider_id=provider_id,
-                    model=model_id,
-                )
             token = _model_creation_observer.set(lease)
             try:
                 with model_context(

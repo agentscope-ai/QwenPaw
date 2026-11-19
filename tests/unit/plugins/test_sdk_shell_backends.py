@@ -213,6 +213,19 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
         result = await tool(policy=policy)(command="echo LOCAL")
         assert "local execution refused" in result.content[0].text
 
+    async with PluginTestHost(
+        tmp_path / "host",
+        workspace_dirs={"test": "new-workspace"},
+    ) as recreated:
+        workspace = await recreated._workspace("test")
+        await workspace.chat_manager.get_or_create_chat(
+            "selected",
+            "alice",
+            "console",
+        )
+        result = await tool(policy=policy)(command="printf LOCAL")
+        assert result.content[0].text == "LOCAL"
+
 
 def tool(user="alice", session="selected", workspace="test", policy=False):
     cls = PolicyGuardedTool if policy else GuardedFunctionTool

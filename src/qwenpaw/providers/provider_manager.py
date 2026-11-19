@@ -229,6 +229,38 @@ class ProviderManager(
             self._plugin_registry.list_provider_infos()
         )
 
+    async def list_available_chat_models(
+        self,
+    ) -> tuple[tuple[ProviderInfo, ModelInfo], ...]:
+        """Project configured chat models using the runtime provider policy."""
+        providers = await self.list_provider_info()
+
+        def collect() -> tuple[tuple[ProviderInfo, ModelInfo], ...]:
+            result = {}
+            for info in providers:
+                if not info.enabled or not (info.models or info.extra_models):
+                    continue
+                try:
+                    provider = self.get_provider(info.id)
+                except ProviderError:
+                    # A Hub refresh can fail after the metadata read.
+                    continue
+                if provider is None:
+                    continue
+                excluded = set(info.hidden_model_ids) | set(
+                    info.removed_model_ids,
+                )
+                for model in (*info.models, *info.extra_models):
+                    if (
+                        model.model_type == "chat"
+                        and model.id not in excluded
+                        and provider.model_available(model)
+                    ):
+                        result[(info.id, model.id)] = (info, model)
+            return tuple(result.values())
+
+        return await run_sync_io(collect)
+
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
         """Normalize provider ID for backward compatibility.

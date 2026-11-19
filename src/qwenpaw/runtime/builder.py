@@ -370,7 +370,9 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        model_slot_override = request_model_override(ctx.request)
+        model_slot_override = request_model_override(
+            getattr(ctx, "request", None),
+        )
         active = (
             resolve_model_slot_override(model_slot_override)
             or agent_config.active_model

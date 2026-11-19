@@ -177,6 +177,7 @@ def observe_stream(function):
     def wrapped(workspace, request):
         async def observed():
             from ._runs import current_run, index
+            from ..app.task_tracker import response_outcome
             from ..runtime.runtime import Runtime
 
             # Index the same identity that execution and approvals will use.
@@ -209,7 +210,7 @@ def observe_stream(function):
 
             publish("run.started")
             stream = function(workspace, normalized)
-            outcome, reason = "completed", ""
+            outcome, reason = None, ""
             try:
                 while True:
                     token = _observing.set(True)
@@ -221,11 +222,21 @@ def observe_stream(function):
                     finally:
                         current_run.reset(owner)
                         _observing.reset(token)
+                    fields = (
+                        item.get
+                        if isinstance(item, Mapping)
+                        else lambda name: getattr(item, name, None)
+                    )
+                    outcome = (
+                        response_outcome(
+                            fields("object"),
+                            fields("status"),
+                            fields("error"),
+                        )
+                        or outcome
+                    )
                     try:
-                        snapshot = chat_event(item)
-                        if snapshot.status in {"failed", "cancelled"}:
-                            outcome = snapshot.status
-                        publish("run.updated", snapshot)
+                        publish("run.updated", chat_event(item))
                     except Exception:
                         _log.exception("SDK runtime snapshot failed")
                     yield item
@@ -251,6 +262,11 @@ def observe_stream(function):
                 finally:
                     current_run.reset(owner)
                     _observing.reset(token)
+                    if outcome is None:
+                        outcome, reason = (
+                            "failed",
+                            "Stream ended without a response terminal",
+                        )
                     runs.finish(run_id, outcome, reason)
                     publish(f"run.{outcome}", reason=reason)
 

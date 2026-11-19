@@ -20,6 +20,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
+    Literal,
     Optional,
 )
 
@@ -37,6 +38,23 @@ _create_task = asyncio.create_task
 REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
 
 
+def response_outcome(
+    object_type: object,
+    status: object,
+    error: object,
+) -> Literal["completed", "failed", "cancelled"] | None:
+    """Classify a response or stream error, ignoring individual messages."""
+    if error:
+        return "failed"
+    if object_type != "response":
+        return None
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    return "failed"
+
+
 def _has_successful_response(events: list[str]) -> bool:
     """Require a successful response terminal, not just message completion."""
     for sse in reversed(events):
@@ -49,10 +67,13 @@ def _has_successful_response(events: list[str]) -> bool:
                 continue
             if not isinstance(event, dict):
                 continue
-            if event.get(f"error"):
-                return False
-            if event.get(f"object") == f"response":
-                return event.get(f"status") == f"completed"
+            outcome = response_outcome(
+                event.get("object"),
+                event.get("status"),
+                event.get("error"),
+            )
+            if outcome is not None:
+                return outcome == "completed"
     return False
 
 
