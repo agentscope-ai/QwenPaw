@@ -2370,6 +2370,7 @@ export function ChannelDrawer({
                       activeKey === "telegram" ||
                       activeKey === "dingtalk" ||
                       activeKey === "feishu" ||
+                      activeKey === "qq" ||
                       activeKey === "discord" ||
                       activeKey === "slack" ||
                       activeKey === "matrix" ||
@@ -2384,6 +2385,8 @@ export function ChannelDrawer({
                               ? t("channels.streamingEnabledDingtalkHint")
                               : activeKey === "feishu"
                               ? t("channels.streamingEnabledFeishuHint")
+                              : activeKey === "qq"
+                              ? t("channels.streamingEnabledQQHint")
                               : undefined
                           }
                         >

@@ -462,6 +462,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
