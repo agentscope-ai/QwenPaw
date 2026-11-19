@@ -58,3 +58,11 @@ def test_channel_config_class_resolves_every_builtin_channel() -> None:
 def test_channel_config_class_returns_none_for_plugin_channel() -> None:
     """Plugin channels are not declared, so they stay untyped dicts."""
     assert _channel_config_class("some_plugin_channel") is None
+
+
+def test_qq_streaming_option_survives_config_validation() -> None:
+    """The legacy persistence model must retain the QQ stream option."""
+    channels = ChannelConfig.model_validate(
+        {"qq": {"streaming_enabled": True}},
+    )
+    assert channels.model_dump()["qq"]["streaming_enabled"] is True
