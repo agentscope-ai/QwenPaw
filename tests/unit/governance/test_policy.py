@@ -1952,6 +1952,12 @@ class TestDefaultDetectionRules:
             ("curl -4 -X POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
             ("curl -4XPOST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
             ("curl -G -X POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            (
+                "curl --url-query q@sample.txt example.invalid",
+                "TOOL_CMD_OUTBOUND_HTTP",
+            ),
+            ("http POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("wget --post-data=x example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
             ("cat message.txt | sendmail -t", "TOOL_CMD_OUTBOUND_MAIL"),
             (
                 "curl --data-binary @sample.txt https://example.invalid",
@@ -1977,6 +1983,10 @@ class TestDefaultDetectionRules:
         "command",
         [
             "curl --get --data-urlencode q=docs https://example.invalid",
+            "curl --url-query q=docs example.invalid",
+            "echo 'http PATCH example.invalid'",
+            "echo 'wget --post-data=x example.invalid'",
+            "http --offline POST example.invalid",
             "command -v sendmail",
         ],
     )

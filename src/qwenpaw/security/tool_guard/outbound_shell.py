@@ -25,6 +25,7 @@ _SHORT_OPTIONS = {
 }
 _DATA = {"data", "data-ascii", "data-binary", "data-raw", "data-urlencode"}
 _UPLOAD = {"form", "form-string", "upload-file", "json"}
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # Consume operands even if they look like flags (e.g. --header '--get').
 _LONG_VALUES = (
     frozenset(
@@ -81,12 +82,7 @@ def _curl_sends(args: list[str]) -> bool:
     # A synthetic final --next evaluates the last transfer the same way.
     for name, value in chain(_curl_options(args), [("next", "")]):
         if name == "next":
-            if (data and not get) or method in {
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-            }:
+            if (data and not get) or method in _WRITE_METHODS:
                 return True
             get = data = False
             method = ""
@@ -96,15 +92,56 @@ def _curl_sends(args: list[str]) -> bool:
             method = value.upper()
         elif name in _UPLOAD:
             return True
+        elif name in {"data-urlencode", "url-query"}:
+            # --url-query +text appends the literal text without encoding.
+            if name == "url-query" and value.startswith("+"):
+                continue
+            if "@" in value and "=" not in value:
+                return True
+            if name == "data-urlencode":
+                data = True
         elif name in _DATA:
             data = True
-            # GET can still send a local file in its query string.
-            if name == "data-urlencode":
-                if "@" in value.split("=", 1)[0]:
-                    return True
-            elif name != "data-raw" and value.startswith("@"):
+            if name != "data-raw" and value.startswith("@"):
                 return True
     return False
+
+
+def _wget_sends(args: list[str]) -> bool:
+    words = iter(args)
+    for word in words:
+        if word == "--":
+            break
+        option, equals, value = word.partition("=")
+        if option in {
+            "--post-data",
+            "--post-file",
+            "--body-data",
+            "--body-file",
+        }:
+            return True
+        if option == "--method":
+            method = value if equals else next(words, "")
+            if method.upper() in _WRITE_METHODS:
+                return True
+    return False
+
+
+def _httpie_sends(args: list[str]) -> bool:
+    options = args[: args.index("--")] if "--" in args else args
+    if "--offline" in options and "--no-offline" not in options:
+        return False
+    if any(
+        arg.partition("=")[0] in {"-f", "--form", "--multipart", "--raw"}
+        for arg in options
+    ):
+        return True
+    return any(
+        arg.upper() in _WRITE_METHODS
+        or re.match(r"^(?:@|[\w.-]+(?:@|:=|=(?!=)))", arg)
+        for arg in args
+        if not arg.startswith("-")
+    )
 
 
 def _word(node: Node) -> str:
@@ -186,6 +223,10 @@ def _matching_command(
     elif not pattern.fullmatch(executable):
         return None
     elif executable == "curl" and not _curl_sends(rest):
+        return None
+    elif executable == "wget" and not _wget_sends(rest):
+        return None
+    elif executable in {"http", "https"} and not _httpie_sends(rest):
         return None
     elif executable == "himalaya" and not any(
         pair == ("message", "send") for pair in zip(rest, rest[1:])

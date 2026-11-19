@@ -260,16 +260,7 @@
   category: data_exfiltration
   severity: MEDIUM
   patterns:
-    - '\b(?P<outbound_executable>curl)(?:\.exe)?\b'
-    - |-
-      (?x)(?:^|[\s/|&;('"])wget(?:\.exe)?[ \t]+
-      (?:(?:[^\s;&|"'\\]|\\.|"[^"]*"|'[^']*')+[ \t]+)*
-      (?:--(?:post|body)-(?:data|file)(?=[=\s]|$)|--method[= \t]+["']?(?:POST|PUT|PATCH|DELETE)\b)
-    # HTTPie supports an explicit method or implicit POST with body fields.
-    - |-
-      (?x)(?:^|[\s/|&;('"])https?[ \t]+
-      (?:(?:[^\s;&|"'\\]|\\.|"[^"]*"|'[^']*')+[ \t]+)*
-      (?:["']?(?:POST|PUT|PATCH|DELETE)["']?(?=\s)|--(?:raw|form|multipart)(?=[=\s]|$)|["']?(?:@|[\w.-]+(?:@|:=|=(?!=))))
+    - '\b(?P<outbound_executable>curl|wget|https?)(?:\.exe)?\b(?!://)'
   description: "Shell command can send request data or modify a remote resource"
   remediation: "Confirm the destination and any data being sent."
 
