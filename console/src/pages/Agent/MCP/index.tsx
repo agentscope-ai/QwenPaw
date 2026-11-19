@@ -381,11 +381,7 @@ function MCPPage({
       )}
 
       {plugin.state?.legacy_mcp_archived && (
-        <Alert
-          type="warning"
-          showIcon
-          message={t("mcp.legacyArchived")}
-        />
+        <Alert type="warning" showIcon message={t("mcp.legacyArchived")} />
       )}
 
       {recoveryCodes.length > 0 && (
