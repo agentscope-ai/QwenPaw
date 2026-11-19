@@ -87,3 +87,52 @@ def test_agent_scoped_tools_toggle_and_async_execution_roundtrip(
         assert bool(a2.json().get("async_execution")) is baseline_async
     finally:
         app_server.api_request("DELETE", f"/api/agents/{agent_id}")
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_agent_scoped_tools_docs_and_schema(app_server) -> None:
+    """Verify tools list returns curated docs and parameter schemas.
+
+    Test flow:
+    1. Create a dedicated test agent.
+    2. GET tools with lang=zh and assert read_file summary/detail/schema.
+    3. GET tools with lang=ja and assert English fallback content.
+    4. Delete test agent.
+    """
+    agent_id = "integ_scoped_tools_docs_01"
+    base = f"/api/agents/{agent_id}/tools"
+
+    create_agent = app_server.api_request(
+        "POST",
+        "/api/agents",
+        json={
+            "id": agent_id,
+            "name": "Scoped tools docs agent",
+            "description": "",
+        },
+    )
+    assert create_agent.status_code == 201, app_server.logs_tail()
+
+    try:
+        zh_resp = app_server.api_request("GET", f"{base}?lang=zh")
+        assert zh_resp.status_code == 200, app_server.logs_tail()
+        zh_tools = {item["name"]: item for item in zh_resp.json()}
+        assert "read_file" in zh_tools, app_server.logs_tail()
+        read_zh = zh_tools["read_file"]
+        assert "读取文件" in str(read_zh.get("summary") or "")
+        assert str(read_zh.get("detail") or "").strip()
+        props = (read_zh.get("input_schema") or {}).get("properties") or {}
+        assert "file_path" in props
+
+        ja_resp = app_server.api_request("GET", f"{base}?lang=ja")
+        assert ja_resp.status_code == 200, app_server.logs_tail()
+        ja_tools = {item["name"]: item for item in ja_resp.json()}
+        read_ja = ja_tools["read_file"]
+        assert "Read file" in str(read_ja.get("summary") or "")
+        assert str(read_ja.get("detail") or "").strip()
+        assert "file_path" in (
+            (read_ja.get("input_schema") or {}).get("properties") or {}
+        )
+    finally:
+        app_server.api_request("DELETE", f"/api/agents/{agent_id}")

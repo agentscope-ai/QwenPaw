@@ -38,7 +38,10 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: hoisted.stableT }),
+  useTranslation: () => ({
+    t: hoisted.stableT,
+    i18n: { language: "en", resolvedLanguage: "en" },
+  }),
 }));
 
 import { useTools } from "./useTools";
@@ -131,8 +134,8 @@ describe("useTools", () => {
     });
     expect(result.current.tools).toEqual(agentBTools);
     expect(result.current.loading).toBe(false);
-    expect(apiMocks.listTools).toHaveBeenNthCalledWith(1, "agent-1");
-    expect(apiMocks.listTools).toHaveBeenNthCalledWith(2, "agent-2");
+    expect(apiMocks.listTools).toHaveBeenNthCalledWith(1, "agent-1", "en");
+    expect(apiMocks.listTools).toHaveBeenNthCalledWith(2, "agent-2", "en");
   });
 
   it("keeps loading for the latest request and ignores work after unmount", async () => {
@@ -323,7 +326,7 @@ describe("useTools", () => {
       await result.current.toggleEnabled(result.current.tools[0]);
     });
 
-    expect(apiMocks.toggleTool).toHaveBeenCalledWith("a");
+    expect(apiMocks.toggleTool).toHaveBeenCalledWith("a", "en");
     expect(messageMock.success).toHaveBeenCalledWith("tools.enableSuccess");
     expect(result.current.tools[0].enabled).toBe(true);
   });
@@ -362,7 +365,7 @@ describe("useTools", () => {
       await result.current.toggleAsyncExecution(result.current.tools[0]);
     });
 
-    expect(apiMocks.updateAsyncExecution).toHaveBeenCalledWith("a", true);
+    expect(apiMocks.updateAsyncExecution).toHaveBeenCalledWith("a", true, "en");
     expect(messageMock.success).toHaveBeenCalledWith(
       "tools.asyncExecutionEnabled",
     );
@@ -406,8 +409,8 @@ describe("useTools", () => {
     });
 
     expect(apiMocks.toggleTool).toHaveBeenCalledTimes(2);
-    expect(apiMocks.toggleTool).toHaveBeenCalledWith("a");
-    expect(apiMocks.toggleTool).toHaveBeenCalledWith("b");
+    expect(apiMocks.toggleTool).toHaveBeenCalledWith("a", "en");
+    expect(apiMocks.toggleTool).toHaveBeenCalledWith("b", "en");
     expect(messageMock.success).toHaveBeenCalledWith("tools.enableAllSuccess");
     expect(result.current.tools.every((t) => t.enabled)).toBe(true);
   });
