@@ -314,7 +314,7 @@ def build_plugin_catalog() -> dict[str, Any]:
             json.loads(path.read_text(encoding="utf-8")),
         )
         if manifest.id == "local-whisper":
-            # Installed from Voice Transcription settings.
+            # The official catalog uses the published ZIP for Local Whisper.
             continue
         compatible, _ = check_plugin_version_compat(manifest)
         if not compatible:
