@@ -219,21 +219,23 @@ describe("CJK double emphasis through XMarkdown", () => {
     );
   });
 
+  const { emStrongRDelimAst, emStrongRDelimUnd } = Lexer.rules.inline.gfm;
   const denseCases = [
-    ["**甲。**乙", Lexer.rules.inline.gfm.emStrongRDelimAst],
-    ["**甲。**𠀀", Lexer.rules.inline.gfm.emStrongRDelimAst],
-    ["__甲。__乙 ", Lexer.rules.inline.gfm.emStrongRDelimUnd],
+    ["**甲。**乙", "", emStrongRDelimAst, 0],
+    ["**甲。**𠀀", "", emStrongRDelimAst, 0],
+    ["__甲。__乙 ", "", emStrongRDelimUnd, 0],
+    ["**甲。**乙", " *备注*", emStrongRDelimAst, 3],
   ] as const;
 
   it.each(denseCases)(
-    "indexes dense %s recovery once without native suffix rescans",
-    (span, nativeRule) => {
+    "indexes dense %s recovery once with suffix %j",
+    (span, suffix, nativeRule, maxNativeSteps) => {
       const patched = new Marked({ gfm: true }).use(cjkStrongExtension());
       for (const repeats of [500, 1000, 2000]) {
         const nativeScan = vi.spyOn(nativeRule, "exec");
         const indexScan = vi.spyOn(String.prototype, "matchAll");
         try {
-          const result = patched.parse(span.repeat(repeats)) as string;
+          const result = patched.parse(span.repeat(repeats) + suffix) as string;
           const nativeSteps = nativeScan.mock.calls.length;
           const indexPasses = indexScan.mock.calls.filter(
             ([rule]) =>
@@ -244,7 +246,9 @@ describe("CJK double emphasis through XMarkdown", () => {
             repeats,
           );
           expect(indexPasses).toBe(1);
-          expect(nativeSteps).toBe(0);
+          // The unmatched CJK delimiters do not rescan the suffix. Only the
+          // trailing stock italic, if present, needs to use the native rule.
+          expect(nativeSteps).toBeLessThanOrEqual(maxNativeSteps);
         } finally {
           nativeScan.mockRestore();
           indexScan.mockRestore();
@@ -252,6 +256,43 @@ describe("CJK double emphasis through XMarkdown", () => {
       }
     },
   );
+});
+
+describe("streaming CJK recovery through ChatMarkdown", () => {
+  it.each([
+    ["**", "*"],
+    ["**", "_"],
+    ["__", "*"],
+    ["__", "_"],
+  ])(
+    "keeps %s recovery after appending an independent %s italic",
+    (strongMarker, italicMarker) => {
+      const partial = `${strongMarker}甲。${strongMarker}乙${"甲".repeat(
+        1100,
+      )}`;
+      const live = render(<ChatMarkdown content={partial} />);
+      expect(strongTexts(live.container)).toEqual(["甲。"]);
+
+      for (const suffix of [italicMarker, `${italicMarker}备注`]) {
+        live.rerender(<ChatMarkdown content={`${partial} ${suffix}`} />);
+        expect(strongTexts(live.container)).toEqual(["甲。"]);
+      }
+
+      const complete = `${partial} ${italicMarker}备注${italicMarker}`;
+      live.rerender(<ChatMarkdown content={complete} />);
+      expect(strongTexts(live.container)).toEqual(["甲。"]);
+      expect(live.container.querySelector("em")?.textContent).toBe("备注");
+      const direct = render(<ChatMarkdown content={complete} />);
+      expect(live.container.innerHTML).toBe(direct.container.innerHTML);
+    },
+  );
+
+  it("indexes both delimiter families in one long paragraph", () => {
+    const content = `**甲。**乙 __丙。__丁${"戊".repeat(1100)} *备注*`;
+    const { container } = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(container)).toEqual(["甲。", "丙。"]);
+    expect(container.querySelector("em")?.textContent).toBe("备注");
+  });
 });
 
 describe("historical CJK boundaries through ChatMarkdown", () => {
@@ -401,8 +442,10 @@ describe("protected inline boundaries through ChatMarkdown", () => {
     },
   );
 
-  it("does not miss a stock closer beyond the recovery scan window", () => {
-    const content = `**甲。**乙**${"丙".repeat(5000)}**`;
+  it.each([
+    `**甲。**乙**${"丙".repeat(5000)}**`,
+    `**甲。**乙${"甲".repeat(1100)} _备注_丙****`,
+  ])("does not miss a distant stock closer (case %#)", (content) => {
     const sdk = render(<SdkMarkdown content={content} />);
     const app = render(<ChatMarkdown content={content} />);
     expect(sdk.container.querySelectorAll("strong strong")).toHaveLength(1);

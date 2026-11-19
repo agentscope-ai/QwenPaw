@@ -58,34 +58,37 @@ function isCjkFollower(src: string, offset: number): boolean {
 }
 
 /**
- * Index the openers where marked's delimiter balance cannot reach zero.
- * This shortcut is only valid for a single kind of delimiter in two-character
- * runs. Mixed runs have additional precedence rules, and lengths other than
- * two can trigger marked's rule of three. Both go straight to stock parsing.
+ * Index double openers whose native delimiter balance stays above zero.
+ * Only look these up for candidates with no intervening markers, so stock's
+ * anchored alternative for an opposite delimiter cannot match their suffix.
  */
-function indexUnclosable(
-  masked: string,
-  delimiter: Delimiter,
-  rule: RegExp,
-): Set<number> {
+function indexUnclosable(masked: string, rule: RegExp): Set<number> {
   const unclosable = new Set<number>();
-  for (const [run] of masked.matchAll(/[*_]+/g)) {
-    if (run !== delimiter) return unclosable;
-  }
 
-  // The space lets the native right-delimiter rule see an opener at index 0.
-  // Clone the rule because stock tokenization mutates its lastIndex.
-  const runs = Array.from(` ${masked}`.matchAll(new RegExp(rule))).filter(
+  // Start at index 1 to bypass the anchored alternative. The space at index 1
+  // supplies the left context for a run at the start of the masked source.
+  const scan = new RegExp(rule);
+  scan.lastIndex = 1;
+  const runs = Array.from(`  ${masked}`.matchAll(scan)).filter(
     ([, closePunct, closeText, open, openPunct, bothPunct, bothText]) =>
       closePunct || closeText || open || openPunct || bothPunct || bothText,
   );
   let minimum = 0;
   for (let i = runs.length - 1; i >= 0; i -= 1) {
     const run = runs[i];
-    const offset = run.index + run[0].length - delimiter.length - 1;
-    if (minimum === 0) unclosable.add(offset);
-    // Groups 3 and 4 only open. Each other group consumes a two-char run.
-    minimum = Math.min(0, minimum + (run[3] || run[4] ? 1 : -1));
+    const opening = run[3] || run[4];
+    const ambiguous = run[5] || run[6];
+    const width = (opening || ambiguous || run[1] || run[2]).length;
+    if (width === 2 && minimum > -2) {
+      unclosable.add(run.index + run[0].length - width - 2);
+    }
+
+    if (opening) {
+      minimum = Math.min(0, minimum + width);
+    } else if (!ambiguous || (2 + width) % 3 !== 0) {
+      // A two-character opener is subject to marked's rule of three.
+      minimum -= width;
+    }
   }
   return unclosable;
 }
@@ -166,7 +169,10 @@ function findCandidate(
 export function cjkStrongExtension(): MarkedExtension {
   // A lexer is created per parse. Reuse the index while it is consuming the
   // same long inline source, including after nested inline parses return.
-  const indexes = new WeakMap<Tokenizer["lexer"], Map<string, Set<number>>>();
+  const indexes = new WeakMap<
+    Tokenizer["lexer"],
+    Record<Delimiter, Map<string, Set<number>>>
+  >();
   return {
     tokenizer: {
       emStrong(this: Tokenizer, src: string, maskedSrc: string, prevChar = "") {
@@ -175,18 +181,19 @@ export function cjkStrongExtension(): MarkedExtension {
 
         let stockCannotClose = false;
         if (maskedSrc.length > MAX_STOCK_PROBE && !this.options.pedantic) {
-          let index = indexes.get(this.lexer);
-          if (!index) {
-            index = new Map();
-            indexes.set(this.lexer, index);
+          let byDelimiter = indexes.get(this.lexer);
+          if (!byDelimiter) {
+            byDelimiter = { "**": new Map(), __: new Map() };
+            indexes.set(this.lexer, byDelimiter);
           }
+          const index = byDelimiter[candidate.delimiter];
           let unclosable = index.get(maskedSrc);
           if (!unclosable) {
             const rule =
               candidate.delimiter === "**"
                 ? this.rules.inline.emStrongRDelimAst
                 : this.rules.inline.emStrongRDelimUnd;
-            unclosable = indexUnclosable(maskedSrc, candidate.delimiter, rule);
+            unclosable = indexUnclosable(maskedSrc, rule);
             index.set(maskedSrc, unclosable);
           }
           stockCannotClose = unclosable.has(candidate.offset);
