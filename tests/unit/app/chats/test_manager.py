@@ -299,6 +299,38 @@ async def test_set_project_dir_persists_and_clears_controlled_meta(
     assert "runtime_context" not in cleared.meta
 
 
+@pytest.mark.asyncio
+async def test_update_meta_merges_into_existing_meta(manager: ChatManager):
+    spec = await manager.create_chat(_make_spec(name="Spawn session"))
+    await manager.update_meta(spec.id, {"runtime_context": {"a": 1}})
+
+    updated = await manager.update_meta(
+        spec.id,
+        {"subagent_allowed_tools": ["read_file"]},
+    )
+
+    assert updated is not None
+    assert updated.meta["subagent_allowed_tools"] == ["read_file"]
+    assert updated.meta["runtime_context"] == {"a": 1}
+    persisted = await manager.get_chat(spec.id)
+    assert persisted is not None
+    assert persisted.meta["subagent_allowed_tools"] == ["read_file"]
+    assert persisted.meta["runtime_context"] == {"a": 1}
+
+
+@pytest.mark.asyncio
+async def test_update_meta_returns_none_for_missing_chat(
+    manager: ChatManager,
+):
+    assert (
+        await manager.update_meta(
+            "no-such-chat",
+            {"subagent_allowed_tools": ["read_file"]},
+        )
+        is None
+    )
+
+
 # ---------------------------------------------------------------------------
 # patch_chat / patch_chat_if_name_matches
 # ---------------------------------------------------------------------------
