@@ -4,7 +4,7 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, timezone
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Iterator, Literal
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
@@ -37,10 +37,14 @@ _scoped_usage: ContextVar[dict[str, dict[str, Any]] | None] = ContextVar(
 )
 
 
+def has_isolated_turn_usage() -> bool:
+    return _scoped_usage.get() is not None
+
+
 @contextmanager
-def isolated_turn_usage():
+def isolated_turn_usage() -> Iterator[None]:
     """Keep staged usage private to one background run."""
-    usage = {}
+    usage: dict[str, dict[str, Any]] = {}
     token = _scoped_usage.set(usage)
     try:
         yield
@@ -229,7 +233,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
         session_id = get_current_session_id()
         if session_id and usage:
             record_session_tokens(session_id, int(usage[f"total_tokens"]))
-            buffer = self._usage_buffer()
+            buffer = TokenRecordingModelWrapper._usage_buffer()
             previous = buffer.get(session_id)
             if previous is None:
                 buffer[session_id] = usage

@@ -112,8 +112,9 @@ class SessionSaveHook(LifecycleHook):
             channel = getattr(request, "channel", "") or ""
 
             restore_cron_context(ctx)
-            context = getattr(request, "request_context", None) or {}
-            if context.get("source") in {"cron", "heartbeat"}:
+            from ...token_usage.model_wrapper import has_isolated_turn_usage
+
+            if has_isolated_turn_usage():
                 from ...token_usage.turn_usage import attach_turn_usage
 
                 await attach_turn_usage(

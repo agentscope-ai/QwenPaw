@@ -263,7 +263,6 @@ async def run_heartbeat_once(
     if target == HEARTBEAT_TARGET_LAST and last_dispatch:
         ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
-
             try:
                 await asyncio.wait_for(_run(ld), timeout=timeout_seconds)
             except asyncio.TimeoutError:

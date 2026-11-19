@@ -2024,12 +2024,9 @@ class BaseChannel(ABC):
     @staticmethod
     def _clear_session_turn_usage(session_id: str) -> None:
         """Drop any staged per-session usage (turn start / cancel / error)."""
-        if not session_id:
-            return
-        import importlib
+        from ...token_usage.turn_usage import discard_turn_usage
 
-        mod = importlib.import_module("qwenpaw.token_usage.turn_usage")
-        mod.discard_turn_usage(session_id)
+        discard_turn_usage(session_id)
 
     async def _commit_turn_usage(
         self,
@@ -2042,16 +2039,14 @@ class BaseChannel(ABC):
         if not session_id:
             return []
         try:
-            import importlib
+            from ...token_usage.turn_usage import commit_turn_usage
 
-            commit_turn_usage = importlib.import_module(
-                "qwenpaw.token_usage.turn_usage",
-            ).commit_turn_usage
             workspace = self._workspace
             user_id = getattr(request, "user_id", "") or ""
             channel = getattr(request, "channel", "") or self.channel
             turn, ctx = await commit_turn_usage(
-                workspace=workspace,
+                session=getattr(workspace, "session", None),
+                agent_id=getattr(workspace, "agent_id", "default"),
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,

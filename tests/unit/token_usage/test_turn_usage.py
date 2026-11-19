@@ -208,9 +208,9 @@ class TestCommitTurnUsage:
     async def test_empty_session_id_short_circuits(self, monkeypatch):
         resolve = AsyncMock()
         monkeypatch.setattr(tu, "resolve_turn_usage", resolve)
-        workspace = SimpleNamespace(session=object(), agent_id="a")
         result = await tu.commit_turn_usage(
-            workspace=workspace,
+            session=object(),
+            agent_id="a",
             session_id="",
             user_id="u",
             channel="console",
@@ -230,9 +230,9 @@ class TestCommitTurnUsage:
         persist = AsyncMock()
         monkeypatch.setattr(tu, "persist_turn_usage", persist)
         session = object()
-        workspace = SimpleNamespace(session=session, agent_id="a")
         result = await tu.commit_turn_usage(
-            workspace=workspace,
+            session=session,
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",
@@ -257,7 +257,8 @@ class TestCommitTurnUsage:
         persist = AsyncMock()
         monkeypatch.setattr(tu, "persist_turn_usage", persist)
         result = await tu.commit_turn_usage(
-            workspace=SimpleNamespace(session=object()),
+            session=object(),
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",
@@ -265,7 +266,7 @@ class TestCommitTurnUsage:
         assert result == (None, None)
         persist.assert_not_awaited()
 
-    async def test_workspace_without_session_skips_persist(self, monkeypatch):
+    async def test_without_session_skips_persist(self, monkeypatch):
         turn = {"total_tokens": 1}
         monkeypatch.setattr(
             tu,
@@ -275,7 +276,8 @@ class TestCommitTurnUsage:
         persist = AsyncMock()
         monkeypatch.setattr(tu, "persist_turn_usage", persist)
         result = await tu.commit_turn_usage(
-            workspace=SimpleNamespace(agent_id="a"),
+            session=None,
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",
@@ -283,18 +285,19 @@ class TestCommitTurnUsage:
         assert result == (turn, None)
         persist.assert_not_awaited()
 
-    async def test_workspace_none_defaults_agent_id(self, monkeypatch):
+    async def test_passes_explicit_session_and_agent_id(self, monkeypatch):
         resolve = AsyncMock(return_value=(None, None, None))
         monkeypatch.setattr(tu, "resolve_turn_usage", resolve)
         await tu.commit_turn_usage(
-            workspace=None,
+            session=None,
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",
         )
         resolve.assert_awaited_once()
         kwargs = resolve.await_args.kwargs
-        assert kwargs["agent_id"] == "default"
+        assert kwargs["agent_id"] == "a"
         assert kwargs["session"] is None
 
     async def test_resolve_failure_is_swallowed(self, monkeypatch):
@@ -304,7 +307,8 @@ class TestCommitTurnUsage:
             AsyncMock(side_effect=RuntimeError("boom")),
         )
         result = await tu.commit_turn_usage(
-            workspace=SimpleNamespace(session=object()),
+            session=object(),
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",
@@ -324,7 +328,8 @@ class TestCommitTurnUsage:
             AsyncMock(side_effect=RuntimeError("boom")),
         )
         result = await tu.commit_turn_usage(
-            workspace=SimpleNamespace(session=object()),
+            session=object(),
+            agent_id="a",
             session_id="s",
             user_id="u",
             channel="console",

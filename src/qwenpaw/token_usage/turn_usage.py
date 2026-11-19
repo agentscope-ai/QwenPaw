@@ -204,7 +204,11 @@ async def resolve_turn_usage(
     return turn, ctx, agent_state
 
 
-async def _resolve_usage_from_state(turn, agent_state, agent_id):
+async def _resolve_usage_from_state(
+    turn: dict[str, Any] | None,
+    agent_state: Any,
+    agent_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     context_size = int((turn or {}).get("context_size", 0) or 0)
     stats = await snapshot_context_usage_for_state(
         agent_state,
@@ -367,34 +371,16 @@ async def persist_turn_usage(
 
 async def commit_turn_usage(
     *,
-    workspace: Any,
+    session: Any,
+    agent_id: str,
     session_id: str,
     user_id: str,
     channel: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Resolve and persist usage for one finished turn.
-
-    Shared entry point for every runner that completes a model turn:
-    the channel conversation path (``Channel._commit_turn_usage``) and
-    background runners (cron / heartbeat) that drive
-    ``workspace.stream_query`` directly. Without this, usage from
-    non-channel paths never reaches the session's turn records.
-
-    Never raises: failures are logged and reported as no usage.
-    """
+    """Resolve and persist usage for a finished channel turn."""
     if not session_id:
         return None, None
     try:
-        session = (
-            getattr(workspace, "session", None)
-            if workspace is not None
-            else None
-        )
-        agent_id = (
-            getattr(workspace, "agent_id", "default")
-            if workspace is not None
-            else "default"
-        )
         turn, ctx, agent_state = await resolve_turn_usage(
             session_id=session_id,
             agent_id=agent_id,
@@ -426,11 +412,6 @@ async def commit_turn_usage(
 
 
 def discard_turn_usage(session_id: str) -> None:
-    """Drop staged per-session usage without persisting (cancel / error).
-
-    Mirrors the channel path, which discards usage when a turn does not
-    finish normally, so a failed background run can never leak stale
-    usage into a later turn on the same session.
-    """
+    """Drop staged usage for a channel turn."""
     if session_id:
         TokenRecordingModelWrapper.pop_usage_for_session(session_id)

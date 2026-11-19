@@ -124,19 +124,24 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
     assert completed
 
 
-@pytest.mark.parametrize("source", ["cron", "heartbeat"])
-async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch, source):
+async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch):
     from agentscope.message import Msg
 
     from qwenpaw.token_usage import turn_usage
+    from qwenpaw.token_usage.model_wrapper import isolated_turn_usage
 
     session = _FakeSession()
     ctx = _ctx(session, ephemeral=False)
-    ctx.request.request_context["source"] = source
     ctx.workspace.agent_id = "default"
-    message = Msg(name="assistant", content="done", role="assistant")
+    message = Msg(
+        name="assistant",
+        content=[{"type": "text", "text": "done"}],
+        role="assistant",
+    )
     ctx.agent.state = SimpleNamespace(context=[message])
-    ctx.agent.state_dict = lambda: {"state": {"context": [message.to_dict()]}}
+    ctx.agent.state_dict = lambda: {
+        "state": {"context": [message.model_dump(mode="json")]},
+    }
     usage = {"total_tokens": 12}
     monkeypatch.setattr(
         turn_usage.TokenRecordingModelWrapper,
@@ -153,7 +158,13 @@ async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch, sourc
         no_context_estimate,
     )
 
-    await SessionSaveHook().run(ctx)
+    with isolated_turn_usage():
+        await SessionSaveHook().run(ctx)
 
     saved = session.saved_payload["state"]["context"][0]
-    assert saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"]["total_tokens"] == 12
+    assert (
+        saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"][
+            "total_tokens"
+        ]
+        == 12
+    )
