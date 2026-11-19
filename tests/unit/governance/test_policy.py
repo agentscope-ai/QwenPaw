@@ -1957,6 +1957,18 @@ class TestDefaultDetectionRules:
                 "TOOL_CMD_OUTBOUND_HTTP",
             ),
             ("http POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            (
+                "env 2>log curl -X MOVE example.invalid",
+                "TOOL_CMD_OUTBOUND_HTTP",
+            ),
+            ("himalaya 2>log message send", "TOOL_CMD_OUTBOUND_MAIL"),
+            ("curl -K profile", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("http example.invalid 'items[]:=2'", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("http MKCOL example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            (
+                "bash --norc -c 'wget --method=COPY example.invalid'",
+                "TOOL_CMD_OUTBOUND_HTTP",
+            ),
             ("http example.invalid < sample.txt", "TOOL_CMD_OUTBOUND_HTTP"),
             (
                 "cat sample.txt | http example.invalid",
@@ -1992,6 +2004,8 @@ class TestDefaultDetectionRules:
             "echo 'http PATCH example.invalid'",
             "echo 'wget --post-data=x example.invalid'",
             "http --offline POST example.invalid",
+            "http example.invalid 'q[n]==2'",
+            "curl 2>log -X HEAD example.invalid",
             "http --output report=latest.json GET example.invalid",
             "cat sample.txt | http --offline example.invalid",
             "http --ignore-stdin example.invalid <sample.txt",
@@ -2008,6 +2022,27 @@ class TestDefaultDetectionRules:
         policy.execution_level = level
         decision = policy.evaluate(_tc("Bash", command))
         assert decision.action is GovernanceAction.SANDBOX_FALLBACK
+
+    @pytest.mark.parametrize("level", ["auto", "smart"])
+    def test_windows_outbound_path_requires_approval(
+        self,
+        tmp_path,
+        monkeypatch,
+        level,
+    ):
+        monkeypatch.setattr(
+            "qwenpaw.security.tool_guard.outbound_shell._WINDOWS",
+            True,
+        )
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        policy.execution_level = level
+        decision = policy.evaluate(
+            _tc("Bash", r'& "C:\Program Files\curl.exe" -K profile'),
+        )
+        assert decision.action is GovernanceAction.ASK
+        assert any(
+            f.rule_id == "TOOL_CMD_OUTBOUND_HTTP" for f in decision.findings
+        )
 
     def test_bundled_rules_loaded_on_cold_start(self, tmp_path):
         """Cold start (no policy.yaml) should include bundled rules."""

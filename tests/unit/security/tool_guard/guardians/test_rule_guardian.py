@@ -116,6 +116,30 @@ def mock_config_rules():
         ("wget -O sample.txt https://example.invalid", None),
         ("http example.invalid page==1", None),
         ("himalaya message read 1", None),
+        ("env >run.log curl -X POST example.invalid", "HTTP"),
+        ("wget 2>run.log --method PUT example.invalid", "HTTP"),
+        ("himalaya message 2>run.log send", "MAIL"),
+        ("curl --config profile", "HTTP"),
+        ("curl -sKprofile", "HTTP"),
+        ("curl -K profile", "HTTP"),
+        ("curl -o profile example.invalid", None),
+        ("http example.invalid 'user[name]=Ada'", "HTTP"),
+        ("http example.invalid 'items[]:=2'", "HTTP"),
+        ("http example.invalid 'items[]==2' 'X-Info:a=b'", None),
+        ("curl -X MOVE example.invalid", "HTTP"),
+        ("wget --method=COPY example.invalid", "HTTP"),
+        ("http MKCOL example.invalid", "HTTP"),
+        ("http CUSTOM example.invalid", "HTTP"),
+        ("curl -X HEAD example.invalid", None),
+        ("wget --method GET example.invalid", None),
+        ("http OPTIONS example.invalid", None),
+        ("bash --norc -lc 'curl -X MOVE example.invalid'", "HTTP"),
+        ("bash -co noclobber 'curl -K profile'", "HTTP"),
+        (
+            "bash --rcfile profile -c 'wget --method COPY example.invalid'",
+            "HTTP",
+        ),
+        ("bash --norc -c 'echo ok' 'curl -X MOVE example.invalid'", None),
     ],
 )
 def test_outbound_shell_rules(command, expected, mock_config_rules):
@@ -131,6 +155,34 @@ def test_outbound_shell_rules(command, expected, mock_config_rules):
         [(f"TOOL_CMD_OUTBOUND_{expected}", GuardSeverity.MEDIUM)]
         if expected
         else []
+    )
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        (r"C:\Tools\curl.exe -X MOVE example.invalid", True),
+        (r'"C:\Program Files\wget.exe" --method=PUT example.invalid', True),
+        (r"""& 'C:\Program Files\curl.exe' -K profile""", True),
+        ("CURL.EXE -X COPY example.invalid", True),
+        (r'& "C:\Program Files\curl.exe" -X HEAD example.invalid', False),
+        (r"C:\Tools\curl.exe -X GET example.invalid", False),
+        (r"cmd.exe /c C:\Tools\curl.exe -K profile", True),
+        (
+            r"""pwsh -Command "& 'C:\Program Files\curl.exe' -K profile" """,
+            True,
+        ),
+    ],
+)
+def test_windows_outbound_executable(command, expected, mock_config_rules):
+    with patch("qwenpaw.security.tool_guard.outbound_shell._WINDOWS", True):
+        findings = RuleBasedToolGuardian().guard(
+            "execute_shell_command",
+            {"command": command},
+        )
+    assert (
+        any(f.rule_id == "TOOL_CMD_OUTBOUND_HTTP" for f in findings)
+        == expected
     )
 
 
