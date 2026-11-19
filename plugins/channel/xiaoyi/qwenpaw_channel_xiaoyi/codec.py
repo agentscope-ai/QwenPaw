@@ -26,25 +26,38 @@ def _envelope(agent_id, route, result):
     }
 
 
-def build_artifact_msg(agent_id, route, parts, *, final=False):
+def new_artifact_id():
+    return f"artifact_{uuid.uuid4().hex[:16]}"
+
+
+def build_artifact_msg(
+    agent_id,
+    route,
+    parts,
+    *,
+    artifact_id=None,
+    append=True,
+    last_chunk=True,
+    final=False,
+):
     return _envelope(
         agent_id,
         route,
         {
             "taskId": _native_id(route, "task_id"),
             "kind": "artifact-update",
-            "append": True,
-            "lastChunk": True,
+            f"append": append,
+            f"lastChunk": last_chunk,
             "final": final,
             "artifact": {
-                "artifactId": "artifact_" + uuid.uuid4().hex[:16],
+                f"artifactId": artifact_id or new_artifact_id(),
                 "parts": parts,
             },
         },
     )
 
 
-def build_completed_msg(agent_id, route):
+def build_status_msg(agent_id, route, state, text=f""):
     return _envelope(
         agent_id,
         route,
@@ -55,9 +68,9 @@ def build_completed_msg(agent_id, route):
             "status": {
                 "message": {
                     "role": "agent",
-                    "parts": [{"kind": "text", "text": ""}],
+                    f"parts": [{f"kind": f"text", f"text": text}],
                 },
-                "state": "completed",
+                f"state": state,
             },
         },
     )
