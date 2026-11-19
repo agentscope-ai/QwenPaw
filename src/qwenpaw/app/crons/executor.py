@@ -6,6 +6,7 @@ import hashlib
 import logging
 import re
 import uuid
+from contextlib import aclosing
 from typing import Any, Dict
 
 from ...utils.io_utils import run_sync_io
@@ -112,21 +113,6 @@ class CronExecutor:
             return
         async with delivery(self._workspace.agent_id) as channels:
             await getattr(channels, method)(**kwargs)
-
-    @staticmethod
-    def _discard_run_usage(req: Dict[str, Any]) -> None:
-        """Drop staged usage when a cron run does not finish normally.
-
-        Sessions are reused across runs (dedicated per-job or shared
-        target session), so a failed run must not leak stale usage into
-        a later turn on the same session.
-        """
-        import importlib
-
-        discard_turn_usage = importlib.import_module(
-            "qwenpaw.token_usage.turn_usage",
-        ).discard_turn_usage
-        discard_turn_usage(req.get("session_id", "") or "")
 
     # pylint: disable=too-many-statements,too-many-branches
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
@@ -318,18 +304,19 @@ class CronExecutor:
                         "backend; select Default for this agent",
                     )
             final_event: Any | None = None
-            async for event in self._workspace.stream_query(req):
-                if job.dispatch.silent:
-                    continue
-                if job.dispatch.mode == "final":
-                    if (
-                        getattr(event, "object", None) == "message"
-                        and getattr(event, "status", None)
-                        == RunStatus.Completed
-                    ):
-                        final_event = event
-                    continue
-                await _deliver(event)
+            async with aclosing(self._workspace.stream_query(req)) as stream:
+                async for event in stream:
+                    if job.dispatch.silent:
+                        continue
+                    if job.dispatch.mode == "final":
+                        if (
+                            getattr(event, "object", None) == "message"
+                            and getattr(event, "status", None)
+                            == RunStatus.Completed
+                        ):
+                            final_event = event
+                        continue
+                    await _deliver(event)
 
             if final_event is not None:
                 await _deliver(final_event)
@@ -341,11 +328,14 @@ class CronExecutor:
                     job.id,
                 )
 
+        from ...token_usage.model_wrapper import isolated_turn_usage
+
         try:
-            await asyncio.wait_for(
-                _run(),
-                timeout=job.runtime.timeout_seconds,
-            )
+            with isolated_turn_usage():
+                await asyncio.wait_for(
+                    _run(),
+                    timeout=job.runtime.timeout_seconds,
+                )
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -376,7 +366,6 @@ class CronExecutor:
                 job.id,
                 job.runtime.timeout_seconds,
             )
-            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -396,7 +385,6 @@ class CronExecutor:
             ) from None
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
-            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -412,7 +400,6 @@ class CronExecutor:
             )
             raise
         except Exception as e:  # pylint: disable=broad-except
-            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,

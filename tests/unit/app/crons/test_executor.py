@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -48,20 +48,6 @@ def _patch_trace_storage(monkeypatch):
     )
     return finalize_trace
 
-
-def _patch_turn_usage(monkeypatch):
-    """Patch the shared turn-usage helpers used via importlib."""
-    commit = AsyncMock(return_value=(None, None))
-    monkeypatch.setattr(
-        "qwenpaw.token_usage.turn_usage.commit_turn_usage",
-        commit,
-    )
-    discard = Mock()
-    monkeypatch.setattr(
-        "qwenpaw.token_usage.turn_usage.discard_turn_usage",
-        discard,
-    )
-    return commit, discard
 
 
 @pytest.mark.asyncio
@@ -381,24 +367,42 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_failed_run_discards_staged_usage(monkeypatch):
+@pytest.mark.parametrize("started", [False, True])
+async def test_failed_run_preserves_active_chat_usage(monkeypatch, started):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    chat_usage = {"total_tokens": 10}
+
     class BrokenWorkspace(_Workspace):
         async def stream_query(self, request):
-            self.requests.append(request)
-            yield "partial"
-            raise RuntimeError("model stream died")
+            session_id = request["session_id"]
+            assert TokenRecordingModelWrapper.peek_usage_for_session(
+                session_id,
+            ) is None
+            if started:
+                TokenRecordingModelWrapper._usage_buffer()[session_id] = {
+                    "total_tokens": 2,
+                }
+                yield "partial"
+            raise RuntimeError("cron failed")
 
     workspace = BrokenWorkspace()
     job = make_cron_job_spec(job_id="broken-job")
-
+    job.runtime.share_session = True
+    session_id = job.dispatch.target.session_id
+    monkeypatch.setitem(
+        TokenRecordingModelWrapper._usage_by_session,
+        session_id,
+        chat_usage,
+    )
     _patch_trace_storage(monkeypatch)
-    commit, discard = _patch_turn_usage(monkeypatch)
 
-    with pytest.raises(RuntimeError, match="model stream died"):
+    with pytest.raises(RuntimeError, match="cron failed"):
         await CronExecutor(
             workspace=workspace,
             channel_manager=AsyncMock(),
         ).execute(job)
 
-    commit.assert_not_awaited()
-    discard.assert_called_once_with(workspace.requests[0]["session_id"])
+    assert TokenRecordingModelWrapper.peek_usage_for_session(
+        session_id,
+    ) == chat_usage
