@@ -160,6 +160,10 @@ def main():
             assert "qwenpaw/plugins/frontend/index.js" in names
             assert "qwenpaw/plugins/templates/hello/plugin.json" in names
             assert "qwenpawmail_mcp/__init__.py" in names
+            whisper = "qwenpaw/plugins/bundled/transcription/local-whisper"
+            assert {f"{whisper}/plugin.py", f"{whisper}/plugin.json"} <= set(
+                names,
+            ), "Missing bundled Local Whisper plugin"
             for hub in (
                 "qwenpaw-hub",
                 "clawhub-hub",

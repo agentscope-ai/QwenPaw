@@ -1532,6 +1532,7 @@
     "loadFailed": "Không thể tải cài đặt phiên âm giọng nói",
     "saveSuccess": "Đã lưu chế độ âm thanh",
     "saveFailed": "Lưu chế độ âm thanh thất bại",
+    "localWhisperInstallFailed": "Chưa hoàn tất cài đặt Whisper cục bộ",
     "audioModeLabel": "Chế độ âm thanh",
     "audioModeDescription": "Chọn cách xử lý tin nhắn giọng nói từ các kênh trước khi gửi đến mô hình.",
     "modeAuto": "Tự động (Khuyến nghị)",
@@ -2344,6 +2345,11 @@
     "installing": "Đang cài đặt...",
     "installSuccess": "Cài đặt plugin thành công",
     "installFailed": "Cài đặt plugin thất bại",
+    "dependencyErrors": {
+      "ambiguous": "Không thể xác định nguồn duy nhất của thành phần phụ thuộc. Xem tên gói trong nhật ký ứng dụng, sửa môi trường phụ thuộc rồi thử lại.",
+      "invalidMetadata": "Thông tin cài đặt của thành phần phụ thuộc không đầy đủ hoặc không hợp lệ. Xem nhật ký ứng dụng, sửa môi trường phụ thuộc rồi thử lại.",
+      "failed": "Chưa hoàn tất chuẩn bị các thành phần phụ thuộc. Xem nhật ký ứng dụng, xử lý vấn đề rồi thử lại."
+    },
     "update": "Cập nhật",
     "updateAll": "Cập nhật tất cả",
     "updateSuccess": "Cập nhật plugin thành công",
@@ -3471,6 +3477,7 @@
     "sipUsername": "Tên người dùng SIP",
     "streamingEnabledDingtalkHint": "Chỉ có hiệu lực với tin nhắn dạng thẻ",
     "streamingEnabledFeishuHint": "Bật quyền cardkit:card:write trong nền tảng nhà phát triển Feishu",
+    "streamingEnabledQQHint": "Chỉ cuộc trò chuyện riêng QQ (C2C) hỗ trợ xuất streaming; tin nhắn nhóm và kênh vẫn được gửi dưới dạng tin nhắn hoàn chỉnh",
     "sttProvider": "Nhà cung cấp nhận dạng giọng nói",
     "time": "Thời gian",
     "ttsProvider": "Nhà cung cấp tổng hợp giọng nói",
