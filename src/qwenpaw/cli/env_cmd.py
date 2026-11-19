@@ -17,6 +17,15 @@ from ..envs.registry import (
 from ..utils.runtime_api import api_client, read_runtime_api
 
 
+def _mask_value(value: str) -> str:
+    """Mask a secret value so it is safe to print to a terminal."""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}***{value[-2:]}"
+
+
 def _managed_envs(
     method: str = "GET",
     key: str | None = None,
@@ -61,7 +70,13 @@ def env_group() -> None:
 
 
 @env_group.command("list")
-def list_cmd() -> None:
+@click.option(
+    "--reveal",
+    is_flag=True,
+    default=False,
+    help="Print values in plaintext instead of masking them.",
+)
+def list_cmd(reveal: bool) -> None:
     """List all environment variables."""
     managed = _managed_envs()
     envs = load_envs() if managed is None else managed
@@ -71,7 +86,16 @@ def list_cmd() -> None:
     click.echo(f"\n  {'Key':<30s}  Value")
     click.echo(f"  {'─' * 56}")
     for key in sorted(envs):
-        click.echo(f"  {key:<30s}  {envs[key]}")
+        shown = envs[key] if reveal else _mask_value(envs[key])
+        click.echo(f"  {key:<30s}  {shown}")
+    if not reveal:
+        click.echo(
+            click.style(
+                "  Values are masked. Use 'qwenpaw env list --reveal'"
+                " to print plaintext.",
+                fg="yellow",
+            ),
+        )
     click.echo()
 
 
@@ -92,7 +116,7 @@ def set_cmd(key: str, value: str) -> None:
             set_env_var(key, value)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(f"✓ {key} = {value}")
+    click.echo(f"✓ {key} = {_mask_value(value)}")
 
 
 # ---------------------------------------------------------------
@@ -151,7 +175,7 @@ def configure_env_interactive() -> None:
         except ValueError as exc:
             click.echo(click.style(f"  {exc}", fg="red"))
             continue
-        click.echo(f"  ✓ {key} = {value}")
+        click.echo(f"  ✓ {key} = {_mask_value(value)}")
         if not prompt_confirm("Add another variable?", default=False):
             break
     click.echo("Environment variable configuration complete.")
