@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from qwenpaw.config.config import MissionLoopModeConfig
 from qwenpaw.modes.mission.handler import (
+    format_help,
     parse_mission_args,
     start_mission,
 )
@@ -46,6 +47,45 @@ def test_mission_args_use_defaults_and_allow_command_override() -> None:
     assert defaults["verify_commands"] == "npm test"
     assert override["max_iterations"] == 7
     assert override["verify_commands"] == "pytest"
+
+
+def test_mission_args_keep_quoted_verify_command_intact() -> None:
+    """Quoted verification commands stay separate from task text."""
+    parsed = parse_mission_args(
+        'implement the feature --verify "pytest -q" --max-iterations 7',
+    )
+
+    assert parsed == {
+        "task_text": "implement the feature",
+        "verify_commands": "pytest -q",
+        "max_iterations": 7,
+    }
+
+
+def test_mission_args_fall_back_for_unbalanced_quotes() -> None:
+    """Malformed quoting retains the previous whitespace-splitting path."""
+    parsed = parse_mission_args(
+        'implement the feature --verify "pytest -q',
+    )
+
+    assert parsed["task_text"] == "implement the feature -q"
+    assert parsed["verify_commands"] == '"pytest'
+
+
+def test_mission_args_preserve_unquoted_windows_paths() -> None:
+    """Quote-aware parsing does not consume Windows path separators."""
+    path = r"C:\project"
+    parsed = parse_mission_args(
+        f"implement {path} --verify pytest",
+    )
+
+    assert parsed["task_text"] == f"implement {path}"
+    assert parsed["verify_commands"] == "pytest"
+
+
+def test_mission_help_shows_quoted_verify_command() -> None:
+    """Help documents the syntax required for a multi-word command."""
+    assert '`--verify "<cmd>"`' in format_help()
 
 
 def test_master_prompt_uses_configured_story_retry_limit() -> None:
