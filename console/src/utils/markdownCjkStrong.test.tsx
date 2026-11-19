@@ -321,6 +321,113 @@ describe("historical CJK boundaries through ChatMarkdown", () => {
 });
 
 describe("protected inline boundaries through ChatMarkdown", () => {
+  it.each(["**", "__"])(
+    "keeps %s around code as the paragraph grows",
+    (marker) => {
+      const payload = `代码。${marker}后`;
+      const prefix = `${marker}甲 \`\`${payload}\`\`。${marker}后`;
+      const live = render(<ChatMarkdown content={prefix} />);
+      for (const length of [prefix.length, 1024, 1025, 4096]) {
+        const content = prefix + "乙".repeat(length - prefix.length);
+        live.rerender(<ChatMarkdown content={content} />);
+        const direct = render(<ChatMarkdown content={content} />);
+        expect(strongTexts(live.container), `length=${length}`).toEqual([
+          `甲 ${payload}。`,
+        ]);
+        expect(live.container.querySelector("strong code")?.textContent).toBe(
+          payload,
+        );
+        expect(live.container.innerHTML).toBe(direct.container.innerHTML);
+        direct.unmount();
+      }
+    },
+  );
+
+  it.each([
+    ["**", "__a", "***"],
+    ["__", "**甲", "___"],
+  ])(
+    "uses the SDK at every length for ambiguous %s around code",
+    (marker, code, tail) => {
+      const prefix = `${marker}甲 \`\`${code}\`\`。${marker}后`;
+      const input = (length: number) =>
+        prefix + "乙".repeat(length - prefix.length - tail.length) + tail;
+      const app = render(<ChatMarkdown content={input(64)} />);
+      const sdk = render(<SdkMarkdown content={input(64)} />);
+      for (const length of [64, 1024, 1025, 4096]) {
+        const content = input(length);
+        app.rerender(<ChatMarkdown content={content} />);
+        sdk.rerender(<SdkMarkdown content={content} />);
+        expect(app.container.innerHTML, `length=${length}`).toBe(
+          sdk.container.innerHTML,
+        );
+        expect(app.container.querySelector("code")?.textContent).toBe(code);
+      }
+    },
+  );
+
+  it.each(["**。**后", "__。__后", "**！？**后", "**甲。**\u3099後"])(
+    "leaves punctuation-only bodies and non-letter followers to the SDK: %s",
+    (content) => {
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      expect(sdk.querySelector("strong")).toBeNull();
+      expect(app.innerHTML).toBe(sdk.innerHTML);
+    },
+  );
+
+  it.each([
+    ["**甲 `代码`。**后", "code", "代码", "甲 代码。"],
+    ["__甲 ``代码。__后``。__后", "code", "代码。__后", "甲 代码。__后。"],
+    [
+      '**甲 [链接](https://example.test "标题")。**后',
+      "a",
+      "链接",
+      "甲 链接。",
+    ],
+    ['__甲 [链接](/docs "标题 __甲。__后")。__后', "a", "链接", "甲 链接。"],
+    ["**甲 `代码` 和 [链接](/docs)。**后", "a", "链接", "甲 代码 和 链接。"],
+    [
+      "**甲 `代码`。**后" + "乙".repeat(1100) + " *备注*",
+      "code",
+      "代码",
+      "甲 代码。",
+    ],
+  ])(
+    "recovers surrounding emphasis without changing inline nodes: %s",
+    (content, selector, inlineText, strongText) => {
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      const sdkNodes = [...sdk.querySelectorAll("a, code")];
+      const appNodes = [...app.querySelectorAll("a, code")];
+      expect(sdkNodes.length).toBeGreaterThan(0);
+      expect(appNodes.map((node) => node.outerHTML)).toEqual(
+        sdkNodes.map((node) => node.outerHTML),
+      );
+      expect(app.querySelector(`strong ${selector}`)?.textContent).toBe(
+        inlineText,
+      );
+      expect(strongTexts(app)).toEqual([strongText]);
+    },
+  );
+
+  it.each([
+    '**甲 [链接](/docs "标题。**后") 尾',
+    "**甲 ``代码。**后`` 尾",
+    "**甲 `代码。**后",
+    "**甲 [链接。**后](未闭合",
+    "**甲 `代码` $x+1$。**后",
+    "**甲 `代码` **原生**",
+    "**甲。**・後",
+  ])(
+    "keeps the SDK result at incomplete or unsupported boundaries: %s",
+    (content) => {
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      expect(app.innerHTML).toBe(sdk.innerHTML);
+    },
+  );
+
   it("does not close inside a double-backtick code span", () => {
     const content = "**前 ``代码。**乙`` 后";
     const sdk = render(<SdkMarkdown content={content} />).container;

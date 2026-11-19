@@ -1,4 +1,4 @@
-import { Tokenizer, type MarkedExtension, type Tokens } from "marked";
+import type { MarkedExtension, Tokenizer, Tokens } from "marked";
 
 /**
  * CJK emphasis recovery.
@@ -9,14 +9,15 @@ import { Tokenizer, type MarkedExtension, type Tokens } from "marked";
  * The author's intent is unambiguous, so recover a `strong` token instead of
  * rewriting the source text.
  *
- * Stock parsing always wins at the same opener. Recovery requires either a
- * failed stock lookup or proof that stock cannot close this delimiter run.
+ * Recover only when the suffix index rules out a native close. Ambiguous
+ * candidates always go to stock, regardless of paragraph length.
  *
  * Scope (agreed with the reviewer):
  *   - double delimiters only (`**` and `__`); single `*` / `_` untouched
  *   - the character before the closing run must be CJK punctuation
  *   - the character after the closing run must be a CJK letter
- *   - one delimiter pair, no nested runs
+ *   - a body with a letter or number, one delimiter pair, no nested emphasis
+ *   - complete inline code and links may occur inside the body
  * Anything else is handed to the stock tokenizer unchanged, so the rendered
  * output stays identical to stock marked.
  */
@@ -25,20 +26,12 @@ const CJK_PUNCT_BEFORE =
   /[。，、；：！？…‥·—～「」『』（）〔〕【】《》〈〉“”‘’]/u;
 const CJK_SENTENCE_BEFORE_BRACKET = /[。！？；：，、…]］/u;
 const CJK_LETTER_AFTER =
-  /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3\uf900-\ufaff]/u;
+  /(?=\p{L})[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3\uf900-\ufaff]/u;
 const SUPPLEMENTARY_HAN_LETTER = /(?=\p{L})\p{Script=Han}/u;
 
 /** Upper bound of an emphasis body this recovery is willing to look at. */
 const MAX_BODY = 4096;
-/** Cap the stock probe on recovery misses; stock itself is never truncated. */
-const MAX_STOCK_PROBE = 1024;
 const POSSIBLE_PROTECTED_INLINE = /[`$<~]|\[|\\\(|(?:https?|ftp):\/\/|www\./iu;
-
-/**
- * The tokenizer's own implementation, used for bounded probes when the
- * index cannot prove a miss. Return its token untouched if it finds one.
- */
-const stockEmStrong = Tokenizer.prototype.emStrong;
 
 type Delimiter = "**" | "__";
 type Candidate = {
@@ -46,6 +39,7 @@ type Candidate = {
   offset: number;
   closingEnd: number;
   content: string;
+  maySkipOpening: boolean;
 };
 
 function isCjkFollower(src: string, offset: number): boolean {
@@ -58,12 +52,11 @@ function isCjkFollower(src: string, offset: number): boolean {
 }
 
 /**
- * Index double openers whose native delimiter balance stays above zero.
- * Only look these up for candidates with no intervening markers, so stock's
- * anchored alternative for an opposite delimiter cannot match their suffix.
+ * Record the minimum native delimiter balance after each double opener.
+ * Use marked's mask here, even if recovery has a more precise code boundary.
  */
-function indexUnclosable(masked: string, rule: RegExp): Set<number> {
-  const unclosable = new Set<number>();
+function indexSuffixBalance(masked: string, rule: RegExp): Map<number, number> {
+  const suffixBalance = new Map<number, number>();
 
   // Start at index 1 to bypass the anchored alternative. The space at index 1
   // supplies the left context for a run at the start of the masked source.
@@ -79,8 +72,8 @@ function indexUnclosable(masked: string, rule: RegExp): Set<number> {
     const opening = run[3] || run[4];
     const ambiguous = run[5] || run[6];
     const width = (opening || ambiguous || run[1] || run[2]).length;
-    if (width === 2 && minimum > -2) {
-      unclosable.add(run.index + run[0].length - width - 2);
+    if (width === 2) {
+      suffixBalance.set(run.index + run[0].length - width - 2, minimum);
     }
 
     if (opening) {
@@ -90,7 +83,51 @@ function indexUnclosable(masked: string, rule: RegExp): Set<number> {
       minimum -= width;
     }
   }
-  return unclosable;
+  return suffixBalance;
+}
+
+/**
+ * Walk only the bounded recovery window for candidates containing inline nodes.
+ * Skip complete code and explicit links using marked's tokenizers. Stop at
+ * unsupported syntax or the first run outside those nodes.
+ */
+function findCloserAroundInlineNodes(
+  tokenizer: Tokenizer,
+  src: string,
+): number {
+  const boundary = /[`[*_]/gu;
+  let foundNode = false;
+  let position = 2;
+  boundary.lastIndex = position;
+  for (let match = boundary.exec(src); match; match = boundary.exec(src)) {
+    const gap = src.slice(position, match.index);
+    if (gap.includes("\\") || POSSIBLE_PROTECTED_INLINE.test(gap)) return -1;
+    if (match[0] === "*" || match[0] === "_") {
+      return foundNode ? match.index : -1;
+    }
+    if (match[0] === "[" && src.charAt(match.index - 1) === "!") return -1;
+    const remainder = src.slice(match.index);
+    const { state } = tokenizer.lexer;
+    const { inLink, inRawBlock } = state;
+    let token: Tokens.Codespan | Tokens.Link | Tokens.Image | undefined;
+    try {
+      token =
+        match[0] === "`"
+          ? tokenizer.codespan(remainder)
+          : tokenizer.link(remainder);
+    } finally {
+      // The link probe parses the label; probing must not change lexer state.
+      state.inLink = inLink;
+      state.inRawBlock = inRawBlock;
+    }
+    if (!token || (token.type !== "codespan" && token.type !== "link")) {
+      return -1;
+    }
+    foundNode = true;
+    position = match.index + token.raw.length;
+    boundary.lastIndex = position;
+  }
+  return -1;
 }
 
 /**
@@ -140,9 +177,13 @@ function findCandidate(
   }
   // Limit the actual search, not just the distance of a successful match.
   const window = maskedSrc.slice(offset + 2, offset + 4 + MAX_BODY);
-  const hit = window.indexOf(delimiter);
-  if (hit <= 0 || /[*_]/u.test(window.slice(0, hit))) return null;
-  const closingStart = hit + 2;
+  const hit = window.search(/[*_]/u);
+  if (hit <= 0) return null;
+  const hasInlineNodes = POSSIBLE_PROTECTED_INLINE.test(src.slice(2, hit + 2));
+  const closingStart = hasInlineNodes
+    ? findCloserAroundInlineNodes(tokenizer, src.slice(0, MAX_BODY + 4))
+    : hit + 2;
+  if (closingStart <= 2) return null;
   const closingEnd = closingStart + 2;
   // A fullwidth bracket is only eligible after CJK sentence punctuation.
   const hasCjkPunctuation =
@@ -157,13 +198,12 @@ function findCandidate(
     return null;
   }
   const content = src.slice(2, closingStart);
-  // The mask is not a complete map of inline nodes (e.g. multi-backtick
-  // spans, nested links and bare URLs). Leave ambiguous boundaries to the
-  // normal lexer instead of cutting its input at the candidate.
-  if (content.includes("\n\n") || POSSIBLE_PROTECTED_INLINE.test(content)) {
-    return null;
-  }
-  return { delimiter, offset, closingEnd, content };
+  if (content.includes("\n\n") || !/[\p{L}\p{N}]/u.test(content)) return null;
+  // Marked's anchored alternative can skip a single marker only when the
+  // first run in its mask is the opposite double delimiter.
+  const opposite = delimiter === "**" ? "__" : "**";
+  const maySkipOpening = window.startsWith(opposite, hit);
+  return { delimiter, offset, closingEnd, content, maySkipOpening };
 }
 
 export function cjkStrongExtension(): MarkedExtension {
@@ -171,37 +211,37 @@ export function cjkStrongExtension(): MarkedExtension {
   // same long inline source, including after nested inline parses return.
   const indexes = new WeakMap<
     Tokenizer["lexer"],
-    Record<Delimiter, Map<string, Set<number>>>
+    Record<Delimiter, Map<string, Map<number, number>>>
   >();
   return {
     tokenizer: {
       emStrong(this: Tokenizer, src: string, maskedSrc: string, prevChar = "") {
         const candidate = findCandidate(this, src, maskedSrc, prevChar);
-        if (!candidate) return false;
+        if (!candidate || this.options.pedantic) return false;
 
-        let stockCannotClose = false;
-        if (maskedSrc.length > MAX_STOCK_PROBE && !this.options.pedantic) {
-          let byDelimiter = indexes.get(this.lexer);
-          if (!byDelimiter) {
-            byDelimiter = { "**": new Map(), __: new Map() };
-            indexes.set(this.lexer, byDelimiter);
-          }
-          const index = byDelimiter[candidate.delimiter];
-          let unclosable = index.get(maskedSrc);
-          if (!unclosable) {
-            const rule =
-              candidate.delimiter === "**"
-                ? this.rules.inline.emStrongRDelimAst
-                : this.rules.inline.emStrongRDelimUnd;
-            unclosable = indexUnclosable(maskedSrc, rule);
-            index.set(maskedSrc, unclosable);
-          }
-          stockCannotClose = unclosable.has(candidate.offset);
+        let byDelimiter = indexes.get(this.lexer);
+        if (!byDelimiter) {
+          byDelimiter = { "**": new Map(), __: new Map() };
+          indexes.set(this.lexer, byDelimiter);
         }
-        if (!stockCannotClose) {
-          if (src.length > MAX_STOCK_PROBE) return false;
-          const stock = stockEmStrong.call(this, src, maskedSrc, prevChar);
-          if (stock) return stock;
+        const index = byDelimiter[candidate.delimiter];
+        let suffixBalance = index.get(maskedSrc);
+        if (!suffixBalance) {
+          const rule =
+            candidate.delimiter === "**"
+              ? this.rules.inline.emStrongRDelimAst
+              : this.rules.inline.emStrongRDelimUnd;
+          suffixBalance = indexSuffixBalance(maskedSrc, rule);
+          index.set(maskedSrc, suffixBalance);
+        }
+        const minimum = suffixBalance.get(candidate.offset);
+        // Skipping one opening marker can reduce the balance by one. Let
+        // stock handle every case where a native close cannot be ruled out.
+        if (
+          minimum === undefined ||
+          minimum <= (candidate.maySkipOpening ? -1 : -2)
+        ) {
+          return false;
         }
 
         const token: Tokens.Strong = {
