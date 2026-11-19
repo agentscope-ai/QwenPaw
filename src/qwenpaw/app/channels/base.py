@@ -43,6 +43,7 @@ from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
 from ...utils.logging import sanitize_log_value
+from ...utils.quote_context import strip_quote_context_prefix
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -1434,6 +1435,12 @@ class BaseChannel(ABC):
     def _extract_query_from_payload(self, payload: Any) -> str:
         """Extract query text from payload for command detection.
 
+        Channels prepend quoted (replied-to) message context as a
+        ``[quoted ...]`` block before the user's own text. Routing and
+        command classification must see the user's own text, so any
+        leading quote-context blocks are stripped here. The full text
+        still reaches the model.
+
         Args:
             payload: Native dict or AgentRequest
 
@@ -1444,9 +1451,13 @@ class BaseChannel(ABC):
             parts = payload.get("content_parts") or []
             for part in parts:
                 if isinstance(part, dict) and part.get("type") == "text":
-                    return part.get("text") or ""
+                    return strip_quote_context_prefix(
+                        part.get("text") or "",
+                    )
                 if hasattr(part, "type") and part.type == "text":
-                    return getattr(part, "text", "") or ""
+                    return strip_quote_context_prefix(
+                        getattr(part, "text", "") or "",
+                    )
             return ""
         if hasattr(payload, "input"):
             inp = payload.input or []
@@ -1455,9 +1466,13 @@ class BaseChannel(ABC):
                 for part in content:
                     if isinstance(part, dict):
                         if part.get("type") == "text":
-                            return part.get("text") or ""
+                            return strip_quote_context_prefix(
+                                part.get("text") or "",
+                            )
                     elif hasattr(part, "type") and part.type == "text":
-                        return getattr(part, "text", "") or ""
+                        return strip_quote_context_prefix(
+                            getattr(part, "text", "") or "",
+                        )
         return ""
 
     def _debounce_payload(self, payload: Any) -> bool:
