@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 import qwenpaw.utils.system_info as system_info_module
-from qwenpaw.utils.system_info import get_system_info, get_vram_size_gb
+from qwenpaw.utils.system_info import (
+    get_architecture,
+    get_system_info,
+    get_vram_size_gb,
+)
 
 _NVIDIA_SMI_HEADER = (
     "NVIDIA-SMI 560.94    Driver Version: 560.94    CUDA Version: 12.6\n"
@@ -26,6 +30,65 @@ def _fake_run_command(
         return None
 
     return _runner
+
+
+# ---------------------------------------------------------------------------
+# get_architecture
+# ---------------------------------------------------------------------------
+
+
+def test_get_architecture_uses_python_target_when_windows_env_is_minimal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(
+        system_info_module.platform,
+        "system",
+        lambda: "Windows",
+    )
+    monkeypatch.delenv("PROCESSOR_ARCHITEW6432", raising=False)
+    monkeypatch.delenv("PROCESSOR_ARCHITECTURE", raising=False)
+    monkeypatch.setattr(
+        system_info_module.sysconfig,
+        "get_platform",
+        lambda: "win-amd64",
+    )
+
+    assert get_architecture() == "x64"
+
+
+def test_get_architecture_prefers_wow64_process_architecture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(
+        system_info_module.platform,
+        "system",
+        lambda: "Windows",
+    )
+    monkeypatch.setenv("PROCESSOR_ARCHITEW6432", "ARM64")
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+    monkeypatch.setattr(
+        system_info_module.sysconfig,
+        "get_platform",
+        lambda: "win-amd64",
+    )
+
+    assert get_architecture() == "arm64"
+
+
+def test_get_architecture_does_not_infer_python_target_outside_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(system_info_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        system_info_module.sysconfig,
+        "get_platform",
+        lambda: "linux-x86_64",
+    )
+
+    assert get_architecture() == ""
 
 
 # ---------------------------------------------------------------------------
