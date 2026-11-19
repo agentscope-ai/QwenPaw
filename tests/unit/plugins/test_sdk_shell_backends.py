@@ -10,6 +10,8 @@ import pytest
 from qwenpaw.agents.tools.shell import execute_shell_command
 from qwenpaw.agents.tools import shell as native_shell
 from qwenpaw.app.channels.command_registry import CommandRegistry
+from qwenpaw.app.chats.api import create_chat
+from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.runtime.builder import AgentBuilder
@@ -319,6 +321,59 @@ async def test_selected_backend_failure_never_runs_locally(
             "unavailable" in unavailable.content[0].text
             and not marker.exists()
         )
+
+
+async def test_shell_target_is_independent_of_chat_metadata_and_catalog(
+    sdk_component,
+    monkeypatch,
+):
+    async def execute(call, request):
+        return ShellResult(0, "REMOTE")
+
+    def declare(ctx):
+        ctx.register_shell_backend(
+            ShellBackendSpec("remote", lambda identity: True, execute),
+        )
+
+    key = "resource-contract:remote"
+    async with sdk_component(declare, capabilities=("shell",)) as (host, _):
+        workspace = await host._workspace("test")
+        chats = workspace.chat_manager
+        identity = ("selected", "alice", "console")
+        chat = await create_chat(
+            ChatSpec(
+                session_id=identity[0],
+                user_id=identity[1],
+                channel=identity[2],
+                meta={"shell_backend": key},
+            ),
+            mgr=chats,
+        )
+        laptop = tool()
+        with monkeypatch.context() as patch:
+            load = AsyncMock(side_effect=AssertionError("Opened chat catalog"))
+            patch.setattr(chats._repo, "load", load)
+            assert (await laptop(command="printf LOCAL")).content[0].text == (
+                "LOCAL"
+            )
+            load.assert_not_awaited()
+
+        assert await chats.set_shell_backend(*identity, key)
+        assert not await chats.set_shell_backend(
+            *identity,
+            None,
+            owner="other",
+        )
+        with monkeypatch.context() as patch:
+            load = AsyncMock(side_effect=AssertionError("Opened chat catalog"))
+            patch.setattr(chats._repo, "load", load)
+            assert (await laptop(command="printf LOCAL")).content[0].text == (
+                "REMOTE"
+            )
+            load.assert_not_awaited()
+
+        assert await chats.delete_chats([chat.id])
+        assert await chats.shell_backend_for(*identity) is None
 
 
 async def test_selected_shell_cancellation_and_timeout(sdk_component):

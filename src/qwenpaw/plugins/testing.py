@@ -600,6 +600,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
 
             workspace._service_manager.services["chat_manager"] = ChatManager(
                 repo=JsonChatRepository(path / "chats.json"),
+                shell_workspace_id=workspace_id,
+                shell_targets_dir=self.root / "shell-targets",
             )
             workspace._service_manager.services["session"] = SafeJSONSession(
                 save_dir=str(path / "sessions"),

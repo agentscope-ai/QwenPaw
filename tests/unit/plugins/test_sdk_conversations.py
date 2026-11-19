@@ -4,12 +4,15 @@
 from dataclasses import asdict
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from qwenpaw.app import auth
 from qwenpaw.plugins.apps import PawApp, ChatRequest
 from qwenpaw.plugins.errors import StaleContextError
 from qwenpaw.plugins.messages import ContentBlock
 from qwenpaw.plugins.providers import ProviderSpec, ModelInfo, ModelChunk
+from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult
 
 
 async def test_selected_history_scope_projection_and_lifetime(
@@ -115,6 +118,114 @@ async def test_selected_history_scope_projection_and_lifetime(
                 workspace_id="one",
             )
             assert response.status == 403, (selected, response.text)
+
+
+async def test_login_can_use_the_selected_default_console_chat(
+    sdk_component,
+    tmp_path,
+    monkeypatch,
+):
+    def declare(ctx):
+        async def execute(call, request):
+            return ShellResult(0)
+
+        ctx.register_shell_backend(
+            ShellBackendSpec("remote", lambda identity: True, execute),
+        )
+        app = PawApp(app_id="login-sample")
+        app.enable_standard_capabilities()
+
+        @app.route("/selected", methods=("POST",))
+        async def select(call, request):
+            history = await call.conversations.history()
+            await call.select_shell_backend("remote")
+            return {
+                "user": call.user_id,
+                "history": list(map(asdict, history)),
+            }
+
+        ctx.register_app(app)
+
+    monkeypatch.setenv("QWENPAW_AUTH_ENABLED", "true")
+    monkeypatch.setattr(auth, "AUTH_FILE", tmp_path / "auth.json")
+    token = auth.register_user("operator", "temporary-test-passphrase")
+    assert token
+    async with sdk_component(declare, capabilities=("apps", "shell")) as (
+        host,
+        _,
+    ):
+        workspace = await host._workspace("one")
+        other_workspace = await host._workspace("two")
+        chats = workspace.chat_manager
+        own = await chats.get_or_create_chat("main", "default", "console")
+        await workspace.session.save_session_state(
+            "main",
+            "default",
+            "console",
+            agent=SimpleNamespace(
+                state_dict=lambda: {
+                    "state": {
+                        "context": [{"role": "user", "content": "hello"}],
+                    },
+                },
+            ),
+        )
+        forbidden = [
+            await chats.get_or_create_chat("main", "bob", "console"),
+            await chats.get_or_create_chat("main", "default", "email"),
+            await chats.get_or_create_chat(
+                "pawapp:other",
+                "default",
+                "console",
+            ),
+            await other_workspace.chat_manager.get_or_create_chat(
+                "main",
+                "default",
+                "console",
+            ),
+        ]
+        host._http_app.add_middleware(auth.AuthMiddleware)
+        transport = httpx.ASGITransport(
+            app=host._http_app,
+            client=("192.0.2.10", 12345),
+        )
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://qwenpaw.test/api/login-sample/",
+        ) as client:
+            headers = {"X-Chat-Id": own.id}
+            assert (
+                await client.post("selected?agent_id=one", headers=headers)
+            ).status_code == 401
+            client.headers["Authorization"] = f"Bearer {token}"
+            response = await client.post(
+                "selected?agent_id=one",
+                headers=headers,
+            )
+            assert response.status_code == 200, response.text
+            assert response.json() == {
+                "user": "operator",
+                "history": [{"role": "user", "content": "hello"}],
+            }
+            timeline = await client.get(
+                "checkpoints/timeline?agent_id=one",
+                headers=headers,
+            )
+            assert timeline.status_code == 200, timeline.text
+            assert timeline.json() == []
+            for chat in forbidden:
+                response = await client.post(
+                    "selected?agent_id=one",
+                    headers={"X-Chat-Id": chat.id},
+                )
+                assert response.status_code == 403, response.text
+        assert await chats.shell_backend_for("main", "default", "console") == (
+            "resource-contract:remote"
+        )
+        assert (
+            await chats.shell_backend_for("main", "operator", "console")
+            is None
+        )
 
 
 async def test_history_reads_actual_runtime_saved_turn(sdk_component):

@@ -391,6 +391,8 @@ class Services:  # pylint: disable=protected-access
         )
 
     async def selected_conversation(self):
+        from ..app.auth import owns_default_console_chat
+
         self.guard()
         if not self.selected_chat:
             raise SDKAccessError(
@@ -400,9 +402,16 @@ class Services:  # pylint: disable=protected-access
         chat = await workspace.chat_manager.get_chat(self.selected_chat)
         if (
             chat is None
-            or chat.user_id != self.legacy.user_id
             or chat.channel != self.legacy.channel
             or chat.session_id.startswith("pawapp:")
+            or (
+                chat.user_id != self.legacy.user_id
+                and not (
+                    chat.channel == "console"
+                    and chat.user_id == "default"
+                    and owns_default_console_chat(self.legacy.user_id)
+                )
+            )
         ):
             raise SDKAccessError(
                 "Selected conversation is outside this caller's scope",
