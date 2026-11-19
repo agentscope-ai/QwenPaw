@@ -77,6 +77,8 @@ _STATE_MAX_BYTES = 1024 * 1024
 _STATE_MAX_KEYS = 64
 _TEXT_MERGE_MAX_RESPONSES = 128
 _TEXT_MERGE_MAX_BYTES = 768 * 1024
+_DEBOUNCE_ROUTE_LOG_THRESHOLD = 32
+_DEBOUNCE_ROUTE_LOG_INTERVAL = 60.0
 
 
 def _rpc_result_unknown(error):
@@ -294,6 +296,7 @@ class IsolatedChannelProxy(BaseChannel):
             default=None,
         )
         self._buffered_handles = {}
+        self._next_debounce_route_log = -math.inf
         self._text_merge = {}
         self._text_merge_bytes = 0
         self._text_merge_stopping = False
@@ -941,12 +944,25 @@ class IsolatedChannelProxy(BaseChannel):
                 )
         else:
             handles = self._buffered_handles.setdefault(session_id, [])
+            previous_count = len(handles)
             for handle in [
                 *meta.get("_merged_response_handles", []),
                 meta.get("response_handle"),
             ]:
                 if handle and handle not in handles:
                     handles.append(handle)
+            if len(handles) > previous_count:
+                now = time.monotonic()
+                if now >= self._next_debounce_route_log:
+                    waiting = sum(map(len, self._buffered_handles.values()))
+                    if waiting >= _DEBOUNCE_ROUTE_LOG_THRESHOLD:
+                        self._next_debounce_route_log = (
+                            now + _DEBOUNCE_ROUTE_LOG_INTERVAL
+                        )
+                        logger.warning(
+                            f"{self.channel} NO_TEXT_DEBOUNCE_BACKLOG: "
+                            f"waiting_routes={waiting}",
+                        )
         return ready
 
     def merge_native_items(self, items):
@@ -1645,17 +1661,42 @@ class IsolatedChannelProxy(BaseChannel):
                 state.raw_text = None
                 self._text_merge.pop(response_handle)
 
+    def _log_text_merge_finish_skipped(self, error):
+        if isinstance(error, ChannelDeliveryError):
+            reason = (
+                f"PLATFORM_RESULT_UNKNOWN"
+                if error.side_effect_possible
+                else f"PLATFORM_SEND_FAILED"
+            )
+        elif isinstance(error, ChannelCallUnknown) or (
+            isinstance(error, RpcError) and _rpc_result_unknown(error)
+        ):
+            reason = f"PLATFORM_RESULT_UNKNOWN"
+        elif isinstance(error, ValueError) and error.args in (
+            (f"TEXT_MERGE_CAPACITY",),
+            (f"STALE_GENERATION",),
+        ):
+            (reason,) = error.args
+        else:
+            reason = f"TEXT_MERGE_FAILED"
+        logger.warning(
+            f"{self.channel} RESPONSE_FINISH_SKIPPED: "
+            f"stage=text_merge finish_sent=false reason={reason}",
+        )
+
     async def _finish_route(self, meta, outcome):
         if (
             outcome != "cancelled"
             and meta.get("_text_merge_error") is not None
         ):
+            self._log_text_merge_finish_skipped(meta["_text_merge_error"])
             raise meta["_text_merge_error"]
         handles = list(meta.get("_merged_response_handles") or [])
         if meta.get("response_handle"):
             handles.append(meta["response_handle"])
         failure = None
         for handle in dict.fromkeys(handles):
+            checking_text_merge = outcome != f"cancelled"
             try:
                 if outcome == "cancelled":
                     await self._cancel_response_text(handle)
@@ -1679,6 +1720,7 @@ class IsolatedChannelProxy(BaseChannel):
                         # The caller still receives the original send error.
                         # This exact batch has settled without an effect, so
                         # failed finish must release its child route/typing.
+                checking_text_merge = False
                 await self.channel_process.call(
                     "channel.response.finish",
                     {
@@ -1692,6 +1734,8 @@ class IsolatedChannelProxy(BaseChannel):
                 )
                 await self._cancel_response_text(handle)
             except Exception as exc:
+                if checking_text_merge:
+                    self._log_text_merge_finish_skipped(exc)
                 failure = exc
         if failure is not None:
             raise failure

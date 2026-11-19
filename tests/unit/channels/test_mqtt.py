@@ -123,6 +123,7 @@ async def test_publish_confirmation_unknown_is_not_replayed(
     mqtt,
     tmp_path,
     monkeypatch,
+    caplog,
 ):
     driver, peer, identity, client = mqtt
     event = await inbound(mqtt, b"hello")
@@ -135,6 +136,8 @@ async def test_publish_confirmation_unknown_is_not_replayed(
 
     # A single slot makes capacity recovery observable without a stress loop.
     monkeypatch.setattr(shared_response_driver, "_MAX_ROUTES", 1)
+    now = 0.0
+    monkeypatch.setattr(shared_response_driver, f"monotonic", lambda: now)
     handle = event["response_handle"]
     config = dict(driver._config)
     for archived in (False, True):
@@ -150,9 +153,18 @@ async def test_publish_confirmation_unknown_is_not_replayed(
             assert client.published == []
             assert len(driver._routes.snapshots()) == (0 if archived else 1)
             if not archived:
-                with pytest.raises(ResponseStateError) as error:
-                    await open_route(peer, identity, "device-B")
-                assert error.value.reason_code == "RESPONSE_SCOPE_LIMIT"
+                for now in (0.0, 59.0):
+                    with pytest.raises(ResponseStateError) as error:
+                        await open_route(peer, identity, f"device-B")
+                    assert error.value.reason_code == f"RESPONSE_SCOPE_LIMIT"
+                assert [
+                    log
+                    for log in caplog.messages
+                    if f"RESPONSE_SCOPE_LIMIT" in log
+                ] == [
+                    f"mqtt RESPONSE_SCOPE_LIMIT: routes=1 limit=1 "
+                    f"active=1 unknown_attempt=1 no_attempt=0",
+                ]
                 assert (await finish(peer, identity, handle))[
                     "state"
                 ] == "closed"

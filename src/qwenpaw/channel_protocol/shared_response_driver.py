@@ -10,6 +10,7 @@ from dataclasses import replace
 import hashlib
 import json
 import logging
+from time import monotonic
 import uuid
 
 from qwenpaw.channel_protocol.errors import (
@@ -44,11 +45,13 @@ from qwenpaw.channel_protocol.response_lifecycle import (
     ResponseCleanupState,
     ResponseResourceRef,
     ResponseRouteAggregate,
+    ResponseRouteKind,
     ResponseRouteSnapshot,
     ResponseStateError,
 )
 
 _MAX_ROUTES = 128
+_ROUTE_LIMIT_LOG_INTERVAL = 60.0
 _STREAM_RECEIPTS = 4
 _CHECKPOINT_BYTES = 768 * 1024
 logger = logging.getLogger(__name__)
@@ -72,6 +75,7 @@ class SharedResponseDriver:
         self._platform = None
         self._config = {}
         self._routes = ResponseRouteAggregate(max_entries=_MAX_ROUTES)
+        self._next_route_limit_log = monotonic()
         self._locks = {}
         self._checkpoint_lock = asyncio.Lock()
         self._inflight_admissions = {}
@@ -162,16 +166,17 @@ class SharedResponseDriver:
             for old in self._routes.expired_completed():
                 if self._evictable(old):
                     self._routes.commit_gc(old)
-            snapshot, created = self._routes.open(
+            route = ResponseResourceRef.create(
+                self._kind + ".route",
                 handle,
-                [
-                    ResponseResourceRef.create(
-                        self._kind + ".route",
-                        handle,
-                        attrs,
-                    ),
-                ],
+                attrs,
             )
+            try:
+                snapshot, created = self._routes.open(handle, [route])
+            except ResponseStateError as exc:
+                if exc.reason_code == f"RESPONSE_SCOPE_LIMIT":
+                    self._log_route_limit()
+                raise
             try:
                 await self._write_checkpoint()
             except BaseException:
@@ -179,6 +184,31 @@ class SharedResponseDriver:
                     self._routes.rollback_open(handle, snapshot.version)
                 raise
         return handle
+
+    def _log_route_limit(self):
+        now = monotonic()
+        if now < self._next_route_limit_log:
+            return
+        self._next_route_limit_log = now + _ROUTE_LIMIT_LOG_INTERVAL
+        rows = self._routes.snapshots()
+        attempt_kind = f"{self._kind}.attempt"
+        active = unknown_attempt = no_attempt = 0
+        for row in rows:
+            active += row.kind is ResponseRouteKind.ACTIVE
+            attempts = [
+                ref for ref in row.resource_refs if ref.kind == attempt_kind
+            ]
+            no_attempt += not attempts
+            unknown_attempt += any(
+                dict(ref.attributes).get(f"state") == f"unknown"
+                for ref in attempts
+            )
+        logger.warning(
+            f"{self._kind} RESPONSE_SCOPE_LIMIT: "
+            f"routes={len(rows)} limit={self._routes.max_entries} "
+            f"active={active} unknown_attempt={unknown_attempt} "
+            f"no_attempt={no_attempt}",
+        )
 
     async def _receipt(self, operation, handle, snapshot=None):
         return await self._context.peer.call(

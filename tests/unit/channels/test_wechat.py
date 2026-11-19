@@ -9,6 +9,7 @@ import ssl
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -16,7 +17,10 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 from qwenpaw.app.channels import qrcode_sessions
-from qwenpaw.app.channels.isolated_proxy import IsolatedChannelProxy
+from qwenpaw.app.channels.isolated_proxy import (
+    ChannelDeliveryError,
+    IsolatedChannelProxy,
+)
 from qwenpaw.app.channels.management import (
     ChannelManagementService,
     ManagementError,
@@ -24,7 +28,11 @@ from qwenpaw.app.channels.management import (
 from qwenpaw.app.channels.manager import ChannelManager
 from qwenpaw.app.channels.wechat_auth_custody import reserve_wechat_auth
 from qwenpaw.app.routers import config as config_router
-from qwenpaw.channel_protocol.models import SendParams
+from qwenpaw.channel_protocol.models import (
+    DeliveryState,
+    OutboundResult,
+    SendParams,
+)
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -33,9 +41,13 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.plugins.architecture import PluginManifest, PluginRecord
-from qwenpaw.plugins.channel_adapter import ChannelRuntimeSettings
+from qwenpaw.plugins.channel_adapter import (
+    ChannelRuntimeSettings,
+    describe_channel,
+)
 from qwenpaw.plugins.execution_backend import BackendBinding
 from qwenpaw.plugins.ownership import RuntimeKey, RuntimeStopReceipt
+from qwenpaw.schemas import ImageContent
 from tests.channel_support.driver import bind, module
 from tests.channel_support.host import Host
 
@@ -476,6 +488,90 @@ async def test_native_dm_and_group_routes_send_with_context(
     assert sent(runtime)[-1]["item_list"] == [
         {"type": 1, "text_item": {"text": "answer"}},
     ]
+
+
+@pytest.fixture
+def route_proxy():
+    root = Path(__file__).resolve().parents[3]
+    source = root / f"plugins/channel/wechat"
+    manifest = PluginManifest.from_dict(
+        json.loads((source / f"plugin.json").read_text(encoding=f"utf-8")),
+    )
+    description = describe_channel(source, manifest)
+    prepared = description.prepare_proxy_config({f"enabled": True})
+    return description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=root / f"src",
+        instance_id=f"wechat-log-test",
+        generation=1,
+        qwenpaw_version=f"test",
+        prepared_config=prepared,
+    )
+
+
+async def test_no_text_backlog_logs_routes_across_sessions(
+    route_proxy,
+    caplog,
+):
+    for index in range(34):
+        assert not route_proxy._debounce_payload(
+            {
+                f"meta": {
+                    f"debounce_key": f"private-session-{index % 2}",
+                    f"response_handle": f"private-route-{index}",
+                },
+                f"content_parts": [ImageContent(image_url=f"private-image")],
+            },
+        )
+    assert [
+        log for log in caplog.messages if f"NO_TEXT_DEBOUNCE_BACKLOG" in log
+    ] == [f"wechat NO_TEXT_DEBOUNCE_BACKLOG: waiting_routes=32"]
+
+
+@pytest.mark.parametrize(
+    f"reason",
+    [f"TEXT_MERGE_CAPACITY", f"PLATFORM_RESULT_UNKNOWN", None],
+)
+async def test_finish_log_distinguishes_failure_before_rpc(
+    route_proxy,
+    monkeypatch,
+    caplog,
+    reason,
+):
+    meta = {f"response_handle": f"private-handle"}
+    rpc = AsyncMock(side_effect=RuntimeError(f"private-rpc-error"))
+    monkeypatch.setattr(route_proxy.channel_process, f"call", rpc)
+    if reason == f"TEXT_MERGE_CAPACITY":
+        error = meta[f"_text_merge_error"] = ValueError(reason)
+    elif reason == f"PLATFORM_RESULT_UNKNOWN":
+        error = ChannelDeliveryError(
+            OutboundResult(f"reply", DeliveryState.UNKNOWN, f"private-detail"),
+        )
+        monkeypatch.setattr(
+            route_proxy,
+            f"_flush_response_text",
+            AsyncMock(side_effect=error),
+        )
+    else:
+        error = rpc.side_effect
+
+    with pytest.raises(type(error)) as raised:
+        await route_proxy._finish_route(meta, f"failed")
+    assert raised.value is error
+    warnings = [
+        log for log in caplog.messages if f"RESPONSE_FINISH_SKIPPED" in log
+    ]
+    if reason is None:
+        rpc.assert_awaited_once()
+        assert not warnings
+    else:
+        rpc.assert_not_awaited()
+        assert warnings == [
+            f"wechat RESPONSE_FINISH_SKIPPED: "
+            f"stage=text_merge finish_sent=false reason={reason}",
+        ]
 
 
 async def test_outbound_image_encrypts_and_sends_native_media(
