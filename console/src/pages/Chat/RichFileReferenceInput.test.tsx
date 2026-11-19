@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RichFileReferenceInput, {
   RichFileReferenceInputProvider,
@@ -72,6 +78,34 @@ describe("RichFileReferenceInput", () => {
       container.querySelector('[contenteditable="true"]'),
     ).toHaveTextContent("");
     expect(container.querySelector("textarea")).toHaveValue("");
+  });
+
+  it("forwards IME composition events with the hidden textarea target", async () => {
+    const observedLengths: number[] = [];
+    const { container } = render(
+      <RichFileReferenceInputProvider onOpenReference={vi.fn()}>
+        <RichFileReferenceInput
+          value="中文"
+          onChange={vi.fn()}
+          onCompositionEnd={(event) => {
+            const target = event.target as HTMLTextAreaElement;
+            observedLengths.push(
+              target.value.length,
+              event.currentTarget.value.length,
+            );
+          }}
+        />
+      </RichFileReferenceInputProvider>,
+    );
+    const editor = container.querySelector(
+      '[contenteditable="true"]',
+    ) as HTMLElement;
+
+    await act(async () => {
+      fireEvent.compositionEnd(editor, { data: "文" });
+    });
+
+    expect(observedLengths).toEqual([2, 2]);
   });
 
   it("turns a whole-line Monaco paste into an atomic line reference", async () => {
