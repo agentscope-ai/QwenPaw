@@ -7,8 +7,10 @@ interface LocationLike {
   hash?: string;
 }
 
+const runtimeBase = getRuntimeBasePath();
 const CONSOLE_BASENAME =
-  getRuntimeBasePath() ||
+  (runtimeBase &&
+    new URL(runtimeBase + "/", window.location.href).pathname.slice(0, -1)) ||
   normalizeConsoleBasename(import.meta.env.VITE_CONSOLE_BASENAME);
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 

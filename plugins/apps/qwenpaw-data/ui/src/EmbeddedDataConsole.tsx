@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
  * it — chat runs keep streaming while other pages are visible.
  */
 const CONSOLE_INDEX =
-  "/api/frontend_plugin/qwenpaw-data/files/ui/dist/data-console/index.html";
+  "/frontend_plugin/qwenpaw-data/files/ui/dist/data-console/index.html";
 
 type Availability = "checking" | "ready" | "missing";
 
@@ -18,6 +18,8 @@ export function EmbeddedDataConsole({
   route: string;
   active: boolean;
 }) {
+  const indexUrl =
+    window.QwenPaw?.host?.getApiUrl(CONSOLE_INDEX) ?? `/api${CONSOLE_INDEX}`;
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const initialRouteRef = useRef(route);
   const [availability, setAvailability] = useState<Availability>("checking");
@@ -25,7 +27,7 @@ export function EmbeddedDataConsole({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(CONSOLE_INDEX, { method: "GET", cache: "no-cache" })
+    fetch(indexUrl, { method: "GET", cache: "no-cache" })
       .then((response) => {
         if (!cancelled) setAvailability(response.ok ? "ready" : "missing");
       })
@@ -35,7 +37,7 @@ export function EmbeddedDataConsole({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [indexUrl]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -76,7 +78,7 @@ export function EmbeddedDataConsole({
       {availability === "ready" ? (
         <iframe
           ref={iframeRef}
-          src={`${CONSOLE_INDEX}#${initialRouteRef.current}`}
+          src={`${indexUrl}#${initialRouteRef.current}`}
           title="QwenPaw-Data analysis console"
           onLoad={() => setLoaded(true)}
         />

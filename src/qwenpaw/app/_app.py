@@ -1055,6 +1055,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         name="qwenpaw_console_spa_catchall",
     )
     def _console_spa(full_path: str):
+        if full_path == "index.html":
+            return _serve_console_index()
         # Prevent catching common system/special paths
         if full_path in ("docs", "redoc", "openapi.json"):
             raise HTTPException(status_code=404, detail="Not Found")

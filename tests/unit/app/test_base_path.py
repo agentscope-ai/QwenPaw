@@ -195,7 +195,8 @@ def test_production_app_serves_api_console_and_assets_below_base_path(
                 redirect = client.get("/app/qwenpaw/web?from=fnos")
                 assert redirect.status_code == 307
                 assert redirect.headers["location"] == "/app/qwenpaw/web/?from=fnos"
-                for path in ("/app/qwenpaw/web/", "/app/qwenpaw/web/chat", "/app/qwenpaw/web/chat/"):
+                for route in ("", "index.html", "chat", "chat/"):
+                    path = "/app/qwenpaw/web/" + route
                     page = client.get(path)
                     assert page.status_code == 200, path
                     assert '<base href="/app/qwenpaw/web/">' in page.text

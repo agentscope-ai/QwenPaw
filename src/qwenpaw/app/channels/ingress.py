@@ -7,7 +7,7 @@ import asyncio
 from dataclasses import dataclass, field
 import math
 import secrets
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import aiohttp
 from multidict import CIMultiDict
@@ -543,13 +543,22 @@ class ChannelIngressService:
         host = reference.loopback_host
         if ":" in host:
             host = "[" + host + "]"
+        target = self._raw_target(request)
+        if request.scope.get("root_path"):
+            # The worker owns the application route, not its public mount.
+            _, separator, query = target.partition("?")
+            target = (
+                quote(get_route_path(request.scope), safe="/")
+                + separator
+                + query
+            )
         return URL(
             ("ws" if websocket else "http")
             + "://"
             + host
             + ":"
             + str(reference.endpoint.port)
-            + self._raw_target(request),
+            + target,
             encoded=True,
         )
 
