@@ -430,6 +430,8 @@ async def test_failed_workspace_start_cleans_up(
     from qwenpaw.app.workspace import workspace as workspace_module
 
     workspace = SimpleNamespace(
+        agent_id="default",
+        workspace_dir=tmp_path,
         bootstrap_plugins=Mock(),
         set_app_services=Mock(),
         start=AsyncMock(side_effect=failure(f"Startup stopped")),
