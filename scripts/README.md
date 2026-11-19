@@ -27,6 +27,24 @@ bash scripts/docker_build.sh [IMAGE_TAG] [EXTRA_ARGS...]
 - Default tag: `qwenpaw:latest`. Uses `deploy/Dockerfile` (multi-stage: builds console then Python app).
 - Example: `bash scripts/docker_build.sh myreg/qwenpaw:v1 --no-cache`.
 
+### Build the offline-ready image (Office/PDF toolchain)
+
+The default image does not preinstall the Office/PDF toolchain; the `docx`,
+`pptx`, `xlsx`, and `pdf` skills install what they need at task time. For
+offline or air-gapped deployments, build the variant that bakes in
+LibreOffice, pandoc, poppler, qpdf, tesseract, and the matching Python/npm
+libraries:
+
+```bash
+DOCKERFILE=deploy/Dockerfile.offline bash scripts/docker_build.sh qwenpaw:offline
+```
+
+- The variant is much larger than the default image (~2 GB extra for the
+  system packages).
+- `deploy/Dockerfile` is left untouched; `deploy/Dockerfile.offline` is a copy
+  that adds the toolchain, so keep the shared parts in sync when either file
+  changes.
+
 ## Run Test
 
 ```bash

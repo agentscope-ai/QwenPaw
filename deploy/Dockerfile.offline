@@ -1,0 +1,232 @@
+# QwenPaw offline-ready image with the Office / PDF toolchain preinstalled.
+#
+# The default `deploy/Dockerfile` stays lean: its docx/pptx/xlsx/pdf skills
+# install missing tools at task time (or fail if the container has no network).
+# This variant bakes the toolchain in, at the cost of a much larger image, so it
+# works in air-gapped / offline deployments or for workloads that edit documents
+# often.
+#
+# Build (from repo root):
+#   DOCKERFILE=deploy/Dockerfile.offline bash scripts/docker_build.sh qwenpaw:offline
+# or:
+#   docker build -f deploy/Dockerfile.offline \
+#     --build-arg QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION=2.2.2 \
+#     -t qwenpaw:offline .
+#
+# Keep this file in sync with `deploy/Dockerfile`: everything outside the
+# "Office / PDF toolchain" blocks below must stay identical. If that becomes a
+# maintenance burden, the alternative is an opt-in build arg in the default
+# Dockerfile, which was intentionally avoided here so the default image and its
+# build cache are unaffected.
+#
+# Base images — override with --build-arg for environments without ACR access.
+ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest
+
+# -----------------------------------------------------------------------------
+# Stage 1: build console frontend (dist not committed in repo).
+# -----------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS console-builder
+WORKDIR /app
+COPY console /app/console
+RUN cd /app/console && npm ci --include=dev && npm run build
+
+# Alias for uv binary so COPY --from can reference a build-arg image.
+FROM ${UV_IMAGE} AS uv-src
+
+# -----------------------------------------------------------------------------
+# Stage 2: runtime image with Python, Chromium, and app.
+# -----------------------------------------------------------------------------
+FROM ${NODE_IMAGE}
+
+ARG QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION
+LABEL io.qwenpaw.managed-runtime-boundary.version=\
+${QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION}
+
+# ENV variables
+ENV NODE_ENV=production
+ENV WORKSPACE_DIR=/app
+ENV QWENPAW_WORKING_DIR=/app/working
+ENV QWENPAW_SECRET_DIR=/app/working.secret
+ENV QWENPAW_BACKUP_DIR=/app/working.backups
+
+# Channel filtering: use QWENPAW_DISABLED_CHANNELS (exclusion, recommended)
+# or QWENPAW_ENABLED_CHANNELS (whitelist). Override at runtime with -e.
+ARG QWENPAW_DISABLED_CHANNELS="imessage"
+ENV QWENPAW_DISABLED_CHANNELS=${QWENPAW_DISABLED_CHANNELS}
+ARG QWENPAW_ENABLED_CHANNELS=""
+ENV QWENPAW_ENABLED_CHANNELS=${QWENPAW_ENABLED_CHANNELS}
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --fix-missing \
+    curl  \
+    python3  \
+    python3-pip  \
+    python3-venv \
+    build-essential  \
+    libssl-dev  \
+    git  \
+    supervisor  \
+    vim  \
+    gettext-base \
+    xfce4 \
+    xfce4-terminal \
+    xvfb \
+    dbus-x11 \
+    fonts-wqy-zenhei \
+    fonts-wqy-microhei \
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean
+
+
+RUN apt-get update && apt-get install -y --fix-missing \
+    chromium \
+    chromium-sandbox \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxtst6 \
+    libnss3 \
+    libglib2.0-0 \
+    libdrm2 \
+    libgbm1 \
+    libasound2 \
+    fonts-liberation \
+    libu2f-udev \
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean
+
+
+RUN sed -i 's/^CHROMIUM_FLAGS=""/CHROMIUM_FLAGS="--no-sandbox"/' /usr/bin/chromium
+
+# Playwright: use system Chromium (already installed above).
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+# Avoid Playwright downloading its own browser when executable_path is used.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Indicate running in container (used e.g. for Chromium --no-sandbox).
+ENV QWENPAW_RUNNING_IN_CONTAINER=1
+
+
+# -----------------------------------------------------------------------------
+# Office / PDF toolchain (system packages).
+# Preinstalled so the docx/pptx/xlsx/pdf skills never have to apt-install at
+# task time; see src/qwenpaw/agents/skills/{docx,pptx,xlsx,pdf}/SKILL.md for the
+# authoritative prerequisite list.
+#   libreoffice-*   headless `soffice`: legacy .doc/.ppt/.xls -> modern formats,
+#                   * -> PDF export, and xlsx formula recalculation
+#   pandoc          docx text extraction (incl. --track-changes=all)
+#   poppler-utils   pdftotext / pdftoppm / pdfinfo (text + image extraction)
+#   qpdf            PDF merge / split / rotate / decrypt / compress
+#   tesseract-ocr   OCR engine behind pytesseract, with eng + zh traineddata
+# -----------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
+    libreoffice-writer \
+    libreoffice-calc \
+    libreoffice-impress \
+    libreoffice-draw \
+    pandoc \
+    poppler-utils \
+    qpdf \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-chi-tra \
+  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean
+
+
+# -----------------------------------------------------------------------------
+# Office / PDF toolchain (global npm packages).
+#   docx                  create .docx from scratch
+#   pptxgenjs             create .pptx from scratch
+#   pdf-lib, pdfjs-dist   create / modify / render PDFs from JavaScript
+#   react-icons (+ react, react-dom, sharp)  rasterize icons for pptxgenjs
+# NODE_PATH lets `require('docx')` resolve global modules from any cwd, which is
+# what the skill docs assume after `npm install -g docx`.
+# -----------------------------------------------------------------------------
+ENV NODE_PATH=/usr/local/lib/node_modules
+RUN npm install -g --no-fund --no-audit \
+    docx \
+    pptxgenjs \
+    pdf-lib \
+    pdfjs-dist \
+    react-icons \
+    react \
+    react-dom \
+    sharp \
+  && npm cache clean --force
+
+WORKDIR ${WORKSPACE_DIR}
+
+# Keep Debian's Python for system services; use the desktop runtime for QwenPaw.
+COPY scripts/pack-tauri/stage_python_runtime.py /tmp/stage_python_runtime.py
+RUN python3 /tmp/stage_python_runtime.py \
+    --dest /opt/qwenpaw-python --python-version 3.11 \
+  && /opt/qwenpaw-python/python/bin/python3 -m venv /app/venv \
+  && rm /tmp/stage_python_runtime.py
+ENV PATH="/app/venv/bin:$PATH"
+
+# Speed up Python package installation with uv. Copied early because the
+# office/PDF skill libraries below are installed into the venv before the app.
+COPY --from=uv-src /uv /bin/uv
+
+# -----------------------------------------------------------------------------
+# Office / PDF toolchain (Python libraries).
+#   pypdf, pdfplumber, reportlab   PDF read/write, text+table extraction, creation
+#   openpyxl, pandas, xlrd         XLSX/XLS creation, editing and analysis
+#   python-docx, python-pptx       programmatic Office read/write
+#   markitdown[...]                text extraction (pptx/docx/xlsx read paths)
+#   pdf2image, pytesseract         OCR of scanned PDFs (backed by apt packages)
+#   lxml, defusedxml               XML handling for docx/pptx edit workflows
+# Installed *before* the app so the app's own pins win in the final resolve
+# (e.g. markitdown's magika pulls onnxruntime, and the app pins
+# onnxruntime<1.24).
+# -----------------------------------------------------------------------------
+RUN uv pip install --python /app/venv/bin/python --no-cache-dir \
+    pypdf \
+    pdfplumber \
+    reportlab \
+    openpyxl \
+    xlrd \
+    pandas \
+    python-docx \
+    python-pptx \
+    "markitdown[docx,pptx,xlsx,xls,pdf]" \
+    pdf2image \
+    pytesseract \
+    lxml \
+    defusedxml
+
+COPY pyproject.toml setup.py README.md ./
+COPY src ./src
+COPY plugins/hub ./plugins/hub
+COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
+COPY website/public/docs/ ./src/qwenpaw/docs/
+# Inject console dist from build stage (repo does not commit dist).
+COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
+# Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
+# at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
+# wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
+# kicks in and the import works. The proven failure mode is an *in-place*
+# upgrade of a legacy setuptools (seen on the macOS CI runners, and possible
+# in any environment upgrading an existing install): it can leave a
+# half-removed pkg_resources (module present, declare_namespace gone), which
+# raises an AttributeError the fallback does not catch — crashing the Feishu
+# channel. The pin keeps every environment in the known-good state.
+RUN uv pip install --python /app/venv/bin/python \
+    --no-cache-dir . "setuptools<82" && rm -rf ./build
+
+
+# QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
+ENV QWENPAW_PORT=8088
+
+COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
+COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
+
+EXPOSE 8088
+
+CMD ["/entrypoint.sh"]
