@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.mark.p1
 @pytest.mark.asyncio
 async def test_plain_acp_session_requires_mcp_before_session_creation(
     monkeypatch,
