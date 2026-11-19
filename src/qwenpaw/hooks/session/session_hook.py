@@ -112,6 +112,15 @@ class SessionSaveHook(LifecycleHook):
             channel = getattr(request, "channel", "") or ""
 
             restore_cron_context(ctx)
+            context = getattr(request, "request_context", None) or {}
+            if context.get("source") == "cron":
+                from ...token_usage.turn_usage import attach_turn_usage
+
+                await attach_turn_usage(
+                    session_id=ctx.session_id,
+                    agent_id=ctx.workspace.agent_id,
+                    agent_state=getattr(ctx.agent, "state", None),
+                )
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
             stamp_console_turn(proxy.data, request, "completed")

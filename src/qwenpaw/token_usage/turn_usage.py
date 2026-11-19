@@ -200,6 +200,11 @@ async def resolve_turn_usage(
     if agent_state is None:
         return turn, None, None
 
+    turn, ctx = await _resolve_usage_from_state(turn, agent_state, agent_id)
+    return turn, ctx, agent_state
+
+
+async def _resolve_usage_from_state(turn, agent_state, agent_id):
     context_size = int((turn or {}).get("context_size", 0) or 0)
     stats = await snapshot_context_usage_for_state(
         agent_state,
@@ -213,7 +218,6 @@ async def resolve_turn_usage(
                 getattr(agent_state, "context", None),
             ),
             None,
-            agent_state,
         )
 
     ctx = {
@@ -229,7 +233,7 @@ async def resolve_turn_usage(
         turn,
         getattr(agent_state, "context", None),
     )
-    return turn, ctx, agent_state
+    return turn, ctx
 
 
 def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
@@ -262,6 +266,28 @@ def _write_turn_usage_meta(
         "context_usage": ctx,
     }
     return True
+
+
+async def attach_turn_usage(
+    *,
+    session_id: str,
+    agent_id: str,
+    agent_state: Any,
+) -> None:
+    """Attach usage to the current turn before its state is saved."""
+    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+    if agent_state is None:
+        return
+    try:
+        turn, ctx = await _resolve_usage_from_state(
+            turn,
+            agent_state,
+            agent_id,
+        )
+        msg = find_turn_closing_assistant_in_context(agent_state.context)
+        _write_turn_usage_meta(msg, turn, ctx)
+    except Exception:
+        logger.warning("turn usage attachment skipped", exc_info=True)
 
 
 async def _load_agent_state(

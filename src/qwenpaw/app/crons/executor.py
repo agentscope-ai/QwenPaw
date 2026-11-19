@@ -113,25 +113,6 @@ class CronExecutor:
         async with delivery(self._workspace.agent_id) as channels:
             await getattr(channels, method)(**kwargs)
 
-    async def _commit_run_usage(self, req: Dict[str, Any]) -> None:
-        """Persist per-run token usage into the session's turn records.
-
-        Cron drives ``workspace.stream_query`` directly instead of going
-        through ``Channel.consume_one``, so nothing else commits usage
-        for these runs.
-        """
-        import importlib
-
-        commit_turn_usage = importlib.import_module(
-            "qwenpaw.token_usage.turn_usage",
-        ).commit_turn_usage
-        await commit_turn_usage(
-            workspace=self._workspace,
-            session_id=req.get("session_id", "") or "",
-            user_id=req.get("user_id", "") or "",
-            channel=req.get("channel", "") or "",
-        )
-
     @staticmethod
     def _discard_run_usage(req: Dict[str, Any]) -> None:
         """Drop staged usage when a cron run does not finish normally.
@@ -365,7 +346,6 @@ class CronExecutor:
                 _run(),
                 timeout=job.runtime.timeout_seconds,
             )
-            await self._commit_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,

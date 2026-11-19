@@ -381,29 +381,6 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_successful_run_commits_turn_usage(monkeypatch):
-    workspace = _Workspace()
-    channel_manager = AsyncMock()
-    job = make_cron_job_spec(job_id="usage-job")
-
-    _patch_trace_storage(monkeypatch)
-    commit, discard = _patch_turn_usage(monkeypatch)
-
-    await CronExecutor(
-        workspace=workspace,
-        channel_manager=channel_manager,
-    ).execute(job)
-
-    commit.assert_awaited_once()
-    kwargs = commit.await_args.kwargs
-    assert kwargs["workspace"] is workspace
-    assert kwargs["session_id"] == workspace.requests[0]["session_id"]
-    assert kwargs["user_id"] == "u1"
-    assert kwargs["channel"] == "console"
-    discard.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_failed_run_discards_staged_usage(monkeypatch):
     class BrokenWorkspace(_Workspace):
         async def stream_query(self, request):
