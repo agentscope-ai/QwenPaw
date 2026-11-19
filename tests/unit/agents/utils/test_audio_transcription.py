@@ -14,6 +14,8 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import importlib.machinery
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -249,6 +251,38 @@ class TestCheckLocalWhisperAvailable:
             result = check_local_whisper_available()
             assert result["ffmpeg_installed"] is True
             assert result["whisper_installed"] is False
+
+    @patch(f"{_MOD}.shutil")
+    def test_probe_does_not_import_whisper(self, mock_shutil):
+        """The probe must resolve whisper without importing it.
+
+        Importing whisper pulls in torch and the CUDA runtime, which
+        costs hundreds of megabytes of RSS in the server process.
+        """
+        mock_shutil.which.return_value = "/usr/bin/ffmpeg"
+        spec = importlib.machinery.ModuleSpec("whisper", loader=None)
+        before = sys.modules.get("whisper")
+        with patch("importlib.util.find_spec", return_value=spec) as probe:
+            result = check_local_whisper_available()
+        # Restore whatever the test session had before this assertion.
+        assert sys.modules.get("whisper") is before
+        probe.assert_called_once_with("whisper")
+        assert result == {
+            "available": True,
+            "ffmpeg_installed": True,
+            "whisper_installed": True,
+        }
+
+    @patch(f"{_MOD}.shutil")
+    def test_resolution_failure_reports_not_installed(self, mock_shutil):
+        mock_shutil.which.return_value = "/usr/bin/ffmpeg"
+        with patch(
+            "importlib.util.find_spec",
+            side_effect=ValueError("broken spec"),
+        ):
+            result = check_local_whisper_available()
+        assert result["whisper_installed"] is False
+        assert result["available"] is False
 
 
 # ---------------------------------------------------------------------------
