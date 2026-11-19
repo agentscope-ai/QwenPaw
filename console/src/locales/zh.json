@@ -4118,6 +4118,16 @@
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
     "composer": {
+      "tools": "聊天工具",
+      "menu": {
+        "speech": "语音输入",
+        "attach": "添加附件",
+        "loop": "运行模式",
+        "model": "模型",
+        "context": "上下文",
+        "project-directory": "工作目录",
+        "approval": "审批模式"
+      },
       "attach": "添加附件",
       "send": "发送消息",
       "stop": "停止生成"

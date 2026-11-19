@@ -4263,6 +4263,16 @@
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "composer": {
+      "tools": "Chat tools",
+      "menu": {
+        "speech": "Voice input",
+        "attach": "Attach files",
+        "loop": "Run mode",
+        "model": "Model",
+        "context": "Context",
+        "project-directory": "Directory",
+        "approval": "Approval"
+      },
       "attach": "Attach files",
       "send": "Send message",
       "stop": "Stop generating"

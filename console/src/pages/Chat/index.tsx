@@ -278,6 +278,7 @@ import {
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
 import BackendApprovalToggle from "./components/BackendApprovalToggle";
 import BackendModelSelector from "./components/BackendModelSelector";
+import ComposerToolsMenu from "./components/ComposerToolsMenu";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -3613,6 +3614,7 @@ export default function ChatPage() {
       measurement.setAttribute("aria-hidden", "true");
       measurement.inert = true;
       const measuredBottom = bottom.cloneNode(true) as HTMLElement;
+      measuredBottom.removeAttribute("data-composer-overflow");
       measurement.append(measuredBottom);
       measuredBottom
         .querySelectorAll("[id]")
@@ -3679,6 +3681,29 @@ export default function ChatPage() {
             reservedWidth - item.width
           }px), ${item.width}px)`;
           reservedWidth -= item.width - minimum;
+        }
+
+        // Keep the threshold independent of whether the tool tray is open.
+        const availableWidth = bottom.clientWidth;
+        const overflow = String(availableWidth < Math.ceil(reservedWidth));
+        if (bottom.dataset.composerOverflow !== overflow) {
+          const focused = document.activeElement;
+          const toggle = bottom.querySelector<HTMLButtonElement>(
+            `.${styles.composerToolsToggle}`,
+          );
+          bottom.dataset.composerOverflow = overflow;
+          if (
+            overflow === "true" &&
+            focused instanceof HTMLElement &&
+            (prefix.contains(focused) ||
+              focused.closest(`.${styles.senderActionAffix}`))
+          ) {
+            toggle?.focus();
+          } else if (overflow === "false" && focused === toggle) {
+            prefix
+              .querySelector<HTMLButtonElement>("button:not(:disabled)")
+              ?.focus();
+          }
         }
 
         for (const element of bottom.querySelectorAll<HTMLElement>(
@@ -4334,51 +4359,57 @@ export default function ChatPage() {
           </>
         ),
         actionAffix: (
-          <span className={styles.senderActionAffix}>
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
-                />
-              </span>
-            )}
-            {usesQwenPawBackend && !isSessionTransition && (
-              <ComposerResponsiveItem id="project-directory">
-                <SessionProjectDirectory
-                  scope={sessionScope}
-                  compact={false}
-                  className={styles.senderProjectControl}
-                />
-              </ComposerResponsiveItem>
-            )}
-            {usesQwenPawBackend ? (
-              <ComposerResponsiveItem id="approval">
-                <ApprovalLevelToggle
-                  sessionId={queueKey}
-                  runningConfigApprovalLevel={runningConfigApprovalLevel}
-                  decisionModelConfigured={decisionModelConfigured}
-                  compact={false}
-                  className={styles.senderApprovalControl}
-                  onChange={(sessionOverride) => {
-                    sessionApprovalLevelRef.current = sessionOverride;
-                  }}
-                />
-              </ComposerResponsiveItem>
-            ) : approvalPresets.length > 0 ? (
-              <ComposerResponsiveItem id="approval">
-                <BackendApprovalToggle
-                  backend={selectedAgentBackend}
-                  sessionId={queueKey}
-                  presets={approvalPresets}
-                  compact={false}
-                  onChange={(settings) => {
-                    backendControlsRef.current = settings;
-                  }}
-                />
-              </ComposerResponsiveItem>
-            ) : null}
-          </span>
+          <>
+            <ComposerToolsMenu className={styles.composerToolsToggle} />
+            <span className={styles.senderActionAffix} data-composer-actions>
+              {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span
+                  className={styles.senderContextAffix}
+                  data-composer-context
+                >
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+              {usesQwenPawBackend && !isSessionTransition && (
+                <ComposerResponsiveItem id="project-directory">
+                  <SessionProjectDirectory
+                    scope={sessionScope}
+                    compact={false}
+                    className={styles.senderProjectControl}
+                  />
+                </ComposerResponsiveItem>
+              )}
+              {usesQwenPawBackend ? (
+                <ComposerResponsiveItem id="approval">
+                  <ApprovalLevelToggle
+                    sessionId={queueKey}
+                    runningConfigApprovalLevel={runningConfigApprovalLevel}
+                    decisionModelConfigured={decisionModelConfigured}
+                    compact={false}
+                    className={styles.senderApprovalControl}
+                    onChange={(sessionOverride) => {
+                      sessionApprovalLevelRef.current = sessionOverride;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : approvalPresets.length > 0 ? (
+                <ComposerResponsiveItem id="approval">
+                  <BackendApprovalToggle
+                    backend={selectedAgentBackend}
+                    sessionId={queueKey}
+                    presets={approvalPresets}
+                    compact={false}
+                    onChange={(settings) => {
+                      backendControlsRef.current = settings;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : null}
+            </span>
+          </>
         ),
         ...(supportsAttachments
           ? {
@@ -4406,6 +4437,7 @@ export default function ChatPage() {
                     <Tooltip title={tooltipTitle}>
                       <IconButton
                         aria-label={t("chat.composer.attach")}
+                        data-composer-tool="attach"
                         disabled={props?.disabled}
                         icon={<SparkAttachmentLine size="1em" />}
                         bordered={false}

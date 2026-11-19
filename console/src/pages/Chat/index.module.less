@@ -144,6 +144,71 @@
   }
 }
 
+.composerToolsToggle {
+  display: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: var(--app-icon-default);
+  cursor: pointer;
+}
+
+.chatPageRoot .chatMessagesArea :global([data-composer-overflow="true"]) {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 0;
+
+  :global([class$="-sender-actions-list"]) {
+    display: contents;
+  }
+
+  // Keep the original action anchors at the + button for their popovers,
+  // without exposing a second toolbar or changing its component state.
+  :global([class$="-sender-prefix"]),
+  .senderActionAffix {
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: 0;
+    width: 36px;
+    height: 36px;
+    min-width: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  :global([class$="-sender-prefix"]) > div > *,
+  .senderActionAffix > * {
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: 0;
+  }
+
+  :global([class$="-sender-actions-list-length"]) {
+    display: none;
+  }
+
+  .composerToolsToggle {
+    display: inline-flex;
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  // Ant Design appends Flex classes after the SDK's presets class.
+  :global([class~="qwenpaw-sender-actions-list-presets"]) {
+    grid-row: 1;
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
 .composerResponsiveItem {
   --composer-compact-width: 32px;
   display: inline-flex;
