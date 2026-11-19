@@ -281,6 +281,22 @@ async def driver_contract(
     await registration.close()
 
 
+async def transcription_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.transcription import (
+        TranscriptionResult,
+        TranscriptionStatus,
+    )
+
+    assert_type(
+        await host.transcribe("local_whisper", "/audio.wav"),
+        TranscriptionResult,
+    )
+    assert_type(
+        await host.transcription_status("local_whisper"),
+        TranscriptionStatus,
+    )
+
+
 async def harness_contract(
     plugin: PluginContext,
     backend: HarnessBackend,

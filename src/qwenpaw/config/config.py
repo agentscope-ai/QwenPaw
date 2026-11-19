@@ -462,6 +462,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
@@ -635,6 +636,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
@@ -2689,11 +2691,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "

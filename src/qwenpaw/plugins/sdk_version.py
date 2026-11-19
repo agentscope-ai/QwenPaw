@@ -24,6 +24,7 @@ SDK_CAPABILITIES = frozenset(
         "skills",
         "markets",
         "providers",
+        "transcription",
         "memory",
         "events",
         "apps",

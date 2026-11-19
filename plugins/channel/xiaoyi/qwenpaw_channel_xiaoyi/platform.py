@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 import hashlib
 import json
 import logging
@@ -14,27 +15,40 @@ import uuid
 
 import aiohttp
 
+from qwenpaw.constant import DEFAULT_MEDIA_DIR
+from qwenpaw.utils.io_utils import make_dirs_async
 from qwenpaw.utils.media_paths import local_media_path
 
 from .codec import (
     build_artifact_msg,
-    build_completed_msg,
     build_control_response,
+    build_status_msg,
+    new_artifact_id,
 )
 from .connection import XiaoYiConnection
 from .constants import (
     DEFAULT_TASK_TIMEOUT_MS,
     DEFAULT_WS_URL,
     DEFAULT_WS_URL_BACKUP,
+    MAX_CONCURRENT_DOWNLOADS,
+    MAX_PENDING_MESSAGES,
     MAX_RECONNECT_ATTEMPTS,
     RECONNECT_DELAYS,
-    TEXT_CHUNK_LIMIT,
+    RECONNECT_STABLE_SECONDS,
 )
 from .errors import XiaoYiDeliveryError
 from .utils import chunk_text, download_file
 
 logger = logging.getLogger(__name__)
 _SESSION_MAP_MAX = 4096
+
+
+@dataclass(frozen=True, slots=True)
+class _Inbound:
+    message: dict
+    server: str
+    event_id: str | None
+    control_state: str | None
 
 
 def native_session_id(value):
@@ -69,37 +83,38 @@ class XiaoYiPlatform:
         elif self._workspace_dir:
             self._media_dir = self._workspace_dir / "media"
         else:
-            from qwenpaw.constant import DEFAULT_MEDIA_DIR
-
             self._media_dir = DEFAULT_MEDIA_DIR / "xiaoyi"
-        self._conn_primary = self._conn_backup = None
-        self._media_session = self._reconnect_task = None
+        self._connections: dict[str, XiaoYiConnection] = {}
+        self._exhausted: set[str] = set()
+        self._media_session = None
         self._session_server_map = OrderedDict()
         self._session_task_map = OrderedDict()
         self._seen_events = OrderedDict()
-        self._admission_lock = asyncio.Lock()
-        self._connect_lock = asyncio.Lock()
+        self._pending_events: set[str] = set()
+        self._inbound: dict[str, deque[_Inbound]] = {}
+        self._inbound_slots = asyncio.BoundedSemaphore(MAX_PENDING_MESSAGES)
+        self._download_slots = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+        self._state_lock = asyncio.Lock()
         self._tasks, self._operations = set(), set()
         self._stopping = False
-        self._generation = self._reconnect_attempts = 0
         self._last_state = None
 
     @property
     def connected(self):
         return not self._stopping and any(
-            conn is not None and conn.connected
-            for conn in (self._conn_primary, self._conn_backup)
+            conn.connected for conn in self._connections.values()
         )
 
     async def health_check(self):
-        primary = bool(self._conn_primary and self._conn_primary.connected)
-        backup = bool(self._conn_backup and self._conn_backup.connected)
+        primary = self._connections.get(f"primary")
+        backup = self._connections.get(f"backup")
+        primary_state = f"ok" if primary and primary.connected else f"down"
+        backup_state = f"ok" if backup and backup.connected else f"down"
         return {
             "channel": "xiaoyi",
             "status": "healthy" if self.connected else "unhealthy",
             "detail": (
-                f"primary={'ok' if primary else 'down'}, "
-                f"backup={'ok' if backup else 'down'}"
+                f"primary={primary_state}, backup={backup_state}"
                 if self.connected
                 else "No WebSocket connections active."
             ),
@@ -128,10 +143,19 @@ class XiaoYiPlatform:
         finally:
             self._operations.discard(owner)
 
-    async def _publish_state(self, state):
-        if self._last_state != state:
-            await self.on_state(state)
-            self._last_state = state
+    async def _publish_state(self):
+        async with self._state_lock:
+            if self._stopping:
+                state = f"disconnected"
+            elif self.connected:
+                state = f"connected"
+            elif self._exhausted == self._connections.keys():
+                state = f"failed"
+            else:
+                state = f"connecting"
+            if self._last_state != state:
+                await self.on_state(state)
+                self._last_state = state
 
     async def start(self):
         for name, label in (
@@ -141,124 +165,98 @@ class XiaoYiPlatform:
         ):
             if not getattr(self, name):
                 raise ValueError(f"XiaoYi {label} is required")
-        self._media_dir.mkdir(parents=True, exist_ok=True)
         async with self._effect():
-            await self._start_connections()
-
-    async def _close_connections(self):
-        failures = []
-        for name in ("_conn_primary", "_conn_backup"):
-            conn = getattr(self, name)
-            if conn is not None:
-                try:
-                    await conn.disconnect()
-                except Exception as exc:
-                    failures.append(exc)
-                else:
-                    setattr(self, name, None)
-        if failures:
-            raise RuntimeError("XIAOYI_CONNECTIONS_REMAIN") from failures[0]
-
-    async def _start_connections(self):
-        async with self._connect_lock:
-            if self._stopping:
-                return
-            self._generation += 1
-            generation = self._generation
-            await self._close_connections()
-            await self._publish_state("connecting")
-
-            async def message(value, server):
-                if generation == self._generation and not self._stopping:
-                    await self._handle_incoming_message(value, server)
-
-            async def disconnected(server):
-                if generation == self._generation and not self._stopping:
-                    await self._handle_disconnect(server)
-
-            def create(server, url):
-                return XiaoYiConnection(
-                    server,
+            await make_dirs_async(self._media_dir)
+            urls = {f"primary": self.ws_url or DEFAULT_WS_URL}
+            if DEFAULT_WS_URL_BACKUP and not self.ws_url:
+                urls[f"backup"] = DEFAULT_WS_URL_BACKUP
+            for name, url in urls.items():
+                self._connections[name] = XiaoYiConnection(
+                    name,
                     url,
                     self.ak,
                     self.sk,
                     self.agent_id,
-                    message,
-                    disconnected,
+                    self._handle_incoming_message,
                 )
+            await self._publish_state()
+            started = []
+            for conn in self._connections.values():
+                first_attempt = asyncio.Event()
+                started.append(first_attempt)
+                self._spawn(self._supervise_connection(conn, first_attempt))
+            await asyncio.gather(*(ready.wait() for ready in started))
 
-            self._conn_primary = create(
-                "primary",
-                self.ws_url or DEFAULT_WS_URL,
-            )
-            if DEFAULT_WS_URL_BACKUP and not self.ws_url:
-                self._conn_backup = create("backup", DEFAULT_WS_URL_BACKUP)
-
-            async def connect(conn):
-                if await conn.connect() and not self._stopping:
-                    await self._publish_state("connected")
-
-            await asyncio.gather(
-                *(
-                    connect(conn)
-                    for conn in (self._conn_primary, self._conn_backup)
-                    if conn is not None
-                ),
-                return_exceptions=True,
-            )
-            if self._stopping:
-                return
-            if self.connected:
-                self._reconnect_attempts = 0
-                await self._publish_state("connected")
-            else:
-                self._schedule_reconnect()
-
-    async def _handle_disconnect(self, server_name):
-        if self._stopping:
-            return
-        for session, server in tuple(self._session_server_map.items()):
-            if server == server_name:
-                self._session_server_map.pop(session, None)
-        if not self.connected:
-            await self._publish_state("connecting")
-            self._schedule_reconnect()
-
-    def _schedule_reconnect(self):
-        if self._stopping or (
-            self._reconnect_task is not None
-            and not self._reconnect_task.done()
-        ):
-            return
-        self._reconnect_task = self._spawn(self._reconnect())
-
-    async def _reconnect(self):
-        while not self._stopping and not self.connected:
-            if self._reconnect_attempts >= MAX_RECONNECT_ATTEMPTS:
-                await self._publish_state("failed")
-                return
-            delay = RECONNECT_DELAYS[
-                min(self._reconnect_attempts, len(RECONNECT_DELAYS) - 1)
-            ]
-            self._reconnect_attempts += 1
-            await asyncio.sleep(delay)
-            if self._stopping or self.connected:
-                return
+    async def _close_connections(self):
+        failures = []
+        for name, conn in tuple(self._connections.items()):
             try:
-                await self._start_connections()
-            except Exception:
-                logger.warning("xiaoyi: reconnect failed")
+                await conn.disconnect()
+            except Exception as exc:
+                failures.append(exc)
+            else:
+                self._connections.pop(name)
+        if failures:
+            raise RuntimeError(f"XIAOYI_CONNECTIONS_REMAIN") from failures[0]
+
+    async def _supervise_connection(self, conn, first_attempt):
+        name = conn.server_name
+        attempt = 0
+        try:
+            while not self._stopping and attempt <= MAX_RECONNECT_ATTEMPTS:
+                if attempt:
+                    delay = RECONNECT_DELAYS[
+                        min(attempt - 1, len(RECONNECT_DELAYS) - 1)
+                    ]
+                    logger.info(
+                        f"xiaoyi [%s]: reconnecting in %ss (attempt %s)",
+                        name,
+                        delay,
+                        attempt,
+                    )
+                    await asyncio.sleep(delay)
+                try:
+                    if await conn.connect():
+                        await self._publish_state()
+                        first_attempt.set()
+                        if not await conn.wait_disconnected(
+                            timeout=RECONNECT_STABLE_SECONDS,
+                        ):
+                            attempt = 0
+                            await conn.wait_disconnected()
+                        for session, server in tuple(
+                            self._session_server_map.items(),
+                        ):
+                            if server == name:
+                                self._session_server_map.pop(session, None)
+                        await self._publish_state()
+                        await conn.disconnect()
+                except Exception as exc:
+                    logger.warning(
+                        f"xiaoyi [%s]: connection supervisor failed (%s)",
+                        name,
+                        type(exc).__name__,
+                    )
+                finally:
+                    first_attempt.set()
+                attempt += 1
+        finally:
+            first_attempt.set()
+        self._exhausted.add(name)
+        await self._publish_state()
 
     async def stop(self):
         self._stopping = True
-        self._generation += 1
         current = asyncio.current_task()
         tasks = (self._tasks | self._operations) - {current}
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        self._reconnect_task = None
+        for queue in self._inbound.values():
+            while queue:
+                self._release_inbound(queue.popleft())
+        self._inbound.clear()
         failures = []
         try:
             await self._close_connections()
@@ -273,7 +271,7 @@ class XiaoYiPlatform:
                 self._media_session = None
         if failures:
             raise RuntimeError("XIAOYI_STOP_INCOMPLETE") from failures[0]
-        await self._publish_state("disconnected")
+        await self._publish_state()
 
     def resolve_target(self, session, meta):
         session = native_session_id(str(meta.get("session_id") or session))
@@ -296,10 +294,11 @@ class XiaoYiPlatform:
     async def _send_to_route(self, route, message):
         if self._stopping:
             raise XiaoYiDeliveryError("XIAOYI_STOPPING")
-        connections = (self._conn_primary, self._conn_backup)
+        servers = (f"primary", f"backup")
         if route.get("server_name") == "backup":
-            connections = tuple(reversed(connections))
-        for conn in connections:
+            servers = (f"backup", f"primary")
+        for name in servers:
+            conn = self._connections.get(name)
             if conn is None:
                 continue
             try:
@@ -321,46 +320,85 @@ class XiaoYiPlatform:
             return
         if message.get("agentId") and message["agentId"] != self.agent_id:
             return
-        async with self._effect():
-            params = message.get("params")
-            params = params if isinstance(params, dict) else {}
-            session = params.get("sessionId") or message.get("sessionId")
-            if session:
-                _bounded_map_put(
-                    self._session_server_map,
-                    str(session),
-                    server_name,
-                )
-            method, action = message.get("method"), message.get("action")
-            if method == "clearContext" or action == "clear":
-                await self._handle_clear_context(message, server_name)
-            elif method == "tasks/cancel" or action == "tasks/cancel":
-                await self._handle_tasks_cancel(message, server_name)
-            elif method == "message/stream":
-                await self._handle_a2a_request(message, server_name)
+        params = message.get(f"params")
+        params = params if isinstance(params, dict) else {}
+        session = str(
+            params.get(f"sessionId") or message.get(f"sessionId") or f"",
+        )
+        method, action = message.get(f"method"), message.get(f"action")
+        event_id = control_state = None
+        if method == f"clearContext" or action == f"clear":
+            control_state = f"cleared"
+        elif method == f"tasks/cancel" or action == f"tasks/cancel":
+            control_state = f"canceled"
+        elif method == f"message/stream" and session:
+            native = params.get(f"message")
+            if not isinstance(native, dict):
+                return
+            event_id = self._event_id(message, native, session)
+        else:
+            return
+        job = _Inbound(message, server_name, event_id, control_state)
+        await self._enqueue_inbound(session, job)
 
-    async def _handle_clear_context(self, message, server_name="primary"):
-        session, request_id = (
-            message.get("sessionId") or "",
-            message.get("id") or "",
-        )
-        await self._send_control_response(
-            request_id,
-            session,
-            "cleared",
-            server_name,
-        )
+    def _is_duplicate_event(self, event_id):
+        if event_id in self._pending_events:
+            return True
+        previous = self._seen_events.get(event_id)
+        if previous is None or not previous[f"accepted"]:
+            return False
+        self._seen_events.move_to_end(event_id)
+        return True
+
+    async def _enqueue_inbound(self, session, job):
+        if self._is_duplicate_event(job.event_id):
+            return
+        await self._inbound_slots.acquire()
+        if self._stopping or self._is_duplicate_event(job.event_id):
+            self._inbound_slots.release()
+            return
+        if job.event_id is not None:
+            self._pending_events.add(job.event_id)
+        queue = self._inbound.get(session)
+        if queue is None:
+            queue = self._inbound[session] = deque([job])
+            self._spawn(self._process_inbound(session, queue))
+        else:
+            queue.append(job)
+
+    def _release_inbound(self, job):
+        self._pending_events.discard(job.event_id)
+        self._inbound_slots.release()
+
+    async def _process_inbound(self, session, queue):
+        try:
+            while queue:
+                job = queue.popleft()
+                try:
+                    await self._process_message(session, job)
+                except Exception:
+                    logger.exception(f"xiaoyi: inbound message failed")
+                finally:
+                    self._release_inbound(job)
+        finally:
+            self._inbound.pop(session)
+            while queue:
+                self._release_inbound(queue.popleft())
+
+    async def _process_message(self, session, job):
         if session:
-            self._session_task_map.pop(session, None)
-
-    async def _handle_tasks_cancel(self, message, server_name="primary"):
-        # The old protocol only acknowledges cancel; it does not cancel Agent work.
+            _bounded_map_put(self._session_server_map, session, job.server)
+        if job.control_state is None:
+            await self._admit_message(session, job)
+            return
         await self._send_control_response(
-            message.get("id") or "",
-            message.get("sessionId") or "",
-            "canceled",
-            server_name,
+            job.message.get(f"id") or f"",
+            session,
+            job.control_state,
+            job.server,
         )
+        if job.control_state == f"cleared":
+            self._session_task_map.pop(session, None)
 
     async def _send_control_response(self, request_id, session, state, server):
         if not self.connected:
@@ -395,9 +433,11 @@ class XiaoYiPlatform:
                 json.dumps(
                     [
                         session,
-                        "message"
-                        if native_id not in (None, "")
-                        else "request",
+                        (
+                            f"message"
+                            if native_id not in (None, f"")
+                            else f"request"
+                        ),
                         stable,
                     ],
                     ensure_ascii=False,
@@ -406,93 +446,84 @@ class XiaoYiPlatform:
             ).hexdigest()
         )
 
-    async def _handle_a2a_request(self, message, server_name="primary"):
-        params = message.get("params") or {}
-        session = params.get("sessionId") or message.get("sessionId")
-        if not session:
-            return
-        session = str(session)
-        task_id = params.get("id") or message.get("id")
-        native_message = params.get("message") or {}
-        event_id = self._event_id(message, native_message, session)
-        async with self._admission_lock:
-            if self._stopping:
+    async def _admit_message(self, session, job):
+        event_id = job.event_id
+        previous = self._seen_events.get(event_id)
+        if previous is not None:
+            self._seen_events.move_to_end(event_id)
+            value = previous[f"value"]
+        else:
+            value = await self._prepare_message(session, job)
+            if value is None:
                 return
-            previous = self._seen_events.get(event_id)
-            if previous is not None:
-                self._seen_events.move_to_end(event_id)
-                if previous["accepted"]:
-                    return
-                value = previous["value"]
-            else:
-                _bounded_map_put(
-                    self._session_task_map,
-                    session,
-                    task_id or "",
-                )
-                texts, parts = [], []
-                for part in native_message.get("parts") or []:
-                    if not isinstance(part, dict):
-                        continue
-                    if part.get("kind") == "text" and part.get("text"):
-                        texts.append(str(part["text"]))
-                    elif part.get("kind") == "file":
-                        await self._process_file_part(part, texts, parts)
-                text = " ".join(texts).strip()
-                if text:
-                    parts.insert(0, {"type": "text", "text": text})
-                if not parts:
-                    return
-                message_id = message.get("id")
-                if message_id is None:
-                    message_id = str(uuid.uuid4())
-                value = {
-                    "event_id": event_id,
-                    "session_id": session,
-                    "content_parts": parts,
-                    "route": {
-                        "session_id": session,
-                        "task_id": str(task_id or ""),
-                        "task_id_json": json.dumps(task_id or ""),
-                        "message_id": str(message_id),
-                        "message_id_json": json.dumps(message_id),
-                        "server_name": server_name,
-                    },
-                    "meta": {
-                        "native_session_id": session,
-                        "task_id": task_id,
-                        "request_id": message.get("id"),
-                        "message_id": message.get("id"),
-                        "native_message_id": native_message.get("messageId"),
-                        "server_name": server_name,
-                    },
-                }
-                _bounded_map_put(
-                    self._seen_events,
-                    event_id,
-                    {"value": value, "accepted": False},
-                )
-            # Retain the original value/route after uncertain admission; every
-            # IPC retry and repeated push uses the exact same event identity.
-            accepted = bool(await self.on_event(value))
-            if accepted:
-                # Accepted IDs need no retained text or media payload. Only
-                # uncertain admissions keep the original value for retry.
-                self._seen_events[event_id] = {"accepted": True}
+            # Reuse the prepared content and route if admission is uncertain.
+            _bounded_map_put(
+                self._seen_events,
+                event_id,
+                {f"value": value, f"accepted": False},
+            )
+        if await self.on_event(value):
+            _bounded_map_put(self._seen_events, event_id, {f"accepted": True})
+
+    async def _prepare_message(self, session, job):
+        params = job.message[f"params"]
+        native = params[f"message"]
+        request_id = job.message.get(f"id")
+        task_id = params.get(f"id") or request_id
+        _bounded_map_put(self._session_task_map, session, task_id or f"")
+        texts, parts = [], []
+        for part in native.get(f"parts") or []:
+            if not isinstance(part, dict):
+                continue
+            if part.get(f"kind") == f"text" and part.get(f"text"):
+                texts.append(str(part[f"text"]))
+            elif part.get(f"kind") == f"file":
+                await self._process_file_part(part, texts, parts)
+        text = f" ".join(texts).strip()
+        if text:
+            parts.insert(0, {f"type": f"text", f"text": text})
+        if not parts:
+            return None
+        message_id = (
+            request_id if request_id is not None else str(uuid.uuid4())
+        )
+        return {
+            f"event_id": job.event_id,
+            f"session_id": session,
+            f"content_parts": parts,
+            f"route": {
+                f"origin": f"inbound",
+                f"session_id": session,
+                f"task_id": str(task_id or f""),
+                f"task_id_json": json.dumps(task_id or f""),
+                f"message_id": str(message_id),
+                f"message_id_json": json.dumps(message_id),
+                f"server_name": job.server,
+            },
+            f"meta": {
+                f"native_session_id": session,
+                f"task_id": task_id,
+                f"request_id": request_id,
+                f"message_id": request_id,
+                f"native_message_id": native.get(f"messageId"),
+                f"server_name": job.server,
+            },
+        }
 
     async def _process_file_part(self, part, texts, parts):
         file = part.get("file") or {}
         if not file.get("uri"):
             return
         filename = str(file.get("name") or "file")
-        if self._media_session is None:
-            self._media_session = aiohttp.ClientSession()
-        local = await download_file(
-            file["uri"],
-            self._media_dir,
-            filename,
-            session=self._media_session,
-        )
+        async with self._download_slots:
+            if self._media_session is None:
+                self._media_session = aiohttp.ClientSession()
+            local = await download_file(
+                file[f"uri"],
+                self._media_dir,
+                filename,
+                session=self._media_session,
+            )
         if not local:
             texts.append(f"[{filename}: download failed]")
         elif str(file.get("mimeType") or "").startswith("image/"):
@@ -546,38 +577,49 @@ class XiaoYiPlatform:
         role = part.get("role") if semantic else None
         if role == "reasoning":
             return {"kind": "reasoningText", "reasoningText": text + "\n"}
-        if role == "message" and not text.startswith("\n"):
+        if role == f"rendered":
+            text = f"\n\n{text}\n\n"
+        elif role == "message" and not text.startswith("\n"):
             text = "\n\n" + text
         return {"kind": "text", "text": text}
 
-    def _artifact_frames(self, route, parts):
-        if not parts:
-            return []
-        if any(
-            len(part.get("text") or part.get("reasoningText") or "")
-            > TEXT_CHUNK_LIMIT
-            for part in parts
-        ):
-            frames = []
-            for part in parts:
-                kind = part["kind"]
-                for chunk in chunk_text(
-                    part.get("text") or part.get("reasoningText") or "",
-                ):
-                    frames.append(
-                        build_artifact_msg(
-                            self.agent_id,
-                            route,
-                            [{"kind": kind, kind: chunk}],
-                        ),
-                    )
-            return frames
-        return [build_artifact_msg(self.agent_id, route, parts)]
+    def _artifact_frames(self, route, parts, *, append):
+        text_by_kind = {}
+        for part in parts:
+            kind = part[f"kind"]
+            text_by_kind.setdefault(kind, []).append(part[kind])
 
-    def _outbound_frames(self, route, parts, source):
+        frames = []
+        for kind, texts in text_by_kind.items():
+            chunks = chunk_text(f"".join(texts))
+            artifact_id = new_artifact_id()
+            for index, chunk in enumerate(chunks):
+                frames.append(
+                    build_artifact_msg(
+                        self.agent_id,
+                        route,
+                        [{f"kind": kind, kind: chunk}],
+                        artifact_id=artifact_id,
+                        append=append or index > 0,
+                        last_chunk=index == len(chunks) - 1,
+                    ),
+                )
+        return frames
+
+    def _outbound_frames(
+        self,
+        route,
+        parts,
+        source,
+        *,
+        replace_event_text,
+        media_final,
+    ):
         source = getattr(source, "value", source)
+        semantic = source == f"event"
+        append = not (semantic and replace_event_text)
         parts = list(parts)
-        if source == "event" and any(
+        if semantic and any(
             part.get("type") == "text"
             and part.get("text")
             and part.get("role") in {"message", "reasoning", "refusal"}
@@ -591,7 +633,7 @@ class XiaoYiPlatform:
                     and part.get("role") == "rendered"
                 )
             ]
-        if source == "event":
+        if semantic:
             # Legacy completed events publish their text artifact before media.
             parts = [part for part in parts if part.get("type") == "text"] + [
                 part for part in parts if part.get("type") != "text"
@@ -622,9 +664,9 @@ class XiaoYiPlatform:
         frames, text_parts = [], []
         for part in parts:
             if part.get("type") == "text":
-                value = self._text_parts(part, source == "event")
+                value = self._text_parts(part, semantic)
                 if value and (
-                    source == "event"
+                    semantic
                     or value.get(
                         "text",
                         value.get("reasoningText", ""),
@@ -632,28 +674,44 @@ class XiaoYiPlatform:
                 ):
                     text_parts.append(value)
                 continue
-            if source == "event" and part.get("role") != "rendered":
+            if semantic and part.get("role") != "rendered":
                 continue
             media = self._media_part(part)
             if media is not None:
-                frames.extend(self._artifact_frames(route, text_parts))
+                frames.extend(
+                    self._artifact_frames(route, text_parts, append=append),
+                )
                 text_parts = []
                 frames.append(
                     build_artifact_msg(
                         self.agent_id,
                         route,
                         [media],
-                        final=True,
+                        final=media_final,
                     ),
                 )
-        frames.extend(self._artifact_frames(route, text_parts))
+        frames.extend(self._artifact_frames(route, text_parts, append=append))
         return frames
 
-    async def send_parts(self, route, parts, source):
+    async def send_parts(
+        self,
+        route,
+        parts,
+        source,
+        *,
+        replace_event_text=False,
+        media_final=True,
+    ):
         if not route.get("task_id"):
             raise XiaoYiDeliveryError("XIAOYI_TASK_UNKNOWN")
         async with self._effect():
-            frames = self._outbound_frames(route, parts, source)
+            frames = self._outbound_frames(
+                route,
+                parts,
+                source,
+                replace_event_text=replace_event_text,
+                media_final=media_final,
+            )
             sent = 0
             try:
                 for message in frames:
@@ -671,18 +729,50 @@ class XiaoYiPlatform:
                 "frame_count": str(sent),
             }
 
-    async def send_finish_step(self, route, step):
+    async def send_status(self, route, state, text=f""):
+        async with self._effect():
+            await self._send_to_route(
+                route,
+                build_status_msg(self.agent_id, route, state, text),
+            )
+
+    async def send_stream_part(
+        self,
+        route,
+        artifact_id,
+        kind,
+        text,
+        *,
+        append,
+        last_chunk,
+    ):
+        async with self._effect():
+            await self._send_to_route(
+                route,
+                build_artifact_msg(
+                    self.agent_id,
+                    route,
+                    [{f"kind": kind, kind: text}],
+                    artifact_id=artifact_id,
+                    append=append,
+                    last_chunk=last_chunk,
+                ),
+            )
+
+    async def send_finish_step(self, route, step, state):
         if not route.get("task_id"):
             raise XiaoYiDeliveryError("XIAOYI_TASK_UNKNOWN")
+        if step == f"completed":
+            text = f"Done" if state == f"completed" else f""
+            await self.send_status(route, state, text)
+            return
         async with self._effect():
-            message = (
-                build_completed_msg(self.agent_id, route)
-                if step == "completed"
-                else build_artifact_msg(
+            await self._send_to_route(
+                route,
+                build_artifact_msg(
                     self.agent_id,
                     route,
                     [{"kind": "text", "text": ""}],
                     final=True,
-                )
+                ),
             )
-            await self._send_to_route(route, message)

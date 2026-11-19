@@ -36,6 +36,7 @@ from .hooks import HookPhase, HookResult
 from .markets import SearchPage
 from .providers import ModelInfo, ModelToolChoice, ModelChunk
 from .memory import MemoryTask
+from .transcription import TranscriptionResult, TranscriptionStatus
 from .harnesses import HarnessRunRequest, HarnessStatus
 from .channels import ChannelMessage, ChannelHealth
 from .results import (
@@ -1063,6 +1064,33 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             ),
         )
         return TestModel(model, workspace.workspace_dir, workspace_id)
+
+    async def transcribe(
+        self,
+        backend_id: str,
+        file_path: str,
+        *,
+        workspace_id: str = "",
+        session_id: str = "",
+    ) -> TranscriptionResult:
+        """Invoke the lifecycle-owned production transcription adapter."""
+        backend = self._loader.registry.get_transcription_backend(backend_id)
+        if backend is None:
+            raise SDKError(f"Unknown transcription backend: {backend_id}")
+        return await backend.transcribe(
+            file_path=file_path,
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+
+    async def transcription_status(
+        self,
+        backend_id: str,
+    ) -> TranscriptionStatus:
+        backend = self._loader.registry.get_transcription_backend(backend_id)
+        if backend is None:
+            raise SDKError(f"Unknown transcription backend: {backend_id}")
+        return await backend.status()
 
     async def discover_models(self, provider_id: str) -> tuple[ModelInfo, ...]:
         from ..providers.provider_manager import ProviderManager

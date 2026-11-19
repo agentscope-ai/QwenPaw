@@ -332,7 +332,9 @@ def build_plugin_catalog() -> dict[str, Any]:
             manifest = PluginManifest.from_dict(
                 json.loads(path.read_text(encoding="utf-8")),
             )
-            if manifest.id == PLUGIN_ID:
+            # MCP uses the validated optional payload entry above.
+            # Local Whisper uses the published ZIP in the official catalog.
+            if manifest.id in {PLUGIN_ID, "local-whisper"}:
                 continue
         compatible, _ = check_plugin_version_compat(manifest)
         if not compatible:
