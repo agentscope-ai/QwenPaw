@@ -356,6 +356,8 @@ exits when that call ends or its stream closes. The plugin remains in use until
 the owning turn ends. In `connect`, `ctx.connection_purpose` identifies inference
 (`inference`), a connectivity check (`check`), or a multimodal capability probe (`probe`).
 
+Read `handle.published_model_ids` for the current IDs saved by `update(models=...)`.
+
 Await the following handle methods:
 
 - `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields;

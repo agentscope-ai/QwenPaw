@@ -837,6 +837,46 @@ async def test_only_explicit_server_start_selects_the_model(tmp_path):
         assert manager.load_active_model() is None
 
 
+@pytest.mark.parametrize("restore_first", [False, True])
+async def test_reload_preserves_managed_model_before_and_after_restore(
+    tmp_path,
+    restore_first,
+):
+    from qwenpaw.providers import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        await load_backend(host, tmp_path)
+        response = await host.request(
+            "POST",
+            "/api/local-models/server",
+            json={"model_id": "local-B"},
+        )
+        assert response.status == 200
+        assert (await host.unload("local-llamacpp")).quiescent
+        binding, runtime = await load_backend(host, tmp_path)
+        if restore_first:
+            await binding.restore_selected()
+
+        backend = await runtime.manager()
+        status = backend.get_server_status()
+        assert status["running"] is restore_first
+        with pytest.raises(SDKError, match="local-B"):
+            async with binding.connect("local-A"):
+                pytest.fail("An Agent replaced the saved local model")
+        assert backend.get_server_status() == status
+        assert (
+            ProviderManager.get_instance().load_active_model().model
+            == "local-B"
+        )
+        assert [model.id for model in binding.provider().extra_models] == [
+            "local-B",
+        ]
+
+        async with binding.connect("local-B"):
+            assert backend.served == "local-B"
+            assert backend.starts == 1
+
+
 async def test_restore_failure_preserves_settings_and_allows_retry(
     tmp_path,
     monkeypatch,

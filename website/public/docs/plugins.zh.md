@@ -319,6 +319,8 @@ asyncio.run(main())
 宿主在每次调用前进入它，并在该调用结束或流关闭时退出。宿主保留插件使用权直到所属 turn 结束。
 在 `connect` 中，`ctx.connection_purpose` 区分推理（`inference`）、连接检查（`check`）和多模态探测（`probe`）。
 
+通过 `handle.published_model_ids` 读取 `update(models=...)` 已保存的模型 ID。
+
 以下句柄方法均需 `await`：
 
 - `update(base_url=..., models=..., generate_kwargs=...)` 持久化提供的字段；

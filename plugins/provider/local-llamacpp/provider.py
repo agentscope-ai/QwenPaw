@@ -18,7 +18,6 @@ class LocalProvider:
         self._lock = asyncio.Lock()
         self._users = {}
         self._server_info = None
-        self._selected_model = None
         self._failed = False
         self._started = False
         self._manually_stopped = False
@@ -97,7 +96,6 @@ class LocalProvider:
             )
             self._server_info = result
             if model is not None:
-                self._selected_model = model.id
                 self._manually_stopped = False
                 await self.handle.select(model.id, model_type=model.model_type)
 
@@ -107,7 +105,6 @@ class LocalProvider:
     async def _stopped(self):
         self._manually_stopped = True
         self._server_info = None
-        self._selected_model = None
         await self.handle.update(base_url="", models=())
         await self.handle.clear_selection()
         await self.handle.clear_selection(model_type="decision")
@@ -219,10 +216,13 @@ class LocalProvider:
                         raise SDKError(
                             "This local model is no longer published",
                         )
-                    if self._selected_model not in (None, model_id):
+                    # Management publishes exactly one model. Other catalog
+                    # shapes do not identify a single managed server.
+                    published = self.handle.published_model_ids
+                    if len(published) == 1 and model_id != published[0]:
                         raise SDKError(
                             f"Local Model Management selected "
-                            f"{self._selected_model!r}; cannot serve {model_id!r}",
+                            f"{published[0]!r}; cannot serve {model_id!r}",
                         )
                     result = await self._ensure_server(model_id)
                     port = result.port

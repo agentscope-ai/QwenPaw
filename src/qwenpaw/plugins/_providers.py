@@ -57,6 +57,19 @@ class ProviderBinding:
             )
         return provider
 
+    def published_model_ids(self) -> tuple[str, ...]:
+        from ..providers.provider_manager import ProviderManager
+
+        self.guard()
+        manager = ProviderManager.get_instance()
+        key = manager._normalize_provider_id(self.spec.id)
+        registered = manager.plugin_providers.get(key)
+        if registered is None:
+            raise StaleContextError(
+                f"Provider {self.spec.id!r} is unavailable",
+            )
+        return tuple(model.id for model in registered["info"].extra_models)
+
     async def select(self, model_id, *, model_type="chat"):
         from ..exceptions import AppBaseException
         from ..providers.provider_manager import ProviderManager

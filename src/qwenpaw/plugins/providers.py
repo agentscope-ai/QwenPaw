@@ -134,6 +134,11 @@ class ProviderHandle(Registration):
 
     _provider: Any
 
+    @property
+    def published_model_ids(self) -> tuple[str, ...]:
+        """IDs in this provider's saved dynamic catalog, excluding Spec.models."""
+        return self._provider.published_model_ids()
+
     async def select(
         self,
         model_id: str,

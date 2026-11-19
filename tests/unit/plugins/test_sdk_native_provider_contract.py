@@ -393,11 +393,13 @@ async def test_provider_handle_is_scoped_persistent_and_revoked(tmp_path):
             .provider_class._sdk_binding
         )
         handle = binding.spec.connect.__self__.provider
+        assert handle.published_model_ids == ()
         await handle.update(
             models=(ModelInfo("model-B", "B", supports_multimodal=False),),
             generate_kwargs={"temperature": 0.4},
         )
         manager = ProviderManager.get_instance()
+        assert handle.published_model_ids == ("model-B",)
         await handle.select("model-B")
         assert manager.active_model.provider_id == "native-test"
         assert manager.active_model.model == "model-B"
@@ -406,6 +408,8 @@ async def test_provider_handle_is_scoped_persistent_and_revoked(tmp_path):
         provider = manager.get_provider("native-test")
         assert provider.generate_kwargs == {"temperature": 0.4}
         assert provider.extra_models[0].id == "model-B"
+        with pytest.raises(StaleContextError):
+            _ = handle.published_model_ids
         with pytest.raises(StaleContextError):
             await handle.update(base_url="https://stale.test")
         with pytest.raises(StaleContextError):
