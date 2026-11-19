@@ -16,6 +16,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { useMemoizedFn } from "ahooks";
+import { message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -579,13 +580,22 @@ function HtmlPreview({
           : styles.htmlOpenButton
       }
       onClick={() =>
-        openHtmlFile({
-          content,
-          filePath,
-          chatId,
-          projectDirOverride,
-          root,
-          workspaceBacked,
+        void Promise.resolve(
+          openHtmlFile({
+            content,
+            filePath,
+            chatId,
+            projectDirOverride,
+            root,
+            workspaceBacked,
+          }),
+        ).then((result) => {
+          // The native shell only opens HTML that resolves inside the
+          // workspace; when it refuses we fall back to the in-memory copy.
+          // Say so, otherwise the button looks like it did nothing.
+          if (result?.mode === "blob") {
+            message.info(t("files.openHtmlOutsideWorkspace"));
+          }
         })
       }
     >
