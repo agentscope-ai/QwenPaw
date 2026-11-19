@@ -47,7 +47,14 @@ class TestEnableDisable:
     def test_enable_stores_config_and_workspace(self):
         workspace = SimpleNamespace()
         fake_task = SimpleNamespace(done=lambda: False)
-        with patch.object(asyncio, "create_task", return_value=fake_task):
+
+        def fake_create_task(coro):
+            # ``enable`` always hands us a fresh loop coroutine; close it
+            # so it does not surface as an unawaited-coroutine warning.
+            coro.close()
+            return fake_task
+
+        with patch.object(asyncio, "create_task", fake_create_task):
             result = pt.enable_proactive_for_session(
                 "s1",
                 idle_minutes=15,
