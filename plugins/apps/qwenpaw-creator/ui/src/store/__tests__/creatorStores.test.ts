@@ -40,6 +40,27 @@ describe("bounded frontend caches", () => {
     expect(store().session).toMatchObject({ lastEventSeq: 13, status: "IDLE" });
   });
 
+  it("retains the snapshot error while replaying earlier run failures", () => {
+    const error = {
+      code: "CURRENT",
+      message: "Current failure",
+      retryable: true,
+    };
+    seed({
+      isReplaying: true,
+      replayUntilSeq: 10,
+      session: sessionView({ lastEventSeq: 10, error }),
+    });
+
+    ingest(ev(10, "agent.run.failed", { error: { ...error, code: "OLDER" } }));
+    expect(store().session).toMatchObject({ lastEventSeq: 10, error });
+    ingest(ev(11, "agent.run.failed", { error: { ...error, code: "NEW" } }));
+    expect(store().session).toMatchObject({
+      lastEventSeq: 11,
+      error: { code: "NEW" },
+    });
+  });
+
   it("deduplicates durable events by seq and never treats streaming state as completion", () => {
     seed({ lastEventSeq: 3, events: [] });
     const event = ev(4, "subagent.waiting_runtime");

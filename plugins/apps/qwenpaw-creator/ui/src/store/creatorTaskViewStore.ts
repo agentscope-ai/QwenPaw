@@ -28,6 +28,8 @@ interface CreatorTaskViewState {
 // must never replace the result of a newer refresh (for example, restoring a
 // WAITING_AUTHORIZATION run after SUCCEEDED has already been observed).
 let refreshGeneration = 0;
+// An in-flight cancellation belongs to this visit, including across polls.
+let projectGeneration = 0;
 
 type Row = { id: string; updatedAt?: string; createdAt?: string };
 const seenAfterRead = new WeakMap<Row, number>();
@@ -86,6 +88,7 @@ export const useCreatorTaskViewStore = create<CreatorTaskViewState>(
     refresh: async (projectId, options) => {
       const generation = ++refreshGeneration;
       const switching = get().projectId !== projectId;
+      if (switching) projectGeneration += 1;
       set({
         projectId,
         loading: true,
@@ -132,20 +135,26 @@ export const useCreatorTaskViewStore = create<CreatorTaskViewState>(
     cancel: async (taskId) => {
       const initialProjectId = get().projectId;
       if (!initialProjectId) return;
+      const generation = projectGeneration;
       const updated = await cancelTask(initialProjectId, taskId);
-      seenAfterRead.set(updated, creatorReadSequence());
-      set((state) =>
-        state.projectId === initialProjectId
-          ? {
-              tasks: state.tasks.map((item) =>
-                item.id === taskId ? updated : item,
-              ),
-            }
-          : {},
-      );
+      if (
+        generation !== projectGeneration ||
+        get().projectId !== initialProjectId
+      )
+        return;
+      set((state) => {
+        const tasks = state.tasks.map((item) => {
+          if (item.id !== taskId || compareRowTime(item, updated) > 0)
+            return item;
+          seenAfterRead.set(updated, creatorReadSequence());
+          return updated;
+        });
+        return { tasks };
+      });
     },
     reset: () => {
       refreshGeneration += 1;
+      projectGeneration += 1;
       set({
         projectId: null,
         runs: [],

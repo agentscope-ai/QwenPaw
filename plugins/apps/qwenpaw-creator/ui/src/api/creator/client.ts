@@ -208,6 +208,15 @@ const inflightGets = new Map<string, Promise<unknown>>();
 // projections can use that boundary to protect changes received in the meantime.
 let issuedRead = 0;
 const readSequences = new WeakMap<Promise<unknown>, number>();
+export function invalidateCreatorListReads(path: string): void {
+  // A mutation makes earlier reads of this collection stale, in every sort order.
+  for (const key of inflightGets.keys()) {
+    if (key.startsWith(path + "?") || key.startsWith(path + "|")) {
+      inflightGets.delete(key);
+    }
+  }
+}
+
 export function creatorReadSequence(request?: Promise<unknown>): number {
   return request ? readSequences.get(request) ?? 0 : issuedRead;
 }
@@ -232,7 +241,7 @@ export function creatorRequest<T>(
   const shared = inflightGets.get(key);
   if (shared) return shared as Promise<T>;
   const created = creatorFetchJson<T>(path, init, options).finally(() => {
-    inflightGets.delete(key);
+    if (inflightGets.get(key) === created) inflightGets.delete(key);
   });
   readSequences.set(created, ++issuedRead);
   inflightGets.set(key, created);

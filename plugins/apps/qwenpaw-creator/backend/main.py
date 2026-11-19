@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from qwenpaw.pawapp import PawApp
+from qwenpaw.utils.io_utils import run_sync_io
 
 logger = logging.getLogger("qwenpaw").getChild("plugin.qwenpaw_creator")
 
@@ -56,6 +57,7 @@ from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
     clear_creator_file_service_registry,
     creator_file_services,
+    preparing_file_services,
 )
 from services.runtime_files.runtime_dependencies import (  # noqa: E402
     CreatorBinaryDependencyError,
@@ -165,7 +167,7 @@ async def _sweep_orphaned_scratch(services: CreatorFileServices) -> None:
     """
 
     try:
-        sweep = await asyncio.to_thread(release_orphaned_scratch, services)
+        sweep = await run_sync_io(release_orphaned_scratch, services)
     except Exception:  # noqa: BLE001 - cleanup must never gate startup
         logger.warning("orphaned task scratch sweep failed", exc_info=True)
         return
@@ -198,11 +200,9 @@ async def _startup() -> None:
             ensure_creator_runtime_dependencies,
         )
         await asyncio.to_thread(ensure_vendor_libs)
-        services = creator_file_services(data_root)
-        await asyncio.to_thread(
-            recover_interrupted_source_analysis,
-            services,
-        )
+        with preparing_file_services(data_root):
+            services = await run_sync_io(creator_file_services, data_root)
+            await run_sync_io(recover_interrupted_source_analysis, services)
         reset_remote_ingest_admission()
     except (CreatorDataRootError, CreatorBinaryDependencyError) as exc:
         trace_event(
@@ -225,11 +225,11 @@ async def _startup() -> None:
         # Observation/read workers live only in process memory: fail their
         # orphaned QUEUED/RUNNING Tasks closed so waiters see a retryable
         # error instead of polling a record no worker will ever finish.
-        await asyncio.to_thread(
+        await run_sync_io(
             recover_interrupted_source_observations,
             services,
         )
-        await asyncio.to_thread(
+        await run_sync_io(
             recover_interrupted_source_video_reads,
             services,
         )

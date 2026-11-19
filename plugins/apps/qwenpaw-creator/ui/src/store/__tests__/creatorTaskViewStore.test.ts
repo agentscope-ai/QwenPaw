@@ -179,6 +179,60 @@ describe("creator task view refresh ordering", () => {
     expect(useCreatorTaskViewStore.getState().loading).toBe(false);
   });
 
+  it.each([
+    { scenario: "reopened project", expected: "RUNNING" },
+    { scenario: "newer task update", expected: "SUCCEEDED" },
+    { scenario: "same project polled", expected: "CANCELLED" },
+  ])(
+    "applies a delayed cancellation to the correct task state: $scenario",
+    async ({ scenario, expected }) => {
+      const cancelled = deferred<Response>();
+      const task = {
+        id: "t1",
+        projectId: "p1",
+        status: "RUNNING",
+        updatedAt: "2026-10-01T09:00:01.100Z",
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) => {
+          if (url.endsWith("/cancel")) return cancelled.promise;
+          const items = url.endsWith("/p1/tasks") ? [task] : [];
+          return Promise.resolve(response({ items }));
+        }),
+      );
+      const store = useCreatorTaskViewStore.getState();
+      await store.refresh("p1");
+      const pending = store.cancel("t1");
+      if (scenario === "reopened project") {
+        await store.refresh("p2");
+        await store.refresh("p1");
+      } else if (scenario === "newer task update") {
+        store.consumeEvent(
+          ev(1, "task.updated", {
+            task: {
+              ...task,
+              status: "SUCCEEDED",
+              updatedAt: "2026-10-01T09:00:01.300Z",
+            },
+          }),
+        );
+      } else {
+        // Polling the same project preserves its in-flight user action.
+        await store.refresh("p1");
+      }
+      cancelled.resolve(
+        response({
+          ...task,
+          status: "CANCELLED",
+          updatedAt: "2026-10-01T09:00:01.200Z",
+        }),
+      );
+      await pending;
+      expect(useCreatorTaskViewStore.getState().tasks[0].status).toBe(expected);
+    },
+  );
+
   it("drops a cancel response after switching projects", async () => {
     const cancelled = deferred<Response>();
     vi.stubGlobal(
