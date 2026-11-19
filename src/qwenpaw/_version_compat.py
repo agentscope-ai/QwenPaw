@@ -2,12 +2,10 @@
 """Plugin–QwenPaw version compatibility check.
 
 Semantics: left-closed, right-open interval  ``>=min, <max``.
-When ``max`` is not specified, it is derived from ``min`` as
-``{major}.{minor+1}.0`` (all patch versions of the same minor).
-
-NOTE: Upper-bound (``max``) enforcement is temporarily disabled.
-Restore the commented check in ``check_plugin_version_compat`` when
-re-enabling full range checks.
+When ``max`` is not specified, no upper bound is enforced — the plugin
+is considered compatible with any QwenPaw version that satisfies ``>=min``.
+This follows the universal convention (pip, npm, cargo) where an
+unspecified upper bound means no upper bound.
 """
 
 from __future__ import annotations
@@ -27,6 +25,11 @@ def _derive_exclusive_max(min_str: str) -> Version:
     """Derive exclusive upper bound from a min version string.
 
     '1.1.6' -> Version('1.2.0')
+
+    .. deprecated::
+        This function is retained for backward compatibility but no longer
+        called by :func:`check_plugin_version_compat`.  An unspecified ``max``
+        now means *no upper bound* instead of a derived exclusive bound.
     """
     parts = min_str.split(".")
     major = int(parts[0])
@@ -55,24 +58,13 @@ def check_plugin_version_compat(
     qv = manifest.qwenpaw_version
     if qv is not None:
         min_v = Version(qv.min)
-        max_v = Version(qv.max) if qv.max else _derive_exclusive_max(qv.min)
+        max_v = Version(qv.max) if qv.max else None
     else:
         min_v = Version(manifest.min_version)
-        max_v = (
-            Version(manifest.max_version)
-            if manifest.max_version
-            else _derive_exclusive_max(manifest.min_version)
-        )
+        max_v = Version(manifest.max_version) if manifest.max_version else None
 
-    # Temporary: only enforce >= min.  Original full-range check:
-    # if current < min_v or current >= max_v:
-    #     msg = (
-    #         f"requires QwenPaw >={min_v}, <{max_v}, current is {current}"
-    #     )
-    #     return False, msg
-    # return True, ""
-    if current < min_v:
-        msg = f"requires QwenPaw >={min_v}, current is {current}"
+    if current < min_v or (max_v is not None and current >= max_v):
+        upper = f", <{max_v}" if max_v is not None else ""
+        msg = f"requires QwenPaw >={min_v}{upper}, current is {current}"
         return False, msg
-    _ = max_v  # retained for restoring the upper-bound check above
     return True, ""
