@@ -30,7 +30,10 @@ from .settings import is_plugin_enabled
 
 logger = logging.getLogger(__name__)
 PLUGIN_ID = "local-whisper"
-SOURCE = Path(__file__).parent / "optional" / "local_whisper"
+_PLUGIN_DIR = Path(__file__).resolve().parent
+SOURCE = _PLUGIN_DIR / "bundled" / "transcription" / PLUGIN_ID
+if not SOURCE.is_dir() and _PLUGIN_DIR.parents[1].name == "src":
+    SOURCE = _PLUGIN_DIR.parents[2] / "plugins" / "transcription" / PLUGIN_ID
 _service = None
 
 

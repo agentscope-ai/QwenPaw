@@ -15,7 +15,7 @@ def verify(bundle: Path) -> dict:
     from PyInstaller.archive.readers import CArchiveReader
 
     internal = bundle / "_internal"
-    optional = internal / "qwenpaw/plugins/optional/local_whisper"
+    optional = internal / "qwenpaw/plugins/bundled/transcription/local-whisper"
     for name in ("plugin.py", "plugin.json"):
         if not (optional / name).is_file():
             raise ValueError(f"Missing optional Whisper adapter: {name}")

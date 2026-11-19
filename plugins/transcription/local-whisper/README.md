@@ -18,6 +18,8 @@ flowchart TD
 
 ## 安装与升级
 
+插件源码位于仓库的 `plugins/transcription/local-whisper/`。Python 发行包、Docker 镜像和桌面端使用随包提供的插件文件作为安装来源。
+
 - 新安装、未启用和远程用户：不下载、不导入 Whisper/PyTorch。状态查询仅检查包元数据和 ffmpeg 路径。
 - 旧配置选中 `local_whisper`：后台执行一次迁移。已有依赖直接复用，否则受管理地补装；
   配置及现有模型缓存不变，迁移期间其他功能继续启动。失败保留配置并提供原因和重试。

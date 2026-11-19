@@ -90,7 +90,10 @@ datas = [
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Ship the SDK adapter as source data, without analysing its optional imports.
-datas += collect_tree(SRC / "plugins/optional", "qwenpaw/plugins/optional")
+datas += collect_tree(
+    REPO_ROOT / "plugins/transcription/local-whisper",
+    "qwenpaw/plugins/bundled/transcription/local-whisper",
+)
 datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),

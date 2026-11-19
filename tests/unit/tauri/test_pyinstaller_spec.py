@@ -12,6 +12,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SPEC_PATH = REPO_ROOT / "scripts" / "pack-tauri" / "qwenpaw.spec"
+WHISPER_SOURCE = Path("plugins/transcription/local-whisper")
+WHISPER_BUNDLE = Path("qwenpaw/plugins/bundled/transcription/local-whisper")
 
 
 def _collected_submodule_packages() -> set[str]:
@@ -208,8 +210,8 @@ def test_optional_audio_verifier_accepts_shipped_plugin(tmp_path, monkeypatch):
     """Validate the real adapter files without building desktop executables."""
     bundle = tmp_path / "bundle"
     shutil.copytree(
-        REPO_ROOT / "src/qwenpaw/plugins/optional/local_whisper",
-        bundle / "_internal/qwenpaw/plugins/optional/local_whisper",
+        REPO_ROOT / WHISPER_SOURCE,
+        bundle / "_internal" / WHISPER_BUNDLE,
         ignore=shutil.ignore_patterns("__pycache__"),
     )
     archive = SimpleNamespace(
@@ -288,6 +290,14 @@ def test_desktop_spec_reaches_analysis_without_vendor_sdks(
             },
         )
 
+    staged_files = {
+        (Path(source), Path(destination))
+        for source, destination in collected_data
+    }
+    assert {
+        (staged_root / WHISPER_SOURCE / name, WHISPER_BUNDLE)
+        for name in ("plugin.py", "plugin.json")
+    } <= staged_files
     metadata_names = {
         destination.partition("-")[0].replace("_", "-")
         for _source, destination in collected_data
