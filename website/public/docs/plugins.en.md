@@ -101,7 +101,7 @@ Every `DriverCapabilitySpec.input_schema` must declare `type: "object"` and an
 object-valued `properties` at the top level. A tool with no parameters uses:
 
 ```json
-{"type": "object", "properties": {}}
+{ "type": "object", "properties": {} }
 ```
 
 An empty `properties` object declares no named parameters. Set
@@ -117,8 +117,8 @@ below. This complete example uses a local fake protocol and only public SDK impo
   "id": "echo-driver",
   "name": "Echo Driver",
   "version": "1.0.0",
-  "entry": {"backend": "main.py"},
-  "sdk": {"version": "1.2.0", "capabilities": ["drivers"]}
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
 }
 ```
 

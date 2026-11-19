@@ -91,7 +91,7 @@ SDK `1.2.0` 新增 `drivers` capability 和 `DriverProtocolSpec`，继续兼容 
 `properties`。无参数工具的标准写法是：
 
 ```json
-{"type": "object", "properties": {}}
+{ "type": "object", "properties": {} }
 ```
 
 空的 `properties` 表示没有声明具名参数。如果工具需要拒绝额外参数，请设置
@@ -106,8 +106,8 @@ SDK `1.2.0` 新增 `drivers` capability 和 `DriverProtocolSpec`，继续兼容 
   "id": "echo-driver",
   "name": "Echo Driver",
   "version": "1.0.0",
-  "entry": {"backend": "main.py"},
-  "sdk": {"version": "1.2.0", "capabilities": ["drivers"]}
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
 }
 ```
 
@@ -197,7 +197,6 @@ allow/deny/ask 策略与工具白名单，空 `tools` 列表表示全部禁止�
 
 官方 `qwenpaw-mcp` 插件也通过这一契约注册 `mcp` 协议，管理页面保留在 `/mcp`。
 连接方式和配置示例见 [MCP 指南](./mcp.zh.md)。
-
 
 ## 异步存储与资源归属
 
