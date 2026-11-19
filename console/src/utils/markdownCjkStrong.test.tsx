@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "@testing-library/react";
 import { XMarkdown } from "@ant-design/x-markdown";
 import { Markdown as SdkMarkdown } from "@agentscope-ai/chat";
+import { Lexer, Marked } from "marked";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatMarkdown } from "../components/ChatMarkdown/ChatMarkdown";
@@ -120,6 +121,20 @@ describe("CJK double emphasis through XMarkdown", () => {
     }
   });
 
+  it.each([
+    "***甲。**乙",
+    "___甲。__乙",
+    "** 甲。**乙",
+    "__\u00a0甲。__乙",
+    "**甲 *乙。**丙",
+    "**甲 _乙_。**丙",
+  ])("keeps stock output for malformed or nested runs: %s", (content) => {
+    const stock = render(<XMarkdown content={content} />);
+    expect(renderMarkdown(content).container.innerHTML).toBe(
+      stock.container.innerHTML,
+    );
+  });
+
   it("leaves code, links, images and tables untouched", () => {
     const fence = renderMarkdown("```\n**甲。**乙\n```");
     expect(strongTexts(fence.container)).toEqual([]);
@@ -186,8 +201,7 @@ describe("CJK double emphasis through XMarkdown", () => {
     ).toEqual(["标准", "甲。"]);
   });
 
-  it("does not amplify ordinary emphasis that stock already parses", async () => {
-    const { Marked } = await import("marked");
+  it("does not amplify ordinary emphasis that stock already parses", () => {
     const stock = new Marked({ gfm: true });
     const patched = new Marked({ gfm: true });
     patched.use(cjkStrongExtension());
@@ -205,42 +219,138 @@ describe("CJK double emphasis through XMarkdown", () => {
     );
   });
 
-  it("reports the recovery cost against stock marked", async () => {
-    const { Marked } = await import("marked");
-    const build = (repeats: number) => {
-      const stock = new Marked({ gfm: true });
-      const patched = new Marked({ gfm: true });
-      patched.use(cjkStrongExtension());
-      return { stock, patched, source: "**甲。**乙".repeat(repeats) };
-    };
-    const time = (parse: () => void) => {
-      parse();
-      const t0 = performance.now();
-      parse();
-      return performance.now() - t0;
-    };
+  const denseCases = [
+    ["**甲。**乙", Lexer.rules.inline.gfm.emStrongRDelimAst],
+    ["**甲。**𠀀", Lexer.rules.inline.gfm.emStrongRDelimAst],
+    ["__甲。__乙 ", Lexer.rules.inline.gfm.emStrongRDelimUnd],
+  ] as const;
 
-    // Stock rejects every span here, so this input measures the recovery path
-    // itself: one stock decision per recovered span. The numbers are reported
-    // rather than asserted, because stock's own scan already dominates and a
-    // fixed ratio would encode this machine's speed.
-    const rows: string[] = [];
-    for (const repeats of [200, 500, 1000]) {
-      const run = build(repeats);
-      const stockMs = time(() => run.stock.parse(run.source));
-      const patchedMs = time(() => run.patched.parse(run.source));
-      rows.push(
-        `${run.source.length}B stock=${stockMs.toFixed(
-          1,
-        )}ms extension=${patchedMs.toFixed(1)}ms`,
-      );
-    }
-    console.log(`recovery cost: ${rows.join(" | ")}`);
-    expect(rows.length).toBe(3);
+  it.each(denseCases)(
+    "indexes dense %s recovery once without native suffix rescans",
+    (span, nativeRule) => {
+      const patched = new Marked({ gfm: true }).use(cjkStrongExtension());
+      for (const repeats of [500, 1000, 2000]) {
+        const nativeScan = vi.spyOn(nativeRule, "exec");
+        const indexScan = vi.spyOn(String.prototype, "matchAll");
+        try {
+          const result = patched.parse(span.repeat(repeats)) as string;
+          const nativeSteps = nativeScan.mock.calls.length;
+          const indexPasses = indexScan.mock.calls.filter(
+            ([rule]) =>
+              rule instanceof RegExp && rule.source === nativeRule.source,
+          ).length;
+
+          expect(result.match(/<strong>甲。<\/strong>/g) ?? []).toHaveLength(
+            repeats,
+          );
+          expect(indexPasses).toBe(1);
+          expect(nativeSteps).toBe(0);
+        } finally {
+          nativeScan.mockRestore();
+          indexScan.mockRestore();
+        }
+      }
+    },
+  );
+});
+
+describe("historical CJK boundaries through ChatMarkdown", () => {
+  it.each([
+    ["**内容。**𠀀", "内容。", "𠀀"],
+    ["__内容。__𠀀", "内容。", "𠀀"],
+    ["**内容。］**後", "内容。］", "後"],
+    ["__内容！］__𠀀", "内容！］", "𠀀"],
+  ])("recovers %s without moving any text", (content, strong, follower) => {
+    const { container } = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(container)).toEqual([strong]);
+    expect(container.querySelector("p")?.textContent).toBe(strong + follower);
+  });
+
+  it.each([
+    "**内容］**後",
+    "__内容.］__後",
+    "**内容。**𐐀",
+    "**内容。**😀",
+    "**内容。**latin",
+  ])("keeps stock rendering outside the historical cases: %s", (content) => {
+    const sdk = render(<SdkMarkdown content={content} />).container;
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(app.innerHTML).toBe(sdk.innerHTML);
   });
 });
 
-describe("formula protection through ChatMarkdown", () => {
+describe("protected inline boundaries through ChatMarkdown", () => {
+  it("does not close inside a double-backtick code span", () => {
+    const content = "**前 ``代码。**乙`` 后";
+    const sdk = render(<SdkMarkdown content={content} />).container;
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(sdk.querySelector("code")?.textContent).toBe("代码。**乙");
+    expect(app.innerHTML).toBe(sdk.innerHTML);
+  });
+
+  it.each([
+    [
+      "a link",
+      "a",
+      '[标签 [字。**乙]](https://example.test "标题")',
+      { href: "https://example.test", title: "标题" },
+    ],
+    [
+      "an image",
+      "img",
+      '![图 [字。**乙]](https://example.test/a.png "标题")',
+      {
+        src: "https://example.test/a.png",
+        alt: "图 [字。**乙]",
+      },
+    ],
+  ] as const)(
+    "preserves %s with nested brackets",
+    (_name, selector, inline, attributes) => {
+      const content = `**前 ${inline} 后`;
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      for (const [name, value] of Object.entries(attributes)) {
+        expect(sdk.querySelector(selector)?.getAttribute(name)).toBe(value);
+      }
+      expect(app.innerHTML).toBe(sdk.innerHTML);
+    },
+  );
+
+  it("does not close inside inline HTML", () => {
+    const content = "**前 <kbd>代码。**乙</kbd> 后";
+    const sdk = render(<SdkMarkdown content={content} />).container;
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(app.innerHTML).toBe(sdk.innerHTML);
+  });
+
+  it("does not truncate an automatically linked URL", () => {
+    const content = "**前 https://example.test/甲。**乙 后";
+    const sdk = render(<SdkMarkdown content={content} />).container;
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(sdk.querySelector("a")?.textContent).toBe(
+      "https://example.test/甲。**乙",
+    );
+    expect(app.innerHTML).toBe(sdk.innerHTML);
+  });
+
+  it("does not close inside a strikethrough span", () => {
+    const content = "**前 ~~文字。**乙~~ 后";
+    const sdk = render(<SdkMarkdown content={content} />).container;
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(sdk.querySelector("del")?.textContent).toBe("文字。**乙");
+    expect(app.innerHTML).toBe(sdk.innerHTML);
+  });
+
+  it("still recovers prose next to protected inline nodes", () => {
+    const content =
+      '``代码。**乙`` [链接](https://example.test "标题") **甲。**乙';
+    const app = render(<ChatMarkdown content={content} />).container;
+    expect(app.querySelector("code")?.textContent).toBe("代码。**乙");
+    expect(app.querySelector("a")?.getAttribute("title")).toBe("标题");
+    expect(strongTexts(app)).toEqual(["甲。"]);
+  });
+
   it("keeps one formula node and its payload intact", () => {
     const content = "**前 $\\text{**公式。**后}$ 后。**续";
     const { container } = render(<ChatMarkdown content={content} />);
@@ -266,6 +376,8 @@ describe("formula protection through ChatMarkdown", () => {
     ["$$…$$", "**甲 $$公式。**乙$$ 后"],
     ["\\(…\\)", "**甲 \\(公式。**乙\\) 后"],
     ["\\[…\\]", "**甲 \\[公式。**乙\\] 后"],
+    ["inline code + $…$", "**甲 `\\(` $\\verb|\\)|公式。**乙$ 后"],
+    ["inline code + \\[…\\]", "**甲 `\\(` \\[\\verb|\\)|公式。**乙\\] 后"],
   ];
 
   it.each(formulaForms)(
@@ -274,19 +386,26 @@ describe("formula protection through ChatMarkdown", () => {
       const sdk = render(<SdkMarkdown content={content} />);
       const app = render(<ChatMarkdown content={content} />);
       expect(sdk.container.querySelectorAll(".katex").length).toBe(1);
-      expect(app.container.querySelectorAll(".katex").length).toBe(1);
-      const payload = (el: HTMLElement) =>
-        el.querySelector(".katex")?.textContent ?? "";
-      expect(payload(app.container)).toBe(payload(sdk.container));
+      expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
     },
   );
 
-  it("keeps stock parsing when stock already produces emphasis", () => {
-    const content = "**甲。**乙**丙**";
+  it.each(["**甲。**乙**丙**", "**甲。**𠀀**丙**"])(
+    "keeps stock parsing when stock already produces emphasis: %s",
+    (content) => {
+      const sdk = render(<SdkMarkdown content={content} />);
+      const app = render(<ChatMarkdown content={content} />);
+      // Stock nests the spans; recovery must not flatten them into siblings.
+      expect(sdk.container.querySelectorAll("strong strong")).toHaveLength(1);
+      expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
+    },
+  );
+
+  it("does not miss a stock closer beyond the recovery scan window", () => {
+    const content = `**甲。**乙**${"丙".repeat(5000)}**`;
     const sdk = render(<SdkMarkdown content={content} />);
     const app = render(<ChatMarkdown content={content} />);
-    // Stock nests the spans; recovery must not flatten them into siblings.
-    expect(sdk.container.querySelectorAll("strong").length).toBe(2);
+    expect(sdk.container.querySelectorAll("strong strong")).toHaveLength(1);
     expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
   });
 });
