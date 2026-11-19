@@ -28,6 +28,7 @@ from .credentials.types import CredentialRecord
 from .errors import (
     DriverNotFoundError,
     UnsupportedProtocolError,
+    driver_error_diagnostic,
 )
 from .handler import DriverHandler
 from .contracts import (
@@ -122,6 +123,7 @@ class DriverManager:  # pylint: disable=too-many-public-methods
                 revision = self._reserve(card.name, card)
                 reservations[card.name] = revision
             if not card.enabled:
+                logger.debug("Driver %r is disabled; skipping", card.name)
                 return
             handler = await self._build_and_init_handler(
                 card,
@@ -133,9 +135,13 @@ class DriverManager:  # pylint: disable=too-many-public-methods
             paths = await self._card_store.list_paths()
             tasks = [asyncio.create_task(build(path)) for path in paths]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
+            for path, result in zip(paths, results, strict=True):
                 if isinstance(result, BaseException):
-                    logger.warning("Failed to build Driver: %s", result)
+                    logger.warning(
+                        "Failed to build Driver from %r: %s",
+                        str(path),
+                        driver_error_diagnostic(result),
+                    )
             if self._failed_cleanup:
                 raise RuntimeError("Driver cleanup has not stopped")
             async with self._lock:
@@ -880,13 +886,14 @@ class DriverManager:  # pylint: disable=too-many-public-methods
         return self._card_store
 
     async def _shutdown_handlers(self, handlers) -> None:
+        handlers = tuple(set(handlers))
         results = await asyncio.gather(
-            *(self._shutdown_handler(handler) for handler in set(handlers)),
+            *(self._shutdown_handler(handler) for handler in handlers),
             return_exceptions=True,
         )
         errors = [
-            str(result)
-            for result in results
+            f"{handler.name!r}: {driver_error_diagnostic(result)}"
+            for handler, result in zip(handlers, results, strict=True)
             if isinstance(result, BaseException)
         ]
         if errors:
@@ -917,7 +924,9 @@ class DriverManager:  # pylint: disable=too-many-public-methods
     def _finish_handler_cleanup(self, task, ids):
         self._cleanup_tasks.discard(task)
         self._cleanup_handler_ids.difference_update(ids)
-        if not task.cancelled() and task.exception() is not None:
+        if task.cancelled():
+            logger.warning("Managed Driver cleanup was cancelled")
+        elif task.exception() is not None:
             logger.error("Managed Driver cleanup failed: %s", task.exception())
 
     async def _wait_for_handler_cleanups(self):
@@ -942,8 +951,27 @@ class DriverManager:  # pylint: disable=too-many-public-methods
                         handler.shutdown(),
                         timeout=_SHUTDOWN_TIMEOUT_SECONDS,
                     )
-                except BaseException:
+                except BaseException as exc:
                     self._failed_cleanup.add(handler)
+                    if isinstance(exc, TimeoutError):
+                        logger.warning(
+                            "Timed out shutting down Driver %r "
+                            "(limit %gs): %s",
+                            handler.name,
+                            _SHUTDOWN_TIMEOUT_SECONDS,
+                            driver_error_diagnostic(exc),
+                        )
+                    elif isinstance(exc, asyncio.CancelledError):
+                        logger.debug(
+                            "Driver %r shutdown was cancelled",
+                            handler.name,
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to shut down Driver %r: %s",
+                            handler.name,
+                            driver_error_diagnostic(exc),
+                        )
                     raise
                 else:
                     self._owned.discard(handler)

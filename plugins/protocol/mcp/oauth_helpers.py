@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import logging
 import secrets
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from .diagnostics import error_summary
 
 
 class OAuthError(ValueError):
@@ -42,6 +41,7 @@ def _code_challenge(verifier: str) -> str:
 async def _fetch_json(
     client: httpx.AsyncClient,
     url: str,
+    logger,
 ) -> Optional[dict]:
     """Fetch JSON from url; return None on any error."""
     try:
@@ -49,13 +49,14 @@ async def _fetch_json(
         if resp.status_code == 200:
             return resp.json()
     except Exception as exc:
-        logger.debug(f"OAuth metadata fetch failed for {url}: {exc}")
+        logger.debug("OAuth metadata fetch failed: %s", error_summary(exc))
     return None
 
 
 async def _probe_resource_metadata_url(
     client: httpx.AsyncClient,
     mcp_url: str,
+    logger,
 ) -> Optional[str]:
     """Return resource_metadata URL from 401 WWW-Authenticate header."""
     try:
@@ -67,19 +68,20 @@ async def _probe_resource_metadata_url(
             if "resource_metadata=" in part.lower():
                 return part.split("=", 1)[1].strip().strip('"')
     except Exception as exc:
-        logger.debug(f"MCP probe failed for {mcp_url}: {exc}")
+        logger.debug("MCP probe failed: %s", error_summary(exc))
     return None
 
 
 async def _resolve_auth_server_url(
     client: httpx.AsyncClient,
     mcp_url: str,
+    logger,
 ) -> Optional[str]:
     """Return the authorization-server URL from PRM discovery."""
     # Try 401 header first
-    rm_url = await _probe_resource_metadata_url(client, mcp_url)
+    rm_url = await _probe_resource_metadata_url(client, mcp_url, logger)
     if rm_url:
-        prm = await _fetch_json(client, rm_url)
+        prm = await _fetch_json(client, rm_url, logger)
         if prm and prm.get("authorization_servers"):
             return prm["authorization_servers"][0]
 
@@ -98,7 +100,7 @@ async def _resolve_auth_server_url(
     for url in candidates:
         if not url:
             continue
-        prm = await _fetch_json(client, url)
+        prm = await _fetch_json(client, url, logger)
         if prm and prm.get("authorization_servers"):
             return prm["authorization_servers"][0]
     return None
@@ -107,6 +109,7 @@ async def _resolve_auth_server_url(
 async def _fetch_as_metadata(
     client: httpx.AsyncClient,
     auth_server_url: str,
+    logger,
 ) -> Optional[dict]:
     """Fetch authorization-server metadata via RFC 8414 / OIDC discovery."""
     parsed_as = urlparse(auth_server_url.rstrip("/"))
@@ -124,7 +127,7 @@ async def _fetch_as_metadata(
             f"{as_root}/.well-known/openid-configuration",
         ]
     for url in candidates:
-        meta = await _fetch_json(client, url)
+        meta = await _fetch_json(client, url, logger)
         if meta and "authorization_endpoint" in meta:
             return meta
     return None
@@ -132,6 +135,7 @@ async def _fetch_as_metadata(
 
 async def _discover_oauth_metadata(
     mcp_url: str,
+    logger,
 ) -> Tuple[str, str, Optional[str]]:
     """Discover OAuth endpoints via RFC 9728 + RFC 8414 / OIDC discovery.
 
@@ -145,7 +149,11 @@ async def _discover_oauth_metadata(
         OAuthError(400) on discovery failure.
     """
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        auth_server_url = await _resolve_auth_server_url(client, mcp_url)
+        auth_server_url = await _resolve_auth_server_url(
+            client,
+            mcp_url,
+            logger,
+        )
         if not auth_server_url:
             raise OAuthError(
                 status_code=400,
@@ -157,7 +165,7 @@ async def _discover_oauth_metadata(
                 ),
             )
 
-        as_meta = await _fetch_as_metadata(client, auth_server_url)
+        as_meta = await _fetch_as_metadata(client, auth_server_url, logger)
         if not as_meta or "authorization_endpoint" not in as_meta:
             raise OAuthError(
                 status_code=400,
@@ -188,6 +196,7 @@ async def _discover_oauth_metadata(
 async def _dynamic_register(
     registration_endpoint: str,
     redirect_uri: str,
+    logger,
 ) -> Optional[str]:
     """Attempt Dynamic Client Registration (RFC 7591); return client_id."""
     payload = {
@@ -207,5 +216,8 @@ async def _dynamic_register(
             if resp.status_code in (200, 201):
                 return resp.json().get("client_id")
     except Exception as exc:
-        logger.debug(f"Dynamic client registration failed: {exc}")
+        logger.debug(
+            "Dynamic client registration failed: %s",
+            error_summary(exc),
+        )
     return None

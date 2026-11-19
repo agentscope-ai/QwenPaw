@@ -40,6 +40,7 @@ from ..drivers.errors import (
     ApprovalRequiredError,
     DriverCardError,
     DriverPermissionDeniedError,
+    driver_error_diagnostic,
 )
 
 from ..utils.io_utils import run_sync_io
@@ -116,8 +117,10 @@ def _project_capabilities(specs, protocol, driver_name, display, whitelist):
 
 def _credential_error(alias, operation, error):
     logger.warning(
-        f"Could not {operation} Driver credential alias '{alias}' "
-        f"({type(error).__name__})",
+        "Could not %s Driver credential alias %r: %s",
+        operation,
+        alias,
+        driver_error_diagnostic(error),
     )
     return SDKError(f"Could not {operation} credential alias '{alias}'")
 
@@ -598,7 +601,23 @@ class SDKDriverHandler(DriverHandler):
 
     def sync_runtime_metadata(self, card):
         self.metadata_revision += 1
+        previous_type = type(self.card.config.get("tools"))
         super().sync_runtime_metadata(card)
+        if type(self.card.config.get("tools")) is not previous_type:
+            self._warn_mcp_tool_whitelist()
+
+    def _warn_mcp_tool_whitelist(self):
+        if self.card.protocol != "mcp":
+            return
+        tools = self.card.config.get("tools")
+        if tools is not None and not isinstance(tools, list):
+            logger.warning(
+                "MCP source %r in workspace %r config.tools is %s; "
+                "treating as open",
+                self.name,
+                self.workspace.agent_id,
+                type(tools).__name__,
+            )
 
     def set_policy(self, policy):
         self.metadata_revision += 1
@@ -618,6 +637,7 @@ class SDKDriverHandler(DriverHandler):
             )
 
     async def _setup(self):
+        self._warn_mcp_tool_whitelist()
         self._opening = True
         try:
             self._guard_workspace()
@@ -771,6 +791,7 @@ class SDKDriverHandler(DriverHandler):
         name, error = self._invocation_target(invocation)
         if error is not None:
             return error
+        stage = "admission"
         try:
             with self.admission():
                 await self.check()
@@ -788,6 +809,7 @@ class SDKDriverHandler(DriverHandler):
                         metadata={"driver_name": self.name, "tool_name": name},
                     )
                 revision = self.metadata_revision
+                stage = "argument preparation"
                 arguments, approval_arguments = await run_sync_io(
                     _argument_snapshot,
                     invocation.payload,
@@ -812,6 +834,7 @@ class SDKDriverHandler(DriverHandler):
                             ),
                         )
                 subjects = subjects or ["user:unknown"]
+                stage = "authorization"
                 await self._authorize_invocation(
                     subjects[0],
                     request_context=values,
@@ -823,6 +846,7 @@ class SDKDriverHandler(DriverHandler):
                     },
                 )
                 await self.check()
+                stage = "tool discovery"
                 capabilities = await self.list_capabilities(values)
                 capability = next(
                     (item for item in capabilities if item.name == name),
@@ -830,6 +854,7 @@ class SDKDriverHandler(DriverHandler):
                 )
                 if capability is None or not capability.enabled:
                     raise SDKError("Driver capability is missing or disabled")
+                stage = "argument validation"
                 await run_sync_io(
                     _validate_arguments,
                     capability.input_schema,
@@ -840,11 +865,13 @@ class SDKDriverHandler(DriverHandler):
                     raise StaleContextError(
                         "Driver policy changed during authorization",
                     )
+                stage = "execution"
                 result = await self.connection.invoke(
                     name,
                     arguments,
                     self.request(values),
                 )
+                stage = "result verification"
                 await self.check()
                 if revision != self.metadata_revision:
                     raise StaleContextError(
@@ -869,6 +896,16 @@ class SDKDriverHandler(DriverHandler):
                 message=str(exc),
             )
         except Exception as exc:
+            logger.warning(
+                "Driver %r source %r in workspace %r tool %r failed "
+                "during %s: %s",
+                self.card.protocol,
+                self.name,
+                self.workspace.agent_id,
+                name,
+                stage,
+                driver_error_diagnostic(exc),
+            )
             return DriverInvocationResult(
                 ok=False,
                 error_type="execution_error",

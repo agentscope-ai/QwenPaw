@@ -16,7 +16,11 @@ from ..drivers.capabilities import (
 )
 from ..drivers.contracts import coerce_card, validate_card
 from ..drivers.credentials.store import AsyncCredentialStore
-from ..drivers.errors import DriverNotFoundError, UnsupportedProtocolError
+from ..drivers.errors import (
+    DriverNotFoundError,
+    UnsupportedProtocolError,
+    driver_error_diagnostic,
+)
 from ..drivers.manager import DriverManager
 from ..drivers.storage import AsyncDriverCardStore
 from ..plugins._drivers import (
@@ -253,12 +257,15 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         )
 
         if snapshot.legacy_backup is not None:
+            from .mcp_plugin_upgrade import log_legacy_archive
+
             await run_sync_io(
                 archive_config_input,
                 self._workspace.workspace_dir / "agent.json",
                 snapshot.legacy_backup,
                 "legacy-mcp",
             )
+            log_legacy_archive(self._workspace.agent_id, snapshot.legacy_skips)
         await migrate_legacy_mcp_if_needed(
             self._workspace,
             self,
@@ -309,11 +316,12 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         for path in paths:
             try:
                 card = await self.card_store.load_path(path)
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Could not load DriverCard %s",
-                    path,
-                    exc_info=True,
+                    "Could not load DriverCard %r in workspace %r: %s",
+                    str(path),
+                    self._workspace.agent_id,
+                    driver_error_diagnostic(exc),
                 )
                 continue
             if card.protocol == protocol and self._configured(card):
@@ -358,6 +366,13 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             if protocol in self._monitoring
             else []
         )
+        for card in cards:
+            if not card.enabled:
+                logger.debug(
+                    "Driver %r in workspace %r is disabled; skipping",
+                    card.name,
+                    self._workspace.agent_id,
+                )
         cards = [card for card in cards if card.enabled]
 
         async def start_source(card):
@@ -371,11 +386,12 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                     await manager.refresh_driver(card.name)
                 else:
                     await self._refresh(card, ensure=False)
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Could not start Driver %s",
+                    "Could not start Driver %r in workspace %r: %s",
                     card.name,
-                    exc_info=True,
+                    self._workspace.agent_id,
+                    driver_error_diagnostic(exc),
                 )
 
         if protocol == "mcp" and allow_parallel and len(cards) > 1:
@@ -530,6 +546,10 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                     self.credential_store,
                     approval_gate=QwenPawDriverApprovalGate(),
                     card_store=self.card_store,
+                )
+                logger.debug(
+                    "DriverManager initialized for workspace %r",
+                    self._workspace.agent_id,
                 )
             attach_driver_protocols(
                 self._manager,

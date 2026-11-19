@@ -11,6 +11,7 @@ from qwenpaw.plugins.drivers import DriverCapabilitySpec
 
 from .bindings import implicit_auth_headers, resolve_binding
 from .credentials import CredentialResolver
+from .diagnostics import MCPLogger
 from .mcp_stateful_client import (
     HttpStatefulClient,
     StdIOStatefulClient,
@@ -52,8 +53,9 @@ def _build_capabilities(tools, source_id):
 class _CredentialAuth(httpx.Auth):
     """Refresh declared credentials on requests without replacing sessions."""
 
-    def __init__(self, context, resolver, binding, headers):
+    def __init__(self, context, resolver, binding, headers, logger):
         self.context, self.resolver, self.binding = context, resolver, binding
+        self._logger = logger
         self._header_names = set(headers)
         self._snapshot = dict(headers)
         self._confirmed = False
@@ -96,7 +98,11 @@ class _CredentialAuth(httpx.Auth):
             }
         else:
             credentials = await self.resolver.resolve(self.context)
-            headers = resolve_binding(self.binding, credentials)
+            headers = resolve_binding(
+                self.binding,
+                credentials,
+                logger=self._logger,
+            )
             headers.update(implicit_auth_headers(credentials, headers))
             names = self._header_names
             if not self._confirmed:
@@ -138,6 +144,7 @@ def validate(source):
 class MCPConnection:
     def __init__(self, context, source, credentials=None):
         self.context, self.source = context, source
+        self._logger = MCPLogger(context)
         self.credentials = credentials or CredentialResolver()
         self._client = None
         self._capability_cache = None
@@ -159,14 +166,20 @@ class MCPConnection:
                 args=list(endpoint.get("args") or ()),
                 env={
                     **environment,
-                    **resolve_binding(endpoint.get("env") or {}, credentials),
+                    **resolve_binding(
+                        endpoint.get("env") or {},
+                        credentials,
+                        logger=self._logger,
+                    ),
                 },
                 cwd=endpoint.get("cwd") or None,
+                logger=self._logger,
             )
         else:
             headers = resolve_binding(
                 endpoint.get("headers") or {},
                 credentials,
+                logger=self._logger,
             )
             headers.update(implicit_auth_headers(credentials, headers))
             if endpoint.get("http_timeout") is not None:
@@ -181,11 +194,13 @@ class MCPConnection:
                 transport=transport,
                 url=str(endpoint.get("url") or ""),
                 headers=headers or None,
+                logger=self._logger,
                 auth=_CredentialAuth(
                     self.context,
                     self.credentials,
                     endpoint.get("headers") or {},
                     headers,
+                    self._logger,
                 ),
                 **connect_kwargs,
             )
@@ -215,7 +230,7 @@ class MCPConnection:
                 ),
             )
             # Retain refresh ownership until the pure worker actually finishes.
-            cancelled = await _wait_task_uncancelled(worker, "")
+            cancelled = await _wait_task_uncancelled(worker)
             _restore_cancel(asyncio.current_task(), cancelled)
             if cancelled:
                 _discard_task_result(worker)

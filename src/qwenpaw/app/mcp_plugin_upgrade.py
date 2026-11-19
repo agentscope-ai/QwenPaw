@@ -16,6 +16,7 @@ from ..plugins.install_receipts import (
     write_install_commit,
 )
 from ..plugins.safe_fs import same_location
+from ..drivers.errors import driver_error_diagnostic
 from .mcp_plugin_migration import (
     MCPPluginUpgradeResult,
     MCPUsageSnapshot,
@@ -35,6 +36,7 @@ from .mcp_plugin_state import (
 
 PLUGIN_ID = "qwenpaw-mcp"
 ORIGIN = ".plugin-install-origin.json"
+_OFFLINE_FAILURE = "offline_upgrade_failed_check_dependencies_and_storage"
 logger = logging.getLogger(__name__)
 
 
@@ -72,32 +74,49 @@ def normalize_legacy_mcp(raw, *, root=False):
     from ..exceptions import ConfigurationException
 
     if raw is None and not root:
-        return None, False
+        return None, ()
     if not isinstance(raw, dict) or not isinstance(
         raw.get("clients", {}),
         dict,
     ):
-        return MCPConfig(clients={}), True
+        return MCPConfig(clients={}), (("mcp", "invalid section"),)
     try:
         mcp = MCPConfig.model_validate({**raw, "clients": {}})
     except ValidationError:
-        return MCPConfig(clients={}), True
+        return MCPConfig(clients={}), (("mcp", "invalid settings"),)
     if not 0 <= mcp.migration_version <= CURRENT_MCP_MIGRATION_VERSION:
-        return MCPConfig(clients={}), True
+        return MCPConfig(clients={}), (("mcp", "invalid migration version"),)
     if mcp.migration_version:
         # Consumed source definitions can remain on disk for downgrade.
-        return mcp, False
+        return mcp, ()
 
-    clients = raw.get("clients", {})
-    for name, value in clients.items():
+    skipped = []
+    for index, (name, value) in enumerate(raw.get("clients", {}).items(), 1):
         try:
             validate_card_name(name)
+        except DriverCardError:
+            skipped.append((f"entry #{index}", "invalid source name"))
+            continue
+        try:
             model = MCPClientConfig.model_validate(value)
         except (DriverCardError, ValidationError, ConfigurationException):
-            continue
-        if not args_may_contain_secret(model.args):
+            skipped.append((name, "invalid client configuration"))
+        else:
+            if args_may_contain_secret(model.args):
+                skipped.append((name, "possible secret in launch arguments"))
+                continue
             mcp.clients[name] = model
-    return mcp, len(mcp.clients) != len(clients)
+    return mcp, tuple(skipped)
+
+
+def log_legacy_archive(scope, skipped):
+    for source, reason in skipped:
+        logger.warning(
+            "Archived legacy MCP configuration in %r; skipped %r (%s)",
+            scope,
+            source,
+            reason,
+        )
 
 
 def _legacy_review_path(config_path):
@@ -144,9 +163,15 @@ def _legacy_review_marker(marker, snapshot):
     return not reviewed
 
 
-def _workspace_snapshot(workspace_id, directory, inherited_mcp=None):
+def _workspace_snapshot(
+    workspace_id,
+    directory,
+    inherited_mcp=None,
+    *,
+    report_card_errors=False,
+):
     from ..config.config import _read_agent_config_snapshot
-    from ..drivers.errors import DriverCardError
+    from ..drivers.errors import DriverCardError, driver_error_diagnostic
     from ..drivers.storage import list_card_paths, load_card
 
     config, original = {}, None
@@ -165,7 +190,7 @@ def _workspace_snapshot(workspace_id, directory, inherited_mcp=None):
         )
 
     mcp, skipped_legacy = normalize_legacy_mcp(config.get("mcp"))
-    skipped = skipped_legacy
+    skipped = bool(skipped_legacy)
     if original is None:
         mcp = inherited_mcp
     cards = []
@@ -176,12 +201,26 @@ def _workspace_snapshot(workspace_id, directory, inherited_mcp=None):
         ):
             try:
                 card = load_card(card_path)
-            except (DriverCardError, ValueError):
+            except (DriverCardError, ValueError) as exc:
+                if report_card_errors:
+                    logger.warning(
+                        "MCP startup scan skipped DriverCard %r "
+                        "in workspace %r: %s",
+                        str(card_path),
+                        workspace_id,
+                        driver_error_diagnostic(exc),
+                    )
                 skipped = True
                 continue
             if card.protocol == "mcp":
                 cards.append(card)
-    except (OSError, DriverCardError):
+    except (OSError, DriverCardError) as exc:
+        if report_card_errors:
+            logger.warning(
+                "Could not list DriverCards for MCP startup in workspace %r: %s",
+                workspace_id,
+                driver_error_diagnostic(exc),
+            )
         skipped = True
     return MCPWorkspaceSnapshot(
         workspace_id,
@@ -194,6 +233,7 @@ def _workspace_snapshot(workspace_id, directory, inherited_mcp=None):
         legacy_mcp=mcp,
         skipped_sources=skipped,
         legacy_backup=original if skipped_legacy else None,
+        legacy_skips=skipped_legacy,
     )
 
 
@@ -250,6 +290,7 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
                 workspace_id,
                 Path(agent.workspace_dir).expanduser(),
                 inherited_mcp,
+                report_card_errors=True,
             ),
         )
     settings = _root_plugins(root).get(PLUGIN_ID)
@@ -300,9 +341,7 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
         legacy, skipped = normalize_legacy_mcp(root["mcp"], root=True)
         if skipped:
             isolate_legacy_root_mcp(config_path, root, legacy.model_dump())
-            logger.warning(
-                "Some legacy MCP sources were archived during migration",
-            )
+            log_legacy_archive("root config", skipped)
     settings = _root_plugins(root).get(PLUGIN_ID)
     if settings is not None and (
         not isinstance(settings, dict)
@@ -324,7 +363,13 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
     return StartupMigration(str(config_path), marker, snapshot)
 
 
-def _workspace_evidence(workspace_id, directory, config_path=None):
+def _workspace_evidence(
+    workspace_id,
+    directory,
+    config_path=None,
+    *,
+    report_card_errors=False,
+):
     """Use the same MCP inheritance as the host's missing-profile fallback."""
     from ..config.utils import get_config_path
 
@@ -337,7 +382,12 @@ def _workspace_evidence(workspace_id, directory, config_path=None):
         except (OSError, ValueError):
             root = {}
         inherited_mcp, _ = normalize_legacy_mcp(root.get("mcp"))
-    return _workspace_snapshot(workspace_id, directory, inherited_mcp)
+    return _workspace_snapshot(
+        workspace_id,
+        directory,
+        inherited_mcp,
+        report_card_errors=report_card_errors,
+    )
 
 
 async def capture_workspace_usage(workspace_id, directory):
@@ -382,6 +432,7 @@ class MCPPluginCoordinator:
             workspace_id,
             directory,
             self.config_path,
+            report_card_errors=workspace_id not in self.initial_evidence,
         )
         previous = self.initial_evidence.pop(workspace_id, None)
         if (
@@ -665,7 +716,14 @@ class MCPPluginCoordinator:
                 return False
             self.loader.startup_blocked_plugins.add(PLUGIN_ID)
             descriptor = self._explicit_descriptor(record)
-            marker = await run_sync_io(self._publish_explicit_recovery, record)
+            try:
+                marker = await run_sync_io(
+                    self._publish_explicit_recovery,
+                    record,
+                )
+            except Exception as exc:
+                self._failed("publish explicit recovery", exc)
+                raise
             _, off = await run_sync_io(self._current_settings)
             if off:
                 raise RuntimeError("MCP is disabled or uninstalled")
@@ -705,9 +763,11 @@ class MCPPluginCoordinator:
             # and retains cleanup ownership if retirement races this call.
             try:
                 await service.activate_protocol("mcp")
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "MCP is active but workspace service recovery failed",
+                    "MCP service recovery failed in workspace %r: %s",
+                    workspace.agent_id,
+                    driver_error_diagnostic(exc),
                 )
 
     async def prepare_for_use(self, workspace_id=None):
@@ -727,9 +787,10 @@ class MCPPluginCoordinator:
             return False
         try:
             await self.ensure_protocol("mcp")
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "Local MCP preparation failed; use official plugins",
+                "Local MCP preparation failed; use official plugins: %s",
+                driver_error_diagnostic(exc),
             )
             return False
         if workspace_id is not None:
@@ -750,17 +811,20 @@ class MCPPluginCoordinator:
                 return
             try:
                 await self._ensure_protocol_owned()
-            except Exception:
-                self._failed()
+            except Exception as exc:
+                self._failed("prepare runtime", exc)
 
-    def _failed(self):
+    def _failed(self, stage, exc):
+        logger.warning(
+            "MCP setup failed during %s: %s",
+            stage,
+            driver_error_diagnostic(exc),
+        )
         self.loader.startup_blocked_plugins.add(PLUGIN_ID)
         return self._result(
             None,
             status="failed",
-            diagnostics=(
-                "offline_upgrade_failed_check_dependencies_and_storage",
-            ),
+            diagnostics=(_OFFLINE_FAILURE,),
         )
 
     async def _ensure_protocol_owned(self):
@@ -804,8 +868,8 @@ class MCPPluginCoordinator:
         async with self.loader.plugin_lifecycle(PLUGIN_ID):
             try:
                 return await self._ensure_snapshot(snapshot)
-            except Exception:
-                return self._failed()
+            except Exception as exc:
+                return self._failed("prepare startup", exc)
 
     async def _ensure_snapshot(self, snapshot):
         self.config_path = snapshot.config_path or self.config_path
@@ -894,13 +958,17 @@ class MCPPluginCoordinator:
         from ..plugins.settings import persist_plugin_settings
 
         self.loader.startup_blocked_plugins.add(PLUGIN_ID)
-        marker = await run_sync_io(
-            publish_marker,
-            self.marker_path,
-            marker,
-            automatic="attempted",
-            workspaces=dict(decision.workspace_statuses),
-        )
+        try:
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="attempted",
+                workspaces=dict(decision.workspace_statuses),
+            )
+        except Exception as exc:
+            return self._failed("write initial migration marker", exc)
+        stage = "read bundled resource"
         try:
             source = get_optional_mcp_plugin_dir()
             _, manifest = await run_sync_io(
@@ -910,6 +978,7 @@ class MCPPluginCoordinator:
             if manifest.id != PLUGIN_ID:
                 raise ValueError("Invalid optional MCP resource")
             digest = await run_sync_io(_digest, source)
+            stage = "write migration marker"
             marker = await run_sync_io(
                 publish_marker,
                 self.marker_path,
@@ -918,9 +987,11 @@ class MCPPluginCoordinator:
                 digest=digest,
                 stage="preparing",
             )
+            stage = "read plugin settings"
             _, off = await run_sync_io(self._current_settings)
             if off:
                 return self._result(marker, status="skipped")
+            stage = "install bundled files"
             await self.loader.install_plugin_files(
                 source,
                 allow_install=False,
@@ -931,20 +1002,24 @@ class MCPPluginCoordinator:
                     "digest": digest,
                 },
             )
+            stage = "write migration marker"
             marker = await run_sync_io(
                 publish_marker,
                 self.marker_path,
                 marker,
                 stage="files_committed",
             )
+            stage = "read plugin settings"
             row, off = await run_sync_io(self._current_settings)
             if off:
                 return self._result(marker, status="skipped")
+            stage = "load installed plugin"
             await self._load_installed(
                 self.loader.plugin_dirs[0] / PLUGIN_ID,
                 row,
                 activate=False,
             )
+            stage = "persist plugin settings"
             await run_sync_io(
                 persist_plugin_settings,
                 PLUGIN_ID,
@@ -956,7 +1031,9 @@ class MCPPluginCoordinator:
             )
             # Preserve the original order: intent commits before activation.
             self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
+            stage = "activate plugin"
             await self.loader.activate_plugin_unlocked(PLUGIN_ID)
+            stage = "write migration marker"
             marker = await run_sync_io(
                 publish_marker,
                 self.marker_path,
@@ -965,16 +1042,17 @@ class MCPPluginCoordinator:
                 automatic="completed",
             )
             return self._result(marker, status="installed")
-        except Exception:
-            self.loader.startup_blocked_plugins.add(PLUGIN_ID)
-            marker = await run_sync_io(
-                publish_marker,
-                self.marker_path,
-                marker,
-                diagnostics=[
-                    "offline_upgrade_failed_check_dependencies_and_storage",
-                ],
-            )
+        except Exception as exc:
+            self._failed(stage, exc)
+            try:
+                marker = await run_sync_io(
+                    publish_marker,
+                    self.marker_path,
+                    marker,
+                    diagnostics=[_OFFLINE_FAILURE],
+                )
+            except Exception as marker_exc:
+                return self._failed("write failure marker", marker_exc)
             return self._result(marker)
         finally:
             if automatic(marker) != "completed":
@@ -1039,7 +1117,10 @@ async def prepare_startup_plugins(
     if startup is not None:
         coordinator.config_path = startup.config_path
     if startup is not None and startup.snapshot is None:
-        result = await coordinator.restore(startup.marker)
+        try:
+            result = await coordinator.restore(startup.marker)
+        except Exception as exc:
+            result = coordinator._failed("restore migration state", exc)
         current = MCPUsageSnapshot((), config_path=startup.config_path)
     else:
         result = None
@@ -1100,14 +1181,17 @@ async def prepare_startup_plugins(
         and get_coordinator(loader).root_valid
         and PLUGIN_ID not in loader.startup_blocked_plugins
     ):
+        stage = "activate plugin"
         try:
             async with loader.plugin_lifecycle(PLUGIN_ID):
                 await loader.activate_plugin_unlocked(PLUGIN_ID)
+                stage = "read migration marker"
                 marker = await run_sync_io(
                     _read_marker,
                     coordinator.marker_path,
                 )
                 if automatic(marker) == "not_required":
+                    stage = "write migration marker"
                     marker = await run_sync_io(
                         publish_marker,
                         coordinator.marker_path,
@@ -1115,7 +1199,7 @@ async def prepare_startup_plugins(
                         automatic="completed",
                     )
                     coordinator._result(marker)
-        except Exception:
+        except Exception as exc:
             # Optional Mail/ACP must not prevent ordinary agents from starting.
-            loader.startup_blocked_plugins.add(PLUGIN_ID)
+            result = coordinator._failed(stage, exc)
     return result

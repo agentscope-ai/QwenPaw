@@ -31,8 +31,13 @@ const registration = sdk.route.wrap(pluginId, "core.mcp", (Inner) => {
           { signal: controller.signal },
         )
         .then(async (response) => {
-          if (!response.ok)
-            throw new Error(`MCP management (${response.status})`);
+          if (!response.ok) {
+            throw new Error(
+              chinese
+                ? "当前 Agent 暂时无法连接 MCP 管理服务。"
+                : "MCP management is temporarily unavailable for this agent.",
+            );
+          }
           const result = await response.json();
           if (
             result.workspace_id !== agent.id ||
@@ -43,10 +48,13 @@ const registration = sdk.route.wrap(pluginId, "core.mcp", (Inner) => {
           if (!controller.signal.aborted) setAdmitted(agent.id);
         })
         .catch((failure: unknown) => {
-          if (!controller.signal.aborted) setError(String(failure));
+          if (!controller.signal.aborted)
+            setError(
+              failure instanceof Error ? failure.message : String(failure),
+            );
         });
       return () => controller.abort();
-    }, [agent.id, revision]);
+    }, [agent.id, chinese, revision]);
 
     async function remove(uninstall: boolean) {
       const controller = requests.current;

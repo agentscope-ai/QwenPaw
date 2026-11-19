@@ -650,7 +650,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 configs=plugin_configs,
                 activate=False,
             )
-            logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+            logger.debug(
+                f"Loaded {len(loaded_plugins)} plugin(s) with "
+                f"{len(plugin_configs)} configured entries",
+            )
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-import logging
 from typing import Any
 from collections.abc import Mapping
 
@@ -13,12 +12,11 @@ CREDENTIAL_ALIAS_OAUTH = "oauth"
 CREDENTIAL_ALIAS_STATIC = "static"
 
 
-logger = logging.getLogger(__name__)
-
-
 def resolve_binding(
     binding: dict[str, Any],
     credentials: dict[str, Any],
+    *,
+    logger,
 ) -> dict[str, str]:
     """Resolve an env/header binding into runtime string values."""
     if not isinstance(binding, Mapping):

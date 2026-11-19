@@ -23,6 +23,7 @@ class MCPWorkspaceSnapshot:
     legacy_mcp: MCPConfig | None = field(default=None, repr=False)
     skipped_sources: bool = False
     legacy_backup: bytes | None = field(default=None, repr=False)
+    legacy_skips: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "config", deepcopy(self.config))

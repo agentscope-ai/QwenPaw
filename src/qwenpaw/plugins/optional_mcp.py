@@ -2,6 +2,7 @@
 """Passive metadata for the optional MCP resource; never load its code."""
 
 import json
+import logging
 from pathlib import Path
 
 from packaging.version import Version
@@ -13,6 +14,7 @@ from .._version_compat import check_plugin_version_compat
 
 PLUGIN_ID = "qwenpaw-mcp"
 BUNDLED_SOURCE = "bundled:" + PLUGIN_ID
+logger = logging.getLogger(__name__)
 
 
 def get_optional_mcp_plugin_dir():
@@ -43,11 +45,15 @@ def mcp_plugin_versions(installed):
     result = {"version": None, "update": None, "update_diagnostics": []}
     if installed is None:
         return result
+    stage = "read installed manifest"
     try:
         current = read_mcp_manifest(installed)
         result["version"] = current.version
+        stage = "read bundled manifest"
         target = read_mcp_manifest(get_optional_mcp_plugin_dir())
+        stage = "check SDK compatibility"
         validate_sdk(target.sdk, PLUGIN_ID)
+        stage = "check host compatibility"
         if not check_plugin_version_compat(target)[0]:
             raise ValueError("Incompatible optional MCP resource")
         if Version(target.version) > Version(current.version):
@@ -56,6 +62,11 @@ def mcp_plugin_versions(installed):
                 "version": target.version,
                 "source": BUNDLED_SOURCE,
             }
-    except (OSError, ValueError, TypeError, SDKCompatibilityError):
+    except (OSError, ValueError, TypeError, SDKCompatibilityError) as exc:
+        logger.debug(
+            "MCP version check could not %s (%s)",
+            stage,
+            type(exc).__name__,
+        )
         result["update_diagnostics"] = ["version_check_unavailable"]
     return result

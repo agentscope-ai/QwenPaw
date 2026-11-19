@@ -63,7 +63,11 @@ from ...drivers.credential_commit import (
     commit_credential_binding,
     cleanup_credential_candidates,
 )
-from ...drivers.errors import CredentialNotFoundError, DriverCardError
+from ...drivers.errors import (
+    CredentialNotFoundError,
+    DriverCardError,
+    driver_error_diagnostic,
+)
 from ...plugins._drivers import workspace_is_current
 from ...plugins.registry import PluginRegistry
 from ...drivers.policy_types import (
@@ -499,8 +503,13 @@ class MCPConfigService:
             await self._driver_config._request_monitoring(card.protocol)
             if reload_driver:
                 await self._driver_config.reload_driver_best_effort(card.name)
-        except Exception:
-            logger.warning("MCP configuration saved; runtime refresh deferred")
+        except Exception as exc:
+            logger.warning(
+                "MCP source %r saved in workspace %r; runtime refresh deferred: %s",
+                card.name,
+                self._workspace.agent_id,
+                driver_error_diagnostic(exc),
+            )
         if cleanup_failure is not None:
             raise HTTPException(
                 500,
@@ -525,8 +534,12 @@ class MCPConfigService:
                 retained_refs=retained,
                 discarded_refs=discarded_refs,
             )
-        except Exception:
-            logger.warning("Deferred MCP credential cleanup")
+        except Exception as exc:
+            logger.warning(
+                "Deferred MCP credential cleanup in workspace %r: %s",
+                self._workspace.agent_id,
+                driver_error_diagnostic(exc),
+            )
 
     async def toggle_client(self, client_key: str) -> MCPClientInfo:
         previous = await self.load_card(client_key)

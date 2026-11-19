@@ -10,6 +10,7 @@ import httpx
 
 from qwenpaw.plugins.apps import HttpResponse, PawApp
 
+from .diagnostics import MCPLogger, error_summary
 from .oauth_helpers import (
     OAuthError,
     _code_challenge,
@@ -57,9 +58,11 @@ async def _exchange_code_for_tokens(session, code):
             timeout=15,
         )
     if response.status_code not in (200, 201):
-        raise ValueError(
+        raise httpx.HTTPStatusError(
             f"Token exchange failed (HTTP {response.status_code}): "
             f"{response.text[:300]}",
+            request=response.request,
+            response=response,
         )
     tokens = response.json()
     if not tokens.get("access_token"):
@@ -110,6 +113,7 @@ class OAuthManagement:
                     status=400,
                 )
             try:
+                logger = MCPLogger(source)
                 authorization = body.get("auth_endpoint")
                 token = body.get("token_endpoint")
                 registration = None
@@ -118,7 +122,7 @@ class OAuthManagement:
                         authorization,
                         token,
                         registration,
-                    ) = await _discover_oauth_metadata(url)
+                    ) = await _discover_oauth_metadata(url, logger)
                 client_id = str(
                     body.get("client_id")
                     or existing.public.get("client_id")
@@ -126,7 +130,8 @@ class OAuthManagement:
                 )
                 if not client_id and registration:
                     client_id = (
-                        await _dynamic_register(registration, redirect) or ""
+                        await _dynamic_register(registration, redirect, logger)
+                        or ""
                     )
             except OAuthError as exc:
                 return HttpResponse({"detail": str(exc)}, status=exc.status)
@@ -226,6 +231,10 @@ class OAuthManagement:
                     str(body["code"]),
                 )
             except (ValueError, httpx.HTTPError) as exc:
+                MCPLogger(source).warning(
+                    "OAuth token exchange failed: %s",
+                    error_summary(exc),
+                )
                 return HttpResponse({"detail": str(exc)}, status=400)
             public, sensitive = dict(record.public), dict(record.secrets)
             public.update(

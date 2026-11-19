@@ -5,6 +5,7 @@
 
 import logging
 
+from ...drivers.errors import driver_error_diagnostic
 from ...plugins.registry import PluginRegistry
 
 PLUGIN_ID = "qwenpaw-mcp"
@@ -26,6 +27,13 @@ class MCPUnavailableError(RuntimeError):
 
 
 def is_mcp_ready(loader=None, workspace_id=None, *, workspace=None) -> bool:
+    return (
+        mcp_unavailable_reason(loader, workspace_id, workspace=workspace)
+        is None
+    )
+
+
+def mcp_unavailable_reason(loader=None, workspace_id=None, *, workspace=None):
     """Read existing admission evidence, without I/O or dependency checks."""
     registry = loader.registry if loader is not None else PluginRegistry()
     state = registry.describe_driver_protocol("mcp", loader=loader)
@@ -35,19 +43,40 @@ def is_mcp_ready(loader=None, workspace_id=None, *, workspace=None) -> bool:
         or not state.active
         or state.blocked
     ):
-        return False
+        coordinator = (
+            registry.get_protocol_preparation()
+            if loader is None
+            else getattr(loader, "protocol_coordinator", None)
+        )
+        if loader is None:
+            loader = getattr(coordinator, "loader", None)
+        record = loader.get_loaded_plugin(PLUGIN_ID) if loader else None
+        if record is not None and not record.enabled:
+            return "plugin_disabled"
+        if record is not None and record.status == "failed":
+            return "plugin_load_failed"
+        result = getattr(coordinator, "latest_result", None)
+        if getattr(result, "status", None) in ("failed", "needs_review") or (
+            state is not None
+            and state.plugin_id == PLUGIN_ID
+            and state.blocked
+        ):
+            return "startup_recovery_required"
+        return "runtime_not_ready"
     eligibility = registry.protocol_eligibility
     if workspace_id is not None:
         workspace = workspace or registry.get_driver_workspace(workspace_id)
         service = getattr(workspace, "driver_manager", None)
         suspended = getattr(service, "is_protocol_suspended", None)
         if suspended is not None and suspended("mcp"):
-            return False
-    return not (
+            return "workspace_protocol_suspended"
+    if (
         workspace_id is not None
         and eligibility is not None
         and not eligibility(workspace_id, "mcp", workspace=workspace)
-    )
+    ):
+        return "workspace_unavailable"
+    return None
 
 
 def require_mcp_ready(workspace_id=None, *, loader=None) -> None:
@@ -100,5 +129,8 @@ async def reconcile_mcp_features(
         return
     try:
         await coordinator._reconcile_live_workspaces(refresh=True)
-    except Exception:
-        logger.warning("MCP is active but workspace service recovery failed")
+    except Exception as exc:
+        logger.warning(
+            "MCP workspace reconciliation failed: %s",
+            driver_error_diagnostic(exc),
+        )

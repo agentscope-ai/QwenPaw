@@ -15,6 +15,7 @@ export interface MCPPluginState {
   id: "qwenpaw-mcp";
   installed: boolean;
   enabled: boolean;
+  available?: boolean;
   status: "not_installed" | "disabled" | "active" | "inactive" | "failed";
   diagnostics: string[];
   legacy_mcp_archived?: boolean;

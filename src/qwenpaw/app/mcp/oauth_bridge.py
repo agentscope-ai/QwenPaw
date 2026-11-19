@@ -31,7 +31,11 @@ from ...drivers.credential_commit import (
     commit_credential_binding,
     cleanup_credential_candidates,
 )
-from ...drivers.errors import CredentialNotFoundError, DriverCardError
+from ...drivers.errors import (
+    CredentialNotFoundError,
+    DriverCardError,
+    driver_error_diagnostic,
+)
 from ...drivers.contracts import CredentialRef, iter_credential_refs
 from ...plugins._driver_management import CredentialOverlayGrant
 from ...pawapp.context import PawAppContext
@@ -163,8 +167,13 @@ async def start(request, client_key, body):
             owner=CANDIDATE_OWNER,
             now=pending_time.time(),
         )
-    except Exception:
-        logger.warning("Deferred MCP OAuth candidate cleanup")
+    except Exception as exc:
+        logger.warning(
+            "Deferred MCP OAuth candidate cleanup for source %r in workspace %r: %s",
+            client_key,
+            workspace.agent_id,
+            driver_error_diagnostic(exc),
+        )
     alias = mcp_oauth_alias(card)
     old_ref = card.credentials[alias].ref if alias else None
     refs = {item.ref for item in iter_credential_refs(card).values()}
@@ -325,9 +334,12 @@ async def _callback(request, body, grant, attempt):
                     candidate_record=record,
                     guard=guard,
                 )
-            except (DriverCardError, StaleContextError, SDKAccessError) as exc:
-                raise HTTPException(409, "OAuth source changed") from exc
             except Exception as exc:
+                if isinstance(exc, (StaleContextError, SDKAccessError)) or (
+                    isinstance(exc, DriverCardError)
+                    and not isinstance(exc.__cause__, OSError)
+                ):
+                    raise HTTPException(409, "OAuth source changed") from exc
                 raise HTTPException(
                     400,
                     "OAuth credentials could not be saved",
@@ -377,6 +389,24 @@ async def callback(request, body):
                 "OAuth session expired or not found. Please try again.",
             )
         return await _callback(request, body, grant, attempt)
+    except Exception as exc:
+        # Plain 400s include expected callback rejection and token exchange
+        # failures already logged by the plugin. Host faults retain the cause.
+        if (
+            not isinstance(exc, HTTPException)
+            or exc.status_code != 400
+            or exc.__cause__ is not None
+        ):
+            status = exc.status_code if isinstance(exc, HTTPException) else 500
+            logger.warning(
+                "OAuth callback failed for source %r in workspace %r "
+                "(HTTP %s): %s",
+                grant.client_key,
+                grant.agent_id,
+                status,
+                driver_error_diagnostic(exc),
+            )
+        raise
     finally:
         if attempt is not None and attempt.phase == "pending":
             attempt.finish("failed", time.monotonic())
@@ -452,6 +482,12 @@ async def revoke(request, client_key):
         if candidate != card:
             await service.reload_driver_best_effort(client_key)
         if cleanup_failure:
+            logger.warning(
+                "MCP OAuth token cleanup failed for source %r in workspace %r: %s",
+                client_key,
+                workspace.agent_id,
+                driver_error_diagnostic(cleanup_failure),
+            )
             raise HTTPException(
                 500,
                 "OAuth tokens could not be cleared; retry revoke",

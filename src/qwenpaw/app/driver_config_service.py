@@ -15,7 +15,11 @@ from ..drivers.credentials.store import (
     AsyncCredentialStore,
 )
 from ..drivers.credentials.types import CredentialRecord
-from ..drivers.errors import CredentialNotFoundError, DriverCardError
+from ..drivers.errors import (
+    CredentialNotFoundError,
+    DriverCardError,
+    driver_error_diagnostic,
+)
 from ..drivers.storage import (
     AsyncDriverCardStore,
     card_path,
@@ -129,13 +133,17 @@ class DriverConfigService:
 
         async def reload_background() -> None:
             try:
-                await manager.reload_driver(name)
-                logger.info("Driver '%s' reloaded and active", name)
+                result = await manager.reload_driver(name)
+                logger.info(
+                    "Driver %r reload finished (status=%s)",
+                    name,
+                    result.status if result is not None else "unknown",
+                )
             except Exception as exc:
                 logger.info(
-                    "Driver '%s' saved but not active yet: %s",
+                    "Driver %r saved but not active yet: %s",
                     name,
-                    exc,
+                    driver_error_diagnostic(exc),
                 )
 
         task = asyncio.create_task(

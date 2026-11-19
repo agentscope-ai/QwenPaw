@@ -99,10 +99,13 @@ function MCPPage({
 }) {
   const { t } = useTranslation();
   const plugin = useMCPPlugin(managementMounted);
+  const activeButUnavailable =
+    plugin.state?.status === "active" && plugin.state.available === false;
   const readOnly =
     plugin.busy ||
     !managementAvailable ||
     plugin.state?.status !== "active" ||
+    activeButUnavailable ||
     plugin.state.workspace?.eligible === false;
   const recoveryCodes = [
     ...new Set([
@@ -432,16 +435,19 @@ function MCPPage({
           description={t("mcp.readOnly")}
           action={
             (plugin.error ||
+              activeButUnavailable ||
               (plugin.state && plugin.state.status !== "active")) && (
               <Button
                 loading={plugin.busy}
                 onClick={
-                  plugin.error && plugin.state?.status === "active"
+                  plugin.state?.status === "active"
                     ? plugin.refresh
                     : plugin.activate
                 }
               >
-                {plugin.error || plugin.state?.status === "failed"
+                {plugin.error ||
+                plugin.state?.status === "failed" ||
+                activeButUnavailable
                   ? t("common.retry", { defaultValue: "Retry" })
                   : plugin.state?.installed
                   ? t("common.enable", { defaultValue: "Enable" })

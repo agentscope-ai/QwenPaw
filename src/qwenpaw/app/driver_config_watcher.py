@@ -130,8 +130,12 @@ class DriverConfigWatcher:
 
         for name in sorted(changed_names):
             try:
-                await self._driver_manager.refresh_driver(name)
-                logger.info("Driver '%s' refreshed after card change", name)
+                result = await self._driver_manager.refresh_driver(name)
+                logger.info(
+                    "Driver %r card change applied (status=%s)",
+                    name,
+                    result.status if result is not None else "unknown",
+                )
             except Exception:
                 logger.warning(
                     "Failed to refresh Driver '%s' after card change",

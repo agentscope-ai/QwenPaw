@@ -17,7 +17,6 @@ background task, using event-based signaling for reload/stop operations.
 from __future__ import annotations
 
 import asyncio
-import logging
 import random
 from contextlib import AsyncExitStack
 from typing import Any, Literal
@@ -28,10 +27,9 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
+from .diagnostics import error_summary
 from .mcp_streamable_http import timeout_seconds
 from .session import ClientSession
-
-logger = logging.getLogger(__name__)
 
 # anyio is a required transitive dependency of the mcp package, so it is
 # always available in practice.  The try/except guards against edge cases
@@ -121,7 +119,7 @@ class _SessionGoneError(Exception):
     pass
 
 
-async def _wait_task_uncancelled(task: Any, name: str) -> int:
+async def _wait_task_uncancelled(task: Any) -> int:
     """Uncancel until done; return count. Caller restores."""
     current, n = asyncio.current_task(), 0
     while True:
@@ -138,8 +136,6 @@ async def _wait_task_uncancelled(task: Any, name: str) -> int:
             continue
         except Exception:
             break
-    if name and not task.cancelled() and (e := task.exception()):
-        logger.error("MCP client '%s': cleanup failed: %s", name, e)
     return n
 
 
@@ -148,7 +144,7 @@ async def _gather_uncancelled(*tasks: Any) -> None:
     for t in tasks:
         t.cancel()
     g = asyncio.gather(*tasks, return_exceptions=True)
-    n = await _wait_task_uncancelled(g, "")
+    n = await _wait_task_uncancelled(g)
     _restore_cancel(asyncio.current_task(), n)
 
 
@@ -228,14 +224,18 @@ class _MCPClientMixin:
         while not self._stop_event.is_set():
             n, cancelled, current = 0, False, asyncio.current_task()
             try:
-                logger.debug(f"Connecting MCP client: {self.name}")
+                self._logger.debug(f"Connecting MCP client: {self.name}")
 
                 async with AsyncExitStack() as stack:
                     read_stream, write_stream = await self._setup_transport(
                         stack,
                     )
 
-                    self.session = ClientSession(read_stream, write_stream)
+                    self.session = ClientSession(
+                        read_stream,
+                        write_stream,
+                        logger=self._logger,
+                    )
                     await stack.enter_async_context(self.session)
                     await self.session.initialize()
 
@@ -246,7 +246,7 @@ class _MCPClientMixin:
                     self._reconnect_delay = 1.0
                     self._consecutive_failures = 0
                     self._circuit_open = False
-                    logger.info(f"MCP client connected: {self.name}")
+                    self._logger.info(f"MCP client connected: {self.name}")
 
                     try:
                         await self._wait_pair(
@@ -258,13 +258,25 @@ class _MCPClientMixin:
                     finally:
                         self._begin_session_teardown()
                         if self._stop_event.is_set():
-                            logger.info(f"Stopping MCP client: {self.name}")
+                            self._logger.info(
+                                f"Stopping MCP client: {self.name}",
+                            )
                             self._cached_tools = None
                         else:
-                            logger.info(f"Reloading MCP client: {self.name}")
+                            self._logger.info(
+                                f"Reloading MCP client: {self.name}",
+                            )
                             self._reload_event.clear()
                         drain = asyncio.create_task(self._drain_session_rpcs())
-                        n = await _wait_task_uncancelled(drain, self.name)
+                        n = await _wait_task_uncancelled(drain)
+                        if not drain.cancelled() and (
+                            error := drain.exception()
+                        ):
+                            self._logger.error(
+                                "MCP client '%s': cleanup failed: %s",
+                                self.name,
+                                error_summary(error),
+                            )
                 # Restore only after aexit so CancelScope exits this task.
                 if cancelled or n:
                     _restore_cancel(current, n)
@@ -275,10 +287,10 @@ class _MCPClientMixin:
                 # raises the real transport error. Do not treat that as
                 # an external shutdown; follow the reconnect path.
                 if self._stop_event.is_set():
-                    logger.error(
+                    self._logger.error(
                         "MCP client '%s' failed during stop: %s",
                         self.name,
-                        e,
+                        error_summary(e),
                     )
                     self._begin_session_teardown()
                     self._abandon_session_rpcs()
@@ -286,7 +298,7 @@ class _MCPClientMixin:
                 # 401 means the server requires OAuth; fail fast and signal
                 # connect() so it can raise instead of returning silently.
                 if _is_401_error(e):
-                    logger.info(
+                    self._logger.info(
                         f"MCP client '{self.name}': server requires OAuth "
                         "(HTTP 401). Authorize via the UI to connect.",
                     )
@@ -298,11 +310,10 @@ class _MCPClientMixin:
                     self._ready_event.set()
                     return
                 self._consecutive_failures += 1
-                logger.error(
+                self._logger.error(
                     f"Error in MCP client lifecycle for {self.name} "
                     f"(failure {self._consecutive_failures}/"
-                    f"{self._circuit_breaker_threshold}): {e}",
-                    exc_info=True,
+                    f"{self._circuit_breaker_threshold}): {error_summary(e)}",
                 )
                 self._begin_session_teardown()
                 self._reload_event.clear()
@@ -314,7 +325,7 @@ class _MCPClientMixin:
                     >= self._circuit_breaker_threshold
                 ):
                     self._circuit_open = True
-                    logger.error(
+                    self._logger.error(
                         "MCP client '%s': circuit breaker OPEN after %d "
                         "consecutive failures. Automatic reconnect "
                         "suspended. Will probe after %.0fs.",
@@ -330,7 +341,7 @@ class _MCPClientMixin:
                         )
                     except asyncio.TimeoutError:
                         # Half-open: allow one probe attempt
-                        logger.info(
+                        self._logger.info(
                             "MCP client '%s': circuit half-open, "
                             "attempting probe reconnect.",
                             self.name,
@@ -343,7 +354,7 @@ class _MCPClientMixin:
                 jittered_delay = self._reconnect_delay * (
                     0.5 + random.random() * 0.5
                 )
-                logger.info(
+                self._logger.info(
                     "MCP client '%s': reconnecting in %.1fs "
                     "(backoff=%.1fs).",
                     self.name,
@@ -363,7 +374,7 @@ class _MCPClientMixin:
                     self._max_reconnect_delay,
                 )
 
-        logger.info(f"MCP client lifecycle task exited: {self.name}")
+        self._logger.info(f"MCP client lifecycle task exited: {self.name}")
 
     async def connect(self, timeout: float = 30.0) -> None:
         """Connect to the MCP server.
@@ -413,7 +424,7 @@ class _MCPClientMixin:
             self._lifecycle_task.cancel()
             raise
         except asyncio.TimeoutError:
-            logger.error(
+            self._logger.error(
                 f"Timeout waiting for MCP client '{self.name}' to connect",
             )
             self._stop_event.set()
@@ -468,13 +479,13 @@ class _MCPClientMixin:
             if has_task and not self._stop_event.is_set():
                 cached = self._cached_tools_if_disconnected()
                 if cached is not None:
-                    logger.warning(
+                    self._logger.warning(
                         "MCP client '%s' not connected; serving cached "
                         "schemas while reconnecting.",
                         self.name,
                     )
                     return cached
-                logger.info(
+                self._logger.info(
                     "MCP client '%s' not connected; waiting up to %.1fs "
                     "for reconnect before list_tools.",
                     self.name,
@@ -499,7 +510,7 @@ class _MCPClientMixin:
                     raise self._not_connected_error() from exc
                 cached = self._cached_tools_if_disconnected()
                 if cached is not None:
-                    logger.warning(
+                    self._logger.warning(
                         "MCP client '%s' session failed during list_tools; "
                         "serving cached schemas while reconnecting.",
                         self.name,
@@ -516,7 +527,7 @@ class _MCPClientMixin:
 
         cached = self._cached_tools_if_disconnected()
         if cached is not None:
-            logger.warning(
+            self._logger.warning(
                 "MCP client '%s' still disconnected after %.1fs; serving "
                 "cached schemas from last successful list_tools.",
                 self.name,
@@ -616,8 +627,8 @@ class _MCPClientMixin:
         except Exception as e:
             if not ignore_errors:
                 raise
-            logger.warning(
-                f"Error closing MCP client '{self.name}': {e}",
+            self._logger.warning(
+                f"Error closing MCP client '{self.name}': {error_summary(e)}",
             )
 
     async def close_owned(self) -> None:
@@ -675,7 +686,7 @@ class _MCPClientMixin:
         pool = tasks if tasks is not None else list(self._rpc_tasks)
         leftover = [task for task in pool if not task.done()]
         if leftover:
-            logger.warning(
+            self._logger.warning(
                 f"MCP client '{self.name}': abandoning {len(leftover)} RPCs",
             )
         for task in pool:
@@ -726,7 +737,7 @@ class _MCPClientMixin:
                     timeout=_LIFECYCLE_JOIN_TIMEOUT,
                 )
                 if lifecycle_task not in done:
-                    logger.warning(
+                    self._logger.warning(
                         "MCP client '%s' lifecycle cleanup is still pending; "
                         "retrying cancellation: done=%s, cancelled=%s, "
                         "cancelling=%s",
@@ -753,7 +764,7 @@ class _MCPClientMixin:
                     name=f"mcp-lifecycle-reaper:{self.name}",
                 )
                 _LIFECYCLE_REAPERS[task] = reaper
-            logger.error(
+            self._logger.error(
                 "Timed out cleaning up MCP client '%s'; background reaper "
                 "active: "
                 "done=%s, cancelled=%s, cancelling=%s",
@@ -797,12 +808,11 @@ class _MCPClientMixin:
             return False
         if not self.is_connected or self.session is not dead:
             return True
-        logger.warning(
-            "Transport error on MCP client '%s' (%s: %s); "
+        self._logger.warning(
+            "Transport error on MCP client '%s' (%s); "
             "marking as disconnected and scheduling reconnect.",
             self.name,
-            type(exc).__name__,
-            exc,
+            error_summary(exc),
         )
         self._begin_session_teardown()
         if not self._stop_event.is_set():
@@ -896,6 +906,8 @@ class StdIOStatefulClient(_MCPClientMixin):
             "ignore",
             "replace",
         ] = "strict",
+        *,
+        logger,
     ) -> None:
         """Initialize the StdIO MCP client.
 
@@ -919,6 +931,7 @@ class StdIOStatefulClient(_MCPClientMixin):
             )
 
         self.name = name
+        self._logger = logger
         self.server_params = StdioServerParameters(
             command=command,
             args=args or [],
@@ -985,6 +998,8 @@ class HttpStatefulClient(_MCPClientMixin):
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        *,
+        logger,
         **client_kwargs: Any,
     ) -> None:
         """Initialize the HTTP MCP client.
@@ -1018,6 +1033,7 @@ class HttpStatefulClient(_MCPClientMixin):
             raise TypeError(f"url must be str, got {type(url).__name__}")
 
         self.name = name
+        self._logger = logger
         self.transport = transport
         self.url = url
         self.headers = headers

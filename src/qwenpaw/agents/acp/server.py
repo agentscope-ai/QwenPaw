@@ -407,14 +407,26 @@ class QwenPawACPAgent(Agent):
         """Prepare once at explicit use, never while processing a normal turn."""
         from ...app.mcp import feature_gate
 
-        def unavailable_error() -> RequestError:
-            details = str(feature_gate.MCPUnavailableError())
+        def unavailable_error(workspace=None) -> RequestError:
+            reason = (
+                feature_gate.mcp_unavailable_reason(
+                    self._mcp_loader,
+                    agent_id if workspace is not None else None,
+                    workspace=workspace,
+                )
+                or "runtime_not_ready"
+            )
+            details = (
+                f"{feature_gate.MCPUnavailableError()}. "
+                f"Reason: {reason.replace('_', ' ')}."
+            )
             return RequestError(
                 code=-32603,
                 message=details,
                 data={
                     "code": feature_gate.MCPUnavailableError.code,
                     "details": details,
+                    "reason": reason,
                     "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
                 },
             )
@@ -471,7 +483,7 @@ class QwenPawACPAgent(Agent):
                     if not self._workspace_ready:
                         # Admission owns only this unbootstrapped candidate.
                         self._workspace = None
-                    raise unavailable_error()
+                    raise unavailable_error(workspace)
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
