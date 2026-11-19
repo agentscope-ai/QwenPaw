@@ -187,6 +187,10 @@ If the preset models do not meet your needs, you can also click **Add Model** on
 
 ![Add Model](https://img.alicdn.com/imgextra/i3/O1CN01gvYta11FXfyhNGE89_!!6000000000497-2-tps-1260-1692.png)
 
+### Remove a model
+
+In a cloud or custom provider's model management page, click the model's **Remove** trash icon and confirm to delete its entry. Removed models stay excluded from later discovery syncs, including after a restart. Use **Add Model** with the same model ID to restore one. The enable/disable switch keeps the entry in the pool.
+
 ## Custom Provider Configuration
 
 If the preset cloud and local providers do not meet your needs, QwenPaw also supports custom providers.
