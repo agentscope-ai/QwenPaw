@@ -60,14 +60,14 @@ from qwenpaw.channel_protocol.models import (
     RejectedEvent,
 )
 from qwenpaw.channel_protocol.shared import SharedChannelDescriptor
-from qwenpaw.schemas import Message, AgentRequest
+from qwenpaw.schemas import Message, AgentRequest, MessageType, Role
 from qwenpaw.utils.io_utils import (
     get_path_lock,
     run_async_to_completion,
     run_sync_io,
 )
 from qwenpaw.utils.outbound_media import update_outbound_media
-from .base import BaseChannel
+from .base import BaseChannel, _filter_display_blocks
 from .process_supervisor import ChannelCallUnknown, ChannelProcess, LaunchSpec
 from .renderer import ChannelDisplayConfig
 
@@ -2293,6 +2293,12 @@ class IsolatedChannelProxy(BaseChannel):
             parts, sources = project_completed_text(
                 event,
                 policy.raw_completed_text or "content",
+                filter_text=(
+                    _filter_display_blocks
+                    if getattr(event, "role", None) == Role.ASSISTANT
+                    and getattr(event, "type", None) == MessageType.MESSAGE
+                    else None
+                ),
             )
             if (
                 parts

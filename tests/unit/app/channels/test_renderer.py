@@ -763,11 +763,13 @@ class TestStreamingChunkSplitting:
         assert consumed is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("with_snapshot", [True, False])
     async def test_interleaved_indices_are_kept_in_block_order(
         self,
         streaming_channel,
+        with_snapshot,
     ):
-        """Returning to an earlier block must not drop its existing text."""
+        """Only the terminal snapshot may publish assistant text."""
         req = SimpleNamespace(
             user_id="u",
             session_id="console:u",
@@ -806,15 +808,22 @@ class TestStreamingChunkSplitting:
         )
         assert not streaming_channel.end_calls
         assert buffers["message"] == "c"
+        content = (
+            [TextContent(text="ac", index=0), TextContent(text="b", index=1)]
+            if with_snapshot
+            else []
+        )
         await streaming_channel._on_stream_msg_end(
             req,
             "u",
-            _mk_message([]).model_copy(update={"id": "m1"}),
+            _mk_message(content).model_copy(update={"id": "m1"}),
             send_meta,
             msg_id_to_stream_type,
             buffers,
         )
-        assert streaming_channel.end_calls == [("message", "acb")]
+        assert streaming_channel.end_calls == [
+            ("message", "acb" if with_snapshot else ""),
+        ]
 
 
 # ---------------------------------------------------------------------------

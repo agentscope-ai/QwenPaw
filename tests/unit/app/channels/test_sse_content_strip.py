@@ -11,6 +11,9 @@ from agentscope.event import EventType
 
 from qwenpaw.app.channels.base import BaseChannel
 from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.channels.isolated_proxy import IsolatedChannelProxy
+from qwenpaw.channel_protocol.models import RAW_COMPLETED_TEXT_CAPABILITY
+from qwenpaw.channel_protocol.response_policy import ResponsePolicy
 from qwenpaw.runtime.envelope import Envelope
 from qwenpaw.schemas import (
     AgentRequest,
@@ -106,6 +109,20 @@ def _message(role: Role = Role.ASSISTANT, **kwargs: Any) -> Message:
             "<system-info><system-info>inner</system-info>"
             "private</system-info>answer",
             "answer",
+        ),
+        ("The <think> opener.\n\n```xml\n</think>\n```\nMore prose", None),
+        ("The <think> opener.\n\n`</think>`\nMore prose", None),
+        (
+            "A stray `\n\n<system-info>private</system-info>answer",
+            "A stray `\n\nanswer",
+        ),
+        (
+            "<thinking>A stray ` before the close</thinking>answer",
+            "answer",
+        ),
+        (
+            r"Escaped \` <system-info>private</system-info>answer `",
+            r"Escaped \` answer `",
         ),
     ],
 )
@@ -360,10 +377,139 @@ async def test_cancelled_snapshot_includes_bare_close_in_unfinished_block() -> N
         assert "answer" in payload
 
 
+@pytest.mark.parametrize(
+    "status",
+    [RunStatus.Completed, RunStatus.Cancelled, RunStatus.Failed],
+)
+async def test_terminal_snapshots_order_interleaved_blocks(
+    status: RunStatus,
+) -> None:
+    channel = _channel()
+    envelope = Envelope()
+    states: dict[str, Any] = {}
+    for kind, block, text in (
+        (EventType.TEXT_BLOCK_DELTA, "first", "private scratchpad"),
+        (EventType.TEXT_BLOCK_DELTA, "last", "</think>answer"),
+        (EventType.TEXT_BLOCK_END, "last", ""),
+    ):
+        event = SimpleNamespace(type=kind, block_id=block, delta=text)
+        async for item in envelope.translate_event(event):
+            payload = channel._serialize_event_for_sse(item, states)
+            assert "private scratchpad" not in payload
+
+    terminal = {
+        RunStatus.Completed: envelope.finalize,
+        RunStatus.Cancelled: envelope.cancel_envelope,
+        RunStatus.Failed: lambda: envelope.error_envelope("test failure"),
+    }
+    message, response = [item async for item in terminal[status]()]
+    assert [block.text for block in message.content] == [
+        "private scratchpad",
+        "</think>answer",
+    ]
+    [released] = channel._flush_headline_stream_states(
+        states,
+        msg_id=message.id,
+    )
+    assert _text_of(released) == "answer"
+    for snapshot in (message, response):
+        payload = channel._serialize_event_for_sse(snapshot)
+        assert "private scratchpad" not in payload
+        assert "answer" in payload
+
+
+@pytest.mark.parametrize("mode", ["content", "text_sources"])
+@pytest.mark.parametrize("reply", ["answer", ""])
+async def test_raw_voice_delivery_filters_before_projection(
+    mode: str,
+    reply: str,
+) -> None:
+    event = _message(
+        status=RunStatus.Completed,
+        content=[
+            TextContent(text="<thinking>private"),
+            TextContent(text=f"scratchpad</thinking>{reply}"),
+        ],
+    )
+    before = event.model_dump()
+    proxy = object.__new__(IsolatedChannelProxy)
+    proxy.descriptor = SimpleNamespace(
+        capabilities={RAW_COMPLETED_TEXT_CAPABILITY},
+    )
+    proxy._response_policy = AsyncMock(
+        return_value=ResponsePolicy(raw_completed_text=mode),
+    )
+    proxy._send_operation = AsyncMock()
+
+    await proxy._send_completed_event(None, "voice", event, {})
+
+    assert event.model_dump() == before
+    if not reply:
+        proxy._send_operation.assert_not_awaited()
+        return
+    [call] = proxy._send_operation.await_args_list
+    assert [part["text"] for part in call.kwargs["content_parts"]] == [reply]
+    assert "private" not in json.dumps(call.kwargs)
+    if mode == "text_sources":
+        sources = call.kwargs["raw_completed_text_sources"]
+        assert sources["top_texts"] == [reply]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status",
-    [RunStatus.Completed, RunStatus.Cancelled, None],
+    [RunStatus.Completed, RunStatus.Cancelled, RunStatus.Failed],
+)
+async def test_console_terminal_snapshot_is_authoritative(
+    status: RunStatus,
+) -> None:
+    async def process(_request):
+        message = _message()
+        yield message
+        yield TextContent(
+            text="private scratchpad",
+            msg_id=message.id,
+            index=0,
+            delta=True,
+        )
+        message.content = [
+            TextContent(text="private scratchpad</think>answer", index=0),
+        ]
+        message.status = status
+        yield message
+        yield AgentResponse(object="response", status=status, output=[message])
+
+    channel = ConsoleChannel(process=process, enabled=True, bot_prefix="")
+    channel._commit_turn_usage = AsyncMock(return_value=[])
+    lines = [
+        line async for line in channel.stream_one(AgentRequest(user_id="u"))
+    ]
+    assert "private scratchpad" not in "".join(lines)
+    events = [json.loads(line.removeprefix("data: ")) for line in lines]
+    assert [e["text"] for e in events if e["object"] == "content"] == [
+        "",
+        "answer",
+    ]
+
+
+async def test_console_drops_text_without_a_message_snapshot() -> None:
+    async def process(_request):
+        message = _message()
+        yield message
+        yield TextContent(text="unclassified", msg_id=message.id, delta=True)
+        yield AgentResponse(object="response", status=RunStatus.Failed)
+
+    channel = ConsoleChannel(process=process, enabled=True, bot_prefix="")
+    channel._commit_turn_usage = AsyncMock(return_value=[])
+    lines = [
+        line async for line in channel.stream_one(AgentRequest(user_id="u"))
+    ]
+    assert "unclassified" not in "".join(lines)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [RunStatus.Completed, RunStatus.Cancelled, RunStatus.Failed, None],
 )
 async def test_console_releases_answer_only_at_message_end(
     status: RunStatus | None,

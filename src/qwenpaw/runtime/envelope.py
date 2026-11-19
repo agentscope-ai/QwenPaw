@@ -163,10 +163,22 @@ class Envelope:
             self._message_started and len(self._completed_message.content) > 0
         )
 
+    def _complete_text_blocks(self) -> None:
+        """Backfill unfinished text and publish blocks in start order."""
+        from ..schemas import TextContent
+
+        content = self._completed_message.content
+        for state in self._text_blocks.values():
+            text = "".join(state.pop("text_fragments", []))
+            if text:
+                content.append(TextContent(text=text, index=state["index"]))
+        content.sort(key=lambda block: block.index)
+
     async def _finalize_text_message(self) -> AsyncGenerator[Any, None]:
         """Finalize the current text message before a tool call starts."""
         from ..schemas import RunStatus
 
+        self._complete_text_blocks()
         self._completed_message.status = RunStatus.Completed
         self._response.output.append(self._completed_message)
         yield self._tag_seq(self._completed_message)
@@ -185,6 +197,7 @@ class Envelope:
         self._completed_message.object = "message"
         self._message_started = False
         self._text_blocks = {}
+        self._data_blocks = {}
 
     # ------------------------------------------------------------------
     # Event translation
@@ -224,7 +237,7 @@ class Envelope:
                 yield self._tag_seq(self._completed_message)
                 self._message_started = True
             block_id = event.block_id
-            index = len(self._text_blocks)
+            index = len(self._text_blocks) + len(self._data_blocks)
             self._text_blocks[block_id] = {
                 "index": index,
                 "text_fragments": [],
@@ -239,7 +252,7 @@ class Envelope:
             state = self._text_blocks.setdefault(
                 block_id,
                 {
-                    "index": len(self._text_blocks),
+                    "index": len(self._text_blocks) + len(self._data_blocks),
                     "text_fragments": [],
                 },
             )
@@ -614,6 +627,7 @@ class Envelope:
             self._data_blocks[block_id] = {
                 "media_type": media_type,
                 "data_acc": "",
+                "index": len(self._text_blocks) + len(self._data_blocks),
             }
 
         elif evt_type == EventType.DATA_BLOCK_DELTA.value:
@@ -635,7 +649,7 @@ class Envelope:
             media_type = state["media_type"]
             b64_data = state["data_acc"]
             major = (media_type.split("/", 1)[0]) if media_type else ""
-            index = len(self._completed_message.content)
+            index = state["index"]
 
             if major == "audio":
                 fmt = media_type.split("/", 1)[1] if "/" in media_type else ""
@@ -864,26 +878,13 @@ class Envelope:
             yield obj
 
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
-        from ..schemas import ContentType, RunStatus, TextContent
+        from ..schemas import RunStatus
 
         if self._finalized:
             return
 
         if self._message_started:
-            # Back-fill any partially accumulated text blocks that were
-            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
-            for state in self._text_blocks.values():
-                text = "".join(state.get("text_fragments", []))
-                if text:
-                    self._completed_message.content.append(
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=text,
-                            delta=False,
-                            index=state["index"],
-                        ),
-                    )
-
+            self._complete_text_blocks()
             if self._completed_message.content:
                 self._completed_message.status = (
                     RunStatus.Cancelled

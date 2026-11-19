@@ -305,6 +305,31 @@ async def test_finalize_does_not_promote_event_metadata(finalizer):
     _assert_no_metadata(payloads)
 
 
+async def test_final_snapshot_keeps_text_and_media_in_start_order():
+    envelope = Envelope()
+    events = [
+        _event(EventType.TEXT_BLOCK_DELTA, block_id="first", delta="first"),
+        _event(
+            EventType.DATA_BLOCK_START,
+            block_id="image",
+            media_type="image/png",
+        ),
+        _event(EventType.TEXT_BLOCK_DELTA, block_id="last", delta="last"),
+        _event(EventType.TEXT_BLOCK_END, block_id="last"),
+        _event(EventType.DATA_BLOCK_DELTA, block_id="image", data="YWJj"),
+        _event(EventType.DATA_BLOCK_END, block_id="image"),
+    ]
+    for event in events:
+        await _translate(envelope, event)
+
+    message, _ = await _dump(envelope.finalize())
+    assert [(b["index"], b["type"]) for b in message["content"]] == [
+        (0, ContentType.TEXT),
+        (1, ContentType.IMAGE),
+        (2, ContentType.TEXT),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_empty_metadata_keeps_existing_content_shape():
     envelope = Envelope()

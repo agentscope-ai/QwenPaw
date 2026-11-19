@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Bounded data-only projections of completed text, without rendering."""
 
-from dataclasses import dataclass
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from ..plugins.execution.models import _closed, _object, _string
 from .errors import ProtocolValidationError
@@ -139,11 +140,17 @@ class _Budget:
         return value
 
 
-def project_completed_text(event, mode="content"):
+def project_completed_text(
+    event,
+    mode="content",
+    *,
+    filter_text: Callable[[list[str]], list[str]] | None = None,
+):
     """Return raw parts plus optional provenance; never serialize an object.
 
     The content projection never accesses a text accessor or nested message.
     Text-source projection evaluates fallbacks lazily and records failures.
+    If supplied, filter_text cleans the selected source before projection.
     """
     budget = _Budget()
     if mode == "content":
@@ -162,17 +169,38 @@ def project_completed_text(event, mode="content"):
                         "role": "refusal" if kind == "refusal" else "message",
                     },
                 )
+        if filter_text is not None:
+            text_parts = [p for p in parts if p["role"] == "message"]
+            for part, text in zip(
+                text_parts,
+                filter_text([part["text"] for part in text_parts]),
+            ):
+                part["text"] = text
+            parts = [p for p in parts if p["text"] or p["role"] == "refusal"]
         return parts, None
     if mode != "text_sources":
         raise ProtocolValidationError("Invalid raw completed text projection")
 
     state, source = "absent", "getter"
     getter, top, nested = (), (), ()
+
+    def fallback_texts(parts):
+        texts = []
+        for part in budget.items(parts):
+            value = getattr(part, "text", None)
+            if value:
+                texts.append(budget.text(value))
+                if filter_text is None:
+                    break
+        return tuple(texts)
+
     try:
         absent = object()
         accessor = getattr(event, "get_text_content", absent)
         if accessor is not absent:
             state = "values"
+            if not callable(accessor):
+                raise TypeError("Completed text accessor must be callable")
             values = accessor()
             if values:
                 candidates = []
@@ -183,22 +211,14 @@ def project_completed_text(event, mode="content"):
                 getter = tuple(candidates)
         if not getter:
             source = "content"
-            for part in budget.items(getattr(event, "content", None) or ()):
-                value = getattr(part, "text", None)
-                if value:
-                    top = (budget.text(value),)
-                    break
+            top = fallback_texts(getattr(event, "content", None) or ())
         if not getter and not top:
             source = "message"
             message = getattr(event, "message", None)
             if message:
-                for part in budget.items(
+                nested = fallback_texts(
                     getattr(message, "content", None) or (),
-                ):
-                    value = getattr(part, "text", None)
-                    if value:
-                        nested = (budget.text(value),)
-                        break
+                )
     except Exception as error:
         if (
             isinstance(error, ProtocolValidationError)
@@ -211,6 +231,16 @@ def project_completed_text(event, mode="content"):
             "error" if source == "getter" else state,
             error_source=source,
         )
+    if filter_text is not None:
+        # Filter the chosen source as a whole before selecting its first
+        # visible fallback. Never switch sources because text was hidden.
+        if getter:
+            getter = tuple(filter(None, filter_text(list(getter))))
+        elif top:
+            top = tuple(filter(None, filter_text(list(top))))[:1]
+        elif nested:
+            nested = tuple(filter(None, filter_text(list(nested))))[:1]
+
     sources = RawCompletedTextSources(state, getter, top, nested)
     return [
         {"type": "text", "text": value, "role": "message"}

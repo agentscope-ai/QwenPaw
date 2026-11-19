@@ -204,6 +204,32 @@ def test_history_preserves_the_newline_before_a_final_code_fence():
     assert [c.text for c in message.content] == [text]
 
 
+@pytest.mark.parametrize(
+    ("texts", "expected"),
+    [
+        (
+            ["The <think> tag.\n\n```xml\n</th", "ink>\n```\nMore prose"],
+            "The <think> tag.\n\n```xml\n</think>\n```\nMore prose",
+        ),
+        (
+            ["A stray `\n\n<system-info>private", "</system-info>answer"],
+            "A stray `\n\nanswer",
+        ),
+    ],
+)
+def test_history_classifies_markdown_across_text_blocks(texts, expected):
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": text} for text in texts],
+    )
+    raw = msg.model_dump()
+
+    [message] = agentscope_msg_to_message(msg)
+    assert "".join(block.text for block in message.content) == expected
+    assert msg.model_dump() == raw
+
+
 def test_msg_to_message_hides_injected_context_in_history_path():
     """Regression: GET /chats/{id} no longer replays the blocks that lead an
     assistant message, matching what the channel renderer already hides."""

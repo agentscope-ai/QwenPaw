@@ -147,8 +147,10 @@ Deliver inbound messages through `context.receive(ChannelMessage(...))`. The hos
 workspace queues, access checks, and model execution. Platform threads should dispatch
 callbacks onto the event loop captured at startup. Manage connections/tasks through the
 resource scope and return `True` from `stop()` only after stopping. Streaming backends
-set `streaming=True` and implement `on_stream`; implement `on_run` for run completion
-notifications. Interrupting a reload still waits for existing requests' terminal notifications.
+set `streaming=True` and implement `on_stream`. Assistant reply text arrives with
+the message's `end` event; structured reasoning still sends `delta` events when
+reasoning display is enabled. Implement `on_run` for run completion notifications.
+Interrupting a reload still waits for existing requests' terminal notifications.
 
 For an application, declare `apps` and use public routes and contexts:
 

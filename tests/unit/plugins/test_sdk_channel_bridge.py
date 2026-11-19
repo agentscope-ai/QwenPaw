@@ -150,8 +150,8 @@ class Plugin:
                     }
                 )
                 plugin.storage.write_json("events.json", rows)
-                if event.phase == "delta":
-                    plugin.storage.write_json("delta.json", True)
+                if event.phase == "start":
+                    plugin.storage.write_json("stream-started.json", True)
 
         async def generate(call, request):
             try:
@@ -199,13 +199,13 @@ plugin = Plugin()
             ChannelMessage("sender", (ContentBlock(text="hello"),)),
         )
         try:
-            await wait_flag(ctx, "delta.json")
+            await wait_flag(ctx, "stream-started.json")
             runs = await workspace.task_tracker.list_active_tasks()
             assert len(runs) == 1
             assert await workspace.task_tracker.request_stop(runs[0])
             assert ctx.storage.read_json("model-stopped.json") is True
             rows = ctx.storage.read_json("events.json")
-            assert [row["phase"] for row in rows].count("end") == 1
+            assert [row["phase"] for row in rows] == ["start", "end"]
             assert rows[-1] == {"phase": "end", "status": "cancelled"}
             assert not await workspace.task_tracker.has_active_tasks()
         finally:

@@ -766,8 +766,6 @@ class BaseChannel(ABC):
         )
         return True
 
-    _ASSISTANT_STREAM_TEXT = "_assistant_stream_text"
-
     async def _on_stream_content_delta(
         self,
         request: "AgentRequest",
@@ -798,17 +796,10 @@ class BaseChannel(ABC):
         content_index = getattr(event, "index", 0) or 0
         delta_text = getattr(event, "text", None)
         if stream_type == "message":
-            if not isinstance(delta_text, str):
+            if not delta or not isinstance(delta_text, str):
                 return False
-            states = send_meta.setdefault(self._ASSISTANT_STREAM_TEXT, {})
-            state = states.get(content_msg_id)
-            if state is None:
-                state = states[content_msg_id] = _BufferedAssistantText()
-            state.add(content_index, delta_text, delta=delta)
             # Preserve the last collected segment for channel bookkeeping.
             index_key = f"_stream_last_index_{stream_type}"
-            if not delta:
-                return False
             if content_index != send_meta.get(index_key, 0):
                 streaming_buffers[stream_type] = delta_text
             else:
@@ -935,17 +926,9 @@ class BaseChannel(ABC):
 
             buf = streaming_buffers.pop(stream_type, "")
             if stream_type == "message":
-                state = send_meta.get(self._ASSISTANT_STREAM_TEXT, {}).pop(
-                    msg_id or "",
-                    None,
+                accumulated = "".join(
+                    _filter_display_blocks(self._extract_text_blocks(event)),
                 )
-                blocks = self._extract_text_blocks(event)
-                if blocks:
-                    accumulated = "".join(_filter_display_blocks(blocks))
-                elif state is not None:
-                    accumulated = "".join(text for _, text in state.visible())
-                else:
-                    accumulated = ""
             else:
                 accumulated = (
                     strip_headline(
@@ -961,7 +944,11 @@ class BaseChannel(ABC):
                 stream_type,
                 accumulated_text=accumulated,
             )
-        return True
+            return True
+        return (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        )
 
     @staticmethod
     def _extract_text_blocks(event: Any) -> list[str]:
@@ -975,6 +962,30 @@ class BaseChannel(ABC):
             if text:
                 parts.append(text)
         return parts
+
+    @classmethod
+    def _terminal_sse_deltas(
+        cls,
+        event: Any,
+        states: dict[str, Any],
+    ) -> list[str]:
+        """Publish buffered reply text from the authoritative snapshot."""
+        msg_id = str(getattr(event, "id", "") or "")
+        key = _SSE_TEXT_PREFIX + msg_id
+        if key in states:
+            # The terminal snapshot is authoritative: an earlier delta may
+            # be missing a closer, or the producer may have replaced it.
+            state = _BufferedAssistantText()
+            for position, block in enumerate(getattr(event, "content", [])):
+                if isinstance(block, TextContent):
+                    index = block.index
+                    state.add(
+                        position if index is None else index,
+                        block.text,
+                        delta=False,
+                    )
+            states[key] = state
+        return cls._flush_headline_stream_states(states, msg_id=msg_id)
 
     async def _stream_with_tracker(
         self,
@@ -1022,19 +1033,15 @@ class BaseChannel(ABC):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
                 if obj == "message" and status in _TERMINAL_STREAM_STATUSES:
-                    msg_id = str(
-                        getattr(event, "msg_id", "")
-                        or getattr(event, "id", "")
-                        or "",
-                    )
-                    for pending_data in self._flush_headline_stream_states(
+                    for pending_data in self._terminal_sse_deltas(
+                        event,
                         headline_stream_states,
-                        msg_id=msg_id,
                     ):
                         yield f"data: {pending_data}\n\n"
                 elif obj == "response" and status in _TERMINAL_STREAM_STATUSES:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
+                        release_assistant=False,
                     ):
                         yield f"data: {pending_data}\n\n"
 
@@ -1255,7 +1262,7 @@ class BaseChannel(ABC):
             and block.get("type") == ContentType.TEXT
             and isinstance(block.get("text"), str)
         ]
-        if message.get("status") == RunStatus.InProgress:
+        if message.get("status") not in _TERMINAL_STREAM_STATUSES:
             for block in blocks:
                 block["text"] = ""
             return
@@ -2003,12 +2010,10 @@ class BaseChannel(ABC):
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Called for each incremental text chunk.
+        """Called for incremental reasoning when its display is enabled.
 
-        ``accumulated_text`` contains all text received so far
-        for this *stream_type*, including the current delta.
-        Useful for channels that overwrite the message bubble
-        with full text on each update (e.g. WeCom).
+        ``accumulated_text`` contains the visible text so far. Assistant
+        replies are instead delivered at ``on_streaming_end``.
         """
 
     async def on_streaming_end(

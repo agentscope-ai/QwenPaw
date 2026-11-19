@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Single-pass filter for model-facing scaffolding in assistant text.
+"""Filter model-facing scaffolding in assistant text.
 
 Why a scanner and not a set of regexes: the previous implementation paired
 ``<thinking>…</thinking>`` with ``.*?``, which rescans the remainder of the
@@ -54,6 +54,11 @@ _HIDDEN_TAG_HEADS = (
 )
 _MAX_TAG_LEN = max(map(len, _TAG_LITERALS))
 _PARAGRAPH_BREAK_RE = re.compile(r"\r?\n[ \t]*\r?\n")
+_INLINE_TOKENS_RE = re.compile(
+    r"^[ \t\r]*\n|^(?:[ \t]*(?:>|`{3,}|~{3,})| {4}|\t)[^\n]*"
+    r"|(?P<ticks>`+)",
+    re.MULTILINE,
+)
 
 
 def _match_tag(text: str, index: int, literals: tuple[str, ...]) -> int:
@@ -83,12 +88,31 @@ def _drop_trailing_paragraph(text: str) -> str:
     return text[: matches[-1].start()]
 
 
+def _inline_openers(text: str) -> set[int]:
+    """Index backtick runs with a matching run before a block boundary."""
+    openers: set[int] = set()
+    previous: dict[int, int] = {}
+    for token in _INLINE_TOKENS_RE.finditer(text):
+        start, end = token.span()
+        if not token.group("ticks"):
+            previous.clear()
+            continue
+        size = end - start
+        if size in previous:
+            openers.add(previous[size])
+        escape = start
+        while escape and text[escape - 1] == "\\":
+            escape -= 1
+        if (start - escape) % 2 == 0:
+            previous[size] = start
+    return openers
+
+
 class ScaffoldFilter:
     """Incremental remover for reasoning blocks and tool-call shells.
 
-    ``feed`` may be called with arbitrary fragments (streaming deltas) or with
-    whole text blocks; the result is the same as feeding the concatenation once,
-    except that text already returned cannot be recalled.
+    ``feed`` accepts fragments of a message. Text already returned cannot be
+    recalled, so display paths classify the whole message before publishing.
     """
 
     __slots__ = (
@@ -102,9 +126,17 @@ class ScaffoldFilter:
         "line_has_text",
         "ticks",
         "unclosed_opens_are_prose",
+        "inline_openers",
+        "input_length",
+        "has_reason_close",
     )
 
-    def __init__(self, *, unclosed_opens_are_prose: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        unclosed_opens_are_prose: bool = False,
+        inline_openers: set[int] | None = None,
+    ) -> None:
         self.hidden_tags: list[str] = []
         self.pending = ""
         self.parameter: list[str] | None = None
@@ -117,6 +149,9 @@ class ScaffoldFilter:
         # Whole-text scans can tell that no closing tag exists at all. Prose
         # that merely mentions an opener mid-sentence must then survive.
         self.unclosed_opens_are_prose = unclosed_opens_are_prose
+        self.inline_openers = inline_openers
+        self.input_length = 0
+        self.has_reason_close = False
 
     # -- helpers ---------------------------------------------------------
     def _classify_line(self, text: str, index: int) -> tuple[int, bool]:
@@ -145,6 +180,8 @@ class ScaffoldFilter:
     # -- public API ------------------------------------------------------
     def feed(self, text: str, *, bare_closes: list[int] | None = None) -> str:
         """Scan a fragment, optionally reporting bare closes in the output."""
+        text_offset = self.input_length - len(self.pending)
+        self.input_length += len(text)
         text = self.pending + text
         self.pending = ""
         out: list[str] = []
@@ -252,11 +289,16 @@ class ScaffoldFilter:
                     self.pending = text[index:]
                     break
                 if self.ticks == 0:
-                    self.ticks = run
+                    if (
+                        self.inline_openers is None
+                        or text_offset + index in self.inline_openers
+                    ):
+                        self.ticks = run
                 elif run == self.ticks:
                     self.ticks = 0
                 if not self.hidden_tags:
                     out.append(text[index : index + run])
+                    self.line_has_text = True
                 index += run
                 continue
             if self.ticks:
@@ -287,6 +329,8 @@ class ScaffoldFilter:
                     continue
 
                 size = _match_tag(text, index, _CLOSE_TAGS)
+                if size:
+                    self.has_reason_close = True
                 if self.hidden_tags:
                     match = _INJECT_CLOSE_RE.match(text, index)
                     if match or size:
@@ -369,6 +413,8 @@ class ScaffoldFilter:
         self.fence_char = None
         self.fence_len = 0
         self.ticks = 0
+        self.input_length = 0
+        self.has_reason_close = False
         return visible
 
 
@@ -376,9 +422,17 @@ def strip_scaffold_blocks(blocks: list[str]) -> list[str]:
     """Filter a complete message, preserving the order and slots of blocks."""
     if not blocks:
         return []
-    lowered = "".join(blocks).lower()
-    has_close = any(tag in lowered for tag in _CLOSE_TAGS)
-    scanner = ScaffoldFilter(unclosed_opens_are_prose=not has_close)
+    original = "".join(blocks)
+    lowered = original.lower()
+    inline_openers = _inline_openers(original) if "`" in original else set()
+    scanner = ScaffoldFilter(inline_openers=inline_openers)
+    if any(tag in lowered for tag in _CLOSE_TAGS):
+        scanner.feed(original, bare_closes=[])
+        has_close = scanner.has_reason_close
+        scanner.flush()
+        scanner.unclosed_opens_are_prose = not has_close
+    else:
+        scanner.unclosed_opens_are_prose = True
     visible = []
     offset = 0
     closes: list[int] = []
@@ -391,7 +445,7 @@ def strip_scaffold_blocks(blocks: list[str]) -> list[str]:
     visible[-1] += scanner.flush()
 
     cleaned = "".join(visible)
-    if not closes and cleaned == "".join(blocks):
+    if not closes and cleaned == original:
         # Don't shift an unchanged Markdown delimiter into another slot.
         return blocks.copy()
 

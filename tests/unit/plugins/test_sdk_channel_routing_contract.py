@@ -521,7 +521,7 @@ async def test_same_session_senders_keep_stream_terminal_and_run_ids(
         try:
             await wait_for(
                 lambda: any(
-                    e["phase"] == "delta"
+                    e["phase"] == "start"
                     for e in ctx.storage.read_json("streams.json", [])
                 ),
             )
@@ -1248,7 +1248,8 @@ async def test_lifecycle_interrupt_closes_started_stream_once(
         .replace(
             '                if "hold-first" in text:',
             """                yield ModelChunk(
-                    (ContentBlock(text='visible-prefix'),), id='answer',
+                    (ContentBlock(type='thinking', text='preview'),),
+                    id='reasoning',
                 )
                 if 'hold-first' in text:""",
         )
@@ -1298,7 +1299,7 @@ async def test_lifecycle_interrupt_closes_started_stream_once(
         assert [row["status"] for row in rows if row["phase"] == "end"] == [
             "cancelled",
         ]
-        assert rows[-1]["text"] == "visible-prefix"
+        assert rows[-1]["text"] == "preview"
         events = json.loads((data / "events.json").read_text())
         assert [(event["phase"], event["status"]) for event in events] == [
             ("start", "running"),

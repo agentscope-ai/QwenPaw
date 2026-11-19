@@ -484,19 +484,15 @@ class ConsoleChannel(BaseChannel):
                             event.output.append(message)
 
                 if obj == "message" and status in _TERMINAL_STREAM_STATUSES:
-                    msg_id = str(
-                        getattr(event, "msg_id", "")
-                        or getattr(event, "id", "")
-                        or "",
-                    )
-                    for pending_data in self._flush_headline_stream_states(
+                    for pending_data in self._terminal_sse_deltas(
+                        event,
                         headline_stream_states,
-                        msg_id=msg_id,
                     ):
                         yield f"data: {pending_data}\n\n"
                 elif obj == "response" and status in _TERMINAL_STREAM_STATUSES:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
+                        release_assistant=False,
                     ):
                         yield f"data: {pending_data}\n\n"
 
