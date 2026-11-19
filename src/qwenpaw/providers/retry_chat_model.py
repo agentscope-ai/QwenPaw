@@ -33,20 +33,21 @@ from typing import Any, AsyncGenerator, AsyncIterator
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
+
 from qwenpaw.exceptions import (
     RateLimitExceededException,
 )
 
 from ..constant import (
-    EnvVarLoader,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
     LLM_MAX_CONCURRENT,
-    LLM_MAX_RETRIES,
     LLM_MAX_QPM,
+    LLM_MAX_RETRIES,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
+    EnvVarLoader,
 )
 from .error_utils import extract_status_code as _extract_status_code
 from .model_capability_cache import get_capability_cache
@@ -54,7 +55,11 @@ from .model_error_policy import (
     is_retryable_same_model,
 )
 from .rate_limiter import LLMRateLimiter, get_rate_limiter
-from .stream_progress import has_meaningful_stream_content
+from .stream_progress import (
+    has_answer_or_tool_progress,
+    has_meaningful_stream_content,
+    pre_answer_buffer_weight,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,8 @@ _STREAM_CLEANUP_QUARANTINE_TIMEOUT = 60.0
 _ACQUIRE_WARNING_DELAY = 10.0
 _STREAM_FIRST_CONTENT_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT"
 _STREAM_IDLE_TIMEOUT_ENV = "QWENPAW_LLM_STREAM_IDLE_TIMEOUT"
+_PRE_ANSWER_BUFFER_LIMIT = 64 * 1024
+_PRE_ANSWER_BUFFER_CHUNK_LIMIT = 128
 _pending_stream_cleanup_tasks: set[asyncio.Future[Any]] = set()
 _pending_provider_cleanup_tasks_by_model: dict[
     str,
@@ -90,6 +97,28 @@ def _track_stream_cleanup(
             logger.warning(f"Deferred {description} failed: {exc}")
 
     task.add_done_callback(_on_done)
+
+
+def _is_nonretryable_empty_completion(chunk: Any) -> bool:
+    """Do not replay interrupted or token-limited turns as empty output."""
+    finished_reason = getattr(chunk, "finished_reason", None)
+    finished_reason = getattr(finished_reason, "value", finished_reason)
+    if finished_reason == "interrupted":
+        return True
+
+    metadata = getattr(chunk, "metadata", None)
+    if not isinstance(metadata, dict):
+        return False
+    stop_reasons = {
+        "interrupted",
+        "length",
+        "max_tokens",
+        "max_output_tokens",
+    }
+    return any(
+        str(metadata.get(key, "")).lower() in stop_reasons
+        for key in ("finish_reason", "finished_reason", "stop_reason")
+    )
 
 
 @dataclass(slots=True)
@@ -1103,6 +1132,12 @@ class RetryChatModel(ChatModelBase):
         pending_acquired_at = acquired_at
         reasoning_injected = False
         emitted = False
+        answer_emitted = False
+        empty_retry_attempted = False
+        pre_answer_buffer: list[ChatResponse] = []
+        pre_answer_buffer_size = 0
+        buffer_pre_answer = True
+        empty_retry_permitted = True
 
         while True:
             try:
@@ -1115,12 +1150,86 @@ class RetryChatModel(ChatModelBase):
                     )
                     try:
                         async for chunk in active_stream:
-                            emitted = emitted or (
-                                has_meaningful_stream_content(chunk.content)
+                            if _is_nonretryable_empty_completion(chunk):
+                                empty_retry_permitted = False
+                            has_answer = has_answer_or_tool_progress(
+                                chunk.content,
+                            )
+                            if has_answer:
+                                for buffered_chunk in pre_answer_buffer:
+                                    emitted = (
+                                        emitted
+                                        or has_meaningful_stream_content(
+                                            buffered_chunk.content,
+                                        )
+                                    )
+                                    yield buffered_chunk
+                                pre_answer_buffer.clear()
+                                pre_answer_buffer_size = 0
+                                answer_emitted = True
+                                emitted = (
+                                    emitted
+                                    or has_meaningful_stream_content(
+                                        chunk.content,
+                                    )
+                                )
+                                yield chunk
+                                continue
+
+                            chunk_weight = pre_answer_buffer_weight(
+                                chunk.content,
+                            )
+                            if buffer_pre_answer and chunk_weight:
+                                pre_answer_buffer.append(chunk)
+                                pre_answer_buffer_size += chunk_weight
+                                if (
+                                    pre_answer_buffer_size
+                                    > _PRE_ANSWER_BUFFER_LIMIT
+                                    or len(pre_answer_buffer)
+                                    > _PRE_ANSWER_BUFFER_CHUNK_LIMIT
+                                ):
+                                    for buffered_chunk in pre_answer_buffer:
+                                        emitted = (
+                                            emitted
+                                            or has_meaningful_stream_content(
+                                                buffered_chunk.content,
+                                            )
+                                        )
+                                        yield buffered_chunk
+                                    pre_answer_buffer.clear()
+                                    pre_answer_buffer_size = 0
+                                    buffer_pre_answer = False
+                                continue
+
+                            emitted = emitted or has_meaningful_stream_content(
+                                chunk.content,
                             )
                             yield chunk
                     finally:
                         await active_stream.aclose()
+                    if (
+                        not answer_emitted
+                        and not empty_retry_attempted
+                        and buffer_pre_answer
+                        and empty_retry_permitted
+                        and attempt < max_attempts
+                    ):
+                        empty_retry_attempted = True
+                        pre_answer_buffer.clear()
+                        pre_answer_buffer_size = 0
+                        attempt += 1
+                        logger.warning(
+                            "LLM stream completed without answer or tool output. "
+                            "Retrying once.",
+                        )
+                        pending_stream = None
+                        continue
+                    for buffered_chunk in pre_answer_buffer:
+                        emitted = emitted or has_meaningful_stream_content(
+                            buffered_chunk.content,
+                        )
+                        yield buffered_chunk
+                    pre_answer_buffer.clear()
                     return  # stream completed without error
 
                 acquired = False
@@ -1167,6 +1276,13 @@ class RetryChatModel(ChatModelBase):
 
             except Exception as retry_exc:
                 pending_stream = None
+                for buffered_chunk in pre_answer_buffer:
+                    emitted = emitted or has_meaningful_stream_content(
+                        buffered_chunk.content,
+                    )
+                    yield buffered_chunk
+                pre_answer_buffer.clear()
+                pre_answer_buffer_size = 0
                 if emitted:
                     raise
                 if (
@@ -1179,6 +1295,8 @@ class RetryChatModel(ChatModelBase):
                     )
                 ):
                     reasoning_injected = True
+                    pre_answer_buffer.clear()
+                    pre_answer_buffer_size = 0
                     get_capability_cache().learn(
                         self.model_key,
                         "needs_reasoning_content",
@@ -1195,6 +1313,9 @@ class RetryChatModel(ChatModelBase):
                 await self._handle_rate_limit_exc(retry_exc, limiter)
 
                 if not _is_retryable(retry_exc) or attempt >= max_attempts:
+                    for buffered_chunk in pre_answer_buffer:
+                        yield buffered_chunk
+                    pre_answer_buffer.clear()
                     raise
 
                 retry_delay = _compute_backoff(attempt, self._retry_config)
@@ -1207,4 +1328,6 @@ class RetryChatModel(ChatModelBase):
                     retry_delay,
                 )
                 await asyncio.sleep(retry_delay)
+                pre_answer_buffer.clear()
+                pre_answer_buffer_size = 0
                 attempt += 1
