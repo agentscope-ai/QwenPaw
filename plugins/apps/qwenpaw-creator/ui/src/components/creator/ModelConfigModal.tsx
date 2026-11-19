@@ -203,6 +203,7 @@ const LLM_PROTOCOL_FALLBACK_BASE_URLS: Record<string, string> = {
 // AutoComplete, so anything unlisted can still be typed.
 const LLM_PROTOCOL_FALLBACK_MODELS: Record<string, string[]> = {
   "Aliyun Token Plan": [
+    "qwen4-max",
     "qwen3.8-max",
     "qwen3.8-flash",
     "qwen3.7-max",
