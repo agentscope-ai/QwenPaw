@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,7 +12,8 @@ import pytest
 from qwenpaw.app.crons.executor import CronExecutor
 from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
 from qwenpaw.app.task_tracker import TaskTracker
-from qwenpaw.schemas import Event, RunStatus
+from qwenpaw.runtime.backends.streaming import TextStream
+from qwenpaw.schemas import AgentResponse, Event, MessageType, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
 
 
@@ -287,6 +289,70 @@ async def test_agent_run_is_tracked_by_chat_id_and_can_stop(monkeypatch):
     assert await workspace.task_tracker.get_status("cron-chat") == "idle"
     workspace.chat_manager.mark_chat_finished.assert_not_awaited()
     finalize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_agent_run_reconnect_filters_assistant_text(monkeypatch):
+    started, finish = asyncio.Event(), asyncio.Event()
+    response = AgentResponse()
+    stream = TextStream(response)
+    events = [
+        *stream.push(MessageType.MESSAGE, "private scratchpad"),
+        *stream.push(MessageType.MESSAGE, "</think>public answer"),
+        *stream.finish(),
+    ]
+
+    class WaitingWorkspace(_Workspace):
+        async def stream_query(self, request):
+            for event in events:
+                yield event
+            started.set()
+            await finish.wait()
+
+    workspace = WaitingWorkspace()
+    workspace.task_tracker = TaskTracker()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="cron-chat",
+    )
+    _patch_trace_storage(monkeypatch)
+    execution = asyncio.create_task(
+        CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(make_cron_job_spec(job_id="filtered-job")),
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        queue = await workspace.task_tracker.attach("cron-chat")
+        assert queue is not None
+        try:
+            lines = [queue.get_nowait() for _ in range(queue.qsize())]
+        finally:
+            await workspace.task_tracker.detach_subscriber(
+                "cron-chat",
+                queue,
+            )
+        assert "private scratchpad" not in "".join(lines)
+        frames = [json.loads(line.removeprefix("data: ")) for line in lines]
+        assert [
+            frame["text"]
+            for frame in frames
+            if frame.get("object") == "content"
+        ] == ["", "", "public answer"]
+        [message] = [
+            frame
+            for frame in frames
+            if frame.get("object") == "message"
+            and frame.get("status") == "completed"
+        ]
+        assert message["content"][0]["text"] == "public answer"
+        assert response.output[0].content[0].text == (
+            "private scratchpad</think>public answer"
+        )
+    finally:
+        finish.set()
+        await execution
 
 
 @pytest.mark.asyncio

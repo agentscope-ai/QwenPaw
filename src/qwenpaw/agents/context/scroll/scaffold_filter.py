@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 
+from markdown_it import MarkdownIt
+
 _REASONING_TAGS = ("thinking", "think", "analysis", "reasoning")
 _OPEN_TAGS = tuple(f"<{name}>" for name in _REASONING_TAGS)
 _CLOSE_TAGS = tuple(f"</{name}>" for name in _REASONING_TAGS)
@@ -54,10 +56,14 @@ _HIDDEN_TAG_HEADS = (
 )
 _MAX_TAG_LEN = max(map(len, _TAG_LITERALS))
 _PARAGRAPH_BREAK_RE = re.compile(r"\r?\n[ \t]*\r?\n")
+_NEWLINE_RE = re.compile(r"\r\n?|\n")
+_POSSIBLE_CODE_RE = re.compile(r"```|~~~|^(?: {4}| *\t)", re.MULTILINE)
 _INLINE_TOKENS_RE = re.compile(
-    r"^[ \t\r]*\n|^(?:[ \t]*(?:>|`{3,}|~{3,})| {4}|\t)[^\n]*"
-    r"|(?P<ticks>`+)",
+    r"^[ \t\r]*\n|^[ \t]*>[^\n]*|(?P<ticks>`+)",
     re.MULTILINE,
+)
+_MARKDOWN_BLOCKS = MarkdownIt("commonmark", {"html": False}).disable(
+    ["inline", "text_join"],
 )
 
 
@@ -88,12 +94,32 @@ def _drop_trailing_paragraph(text: str) -> str:
     return text[: matches[-1].start()]
 
 
-def _inline_openers(text: str) -> set[int]:
+def _literal_ranges(text: str) -> list[tuple[int, int]]:
+    """Locate actual Markdown code blocks, including list containers."""
+    if not _POSSIBLE_CODE_RE.search(text):
+        return []
+    line_starts = [0, *(m.end() for m in _NEWLINE_RE.finditer(text))]
+    line_starts.append(len(text))
+    return [
+        (line_starts[token.map[0]], line_starts[token.map[1]])
+        for token in _MARKDOWN_BLOCKS.parse(text)
+        if token.type in {"fence", "code_block"} and token.map is not None
+    ]
+
+
+def _inline_openers(text: str, ranges: list[tuple[int, int]]) -> set[int]:
     """Index backtick runs with a matching run before a block boundary."""
     openers: set[int] = set()
     previous: dict[int, int] = {}
+    remaining = iter(ranges)
+    code_range = next(remaining, None)
     for token in _INLINE_TOKENS_RE.finditer(text):
         start, end = token.span()
+        while code_range is not None and code_range[1] <= start:
+            previous.clear()
+            code_range = next(remaining, None)
+        if code_range is not None and code_range[0] <= start:
+            continue
         if not token.group("ticks"):
             previous.clear()
             continue
@@ -127,6 +153,7 @@ class ScaffoldFilter:
         "ticks",
         "unclosed_opens_are_prose",
         "inline_openers",
+        "literal_lines",
         "input_length",
         "has_reason_close",
     )
@@ -136,6 +163,7 @@ class ScaffoldFilter:
         *,
         unclosed_opens_are_prose: bool = False,
         inline_openers: set[int] | None = None,
+        literal_lines: set[int] | None = None,
     ) -> None:
         self.hidden_tags: list[str] = []
         self.pending = ""
@@ -150,6 +178,7 @@ class ScaffoldFilter:
         # that merely mentions an opener mid-sentence must then survive.
         self.unclosed_opens_are_prose = unclosed_opens_are_prose
         self.inline_openers = inline_openers
+        self.literal_lines = literal_lines
         self.input_length = 0
         self.has_reason_close = False
 
@@ -173,7 +202,7 @@ class ScaffoldFilter:
 
         if quoted:
             return cursor, True
-        if spaces >= 4:
+        if self.literal_lines is None and spaces >= 4:
             return cursor, True
         return cursor, False
 
@@ -227,7 +256,9 @@ class ScaffoldFilter:
                 if cursor == length and cursor > index:
                     self.pending = text[index:]
                     break
-                if not literal and cursor < length:
+                if self.literal_lines is not None:
+                    literal |= text_offset + index in self.literal_lines
+                elif not literal and cursor < length:
                     marker = text[cursor]
                     if marker in "`~":
                         run = 1
@@ -423,9 +454,21 @@ def strip_scaffold_blocks(blocks: list[str]) -> list[str]:
     if not blocks:
         return []
     original = "".join(blocks)
+    if "<" not in original:
+        return blocks.copy()
     lowered = original.lower()
-    inline_openers = _inline_openers(original) if "`" in original else set()
-    scanner = ScaffoldFilter(inline_openers=inline_openers)
+    literal_ranges = _literal_ranges(original)
+    literal_lines = {start for start, _ in literal_ranges}
+    for start, end in literal_ranges:
+        literal_lines.update(
+            m.end()
+            for m in _NEWLINE_RE.finditer(original, start, end)
+            if m.end() < end
+        )
+    scanner = ScaffoldFilter(
+        inline_openers=_inline_openers(original, literal_ranges),
+        literal_lines=literal_lines,
+    )
     if any(tag in lowered for tag in _CLOSE_TAGS):
         scanner.feed(original, bare_closes=[])
         has_close = scanner.has_reason_close

@@ -43,7 +43,6 @@ from qwenpaw.schemas import (
 from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
-from ...agents.context.scroll.scaffold_filter import strip_scaffold_blocks
 from ...agents.context.scroll.serialize import (
     flush_headline_delta,
     strip_headline,
@@ -51,6 +50,10 @@ from ...agents.context.scroll.serialize import (
     strip_model_scaffolding,
 )
 from ...config.utils import load_config
+from ...runtime.display import (
+    TERMINAL_STREAM_STATUSES as _TERMINAL_STREAM_STATUSES,
+    filter_display_blocks as _filter_display_blocks,
+)
 from ...utils.logging import sanitize_log_value
 
 # Optional callback to enqueue payload (set by manager)
@@ -62,11 +65,6 @@ OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 logger = logging.getLogger(__name__)
 
 _SSE_TEXT_PREFIX = "scaffold:"
-_TERMINAL_STREAM_STATUSES = {
-    RunStatus.Completed,
-    RunStatus.Failed,
-    RunStatus.Cancelled,
-}
 
 
 @dataclass
@@ -85,12 +83,6 @@ class _BufferedAssistantText:
         indices = sorted(self.blocks)
         texts = ["".join(self.blocks[index]) for index in indices]
         return list(zip(indices, _filter_display_blocks(texts)))
-
-
-def _filter_display_blocks(blocks: list[str]) -> list[str]:
-    return [
-        strip_headline(text) or "" for text in strip_scaffold_blocks(blocks)
-    ]
 
 
 _TOOL_OUTPUT_MESSAGE_TYPES = {

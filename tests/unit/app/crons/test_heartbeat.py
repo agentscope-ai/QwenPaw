@@ -94,6 +94,24 @@ def test_extract_message_preview_text_block():
     assert _extract_message_preview(msg) == "Hello world"
 
 
+def test_heartbeat_preview_shows_only_filtered_assistant_reply():
+    msg = {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "structured reasoning"},
+            {"type": "text", "text": "<system-info>private"},
+            {"type": "text", "text": "</system-info>"},
+            {
+                "type": "tool_result",
+                "output": [{"type": "text", "text": "raw"}],
+            },
+        ],
+    }
+    assert _extract_message_preview(msg) is None
+    msg["content"][2]["text"] += "public answer"
+    assert _extract_message_preview(msg) == "public answer"
+
+
 def test_extract_message_preview_empty_content_returns_none():
     assert _extract_message_preview({"content": []}) is None
 

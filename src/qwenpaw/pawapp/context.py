@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
 from uuid import uuid4
 
+from ..runtime.display import (
+    AssistantDisplayStream,
+    TERMINAL_STREAM_STATUSES,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -606,8 +611,10 @@ class PawAppContext:
                 channel=channel or self.channel,
                 agent_id=self.agent_id or "default",
             )
+            display = AssistantDisplayStream()
             async for event in workspace.stream_query(request):
-                yield event
+                for frame in display.project(event):
+                    yield frame
         else:
             # Fallback: try direct agent call
             logger.warning("Workspace has no stream_query; using fallback")
@@ -759,38 +766,41 @@ class ChatReply:
         """
         # pylint: disable=too-many-branches
 
-        def _enum_value(value: Any) -> Any:
-            return getattr(value, "value", value)
+        def _is_assistant_message(message: Any) -> bool:
+            return (
+                getattr(message, "type", "message") == "message"
+                and getattr(message, "role", "assistant") == "assistant"
+            )
 
-        def _content_text(content_list: Any) -> str:
+        def _content_text(content_list: Any) -> str | None:
             parts: List[str] = []
             for block in content_list or []:
-                if getattr(block, "delta", False):
-                    continue  # skip streaming deltas (avoid double count)
-                t = getattr(block, "text", None)
-                if t is None and isinstance(block, dict):
-                    t = block.get("text")
-                if t:
-                    parts.append(str(t))
-            return "".join(parts)
+                if isinstance(block, dict):
+                    kind = block.get("type", "text")
+                    delta = block.get("delta", False)
+                    text = block.get("text")
+                else:
+                    kind = getattr(block, "type", "text")
+                    delta = getattr(block, "delta", False)
+                    text = getattr(block, "text", None)
+                if kind == "text" and not delta and isinstance(text, str):
+                    parts.append(text)
+            return "".join(parts).strip() if parts else None
 
-        def _last_assistant_text(messages: Any) -> str:
-            candidates: List[str] = []
-            fallback: List[str] = []
-            for message in messages or []:
-                text = _content_text(getattr(message, "content", []))
-                if not text.strip():
+        def _last_assistant_text(messages: Any) -> str | None:
+            for message in reversed(messages or []):
+                if not _is_assistant_message(message):
                     continue
-                fallback.append(text)
-                message_type = _enum_value(getattr(message, "type", None))
-                role = _enum_value(getattr(message, "role", None))
-                if message_type in (None, "message") and role in (
-                    None,
-                    "assistant",
+                status = getattr(message, "status", None)
+                if (
+                    status is not None
+                    and status not in TERMINAL_STREAM_STATUSES
                 ):
-                    candidates.append(text)
-            selected = candidates or fallback
-            return selected[-1].strip() if selected else ""
+                    continue
+                text = _content_text(getattr(message, "content", []))
+                if text is not None:
+                    return text
+            return None
 
         # 1) Last AgentResponse (.output list of messages)
         final_response = None
@@ -807,6 +817,8 @@ class ChatReply:
             if err:
                 logger.debug("ChatReply: resolved via AgentResponse.error")
                 return str(err)
+            if final_text is not None:
+                return final_text
 
         # 2) Completed Message objects (non-delta)
         messages = []
@@ -817,19 +829,27 @@ class ChatReply:
             if isinstance(content, list):
                 messages.append(chunk)
         final_text = _last_assistant_text(messages)
-        if final_text:
+        if final_text is not None:
             logger.debug("ChatReply: resolved via Message objects")
             return final_text
 
-        # 3) Streaming text deltas
+        # 3) Deltas from a known assistant reply, not reasoning or tools.
+        reply_ids = {
+            getattr(message, "id", None)
+            for message in messages
+            if _is_assistant_message(message)
+        }
         deltas_by_message: Dict[str, List[str]] = {}
         for chunk in self._chunks:
-            if not getattr(chunk, "delta", False):
+            if (
+                not getattr(chunk, "delta", False)
+                or getattr(chunk, "type", "text") != "text"
+            ):
                 continue
             text = getattr(chunk, "text", None)
-            if not text:
+            message_id = getattr(chunk, "msg_id", None)
+            if not text or not message_id or message_id not in reply_ids:
                 continue
-            message_id = str(getattr(chunk, "msg_id", None) or "default")
             deltas_by_message.setdefault(message_id, []).append(str(text))
         if deltas_by_message:
             logger.debug("ChatReply: resolved via streaming deltas")

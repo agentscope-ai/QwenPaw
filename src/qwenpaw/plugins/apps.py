@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Mapping,
     TYPE_CHECKING,
+    TypeAlias,
     Union,
 )
 
@@ -48,30 +49,48 @@ class ChatReply:
 
     @property
     def text(self) -> str:
-        # Prefer completed messages so streamed deltas are not counted twice.
-        messages = [
-            message for event in self.events for message in event.output
-        ]
+        """Return ordinary assistant text, excluding reasoning and tools."""
+        terminal = {"completed", "failed", "cancelled"}
+        messages = next(
+            (
+                event.output
+                for event in reversed(self.events)
+                if event.output and event.status in terminal
+            ),
+            (),
+        )
         if messages:
             return "".join(
                 block.text
                 for message in messages
+                if message.type == "message" and message.role == "assistant"
                 for block in message.content
-                if block.type == "text"
+                if block.type == "text" and not block.delta
             )
-        completed = [
+
+        replies = [
             event
             for event in self.events
-            if event.object == "message" and event.status == "completed"
+            if event.object == "message"
+            and event.type == "message"
+            and event.attributes.get("role") == "assistant"
         ]
-        source = completed or [
-            event for event in self.events if event.object == "content"
-        ]
+        completed = [event for event in replies if event.status in terminal]
+        if completed:
+            return "".join(
+                block.text
+                for event in completed
+                for block in event.content
+                if block.type == "text" and not block.delta
+            )
+
+        reply_ids = {event.id for event in replies if event.id}
         return "".join(
             block.text
-            for event in source
+            for event in self.events
+            if event.object == "content"
             for block in event.content
-            if block.type == "text"
+            if block.type == "text" and block.msg_id in reply_ids
         )
 
 
@@ -256,16 +275,16 @@ class AppContext(ToolContext):
         await self._services.notify(message, title, level)
 
 
-RouteResult = (
-    JSONBody
-    | HttpResponse
-    | StreamingResponse
-    | TaskSnapshot
-    | CancelResult
-    | SessionSummary
-    | ChatReply
-    | ApprovalSnapshot
-)
+RouteResult: TypeAlias = Union[
+    JSONBody,
+    HttpResponse,
+    StreamingResponse,
+    TaskSnapshot,
+    CancelResult,
+    SessionSummary,
+    ChatReply,
+    ApprovalSnapshot,
+]
 RouteHandler = Callable[
     [AppContext, HttpRequest],
     RouteResult | Awaitable[RouteResult],

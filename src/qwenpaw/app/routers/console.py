@@ -982,9 +982,9 @@ async def delete_inbox_event(event_id: str):
 
 @router.get("/inbox/traces/{run_id}")
 async def get_inbox_trace(run_id: str):
-    from ..inbox_trace_store import get_trace
+    from ..inbox_trace_store import get_trace_for_display
 
-    trace = await get_trace(run_id)
+    trace = await get_trace_for_display(run_id)
     if trace is None:
         raise HTTPException(
             status_code=404,

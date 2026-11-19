@@ -88,6 +88,22 @@ def _message(role: Role = Role.ASSISTANT, **kwargs: Any) -> Message:
         ),
         ("~~~xml\n<thinking>literal</thinking>\n~~~\nanswer", None),
         ("~~~xml\n~~~not a closer\n<thinking>literal</thinking>\n~~~", None),
+        (
+            "- ```xml\n  <think>literal</think>\n  ```\n\n"
+            "<think>hidden</think>answer",
+            "- ```xml\n  <think>literal</think>\n  ```\n\nanswer",
+        ),
+        (
+            "1. outer\r\n   - ~~~xml\r\n     <system-info>literal</system-info>"
+            "\r\n     ~~~\r\n\r\n     <system-info>hidden</system-info>answer",
+            "1. outer\r\n   - ~~~xml\r\n     <system-info>literal</system-info>"
+            "\r\n     ~~~\r\n\r\n     answer",
+        ),
+        (
+            "- item\n\n      <think>literal</think>\n\n"
+            "  <think>hidden</think>answer",
+            "- item\n\n      <think>literal</think>\n\n  answer",
+        ),
         ("example ``<thinking>literal</thinking>`` answer", None),
         ("example `line one\n<thinking>literal</thinking>` answer", None),
         ('<parameter name="count">3</parameter>', None),

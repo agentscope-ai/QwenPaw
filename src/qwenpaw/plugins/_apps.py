@@ -11,6 +11,7 @@ from contextvars import ContextVar
 from dataclasses import fields, is_dataclass, replace
 from collections.abc import Mapping
 
+from ..runtime.display import AssistantDisplayStream
 from .apps import (
     AppContext,
     CancelResult,
@@ -397,9 +398,11 @@ class Services:  # pylint: disable=protected-access
             session_token = current_session_id.set(sid)
             observation_token = _observing.set(True)
             stream = workspace.stream_query(envelope)
+            display = AssistantDisplayStream()
             try:
                 async for event in stream:
-                    yield chat_event(event)
+                    for frame in display.project(event):
+                        yield chat_event(frame)
             finally:
                 try:
                     await stream.aclose()
