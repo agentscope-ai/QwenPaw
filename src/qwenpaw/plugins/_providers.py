@@ -6,6 +6,7 @@
 
 import asyncio
 import inspect
+import logging
 from contextlib import asynccontextmanager
 from copy import copy, deepcopy
 from dataclasses import asdict, fields, replace
@@ -22,6 +23,8 @@ from .providers import (
     ProviderHandle,
 )
 from .storage import PluginConfig
+
+logger = logging.getLogger(__name__)
 
 
 def model_values(model):
@@ -711,13 +714,22 @@ def configured_models(provider_manager):
     """Read effective typed selections without constructing model clients."""
     from ..config.utils import load_config
     from ..config.config import load_agent_config
+    from ..exceptions import ConfigurationException
 
     config = load_config()
     choices = []
     for agent_id, profile in config.agents.profiles.items():
         if not profile.enabled:
             continue
-        agent = load_agent_config(agent_id)
+        try:
+            agent = load_agent_config(agent_id)
+        except ConfigurationException:
+            logger.warning(
+                "Skipping model restoration for unreadable Agent config %s",
+                agent_id,
+                exc_info=True,
+            )
+            continue
         for model_type, slot in (
             ("chat", agent.active_model),
             ("decision", agent.decision_model),

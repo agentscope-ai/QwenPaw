@@ -135,6 +135,7 @@ def test_effective_choices_respect_agent_overrides_and_disabled_agents(
     cloud = SimpleNamespace(provider_id="openai", model="cloud")
     local = SimpleNamespace(provider_id="qwenpaw-local", model="A")
     profiles = {
+        "unreadable": SimpleNamespace(enabled=True),
         "override": SimpleNamespace(enabled=True),
         "inherit": SimpleNamespace(enabled=True),
         "disabled": SimpleNamespace(enabled=False),
@@ -144,10 +145,14 @@ def test_effective_choices_respect_agent_overrides_and_disabled_agents(
         "load_config",
         lambda: SimpleNamespace(agents=SimpleNamespace(profiles=profiles)),
     )
-    monkeypatch.setattr(
-        config,
-        "load_agent_config",
-        lambda agent: SimpleNamespace(
+
+    def load_profile(agent):
+        if agent == "unreadable":
+            raise config.ConfigurationException(
+                config_key="agent",
+                message="invalid agent.json",
+            )
+        return SimpleNamespace(
             active_model=(
                 cloud if model_type == "chat" and agent == "override" else None
             ),
@@ -156,8 +161,9 @@ def test_effective_choices_respect_agent_overrides_and_disabled_agents(
                 if model_type == "decision" and agent == "override"
                 else None
             ),
-        ),
-    )
+        )
+
+    monkeypatch.setattr(config, "load_agent_config", load_profile)
     defaults = {"chat": None, "decision": None}
     defaults[model_type] = local
     assert _providers.configured_models(
