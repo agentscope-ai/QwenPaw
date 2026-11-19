@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+from collections import deque
 import logging
+import os
 import queue
 import re
 import sys
@@ -51,15 +53,131 @@ _FATAL_STARTUP_EVENT = re.compile(
 )
 
 
+class _WorkerLogWriter:
+    """Write queued channel log lines outside producer threads."""
+
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+        self._ready = threading.Condition()
+        self._pending: deque[bytes] = deque()
+        self._dropped = 0
+        self._closed = False
+        self._thread = threading.Thread(
+            target=self._consume,
+            name=f"qwenpaw-channel-log-writer",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def submit(self, line: str) -> None:
+        """Queue one line, retaining a byte to signal host truncation."""
+        limit = _LINE_BYTES + 1
+        data = line[:limit].encode(f"utf-8", f"backslashreplace")[:limit]
+        priority = data.startswith(b"startup_diagnostic_error ")
+        if record := _CHANNEL_RECORD.match(data):
+            priority = int(record[1]) >= logging.WARNING
+        elif record := _LARK_RECORD.match(data):
+            level = _LEVELS.get(record[1].decode(f"ascii"), logging.WARNING)
+            priority = level >= logging.WARNING
+        capacity = _QUEUE_SIZE - (0 if priority else _PRIORITY_LINES)
+        with self._ready:
+            if self._closed:
+                return
+            if len(self._pending) >= capacity:
+                self._dropped += 1
+                return
+            self._pending.append(data + b"\n")
+            self._ready.notify()
+
+    def _write(self, line: bytes) -> None:
+        remaining = memoryview(line)
+        while remaining:
+            written = os.write(self._fd, remaining)
+            remaining = remaining[written:]
+
+    def _consume(self) -> None:
+        next_summary = 0.0
+        try:
+            while True:
+                with self._ready:
+                    self._ready.wait_for(
+                        lambda: self._pending or self._dropped or self._closed,
+                    )
+                    line = self._pending.popleft() if self._pending else None
+                    now = monotonic()
+                    dropped = 0
+                    if self._dropped and (line is None or now >= next_summary):
+                        dropped, self._dropped = self._dropped, 0
+                        next_summary = now + 1.0
+                if dropped:
+                    summary = (
+                        f"channel_log {logging.WARNING} {_WORKER_LOGGER} "
+                        f"worker log queue dropped {dropped} records\n"
+                    )
+                    self._write(summary.encode(f"utf-8"))
+                if line is None and not dropped:
+                    return
+                if line is not None:
+                    self._write(line)
+        except OSError:
+            with self._ready:
+                self._closed = True
+                self._pending.clear()
+                self._dropped = 0
+
+    def close(self) -> None:
+        with self._ready:
+            self._closed = True
+            self._ready.notify()
+        self._thread.join(timeout=0.05)
+
+
+class _WorkerLogStream:
+    """Queue complete Python text lines; leave native/binary output alone."""
+
+    def __init__(self, stream, writer: _WorkerLogWriter) -> None:
+        self._stream = stream
+        self._writer = writer
+        self._partial = f""
+        self._lock = threading.Lock()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+    def write(self, text: str) -> int:
+        with self._lock:
+            start = 0
+            while start < len(text):
+                end = text.find(f"\n", start)
+                stop = len(text) if end < 0 else end
+                room = _LINE_BYTES + 1 - len(self._partial)
+                self._partial += text[start : min(stop, start + room)]
+                if end < 0:
+                    break
+                self._writer.submit(self._partial)
+                self._partial = f""
+                start = end + 1
+        return len(text)
+
+    def flush(self) -> None:
+        with self._lock:
+            if self._partial:
+                self._writer.submit(self._partial)
+                self._partial = f""
+
+
 class _ChannelFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         # Keep a traceback and its severity together on the stderr pipe.
         return f" ".join(super().format(record).splitlines())
 
 
-def configure_channel_logging(level: int) -> None:
+def configure_channel_logging(level: int) -> _WorkerLogWriter:
     """Route Python channel records over the isolated worker stderr pipe."""
     # Bootstrap redirects stdout to the stderr pipe with UTF-8 encoding.
+    writer = _WorkerLogWriter(sys.stdout.fileno())
+    sys.stdout = _WorkerLogStream(sys.stdout, writer)
+    sys.stderr = _WorkerLogStream(sys.stderr, writer)
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
     handler.setFormatter(
@@ -98,6 +216,7 @@ def configure_channel_logging(level: int) -> None:
             lambda record: record.levelno >= logging.WARNING
             or record.getMessage().startswith(f"Response Status Code: "),
         )
+    return writer
 
 
 def _credentials(text: str) -> str:

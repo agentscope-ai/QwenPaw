@@ -1086,6 +1086,88 @@ async def test_channel_worker_preserves_canonical_runtime_context(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(f"resume_reads", [False, True])
+async def test_channel_worker_handles_log_pipe_backpressure(
+    host,
+    caplog,
+    monkeypatch,
+    resume_reads,
+):
+    monkeypatch.setattr(logging.getLogger(f"qwenpaw"), f"level", logging.INFO)
+    caplog.set_level(logging.WARNING, logger=f"qwenpaw.plugins.worker")
+    source = host.artifact() / f"sample.py"
+    bind = f"        super().bind(context)\n"
+    identity = f"    async def identity(self, _params, _request):\n"
+    source.write_text(
+        source.read_text(encoding=f"utf-8")
+        .replace(
+            bind,
+            bind + f"        context.peer.register_method(\n"
+            f"            'sample.burst', self.log_burst)\n",
+        )
+        .replace(
+            identity,
+            f"    async def log_burst(self, params, request):\n"
+            f"        import asyncio, logging, sys\n"
+            f"        logger = logging.getLogger('sample.sdk')\n"
+            f"        if params['sdk_console']:\n"
+            f"            logger = logging.getLogger('Lark')\n"
+            f"            console = logging.StreamHandler(sys.stdout)\n"
+            f"            console.setFormatter(logging.Formatter(\n"
+            f"                '[Lark] [%(asctime)s] [%(levelname)s] '\n"
+            f"                '%(message)s'))\n"
+            f"            logger.addHandler(console)\n"
+            f"        async def heartbeat():\n"
+            f"            await asyncio.sleep(0.01)\n"
+            f"            await self._context.peer.notify(\n"
+            f"                'sample.heartbeat', {{'ok': True}})\n"
+            f"        beat = asyncio.create_task(heartbeat())\n"
+            f"        for index in range(2000):\n"
+            f"            logger.info('x' * 4096)\n"
+            f"            if index % 32 == 0:\n"
+            f"                await asyncio.sleep(0)\n"
+            f"        logger.error('priority after SDK burst')\n"
+            f"        await beat\n"
+            f"        return {{'complete': True}}\n\n" + identity,
+        ),
+        encoding=f"utf-8",
+    )
+    workspace = await host.workspace(f"log-backpressure")
+    await host.loader.load_plugin_from_path(source.parent)
+    channel = await workspace.channel_manager.get_channel(KEY)
+    process = channel.channel_process
+    heartbeats = []
+    process._peer.register_notification(
+        f"sample.heartbeat",
+        lambda params, _request: heartbeats.append(params),
+    )
+    transport = process._process.stderr._transport
+    transport.pause_reading()
+    try:
+        assert await process.call(
+            f"sample.burst",
+            {f"sdk_console": resume_reads},
+            timeout=3,
+        ) == {f"complete": True}
+        assert heartbeats == [{f"ok": True}]
+        assert await process.call(f"sample.identity", {}, timeout=1)
+        if resume_reads:
+            transport.resume_reading()
+            await eventually(
+                lambda: f"worker log queue dropped" in caplog.text,
+            )
+            await eventually(
+                lambda: f"priority after SDK burst" in caplog.text,
+            )
+        stopped = await process.stop(timeout=2)
+        assert stopped.exited and not stopped.forced
+        assert stopped.returncode == 0
+        assert rows(host.ledger, f"stopped")
+    finally:
+        transport.resume_reading()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(f"level", [logging.INFO, logging.DEBUG])
 async def test_channel_worker_forwards_sdk_and_plugin_logs(
     host,
