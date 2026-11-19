@@ -1,4 +1,4 @@
-import type { MarkedExtension, Tokenizer, Tokens } from "marked";
+import { Tokenizer, type MarkedExtension, type Tokens } from "marked";
 
 /**
  * CJK emphasis recovery.
@@ -41,6 +41,7 @@ type Candidate = {
   content: string;
   maySkipOpening: boolean;
 };
+type SuffixBalance = { double: number; single: number };
 
 function isCjkFollower(src: string, offset: number): boolean {
   const codePoint = src.codePointAt(offset);
@@ -55,8 +56,11 @@ function isCjkFollower(src: string, offset: number): boolean {
  * Record the minimum native delimiter balance after each double opener.
  * Use marked's mask here, even if recovery has a more precise code boundary.
  */
-function indexSuffixBalance(masked: string, rule: RegExp): Map<number, number> {
-  const suffixBalance = new Map<number, number>();
+function indexSuffixBalance(
+  masked: string,
+  rule: RegExp,
+): Map<number, SuffixBalance> {
+  const suffixBalance = new Map<number, SuffixBalance>();
 
   // Start at index 1 to bypass the anchored alternative. The space at index 1
   // supplies the left context for a run at the start of the masked source.
@@ -66,21 +70,31 @@ function indexSuffixBalance(masked: string, rule: RegExp): Map<number, number> {
     ([, closePunct, closeText, open, openPunct, bothPunct, bothText]) =>
       closePunct || closeText || open || openPunct || bothPunct || bothText,
   );
-  let minimum = 0;
+  let double = Infinity;
+  let single = Infinity;
   for (let i = runs.length - 1; i >= 0; i -= 1) {
     const run = runs[i];
     const opening = run[3] || run[4];
     const ambiguous = run[5] || run[6];
     const width = (opening || ambiguous || run[1] || run[2]).length;
     if (width === 2) {
-      suffixBalance.set(run.index + run[0].length - width - 2, minimum);
+      suffixBalance.set(run.index + run[0].length - width - 2, {
+        double,
+        single,
+      });
     }
 
     if (opening) {
-      minimum = Math.min(0, minimum + width);
-    } else if (!ambiguous || (2 + width) % 3 !== 0) {
-      // A two-character opener is subject to marked's rule of three.
-      minimum -= width;
+      double += width;
+      single += width;
+    } else {
+      // A retry after consuming one marker uses the one-character rule of three.
+      if (!ambiguous || (2 + width) % 3 !== 0) {
+        double = Math.min(0, double) - width;
+      }
+      if (!ambiguous || (1 + width) % 3 !== 0) {
+        single = Math.min(0, single) - width;
+      }
     }
   }
   return suffixBalance;
@@ -107,19 +121,19 @@ function findCloserAroundInlineNodes(
     }
     if (match[0] === "[" && src.charAt(match.index - 1) === "!") return -1;
     const remainder = src.slice(match.index);
-    const { state } = tokenizer.lexer;
-    const { inLink, inRawBlock } = state;
-    let token: Tokens.Codespan | Tokens.Link | Tokens.Image | undefined;
-    try {
-      token =
-        match[0] === "`"
-          ? tokenizer.codespan(remainder)
-          : tokenizer.link(remainder);
-    } finally {
-      // The link probe parses the label; probing must not change lexer state.
-      state.inLink = inLink;
-      state.inRawBlock = inRawBlock;
-    }
+    const token =
+      match[0] === "`"
+        ? tokenizer.codespan(remainder)
+        : Tokenizer.prototype.link.call(
+            {
+              options: tokenizer.options,
+              rules: tokenizer.rules,
+              // Use the native link boundary without parsing its label or
+              // touching the live lexer's state and extensions.
+              lexer: { state: { inLink: false }, inlineTokens: () => [] },
+            },
+            remainder,
+          );
     if (!token || (token.type !== "codespan" && token.type !== "link")) {
       return -1;
     }
@@ -211,7 +225,7 @@ export function cjkStrongExtension(): MarkedExtension {
   // same long inline source, including after nested inline parses return.
   const indexes = new WeakMap<
     Tokenizer["lexer"],
-    Record<Delimiter, Map<string, Map<number, number>>>
+    Record<Delimiter, Map<string, Map<number, SuffixBalance>>>
   >();
   return {
     tokenizer: {
@@ -234,12 +248,14 @@ export function cjkStrongExtension(): MarkedExtension {
           suffixBalance = indexSuffixBalance(maskedSrc, rule);
           index.set(maskedSrc, suffixBalance);
         }
-        const minimum = suffixBalance.get(candidate.offset);
-        // Skipping one opening marker can reduce the balance by one. Let
-        // stock handle every case where a native close cannot be ruled out.
+        const balance = suffixBalance.get(candidate.offset);
+        // Marked can retry with one marker after the double opener fails.
+        // Its anchored rule may also skip an opening marker in the suffix.
+        const skipped = candidate.maySkipOpening ? 1 : 0;
         if (
-          minimum === undefined ||
-          minimum <= (candidate.maySkipOpening ? -1 : -2)
+          !balance ||
+          balance.double + 2 <= skipped ||
+          balance.single + 1 <= skipped
         ) {
           return false;
         }

@@ -321,6 +321,44 @@ describe("historical CJK boundaries through ChatMarkdown", () => {
 });
 
 describe("protected inline boundaries through ChatMarkdown", () => {
+  it.each([
+    ["**请阅读[说明[^1]](/docs)**", false],
+    ["**请阅读[说明[^1]](/docs)。**后", true],
+    ['**请阅读[说明[^1]](/docs "标题")。**后', true],
+  ] as const)(
+    "registers footnotes once inside links: %s",
+    (body, recovered) => {
+      const content = `正文参考[^1]\n\n${body}\n\n[^1]: 注释`;
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      const targets = (root: HTMLElement) =>
+        [...root.querySelectorAll('a[href^="#footnote-ref-"]')].map((link) =>
+          link.getAttribute("href"),
+        );
+      // The SDK hides the first back link; compare the rendered targets as-is.
+      expect(targets(sdk)).toContain("#footnote-ref-1-2");
+      expect(targets(app)).toEqual(targets(sdk));
+      const referenceIds = (root: HTMLElement) =>
+        [...root.querySelectorAll("[data-footnote-ref]")].map(({ id }) => id);
+      expect(referenceIds(app)).toEqual(referenceIds(sdk));
+      if (recovered) expect(app.querySelector("strong > a")).not.toBeNull();
+      else expect(app.innerHTML).toBe(sdk.innerHTML);
+    },
+  );
+
+  it.each([
+    ["**", "***"],
+    ["__", "___"],
+  ])("preserves the SDK's single-marker retry: %s", (marker, tail) => {
+    for (const padding of ["", "乙".repeat(1100)]) {
+      const content = `${marker}甲。${marker}乙${padding}${tail}`;
+      const sdk = render(<SdkMarkdown content={content} />).container;
+      const app = render(<ChatMarkdown content={content} />).container;
+      expect(sdk.querySelector("em strong")).not.toBeNull();
+      expect(app.innerHTML).toBe(sdk.innerHTML);
+    }
+  });
+
   it.each(["**", "__"])(
     "keeps %s around code as the paragraph grows",
     (marker) => {
