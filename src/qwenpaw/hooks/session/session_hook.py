@@ -113,7 +113,7 @@ class SessionSaveHook(LifecycleHook):
 
             restore_cron_context(ctx)
             context = getattr(request, "request_context", None) or {}
-            if context.get("source") == "cron":
+            if context.get("source") in {"cron", "heartbeat"}:
                 from ...token_usage.turn_usage import attach_turn_usage
 
                 await attach_turn_usage(

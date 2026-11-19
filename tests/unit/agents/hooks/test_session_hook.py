@@ -124,14 +124,15 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
     assert completed
 
 
-async def test_cron_usage_is_in_the_initial_session_save(monkeypatch):
+@pytest.mark.parametrize("source", ["cron", "heartbeat"])
+async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch, source):
     from agentscope.message import Msg
 
     from qwenpaw.token_usage import turn_usage
 
     session = _FakeSession()
     ctx = _ctx(session, ephemeral=False)
-    ctx.request.request_context["source"] = "cron"
+    ctx.request.request_context["source"] = source
     ctx.workspace.agent_id = "default"
     message = Msg(name="assistant", content="done", role="assistant")
     ctx.agent.state = SimpleNamespace(context=[message])
@@ -155,4 +156,4 @@ async def test_cron_usage_is_in_the_initial_session_save(monkeypatch):
     await SessionSaveHook().run(ctx)
 
     saved = session.saved_payload["state"]["context"][0]
-    assert saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"] == usage
+    assert saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"]["total_tokens"] == 12

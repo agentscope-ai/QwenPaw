@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import uuid
+from contextlib import aclosing
 from datetime import datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -186,43 +187,6 @@ def _last_preview_from_delta(delta: list[dict[str, Any]]) -> str | None:
     return None
 
 
-async def _commit_run_usage(
-    workspace: Any,
-    req: Dict[str, Any],
-) -> None:
-    """Persist per-run token usage into the session's turn records.
-
-    Heartbeat drives ``workspace.stream_query`` directly instead of
-    going through ``Channel.consume_one``, so nothing else commits
-    usage for these runs.
-    """
-    import importlib
-
-    commit_turn_usage = importlib.import_module(
-        "qwenpaw.token_usage.turn_usage",
-    ).commit_turn_usage
-    await commit_turn_usage(
-        workspace=workspace,
-        session_id=req.get("session_id", "") or "",
-        user_id=req.get("user_id", "") or "",
-        channel=req.get("channel", "") or "",
-    )
-
-
-def _discard_run_usage(req: Dict[str, Any]) -> None:
-    """Drop staged usage when a heartbeat run does not finish normally.
-
-    Heartbeat reuses the same session across runs, so a failed run must
-    not leak stale usage into a later turn on that session.
-    """
-    import importlib
-
-    discard_turn_usage = importlib.import_module(
-        "qwenpaw.token_usage.turn_usage",
-    ).discard_turn_usage
-    discard_turn_usage(req.get("session_id", "") or "")
-
-
 # pylint: disable=too-many-branches,too-many-statements
 async def run_heartbeat_once(
     *,
@@ -280,29 +244,29 @@ async def run_heartbeat_once(
         config = await run_sync_io(load_config)
         last_dispatch = config.last_dispatch
 
+    from ...token_usage.model_wrapper import isolated_turn_usage
+
+    async def _run(dispatch=None) -> None:
+        with isolated_turn_usage():
+            async with aclosing(workspace.stream_query(req)) as stream:
+                async for event in stream:
+                    if dispatch is not None:
+                        await channel_manager.send_event(
+                            channel=dispatch.channel,
+                            user_id=dispatch.user_id,
+                            session_id=dispatch.session_id,
+                            event=event,
+                            meta={},
+                        )
+
     target = (hb.target or "").strip().lower()
     if target == HEARTBEAT_TARGET_LAST and last_dispatch:
         ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
 
-            async def _run_and_dispatch() -> None:
-                async for event in workspace.stream_query(req):
-                    await channel_manager.send_event(
-                        channel=ld.channel,
-                        user_id=ld.user_id,
-                        session_id=ld.session_id,
-                        event=event,
-                        meta={},
-                    )
-
             try:
-                await asyncio.wait_for(
-                    _run_and_dispatch(),
-                    timeout=timeout_seconds,
-                )
-                await _commit_run_usage(workspace, req)
+                await asyncio.wait_for(_run(ld), timeout=timeout_seconds)
             except asyncio.TimeoutError:
-                _discard_run_usage(req)
                 logger.warning(
                     "heartbeat run timed out after %ss",
                     timeout_seconds,
@@ -332,13 +296,8 @@ async def run_heartbeat_once(
             },
         )
 
-        async def _run_only() -> None:
-            async for _ in workspace.stream_query(req):
-                pass
-
         try:
-            await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
-            await _commit_run_usage(workspace, req)
+            await asyncio.wait_for(_run(), timeout=timeout_seconds)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -367,7 +326,6 @@ async def run_heartbeat_once(
                 },
             )
         except asyncio.TimeoutError:
-            _discard_run_usage(req)
             logger.warning(
                 "heartbeat run timed out after %ss",
                 timeout_seconds,
@@ -401,7 +359,6 @@ async def run_heartbeat_once(
                 },
             )
         except Exception as e:  # pylint: disable=broad-except
-            _discard_run_usage(req)
             logger.exception("heartbeat run failed (inbox target)")
             await append_trace_from_session_delta(
                 run_id=run_id,
@@ -431,18 +388,9 @@ async def run_heartbeat_once(
         return
 
     # target main or no last_dispatch: run agent only, no dispatch
-    async def _run_without_dispatch() -> None:
-        async for _ in workspace.stream_query(req):
-            pass
-
     try:
-        await asyncio.wait_for(
-            _run_without_dispatch(),
-            timeout=timeout_seconds,
-        )
-        await _commit_run_usage(workspace, req)
+        await asyncio.wait_for(_run(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
-        _discard_run_usage(req)
         logger.warning(
             "heartbeat run timed out after %ss",
             timeout_seconds,

@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from qwenpaw.app.channels.schema import DEFAULT_CHANNEL
 from qwenpaw.app.crons.heartbeat import (
     _extract_message_preview,
     is_cron_expression,
@@ -158,61 +157,53 @@ def _patch_heartbeat_env(monkeypatch, *, stream):
         "qwenpaw.app.crons.heartbeat.run_sync_io",
         _run_sync_directly,
     )
-    workspace = SimpleNamespace(stream_query=stream)
-    commit = AsyncMock(return_value=(None, None))
-    monkeypatch.setattr(
-        "qwenpaw.token_usage.turn_usage.commit_turn_usage",
-        commit,
-    )
-    discard = Mock()
-    monkeypatch.setattr(
-        "qwenpaw.token_usage.turn_usage.discard_turn_usage",
-        discard,
-    )
-    return workspace, commit, discard
+    return SimpleNamespace(stream_query=stream)
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_success_commits_turn_usage(monkeypatch):
+@pytest.mark.parametrize("failure", ["error", "cancel", "timeout"])
+async def test_heartbeat_cleans_up_only_its_own_usage(monkeypatch, failure):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    wrapper = TokenRecordingModelWrapper
+    chat_usage = {"total_tokens": 10}
+    monkeypatch.setitem(wrapper._usage_by_session, "main", chat_usage)
+    started = asyncio.Event()
+    buffers = []
+
     async def stream(req):
-        yield "event"
-
-    workspace, commit, discard = _patch_heartbeat_env(
-        monkeypatch,
-        stream=stream,
-    )
-
-    await run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock())
-
-    commit.assert_awaited_once()
-    kwargs = commit.await_args.kwargs
-    assert kwargs["workspace"] is workspace
-    assert kwargs["session_id"] == "main"
-    assert kwargs["user_id"] == "main"
-    assert kwargs["channel"] == DEFAULT_CHANNEL
-    discard.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_heartbeat_timeout_discards_staged_usage(monkeypatch):
-    async def hanging_stream(req):
+        assert req["session_id"] == "main"
+        assert wrapper.peek_usage_for_session("main") is None
+        buffer = wrapper._usage_buffer()
+        buffers.append(buffer)
+        buffer["main"] = {"total_tokens": 2}
+        started.set()
+        if failure == "error":
+            raise RuntimeError("heartbeat failed")
         await asyncio.Event().wait()
         yield
 
-    workspace, commit, discard = _patch_heartbeat_env(
-        monkeypatch,
-        stream=hanging_stream,
-    )
+    workspace = _patch_heartbeat_env(monkeypatch, stream=stream)
     monkeypatch.setattr(
         "qwenpaw.app.crons.heartbeat.get_heartbeat_config",
         lambda agent_id: SimpleNamespace(
             active_hours=None,
-            timeout_seconds=0.01,
+            timeout_seconds=0.05 if failure == "timeout" else 1,
             target="",
         ),
     )
-
-    await run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock())
-
-    commit.assert_not_awaited()
-    discard.assert_called_once_with("main")
+    run = asyncio.create_task(
+        run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock()),
+    )
+    if failure == "error":
+        with pytest.raises(RuntimeError, match="heartbeat failed"):
+            await run
+    elif failure == "cancel":
+        await started.wait()
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+    else:
+        await run
+    assert buffers == [{}]
+    assert wrapper.peek_usage_for_session("main") == chat_usage
