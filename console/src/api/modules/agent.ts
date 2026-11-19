@@ -114,11 +114,11 @@ export const agentApi = {
     request<RerankerTestResponse>("/workspace/reranker/test", {
       method: "POST",
       body: JSON.stringify(config),
-      // The backend runs the full 5-case suite sequentially, each bounded by
-      // the per-request timeout plus a 5s hard-deadline buffer, so the
-      // client must budget for all five requests, not one or two.
-      timeout:
-        Math.max(30, ((config.timeout ?? 10) * 5 * (10 + 5)) / 10 + 10) * 1000,
+      // Mirrors reme_reranker.py::reranker_suite_deadline_seconds: five
+      // sequential requests at the per-request timeout plus a fixed 10s
+      // overhead for DNS validation and connection setup. A 5s client margin
+      // covers transport/parse time so the browser never aborts first.
+      timeout: (5 * (config.timeout ?? 10) + 10 + 5) * 1000,
     }),
 
   getRerankerHistory: (fingerprint: string) =>

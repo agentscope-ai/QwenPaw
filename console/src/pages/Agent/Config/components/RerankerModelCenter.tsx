@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import InlineHelp from "@/components/InlineHelp";
 import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
@@ -8,10 +8,7 @@ import { api } from "@/api";
 import type { RerankerHistoryRecord } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import {
-  getRerankerServiceFingerprint,
-  isRerankerConfigured,
-} from "./rerankerUtils";
+import { isRerankerConfigured } from "./rerankerUtils";
 import styles from "../index.module.less";
 import { useRerankerVerification } from "./useRerankerVerification";
 
@@ -33,47 +30,28 @@ export function RerankerModelCenter() {
     setTestingReranker,
     testedReranker,
     testedRerankerIsCurrent,
+    history,
+    serviceFingerprint,
     markVerified,
     setHistory,
     clearVerification,
   } = useRerankerVerification(rerankerConfig, rerankerConfigured);
 
-  // The fingerprint is a SHA-256 digest computed via WebCrypto, so it
-  // resolves asynchronously and must be tracked in state.
-  const [serviceFingerprint, setServiceFingerprint] = useState("");
-  useEffect(() => {
-    let cancelled = false;
-    if (!rerankerConfigured) {
-      setServiceFingerprint("");
-      return;
-    }
-    getRerankerServiceFingerprint(rerankerConfig)
-      .then((fingerprint) => {
-        if (!cancelled) setServiceFingerprint(fingerprint);
-      })
-      .catch(() => {
-        if (!cancelled) setServiceFingerprint("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    rerankerConfigured,
-    rerankerConfig?.base_url,
-    rerankerConfig?.api_key,
-    rerankerConfig?.model_name,
-    rerankerConfig?.timeout,
-  ]);
+  // History is a separate slice and never sets verifiedAt, so a verdict can
+  // only come from a completed probe of the current service.
+  const verifiedReranker =
+    testedReranker && testedReranker.verifiedAt > 0 ? testedReranker : null;
 
   // Load the persistent verification history for the current service so the
-  // precision slot can show a trend even before a manual verification.
+  // precision slot can show a trend even before a manual verification. The
+  // fingerprint is computed once by the hook; this effect only fetches.
   useEffect(() => {
     if (!serviceFingerprint) return;
     let cancelled = false;
     api
       .getRerankerHistory(serviceFingerprint)
       .then(async (res) => {
-        if (!cancelled) await setHistory(res.history);
+        if (!cancelled) await setHistory(res.history, serviceFingerprint);
       })
       .catch(() => {
         // History is best-effort; a failed fetch must not block the UI.
@@ -106,6 +84,9 @@ export function RerankerModelCenter() {
     }
 
     setTestingReranker(true);
+    // Snapshot the fingerprint of the config being tested. If the form changes
+    // while the request is in flight, markVerified drops the stale verdict.
+    const testedFingerprint = serviceFingerprint;
     try {
       const result = await api.testReranker(config);
       if (result.success) {
@@ -114,8 +95,11 @@ export function RerankerModelCenter() {
           result.precision,
           result.correct_count,
           result.total,
-          result.history ?? [],
+          testedFingerprint,
         );
+        // The backend appends this run to history before responding; refresh
+        // the trend from the same series.
+        await setHistory(result.history ?? [], testedFingerprint);
         const precisionLine =
           result.precision !== null
             ? t("agentConfig.rerankerPrecisionResult", {
@@ -206,14 +190,14 @@ export function RerankerModelCenter() {
             <BadgeCheck size={14} aria-hidden="true" />
             {t("agentConfig.rerankerVerificationStatus")}
           </span>
-          {testedRerankerIsCurrent && testedReranker ? (
+          {testedRerankerIsCurrent && verifiedReranker ? (
             <>
               <strong className={styles.embeddingStatusValueVerified}>
                 {t("agentConfig.rerankerVerified")}
               </strong>
               <small>
                 {t("agentConfig.rerankerVerificationMetrics", {
-                  latency: testedReranker.latency,
+                  latency: verifiedReranker.latency,
                 })}
               </small>
             </>
@@ -232,20 +216,17 @@ export function RerankerModelCenter() {
             <Target size={14} aria-hidden="true" />
             {t("agentConfig.rerankerPrecisionLabel")}
           </span>
-          {testedRerankerIsCurrent && testedReranker ? (
+          {verifiedReranker && testedRerankerIsCurrent ? (
             <>
-              {testedReranker.verifiedAt > 0 &&
-              testedReranker.precision !== null ? (
+              {verifiedReranker.precision !== null ? (
                 <>
                   <strong className={styles.embeddingStatusValueVerified}>
-                    {testedReranker.correctCount}/{testedReranker.total} ={" "}
-                    {Math.round(testedReranker.precision * 100)}%
+                    {verifiedReranker.correctCount}/{verifiedReranker.total} ={" "}
+                    {Math.round(verifiedReranker.precision * 100)}%
                   </strong>
                   <small>
                     {t("agentConfig.rerankerPrecisionRolling", {
-                      avg: Math.round(
-                        rollingPrecision(testedReranker.history) * 100,
-                      ),
+                      avg: Math.round(rollingPrecision(history) * 100),
                     })}
                   </small>
                 </>
@@ -254,14 +235,22 @@ export function RerankerModelCenter() {
                   <strong>—</strong>
                   <small>
                     {t(
-                      testedReranker.history.length > 0
+                      history.length > 0
                         ? "agentConfig.rerankerPrecisionHistoryOnly"
                         : "agentConfig.rerankerPrecisionHint",
                     )}
                   </small>
                 </>
               )}
-              <PrecisionSparkline history={testedReranker.history} />
+              <PrecisionSparkline history={history} />
+            </>
+          ) : history.length > 0 ? (
+            <>
+              <strong>—</strong>
+              <small>
+                {t("agentConfig.rerankerPrecisionHistoryOnly")}
+              </small>
+              <PrecisionSparkline history={history} />
             </>
           ) : (
             <>

@@ -135,4 +135,35 @@ describe("agentApi", () => {
       body: JSON.stringify({ provider_id: "openai" }),
     });
   });
+
+  it("testReranker budgets the full five-request suite", async () => {
+    const config = {
+      enabled: true,
+      api_key: `probe-${crypto.randomUUID().replace(/-/g, "")}`,
+      base_url: "https://api.example.com/v1",
+      model_name: "probe-reranker",
+      candidate_multiplier: 3,
+      timeout: 1.5,
+      auto_verify_interval_hours: 0,
+    };
+
+    await agentApi.testReranker(config);
+
+    const calls = vi.mocked(request).mock.calls;
+    const options = calls[calls.length - 1]?.[1] as {
+      timeout: number;
+    };
+    // Mirrors reme_reranker.py::reranker_suite_deadline_seconds plus a 5s
+    // client margin, so the browser outlasts the backend suite deadline.
+    const backendSuiteDeadline = 5 * config.timeout + 10;
+    expect(options.timeout).toBe((backendSuiteDeadline + 5) * 1000);
+    // Cross-language contract pin: the backend pins 5 * 1.5 + 10 = 17.5s,
+    // so the browser budget for timeout=1.5 is exactly 22.5s.
+    expect(options.timeout).toBe(22_500);
+    for (const timeout of [1, 1.5, 9, 30]) {
+      expect((5 * timeout + 15) * 1000).toBeGreaterThan(
+        (5 * timeout + 10) * 1000,
+      );
+    }
+  });
 });
