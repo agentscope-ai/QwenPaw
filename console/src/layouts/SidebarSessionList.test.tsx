@@ -18,6 +18,7 @@ import { renderWithProviders } from "@/test/common_setup";
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const mockSessionListData = vi.hoisted(() => vi.fn());
+const mockSearchChats = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
 const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
@@ -178,7 +179,10 @@ vi.mock("../utils/channel", () => ({
 }));
 
 vi.mock("../api/modules/chat", () => ({
-  chatApi: { updateChat: vi.fn().mockResolvedValue({}) },
+  chatApi: {
+    updateChat: vi.fn().mockResolvedValue({}),
+    searchChats: mockSearchChats,
+  },
 }));
 
 vi.mock("../hooks/useAppMessage", () => ({
@@ -288,6 +292,15 @@ function mockData(
 describe("SidebarSessionList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchChats.mockResolvedValue({
+      query: "",
+      mode: "keyword",
+      results: [],
+      total: 0,
+      has_more: false,
+      queries: [],
+      partial: false,
+    });
     localStorage.clear();
     mockSelectedAgent.current = "agent-1";
     // The virtual list only renders once the wrapper has a measured height.
@@ -543,28 +556,48 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("shows all matching conversations while searching", async () => {
-    const sessions = Array.from({ length: 12 }, (_, index) => ({
-      ...sessionA,
-      id: `session-${index + 1}`,
-      name: `Conversation ${index + 1}`,
-      updatedAt: new Date(Date.now() - index * 1000).toISOString(),
-    }));
-    mockData(sessions);
-    renderWithProviders(<SidebarSessionList />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
+  it("searches message contents and opens results through existing navigation", async () => {
+    const onSessionClick = vi.fn();
+    mockData([sessionA, sessionB]);
+    mockSearchChats.mockResolvedValue({
+      query: "deployment",
+      mode: "keyword",
+      total: 1,
+      has_more: false,
+      queries: ["deployment"],
+      partial: false,
+      results: [
+        {
+          chat: { id: "sess-b", name: "Beta Report" },
+          snippet: "The deployment uses <script>alert(1)</script>",
+          role: "assistant",
+        },
+      ],
     });
-    fireEvent.change(screen.getByPlaceholderText("Search…"), {
-      target: { value: "Conversation 1" },
+    renderWithProviders(<SidebarSessionList onSessionClick={onSessionClick} />);
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search conversation history" }),
+      {
+        target: { value: "deployment" },
+      },
+    );
+    const result = await screen.findByRole("button", {
+      name: /^Beta Report/,
     });
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("session-item-session-2")).toBeNull();
-    });
-    expect(screen.getByTestId("session-item-session-11")).toBeTruthy();
-    expect(screen.getByTestId("session-item-session-12")).toBeTruthy();
+    expect(screen.queryByTestId("virtual-list")).toBeNull();
+    expect(result.querySelector("mark")?.textContent).toBe("deployment");
+    expect(result.querySelector("script")).toBeNull();
+    expect(result.textContent).toContain("<script>alert(1)</script>");
+    fireEvent.click(result);
+    expect(onSessionClick).toHaveBeenCalledWith("sess-b", { canonical: true });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search conversation history" }),
+      {
+        target: { value: "" },
+      },
+    );
+    expect(await screen.findByTestId("session-item-sess-a")).toBeTruthy();
+    expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
   });
 
   it("routes session clicks through the injected callback", async () => {
@@ -632,18 +665,58 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("filters sessions by the search query", async () => {
-    mockData([sessionA, sessionB]);
+  it("submits AI search on Enter and exposes an empty state", async () => {
+    mockData([sessionA]);
     renderWithProviders(<SidebarSessionList />);
-    await waitFor(() => {
-      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "AI search" }));
+    const input = screen.getByRole("textbox", {
+      name: "Search conversation history",
     });
-    const search = screen.getByPlaceholderText("Search…");
-    fireEvent.change(search, { target: { value: "beta" } });
-    await waitFor(() => {
-      expect(screen.queryByTestId("session-item-sess-a")).toBeNull();
-      expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "the deployment discussion" } });
+    expect(mockSearchChats).not.toHaveBeenCalled();
+    expect(screen.getByText(/Describe what you remember/)).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    expect(await screen.findByText("No matching conversations")).toBeTruthy();
+    expect(mockSearchChats).toHaveBeenCalledWith(
+      {
+        query: "the deployment discussion",
+        mode: "agent",
+        limit: 20,
+        offset: 0,
+      },
+      { agentId: "agent-1", signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it("ignores IME confirmation and repeated AI submissions while loading", async () => {
+    mockData([sessionA]);
+    let rejectSearch!: (error: Error) => void;
+    mockSearchChats.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectSearch = reject;
+        }),
+    );
+    renderWithProviders(<SidebarSessionList />);
+    fireEvent.click(screen.getByRole("button", { name: "AI search" }));
+    const input = screen.getByRole("textbox", {
+      name: "Search conversation history",
     });
+    fireEvent.change(input, { target: { value: "deployment" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(mockSearchChats).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(mockSearchChats).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Search" })).toBeDisabled();
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    expect(mockSearchChats).toHaveBeenCalledTimes(1);
+    rejectSearch(new Error("model unavailable"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "AI search failed",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No matching conversations")).toBeTruthy();
+    expect(mockSearchChats).toHaveBeenCalledTimes(2);
   });
 
   it("opens the new-group input and creates a group on Enter", async () => {

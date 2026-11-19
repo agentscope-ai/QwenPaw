@@ -16,6 +16,12 @@ from agentscope.state import AgentState
 
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
+from .search import (
+    ChatSearchRequest,
+    ChatSearchResponse,
+    keyword_search,
+    load_search_corpus,
+)
 from .models import (
     BatchArchiveResult,
     ChatGroup,
@@ -344,6 +350,26 @@ async def list_chats(
         status = await tracker.get_status(spec.id)
         result.append(spec.model_copy(update={"status": status}))
     return result
+
+
+@router.post("/search", response_model=ChatSearchResponse)
+async def search_chats(
+    payload: ChatSearchRequest,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Search active conversations in the current agent's Console catalog."""
+    chats = [
+        chat
+        for chat in await mgr.list_chats(archived=False)
+        if not _is_app_owned_chat(chat)
+    ]
+    corpus = await load_search_corpus(workspace, chats)
+    if payload.mode == "agent":
+        from .search_agent import agent_search
+
+        return await agent_search(workspace, corpus, payload)
+    return await run_sync_io(keyword_search, corpus, payload)
 
 
 @router.post("", response_model=ChatSpec)

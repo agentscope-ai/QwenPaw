@@ -47,6 +47,32 @@ export interface ChatResolution {
   chat: ChatSpec;
 }
 
+export type ChatSearchMode = "keyword" | "agent";
+
+export interface ChatSearchRequest {
+  query: string;
+  mode: ChatSearchMode;
+  limit: number;
+  offset: number;
+}
+
+export interface ChatSearchResult {
+  chat: ChatSpec;
+  snippet: string;
+  role: "user" | "assistant" | null;
+  message_id?: string | null;
+}
+
+export interface ChatSearchResponse {
+  query: string;
+  mode: ChatSearchMode;
+  results: ChatSearchResult[];
+  total: number;
+  has_more: boolean;
+  queries: string[];
+  partial: boolean;
+}
+
 export interface ChatUpdateRequest {
   name?: string;
   pinned?: boolean;
