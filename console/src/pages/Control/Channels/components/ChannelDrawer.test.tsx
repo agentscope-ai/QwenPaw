@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
 import {
   act,
+  cleanup,
   render,
   screen,
   fireEvent,
@@ -226,6 +227,7 @@ function renderDrawer(
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   langRef.current = "en";
   mockOpenExternalLink.mockClear();
   mockConfirm.mockClear();
@@ -234,8 +236,18 @@ beforeEach(() => {
   mockMessage.warning.mockClear();
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
+afterEach(async () => {
+  // Vaul schedules animation callbacks on close. Settle them while jsdom is
+  // alive, including callbacks left by components unmounted during a test.
+  try {
+    cleanup();
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
 });
 
 // ---- Builtin channel field branches ---------------------------------------
@@ -586,7 +598,11 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.getByText("channels.streamingEnabled")).toBeTruthy();
     unmount();
 
-    renderDrawer({ activeKey: "qq" });
+    const qq = renderDrawer({ activeKey: "qq" });
+    expect(screen.getByText("channels.streamingEnabled")).toBeTruthy();
+    qq.unmount();
+
+    renderDrawer({ activeKey: "sip" });
     expect(screen.queryByText("channels.streamingEnabled")).toBeNull();
   });
 
