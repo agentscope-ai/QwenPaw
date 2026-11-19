@@ -64,7 +64,8 @@ Windows/macOS/Linux 安装包验收。离线且没有已有依赖时，小安装
 ## 音频转写（SDK 1.1）
 
 manifest 声明 `"sdk": {"version": "1.1", "capabilities": ["transcription"]}`。
-只导入公开 SDK 即可注册后端；ID 不得占用 `disabled`、`whisper_api`，重复 ID 会拒绝。
+只导入公开 SDK 即可注册后端。`disabled` 和 `whisper_api` 是宿主保留 ID，
+`local_whisper` 仅供 `local-whisper` 插件注册。重复 ID 会被拒绝。
 
 ```python
 from qwenpaw.plugins.transcription import (

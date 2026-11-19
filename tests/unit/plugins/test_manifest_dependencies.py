@@ -285,6 +285,33 @@ def test_wheel_size_budget(tmp_path, monkeypatch, over_budget, budget):
     assert not (tmp_path / "site").exists()
 
 
+def test_wheel_copy_stops_before_reading_another_chunk(monkeypatch):
+    import asyncio
+    from io import BytesIO
+    from threading import Event
+
+    from qwenpaw.plugins import wheel_additions
+    from qwenpaw.plugins.dependency_process import install_cancel
+
+    cancel = Event()
+    monkeypatch.setattr(wheel_additions, "_IN_MEMORY_BYTES", 4)
+
+    class Source(BytesIO):
+        def read(self, size=-1):
+            data = super().read(size)
+            cancel.set()
+            return data
+
+    source, target = Source(b"first second third"), BytesIO()
+    token = install_cancel.set(cancel)
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            wheel_additions._copy_bounded(source, target, 64)
+    finally:
+        install_cancel.reset(token)
+    assert source.tell() == 4
+
+
 @pytest.mark.parametrize("location", ["package", "native_script", "license"])
 def test_large_wheel_payload_stays_private_and_file_backed(
     tmp_path,

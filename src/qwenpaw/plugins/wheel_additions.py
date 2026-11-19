@@ -15,6 +15,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import shutil
 import stat
 import tempfile
 import threading
@@ -25,6 +26,7 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+from .dependency_process import check_cancelled, install_cancel
 from .execution.dependencies import (
     DependencySnapshot,
     dependency_error,
@@ -137,17 +139,37 @@ class WheelFiles(dict[str, bytes | memoryview]):
 
 def _copy_bounded(source, target, limit):
     """Snapshot untrusted input with bounded reads and an actual byte limit."""
+    cancel = install_cancel.get()
     size = 0
     digest = hashlib.sha256()
-    while chunk := source.read(_IN_MEMORY_BYTES):
+    while True:
+        check_cancelled(cancel)
+        chunk = source.read(_IN_MEMORY_BYTES)
+        if not chunk:
+            break
         size += len(chunk)
-        if size > limit:
+        if limit is not None and size > limit:
             raise _reject("archive size limit exceeded")
         digest.update(chunk)
-        target.write(chunk)
-    target.flush()
-    target.seek(0)
+        if target is not None:
+            target.write(chunk)
+    check_cancelled(cancel)
+    if target is not None:
+        target.flush()
+        target.seek(0)
     return digest.hexdigest()
+
+
+def hash_wheel(path: Path) -> str:
+    with path.open("rb") as source:
+        return _copy_bounded(source, None, None)
+
+
+def copy_wheel(path: Path, destination: Path) -> str:
+    with path.open("rb") as source, destination.open("wb") as target:
+        digest = _copy_bounded(source, target, None)
+    shutil.copystat(path, destination)
+    return digest
 
 
 def _member_content(archive, info, members):
@@ -208,6 +230,7 @@ def _members(addition: WheelAddition, store=None) -> WheelFiles:
 
 
 def _read_members(archive, path, result, normalized):
+    cancel = install_cancel.get()
     expanded = sum(info.file_size for info in archive.infolist())
     if len(archive.infolist()) > 50000 or expanded > _MAX_WHEEL_UNPACKED_BYTES:
         logger.info(
@@ -227,6 +250,7 @@ def _read_members(archive, path, result, normalized):
             ),
         )
     for info in archive.infolist():
+        check_cancelled(cancel)
         name = info.filename
         relative = PurePosixPath(name)
         # Reject every unsafe archive path form before reading members.
@@ -254,13 +278,26 @@ def _read_members(archive, path, result, normalized):
             result.executable_paths.add(name)
 
 
+def _record_digest(content: bytes | memoryview, cancel):
+    if cancel is None or len(content) <= _IN_MEMORY_BYTES:
+        return hashlib.sha256(content).digest()
+    digest = hashlib.sha256()
+    with memoryview(content) as view:
+        for offset in range(0, len(view), _IN_MEMORY_BYTES):
+            check_cancelled(cancel)
+            digest.update(view[offset : offset + _IN_MEMORY_BYTES])
+    return digest.digest()
+
+
 def _validate_record(
     files: Mapping[str, bytes | memoryview],
     record: str,
 ) -> None:
-    rows = list(csv.reader(io.StringIO(decode_wheel_record(files[record]))))
+    cancel = install_cancel.get()
+    rows = csv.reader(io.StringIO(decode_wheel_record(files[record])))
     seen = set()
     for row in rows:
+        check_cancelled(cancel)
         if len(row) != 3 or row[0] in seen or row[0] not in files:
             raise _reject("RECORD rows invalid")
         name, digest, length = row
@@ -270,7 +307,7 @@ def _validate_record(
                 raise _reject("RECORD self entry invalid")
             continue
         expected = (
-            base64.urlsafe_b64encode(hashlib.sha256(files[name]).digest())
+            base64.urlsafe_b64encode(_record_digest(files[name], cancel))
             .decode()
             .rstrip("=")
         )
@@ -344,6 +381,7 @@ def _unsafe_target_component(component, windows):
 def _install_data(members, info, snapshot):
     """Relocate verified wheel data areas within the target installation."""
     # pylint: disable=too-many-boolean-expressions
+    cancel = install_cancel.get()
     directory = (
         "Scripts"
         if snapshot.marker_environment.get("os_name") == "nt"
@@ -356,6 +394,7 @@ def _install_data(members, info, snapshot):
     destinations = set()
     relocated = False
     for path, content in members.items():
+        check_cancelled(cancel)
         parts = PurePosixPath(path).parts
         destination = path
         if parts[0].casefold().endswith(".data"):
@@ -418,10 +457,11 @@ def _install_data(members, info, snapshot):
         rows = io.StringIO(newline="")
         writer = csv.writer(rows, lineterminator="\n")
         for path, content in installed.items():
+            check_cancelled(cancel)
             if path != record:
                 digest = (
                     base64.urlsafe_b64encode(
-                        hashlib.sha256(content).digest(),
+                        _record_digest(content, cancel),
                     )
                     .decode()
                     .rstrip("=")
@@ -532,6 +572,7 @@ def _check_installed_tree(
     reason="DEPENDENCY_RESTART_REQUIRED",
 ):
     """Inspect only intersecting directories, retaining namespace siblings."""
+    cancel = install_cancel.get()
     replaced = {Path(path) for path in replaced}
     owned_dirs = {parent for path in replaced for parent in path.parents}
 
@@ -557,6 +598,7 @@ def _check_installed_tree(
         root = Path(site)
         existing, existing_dirs = set(), set()
         for relative in {".", *directories}:
+            check_cancelled(cancel)
             directory = root / relative
             if directory.is_symlink():
                 raise _reject("installed directory is linked", reason)
@@ -564,6 +606,7 @@ def _check_installed_tree(
                 continue
             with os.scandir(directory) as entries:
                 for entry in entries:
+                    check_cancelled(cancel)
                     if not retained(Path(entry.path)):
                         continue
                     path = str(PurePosixPath(relative) / entry.name)
@@ -590,6 +633,7 @@ def validate_additions(
     files: WheelFiles | None = None,
 ) -> tuple[WheelFiles, DependencySnapshot]:
     """Return verified buffers and proposed metadata for closure checks."""
+    cancel = install_cancel.get()
     owns_files = files is None
     if files is None:
         files = WheelFiles()
@@ -603,6 +647,7 @@ def validate_additions(
         staged = []
         names = set(distributions)
         for addition in additions:
+            check_cancelled(cancel)
             artifact, stage = "<unknown>", "wheel filename"
             artifact = Path(addition.path).name
             name, version, _, tags = parse_wheel_filename(artifact)
@@ -622,6 +667,7 @@ def validate_additions(
             staged.append((artifact, name, version, tags, members))
         files._store.seal()
         for artifact, name, version, tags, members in staged:
+            check_cancelled(cancel)
             stage = "metadata"
             infos = {
                 path.split("/", 1)[0]
@@ -735,6 +781,7 @@ def validate_additions(
             _check_installed_tree(members, directories, snapshot.sites)
             for site in snapshot.sites:
                 for origin in Path(site).glob("*.dist-info"):
+                    check_cancelled(cancel)
                     text = origin / "METADATA"
                     installed = (
                         BytesParser().parsebytes(text.read_bytes())
@@ -760,6 +807,7 @@ def validate_additions(
                 "requires_dist": tuple(metadata.get_all("Requires-Dist", [])),
                 "top_level": tuple(sorted(provider_tops)),
             }
+        check_cancelled(cancel)
         validated = True
     except (
         KeyError,

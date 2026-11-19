@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.plugins import PluginBusyError
+from qwenpaw.plugins import PluginBusyError, SDKError
 from qwenpaw.plugins.testing import PluginTestHost
 
 from .sdk_author_fixture import make_plugin
@@ -63,6 +63,22 @@ async def test_public_backend_context_and_registration_release(tmp_path):
             match="Unknown transcription backend",
         ):
             await host.transcribe("sample", "context")
+
+
+async def test_other_plugin_cannot_register_local_whisper(tmp_path):
+    async with PluginTestHost(tmp_path / "host") as host:
+        source = make_plugin(
+            tmp_path,
+            SOURCE.replace('"sample"', '"local_whisper"'),
+            ["transcription"],
+        )
+        with pytest.raises(SDKError, match="reserved for 'local-whisper'"):
+            await host.load(source)
+        with pytest.raises(
+            RuntimeError,
+            match="Unknown transcription backend",
+        ):
+            await host.transcribe("local_whisper", "context")
 
 
 async def test_cancelled_worker_blocks_unload_until_thread_finishes(

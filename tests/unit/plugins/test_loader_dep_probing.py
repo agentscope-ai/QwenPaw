@@ -2658,6 +2658,10 @@ async def test_shared_install_closes_mapping_at_cancellation_boundaries(
     from qwenpaw.plugins import wheel_additions as wheels
     from qwenpaw.plugins.dependency_gate import prepare_shared_dependencies
     from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.install_lock import (
+        environment_install_lock_path,
+        plugin_install_lock,
+    )
     from .test_manifest_dependencies import write_wheel
 
     wheel = write_wheel(
@@ -2680,16 +2684,20 @@ async def test_shared_install_closes_mapping_at_cancellation_boundaries(
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("close-probe==1.0\n")
     ready, release = threading.Event(), threading.Event()
-    original_validate = wheels.validate_additions
+    stopped_in_validation = threading.Event()
+    original_digest = wheels._record_digest
 
-    def validate(*args, **kwargs):
-        result = original_validate(*args, **kwargs)
-        if failure == "validation_cancel":
+    def digest(content, cancel):
+        if failure == "validation_cancel" and len(content) > 4096:
             ready.set()
             assert release.wait(5)
-        return result
+        try:
+            return original_digest(content, cancel)
+        except asyncio.CancelledError:
+            stopped_in_validation.set()
+            raise
 
-    monkeypatch.setattr(wheels, "validate_additions", validate)
+    monkeypatch.setattr(wheels, "_record_digest", digest)
 
     async def audit(_spec):
         if (site / "close_probe/data.bin").exists():
@@ -2707,30 +2715,39 @@ async def test_shared_install_closes_mapping_at_cancellation_boundaries(
             ),
         )
 
-    task = asyncio.create_task(
-        prepare_shared_dependencies(
-            SimpleNamespace(audit=audit),
-            SimpleNamespace(
-                python_executable=sys.executable,
-                support_root=Path(__file__).resolve().parents[3] / "src",
-            ),
-            plugin_id="close-probe",
-            requirements_file=requirements,
-            usage_registry=SimpleNamespace(
-                snapshot=lambda *a, **k: SimpleNamespace(uses=()),
-            ),
-            install_target=site,
-            wheels=(
-                wheels.WheelAddition(
-                    wheel,
-                    hashlib.sha256(wheel.read_bytes()).hexdigest(),
+    loader = PluginLoader([tmp_path / "plugins"])
+
+    async def prepare():
+        async with loader._dependency_install_scope(tmp_path):
+            await prepare_shared_dependencies(
+                SimpleNamespace(audit=audit),
+                SimpleNamespace(
+                    python_executable=sys.executable,
+                    support_root=Path(__file__).resolve().parents[3] / "src",
                 ),
-            ),
-        ),
-    )
+                plugin_id="close-probe",
+                requirements_file=requirements,
+                usage_registry=SimpleNamespace(
+                    snapshot=lambda *a, **k: SimpleNamespace(uses=()),
+                ),
+                install_target=site,
+                wheels=(
+                    wheels.WheelAddition(
+                        wheel,
+                        hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                    ),
+                ),
+            )
+
+    task = asyncio.create_task(prepare())
+    shutdown = None
     try:
         assert await asyncio.to_thread(ready.wait, 5)
-        if failure != "audit_error":
+        if failure == "validation_cancel":
+            shutdown = asyncio.create_task(loader.stop_dependency_installs())
+            await asyncio.sleep(0)
+            assert loader._dependency_installs[task].is_set()
+        elif failure == "audit_cancel":
             task.cancel()
         release.set()
         expected = (
@@ -2742,8 +2759,18 @@ async def test_shared_install_closes_mapping_at_cancellation_boundaries(
             await task
         assert error.value.__traceback__ is not None
         assert mappings and all(value.closed for value in mappings)
+        if failure == "validation_cancel":
+            assert stopped_in_validation.is_set()
+            assert not (site / "close_probe/data.bin").exists()
+            with plugin_install_lock(
+                environment_install_lock_path(site),
+                timeout=0,
+            ) as acquired:
+                assert acquired
     finally:
         release.set()
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        if shutdown is not None:
+            await shutdown
