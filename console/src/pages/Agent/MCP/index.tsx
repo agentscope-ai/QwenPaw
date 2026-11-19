@@ -10,6 +10,7 @@ import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
 import { useMCPPlugin } from "./useMCPPlugin";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -25,8 +26,7 @@ const recoveryGuidance: Record<string, string> = {
     "Review this workspace’s saved MCP configuration, then retry",
   invalid_plugin_settings: "Review the MCP plugin settings, then retry",
   plugin_runtime_failed:
-    "Check the MCP plugin dependencies and settings, then retry",
-  plugin_diagnostics_present: "Review MCP plugin diagnostics before retrying",
+    "The MCP plugin failed to load. Open Plugin Manager and select Repair and retry.",
 };
 
 function normalizeTransport(raw?: unknown): MCPTransport | undefined {
@@ -399,9 +399,15 @@ function MCPPage({
             </div>
           ))}
           action={
-            <Button loading={plugin.busy} onClick={plugin.activate}>
-              {t("common.retry", { defaultValue: "Retry" })}
-            </Button>
+            recoveryCodes.includes("plugin_runtime_failed") ? (
+              <Link to="/market?tab=plugins&view=installed&plugin=qwenpaw-mcp">
+                {t("nav.pluginManager")}
+              </Link>
+            ) : (
+              <Button loading={plugin.busy} onClick={plugin.activate}>
+                {t("common.retry", { defaultValue: "Retry" })}
+              </Button>
+            )
           }
         />
       )}

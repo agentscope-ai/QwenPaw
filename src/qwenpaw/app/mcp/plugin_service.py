@@ -153,8 +153,6 @@ async def plugin_state(request):
     )
     if getattr(record, "status", None) == "failed":
         diagnostics.append("plugin_runtime_failed")
-    elif getattr(record, "diagnostics", None):
-        diagnostics.append("plugin_diagnostics_present")
     return {
         "id": PLUGIN_ID,
         "installed": bool(directory or record),

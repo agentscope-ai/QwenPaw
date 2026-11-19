@@ -1614,8 +1614,7 @@
       "offline_upgrade_failed_check_dependencies_and_storage": "Check offline dependencies and storage, then retry",
       "workspace_needs_review": "Review this workspace’s saved MCP configuration, then retry",
       "invalid_plugin_settings": "Review the MCP plugin settings, then retry",
-      "plugin_runtime_failed": "Check the MCP plugin dependencies and settings, then retry",
-      "plugin_diagnostics_present": "Review MCP plugin diagnostics before retrying"
+      "plugin_runtime_failed": "The MCP plugin failed to load. Open Plugin Manager and select Repair and retry."
     },
     "title": "MCP Clients",
     "qwenpawManaged": "QwenPaw managed",
