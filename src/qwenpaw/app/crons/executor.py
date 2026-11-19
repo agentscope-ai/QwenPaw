@@ -17,7 +17,6 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from .models import CronJobSpec
-from ...runtime.display import AssistantDisplayStream
 from ...security.tool_guard.execution_level import ToolExecutionLevel
 from ...schemas import RunStatus
 
@@ -350,11 +349,9 @@ class CronExecutor:
 
             async def _tracked_stream(_payload: Any):
                 nonlocal error
-                display = AssistantDisplayStream()
                 try:
                     async for event in _run():
-                        for frame in display.project(event):
-                            yield _to_sse(frame)
+                        yield _to_sse(event)
                 except asyncio.CancelledError as exc:
                     error = exc
                     raise

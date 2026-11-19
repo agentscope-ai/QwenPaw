@@ -52,7 +52,6 @@ def register(plugin, spec):
     # pylint: disable=protected-access
     from ..app.channels.base import BaseChannel
     from ..schemas import (
-        Message,
         TextContent,
         ImageContent,
         AudioContent,
@@ -958,12 +957,6 @@ def register(plugin, spec):
                 ):
                     if phase != "end":
                         self._stream_contexts[key] = state
-                    payload = event
-                    if stream_type == "message" and isinstance(event, Message):
-                        # The SDK channel can render event.content as well as
-                        # the accumulated text. Do not hand it the raw copy.
-                        payload = event.model_dump(mode="json")
-                        self._filter_sse_message(payload)
                     await plugin._call(
                         self._backend.on_stream,
                         replace(
@@ -976,7 +969,7 @@ def register(plugin, spec):
                         ChannelStreamEvent(
                             phase,
                             target,
-                            chat_event(payload),
+                            chat_event(event),
                             stream_type,
                             text,
                             _metadata(meta),

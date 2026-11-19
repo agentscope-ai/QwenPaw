@@ -19,8 +19,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
 
 from qwenpaw.app import inbox_trace_store as trace_store
 
@@ -31,58 +29,6 @@ def trace_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     target = tmp_path / "inbox_traces"
     monkeypatch.setattr(trace_store, "_TRACE_DIR", target)
     return target
-
-
-@pytest.mark.asyncio
-async def test_inbox_trace_filters_display_without_rewriting_trace(trace_dir):
-    from qwenpaw.app.routers.console import get_inbox_trace
-
-    user = {
-        "role": "user",
-        "content": "<think>literal user text</think>",
-    }
-    assistant = {
-        "role": "assistant",
-        "content": [
-            {"type": "text", "text": "<system-info>private note"},
-            {"type": "text", "text": "</system-info>public answer"},
-            {"type": "tool_use", "name": "example"},
-        ],
-    }
-    legacy = {
-        "role": "assistant",
-        "content": "<think>private reasoning</think>another answer",
-    }
-    await trace_store.create_trace("run-1", meta={"source": "heartbeat"})
-    await trace_store.append_trace_events(
-        "run-1",
-        [{"event": msg} for msg in (user, assistant, legacy)],
-    )
-    path = trace_dir / "run-1.json"
-    before = path.read_bytes()
-
-    app = FastAPI()
-    app.get("/inbox/traces/{run_id}")(get_inbox_trace)
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        result = await client.get("/inbox/traces/run-1")
-
-    assert result.status_code == 200
-    assert "private note" not in result.text
-    assert "private reasoning" not in result.text
-    data = result.json()
-    assert data["meta"] == {"source": "heartbeat"}
-    [first, second, third] = [item["event"] for item in data["events"]]
-    assert first == user
-    assert second["content"] == [
-        {"type": "text", "text": ""},
-        {"type": "text", "text": "public answer"},
-        assistant["content"][2],
-    ]
-    assert third["content"] == "another answer"
-    assert path.read_bytes() == before
 
 
 # ---------------------------------------------------------------------------

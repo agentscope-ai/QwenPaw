@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from ..constant import WORKING_DIR
-from ..runtime.display import project_session_message
 from ..utils.io_utils import (
     read_json,
     run_sync_io,
@@ -217,20 +216,6 @@ async def get_trace(run_id: str) -> dict[str, Any] | None:
         return None
     async with _LOCK:
         return await run_sync_io(_read_trace, run_id)
-
-
-async def get_trace_for_display(run_id: str) -> dict[str, Any] | None:
-    """Read a trace for the Inbox without changing the diagnostic record."""
-    trace = await get_trace(run_id)
-    if trace is None or not isinstance(trace.get("events"), list):
-        return trace
-    events = [
-        {**item, "event": project_session_message(item["event"])}
-        if isinstance(item, dict) and isinstance(item.get("event"), dict)
-        else item
-        for item in trace["events"]
-    ]
-    return {**trace, "events": events}
 
 
 async def delete_trace(run_id: str) -> bool:

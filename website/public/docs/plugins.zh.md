@@ -450,8 +450,7 @@ Scope 支持任务、线程、进程、连接和清理回调。结束的短任�
 模型、App 和 Channel 调用的失败清理保留原归属；解除故障后可再次请求 reload/unload 重试。
 若只剩已中断调用的失败清理，缺省重试也可唤醒它，不会自动取消其它活跃业务。
 声明 `ChannelSpec.streaming=True` 时，实现 `StreamingChannelBackend.on_stream`
-接收 start/delta/end。普通助手正文在单条消息结束时随 `end` 发布；启用思考展示时，
-结构化推理仍可收到 `delta`。入站消息在合并前按渠道实例筛选，旧实例排队消息不会转交新代。
+接收 start/delta/end；入站消息在合并前按渠道实例筛选，旧实例排队消息不会转交新代。
 
 `ChannelMessage.session_scope` 缺省 `default` 保留已有路由；`sender` 按会话与发送者
 隔离队列，`group` 只适用于群消息，并将共享历史身份固定为 `group`。

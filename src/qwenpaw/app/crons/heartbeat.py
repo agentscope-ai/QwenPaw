@@ -27,7 +27,6 @@ from ...constant import (
     HEARTBEAT_TARGET_INBOX,
     HEARTBEAT_TARGET_LAST,
 )
-from ...runtime.display import project_session_message
 from ..channels.schema import DEFAULT_CHANNEL
 from ..inbox_store import append_event as append_inbox_event
 from ..inbox_trace_store import (
@@ -152,24 +151,29 @@ def _in_active_hours(active_hours: Any) -> bool:
 
 
 def _extract_message_preview(msg: dict[str, Any]) -> str | None:
-    if msg.get("role") not in (None, "assistant") or msg.get("type") not in (
-        None,
-        "message",
-    ):
-        return None
-    content = project_session_message(msg).get("content")
-    if isinstance(content, str) and msg.get("role") == "assistant":
-        return content.strip() or None
+    content = msg.get("content")
     if not isinstance(content, list):
         return None
-    text = "\n".join(
-        block["text"].strip()
-        for block in content
-        if isinstance(block, dict)
-        and block.get("type") == "text"
-        and isinstance(block.get("text"), str)
-        and block["text"].strip()
-    )
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text" and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+        elif btype == "thinking" and isinstance(block.get("thinking"), str):
+            parts.append(block["thinking"])
+        elif btype == "tool_result":
+            output = block.get("output")
+            if isinstance(output, list):
+                for out_block in output:
+                    if (
+                        isinstance(out_block, dict)
+                        and out_block.get("type") == "text"
+                        and isinstance(out_block.get("text"), str)
+                    ):
+                        parts.append(out_block["text"])
+    text = "\n".join([p.strip() for p in parts if p and p.strip()]).strip()
     return text or None
 
 

@@ -132,6 +132,7 @@ def strip_injected_context(text: str | None) -> str | None:
 
 from qwenpaw.agents.context.scroll.scaffold_filter import (  # noqa: E402
     ScaffoldDeltaState,
+    ScaffoldFilter,
     flush_scaffold_delta,
     strip_scaffold_delta,
     strip_scaffold_text,
@@ -140,6 +141,8 @@ from qwenpaw.agents.context.scroll.scaffold_filter import (  # noqa: E402
 
 def strip_model_scaffolding(
     text: str | None,
+    *,
+    state: ScaffoldFilter | None = None,
 ) -> str | None:
     """Hide reasoning scaffolding a model wrote into ordinary text.
 
@@ -149,10 +152,21 @@ def strip_model_scaffolding(
     bytes are persisted as normal assistant text, so the display boundary has
     to drop them or they reach the user verbatim.
 
+    ``state`` carries the scan across the text blocks of one message, so a
+    block that ends mid-reasoning and a block that closes it are handled as
+    one stream rather than independently.
+
     Quoted material (fenced or indented code, inline spans, blockquote lines)
     is never touched, so prose and examples that discuss the tags survive.
     """
-    return strip_scaffold_text(text)
+    if not text:
+        return text
+    if state is None:
+        return strip_scaffold_text(text)
+    visible = state.feed(text)
+    if visible == text:
+        return text
+    return re.sub(r"\n{3,}", "\n\n", visible).strip()
 
 
 def strip_headline_delta(
@@ -229,6 +243,9 @@ def flush_headline_delta(state: HeadlineDeltaState) -> str:
     state.suppressing = False
     state.legacy_comment = False
     return visible
+
+
+SCAFFOLD_STATE_PREFIX = "scaffold:"
 
 
 def _possible_legacy_start_prefix(value: str) -> bool:

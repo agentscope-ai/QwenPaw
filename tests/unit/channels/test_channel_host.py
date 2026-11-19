@@ -932,10 +932,9 @@ async def test_real_agent_stream_final_reply_and_saved_session(
         row["pid"] == value["pid"] and row["room"] == "conversation"
         for row in sends
     )
-    assert [row["operation"] for row in sends] == [
-        "stream.start",
-        "stream.end",
-    ]
+    assert sends[0]["operation"] == "stream.start"
+    assert {row["operation"] for row in sends[1:-1]} == {"stream.delta"}
+    assert sends[-1]["operation"] == "stream.end"
     assert sends[-1]["text"] == "actual agent answer"
     assert await saved_texts(ws, "conversation") == [
         "native input",

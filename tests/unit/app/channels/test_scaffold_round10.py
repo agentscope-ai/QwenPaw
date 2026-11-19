@@ -79,14 +79,6 @@ def _msg(*texts: str) -> Message:
     return msg
 
 
-def _sse_states(channel: BaseChannel) -> dict[str, Any]:
-    states: dict[str, Any] = {}
-    message = _msg().in_progress()
-    message.id = "m1"
-    channel._serialize_event_for_sse(message, states)
-    return states
-
-
 def _feed_stream(chunks: list[str]) -> str:
     state = ScaffoldDeltaState()
     out = []
@@ -102,7 +94,13 @@ def _feed_stream(chunks: list[str]) -> str:
 def test_filter_runs_on_non_content_events() -> None:
     """Leak via ``message.completed`` / ``response.output`` style events."""
     channel = _channel()
-    event = _msg(f"{OPEN}secret{CLOSE}hello")
+    event = _Event(
+        {
+            "object": "message",
+            "content": [{"type": "text", "text": f"{OPEN}secret{CLOSE}hello"}],
+        },
+        object_name="message",
+    )
 
     raw = channel._serialize_event_for_sse(event, {})
 
@@ -113,35 +111,31 @@ def test_filter_runs_on_non_content_events() -> None:
 def test_sse_delta_filters_system_injection_blocks() -> None:
     """SSE ``delta`` events must also drop ``system-*`` injection blocks."""
     channel = _channel()
-    states = _sse_states(channel)
     raw = channel._serialize_event_for_sse(
         _Event(
             {
                 "object": "content",
-                "type": "text",
                 "delta": True,
                 "msg_id": "m1",
                 "index": 0,
                 "text": "<system-info>\nnoise\n</system-info>hi",
             },
         ),
-        states,
+        {},
     )
 
     assert "noise" not in raw
-    released = channel._flush_headline_stream_states(states)
-    assert [json.loads(item)["text"] for item in released] == ["hi"]
+    assert "hi" in raw
 
 
 def test_sse_delta_filters_tool_parameter_shell() -> None:
     """An unclosed tool-parameter wrapper is model-facing, not a reply."""
     channel = _channel()
-    states = _sse_states(channel)
+    states: dict[str, Any] = {}
     raw = channel._serialize_event_for_sse(
         _Event(
             {
                 "object": "content",
-                "type": "text",
                 "delta": True,
                 "msg_id": "m1",
                 "index": 0,
@@ -200,21 +194,16 @@ def test_reasoning_spanning_text_blocks_is_hidden() -> None:
 
 
 def test_history_playback_shares_one_scan_per_message() -> None:
-    """History blocks are cleaned as one message."""
-    from agentscope.message import Msg
+    """History blocks are cleaned with the same per-message state."""
+    from qwenpaw.agents.context.scroll.scaffold_filter import ScaffoldFilter
+    from qwenpaw.app.chats.utils import clean_display_text
 
-    from qwenpaw.app.chats.utils import agentscope_msg_to_message
+    state = ScaffoldFilter()
+    first = clean_display_text(f"{OPEN}secret", "assistant", state=state)
+    second = clean_display_text(f"tail{CLOSE}answer", "assistant", state=state)
 
-    msg = Msg(
-        name="assistant",
-        role="assistant",
-        content=[
-            {"type": "text", "text": f"{OPEN}secret"},
-            {"type": "text", "text": f"tail{CLOSE}answer"},
-        ],
-    )
-    [message] = agentscope_msg_to_message(msg)
-    assert [block.text for block in message.content] == ["", "answer"]
+    assert first == ""
+    assert second == "answer"
 
 
 # --------------------------------------------------------------------------
@@ -471,49 +460,10 @@ async def test_streaming_hooks_show_only_the_public_reply(
     )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("open_tag", [OPEN, ""])
-async def test_streaming_hooks_hide_scaffolding_across_content_indexes(
-    streaming_channel,
-    open_tag: str,
-) -> None:
-    from types import SimpleNamespace
-
-    request = SimpleNamespace(user_id="u", session_id="console:u")
-    send_meta: dict[str, Any] = {}
-    buffers = {"message": ""}
-    mapping = {"m1": "message"}
-    chunks = (f"{open_tag}private start", "private middle", f"{CLOSE}Public.")
-    for index, text in enumerate(chunks):
-        await streaming_channel._on_stream_content_delta(
-            request,
-            "u",
-            TextContent(delta=True, msg_id="m1", index=index, text=text),
-            send_meta,
-            mapping,
-            buffers,
-        )
-
-    assert not streaming_channel.delta_calls
-    assert not streaming_channel.end_calls
-    await streaming_channel._on_stream_msg_end(
-        request,
-        "u",
-        _msg(*chunks),
-        send_meta,
-        mapping,
-        buffers,
-    )
-
-    assert streaming_channel.end_calls[-1][1] == "Public."
-    for _, text in streaming_channel.delta_calls + streaming_channel.end_calls:
-        assert "private" not in text
-
-
 def test_sse_injected_block_across_three_chunks() -> None:
     """An injected block split over three deltas hides as one block."""
     channel = _channel()
-    states = _sse_states(channel)
+    states: dict[str, Any] = {}
     visible: list[str] = []
 
     for chunk in (OPEN_INFO, "`secret`", f"{CLOSE_INFO}Public."):
@@ -521,7 +471,6 @@ def test_sse_injected_block_across_three_chunks() -> None:
             _Event(
                 {
                     "object": "content",
-                    "type": "text",
                     "delta": True,
                     "msg_id": "m1",
                     "index": 0,
@@ -532,9 +481,7 @@ def test_sse_injected_block_across_three_chunks() -> None:
         )
         visible.append(json.loads(raw)["text"])
 
-    assert not any(visible)
-    released = channel._flush_headline_stream_states(states)
-    assert [json.loads(item)["text"] for item in released] == ["Public."]
+    assert "".join(visible) == "Public."
 
 
 def test_sse_code_examples_survive_chunk_splitting() -> None:
@@ -545,7 +492,7 @@ def test_sse_code_examples_survive_chunk_splitting() -> None:
     inside the example get stripped.
     """
     channel = _channel()
-    states = _sse_states(channel)
+    states: dict[str, Any] = {}
     chunks = [
         "Inline `",
         "<thin",
@@ -562,7 +509,6 @@ def test_sse_code_examples_survive_chunk_splitting() -> None:
             _Event(
                 {
                     "object": "content",
-                    "type": "text",
                     "delta": True,
                     "msg_id": "m1",
                     "index": 0,
@@ -573,6 +519,4 @@ def test_sse_code_examples_survive_chunk_splitting() -> None:
         )
         visible.append(json.loads(raw)["text"])
 
-    assert not any(visible)
-    released = channel._flush_headline_stream_states(states)
-    assert [json.loads(item)["text"] for item in released] == ["".join(chunks)]
+    assert "".join(visible) == "".join(chunks)

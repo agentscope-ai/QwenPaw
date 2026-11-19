@@ -326,7 +326,6 @@ class Plugin:
                     {
                         "phase": event.phase,
                         "text": event.text,
-                        "content": [b.text for b in event.event.content],
                         "status": event.event.status,
                         "target": event.target,
                         "metadata": dict(event.metadata),
@@ -336,12 +335,11 @@ class Plugin:
 
         async def generate(call, request):
             yield ModelChunk(
-                (ContentBlock(text="private scratchpad"),),
-                id="channel-answer",
+                (ContentBlock(text="first"),), id="channel-answer"
             )
             await asyncio.sleep(0.2)
             yield ModelChunk(
-                (ContentBlock(text="</think>public answer"),),
+                (ContentBlock(text=" second"),),
                 id="channel-answer",
                 is_last=True,
             )
@@ -394,10 +392,11 @@ plugin = Plugin()
                 if any(row["phase"] == "end" for row in rows):
                     break
                 await asyncio.sleep(0.01)
-        assert [row["phase"] for row in rows] == ["start", "end"]
+        assert rows[0]["phase"] == "start"
+        assert any(row["phase"] == "delta" for row in rows)
+        assert [row["phase"] for row in rows].count("end") == 1
         assert rows[-1]["phase"] == "end" and rows[-1]["status"] == "completed"
-        assert rows[-1]["text"] == "public answer"
-        assert rows[-1]["content"] == ["public answer"]
+        assert rows[-1]["text"] == "first second"
         assert all(row["target"] == "original-target" for row in rows)
         assert all(
             row["metadata"]["session_webhook"] == "https://example.test/reply"
