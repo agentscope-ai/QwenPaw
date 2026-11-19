@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from dataclasses import asdict
 
 from ..drivers.capabilities import (
     DriverInvocationResult,
@@ -29,11 +28,7 @@ from ..plugins._drivers import (
 from ..plugins.registry import PluginRegistry
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from .driver_config_watcher import DriverConfigWatcher
-from .mcp_plugin_migration import (
-    MCPUsageSnapshot,
-    MCPWorkspaceSnapshot,
-    classify_mcp_usage,
-)
+from .mcp_plugin_migration import configured_mcp_card
 
 logger = logging.getLogger(__name__)
 
@@ -248,68 +243,28 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         self._reload_protocols = {}
 
     async def _migrate_legacy_config(self):
-        """Convert confirmed raw usage only after host protocol activation.
-
-        The installation coordinator must inventory all workspaces before
-        this compatibility conversion, including inactive workspaces.
-        """
-        if not self._available("mcp"):
+        """Convert the sources accepted by workspace admission."""
+        snapshot = getattr(self._workspace, "_mcp_legacy_migration", None)
+        if snapshot is None:
             return
-        import yaml
+        from ..config.utils import archive_config_input
         from ..drivers.adapters.mcp_legacy_config import (
-            CURRENT_MCP_MIGRATION_VERSION,
             migrate_legacy_mcp_if_needed,
         )
-        from .mcp_plugin_upgrade import normalize_legacy_mcp
 
-        try:
-            raw = json.loads(
-                await asyncio.to_thread(
-                    (self._workspace.workspace_dir / "agent.json").read_text,
-                    encoding="utf-8",
-                ),
+        if snapshot.legacy_backup is not None:
+            await run_sync_io(
+                archive_config_input,
+                self._workspace.workspace_dir / "agent.json",
+                snapshot.legacy_backup,
+                "legacy-mcp",
             )
-            mcp, skipped = await run_sync_io(
-                normalize_legacy_mcp,
-                raw.get("mcp", {}),
-            )
-            version = mcp.get("migration_version", 0)
-            if skipped or version >= CURRENT_MCP_MIGRATION_VERSION:
-                return
-            # Mail/ACP intent justifies installing the protocol, not converting
-            # model-filled default MCP clients into live sources.
-            # A v1 workspace already converted its clients to cards.
-            if version != 0:
-                mcp = {**mcp, "clients": {}}
-            cards = []
-            for path in await self.card_store.list_paths(protocols={"mcp"}):
-                raw_card = await asyncio.to_thread(
-                    path.read_text,
-                    encoding="utf-8",
-                )
-                cards.append(yaml.safe_load(raw_card))
-            decision = classify_mcp_usage(
-                MCPUsageSnapshot(
-                    (
-                        MCPWorkspaceSnapshot(
-                            self._workspace.agent_id,
-                            {"mcp": mcp},
-                            tuple(cards),
-                        ),
-                    ),
-                ),
-            )
-        except (
-            OSError,
-            ValueError,
-            TypeError,
-            AttributeError,
-            yaml.YAMLError,
-        ):
-            # Preserve uncertain evidence for the coordinator to report.
-            return
-        if decision.status == "configured":
-            await migrate_legacy_mcp_if_needed(self._workspace, self)
+        await migrate_legacy_mcp_if_needed(
+            self._workspace,
+            self,
+            clients=snapshot.legacy_mcp.clients,
+        )
+        self._workspace._mcp_legacy_migration = None
 
     async def request_monitoring(self, protocol):
         """Persist intent without installing or opening a protocol."""
@@ -346,14 +301,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def _configured(card):
-        if card.protocol != "mcp":
-            return True
-        decision = classify_mcp_usage(
-            MCPUsageSnapshot(
-                (MCPWorkspaceSnapshot("source", cards=(asdict(card),)),),
-            ),
-        )
-        return decision.status != "unused"
+        return card.protocol != "mcp" or configured_mcp_card(card)
 
     async def _configured_cards(self, protocol):
         paths = await self.card_store.list_paths(protocols={protocol})

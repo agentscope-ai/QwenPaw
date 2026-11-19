@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 from dataclasses import dataclass
 from uuid import uuid4
@@ -23,6 +22,7 @@ from .mcp_plugin_migration import (
     MCPUsageDecision,
     MCPWorkspaceSnapshot,
     classify_mcp_usage,
+    needs_legacy_migration,
 )
 
 from ..utils.io_utils import run_sync_io
@@ -39,32 +39,27 @@ logger = logging.getLogger(__name__)
 
 
 def _read_root(path):
+    from ..config.utils import parse_config_data
+
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        return parse_config_data(path.read_bytes())[0] or {}
     except FileNotFoundError:
         return {}
-    if not isinstance(value, dict):
-        raise ValueError("Invalid root configuration")
-    agents = value.get("agents", {})
-    plugins = value.get("plugins", {})
-    if (
-        not isinstance(agents, dict)
-        or not isinstance(agents.get("profiles", {}), dict)
-        or not isinstance(plugins, dict)
-    ):
-        raise ValueError("Invalid root configuration")
-    return value
 
 
-def _legacy_root_mcp(root):
-    """Return the migratable part of a legacy root and whether it lost items."""
-    if "mcp" not in root or root.get("agents", {}).get("profiles") is not None:
-        return None, False
-    return normalize_legacy_mcp(root["mcp"], filter_unsafe_args=True)
+def _root_profiles(root):
+    agents = root.get("agents")
+    profiles = agents.get("profiles") if isinstance(agents, dict) else None
+    return profiles if isinstance(profiles, dict) else None
 
 
-def normalize_legacy_mcp(raw, *, filter_unsafe_args=False):
-    """Apply the old config models to explicitly saved MCP settings."""
+def _root_plugins(root):
+    plugins = root.get("plugins")
+    return plugins if isinstance(plugins, dict) else {}
+
+
+def normalize_legacy_mcp(raw, *, root=False):
+    """Use the legacy model on saved values, leaving model defaults implicit."""
     from pydantic import ValidationError
 
     from ..config.config import MCPClientConfig, MCPConfig
@@ -76,55 +71,33 @@ def normalize_legacy_mcp(raw, *, filter_unsafe_args=False):
     from ..drivers.errors import DriverCardError
     from ..exceptions import ConfigurationException
 
-    empty = {"clients": {}}
+    if raw is None and not root:
+        return None, False
     if not isinstance(raw, dict) or not isinstance(
         raw.get("clients", {}),
         dict,
     ):
-        return empty, True
+        return MCPConfig(clients={}), True
     try:
-        envelope = MCPConfig.model_validate(
-            {key: value for key, value in raw.items() if key != "clients"},
-        )
+        mcp = MCPConfig.model_validate({**raw, "clients": {}})
     except ValidationError:
-        return empty, True
-    if not 0 <= envelope.migration_version <= CURRENT_MCP_MIGRATION_VERSION:
-        return empty, True
-    mcp = envelope.model_dump(exclude_unset=True)
-    if "clients" not in raw:
+        return MCPConfig(clients={}), True
+    if not 0 <= mcp.migration_version <= CURRENT_MCP_MIGRATION_VERSION:
+        return MCPConfig(clients={}), True
+    if mcp.migration_version:
+        # Consumed source definitions can remain on disk for downgrade.
         return mcp, False
 
-    clients = {}
-    for key, client in raw["clients"].items():
+    clients = raw.get("clients", {})
+    for name, value in clients.items():
         try:
-            validate_card_name(key)
-            model = MCPClientConfig.model_validate(client)
+            validate_card_name(name)
+            model = MCPClientConfig.model_validate(value)
         except (DriverCardError, ValidationError, ConfigurationException):
             continue
-        if any(
-            name in client
-            and alias in client
-            and client[name] != client[alias]
-            for name, alias in (
-                ("enabled", "isActive"),
-                ("http_timeout", "timeout"),
-                ("url", "baseUrl"),
-                ("transport", "type"),
-            )
-        ):
-            continue
-        if (
-            not key.strip()
-            or not model.name.strip()
-            or (
-                filter_unsafe_args
-                and envelope.migration_version == 0
-                and args_may_contain_secret(model.args)
-            )
-        ):
-            continue
-        clients[key] = model.model_dump(exclude_unset=True)
-    return {**mcp, "clients": clients}, len(clients) != len(raw["clients"])
+        if not args_may_contain_secret(model.args):
+            mcp.clients[name] = model
+    return mcp, len(mcp.clients) != len(clients)
 
 
 def _legacy_review_path(config_path):
@@ -158,66 +131,69 @@ def _legacy_review_marker(marker, snapshot):
     reviewed = _reviewed_workspaces(marker)
     if not reviewed:
         return False
+    if classify_mcp_usage(snapshot).status == "configured":
+        # A review-only marker never attempted an installation. A valid
+        # source now provides the evidence that was missing at first boot.
+        return True
     if (
         "default" in reviewed
         and snapshot.config_path
         and _legacy_review_path(Path(snapshot.config_path)).is_file()
     ):
         reviewed.remove("default")
-    # A prior config save may already have written the canonical form.
-    # Reconsider only records backed by current, explicitly saved clients.
-    for item in snapshot.workspaces:
-        if item.workspace_id not in reviewed or item.errors:
-            continue
-        mcp = item.config.get("mcp") if isinstance(item.config, dict) else None
-        if isinstance(mcp, dict) and mcp.get("clients"):
-            reviewed.discard(item.workspace_id)
     return not reviewed
 
 
-def _workspace_snapshot(workspace_id, directory):
-    import yaml
+def _workspace_snapshot(workspace_id, directory, inherited_mcp=None):
+    from ..config.config import _read_agent_config_snapshot
+    from ..drivers.errors import DriverCardError
+    from ..drivers.storage import list_card_paths, load_card
 
-    config, cards, errors = {}, [], []
+    config, original = {}, None
+    path = directory / "agent.json"
     try:
-        try:
-            config = json.loads(
-                (directory / "agent.json").read_text(encoding="utf-8"),
-            )
-        except FileNotFoundError:
-            pass
-        root = directory / "drivers" / "mcp"
+        original, _ = _read_agent_config_snapshot(path)
+        config = json.loads(original)
+        if not isinstance(config, dict):
+            raise ValueError("Agent config must be an object")
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError):
+        return MCPWorkspaceSnapshot(
+            workspace_id,
+            errors=("unreadable_workspace_evidence",),
+        )
 
-        def unreadable(error):
-            if not isinstance(error, FileNotFoundError):
-                raise error
-
-        for parent, directories, files in os.walk(root, onerror=unreadable):
-            directories[:] = [
-                name for name in directories if not name.startswith(".")
-            ]
-            for name in sorted(files):
-                path = Path(parent) / name
-                if not name.startswith(".") and path.suffix.lower() in {
-                    ".yaml",
-                    ".yml",
-                }:
-                    cards.append(
-                        yaml.safe_load(path.read_text(encoding="utf-8")),
-                    )
-    except (OSError, ValueError, yaml.YAMLError):
-        errors.append("unreadable_workspace_evidence")
-    if isinstance(config, dict) and "mcp" in config:
-        normalized, skipped = normalize_legacy_mcp(config["mcp"])
-        if skipped:
-            errors.append("invalid_legacy_workspace_mcp")
-        else:
-            config["mcp"] = normalized
+    mcp, skipped_legacy = normalize_legacy_mcp(config.get("mcp"))
+    skipped = skipped_legacy
+    if original is None:
+        mcp = inherited_mcp
+    cards = []
+    try:
+        for card_path in list_card_paths(
+            directory / "drivers",
+            protocols={"mcp"},
+        ):
+            try:
+                card = load_card(card_path)
+            except (DriverCardError, ValueError):
+                skipped = True
+                continue
+            if card.protocol == "mcp":
+                cards.append(card)
+    except (OSError, DriverCardError):
+        skipped = True
     return MCPWorkspaceSnapshot(
         workspace_id,
-        config,
+        {
+            key: config[key]
+            for key in ("mail", "acp", "tools")
+            if key in config
+        },
         tuple(cards),
-        tuple(errors),
+        legacy_mcp=mcp,
+        skipped_sources=skipped,
+        legacy_backup=original if skipped_legacy else None,
     )
 
 
@@ -244,56 +220,39 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
             ),
             config_path=str(config_path),
         )
+    from pydantic import ValidationError
+
+    from ..config.config import AgentProfileRef, AgentsConfig
+    from ..config.utils import _normalize_working_dir_bound_paths
+
+    root = _normalize_working_dir_bound_paths(root)
     workspaces = []
-    # Root feature settings can predate per-agent files or be inherited by
-    # agents. Never hydrate Config here: ACP's default runners are enabled.
+    # Inspect only saved feature settings and source definitions.
     features = {
         key: root[key] for key in ("mail", "acp", "tools") if key in root
     }
     if features:
         workspaces.append(MCPWorkspaceSnapshot("__root_features__", features))
-    profiles = root.get("agents", {}).get("profiles")
+    inherited_mcp, _ = normalize_legacy_mcp(root.get("mcp"))
+    profiles = _root_profiles(root)
     if profiles is None:
-        # Old single-agent root config is inventoried before host conversion.
-        legacy, _ = _legacy_root_mcp(root)
-        if legacy is not None:
-            workspaces.append(MCPWorkspaceSnapshot("default", {"mcp": legacy}))
-        else:
-            profiles = {
-                "default": {
-                    "workspace_dir": str(
-                        config_path.parent / "workspaces/default",
-                    ),
-                },
-            }
-    for workspace_id, profile in (profiles or {}).items():
-        if (
-            not isinstance(profile, dict)
-            or not isinstance(profile.get("workspace_dir"), str)
-            or not profile["workspace_dir"].strip()
-            or (profile.get("id", workspace_id) != workspace_id)
-        ):
-            workspaces.append(
-                MCPWorkspaceSnapshot(
-                    workspace_id,
-                    errors=("invalid_profile",),
-                ),
-            )
+        profiles = {
+            name: ref.model_dump()
+            for name, ref in AgentsConfig().profiles.items()
+        }
+    for workspace_id, profile in profiles.items():
+        try:
+            agent = AgentProfileRef.model_validate(profile)
+        except ValidationError:
             continue
-        raw_path = profile["workspace_dir"]
-        for legacy_root in ("~/.copaw", str(Path("~/.copaw").expanduser())):
-            if raw_path == legacy_root or raw_path.startswith(
-                legacy_root + "/",
-            ):
-                raw_path = (
-                    str(config_path.parent) + raw_path[len(legacy_root) :]
-                )
-                break
-        directory = Path(raw_path).expanduser()
-        if not directory.is_absolute():
-            directory = config_path.parent / directory
-        workspaces.append(_workspace_snapshot(workspace_id, directory))
-    settings = root.get("plugins", {}).get(PLUGIN_ID)
+        workspaces.append(
+            _workspace_snapshot(
+                workspace_id,
+                Path(agent.workspace_dir).expanduser(),
+                inherited_mcp,
+            ),
+        )
+    settings = _root_plugins(root).get(PLUGIN_ID)
     uninstalled = False
     try:
         uninstalled = (
@@ -330,23 +289,21 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
         get_plugins_dir,
         isolate_legacy_root_mcp,
     )
-    from .mcp_plugin_migration import validate_mcp_upgrade_preflight
 
     config_path = Path(config_path) if config_path else get_config_path()
     plugins_dir = Path(plugins_dir) if plugins_dir else get_plugins_dir()
     try:
         root = _read_root(config_path)
-    except (OSError, ValueError) as exc:
-        raise RuntimeError(
-            "Root configuration requires review before startup",
-        ) from exc
-    legacy, skipped = _legacy_root_mcp(root)
-    if skipped:
-        isolate_legacy_root_mcp(config_path, root, legacy)
-        logger.warning(
-            "Some legacy MCP sources were archived during migration",
-        )
-    settings = root.get("plugins", {}).get(PLUGIN_ID)
+    except (OSError, ValueError):
+        return StartupMigration(str(config_path), None)
+    if "mcp" in root and _root_profiles(root) is None:
+        legacy, skipped = normalize_legacy_mcp(root["mcp"], root=True)
+        if skipped:
+            isolate_legacy_root_mcp(config_path, root, legacy.model_dump())
+            logger.warning(
+                "Some legacy MCP sources were archived during migration",
+            )
+    settings = _root_plugins(root).get(PLUGIN_ID)
     if settings is not None and (
         not isinstance(settings, dict)
         or ("enabled" in settings and type(settings["enabled"]) is not bool)
@@ -362,37 +319,25 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
             config_path=config_path,
             plugins_dir=plugins_dir,
         )
-        validate_mcp_upgrade_preflight(snapshot)
         if marker is not None and not _legacy_review_marker(marker, snapshot):
             snapshot = None
     return StartupMigration(str(config_path), marker, snapshot)
 
 
 def _workspace_evidence(workspace_id, directory, config_path=None):
-    """Check the target's raw profile as well as its own files."""
+    """Use the same MCP inheritance as the host's missing-profile fallback."""
     from ..config.utils import get_config_path
 
     config_path = Path(config_path) if config_path else get_config_path()
-    snapshot = _workspace_snapshot(workspace_id, Path(directory))
-    try:
-        root = _read_root(config_path)
-        profile = root.get("agents", {}).get("profiles", {}).get(workspace_id)
-        invalid = profile is not None and (
-            not isinstance(profile, dict)
-            or profile.get("id", workspace_id) != workspace_id
-            or not isinstance(profile.get("workspace_dir"), str)
-            or not profile["workspace_dir"].strip()
-        )
-    except (OSError, ValueError):
-        invalid = True
-    if invalid:
-        return MCPWorkspaceSnapshot(
-            workspace_id,
-            snapshot.config,
-            snapshot.cards,
-            snapshot.errors + ("invalid_profile",),
-        )
-    return snapshot
+    directory = Path(directory).expanduser()
+    inherited_mcp = None
+    if not (directory / "agent.json").is_file():
+        try:
+            root = _read_root(config_path)
+        except (OSError, ValueError):
+            root = {}
+        inherited_mcp, _ = normalize_legacy_mcp(root.get("mcp"))
+    return _workspace_snapshot(workspace_id, directory, inherited_mcp)
 
 
 async def capture_workspace_usage(workspace_id, directory):
@@ -406,7 +351,12 @@ async def capture_workspace_usage(workspace_id, directory):
 
 
 def bind_workspace_usage(workspace, snapshot):
+    # pylint: disable=protected-access
     if snapshot is not None:
+        workspace._mcp_legacy_migration = (
+            snapshot if needs_legacy_migration(snapshot) else None
+        )
+        workspace._mcp_skipped_sources = snapshot.skipped_sources
         workspace._mcp_usage_status = classify_mcp_usage(
             MCPUsageSnapshot((snapshot,)),
         ).status
@@ -867,7 +817,6 @@ class MCPPluginCoordinator:
         marker = await run_sync_io(_read_marker, self.marker_path)
         if marker is not None and (
             decision.status in {"needs_review", "explicit_off"}
-            or "needs_review" in decision.workspace_statuses.values()
             or not await run_sync_io(
                 _legacy_review_marker,
                 marker,
@@ -1038,7 +987,7 @@ class MCPPluginCoordinator:
         root = _read_root(
             Path(self.config_path) if self.config_path else get_config_path(),
         )
-        row = root.get("plugins", {}).get(PLUGIN_ID)
+        row = _root_plugins(root).get(PLUGIN_ID)
         if row is not None and (
             not isinstance(row, dict)
             or ("enabled" in row and type(row["enabled"]) is not bool)
@@ -1139,7 +1088,7 @@ async def prepare_startup_plugins(
     except (OSError, ValueError):
         return result
     await loader.load_all_plugins(
-        configs=root.get("plugins", {}),
+        configs=_root_plugins(root),
         types=["channel", "memory", "hub"],
         capabilities=["drivers"],
         activate=False,

@@ -21,7 +21,14 @@ _RECOVERY_CODES = {
 }
 
 
-def _recovery_state(loader, request, config, *, workspace_status=None):
+def _recovery_state(
+    loader,
+    request,
+    config,
+    *,
+    workspace_status=None,
+    skipped_sources=False,
+):
     coordinator = getattr(loader, "protocol_coordinator", None)
     result = getattr(coordinator, "latest_result", None)
     if result is None:
@@ -40,7 +47,9 @@ def _recovery_state(loader, request, config, *, workspace_status=None):
     # Workspace-specific uncertainty must not mark a healthy sibling blocked.
     diagnostics = [code for code in codes if code != "workspace_needs_review"]
     workspace_codes = (
-        ["workspace_needs_review"] if status == "needs_review" else []
+        ["workspace_needs_review"]
+        if status == "needs_review" or skipped_sources
+        else []
     )
     return {
         "upgrade": {"status": result.status, "diagnostics": codes},
@@ -118,18 +127,20 @@ async def plugin_state(request):
     live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
     workspace = live.get(agent_id)
     workspace_status = getattr(workspace, "_mcp_usage_status", None)
+    skipped_sources = getattr(workspace, "_mcp_skipped_sources", False)
+    profile = config.agents.profiles.get(agent_id)
     if workspace_status is None:
         # A settings page may inspect a dormant agent without starting it.
         from ..mcp_plugin_upgrade import _workspace_evidence
         from ..mcp_plugin_migration import MCPUsageSnapshot, classify_mcp_usage
 
-        profile = config.agents.profiles.get(agent_id)
         if profile is not None:
             snapshot = await asyncio.to_thread(
                 _workspace_evidence,
                 agent_id,
                 Path(profile.workspace_dir),
             )
+            skipped_sources = snapshot.skipped_sources
             workspace_status = classify_mcp_usage(
                 MCPUsageSnapshot((snapshot,)),
             ).status
@@ -138,6 +149,7 @@ async def plugin_state(request):
         request,
         config,
         workspace_status=workspace_status,
+        skipped_sources=skipped_sources,
     )
     if getattr(record, "status", None) == "failed":
         diagnostics.append("plugin_runtime_failed")
@@ -149,8 +161,17 @@ async def plugin_state(request):
         "enabled": enabled,
         "status": status,
         "diagnostics": diagnostics,
-        "legacy_mcp_archived": agent_id == "default"
-        and await run_sync_io(legacy_mcp_was_archived, get_config_path()),
+        "legacy_mcp_archived": (
+            agent_id == "default"
+            and await run_sync_io(legacy_mcp_was_archived, get_config_path())
+        )
+        or (
+            profile is not None
+            and await run_sync_io(
+                legacy_mcp_was_archived,
+                Path(profile.workspace_dir).expanduser() / "agent.json",
+            )
+        ),
         "available": is_mcp_ready(loader, agent_id)
         if workspace is not None
         else is_mcp_ready(loader) and workspace_status != "needs_review",

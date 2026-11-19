@@ -514,38 +514,42 @@ def _backup_config_file(config_path: Path, reason: str) -> Optional[Path]:
         return None
 
 
-def _read_config_data(config_path: Path) -> Optional[dict]:
-    """Read *config_path* and return parsed dict.
-
-    Uses ``json_repair`` to handle common syntax issues (trailing
-    commas, missing quotes, comments, BOM, etc.).  Creates a backup and
-    returns ``None`` when the file is unrecoverable.
-    """
+def parse_config_data(raw: bytes) -> tuple[Optional[dict], Optional[str]]:
+    """Parse a root config document using the host's repair rules."""
     try:
-        with open(config_path, "r", encoding="utf-8") as file:
-            raw = file.read()
+        text = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     except UnicodeDecodeError:
-        _backup_config_file(config_path, "encoding error")
-        return None
-
+        return None, "encoding error"
     try:
-        data = json.loads(raw)
+        data = json.loads(text)
     except json.JSONDecodeError:
-        data = repair_json(raw, return_objects=True)
+        data = repair_json(text, return_objects=True)
         if not isinstance(data, dict):
-            _backup_config_file(
-                config_path,
-                "JSON syntax error, repair failed",
-            )
-            return None
+            return None, "JSON syntax error, repair failed"
+        return data, "repaired"
+    if not isinstance(data, dict):
+        return None, "root value is not a JSON object"
+    return data, None
+
+
+def _read_config_data(
+    config_path: Path,
+    *,
+    preserve_repair: bool = False,
+) -> Optional[dict]:
+    """Read root configuration, backing up documents that cannot be used."""
+    with open(config_path, "rb") as file:
+        original = file.read()
+    data, issue = parse_config_data(original)
+    if data is None:
+        _backup_config_file(config_path, issue or "invalid root configuration")
+    elif issue == "repaired":
+        if preserve_repair:
+            archive_config_input(config_path, original, "json-repair")
         logger.warning(
             "Config %s had JSON syntax issues that were auto-repaired.",
             config_path,
         )
-
-    if not isinstance(data, dict):
-        _backup_config_file(config_path, "root value is not a JSON object")
-        return None
     return data
 
 
@@ -733,7 +737,9 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
                 exclude_none=True,
             )
         if config_path.is_file():
-            existing = _read_config_data(config_path) or {}
+            existing = (
+                _read_config_data(config_path, preserve_repair=True) or {}
+            )
             for legacy_key in LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION:
                 if legacy_key in existing:
                     payload[legacy_key] = existing[legacy_key]
@@ -748,6 +754,35 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
             _config_mtime = None
 
 
+def archive_config_input(
+    config_path: Path,
+    original: bytes,
+    reason: str,
+) -> None:
+    """Keep the exact migration input once per file content."""
+    digest = hashlib.sha256(original).hexdigest()
+    backup_path = config_path.with_name(
+        f"{config_path.name}.{reason}-{digest}.bak",
+    )
+    if (
+        backup_path.is_symlink()
+        or backup_path.resolve() == config_path.resolve()
+    ):
+        raise ValueError("Config backup must be a regular file")
+    try:
+        archived = backup_path.read_bytes()
+    except FileNotFoundError:
+        # Latin-1 round-trips each byte through the atomic writer.
+        write_text_atomic(
+            backup_path,
+            original.decode("latin-1"),
+            encoding="latin-1",
+        )
+    else:
+        if archived != original:
+            raise ValueError("Config backup contents do not match")
+
+
 def isolate_legacy_root_mcp(
     config_path: Path,
     expected: dict,
@@ -758,29 +793,9 @@ def isolate_legacy_root_mcp(
 
     with _config_lock:
         original = config_path.read_bytes()
-        text = original.decode("utf-8")
-        if json.loads(text) != expected:
+        if parse_config_data(original)[0] != expected:
             raise RuntimeError("Root configuration changed during MCP review")
-        digest = hashlib.sha256(original).hexdigest()
-        backup_path = config_path.with_name(
-            f"{config_path.name}.legacy-mcp-{digest}.bak",
-        )
-        if (
-            backup_path.is_symlink()
-            or backup_path.resolve() == config_path.resolve()
-        ):
-            raise RuntimeError(
-                "Legacy MCP review backup must be a regular file",
-            )
-        try:
-            archived = backup_path.read_bytes()
-        except FileNotFoundError:
-            write_text_atomic(backup_path, text)
-        else:
-            if archived != original:
-                raise RuntimeError(
-                    "Legacy MCP backup contents do not match",
-                )
+        archive_config_input(config_path, original, "legacy-mcp")
         write_json_atomic(config_path, {**expected, "mcp": retained_mcp})
         _config_cache = None
 
