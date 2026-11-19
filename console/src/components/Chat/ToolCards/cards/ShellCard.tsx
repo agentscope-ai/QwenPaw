@@ -22,7 +22,12 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
     (content.params?.command as string) ||
     (content.params?.cmd as string) ||
     "";
-  const title = command ? t("tool.shell", { command }) : t("tool.shellDefault");
+  const pptStep = command.match(
+    /(?:^|[\\/"'\s])(prepare_slide_prompts|record_slide_dispatch|record_slide_result|record_slide_blocker|slide_job_status|assemble_ppt)\.py(?=["'\s]|$)/i,
+  );
+  const title = pptStep
+    ? t(`tool.pptSteps.${pptStep[1].toLowerCase()}`)
+    : command ? t("tool.shell", { command }) : t("tool.shellDefault");
 
   if (content.status === "error") {
     return (
@@ -44,6 +49,7 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
       content={content}
       isStreaming={isStreaming}
     >
+      {pptStep && <DefaultBlock title={t("tool.shellDefault")} content={command} />}
       {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );

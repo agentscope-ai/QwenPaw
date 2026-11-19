@@ -84,6 +84,17 @@ class PostgresSessionRepository:
             row = result.mappings().one_or_none()
         return _authenticated_from_row(row) if row is not None else None
 
+    async def get_active_parent_session(
+        self, session_id: UUID, user_id: UUID, now: datetime,
+    ) -> AuthenticatedSession | None:
+        async with self._session_factory() as session:
+            result = await session.execute(text(self._select_joined(
+                "s.id = :sid AND s.user_id = :uid AND s.revoked_at IS NULL "
+                "AND s.expires_at > :now AND u.status = 'active'"
+            )), {"sid": session_id, "uid": user_id, "now": now})
+            row = result.mappings().one_or_none()
+        return _authenticated_from_row(row) if row is not None else None
+
     async def rotate_by_refresh_hash(
         self,
         *,

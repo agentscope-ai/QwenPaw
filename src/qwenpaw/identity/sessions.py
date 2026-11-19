@@ -48,6 +48,10 @@ class IssuedSession:
 
 
 class SessionRepository(Protocol):
+    async def get_active_parent_session(
+        self, session_id: UUID, user_id: UUID, now: datetime,
+    ) -> AuthenticatedSession | None: ...
+
     async def create_session(
         self,
         *,
@@ -154,6 +158,12 @@ class SessionService:
         ):
             return None
         return authenticated
+
+    async def active_parent_session(self, session_id: UUID, user_id: UUID):
+        """已授权运行可跨访问令牌轮换，登出、禁用或设备会话到期后停止。"""
+        return await self._repository.get_active_parent_session(
+            session_id, user_id, self._clock(),
+        )
 
     async def refresh(self, refresh_token: str) -> IssuedSession | None:
         if not refresh_token:

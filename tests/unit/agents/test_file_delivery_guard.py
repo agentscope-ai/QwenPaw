@@ -121,6 +121,19 @@ def test_failed_generation_has_honest_finite_terminal_response():
     assert "invented.example" not in result.final_message.get_text_content()
 
 
+def test_permanent_child_authorization_failure_ends_delivery_retries():
+    guard = FileDeliveryGuard(requested_file_types("生成 PPT"))
+    error = ToolResultBlock(
+        id="spawn", name="spawn_subagent", state="error",
+        output=[TextBlock(text="1. ERROR: 子任务未获授权（HTTP 401）。")],
+    )
+    guard.observe([Msg(name="tool", role="assistant", content=[error])])
+    result = guard.check(Msg(name="assistant", role="assistant", content=[TextBlock(text="准备重试")]))
+    assert result.action == StopAction.TERMINATE
+    assert result.reason == "subtask_authorization_failed"
+    assert "文件尚未交付" in result.final_message.get_text_content()
+
+
 @pytest.mark.parametrize(
     "text,action",
     [

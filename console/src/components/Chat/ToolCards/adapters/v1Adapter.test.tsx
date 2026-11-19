@@ -19,6 +19,13 @@ const call = {
 };
 
 describe("tool response lifecycle", () => {
+  it("shows the dispatch error for a historical batch marked successful", () => {
+    render(<Card data={{ status: "completed", content: [
+      { data: { name: "spawn_subagent" } },
+      { data: { state: "success", output: "[1/2] [TASK_ID: task-a]\n[2/2] ERROR: HTTP 401" } },
+    ] }} />);
+    expect(screen.getByTestId("status")).toHaveTextContent("error:false");
+  });
   it("stops missing-result history without reporting success and keeps live calls running", () => {
     const view = (status: string) => (
       <ToolResponseStatusContext.Provider value={status}>

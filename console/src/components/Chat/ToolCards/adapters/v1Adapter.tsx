@@ -38,11 +38,17 @@ const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
+  toolName: string,
   responseStatus?: string,
 ): ToolCallStatus {
   const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
   const toolState = resultData.state as string;
   if (toolState && TOOL_ERROR_STATES.has(toolState)) {
+    return "error";
+  }
+  // Older batch dispatches recorded success even for numbered dispatch errors.
+  if (toolName === "spawn_subagent" && typeof resultData.output === "string"
+      && /^\[\d+\/\d+\] ERROR:/m.test(resultData.output)) {
     return "error";
   }
 
@@ -124,7 +130,7 @@ function parseV1Props(v1Props: Record<string, unknown>, responseStatus?: string)
   // Extract result from content[1].data.output
   const result = resultData.output;
 
-  const status = deriveToolStatus(resultItem, data, responseStatus);
+  const status = deriveToolStatus(resultItem, data, toolName, responseStatus);
 
   // Extract id — prefer call_id which carries the ToolCallBlock.id
   // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.

@@ -31,7 +31,9 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
   return (
     <ToolCardShell
       icon={<ToolOutlined />}
-      title={t("tool.execute", { tool: toolLabel })}
+      title={content.name === "spawn_subagent" ? t("tool.dispatchSubtasks")
+        : content.name === "ask_user_input" ? t("tool.requestInput")
+        : t("tool.execute", { tool: toolLabel })}
       content={content}
       isStreaming={isStreaming}
     >

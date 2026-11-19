@@ -712,7 +712,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         token = self._extract_token(request)
-        if not token:
+        delegation = request.scope.get("qwenpaw.subtask")
+        if not token and delegation is None:
             return Response(
                 content='{"detail":"Not authenticated"}',
                 status_code=401,
@@ -720,9 +721,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         if is_multi_user_enabled():
-            authenticated = await get_identity_runtime().sessions.authenticate_access(
-                token
-            )
+            sessions = get_identity_runtime().sessions
+            if delegation is None:
+                authenticated = await sessions.authenticate_access(token)
+            else:
+                from .console_delegation import ConsoleDelegation
+
+                path = request.url.path
+                allowed = (
+                    request.method == "POST" and path in {
+                        "/api/console/chat", "/api/console/chat/task",
+                    }
+                ) or (
+                    request.method == "GET"
+                    and (path == "/api/agents" or
+                         re.fullmatch(r"/api/console/chat/task/task-[0-9a-f]{12}", path))
+                )
+                if not (isinstance(delegation, ConsoleDelegation) and allowed
+                        and request.headers.get("X-Agent-Id") == delegation.agent_id):
+                    return Response(status_code=403)
+                authenticated = await sessions.active_parent_session(
+                    delegation.session_id, delegation.user_id,
+                )
             if authenticated is None:
                 return Response(
                     content='{"detail":"Invalid or expired token"}',

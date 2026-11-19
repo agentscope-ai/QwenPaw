@@ -43,6 +43,31 @@ class UserInputService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingUserInput] = {}
+        self._sample_questions: dict[tuple, asyncio.Task] = {}
+
+    async def ask_about_sample(self, scope, **kwargs) -> dict:
+        """同一份已发送的样稿共用一次人工确认；不同用户、会话和版本独立。"""
+        from ..artifacts.repository import PostgresArtifactRepository
+        from ..identity.runtime import get_identity_schema
+
+        async def ask_once():
+            repository = PostgresArtifactRepository(schema=get_identity_schema())
+            prior = await repository.sample_answer(**scope)
+            if prior is not None:
+                return {**prior, "reused": True}
+            pending = await self.create_pending(**kwargs)
+            result = await self.wait_for_result(pending.request_id, kwargs["timeout_seconds"])
+            if result.status == "answered" and result.answers.get("sample_approval") == "确认并生成":
+                await repository.sample_answer(**scope, answer=result.model_dump())
+            return result.model_dump()
+
+        key = (scope["owner"], scope["agent"], scope["chat"], scope["artifact"])
+        task = self._sample_questions.get(key)
+        if task is None:
+            task = asyncio.create_task(ask_once())
+            self._sample_questions[key] = task
+            task.add_done_callback(lambda _: self._sample_questions.pop(key, None))
+        return await asyncio.shield(task)
 
     async def create_pending(
         self,
@@ -203,7 +228,7 @@ class UserInputService:
 
         try:
             return await asyncio.wait_for(
-                pending.future,
+                asyncio.shield(pending.future),
                 timeout=timeout_seconds,
             )
         except asyncio.TimeoutError:

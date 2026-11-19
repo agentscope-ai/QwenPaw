@@ -106,7 +106,32 @@ class _ConsoleChannel:
         self,
         payload: dict[str, Any],
     ) -> AsyncGenerator[str, None]:
-        yield 'data: {"type":"message","output":[]}\n\n'
+        yield 'data: {"object":"response","status":"completed","output":[]}\n\n'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "events,status,reason",
+    [
+        ([], "failed", "未收到完成结果"),
+        ([{"object": "message", "status": "completed"}], "failed", "未收到完成结果"),
+        ([{"type": "rate_limited", "error": "quota"}], "failed", "模型服务限流"),
+        ([{"object": "response", "status": "failed", "error": {"message": "model offline"}},
+          {"type": "turn_usage"}], "failed", "model offline"),
+        ([{"object": "response", "status": "completed"}, {"type": "turn_usage"}], "completed", ""),
+    ],
+)
+async def test_subtask_requires_authoritative_result(events, status, reason):
+    async def source(_):
+        for event in events:
+            yield f"data: {json.dumps(event)}\n\n"
+
+    frames = [console._parse_sse_payload(line) async for line in console._with_subtask_result(source)({})]
+    assert frames[:len(events)] == events
+    terminal, = [frame for frame in frames if console.is_terminal_response(frame)]
+    assert terminal["status"] == status
+    if reason:
+        assert reason in terminal["error"]["message"]
 
 
 class _ChannelManager:

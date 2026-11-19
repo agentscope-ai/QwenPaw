@@ -151,6 +151,11 @@ async def send_file_to_user(
                 f"File sent successfully. Download link: {download_url}\n"
                 "Use this exact relative URL in the reply; do not invent sandbox or local filesystem links."
             )
+            if mime_type.startswith("image/"):
+                delivery_text += (
+                    f"\nFor PPT sample approval use ask_user_input with question id "
+                    f"sample_approval and sample_artifact_id={artifact.id}."
+                )
         else:
             file_path = str(await run_sync_io(_publish_to_outputs, source, get_current_project_dir(), get_current_workspace_dir()))
             file_url = _path_to_file_url(file_path)

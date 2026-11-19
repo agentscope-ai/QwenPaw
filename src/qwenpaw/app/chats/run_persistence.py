@@ -572,6 +572,10 @@ class PostgresChatRunPersistence:
         )
         now = self._clock()
         status = str(wire.get("status") or "running")
+        if data.get("state") in {"error", "interrupted", "denied"} or (
+            previous is not None and previous.status == "failed"
+        ):
+            status = "failed"
         return ToolCallRecord(
             id=(previous.id if previous else _stable_uuid("tool", run_id, call_id)),
             run_id=run_id,

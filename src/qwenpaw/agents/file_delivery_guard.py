@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from agentscope.message import ToolCallBlock, ToolResultBlock
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from .image_generation_guard import ImageGenerationGuard, output_media_types
 from ..loop.gates import StopAction, StopHandlerResult
@@ -65,6 +65,7 @@ class FileDeliveryGuard(ImageGenerationGuard):
         super().__init__()
         self.required_types = frozenset(required_types)
         self._sent_types: set[str] = set()
+        self._dispatch_denied = False
 
     @property
     def delivered(self) -> bool:
@@ -83,6 +84,11 @@ class FileDeliveryGuard(ImageGenerationGuard):
                     continue
                 if isinstance(block, ToolCallBlock):
                     self.has_tool_calls = True
+                if isinstance(block, ToolResultBlock) and block.name == "spawn_subagent":
+                    if block.state == "success":
+                        self._dispatch_denied = False
+                    elif any("子任务未获授权" in getattr(item, "text", "") for item in block.output):
+                        self._dispatch_denied = True
                 if (
                     isinstance(block, ToolResultBlock)
                     and block.state == "success"
@@ -91,6 +97,13 @@ class FileDeliveryGuard(ImageGenerationGuard):
                     self._sent_types.update(output_media_types(block.output))
 
     def check(self, final_msg, *, allow_retry=True):
+        if final_msg is not None and self._dispatch_denied and not self.delivered:
+            return StopHandlerResult(
+                action=StopAction.TERMINATE, reason="subtask_authorization_failed",
+                final_message=Msg(name=final_msg.name, role="assistant", content=[TextBlock(
+                    text="后台未能取得子任务的执行权限，文件尚未交付。已完成的步骤已保留，无需重复确认同一份样稿。",
+                )]),
+            )
         if final_msg is not None:
             text = final_msg.get_text_content() or ""
             asks_input = re.search(

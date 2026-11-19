@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import hashlib
+import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from uuid import UUID
@@ -81,6 +82,32 @@ class PostgresArtifactRepository:
             await set_request_user(session, owner_user_id)
             row = (await session.execute(text(f"SELECT * FROM {self._table} WHERE owner_user_id=:owner_user_id AND id=:id"), {"owner_user_id": owner_user_id, "id": artifact_id})).mappings().one_or_none()
         return None if row is None else self._from_row(row)
+
+    async def mark_delivered(self, artifact: AgentArtifact) -> AgentArtifact:
+        async with self._sessions() as session:
+            await set_request_user(session, artifact.owner_user_id)
+            row = (await session.execute(text(
+                f"UPDATE {self._table} SET source_tool='send_file_to_user' "
+                "WHERE id=:id AND owner_user_id=:owner AND status='active' RETURNING *"
+            ), {"id": artifact.id, "owner": artifact.owner_user_id})).mappings().one()
+        return self._from_row(row)
+
+    async def sample_answer(self, *, owner: UUID, agent: UUID, chat: UUID, artifact: UUID, answer=None):
+        scope = ("id=:id AND owner_user_id=:owner AND agent_id=:agent AND conversation_id=:chat "
+                 "AND status='active' AND media_type LIKE 'image/%' AND source_tool='send_file_to_user'")
+        params = {"id": artifact, "owner": owner, "agent": agent, "chat": chat}
+        async with self._sessions() as session:
+            await set_request_user(session, owner)
+            if answer is None:
+                query = f"SELECT sample_answer FROM {self._table} WHERE {scope}"
+            else:
+                query = (f"UPDATE {self._table} SET sample_answer=CAST(:answer AS jsonb) "
+                         f"WHERE {scope} RETURNING sample_answer")
+                params["answer"] = json.dumps(answer)
+            row = (await session.execute(text(query), params)).first()
+        if row is None:
+            raise ValueError("sample_not_delivered_in_conversation")
+        return row[0]
 
     async def mark_deleted(self, *, owner_user_id: UUID, artifact_id: UUID, deleted_at) -> AgentArtifact | None:
         async with self._sessions() as session:

@@ -46,6 +46,7 @@ from ..agent_context import (
     get_agent_for_request,
 )
 from ..approvals.display import approval_display_fields
+from ..console_delegation import bind_console_stream, is_terminal_response
 from ..chats.access import (
     ChatAccessDeniedError,
     require_conversation_access,
@@ -77,6 +78,7 @@ class _BackgroundTask:
     conversation_id: str = ""
     run_id: str = ""
     actor_context: Optional[Dict[str, Any]] = None
+    parent_conversation_id: str = ""
 
 
 _bg_tasks: Dict[str, _BackgroundTask] = {}
@@ -122,20 +124,30 @@ async def _require_console_conversation_write(
     conversation_id: str,
 ) -> None:
     """现有会话的 Console 写操作必须由会话所有者发起。"""
-    if not is_multi_user_enabled() or not conversation_id:
+    if not is_multi_user_enabled():
+        return
+    delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+    if delegation is not None:
+        if conversation_id and conversation_id != delegation.conversation_id:
+            raise HTTPException(status_code=403, detail="forbidden")
+        conversation_id = delegation.conversation_id
+    if not conversation_id:
         return
     actor = get_actor(request)
     if actor.user_id is None:
         raise HTTPException(status_code=404, detail="Chat not found")
     try:
         parsed_id = UUID(conversation_id)
-        await require_conversation_access(
+        access = await require_conversation_access(
             repository=workspace.chat_manager.conversation_repository,
             conversation_id=parsed_id,
             user_id=actor.user_id,
             expected_agent_id=agent_database_id(workspace.agent_id),
             write=True,
         )
+        if delegation and access.conversation.publication_id is not None:
+            # 发布应用必须保持发布快照，不能派发到未绑定发布版本的私人会话。
+            raise HTTPException(status_code=403, detail="publication_subtask_scope")
     except (ValueError, ChatAccessDeniedError) as exc:
         raise HTTPException(status_code=404, detail="Chat not found") from exc
 
@@ -180,9 +192,14 @@ async def _resolve_console_runtime_project(
         resolve_private_task_directory,
         actor_user_id=get_actor(request).user_id,
         agent_id=workspace.agent_id,
-        conversation_id=conversation_id,
+        conversation_id=_output_conversation(request, conversation_id),
     )
     return path, "user_task"
+
+
+def _output_conversation(request, chat_id):
+    delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+    return delegation.conversation_id if delegation else str(chat_id)
 
 
 async def _bind_console_task_output(request, workspace, chat, request_context):
@@ -196,7 +213,7 @@ async def _bind_console_task_output(request, workspace, chat, request_context):
             resolve_private_task_directory,
             actor_user_id=get_actor(request).user_id,
             agent_id=workspace.agent_id,
-            conversation_id=str(chat.id),
+            conversation_id=_output_conversation(request, chat.id),
         )
     )
     request_context["agent_id"] = workspace.agent_id
@@ -1018,10 +1035,13 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
+        console_stream = _with_personal_library_retrieval_trace(console_channel.stream_one)
+        if getattr(request, "scope", {}).get("qwenpaw.subtask") is not None:
+            console_stream = _with_subtask_result(console_stream)
         stream_source = _persisting_stream_source(
             workspace,
             chat,
-            _with_personal_library_retrieval_trace(console_channel.stream_one),
+            bind_console_stream(request, workspace, chat, console_stream),
         )
         try:
             queue = await _admit_console_submission(
@@ -1530,10 +1550,31 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     stripped = line.strip()
     if stripped.startswith("data: "):
         try:
-            return json.loads(stripped[6:])
+            value = json.loads(stripped[6:])
+            return value if isinstance(value, dict) else None
         except (json.JSONDecodeError, ValueError):
             return None
     return None
+
+
+def _with_subtask_result(stream_fn):
+    """子任务必须有明确的终态；用同一份结果持久化并回复派发方。"""
+
+    async def checked(payload):
+        finished = False
+        failure = "子任务响应流已结束，未收到完成结果。"
+        async for line in stream_fn(payload):
+            event = _parse_sse_payload(line) or {}
+            if is_terminal_response(event):
+                finished = True
+            elif event.get("type") == "rate_limited":
+                failure = "模型服务限流，子任务未完成。"
+            yield line
+        if not finished:
+            result = {"object": "response", "status": "failed", "error": {"message": failure}}
+            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+
+    return checked
 
 
 async def _finalize_background_fork(
@@ -1746,6 +1787,7 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         conversation_id=str(chat.id),
         run_id=run_id,
         actor_context=dict(request_context.get("actor_context") or {}),
+        parent_conversation_id=_output_conversation(request, chat.id),
     )
 
     async def _run() -> None:
@@ -1754,18 +1796,24 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             stream_source = _persisting_stream_source(
                 workspace,
                 chat,
-                _with_personal_library_retrieval_trace(
-                    console_channel.stream_one,
+                bind_console_stream(
+                    request, workspace, chat,
+                    _with_subtask_result(_with_personal_library_retrieval_trace(console_channel.stream_one)),
                 ),
             )
             async for sse_line in stream_source(native_payload):
                 parsed = _parse_sse_payload(sse_line)
-                if parsed and parsed.get("type") != "turn_usage":
+                if is_terminal_response(parsed):
                     last_response = parsed
 
             # Fork subagents: commit dirty worktree so branch tips are
             # mergeable before exposing a completed task result.
-            if fork_project_dir and fork_worktree_branch:
+            if not last_response or last_response.get("status") != "completed":
+                await _mark_background_fork_failed(
+                    fork_project_dir, fork_worktree_branch, scope_id=fork_scope_id,
+                    reason="Subtask did not complete", context="subtask result",
+                )
+            elif fork_project_dir and fork_worktree_branch:
                 try:
                     finalized = await _finalize_background_fork(
                         fork_project_dir,
@@ -1836,15 +1884,14 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         bg.finished_at = time.time()
         if last_response is not None:
             bg.result = {
-                "status": "completed",
                 "session_id": session_id,
                 **last_response,
             }
         else:
             bg.result = {
-                "status": "completed",
+                "status": "failed",
                 "session_id": session_id,
-                "output": [],
+                "error": {"message": "子任务未返回最终结果。"},
             }
 
     async def _admitted_run() -> None:
@@ -1906,6 +1953,12 @@ async def get_console_chat_task(
         actor = get_actor(request)
         if actor.user_id is None or str(actor.user_id) != bg.owner_user_id:
             raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+        delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+        if delegation:
+            if (bg.agent_id, bg.parent_conversation_id) != (delegation.agent_id, delegation.conversation_id):
+                raise HTTPException(status_code=404, detail="Task not found")
+            workspace = await get_agent_for_request(request)
+            await _require_console_conversation_write(request, workspace, delegation.conversation_id)
     response: Dict[str, Any] = {
         "status": bg.status,
         "conversation_id": bg.conversation_id,

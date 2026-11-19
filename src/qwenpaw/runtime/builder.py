@@ -801,12 +801,19 @@ class AgentBuilder:
         if private_task:
             from uuid import UUID
             from ..services.workspace_files import resolve_private_task_directory
+            from ..app.console_delegation import current_delegation
 
             try:
+                owner = UUID(str(request_context["user_id"]))
+                agent_id = request_context["agent_id"]
+                conversation_id = str(UUID(str(request_context["conversation_id"])))
+                delegation = current_delegation.get()
+                if delegation is not None:
+                    if (owner, agent_id) != (delegation.user_id, delegation.agent_id):
+                        raise ValueError("subtask_scope_mismatch")
+                    conversation_id = delegation.conversation_id
                 expected_task = resolve_private_task_directory(
-                    actor_user_id=UUID(str(request_context["user_id"])),
-                    agent_id=request_context["agent_id"],
-                    conversation_id=str(UUID(str(request_context["conversation_id"]))),
+                    actor_user_id=owner, agent_id=agent_id, conversation_id=conversation_id,
                 )
                 if request_context["agent_id"] != getattr(agent_config, "id", None):
                     raise ValueError("agent_mismatch")

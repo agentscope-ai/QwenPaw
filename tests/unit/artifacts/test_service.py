@@ -205,6 +205,29 @@ async def test_collect_session_is_scoped_idempotent_and_retryable(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ppt_control_files_are_hidden_and_explicit_deliveries_remain(tmp_path):
+    repository = Repository()
+    service = ArtifactService(repository=repository, working_dir=tmp_path)
+    folder = service._runtime_root(USER_A, "agent-a") / "artifacts" / str(USER_A)
+    folder.mkdir()
+    scope = dict(owner_user_id=USER_A, agent_key="agent-a", conversation_id=USER_A)
+    for name in ("slide_jobs.json", "slide_01.json", "customer.json", "deck.pptx"):
+        (folder / name).write_text(name, encoding="utf-8")
+    for name in ("prompts", "origin_image", "worker_outputs"):
+        directory = folder / name
+        directory.mkdir()
+        (directory / "private.json").write_text(name, encoding="utf-8")
+    # 模拟旧版自动登记的文件，以及用户要求单独发送的逐页说明。
+    await service.publish(**scope, source=folder / "slide_jobs.json", source_tool="session_artifact_collector")
+    await service.publish(**scope, source=folder / "slide_01.json")
+    collected = await service.collect_session(**scope)
+    assert not collected.failures
+    assert {item.original_name for item in collected.artifacts} == {"customer.json", "deck.pptx"}
+    visible = await service.list_active(owner_user_id=USER_A, agent_key="agent-a")
+    assert {item.original_name for item in visible} == {"customer.json", "deck.pptx", "slide_01.json"}
+
+
+@pytest.mark.asyncio
 async def test_publish_registration_failure_keeps_archive_for_retry(tmp_path):
     repository = Repository()
     service = ArtifactService(repository=repository, working_dir=tmp_path)

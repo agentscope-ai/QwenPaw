@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +26,12 @@ class ArtifactNotFound(FileNotFoundError):
 
 class ArtifactSourceDenied(ValueError):
     """尝试从用户私有运行空间之外发布文件。"""
+
+
+def _deck_control_file(name: str) -> bool:
+    return name in {"deck_spec.json", "slide_jobs.json", "slide_run_state.json"} or bool(
+        re.fullmatch(r"slide_\d+\.json", name)
+    )
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,8 @@ class ArtifactService:
             sha256=digest,
         )
         if existing is not None:
+            if source_tool == "send_file_to_user" and existing.source_tool == "session_artifact_collector":
+                return await self._repository.mark_delivered(existing)
             return existing
         if source_tool == "session_artifact_collector":
             deleted = await self._repository.find_deleted_by_content(
@@ -108,7 +117,10 @@ class ArtifactService:
             sha256=digest, source_tool=source_tool,
             status="active", created_at=datetime.now(UTC), deleted_at=None,
         )
-        return await self._repository.register(artifact)
+        registered = await self._repository.register(artifact)
+        if source_tool == "send_file_to_user" and registered.source_tool == "session_artifact_collector":
+            return await self._repository.mark_delivered(registered)
+        return registered
 
     async def collect_session(
         self, *, owner_user_id: UUID, agent_key: str, conversation_id: UUID,
@@ -140,6 +152,9 @@ class ArtifactService:
         def scan_error(error):
             raise error
         for current, directories, filenames in os.walk(folder, followlinks=False, onerror=scan_error):
+            if {"deck_spec.json", "slide_jobs.json"}.intersection(filenames):
+                directories[:] = [d for d in directories if d not in {"prompts", "origin_image", "worker_outputs"}]
+                filenames = [f for f in filenames if not _deck_control_file(f)]
             directories[:] = sorted(name for name in directories if not name.startswith((".", "_")) and name.lower() not in skipped and not (Path(current) / name).is_symlink() and not (hasattr(Path(current) / name, "is_junction") and (Path(current) / name).is_junction()))
             result.extend(Path(current) / name for name in sorted(filenames) if not name.startswith((".", "~", "_")) and Path(name).suffix.lower() not in {".tmp", ".temp", ".part", ".partial", ".lock", ".pyc", ".swp"})
         return result
@@ -181,7 +196,12 @@ class ArtifactService:
         artifacts = await self._repository.list_active(owner_user_id=owner_user_id, agent_id=agent_database_id(agent_key))
         result: list[AgentArtifact] = []
         seen: set[tuple[UUID | None, str]] = set()
+        ppt_sessions = {a.conversation_id for a in artifacts
+                        if a.original_name == "slide_jobs.json" and a.source_tool == "session_artifact_collector"}
         for artifact in artifacts:
+            if (artifact.conversation_id in ppt_sessions and artifact.source_tool == "session_artifact_collector"
+                    and _deck_control_file(artifact.original_name)):
+                continue
             content_key = (artifact.conversation_id, artifact.sha256)
             if content_key in seen:
                 continue

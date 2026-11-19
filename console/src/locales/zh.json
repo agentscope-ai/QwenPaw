@@ -84,7 +84,20 @@
       "failed": "操作失败，请检查智能体状态后重试"
     }
   },
+  "userInput": {
+    "title": "请确认",
+    "questionCounter": "问题",
+    "recommended": "推荐",
+    "customAnswer": "其他答案",
+    "customHint": "填写你的答案",
+    "inputPlaceholder": "请输入答案",
+    "stepHint": "选好答案后点击提交。",
+    "ignore": "跳过"
+  },
   "common": {
+    "collapse": "收起",
+    "expand": "展开",
+    "submit": "提交",
     "save": "保存",
     "reset": "重置",
     "cancel": "取消",
@@ -4122,6 +4135,8 @@
     "retry": "重试"
   },
   "tool": {
+    "dispatchSubtasks": "派发子任务",
+    "requestInput": "征询用户意见",
     "readFile": "阅读 {{file}}",
     "readFileDefault": "阅读 文件",
     "writeFile": "创建 {{file}}",
@@ -4167,6 +4182,14 @@
     "materializeSkillDefault": "创建 技能",
     "shell": "执行 {{command}}",
     "shellDefault": "执行 命令",
+    "pptSteps": {
+      "prepare_slide_prompts": "准备逐页制作任务",
+      "record_slide_dispatch": "派发幻灯片任务",
+      "record_slide_result": "收取页面结果",
+      "record_slide_blocker": "记录页面未完成的原因",
+      "slide_job_status": "检查页面进度",
+      "assemble_ppt": "组装演示文稿"
+    },
     "runToolBatch": "运行工作流 {{workflow}}",
     "runToolBatchRunning": "正在运行预存工作流",
     "runToolBatchProgress": "共 {{count}} 步",

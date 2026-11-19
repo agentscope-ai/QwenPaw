@@ -220,6 +220,10 @@ async def prepare_console_model(request, workspace, chat, request_data, native_p
             if present
             else await conversation_override(service, actor, workspace, chat)
         )
+        delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+        if delegation is not None and publication is None:
+            # 已选模型仍走 require_model；继承父运行选择不写子会话覆盖项。
+            override = delegation.model
         resolved = await resolve_selection(
             service,
             actor,

@@ -33,6 +33,7 @@ EXPECTED_REVISIONS = (
     "0019_user_account_profiles",
     "0020_agent_personal_library",
     "0021_skill_public_admin_read",
+    "0022_artifact_sample_answer",
 )
 EXPECTED_TABLES = frozenset(
     {

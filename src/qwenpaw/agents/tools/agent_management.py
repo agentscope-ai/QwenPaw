@@ -16,6 +16,8 @@ from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...config.utils import read_last_api
+from ...app.console_delegation import current_delegation, is_terminal_response
+from ...identity.runtime import is_multi_user_enabled
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.http import trust_env_for_url
 
@@ -53,10 +55,10 @@ def _normalize_api_base_url(base_url: Optional[str]) -> str:
     return base
 
 
-def _tool_text_response(text: str) -> ToolChunk:
+def _tool_text_response(text: str, *, failed: bool = False) -> ToolChunk:
     return ToolChunk(
         is_last=True,
-        state=ToolResultState.SUCCESS,
+        state=ToolResultState.ERROR if failed or text.startswith("ERROR:") else ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
     )
 
@@ -448,12 +450,12 @@ def format_background_status_text(
                     session_id=task_result.get("session_id"),
                 ),
             )
-        elif task_status == "failed":
-            error_info = task_result.get("error", {})
-            error_msg = error_info.get("message", "Unknown error")
+        elif task_status in {"failed", "cancelled", "canceled"}:
+            error_info = task_result.get("error")
+            error_msg = error_info.get("message") if isinstance(error_info, dict) else error_info
             parts.append("Task failed.")
             parts.append("")
-            parts.append(f"Error: {error_msg}")
+            parts.append(f"Error: {error_msg or task_status}")
         else:
             parts.append(_json_text(result))
         return "\n".join(parts)
@@ -493,7 +495,13 @@ async def list_agents(
             A tool response containing the agent list as json text. Each agent
             has its id, name, description and workspace directory.
     """
-    result = await asyncio.to_thread(list_agents_data, base_url)
+    if is_multi_user_enabled():
+        delegation = current_delegation.get()
+        if not delegation:
+            return _tool_text_response("ERROR: 缺少已认证的 Console 会话。")
+        result = (await delegation.call("GET", "/api/agents")).json()
+    else:
+        result = await asyncio.to_thread(list_agents_data, base_url)
     return _tool_text_response(_json_text(result))
 
 
@@ -742,13 +750,16 @@ async def check_agent_task(
             "ERROR: 'task_id' is required to check task status",
         )
 
-    result = await asyncio.to_thread(
-        get_agent_chat_task_status,
-        None,
-        normalized_task_id,
-        to_agent=None,
-        timeout=10,
-    )
+    if is_multi_user_enabled():
+        delegation = current_delegation.get()
+        if not delegation or not re.fullmatch(r"task-[0-9a-f]{12}", normalized_task_id):
+            return _tool_text_response("ERROR: 缺少有效的会话或子任务标识。")
+        response = await delegation.call("GET", f"/api/console/chat/task/{normalized_task_id}")
+        result = response.json()
+    else:
+        result = await asyncio.to_thread(
+            get_agent_chat_task_status, None, normalized_task_id, to_agent=None, timeout=10,
+        )
     # Background fork workers: commit on success, mark failed otherwise.
     if isinstance(result, dict) and result.get("status") == "finished":
         task_result = result.get("result")
@@ -788,6 +799,7 @@ async def check_agent_task(
                 )
     return _tool_text_response(
         format_background_status_text(normalized_task_id, result),
+        failed=(result.get("result") or {}).get("status") in {"failed", "cancelled", "canceled"},
     )
 
 
@@ -1009,6 +1021,40 @@ def _normalize_batch(
     return coerced  # type: ignore[return-value]
 
 
+def _dispatch_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code in {401, 403, 404}:
+            return f"子任务未获授权（HTTP {exc.response.status_code}）。请保留已确认的样稿，停止重复派发。"
+        return f"子任务接口返回 HTTP {exc.response.status_code}。"
+    return str(exc) or type(exc).__name__
+
+
+async def _dispatch_subtask(payload, agent_id, timeout, *, background):
+    if is_multi_user_enabled():
+        delegation = current_delegation.get()
+        if not delegation or delegation.agent_id != agent_id:
+            raise PermissionError("子任务缺少已认证的父会话。")
+        if background:
+            response = await delegation.call("POST", "/api/console/chat/task",
+                                             payload={**payload, "timeout": timeout})
+            return response.json()
+        response = await delegation.call("POST", "/api/console/chat", payload=payload, timeout=timeout)
+        final = None
+        for line in response.iter_lines():
+            event = parse_agent_sse_line(line)
+            if is_terminal_response(event):
+                final = event
+        return final
+    if background:
+        return await asyncio.to_thread(
+            submit_agent_chat_task, None, payload, agent_id,
+            int(DEFAULT_AGENT_API_TIMEOUT), float(timeout),
+        )
+    return await asyncio.to_thread(
+        collect_final_agent_chat_response, None, payload, agent_id, timeout,
+    )
+
+
 def _build_subagent_request_context(
     current_agent_id: str,
     allowed_tools: Optional[list[str]] = None,
@@ -1186,15 +1232,11 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
         "request_context": request_context,
     }
 
+    try:
+        result = await _dispatch_subtask(request_payload, current_agent_id, timeout, background=background)
+    except (httpx.HTTPError, PermissionError, TimeoutError) as exc:
+        return _tool_text_response(f"ERROR: {_dispatch_error(exc)}")
     if background:
-        result = await asyncio.to_thread(
-            submit_agent_chat_task,
-            None,
-            request_payload,
-            current_agent_id,
-            int(DEFAULT_AGENT_API_TIMEOUT),
-            float(timeout),
-        )
         return _tool_text_response(
             format_background_submission_text(
                 result,
@@ -1202,17 +1244,13 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
             ),
         )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        current_agent_id,
-        timeout,
-    )
+    response_data = result
     if not response_data:
         return _tool_text_response(
-            "(No response received from subagent)",
+            "ERROR: No response received from subagent",
         )
+    if response_data.get("error") or response_data.get("status") in {"failed", "cancelled", "canceled"}:
+        return _tool_text_response("ERROR: 子任务执行未完成。")
 
     return _tool_text_response(
         format_agent_chat_text(
@@ -1294,6 +1332,7 @@ async def _spawn_batch(
         )
 
     sem = asyncio.Semaphore(MAX_SPAWN_BATCH_CONCURRENCY)
+    authorization_failed = asyncio.Event()
 
     async def _dispatch_one(spec: Dict[str, Any]) -> str:
         session_id = _generate_subagent_session_id()
@@ -1304,6 +1343,8 @@ async def _spawn_batch(
         spec_skills = spec.get("skills")
 
         async with sem:
+            if authorization_failed.is_set():
+                raise PermissionError("同批子任务授权失败，此项未派发。")
             if spec_fork:
                 chunk = await _spawn_forked_subagent(
                     task=task_text,
@@ -1333,14 +1374,12 @@ async def _spawn_batch(
                 ],
                 "request_context": rc,
             }
-            result = await asyncio.to_thread(
-                submit_agent_chat_task,
-                None,
-                payload,
-                current_agent_id,
-                int(DEFAULT_AGENT_API_TIMEOUT),
-                float(spec_timeout),
-            )
+            try:
+                result = await _dispatch_subtask(payload, current_agent_id, spec_timeout, background=True)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {401, 403, 404}:
+                    authorization_failed.set()
+                raise
             return format_background_submission_text(result, session_id)
 
     results = await asyncio.gather(
@@ -1349,14 +1388,17 @@ async def _spawn_batch(
     )
 
     lines: list[str] = []
+    failed = False
     for i, r in enumerate(results):
         prefix = f"[{i + 1}/{len(specs)}]"
         if isinstance(r, Exception):
-            lines.append(f"{prefix} ERROR: {r}")
+            failed = True
+            lines.append(f"{prefix} ERROR: {_dispatch_error(r)}")
         else:
+            failed |= r.startswith("ERROR:")
             lines.append(f"{prefix} {r}")
 
-    return _tool_text_response("\n\n".join(lines))
+    return _tool_text_response("\n\n".join(lines), failed=failed)
 
 
 async def _call_fork_api(

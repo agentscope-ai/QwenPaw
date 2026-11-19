@@ -4097,6 +4097,8 @@
     "retry": "Retry"
   },
   "tool": {
+    "dispatchSubtasks": "Dispatch subtasks",
+    "requestInput": "Request user input",
     "readFile": "Read {{file}}",
     "readFileDefault": "Read file",
     "writeFile": "Create {{file}}",
@@ -4142,6 +4144,14 @@
     "materializeSkillDefault": "Create skill",
     "shell": "Run {{command}}",
     "shellDefault": "Run command",
+    "pptSteps": {
+      "prepare_slide_prompts": "Prepare slide tasks",
+      "record_slide_dispatch": "Dispatch slide task",
+      "record_slide_result": "Collect slide result",
+      "record_slide_blocker": "Record slide issue",
+      "slide_job_status": "Check slide progress",
+      "assemble_ppt": "Assemble presentation"
+    },
     "runToolBatch": "Run workflow {{workflow}}",
     "runToolBatchRunning": "Running saved workflow",
     "runToolBatchProgress": "{{count}} steps",
