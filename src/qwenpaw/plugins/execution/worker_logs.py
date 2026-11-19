@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 from collections import deque
+from collections.abc import Iterable
 import logging
 import os
 import queue
@@ -158,6 +159,10 @@ class _WorkerLogStream:
                 self._partial = f""
                 start = end + 1
         return len(text)
+
+    def writelines(self, lines: Iterable[str]) -> None:
+        for line in lines:
+            self.write(line)
 
     def flush(self) -> None:
         with self._lock:
