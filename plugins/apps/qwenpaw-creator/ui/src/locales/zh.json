@@ -715,6 +715,7 @@
     "visualSetting": "视觉设定",
     "expired": "已过期",
     "defaultLook": "默认造型",
+    "lookN": "造型{{n}}",
     "visualSettingSuffix": "视觉设定",
     "byOwner": "按归属",
     "viewInBlueprint": "在蓝图中查看归属",
