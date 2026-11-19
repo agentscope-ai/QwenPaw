@@ -416,6 +416,10 @@ class XiaoYiDriver(SharedResponseDriver):
                 if prior_state == f"acknowledged":
                     continue
                 if prior_state == f"unknown":
+                    logger.warning(
+                        f"XiaoYi completion frame not retried: step={step} "
+                        f"reason=previous_result_unknown",
+                    )
                     raise RuntimeError("XIAOYI_FINISH_RESULT_UNKNOWN")
             platform = self._require_connected()
             attributes = {

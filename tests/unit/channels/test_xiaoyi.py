@@ -1103,6 +1103,53 @@ async def test_finish_retries_unsent_frame_without_repeating_sent_frames(
     assert f"session-A" not in caplog.text
 
 
+@pytest.mark.parametrize(f"uncertain_step", [f"completed", f"final"])
+async def test_finish_logs_when_an_uncertain_frame_is_not_retried(
+    xiaoyi,
+    monkeypatch,
+    caplog,
+    uncertain_step,
+):
+    driver, peer, identity, _, _, _ = xiaoyi
+    driver_logger = type(driver).__module__
+    caplog.set_level(f"WARNING", logger=driver_logger)
+    handle = (await receive(xiaoyi))[f"response_handle"]
+    send_finish_step = driver._platform.send_finish_step
+    written_steps = []
+
+    async def lose_result(route, step, state):
+        await send_finish_step(route, step, state)
+        written_steps.append(step)
+        if step == uncertain_step:
+            raise driver.delivery_error(
+                f"PLATFORM_RESULT_UNKNOWN",
+                side_effect_possible=True,
+            )
+
+    monkeypatch.setattr(driver._platform, f"send_finish_step", lose_result)
+    with pytest.raises(RpcError):
+        await finish(peer, identity, handle)
+    assert written_steps[-1] == uncertain_step
+    first_attempt = tuple(written_steps)
+    caplog.clear()
+
+    with pytest.raises(RpcError) as failure:
+        await finish(peer, identity, handle)
+    assert failure.value.data[f"reason_code"] == f"RESPONSE_FINISH_FAILED"
+    assert tuple(written_steps) == first_attempt
+    assert [
+        (record.levelname, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ] == [
+        (
+            f"WARNING",
+            f"XiaoYi completion frame not retried: step={uncertain_step} "
+            f"reason=previous_result_unknown",
+        ),
+    ]
+
+
 async def test_finish_keeps_sent_status_when_cancelled_during_checkpoint(
     xiaoyi,
     monkeypatch,

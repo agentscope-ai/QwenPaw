@@ -2097,6 +2097,10 @@ class IsolatedChannelProxy(BaseChannel):
                     and exc.reason_code == "STREAM_OPEN_REJECTED"
                 ):
                     # Lazy opening failed before creating a platform stream.
+                    logger.info(
+                        f"{self.channel} stream open rejected at "
+                        f"stream.delta; using non-streaming reply path",
+                    )
                     send_meta["_isolated_streams"].pop(stream_type, None)
                     return
                 if (
@@ -2140,6 +2144,10 @@ class IsolatedChannelProxy(BaseChannel):
                     or exc.reason_code != "STREAM_OPEN_REJECTED"
                 ):
                     raise
+                logger.info(
+                    f"{self.channel} stream open rejected at stream.end; "
+                    f"using non-streaming reply path",
+                )
                 send_meta["_isolated_streams"].pop(stream_type, None)
             else:
                 send_meta["_last_delivery_id"] = state["delivery_id"]

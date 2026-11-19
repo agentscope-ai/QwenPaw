@@ -756,8 +756,13 @@ async def send_stream(
     return await peer.methods["channel.send"](params, None)
 
 
-async def test_stream_slices_extend_the_delivered_prefix(native_driver):
+async def test_stream_slices_extend_the_delivered_prefix(
+    native_driver,
+    caplog,
+):
     driver, peer, identity, server = native_driver
+    driver_logger = type(driver).__module__
+    caplog.set_level(logging.DEBUG, logger=driver_logger)
     driver._config["streaming_enabled"] = True
     server.reject_prefix_rewrites = True
     handle = await open_route(
@@ -780,6 +785,7 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
     # the placeholder must never reach the wire: the stream opens with real
     # text instead.
     assert server.api_rows() == []
+    assert not any(record.name == driver_logger for record in caplog.records)
     first = await send_stream(
         peer,
         identity,
@@ -813,6 +819,14 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
         accumulated_text="first more now",
     )
     assert end["state"] == "acknowledged"
+    assert [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ] == [
+        (logging.DEBUG, f"QQ stream opened type=message"),
+        (logging.DEBUG, f"QQ stream ended type=message index=2"),
+    ]
 
     rows = server.api_rows()
     assert [row["path"] for row in rows] == [
@@ -856,10 +870,13 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
 async def test_host_falls_back_only_when_qq_rejects_opening(
     native_driver,
     monkeypatch,
+    caplog,
     first_operation,
     status,
 ):
     driver, peer, identity, server = native_driver
+    proxy_logger = IsolatedChannelProxy.__module__
+    caplog.set_level(logging.INFO, logger=proxy_logger)
     driver._config["streaming_enabled"] = True
     code_root = ROOT / "plugins" / "channel" / "qq"
     descriptor_path = code_root / "channel.json"
@@ -918,6 +935,22 @@ async def test_host_falls_back_only_when_qq_rejects_opening(
         ]
         assert rows()[-1]["body"]["markdown"] == {"content": "full answer"}
         assert meta["_isolated_streams"] == {}
+    fallback_logs = [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == proxy_logger
+        and f"using non-streaming reply path" in record.message
+    ]
+    if status == 500:
+        assert fallback_logs == []
+    else:
+        assert fallback_logs == [
+            (
+                logging.INFO,
+                f"qq stream open rejected at stream.{first_operation}; "
+                f"using non-streaming reply path",
+            ),
+        ]
 
 
 @pytest.mark.parametrize(
@@ -1106,9 +1139,24 @@ async def test_stream_type_is_preserved_and_validated(native_driver):
     ]
 
 
-@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
-async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
+@pytest.mark.parametrize(
+    (f"outcome", f"cleanup_status"),
+    [
+        (f"completed", 200),
+        (f"failed", 200),
+        (f"cancelled", 200),
+        (f"completed", 500),
+    ],
+)
+async def test_cleanup_closes_unfinished_stream(
+    native_driver,
+    caplog,
+    outcome,
+    cleanup_status,
+):
     driver, peer, identity, server = native_driver
+    driver_logger = type(driver).__module__
+    caplog.set_level(logging.DEBUG, logger=driver_logger)
     driver._config["streaming_enabled"] = True
     handle = await open_route(
         peer,
@@ -1152,7 +1200,30 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
     finish = ResponseFinishParams.from_mapping(
         {**identity, "response_handle": handle, "outcome": outcome},
     )
+    caplog.clear()
+    if cleanup_status == 500:
+        server.reject_next_stream = cleanup_status
     await peer.methods["channel.response.finish"](finish, None)
+    cleanup_logs = [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ]
+    if cleanup_status == 500:
+        assert cleanup_logs == [
+            (
+                logging.WARNING,
+                f"QQ stream cleanup not confirmed "
+                f"reason=PLATFORM_RESULT_UNKNOWN side_effect_possible=True",
+            ),
+        ]
+    else:
+        assert cleanup_logs == [
+            (
+                logging.DEBUG,
+                f"QQ stream closed by cleanup index={closing_index}",
+            ),
+        ]
     rows = server.api_rows()
     assert [row["body"]["index"] for row in rows] == list(
         range(closing_index + 1),
