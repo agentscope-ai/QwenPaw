@@ -60,6 +60,11 @@ def _legacy_root_mcp(root):
     """Return the migratable part of a legacy root and whether it lost items."""
     if "mcp" not in root or root.get("agents", {}).get("profiles") is not None:
         return None, False
+    return normalize_legacy_mcp(root["mcp"], filter_unsafe_args=True)
+
+
+def normalize_legacy_mcp(raw, *, filter_unsafe_args=False):
+    """Apply the old config models to explicitly saved MCP settings."""
     from pydantic import ValidationError
 
     from ..config.config import MCPClientConfig, MCPConfig
@@ -71,7 +76,6 @@ def _legacy_root_mcp(root):
     from ..drivers.errors import DriverCardError
     from ..exceptions import ConfigurationException
 
-    raw = root["mcp"]
     empty = {"clients": {}}
     if not isinstance(raw, dict) or not isinstance(
         raw.get("clients", {}),
@@ -113,7 +117,8 @@ def _legacy_root_mcp(root):
             not key.strip()
             or not model.name.strip()
             or (
-                envelope.migration_version == 0
+                filter_unsafe_args
+                and envelope.migration_version == 0
                 and args_may_contain_secret(model.args)
             )
         ):
@@ -135,21 +140,39 @@ def legacy_mcp_was_archived(config_path):
     )
 
 
-def _legacy_review_marker(marker, config_path):
-    # Only old workspace reviews without an installation attempt can be
-    # reconsidered. The current workspace inventory must also pass.
-    return (
-        automatic(marker) == "needs_review"
-        and not marker.get("diagnostics")
-        and "transaction" not in marker
-        and {
-            name
-            for name, status in marker["workspaces"].items()
-            if status == "needs_review"
-        }
-        == {"default"}
-        and _legacy_review_path(Path(config_path)).is_file()
-    )
+def _reviewed_workspaces(marker):
+    if (
+        automatic(marker) != "needs_review"
+        or marker.get("diagnostics")
+        or "transaction" in marker
+    ):
+        return set()
+    return {
+        name
+        for name, status in marker["workspaces"].items()
+        if status == "needs_review"
+    }
+
+
+def _legacy_review_marker(marker, snapshot):
+    reviewed = _reviewed_workspaces(marker)
+    if not reviewed:
+        return False
+    if (
+        "default" in reviewed
+        and snapshot.config_path
+        and _legacy_review_path(Path(snapshot.config_path)).is_file()
+    ):
+        reviewed.remove("default")
+    # A prior config save may already have written the canonical form.
+    # Reconsider only records backed by current, explicitly saved clients.
+    for item in snapshot.workspaces:
+        if item.workspace_id not in reviewed or item.errors:
+            continue
+        mcp = item.config.get("mcp") if isinstance(item.config, dict) else None
+        if isinstance(mcp, dict) and mcp.get("clients"):
+            reviewed.discard(item.workspace_id)
+    return not reviewed
 
 
 def _workspace_snapshot(workspace_id, directory):
@@ -184,6 +207,12 @@ def _workspace_snapshot(workspace_id, directory):
                     )
     except (OSError, ValueError, yaml.YAMLError):
         errors.append("unreadable_workspace_evidence")
+    if isinstance(config, dict) and "mcp" in config:
+        normalized, skipped = normalize_legacy_mcp(config["mcp"])
+        if skipped:
+            errors.append("invalid_legacy_workspace_mcp")
+        else:
+            config["mcp"] = normalized
     return MCPWorkspaceSnapshot(
         workspace_id,
         config,
@@ -328,12 +357,14 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
     except (OSError, ValueError):
         return StartupMigration(str(config_path), None)
     snapshot = None
-    if marker is None or _legacy_review_marker(marker, config_path):
+    if marker is None or _reviewed_workspaces(marker):
         snapshot = inventory_mcp_usage(
             config_path=config_path,
             plugins_dir=plugins_dir,
         )
         validate_mcp_upgrade_preflight(snapshot)
+        if marker is not None and not _legacy_review_marker(marker, snapshot):
+            snapshot = None
     return StartupMigration(str(config_path), marker, snapshot)
 
 
@@ -835,13 +866,12 @@ class MCPPluginCoordinator:
         self.root_valid = "__root__" not in decision.workspace_statuses
         marker = await run_sync_io(_read_marker, self.marker_path)
         if marker is not None and (
-            decision.status == "needs_review"
+            decision.status in {"needs_review", "explicit_off"}
             or "needs_review" in decision.workspace_statuses.values()
-            or not self.config_path
             or not await run_sync_io(
                 _legacy_review_marker,
                 marker,
-                self.config_path,
+                snapshot,
             )
         ):
             return await self.restore(marker)

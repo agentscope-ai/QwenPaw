@@ -260,6 +260,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             CURRENT_MCP_MIGRATION_VERSION,
             migrate_legacy_mcp_if_needed,
         )
+        from .mcp_plugin_upgrade import normalize_legacy_mcp
 
         try:
             raw = json.loads(
@@ -268,19 +269,18 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                     encoding="utf-8",
                 ),
             )
-            version = raw.get("mcp", {}).get("migration_version", 0)
-            if (
-                type(version) is not int
-                or not 0 <= version < CURRENT_MCP_MIGRATION_VERSION
-            ):
+            mcp, skipped = await run_sync_io(
+                normalize_legacy_mcp,
+                raw.get("mcp", {}),
+            )
+            version = mcp.get("migration_version", 0)
+            if skipped or version >= CURRENT_MCP_MIGRATION_VERSION:
                 return
-            # Ignore converted clients, but preserve malformed/unknown fields
-            # so the classifier can still require review of the raw evidence.
             # Mail/ACP intent justifies installing the protocol, not converting
             # model-filled default MCP clients into live sources.
-            evidence = {"mcp": raw.get("mcp", {})}
+            # A v1 workspace already converted its clients to cards.
             if version != 0:
-                evidence["mcp"] = {**raw["mcp"], "clients": {}}
+                mcp = {**mcp, "clients": {}}
             cards = []
             for path in await self.card_store.list_paths(protocols={"mcp"}):
                 raw_card = await asyncio.to_thread(
@@ -293,7 +293,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                     (
                         MCPWorkspaceSnapshot(
                             self._workspace.agent_id,
-                            evidence,
+                            {"mcp": mcp},
                             tuple(cards),
                         ),
                     ),
