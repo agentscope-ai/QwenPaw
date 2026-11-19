@@ -35,6 +35,7 @@ from tests.integration.driver_mcp_fakes import (
 )
 
 mcp_runtime_host = _mcp_runtime_host
+_APPROVAL_WAIT_SECONDS = 5
 
 
 async def _registry_with_policy(
@@ -68,7 +69,7 @@ async def _next_pending_request(
 ):
     # pylint: disable=protected-access
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + 5
+    deadline = loop.time() + _APPROVAL_WAIT_SECONDS
     while loop.time() < deadline:
         if service._pending:
             return next(iter(service._pending.values()))
@@ -521,26 +522,18 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
         protocol="mcp",
     )
     before_policy = load_card(stored_path).policy
-    task = asyncio.create_task(
-        manager.invoke_capability(
+    async with asyncio.timeout(_APPROVAL_WAIT_SECONDS):
+        result = await manager.invoke_capability(
             DriverInvocation(
                 capability.capability_id,
                 {"text": "workspace"},
-                {"session_id": "s1", "agent_id": "agent", "user_id": "alice"},
+                {
+                    "session_id": "s1",
+                    "agent_id": "agent",
+                    "user_id": "alice",
+                },
             ),
-        ),
-    )
-
-    for _ in range(1000):
-        if task.done():
-            break
-        # pylint: disable=protected-access
-        assert not service._pending
-        await asyncio.sleep(0)
-    else:
-        task.cancel()
-        pytest.fail("Driver invocation did not auto-allow with agent OFF")
-    result = await task
+        )
 
     after_policy = load_card(stored_path).policy
     assert result.ok is True
@@ -645,26 +638,14 @@ async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
         for item in await manager.list_capabilities(kind="tool")
         if item.name == "echo"
     )
-    task = asyncio.create_task(
-        manager.invoke_capability(
+    async with asyncio.timeout(_APPROVAL_WAIT_SECONDS):
+        result = await manager.invoke_capability(
             DriverInvocation(
                 capability.capability_id,
                 {"text": "active-agent"},
                 {"session_id": "s1", "user_id": "alice"},
             ),
-        ),
-    )
-
-    for _ in range(1000):
-        if task.done():
-            break
-        # pylint: disable=protected-access
-        assert not service._pending
-        await asyncio.sleep(0)
-    else:
-        task.cancel()
-        pytest.fail("Driver invocation did not auto-allow active agent OFF")
-    result = await task
+        )
 
     assert result.ok is True
     assert result.value.structured_content == {
