@@ -15,6 +15,7 @@ from qwenpaw.agents.tools.websearch import (
     AnySearchProvider,
     FirecrawlProvider,
     SearchProvider,
+    SpecStreamProvider,
     TavilyProvider,
     format_search_results,
     get_search_provider,
@@ -79,6 +80,20 @@ def test_get_search_provider_selects_firecrawl(
     assert isinstance(get_search_provider(), FirecrawlProvider)
 
 
+def test_get_search_provider_selects_specstream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("specstream"),
+    )
+    assert isinstance(get_search_provider(), SpecStreamProvider)
+
+
 def test_get_search_provider_selects_tavily_explicit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,6 +130,8 @@ def test_providers_are_search_provider_subclasses() -> None:
     assert TavilyProvider.name == "tavily"
     assert issubclass(FirecrawlProvider, SearchProvider)
     assert FirecrawlProvider.name == "firecrawl"
+    assert issubclass(SpecStreamProvider, SearchProvider)
+    assert SpecStreamProvider.name == "specstream"
 
 
 @pytest.mark.asyncio
@@ -445,6 +462,194 @@ async def test_firecrawl_provider_surfaces_http_errors(
     with pytest.raises(ValueError, match="429.*try again") as exc_info:
         await FirecrawlProvider().search("qwen")
     assert "add a Firecrawl API key" not in str(exc_info.value)
+
+
+_SPECSTREAM_KEY_PATH = (
+    "qwenpaw.agents.tools.websearch.specstream._current_agent_specstream_key"
+)
+
+
+@pytest.mark.asyncio
+async def test_specstream_provider_parses_answer_and_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get(url, headers, params):
+        assert url == "https://api.specstream.ai/v1/web-search"
+        assert headers == {"Authorization": "Bearer ss-test"}
+        assert params == {"q": "qwen"}
+        return {
+            "data": {
+                "kind": "fact",
+                "answer": {
+                    "value": "42",
+                    "page": "https://example.com/answer",
+                    "seen_at": "2026-11-01T00:00:00Z",
+                },
+                "rows": [],
+                "sources": [
+                    {
+                        "url": "https://example.com/a",
+                        "title": "A",
+                        "site": "example.com",
+                        "snippet": "SA",
+                        "published": None,
+                        "cited": True,
+                    },
+                    {
+                        "url": "https://example.com/b",
+                        "title": "B",
+                        "site": "example.com",
+                        "snippet": "SB",
+                        "published": None,
+                        "cited": False,
+                    },
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.specstream._get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        _SPECSTREAM_KEY_PATH,
+        AsyncMock(return_value="ss-test"),
+    )
+    results = await SpecStreamProvider().search("qwen", max_results=2)
+    assert results == [
+        {
+            "title": "Answer",
+            "url": "https://example.com/answer",
+            "snippet": "42",
+            "content": "42",
+        },
+        {
+            "title": "A",
+            "url": "https://example.com/a",
+            "snippet": "SA",
+            "content": "SA",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_specstream_provider_handles_null_answer_and_empty_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        _SPECSTREAM_KEY_PATH,
+        AsyncMock(return_value="ss-test"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.specstream._get",
+        AsyncMock(
+            return_value={
+                "data": {
+                    "answer": None,
+                    "sources": [{"url": "https://example.com", "title": "T"}],
+                },
+            },
+        ),
+    )
+    assert await SpecStreamProvider().search("qwen") == [
+        {
+            "title": "T",
+            "url": "https://example.com",
+            "snippet": "",
+            "content": "",
+        },
+    ]
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.specstream._get",
+        AsyncMock(return_value={"data": {}}),
+    )
+    assert await SpecStreamProvider().search("qwen") == []
+
+
+@pytest.mark.asyncio
+async def test_specstream_provider_requires_key_and_skips_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get = AsyncMock()
+    monkeypatch.setattr("qwenpaw.agents.tools.websearch.specstream._get", get)
+    monkeypatch.setattr(_SPECSTREAM_KEY_PATH, AsyncMock(return_value=""))
+    with pytest.raises(ValueError, match="needs an API key"):
+        await SpecStreamProvider().search("qwen")
+    get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "headers", "expected"),
+    [
+        (401, {}, "401.*missing or invalid"),
+        (402, {}, "402.*balance is empty"),
+        (503, {"Retry-After": "7"}, "503.*retry after 7 seconds"),
+        (500, {}, "500"),
+    ],
+)
+async def test_specstream_provider_surfaces_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    headers: dict,
+    expected: str,
+) -> None:
+    request = httpx.Request(
+        "GET",
+        "https://api.specstream.ai/v1/web-search",
+    )
+    response = httpx.Response(status, headers=headers, request=request)
+
+    async def fake_get(url, headers, params):
+        del url, headers, params
+        raise httpx.HTTPStatusError(
+            str(status),
+            request=request,
+            response=response,
+        )
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.specstream._get",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        _SPECSTREAM_KEY_PATH,
+        AsyncMock(return_value="ss-test"),
+    )
+    with pytest.raises(ValueError, match=expected):
+        await SpecStreamProvider().search("qwen")
+
+
+@pytest.mark.asyncio
+async def test_specstream_key_is_read_from_credential_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pylint: disable=protected-access
+    from qwenpaw.agents.tools.websearch import specstream as ss_module
+    from qwenpaw.security import secret_store
+    from qwenpaw.drivers.credentials.store import AsyncCredentialStore
+    from qwenpaw.drivers.credentials.types import CredentialRecord
+
+    monkeypatch.setenv("QWENPAW_DISABLE_KEYRING", "1")
+    monkeypatch.setattr(secret_store, "_get_secret_dir", lambda: tmp_path)
+    monkeypatch.setattr(secret_store, "_cached_master_key", None)
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.credentials."
+        "get_current_workspace_dir",
+        lambda: tmp_path,
+    )
+    assert await ss_module._current_agent_specstream_key() == ""
+
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    await store.put(
+        CredentialRecord(
+            ref="tool/web_search/specstream",
+            kind="static",
+            secrets={"api_key": "ss-first"},
+        ),
+    )
+    assert await ss_module._current_agent_specstream_key() == "ss-first"
 
 
 @pytest.mark.asyncio
