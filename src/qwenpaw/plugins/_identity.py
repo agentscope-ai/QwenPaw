@@ -2,11 +2,20 @@
 """Internal bridges from trusted host request contexts."""
 
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 from .context import RequestContext
 
+if TYPE_CHECKING:
+    from .tools import ToolContext
+
 request_identity: ContextVar[RequestContext | None] = ContextVar(
     "sdk_request_identity",
+    default=None,
+)
+
+control_context: ContextVar[tuple["ToolContext", object] | None] = ContextVar(
+    "sdk_control_context",
     default=None,
 )
 

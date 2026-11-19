@@ -770,7 +770,12 @@ class AgentBuilder:
             getattr(request, "request_context", None) if request else None
         )
         if isinstance(_payload_ctx, dict):
-            rc.update(_payload_ctx)
+            # A request's extra options must not change the execution identity.
+            rc.update(
+                (key, value)
+                for key, value in _payload_ctx.items()
+                if key not in {"agent_id", "session_id", "user_id", "channel"}
+            )
         mode_state = getattr(ctx, "mode_state", {}) or {}
         mission_state = mode_state.get("mission", {})
         if isinstance(mission_state, dict) and mission_state.get("active"):

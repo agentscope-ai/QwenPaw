@@ -871,7 +871,7 @@ class PluginContext:  # pylint: disable=protected-access
         from .commands import CommandContext, CommandResult
         from ._messages import from_host, to_host
         from ._replies import to_reply
-        from ._identity import from_runtime
+        from ._identity import control_context, from_runtime
 
         if type(spec.control) is not bool:
             raise SDKError("Command control must be a boolean")
@@ -890,8 +890,6 @@ class PluginContext:  # pylint: disable=protected-access
                     **{f.name: getattr(base, f.name) for f in fields(base)},
                     messages=tuple(from_host(m) for m in runtime.input_msgs),
                 )
-                from ._checkpoints import control_context
-
                 token = control_context.set(
                     (context, runtime) if spec.control else None,
                 )

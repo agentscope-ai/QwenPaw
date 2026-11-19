@@ -473,6 +473,11 @@ def shell_backend(plugin: PluginContext) -> None:
     )
 
 
+async def select_shell_backend(call: AppContext) -> None:
+    assert_type(await call.select_shell_backend("example"), None)
+    assert_type(await call.select_shell_backend(None), None)
+
+
 async def harness_contract(
     plugin: PluginContext,
     backend: HarnessBackend,

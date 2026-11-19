@@ -6,76 +6,119 @@ import inspect
 import math
 import re
 
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import ToolChunk
+
 from ..agents.tools.shell import resolve_shell_command_timeout
-from .errors import SDKError
+from .context import RequestContext
+from ._identity import control_context
+from .errors import SDKAccessError, SDKError
 from .shell import ShellRequest, ShellResult
 
 
-class ShellRouter:
-    def __init__(self):
-        self.backends = {}
-        self.selected = {}
+def _bound(identity):
+    return all(
+        (
+            identity.workspace_id,
+            identity.session_id,
+            identity.user_id,
+            identity.channel,
+        ),
+    )
 
-    async def execute(self, identity, request, sandbox_config):
-        from agentscope.message import TextBlock, ToolResultState
-        from agentscope.tool import ToolChunk
 
-        def error(message):
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.ERROR,
-                content=[TextBlock(type="text", text=message)],
-            )
+_UNAVAILABLE = (
+    "Selected shell backend is unavailable; use /shell-local to switch back"
+)
 
-        if identity is None or not all(
-            (
-                identity.workspace_id,
-                identity.session_id,
-                identity.user_id,
-                identity.channel,
-            ),
+
+async def _chat_manager(registry, workspace_id):
+    workspace = registry._stop_workspaces.get(workspace_id)
+    manager = registry.get_workspace_manager()
+    if workspace is None and manager is not None:
+        workspace = await manager.get_agent(workspace_id)
+    return workspace.chat_manager if workspace is not None else None
+
+
+async def select_backend(call, name):
+    from .apps import AppContext
+
+    control = control_context.get()
+    if isinstance(call, AppContext):
+        workspace, chat = await call._services.selected_conversation()
+        identity = RequestContext(
+            call.workspace_id,
+            chat.session_id,
+            chat.channel,
+            chat.user_id,
+        )
+        chats = workspace.chat_manager
+    elif control is not None and control[0] is call and _bound(call.identity):
+        identity = call.identity
+        chats = control[1].workspace.chat_manager
+    else:
+        raise SDKAccessError(
+            "Select a shell backend from an app or control command",
+        )
+    call.workspace_ops.directory
+    plugin = call._plugin
+    if plugin is None:
+        raise SDKAccessError("Shell selection requires a host-owned context")
+    owner = plugin.plugin_id
+    key = None
+    if name is not None:
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]+",
+            name,
         ):
+            raise SDKError("Invalid shell backend name")
+        key = f"{owner}:{name}"
+        entry = router(plugin._loader.registry).backends.get(key)
+        if entry is None or entry[0] is not plugin:
+            raise SDKError("Shell backend is not registered by this plugin")
+    if not await chats.set_shell_backend(
+        identity.session_id,
+        identity.user_id,
+        identity.channel,
+        key,
+        owner=owner,
+    ):
+        raise SDKAccessError(
+            "Chat unavailable or selected backend belongs to another plugin",
+        )
+
+
+class ShellRouter:
+    def __init__(self, registry):
+        self.registry = registry
+        self.backends = {}
+
+    async def execute(
+        self,
+        identity: RequestContext,
+        request: ShellRequest,
+        sandbox_config: object,
+    ) -> ToolChunk | None:
+        if not _bound(identity):
             # Unbound direct calls cannot select someone else's connection.
             return None
         try:
-            matches = []
-            for key, (plugin, spec) in tuple(self.backends.items()):
-                with plugin._instance.activity.sync_invocation():
-                    plugin._guard()
-                    matched = spec.matches(identity)
-                    if type(matched) is not bool:
-                        if inspect.iscoroutine(matched):
-                            matched.close()
-                        raise SDKError(
-                            "Shell matches must return bool synchronously",
-                        )
-                    if matched:
-                        matches.append((key, plugin, spec))
-            if len(matches) > 1:
-                raise SDKError(
-                    "Multiple shell backends match; deselect the extra target",
-                )
-            if not matches:
-                previous = self.selected.get(identity)
-                if previous is not None:
-                    previous_key, previous_owner = previous
-                    current = self.backends.get(previous_key)
-                    if (
-                        current is None
-                        or current[0].resources.owner != previous_owner
-                    ):
-                        raise SDKError(
-                            "Selected shell backend is unavailable; "
-                            "local execution refused",
-                        )
-                self.selected.pop(identity, None)
+            chats = await _chat_manager(self.registry, identity.workspace_id)
+            if chats is None:
+                if self.backends:
+                    raise SDKError("Shell selection state is unavailable")
                 return None
-            key, plugin, spec = matches[0]
-            if identity not in self.selected and len(self.selected) >= 4096:
-                raise SDKError(
-                    "Shell selection capacity reached; local execution refused",
-                )
-            self.selected[identity] = (key, plugin.resources.owner)
+            key = await chats.shell_backend_for(
+                identity.session_id,
+                identity.user_id,
+                identity.channel,
+            )
+            if key is None:
+                return None
+            backend = self.backends.get(key)
+            if backend is None:
+                raise SDKError(_UNAVAILABLE)
+            plugin, spec = backend
             if sandbox_config is not None:
                 raise SDKError(
                     "Selected shell backend cannot enforce the required local sandbox policy",
@@ -88,6 +131,15 @@ class ShellRouter:
                 identity=identity,
             ) as call:
                 call.workspace_ops.directory
+                matched = spec.matches(identity)
+                if type(matched) is not bool:
+                    if inspect.iscoroutine(matched):
+                        matched.close()
+                    raise SDKError(
+                        "Shell matches must return bool synchronously",
+                    )
+                if not matched:
+                    raise SDKError(_UNAVAILABLE)
                 from ..tool_calls import cancellable_wait
 
                 result = await cancellable_wait(
@@ -135,14 +187,21 @@ class ShellRouter:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            return error(
-                f"Shell backend failed; local execution refused: {type(exc).__name__}: {exc}",
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Shell backend failed; local execution refused: {type(exc).__name__}: {exc}",
+                    ),
+                ],
             )
 
 
 def router(registry):
     if not hasattr(registry, "_sdk_shell_router"):
-        registry._sdk_shell_router = ShellRouter()
+        registry._sdk_shell_router = ShellRouter(registry)
     return registry._sdk_shell_router
 
 
@@ -180,7 +239,6 @@ def register(plugin, spec):
 async def function_call(tool, **arguments):
     """Execution hook downstream of the runtime's normal permission decision."""
     from agentscope.tool import FunctionTool
-    from .context import RequestContext
     from .registry import PluginRegistry
 
     context = tool._qp_request_context
@@ -190,22 +248,23 @@ async def function_call(tool, **arguments):
         context.get("channel", ""),
         context.get("user_id", ""),
     )
-    owned = getattr(PluginRegistry(), "_sdk_shell_router", None)
+    registry = PluginRegistry()
     arguments["timeout"] = resolve_shell_command_timeout(
         arguments.get("timeout", 60.0),
     )
-    if owned is not None:
-        result = await owned.execute(
-            identity,
-            ShellRequest(
-                arguments.get("command", ""),
+    result = await router(registry).execute(
+        identity,
+        ShellRequest(
+            arguments.get("command", ""),
+            (
                 str(arguments["cwd"])
                 if arguments.get("cwd") is not None
-                else None,
-                arguments.get("timeout", 60.0),
+                else None
             ),
-            arguments.get("sandbox_config"),
-        )
-        if result is not None:
-            return result
+            arguments.get("timeout", 60.0),
+        ),
+        arguments.get("sandbox_config"),
+    )
+    if result is not None:
+        return result
     return await FunctionTool.call(tool, **arguments)

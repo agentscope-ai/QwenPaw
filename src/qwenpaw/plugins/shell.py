@@ -24,13 +24,13 @@ class ShellResult:
 
 @dataclass(frozen=True)
 class ShellBackendSpec:
-    """Match an exact identity, including disconnected-but-selected targets.
+    """Provide an alternate shell for an explicitly selected conversation.
 
-    matches is a quick synchronous predicate over plugin-owned state. Return
-    False only when this identity has deliberately deselected the backend.
-    A selected but failed connection must still match and raise from execute.
-    After reload, an unmatched previous selection stays blocked until the
-    new instance explicitly matches again; reload is not a local fallback.
+    Use call.select_shell_backend(name) from an app or control command to
+    select it before executing anything. matches checks ownership and
+    readiness synchronously; False blocks execution of a selected backend.
+    A failed execute also blocks; neither changes the selection.
+    Use call.select_shell_backend(None) on explicit deselection.
     cwd is the original argument, never a translated local workspace path.
     """
 

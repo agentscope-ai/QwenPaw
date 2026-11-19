@@ -305,6 +305,7 @@ _MEMBER_VERSIONS = {
         ("runs", "1.2.0"),
         ("workspace_ops", "1.2.0"),
         ("checkpoints", "1.2.0"),
+        ("select_shell_backend", "1.2.0"),
     ),
     "qwenpaw.plugins.prompts.PromptSpec": (
         ("render", "1.2.0"),

@@ -2,7 +2,6 @@
 """Trusted checkpoint scope and approval bridge; never exported to plugins."""
 
 import asyncio
-from contextvars import ContextVar
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -15,14 +14,10 @@ from .checkpoints import (
     RestoreResult,
 )
 from .context import RequestContext
+from ._identity import control_context
 from .errors import SDKAccessError
 from .tools import ToolContext
 from ..checkpoints.models import CheckpointError as HostCheckpointError
-
-control_context: ContextVar[tuple[ToolContext, object] | None] = ContextVar(
-    "sdk_control_context",
-    default=None,
-)
 
 
 async def bound(call):

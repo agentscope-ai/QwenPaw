@@ -214,6 +214,11 @@ def test_new_member_requires_new_minimum(tmp_path, source):
             "def f(ctx: PluginContext):\n"
             "    ctx.register_shell_backend(None)\n"
         ),
+        (
+            "from qwenpaw.plugins.apps import AppContext\n"
+            "async def f(call: AppContext):\n"
+            "    await call.select_shell_backend('remote')\n"
+        ),
     ],
 )
 def test_sdk_11_rejects_sdk_12_additions(tmp_path, source):

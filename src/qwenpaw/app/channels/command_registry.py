@@ -71,6 +71,7 @@ class CommandRegistry:
         """Register default control commands."""
         # Critical (0): Control commands requiring immediate response
         self.register_command("/stop", priority_level=0)
+        self.register_command("/shell-local", priority_level=0)
 
         # High (10): Daemon commands (/daemon <sub> and short aliases)
         # Full daemon commands

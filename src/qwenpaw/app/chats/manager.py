@@ -404,6 +404,54 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
 
+    async def shell_backend_for(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> str | None:
+        """Read the execution target for this exact chat identity."""
+        async with self._lock:
+            chat = await self._repo.get_chat_by_id(
+                session_id,
+                user_id,
+                channel,
+            )
+            return chat.meta.get("shell_backend") if chat else None
+
+    async def set_shell_backend(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        backend: str | None,
+        *,
+        owner: str | None = None,
+    ) -> bool:
+        """Store a target or clear it; plugins can only clear their own."""
+        async with self._lock:
+            chat = await self._repo.get_chat_by_id(
+                session_id,
+                user_id,
+                channel,
+            )
+            if chat is None:
+                return False
+            meta = dict(chat.meta)
+            current = meta.get("shell_backend")
+            if backend is None:
+                if current is None:
+                    return True
+                if owner and str(current).partition(":")[0] != owner:
+                    return False
+                del meta["shell_backend"]
+            else:
+                meta["shell_backend"] = backend
+            await self._repo.upsert_chat(
+                chat.model_copy(update={"meta": meta}),
+            )
+            return True
+
     async def mark_chat_finished(
         self,
         chat_id: str,

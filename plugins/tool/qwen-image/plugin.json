@@ -1,7 +1,7 @@
 {
   "id": "qwen-image-tool",
   "name": "Qwen-Image Tool",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Generate and edit images using Alibaba Qwen-Image models",
   "description_i18n": {
     "zh-CN": "使用阿里云 Qwen-Image 模型生成与编辑图像",
@@ -11,12 +11,10 @@
   "entry": {
     "backend": "qwen_image.py"
   },
-  "dependencies": [
-    "dashscope>=1.25.16",
-    "httpx>=0.24.0"
-  ],
+  "dependencies": ["dashscope>=1.25.16", "httpx>=0.24.0"],
   "qwenpaw_version": {
-    "min": "2.3.1"
+    "min": "1.1.6",
+    "max": "2.1.0"
   },
   "meta": {
     "tools": [
@@ -133,18 +131,5 @@
     "api_key_url": "https://bailian.console.aliyun.com/",
     "api_key_hint": "Get your DashScope API key from Alibaba Cloud Bailian console",
     "model_url": "https://help.aliyun.com/zh/model-studio/qwen-image-api"
-  },
-  "type": "tool",
-  "sdk": {
-    "version": "1.2.0",
-    "capabilities": [
-      "tools",
-      "config",
-      "storage",
-      "resources"
-    ],
-    "secrets": [
-      "api_key"
-    ]
   }
 }

@@ -326,15 +326,15 @@ A service appearing on a context does not mean every call can use it. The host
 checks identity, scope and permissions at execution time; capability preflight
 does not replace those checks.
 
-| Context | Scope and prerequisites |
-| --- | --- |
-| `PluginContext` | Declarations, plugin storage and managed background work after activation; no specific user's conversation identity. |
-| Tool, Command and Hook calls | The bound request identity; run information and save status depend on the phase. Ordinary tools can only preview checkpoint restoration. |
-| `AppContext` | This user/channel/app's sessions, tasks and approvals, with controlled `for_workspace()` delegation. Main-chat reads require a host-bound selected conversation. |
-| App background work | Plugin-owned work entering a new `for_workspace()` call; do not reuse a finished request scope or impersonate an executor. |
-| `WorkflowContext` | Workspace service work without a user or conversation; not an arbitrary user's history or approval entry point. |
-| `ChannelWorkerContext` | Worker services; send budgets and `delivery` are callback-local. `on_run` has no delivery transaction. |
-| `ChannelManagementRequest` | A temporary management worker's separate resources and budget, not the persistent transport context. |
+| Context                      | Scope and prerequisites                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PluginContext`              | Declarations, plugin storage and managed background work after activation; no specific user's conversation identity.                                             |
+| Tool, Command and Hook calls | The bound request identity; run information and save status depend on the phase. Ordinary tools can only preview checkpoint restoration.                         |
+| `AppContext`                 | This user/channel/app's sessions, tasks and approvals, with controlled `for_workspace()` delegation. Main-chat reads require a host-bound selected conversation. |
+| App background work          | Plugin-owned work entering a new `for_workspace()` call; do not reuse a finished request scope or impersonate an executor.                                       |
+| `WorkflowContext`            | Workspace service work without a user or conversation; not an arbitrary user's history or approval entry point.                                                  |
+| `ChannelWorkerContext`       | Worker services; send budgets and `delivery` are callback-local. `on_run` has no delivery transaction.                                                           |
+| `ChannelManagementRequest`   | A temporary management worker's separate resources and budget, not the persistent transport context.                                                             |
 
 ### Choose a channel entry point
 
@@ -358,6 +358,20 @@ the channel-configured `bot_prefix` from direct, content-part and streaming send
 while retaining explicit per-message metadata prefixes. Target policies can select
 streaming for ordinary chats and non-streaming delivery for threads using
 `target.metadata["thread_id"]`; the descriptor must still declare `streaming`.
+
+### Select a shell backend for a conversation
+
+Register a backend with `register_shell_backend(ShellBackendSpec(...))`.
+When the user selects it, call `await call.select_shell_backend("backend-name")`
+from a control command or a PawApp request bound to the selected main chat.
+The host saves the choice for the workspace, user, channel and conversation.
+The plugin manages the connection and target; `matches` checks whether that
+identity can use the connection and does not select or clear the route.
+
+The host refuses execution if the selected backend is unavailable, including
+after a disconnect, reload, disable or uninstall. To explicitly switch back,
+call `await call.select_shell_backend(None)` or enter `/shell-local` in the
+conversation if the plugin is unavailable. This method requires SDK 1.2.0.
 
 ### Execution failures and cleanup failures
 

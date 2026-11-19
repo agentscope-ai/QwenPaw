@@ -3,20 +3,21 @@
 # pylint: disable=too-many-statements,too-many-locals
 """Qwen-Image image generation and editing tools."""
 
+import asyncio
 import base64
 import logging
 import mimetypes
 import threading
-import uuid
+import time
 from pathlib import Path
 from typing import List
 
 import httpx
-import dashscope
-from dashscope import MultiModalConversation
-
-from qwenpaw.plugins.messages import Attachment, ContentBlock
-from qwenpaw.plugins.tools import ToolContext, ToolResult
+from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
+from qwenpaw.constant import DEFAULT_MEDIA_DIR
+from qwenpaw.plugins import get_tool_config
 
 logger = logging.getLogger(__name__)
 
@@ -132,35 +133,41 @@ def _extract_config(
     return api_key, endpoint, timeout, model
 
 
-def _tool_config(context: ToolContext) -> dict:
-    """Read this tool's settings from the host-bound call snapshot."""
-    return {
-        "api_key": context.config.secret("api_key"),
-        "endpoint": context.config.get("endpoint"),
-        "timeout": context.config.get("timeout"),
-        "model": context.config.get("model"),
-    }
-
-
 async def _download_image(
-    context: ToolContext,
     image_url: str,
+    save_dir: Path,
     prefix: str,
     timeout: float,
-) -> Attachment:
-    """Save a downloaded image in the host-owned plugin media store."""
+) -> Path:
+    """Download image from URL and save to local directory.
+
+    Args:
+        image_url: Public URL of the image.
+        save_dir: Directory to save the image.
+        prefix: Filename prefix.
+        timeout: HTTP timeout in seconds.
+
+    Returns:
+        Path: Local path of the saved image.
+
+    Raises:
+        Exception: If download fails.
+    """
+    save_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = int(time.time() * 1000)
+    filename = f"{prefix}_{timestamp}.png"
+    image_path = save_dir / filename
+
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("GET", image_url) as response:
             response.raise_for_status()
             chunks = []
             async for chunk in response.aiter_bytes(chunk_size=512 * 1024):
                 chunks.append(chunk)
-    context.check_cancelled()
-    return await context.media.awrite(
-        f"{prefix}_{uuid.uuid4().hex}.png",
-        b"".join(chunks),
-        mime_type="image/png",
-    )
+    await asyncio.to_thread(image_path.write_bytes, b"".join(chunks))
+
+    logger.info(f"Image saved to {image_path}")
+    return image_path
 
 
 def _call_multimodal_conversation(
@@ -182,6 +189,9 @@ def _call_multimodal_conversation(
     Returns:
         SDK response object.
     """
+    import dashscope
+    from dashscope import MultiModalConversation
+
     with _DASHSCOPE_LOCK:
         dashscope.base_http_api_url = endpoint
         rsp = MultiModalConversation.call(
@@ -231,13 +241,12 @@ def _parse_image_urls(response) -> List[str]:
 
 
 async def generate_image_qwen(
-    context: ToolContext,
     prompt: str,
     size: str = "2048*2048",
     n: int = 1,
     negative_prompt: str = "",
     prompt_extend: bool = True,
-) -> ToolResult:
+) -> ToolChunk:
     """Generate images from a text prompt using Qwen-Image models.
 
     Uses Alibaba Cloud's Qwen-Image models for high-quality image
@@ -271,55 +280,69 @@ async def generate_image_qwen(
             Enable prompt auto-optimization. Default: True.
 
     Returns:
-        ToolResult: Contains generated images and metadata.
+        ToolChunk: Contains generated images and metadata.
     """
     try:
-        tool_config = _tool_config(context)
+        tool_config = get_tool_config("generate_image_qwen")
+        if not tool_config:
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Error: Tool not configured. "
+                            "Please set your API key in the tool settings."
+                        ),
+                    ),
+                ],
+            )
+
         api_key, endpoint, timeout, model = _extract_config(
             tool_config,
             default_model="qwen-image-2.0-pro",
         )
         if not api_key:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             "Error: DashScope API key not configured. "
                             "Please set your API key in the tool settings."
                         ),
                     ),
-                ),
+                ],
             )
 
         if model not in _VALID_MODELS_GENERATE:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             f"Error: Invalid model '{model}'. "
-                            "Valid options: "
+                            f"Valid options: "
                             f"{', '.join(sorted(_VALID_MODELS_GENERATE))}"
                         ),
                     ),
-                ),
+                ],
             )
 
         if not 1 <= n <= 6:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             f"Error: Invalid n '{n}'. "
-                            "Must be between 1 and 6."
+                            f"Must be between 1 and 6."
                         ),
                     ),
-                ),
+                ],
             )
 
         messages = [
@@ -340,13 +363,11 @@ async def generate_image_qwen(
             call_kwargs["negative_prompt"] = negative_prompt
 
         logger.info(
-            "Generating image with Qwen-Image: model=%s, size=%s, n=%s",
-            model,
-            size,
-            n,
+            f"Generating image with Qwen-Image: "
+            f"model={model}, size={size}, n={n}",
         )
 
-        rsp = await context.resources.run_sync(
+        rsp = await asyncio.to_thread(
             _call_multimodal_conversation,
             api_key=api_key,
             endpoint=endpoint,
@@ -361,36 +382,36 @@ async def generate_image_qwen(
                 f"{rsp.code}: {rsp.message}"
             )
             logger.error(error_msg)
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=f"Error: {error_msg}",
                     ),
-                ),
+                ],
             )
 
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             "Error: No images returned from API. "
                             "Please try again."
                         ),
                     ),
-                ),
+                ],
             )
 
         logger.info(
-            "Qwen-Image generated %s image(s)",
-            len(image_urls),
+            f"Qwen-Image generated {len(image_urls)} image(s)",
         )
 
+        save_dir = DEFAULT_MEDIA_DIR / "qwen_image"
         content_blocks = []
         saved_paths = []
 
@@ -398,41 +419,44 @@ async def generate_image_qwen(
             prefix = f"qwen_image_gen_{idx}"
             try:
                 image_path = await _download_image(
-                    context,
                     img_url,
+                    save_dir,
                     prefix,
                     timeout,
                 )
-                saved_paths.append(image_path.url)
+                saved_paths.append(str(image_path))
                 content_blocks.append(
-                    ContentBlock(
-                        type="image",
-                        attachment=image_path,
+                    DataBlock(
+                        source=URLSource(
+                            url="file://" + str(image_path),
+                            media_type=mimetypes.guess_type(
+                                str(image_path),
+                            )[0]
+                            or "image/*",
+                        ),
                     ),
                 )
             except Exception as e:
                 logger.error(
-                    "Failed to download image %s: %s",
-                    idx,
-                    e,
+                    f"Failed to download image {idx}: {e}",
                 )
                 content_blocks.append(
-                    ContentBlock(
-                        type="image",
-                        attachment=Attachment(
-                            img_url,
-                            mimetypes.guess_type(img_url)[0] or "image/*",
+                    DataBlock(
+                        source=URLSource(
+                            url=img_url,
+                            media_type=mimetypes.guess_type(img_url)[0]
+                            or "image/*",
                         ),
                     ),
                 )
                 saved_paths.append(img_url)
 
         content_blocks.append(
-            ContentBlock(
+            TextBlock(
                 type="text",
                 text=(
                     f"Generated {len(image_urls)} image(s) using "
-                    "Qwen-Image\n"
+                    f"Qwen-Image\n"
                     f"Model: {model}\n"
                     f"Prompt: {prompt}\n"
                     f"Size: {size}, Count: {n}\n"
@@ -441,34 +465,32 @@ async def generate_image_qwen(
             ),
         )
 
-        return ToolResult(is_error=False, content=tuple(content_blocks))
+        return ToolChunk(state=ToolResultState.SUCCESS, content=content_blocks)
 
     except Exception as e:
         logger.error(
-            "Qwen-Image generation failed: %s",
-            e,
+            f"Qwen-Image generation failed: {e}",
             exc_info=True,
         )
-        return ToolResult(
-            is_error=True,
-            content=(
-                ContentBlock(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
                     type="text",
                     text=(f"Error: Image generation failed - {str(e)}"),
                 ),
-            ),
+            ],
         )
 
 
 async def edit_image_qwen(
-    context: ToolContext,
     prompt: str,
     reference_images: List[str],
     size: str = "",
     n: int = 1,
     negative_prompt: str = "",
     prompt_extend: bool = True,
-) -> ToolResult:
+) -> ToolChunk:
     """Edit or fuse images using Qwen-Image models.
 
     Supports single-image editing (modify content, style transfer,
@@ -505,91 +527,102 @@ async def edit_image_qwen(
             Enable prompt auto-optimization. Default: True.
 
     Returns:
-        ToolResult: Contains edited images and metadata.
+        ToolChunk: Contains edited images and metadata.
     """
     try:
         if not reference_images:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             "Error: reference_images is required. "
                             "Please provide at least one image."
                         ),
                     ),
-                ),
+                ],
             )
 
-        tool_config = _tool_config(context)
+        tool_config = get_tool_config("edit_image_qwen")
+        if not tool_config:
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "Error: Tool not configured. "
+                            "Please set your API key in the tool settings."
+                        ),
+                    ),
+                ],
+            )
+
         api_key, endpoint, timeout, model = _extract_config(
             tool_config,
             default_model="qwen-image-2.0-pro",
         )
         if not api_key:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             "Error: DashScope API key not configured. "
                             "Please set your API key in the tool settings."
                         ),
                     ),
-                ),
+                ],
             )
 
         if model not in _VALID_MODELS_EDIT:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             f"Error: Invalid model '{model}'. "
-                            "Valid options: "
+                            f"Valid options: "
                             f"{', '.join(sorted(_VALID_MODELS_EDIT))}"
                         ),
                     ),
-                ),
+                ],
             )
 
         if not 1 <= n <= 6:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             f"Error: Invalid n '{n}'. "
-                            "Must be between 1 and 6."
+                            f"Must be between 1 and 6."
                         ),
                     ),
-                ),
+                ],
             )
 
         # Build message content: images first, then prompt text
         content = []
         for img_input in reference_images:
             try:
-                resolved = await context.resources.run_sync(
-                    _resolve_image_url,
-                    img_input,
-                )
+                resolved = _resolve_image_url(img_input)
             except (FileNotFoundError, ValueError) as e:
-                return ToolResult(
-                    is_error=True,
-                    content=(
-                        ContentBlock(
+                return ToolChunk(
+                    state=ToolResultState.ERROR,
+                    content=[
+                        TextBlock(
                             type="text",
                             text=(
-                                "Error: reference_images contains invalid "
+                                f"Error: reference_images contains invalid "
                                 f"entry '{img_input}' - {str(e)}"
                             ),
                         ),
-                    ),
+                    ],
                 )
             content.append({"image": resolved})
 
@@ -608,13 +641,12 @@ async def edit_image_qwen(
             call_kwargs["negative_prompt"] = negative_prompt
 
         logger.info(
-            "Editing image with Qwen-Image: model=%s, references=%s, n=%s",
-            model,
-            len(reference_images),
-            n,
+            f"Editing image with Qwen-Image: "
+            f"model={model}, "
+            f"reference_images={len(reference_images)}, n={n}",
         )
 
-        rsp = await context.resources.run_sync(
+        rsp = await asyncio.to_thread(
             _call_multimodal_conversation,
             api_key=api_key,
             endpoint=endpoint,
@@ -629,36 +661,36 @@ async def edit_image_qwen(
                 f"{rsp.code}: {rsp.message}"
             )
             logger.error(error_msg)
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=f"Error: {error_msg}",
                     ),
-                ),
+                ],
             )
 
         image_urls = _parse_image_urls(rsp)
         if not image_urls:
-            return ToolResult(
-                is_error=True,
-                content=(
-                    ContentBlock(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
                         type="text",
                         text=(
                             "Error: No images returned from API. "
                             "Please try again."
                         ),
                     ),
-                ),
+                ],
             )
 
         logger.info(
-            "Qwen-Image edit produced %s image(s)",
-            len(image_urls),
+            f"Qwen-Image edit produced {len(image_urls)} image(s)",
         )
 
+        save_dir = DEFAULT_MEDIA_DIR / "qwen_image"
         content_blocks = []
         saved_paths = []
 
@@ -666,41 +698,44 @@ async def edit_image_qwen(
             prefix = f"qwen_image_edit_{idx}"
             try:
                 image_path = await _download_image(
-                    context,
                     img_url,
+                    save_dir,
                     prefix,
                     timeout,
                 )
-                saved_paths.append(image_path.url)
+                saved_paths.append(str(image_path))
                 content_blocks.append(
-                    ContentBlock(
-                        type="image",
-                        attachment=image_path,
+                    DataBlock(
+                        source=URLSource(
+                            url="file://" + str(image_path),
+                            media_type=mimetypes.guess_type(
+                                str(image_path),
+                            )[0]
+                            or "image/*",
+                        ),
                     ),
                 )
             except Exception as e:
                 logger.error(
-                    "Failed to download image %s: %s",
-                    idx,
-                    e,
+                    f"Failed to download image {idx}: {e}",
                 )
                 content_blocks.append(
-                    ContentBlock(
-                        type="image",
-                        attachment=Attachment(
-                            img_url,
-                            mimetypes.guess_type(img_url)[0] or "image/*",
+                    DataBlock(
+                        source=URLSource(
+                            url=img_url,
+                            media_type=mimetypes.guess_type(img_url)[0]
+                            or "image/*",
                         ),
                     ),
                 )
                 saved_paths.append(img_url)
 
         content_blocks.append(
-            ContentBlock(
+            TextBlock(
                 type="text",
                 text=(
                     f"Edited {len(image_urls)} image(s) using "
-                    "Qwen-Image\n"
+                    f"Qwen-Image\n"
                     f"Model: {model}\n"
                     f"Prompt: {prompt}\n"
                     f"Reference images: {len(reference_images)}\n"
@@ -709,20 +744,19 @@ async def edit_image_qwen(
             ),
         )
 
-        return ToolResult(is_error=False, content=tuple(content_blocks))
+        return ToolChunk(state=ToolResultState.SUCCESS, content=content_blocks)
 
     except Exception as e:
         logger.error(
-            "Qwen-Image edit failed: %s",
-            e,
+            f"Qwen-Image edit failed: {e}",
             exc_info=True,
         )
-        return ToolResult(
-            is_error=True,
-            content=(
-                ContentBlock(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
                     type="text",
                     text=f"Error: Image editing failed - {str(e)}",
                 ),
-            ),
+            ],
         )

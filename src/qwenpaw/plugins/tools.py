@@ -121,6 +121,12 @@ class ToolContext:
 
         return WorkspaceService(self)
 
+    async def select_shell_backend(self, name: str | None) -> None:
+        """Select an owned backend for this chat, or explicitly return to local."""
+        from ._shell import select_backend
+
+        await select_backend(self, name)
+
     @property
     def cancelled(self) -> bool:
         return self._is_cancelled()
