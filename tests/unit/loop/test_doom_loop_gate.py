@@ -3,6 +3,7 @@
 """Tests for DoomLoopGate reset behaviour."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -96,13 +97,13 @@ def test_reset_clears_counters(gate):
     state = gate._ensure_state()
     state.consecutive_hits = 5
     state.prompt = "some warning"
-    state.last_recorded_msg_id = f"message-{state.consecutive_hits}"
+    state.recorded_tool_call_ids.add(f"call-{state.consecutive_hits}")
     state.history_dirty = True
     gate.reset_turn()
     state = gate._ensure_state()
     assert state.consecutive_hits == 0
     assert state.prompt == ""
-    assert state.last_recorded_msg_id is None
+    assert state.recorded_tool_call_ids == set()
     assert state.history_dirty is False
 
 
@@ -185,3 +186,163 @@ async def test_session_isolation():
         return_value="s2",
     ):
         assert len(g._state().history) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_record_consumes_blocks_appended_to_one_message():
+    """A reply keeps one assistant message and appends blocks to it.
+
+    agentscope uses ``reply_id`` as the message id and appends every
+    iteration's tool call to that same message, so the gate must consume
+    the new tail of the content instead of treating the message id as a
+    per-iteration cursor.
+    """
+    g = DoomLoopGate(
+        window_size=3,
+        similarity_threshold=1.0,
+        stages=[
+            _stage(3, "modify_prompt", "warning"),
+            _stage(4, "stop", "doom stop"),
+        ],
+    )
+    g.activate(None)
+    g._ensure_state()
+
+    message = SimpleNamespace(id="reply-1", role="assistant", content=[])
+    agent = SimpleNamespace(state=SimpleNamespace(context=[message]))
+    ctx = {
+        "agent": agent,
+        "final_msg": None,
+        "iteration": 0,
+        "has_tool_calls": True,
+    }
+
+    actions = []
+    for index in range(4):
+        message.content.append(
+            {
+                "type": "tool_call",
+                "id": f"call-{index}",
+                "name": "execute_readonly_sql",
+                "input": {"sql": "SELECT 1"},
+            },
+        )
+        actions.append((await g.check(ctx)).action)
+
+    assert actions == [
+        StopAction.BYPASS,
+        StopAction.BYPASS,
+        StopAction.INTERRUPT_AND_CONTINUE,
+        StopAction.TERMINATE,
+    ]
+    assert g._ensure_state().history[-1].tool_name == "execute_readonly_sql"
+
+
+@pytest.mark.asyncio
+async def test_auto_record_ignores_snapshot_without_new_calls():
+    """Re-checking the same snapshot must not record the same call twice."""
+    g = DoomLoopGate(
+        window_size=3,
+        similarity_threshold=1.0,
+        stages=[_stage(3, "modify_prompt", "warning")],
+    )
+    g.activate(None)
+    g._ensure_state()
+
+    message = SimpleNamespace(
+        id="reply-1",
+        role="assistant",
+        content=[
+            {
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "tool_a",
+                "input": {"q": "x"},
+            },
+        ],
+    )
+    agent = SimpleNamespace(state=SimpleNamespace(context=[message]))
+    ctx = {
+        "agent": agent,
+        "final_msg": None,
+        "iteration": 0,
+        "has_tool_calls": True,
+    }
+
+    assert (await g.check(ctx)).action == StopAction.BYPASS
+    assert len(g._ensure_state().history) == 1
+    assert (await g.check(ctx)).action == StopAction.BYPASS
+    assert len(g._ensure_state().history) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_record_survives_injected_continuation_message():
+    """Warning injection splits a reply into two messages sharing one id.
+
+    ``check_pending_gates`` appends a user continuation message, then the
+    next reasoning step opens a new assistant message whose id is the same
+    ``reply_id``. The tool call in that new segment must still be recorded,
+    otherwise the stop stage is never reached.
+    """
+    g = DoomLoopGate(
+        window_size=3,
+        similarity_threshold=1.0,
+        stages=[
+            _stage(3, "modify_prompt", "warning"),
+            _stage(4, "stop", "doom stop"),
+        ],
+    )
+    g.activate(None)
+    g._ensure_state()
+
+    reply_id = "reply-1"
+    first = SimpleNamespace(id=reply_id, role="assistant", content=[])
+    context = [first]
+    agent = SimpleNamespace(state=SimpleNamespace(context=context))
+    ctx = {
+        "agent": agent,
+        "final_msg": None,
+        "iteration": 0,
+        "has_tool_calls": True,
+    }
+
+    actions = []
+    for index in range(3):
+        first.content.append(
+            {
+                "type": "tool_call",
+                "id": f"call-{index}",
+                "name": "execute_readonly_sql",
+                "input": {"sql": "SELECT 1"},
+            },
+        )
+        actions.append((await g.check(ctx)).action)
+
+    assert actions == [
+        StopAction.BYPASS,
+        StopAction.BYPASS,
+        StopAction.INTERRUPT_AND_CONTINUE,
+    ]
+
+    context.append(
+        SimpleNamespace(
+            id="user-continuation",
+            role="user",
+            content=[{"type": "text", "text": "warning"}],
+        ),
+    )
+    second = SimpleNamespace(id=reply_id, role="assistant", content=[])
+    context.append(second)
+    second.content.append(
+        {
+            "type": "tool_call",
+            "id": "call-3",
+            "name": "execute_readonly_sql",
+            "input": {"sql": "SELECT 1"},
+        },
+    )
+
+    terminal = await g.check(ctx)
+    assert terminal.action == StopAction.TERMINATE
+    assert terminal.reason == "doom stop"
+    assert len(g._ensure_state().history) == 4
