@@ -635,6 +635,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
