@@ -197,8 +197,7 @@ async def test_registration_is_lazy_and_server_reused(tmp_path):
         assert runtime._manager.starts == 1
         provider = ProviderManager.get_instance().get_provider("qwenpaw-local")
         assert provider.base_url == "http://127.0.0.1:43111/v1"
-        assert provider.extra_models[0].supports_image is True
-        assert provider.extra_models[0].probe_source == "probed"
+        assert provider.extra_models == []
 
 
 @pytest.mark.parametrize(
@@ -413,8 +412,7 @@ async def test_connection_check_keeps_the_running_local_model(
         cold = await manager.check_provider_model("qwenpaw-local", "local-A")
         assert not cold.success
         assert runtime._manager is None
-        server = await runtime.ensure_server("local-A")
-        await runtime.handle.select("local-A")
+        server = await runtime.start_server("local-A")
         checked = []
         entered, release = asyncio.Event(), asyncio.Event()
 
@@ -434,7 +432,7 @@ async def test_connection_check_keeps_the_running_local_model(
         try:
             await asyncio.wait_for(entered.wait(), timeout=5)
             with pytest.raises(PluginBusyError):
-                await runtime.ensure_server("local-B")
+                await runtime.start_server("local-B")
         finally:
             release.set()
             current = await check
@@ -447,7 +445,7 @@ async def test_connection_check_keeps_the_running_local_model(
             "qwenpaw-local",
             "local-A",
         )
-        await runtime.ensure_server("local-B")
+        await runtime.start_server("local-B")
         assert runtime._manager.served == "local-B"
 
 
@@ -475,7 +473,7 @@ async def test_cancelled_first_request_leaves_the_local_manager_ready(
             with pytest.raises(asyncio.CancelledError):
                 await request
 
-        server = await runtime.ensure_server("local-A")
+        server = await runtime.start_server("local-A")
         assert server.model_info.id == "local-A"
         manager = await runtime.manager()
         assert manager.data_dir == (tmp_path / "local_models").resolve()
@@ -487,7 +485,8 @@ async def test_cancelled_model_switch_keeps_the_new_endpoint(
 ):
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
-        first = await runtime.ensure_server("local-A")
+        first = await runtime.start_server("local-A")
+        await runtime.stop_server()
         runtime._manager.port = first.port + 1
         endpoint = f"http://127.0.0.1:{first.port + 1}/v1"
         update = runtime.handle.update
@@ -500,7 +499,7 @@ async def test_cancelled_model_switch_keeps_the_new_endpoint(
             return await update(**config)
 
         monkeypatch.setattr(runtime.handle, "update", publish)
-        request = asyncio.create_task(runtime.ensure_server("local-B"))
+        request = asyncio.create_task(runtime.start_server("local-B"))
         try:
             await asyncio.wait_for(entered.wait(), timeout=5)
         finally:
@@ -509,6 +508,12 @@ async def test_cancelled_model_switch_keeps_the_new_endpoint(
             with pytest.raises(asyncio.CancelledError):
                 await request
 
+        from qwenpaw.providers import ProviderManager
+
+        assert (
+            ProviderManager.get_instance().load_active_model().model
+            == "local-B"
+        )
         assert binding.provider().base_url == endpoint
         async with binding.connect("local-B") as prepared:
             assert prepared == endpoint
@@ -525,8 +530,7 @@ async def test_multimodal_probe_persists_result_after_runtime_restarts(
 
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
-        await runtime.ensure_server("local-A")
-        await runtime.handle.select("local-A")
+        await runtime.start_server("local-A")
         manager = ProviderManager.get_instance()
         from fastapi import HTTPException
         from qwenpaw.app.routers.providers import probe_model_multimodal
@@ -585,12 +589,12 @@ async def test_turn_lease_survives_between_model_calls(tmp_path):
                 await host.reload("local-llamacpp")
             await runtime.stop_server()
             assert runtime._manager.served is None
-            await runtime.ensure_server("local-B")
+            await runtime.start_server("local-B")
             assert runtime._manager.served == "local-B"
         finally:
             finish.set()
             await task
-        await runtime.ensure_server("local-B")
+        await runtime.start_server("local-B")
         assert runtime._manager.starts == 2
         assert (await host.unload("local-llamacpp")).quiescent
 
@@ -634,7 +638,7 @@ async def test_direct_stream_releases_even_when_closed_before_read(
 async def test_failed_close_retains_backend_until_retry(tmp_path):
     async with PluginTestHost(tmp_path / "host") as host:
         _binding, runtime = await load_backend(host, tmp_path)
-        await runtime.ensure_server("local-A")
+        await runtime.start_server("local-A")
         runtime._manager.fail_close = True
         try:
             result = await host.reload("local-llamacpp")
@@ -678,7 +682,6 @@ async def test_bundle_load_does_not_import_backend_or_download_packages(
 async def test_local_dataclasses_preserve_management_http_responses(tmp_path):
     from unittest.mock import AsyncMock
     from qwenpaw.providers.model_info import ModelInfo
-    from qwenpaw.plugins.providers import ModelInfo as SDKModelInfo
 
     async with PluginTestHost(tmp_path / "host") as host:
         _binding, runtime = await load_backend(host, tmp_path)
@@ -695,17 +698,8 @@ async def test_local_dataclasses_preserve_management_http_responses(tmp_path):
         manager.get_config = lambda: types.LocalModelConfig(port=43111)
         manager.get_recommended_models = lambda: [model]
         manager.list_downloaded_models = lambda: []
-        runtime.ensure_server = AsyncMock(
+        manager.ensure_server = AsyncMock(
             return_value=types.LocalServerInfo(port=43111, model_info=model),
-        )
-        await runtime.handle.update(
-            models=(
-                SDKModelInfo(
-                    id=model.id,
-                    name=model.name,
-                    supports_multimodal=False,
-                ),
-            ),
         )
         config = await host.request("GET", "/api/local-models/config")
         assert config.status == 200
@@ -760,18 +754,12 @@ async def test_existing_provider_settings_and_path_survive_unload(tmp_path):
         )
         path = manager._provider_config_path("qwenpaw-local")
         assert path == manager.plugin_path / "qwenpaw-local.json"
-        assert (
-            manager.get_provider("qwenpaw-local").extra_models[0].is_free
-        ), "before connect"
+        saved_model = binding.provider().extra_models[0].model_copy(deep=True)
         async with binding.connect("local-A"):
             pass
         provider = manager.get_provider("qwenpaw-local")
         model = provider.extra_models[0]
-        assert model.max_input_length == 65536
-        assert model.max_input_length_configured
-        assert model.is_free
-        assert model.generate_kwargs == {"top_p": 0.7}
-        assert model.supports_image
+        assert model == saved_model
         assert (
             len(
                 [
@@ -808,19 +796,41 @@ async def test_only_explicit_server_start_selects_the_model(tmp_path):
         cloud = ModelSlotConfig(provider_id="openai", model="cloud")
         await manager.save_active_model_async(cloud)
         async with binding.connect("local-A"):
-            pass
-        assert manager.active_model == cloud
-        for model_id in ("local-A", "local-B"):
+            assert manager.active_model == cloud
+
+        async def start(model_id):
             started = await host.request(
                 "POST",
                 "/api/local-models/server",
                 json={"model_id": model_id},
             )
             assert started.status == 200
-            assert runtime._manager.served == model_id
-            assert manager.active_model.provider_id == "qwenpaw-local"
-            assert manager.active_model.model == model_id
-            assert manager.load_active_model() == manager.active_model
+            selected = ModelSlotConfig(
+                provider_id="qwenpaw-local",
+                model=model_id,
+            )
+            assert manager.load_active_model() == selected
+            return selected
+
+        first = await start("local-A")
+        async with agent_turn():
+            async with binding.connect(first.model):
+                assert runtime._manager.served == first.model
+            selected = await start("local-B")
+            # The same turn calls A again after a tool returns.
+            starts = runtime._manager.starts
+            with pytest.raises(SDKError, match="local-B"):
+                async with binding.connect(first.model):
+                    pytest.fail("Old request replaced the selected model")
+            assert runtime._manager.served == selected.model
+            assert runtime._manager.starts == starts
+            assert manager.load_active_model() == selected
+            (published,) = binding.provider().extra_models
+            assert published.id == selected.model
+            assert published.supports_image is True
+            assert published.probe_source == "probed"
+        async with binding.connect(selected.model):
+            assert runtime._manager.served == "local-B"
         stopped = await host.request("DELETE", "/api/local-models/server")
         assert stopped.status == 200
         assert manager.active_model is None
@@ -962,7 +972,7 @@ async def test_stopping_service_clears_only_local_default_selection(
 
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
-        await runtime.ensure_server("local-A")
+        await runtime.start_server("local-A")
         manager = ProviderManager.get_instance()
         selection = ModelSlotConfig(
             provider_id=selected_provider,
@@ -1000,8 +1010,7 @@ async def test_cancelled_server_stop_keeps_provider_in_sync(
 
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
-        await runtime.ensure_server("local-A")
-        await runtime.handle.select("local-A")
+        await runtime.start_server("local-A")
         manager = await runtime.manager()
         entered = asyncio.Event()
         release = asyncio.Event()

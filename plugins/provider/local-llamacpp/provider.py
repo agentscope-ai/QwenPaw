@@ -18,6 +18,7 @@ class LocalProvider:
         self._lock = asyncio.Lock()
         self._users = {}
         self._server_info = None
+        self._selected_model = None
         self._failed = False
         self._started = False
         self._manually_stopped = False
@@ -86,26 +87,19 @@ class LocalProvider:
                 await self._start()
             yield self._manager
 
-    async def _publish(self, result, model_type=None):
-        model = result.model_info
-        info = ModelInfo(
-            id=model.id,
-            name=model.name,
-            max_input_length=None,
-            is_free=None,
-            supports_multimodal=model.supports_multimodal,
-            supports_image=model.supports_image,
-            supports_video=model.supports_video,
-            probe_source=model.probe_source,
-            model_type=model_type,
-        )
+    async def _publish(self, result, model=None):
+        """Publish the endpoint and apply an explicit model choice together."""
 
         async def publish():
             await self.handle.update(
                 base_url=f"http://127.0.0.1:{result.port}/v1",
-                models=(info,),
+                models=(model,) if model is not None else None,
             )
             self._server_info = result
+            if model is not None:
+                self._selected_model = model.id
+                self._manually_stopped = False
+                await self.handle.select(model.id, model_type=model.model_type)
 
         await finish(publish())
         return result
@@ -113,19 +107,30 @@ class LocalProvider:
     async def _stopped(self):
         self._manually_stopped = True
         self._server_info = None
+        self._selected_model = None
         await self.handle.update(base_url="", models=())
         await self.handle.clear_selection()
         await self.handle.clear_selection(model_type="decision")
 
-    async def ensure_server(self, model_id):
+    async def start_server(self, model_id):
         async with self._operation() as manager:
             result = await manager.ensure_server(
                 model_id,
                 before_restart=self._check_restart,
             )
-            await self._publish(result, result.model_info.model_type)
-            self._manually_stopped = False
-            return result
+            model = result.model_info
+            info = ModelInfo(
+                id=model.id,
+                name=model.name,
+                max_input_length=None,
+                is_free=None,
+                supports_multimodal=model.supports_multimodal,
+                supports_image=model.supports_image,
+                supports_video=model.supports_video,
+                probe_source=model.probe_source,
+                model_type=model.model_type,
+            )
+            return await self._publish(result, info)
 
     async def stop_server(self):
         async with self._operation() as manager:
@@ -207,14 +212,17 @@ class LocalProvider:
                         )
                     port = status["port"]
                 else:
-                    # A probe may recover its published endpoint after a crash.
-                    # Only inference may replace it with a different model.
                     if purpose == "probe" and (
                         self._server_info is None
                         or self._server_info.model_info.id != model_id
                     ):
                         raise SDKError(
                             "This local model is no longer published",
+                        )
+                    if self._selected_model not in (None, model_id):
+                        raise SDKError(
+                            f"Local Model Management selected "
+                            f"{self._selected_model!r}; cannot serve {model_id!r}",
                         )
                     result = await self._ensure_server(model_id)
                     port = result.port
