@@ -329,12 +329,21 @@ def _protocol_path(protocol: str) -> Path:
 
 
 def _ensure_path_under(root: Path, path: Path) -> None:
+    if path == root:
+        return
     try:
-        path.resolve().relative_to(root.resolve())
-    except ValueError as exc:
-        raise DriverCardError(
-            f"DriverCard path escapes storage directory: {path}",
-        ) from exc
+        relative = path.relative_to(root)
+        base = root.resolve()
+        candidate = os.path.abspath(base / relative)
+        # Check the lexical boundary before following any symlinks.
+        if candidate.startswith(os.path.join(base, "")):
+            Path(candidate).resolve().relative_to(base)
+            return
+    except ValueError:
+        pass
+    raise DriverCardError(
+        f"DriverCard path escapes storage directory: {path}",
+    )
 
 
 def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
