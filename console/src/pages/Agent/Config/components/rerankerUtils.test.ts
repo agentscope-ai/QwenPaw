@@ -105,4 +105,24 @@ describe("getRerankerServiceFingerprint", () => {
   it("returns an empty fingerprint for a missing config", async () => {
     expect(await getRerankerServiceFingerprint(undefined)).toBe("");
   });
+
+  // Cross-language contract pin: tests/unit/agents/memory/
+  // test_reranker_history.py asserts the same digest for the canonical
+  // config ["https://fixture.example/v1", "", "fixture-model", "10"], so a
+  // normalization drift on either side fails CI.
+  it("matches the backend golden digest", async () => {
+    const fingerprint = await getRerankerServiceFingerprint({
+      enabled: true,
+      api_key: "",
+      base_url: "https://fixture.example/v1",
+      model_name: "fixture-model",
+      candidate_multiplier: 3,
+      timeout: 10,
+      auto_verify_interval_hours: 0,
+    });
+
+    expect(fingerprint).toBe(
+      "sha256:141b3dd720b233ef5706bf153260cca3ba2c82084715fd868518b9882c05a7cf",
+    );
+  });
 });
