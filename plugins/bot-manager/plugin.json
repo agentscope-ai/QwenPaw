@@ -1,0 +1,36 @@
+{
+  "id": "bot-manager",
+  "name": "Bot 管理器",
+  "version": "1.0.0",
+  "description": "统一管理多个智能体的各渠道 Bot 配置，当前支持微信、钉钉，架构可扩展",
+  "author": "星致",
+  "type": "app",
+  "min_version": "2.0.0",
+  "qwenpaw_version": {
+    "min": "2.0.0",
+    "max": "2.1.0"
+  },
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/index.js"
+  },
+  "permissions": [
+    "agent.chat",
+    "workspace.write",
+    "workspace.read"
+  ],
+  "meta": {
+    "category": "productivity",
+    "icon": "bot",
+    "pawapp": {
+      "icon": "bot",
+      "category": "productivity",
+      "entry_page": "/apps/bot-manager",
+      "launch_scope": "page"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true
+    }
+  }
+}
