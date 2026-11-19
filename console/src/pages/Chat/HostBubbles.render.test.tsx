@@ -11,6 +11,8 @@ import {
   HostRequestCard,
   HostResponseCard,
 } from "./HostBubbles";
+import { TurnForkAction } from "./TurnForkAction";
+import type { CopyableResponse } from "./utils";
 import * as assistantMarkdown from "./AssistantMarkdown";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import {
@@ -57,10 +59,24 @@ vi.mock("@agentscope-ai/icons", async (importOriginal) => {
 });
 vi.mock("@agentscope-ai/chat/lib/Bubble", () => ({
   default: Object.assign(
-    ({ cards }: { cards?: Array<{ data: { content?: string } }> }) => (
+    ({
+      cards,
+    }: {
+      cards?: Array<{
+        data: { content?: string } | Array<{ name?: string; url?: string }>;
+      }>;
+    }) => (
       <div>
         {cards?.map((card, index) => (
-          <span key={index}>{card.data.content}</span>
+          <span key={index}>
+            {Array.isArray(card.data)
+              ? card.data.map((file) => (
+                  <a key={file.url} href={file.url}>
+                    {file.name}
+                  </a>
+                ))
+              : card.data.content}
+          </span>
         ))}
       </div>
     ),
@@ -108,11 +124,28 @@ vi.mock("./LazyAccordion", () => ({
   ),
 }));
 
-function provider(children: ReactNode) {
+function provider(children: ReactNode, fork = false) {
   return (
     <ComposedProvider
       options={{
         api: {},
+        actions: fork
+          ? {
+              list: [
+                {
+                  key: "fork",
+                  render: ({ data }: { data: CopyableResponse }) => (
+                    <TurnForkAction
+                      data={data}
+                      agentId="default"
+                      onFork={() => {}}
+                      title="fork-action"
+                    />
+                  ),
+                } as never,
+              ],
+            }
+          : undefined,
         session: {
           currentSessionId: undefined,
           api: {
@@ -489,3 +522,304 @@ describe("merged host bubbles behavior", () => {
     );
   });
 });
+
+it("renders a committed steer as a separate user row between assistant segments", () => {
+  vi.spyOn(assistantMarkdown, "AssistantMarkdown").mockImplementation(
+    ({ content }) => <span>{content}</span>,
+  );
+  setAssistantMessageDisplayPreference("expanded");
+  const output = [
+    {
+      id: "a1",
+      role: "assistant",
+      content: [{ type: "text", text: "before steer" }],
+      metadata: { after_user_message_id: "u1" },
+    },
+    {
+      id: "s1",
+      role: "user",
+      content: [{ type: "text", text: "change direction" }],
+      metadata: { input_kind: "steer", client_message_id: "c1" },
+    },
+    {
+      id: "a2",
+      role: "assistant",
+      content: [{ type: "text", text: "after steer" }],
+      metadata: { after_user_message_id: "s1" },
+    },
+  ].map((m) => ({ ...m, type: "message", status: "completed" }));
+  const view = render(
+    provider(
+      <HostResponseCard
+        id="turn"
+        data={{ id: "r", status: "completed", output } as never}
+      />,
+    ),
+  );
+  expect(view.getByLabelText("chat.steer.user").textContent).toContain(
+    "change direction",
+  );
+  expect(view.getAllByTestId("response-actions")).toHaveLength(1);
+});
+
+it("keeps the original assistant DOM mounted when the first steer is accepted", async () => {
+  const { useSteerStore } = await import("../../stores/steerStore");
+  vi.spyOn(assistantMarkdown, "AssistantMarkdown").mockImplementation(
+    ({ content }) => <span>{content}</span>,
+  );
+  setAssistantMessageDisplayPreference("expanded");
+  const data = {
+    id: "r-stable",
+    status: "in_progress",
+    metadata: {
+      turn_id: "t-stable",
+      steer_scope: "scope-stable",
+      initial_user_message_id: "u1",
+    },
+    output: [
+      {
+        id: "a-stable",
+        type: "message",
+        role: "assistant",
+        status: "in_progress",
+        content: [{ type: "text", text: "original running text" }],
+        metadata: { after_user_message_id: "u1" },
+      },
+    ],
+  };
+  const view = render(
+    provider(<HostResponseCard id="t-stable" data={data as never} />),
+  );
+  const original = view.getByText("original running text");
+  act(() =>
+    useSteerStore.getState().merge("scope-stable", [
+      {
+        turn_id: "t-stable",
+        client_message_id: "c",
+        user_message_id: "s1",
+        content: [{ type: "text", text: "fix next step" }],
+        status: "accepted",
+        revision: 1,
+        append_seq: 1,
+      },
+    ]),
+  );
+  expect(view.getByText("original running text")).toBe(original);
+  expect(view.getByLabelText("chat.steer.user").textContent).toContain(
+    "fix next step",
+  );
+  expect(view.getAllByTestId("response-actions")).toHaveLength(1);
+  view.rerender(
+    provider(
+      <HostResponseCard
+        id="t-stable"
+        data={{ ...data, status: "canceled" } as never}
+      />,
+    ),
+  );
+  expect(view.queryByText("interrupted")).toBeNull();
+  expect(
+    view
+      .getByTestId("response-actions")
+      .compareDocumentPosition(view.getByLabelText("chat.steer.user")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(view.getByText("original running text")).toBe(original);
+  view.rerender(
+    provider(
+      <HostResponseCard
+        id="t-stable"
+        data={
+          {
+            ...data,
+            status: "canceled",
+            metadata: { ...data.metadata, qwenpaw_history: true },
+          } as never
+        }
+      />,
+    ),
+  );
+  expect(view.queryByText("interrupted")).toBeNull();
+  expect(view.getByText("original running text")).toBeInTheDocument();
+  expect(view.getAllByTestId("response-actions")).toHaveLength(1);
+  act(() => setAssistantMessageDisplayPreference("result-collapsed"));
+  view.rerender(
+    provider(
+      <HostResponseCard
+        id="t-stable"
+        data={
+          {
+            ...data,
+            status: "canceled",
+            output: [
+              ...data.output,
+              {
+                id: "cancelled-thinking",
+                type: "reasoning",
+                role: "assistant",
+                status: "canceled",
+                content: [{ type: "text", text: "partial" }],
+                metadata: { after_user_message_id: "u1" },
+              },
+            ],
+          } as never
+        }
+      />,
+    ),
+  );
+  expect(view.getAllByTestId("steps")).toHaveLength(1);
+  expect(view.queryByText("interrupted")).toBeNull();
+});
+
+it.each([false, true])(
+  "does not leave an empty assistant before an immediate steer (placeholder=%s)",
+  async (placeholder) => {
+    const data = {
+      id: "early-response",
+      status: "in_progress",
+      metadata: {
+        turn_id: "early-turn",
+        steer_scope: "early-scope",
+        initial_user_message_id: "user1",
+      },
+      output: [],
+    };
+    const view = render(
+      provider(<HostResponseCard id="early" data={data as never} />),
+    );
+    expect(view.getAllByText("loading")).toHaveLength(1);
+    const steer = {
+      id: "steer1",
+      role: "user",
+      type: "message",
+      status: "completed",
+      content: [{ type: "text", text: "immediate correction" }],
+      metadata: { client_message_id: "early-client" },
+    };
+    const output = [
+      ...(placeholder
+        ? [
+            {
+              id: "empty-assistant",
+              role: "assistant",
+              type: "message",
+              status: "completed",
+              content: [{ type: "text", text: "" }],
+              metadata: { after_user_message_id: "user1" },
+            },
+          ]
+        : []),
+      steer,
+    ];
+    view.rerender(
+      provider(
+        <HostResponseCard id="early" data={{ ...data, output } as never} />,
+      ),
+    );
+    expect(view.getAllByText("loading")).toHaveLength(1);
+    const user = view.getByLabelText("chat.steer.user");
+    expect(user.parentElement?.firstElementChild).toBe(user);
+    expect(view.queryByTestId("response-actions")).toBeNull();
+    view.rerender(
+      provider(
+        <HostResponseCard
+          id="early"
+          data={
+            {
+              ...data,
+              status: "completed",
+              output: [
+                ...output,
+                {
+                  id: "answer-after-steer",
+                  role: "assistant",
+                  type: "message",
+                  status: "completed",
+                  content: [{ type: "text", text: "corrected answer" }],
+                  metadata: { after_user_message_id: "steer1" },
+                },
+              ],
+            } as never
+          }
+        />,
+      ),
+    );
+    expect(view.queryByText("loading")).toBeNull();
+    expect(view.getByText("corrected answer")).toBeInTheDocument();
+    expect(view.getAllByTestId("response-actions")).toHaveLength(1);
+    expect(user.parentElement?.firstElementChild).toBe(user);
+    view.rerender(
+      provider(
+        <HostResponseCard
+          id="early"
+          data={{ ...data, status: "canceled", output } as never}
+        />,
+      ),
+    );
+    expect(view.queryByText("loading")).toBeNull();
+    expect(view.getAllByText("interrupted")).toHaveLength(1);
+    expect(view.queryByTestId("response-actions")).toBeNull();
+    expect(user.parentElement?.firstElementChild).toBe(user);
+    const { useSteerStore } = await import("../../stores/steerStore");
+    const retry = vi.fn();
+    const pageReceipt = {
+      turn_id: "early-turn",
+      client_message_id: "failed-input",
+      user_message_id: "failed-user",
+      append_seq: 1,
+      revision: 2,
+      status: "failed",
+      reason: "cancelled",
+      content: [
+        { type: "text", text: "retained failed attachment" },
+        {
+          type: "file",
+          file_url: "/media/probe.txt",
+          file_name: "probe.txt",
+        },
+      ],
+    };
+    useSteerStore.setState({
+      receipts: {},
+      retry: { "empty-history-scope": retry },
+    });
+    await act(async () =>
+      view.rerender(
+        provider(
+          <HostResponseCard
+            id="early"
+            data={
+              {
+                ...data,
+                status: "canceled",
+                output: [],
+                metadata: {
+                  turn_id: "early-turn",
+                  steer_scope: "empty-history-scope",
+                  can_fork: true,
+                  fork_capability_status: "canceled",
+                  steer_receipts_loaded: true,
+                  steer_receipts: [pageReceipt],
+                  qwenpaw_history: true,
+                },
+              } as never
+            }
+          />,
+          true,
+        ),
+      ),
+    );
+    expect(view.queryByRole("button", { name: "fork-action" })).toBeNull();
+    expect(retry).not.toHaveBeenCalled();
+    expect(view.getByLabelText("chat.steer.user").textContent).toContain(
+      "retained failed attachment",
+    );
+    expect(view.getByRole("link", { name: "probe.txt" })).toHaveAttribute(
+      "href",
+      "/media/probe.txt",
+    );
+    expect(view.getAllByText("interrupted")).toHaveLength(1);
+    expect(view.queryByTestId("response-actions")).toBeNull();
+    act(() => useSteerStore.setState({ receipts: {}, retry: {} }));
+  },
+);

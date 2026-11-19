@@ -16,6 +16,8 @@ from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
+from .steer import current_steer, SteerMiddleware
+
 from .._session_request import is_ephemeral_request
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..providers.model_selection import request_model_override
@@ -1382,7 +1384,12 @@ class AgentBuilder:
         5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
            Advisor Mode (innermost)
         """
-        mws: list[Any] = []
+        control = current_steer.get()
+        mws: list[Any] = (
+            [SteerMiddleware(control)]
+            if control and control.owns_request(ctx.request)
+            else []
+        )
 
         pruning_middleware = None
         try:

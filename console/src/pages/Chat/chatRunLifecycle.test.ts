@@ -161,9 +161,10 @@ const backgroundWorkerJS = ts.transpileModule(
   },
 ).outputText;
 
-function backgroundWorkerFixture() {
+function backgroundWorkerFixture(queueEnabled = true) {
   const sessionApi = {};
   const dependencies = {
+    MESSAGE_QUEUE_ENABLED: queueEnabled,
     useMessageQueueStore,
     withBackgroundSendLock,
     awaitInChatScope,
@@ -196,6 +197,20 @@ function backgroundWorkerFixture() {
   ) => Promise<void>;
   return { start, sessionApi };
 }
+
+it("does not start transport or alter persisted entries when queues are frozen", async () => {
+  useMessageQueueStore.getState().enqueue("frozen", { text: "old queued" });
+  const before = JSON.stringify(
+    useMessageQueueStore.getState().getQueue("frozen"),
+  );
+  const fetchSpy = vi.spyOn(globalThis, "fetch");
+  await backgroundWorkerFixture(false).start("frozen", "runtime", "chat");
+  expect(fetchSpy).not.toHaveBeenCalled();
+  expect(
+    JSON.stringify(useMessageQueueStore.getState().getQueue("frozen")),
+  ).toBe(before);
+  fetchSpy.mockRestore();
+});
 
 describe("background queue transport handoff", () => {
   let held: Set<string>;

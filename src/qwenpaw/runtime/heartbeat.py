@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """SSE heartbeat wrapper for async iterators."""
+
 from __future__ import annotations
 
 import asyncio
+
+from ..utils.io_utils import run_async_to_completion
 
 HEARTBEAT_INTERVAL_SECONDS = 25.0
 _HEARTBEAT_TICK = object()
@@ -40,3 +43,11 @@ async def _iter_with_heartbeat(source_iter, interval: float):
     finally:
         if pending is not None and not pending.done():
             pending.cancel()
+
+            async def drain():
+                try:
+                    await pending
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+
+            await run_async_to_completion(drain())

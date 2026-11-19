@@ -767,6 +767,24 @@ class TranscriptCatalog:
                     )
                 raise
 
+    def history_steers(self, **kwargs: Any) -> dict:
+        return self._write_existing("history_steers", **kwargs)
+
+    def can_fork_turn(self, **kwargs: Any) -> bool:
+        return self._write_existing("can_fork_turn", **kwargs)
+
+    def accept_steer(self, **kwargs: Any) -> dict:
+        return self._write_existing("accept_steer", **kwargs)
+
+    def apply_steers(self, **kwargs: Any) -> None:
+        self._write_existing("apply_steers", **kwargs)
+
+    def fail_steers(self, **kwargs: Any) -> None:
+        self._write_existing("fail_steers", **kwargs)
+
+    def list_steers(self, **kwargs: Any) -> list[dict]:
+        return self._write_existing("list_steers", **kwargs)
+
     def upsert_message(self, **kwargs: Any) -> None:
         self._write_existing("upsert_message", **kwargs)
 

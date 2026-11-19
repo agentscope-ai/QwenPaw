@@ -129,6 +129,8 @@ class Envelope:
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
         self._data_blocks: Dict[str, Dict[str, Any]] = {}
 
+        self.input_anchor: str | None = None
+        self.steer_scope = ""
         self._seq_counter = 0
 
         self._error_text: str | None = None
@@ -145,6 +147,13 @@ class Envelope:
         return self._seq_counter
 
     def _tag_seq(self, obj: Any) -> Any:
+        if isinstance(obj, schemas.Message) and self.input_anchor:
+            metadata = dict(obj.metadata or {})
+            if self.steer_scope:
+                metadata["steer_scope"] = self.steer_scope
+            if obj.role != schemas.Role.USER:
+                metadata.setdefault("after_user_message_id", self.input_anchor)
+            obj.metadata = metadata
         obj.sequence_number = self._next_seq()
         return obj
 
@@ -191,6 +200,45 @@ class Envelope:
         self._completed_message.object = "message"
         self._message_started = False
         self._text_blocks = {}
+
+    async def close_input_segment(self) -> AsyncGenerator[Any, None]:
+        """Seal text before applying an input at a completed agent step."""
+        if self._should_finalize_text_message():
+            async for item in self._finalize_text_message():
+                yield item
+
+    def prepare_steer(self, receipt: dict) -> schemas.Message:
+        """Reserve the normal stream identity before durable application."""
+        return self._tag_seq(
+            schemas.Message(
+                id=receipt["user_message_id"],
+                object="message",
+                name="user",
+                role=schemas.Role.USER,
+                type=schemas.MessageType.MESSAGE,
+                content=receipt["content"],
+                status=schemas.RunStatus.Completed,
+                metadata={
+                    "input_kind": "steer",
+                    "client_message_id": receipt["client_message_id"],
+                    "append_seq": receipt["append_seq"],
+                },
+            ),
+        )
+
+    def bind_turn(self, turn_id: str, anchor: str, scope: str) -> None:
+        self.input_anchor = anchor
+        self.steer_scope = scope
+        self._response.metadata = {
+            "turn_id": turn_id,
+            "steer_scope": scope,
+            "initial_user_message_id": anchor,
+        }
+
+    def append_steer(self, message: schemas.Message) -> None:
+        """Publish a committed input without opening a second response."""
+        self._response.output.append(message)
+        self.input_anchor = message.id
 
     # ------------------------------------------------------------------
     # Event translation

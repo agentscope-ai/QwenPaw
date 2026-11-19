@@ -28,6 +28,8 @@ from ...config.timezone import normalize_tz
 from ..._session_signals import TURN_COMMIT_KEY
 from ...schemas import AgentResponse, RunStatus
 from ...runtime import Runtime
+from ...runtime.steer import current_steer, SteerControl
+from ..chats.models import session_storage_identity
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
@@ -209,6 +211,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
+        self.steer_runs: dict[tuple, Any] = {}
         self._app_services: Any = None
         self._backend_runtime = None
 
@@ -566,6 +569,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
             legacy_messages=legacy_messages,
         )
         del legacy_messages
+        control = None
+        token = None
+        close_reason = "turn_finished"
+        identity_key = session_storage_identity(
+            request.session_id,
+            request.user_id,
+            request.channel,
+        )
 
         async def finish_cancelled() -> None:
             await stream.aclose()
@@ -573,6 +584,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         try:
             await recorder.start()
+            if (
+                backend == "qwenpaw"
+                and request.channel == "console"
+                and recorder.ready
+            ):
+                control = SteerControl(recorder)
+                control.scope = f"{self.agent_id}:{identity_key}"
+                self.steer_runs[identity_key] = control
+                token = current_steer.set(control)
             async for item in stream:
                 terminal = isinstance(item, AgentResponse) and item.status in (
                     RunStatus.Completed,
@@ -610,9 +630,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
                             )
                 yield item
         except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
+            close_reason = "cancelled"
             await run_async_to_completion(finish_cancelled())
             raise
         except BaseException as exc:
+            close_reason = "failed"
             error = {
                 "code": type(exc).__name__,
                 "message": "",
@@ -620,7 +642,24 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await recorder.finish("failed", error=error)
             raise
         finally:
-            await stream.aclose()
+            try:
+                await stream.aclose()
+            finally:
+                if control is not None:
+                    try:
+                        await run_async_to_completion(
+                            control.close(close_reason),
+                        )
+                    finally:
+                        if self.steer_runs.get(identity_key) is control:
+                            self.steer_runs.pop(identity_key, None)
+                        if token is not None:
+                            # Generator cleanup may run in a copied context.
+                            if current_steer.get() is control:
+                                try:
+                                    current_steer.reset(token)
+                                except ValueError:
+                                    current_steer.set(None)
         await recorder.finish("completed")
 
     async def finalize_turn_usage(

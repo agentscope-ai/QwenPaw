@@ -8,6 +8,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from ...utils.io_utils import run_sync_io
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ..._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
@@ -72,6 +73,48 @@ class TranscriptRecorder:
         self._finished = False
         self._degraded = False
 
+    @property
+    def turn_id(self) -> str:
+        return self._turn_id
+
+    @property
+    def ready(self) -> bool:
+        return self._started and not self._degraded and self._store is not None
+
+    async def steer_io(self, method: str, **kwargs: Any) -> Any:
+        """Use strict writes and wait out database cancellation."""
+        if not self.ready:
+            raise RuntimeError("transcript_unavailable")
+        return await run_sync_io(
+            getattr(self._store, method),
+            session_id=self._session_id,
+            user_id=self._user_id,
+            channel=self._channel,
+            turn_id=self._turn_id,
+            **kwargs,
+        )
+
+    async def apply_steers(self, messages: list, step_index: int) -> None:
+        """Commit input text and its receipt atomically before publication."""
+        batch = []
+        for message in messages:
+            ordinal = self._next_ordinal
+            self._next_ordinal += 1
+            self._ordinals[message.id] = ordinal
+            message.metadata = {
+                **dict(message.metadata or {}),
+                "qwenpaw_transcript_position": {
+                    "turn_id": self._turn_id,
+                    "ordinal": ordinal,
+                },
+            }
+            batch.append((message, ordinal))
+        await self.steer_io(
+            "apply_steers",
+            messages=batch,
+            step_index=step_index,
+        )
+
     async def start(self) -> None:
         """Create the turn and persist its incoming display messages."""
         if self._store is None or self._started or self._degraded:
@@ -118,6 +161,13 @@ class TranscriptRecorder:
             if value.id not in self._ordinals:
                 self._ordinals[value.id] = self._next_ordinal
                 self._next_ordinal += 1
+            value.metadata = {
+                **dict(value.metadata or {}),
+                "qwenpaw_transcript_position": {
+                    "turn_id": self._turn_id,
+                    "ordinal": self._ordinals[value.id],
+                },
+            }
             replay_receipt.set(
                 ReplayReceipt(
                     self._store,

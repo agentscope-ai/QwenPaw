@@ -1,3 +1,4 @@
+import type { SteerReceipt } from "../../pages/Chat/steerTimeline";
 export type ChatStatus = "idle" | "running";
 export type ChatSource = "chat" | "cron" | "subagent";
 export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
@@ -47,7 +48,16 @@ export interface TranscriptPosition {
   ordinal: number;
 }
 
+export interface HistorySteer {
+  active_turn_id: string | null;
+  needs_sync: boolean;
+  receipts_by_turn: Record<string, SteerReceipt[]>;
+}
+
 export interface ChatHistory {
+  steer_scope?: string | null;
+  steer?: HistorySteer | null;
+  turn_fork_capabilities?: Record<string, boolean>;
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
   history?: ChatHistoryMetadata | null;
@@ -70,6 +80,9 @@ export interface ChatHistoryMetadata {
 }
 
 export interface ChatMessagePage extends ChatHistoryMetadata {
+  steer_scope?: string | null;
+  steer?: HistorySteer | null;
+  turn_fork_capabilities?: Record<string, boolean>;
   messages: Message[];
 }
 

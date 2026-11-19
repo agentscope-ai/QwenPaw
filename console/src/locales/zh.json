@@ -4093,6 +4093,9 @@
   },
   "chat": {
     "fork": "分叉",
+    "forkBoundary": "从 {{name}} 分支到这里",
+    "forkParent": "原会话",
+    "forkParentUnavailable": "原会话不可用",
     "forkTitle": "从此轮创建分支？",
     "forkDescription": "新建的独立会话将包含此轮及之前的全部对话。",
     "forkCreated": "已创建分支",
@@ -4323,7 +4326,25 @@
     "regenerate": "重新生成",
     "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
     "canceledWithoutReply": "用户取消无回复",
-    "turnCanceled": "已停止"
+    "turnCanceled": "已停止",
+    "steer": {
+      "unsupportedBackend": "当前智能体不支持运行中修正，输入已保留，请等待任务结束。",
+      "statusUnknown": "运行状态暂时无法确认，输入已保留，请稍后重试。",
+      "emptyInput": "请输入文字或添加附件。",
+      "unavailable": "暂时无法修正当前任务：{{reason}}",
+      "failed": "修正未能应用",
+      "reason": { "cancelled": "任务已停止" },
+      "user": "用户修正",
+      "submitting": "正在提交",
+      "accepted": "已接收，等待下一步",
+      "applied": "已注入",
+      "syncing": "已注入，正在同步",
+      "unknown": "提交状态待确认",
+      "pluginBusy": "任务执行中，请在输入框提交修正，或等待完成后重试此操作。",
+      "sync_failed": "消息同步失败，请重试",
+      "retry": "重试同步",
+      "resolvePrevious": "上一条修正状态待确认，请先重试原文本。"
+    }
   },
   "security": {
     "parent": "设置",

@@ -17,6 +17,7 @@ from uuid import uuid4
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ...schemas import Message, TextContent
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
+from .steer_store import SteerStoreMixin, steer_fork_boundary
 from .models import session_storage_identity
 from .context_revisions import (
     commit_turn_revision,
@@ -81,7 +82,7 @@ def _content_hash(codec: str, payload: bytes) -> str:
 
 
 # pylint: disable=too-many-public-methods
-class TranscriptStore:
+class TranscriptStore(SteerStoreMixin):
     """Workspace-owned SQLite store for user-visible chat transcripts."""
 
     def __init__(
@@ -1320,6 +1321,9 @@ class TranscriptStore:
             ]
             message = Message.model_validate(envelope)
             metadata = message.metadata
+            if metadata and source_session_id != target_session_id:
+                metadata = dict(metadata)
+                metadata.pop("steer_scope", None)
             if metadata is not None and TURN_USAGE_META_KEY in metadata:
                 metadata = dict(metadata)
                 metadata.pop(TURN_USAGE_META_KEY)
@@ -1484,7 +1488,7 @@ class TranscriptStore:
         target_channel: str,
         native_context: bool = False,
     ) -> int:
-        """Rebuild an independent conversation through one completed turn."""
+        """Rebuild an independent conversation through a settled turn."""
         if (
             self._conn.execute(
                 "SELECT 1 FROM transcript_sessions LIMIT 1",
@@ -1513,8 +1517,14 @@ class TranscriptStore:
             ).fetchone()
             if boundary is None:
                 raise KeyError("fork turn not found")
-            if boundary["status"] != "completed":
-                raise ValueError("fork turn must be completed")
+            if boundary["status"] not in ("completed", "cancelled"):
+                raise ValueError("fork turn must be settled")
+            if not native_context and not steer_fork_boundary(
+                source,
+                source_session_id,
+                turn_id,
+            ):
+                raise ValueError("fork turn has no consistent runtime")
             turn_seq = int(boundary["turn_seq"])
             boundary_event = None
             if not native_context:
@@ -1680,6 +1690,12 @@ class TranscriptStore:
             if not orphans:
                 return 0
             with self._transaction():
+                for orphan in orphans:
+                    self.fail_steers(
+                        session_id=orphan["session_id"],
+                        turn_id=orphan["turn_id"],
+                        reason="invocation_lost",
+                    )
                 timestamp = _utc_now()
                 cursor = self._conn.execute(
                     "UPDATE transcript_turns SET status = 'cancelled', "
@@ -2135,7 +2151,9 @@ class TranscriptStore:
                 "WHERE session_id = ? AND turn_id = ? AND ordinal > ? "
                 "AND json_extract(envelope_json, "
                 "'$.sequence_number') <= ? "
-                "AND role != 'user' ORDER BY ordinal LIMIT 40",
+                "AND (role != 'user' OR json_extract(envelope_json, "
+                "'$.metadata.input_kind') = 'steer') "
+                "ORDER BY ordinal LIMIT 40",
                 (session_id, turn_id, after, through),
             )
             for row in rows:

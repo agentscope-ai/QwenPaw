@@ -4240,6 +4240,9 @@
   },
   "chat": {
     "fork": "Fork",
+    "forkBoundary": "Branched from {{name}} up to here",
+    "forkParent": "original conversation",
+    "forkParentUnavailable": "original conversation unavailable",
     "forkTitle": "Fork from this turn?",
     "forkDescription": "A new independent conversation will contain this turn and all earlier turns.",
     "forkCreated": "Fork created",
@@ -4471,7 +4474,25 @@
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
     "canceledWithoutReply": "Canceled by user; no reply",
-    "turnCanceled": "Canceled"
+    "turnCanceled": "Canceled",
+    "steer": {
+      "unsupportedBackend": "This agent does not support corrections during a run. Your draft is preserved; wait for the task to finish.",
+      "statusUnknown": "Run status is unknown. Your draft is preserved; please retry.",
+      "emptyInput": "Enter text or add an attachment.",
+      "unavailable": "Cannot steer this run: {{reason}}",
+      "failed": "Correction was not applied",
+      "reason": { "cancelled": "Task stopped" },
+      "user": "User correction",
+      "submitting": "Submitting",
+      "accepted": "Received, waiting for next step",
+      "applied": "Applied",
+      "syncing": "Applied, syncing history",
+      "unknown": "Submission status unknown",
+      "pluginBusy": "A task is running. Use the composer to steer, or retry this action after completion.",
+      "sync_failed": "Message sync failed. Please retry.",
+      "retry": "Retry sync",
+      "resolvePrevious": "The previous correction is unconfirmed. Retry its original text first."
+    }
   },
   "security": {
     "parent": "Settings",

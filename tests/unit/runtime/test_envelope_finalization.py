@@ -92,3 +92,39 @@ async def test_error_materializes_open_tool_call_and_output() -> None:
     assert messages[0].content[0].data["arguments"] == ('{"command":"pytest')
     assert messages[1].content[0].data["output"] == "1 passed"
     assert finalized[-1].status == RunStatus.Failed
+
+
+@pytest.mark.asyncio
+async def test_steer_boundary_preserves_old_text_and_starts_new_message():
+    from qwenpaw.schemas import TextContent
+
+    envelope = Envelope(session_id="s")
+    envelope.input_anchor = "u1"
+    for event in (
+        _event(EventType.TEXT_BLOCK_DELTA, block_id="b1", delta="before"),
+        _event(EventType.TEXT_BLOCK_END, block_id="b1"),
+    ):
+        await _collect(envelope.translate_event(event))
+    boundary = await _collect(envelope.close_input_segment())
+    old = boundary[0]
+    steer = Message(
+        id="s1",
+        role="user",
+        content=[TextContent(text="change")],
+    ).completed()
+    envelope.append_steer(steer)
+    for event in (
+        _event(EventType.TEXT_BLOCK_DELTA, block_id="b2", delta="after"),
+        _event(EventType.TEXT_BLOCK_END, block_id="b2"),
+    ):
+        await _collect(envelope.translate_event(event))
+    terminal = (await _collect(envelope.finalize()))[-1]
+    assert [m.content[0].text for m in terminal.output] == [
+        "before",
+        "change",
+        "after",
+    ]
+    assert terminal.output[0].id == old.id
+    assert terminal.output[2].id != old.id
+    assert terminal.output[0].metadata["after_user_message_id"] == "u1"
+    assert terminal.output[2].metadata["after_user_message_id"] == "s1"

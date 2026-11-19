@@ -469,23 +469,23 @@ class TranscriptPageBuilder:
             if finished_at is not None:
                 metadata.setdefault("finished_at", finished_at)
 
-        if terminal and _enum_value(message.role) == "user":
-            state_metadata = metadata
-            nested_metadata = metadata.get("metadata")
-            if isinstance(nested_metadata, dict):
-                state_metadata = dict(nested_metadata)
-                metadata["metadata"] = state_metadata
-            state = {"status": turn_status}
-            if (
-                turn_status in {"failed", "cancelled"}
-                and row["turn_finished_at"] is not None
-            ):
-                state["finished_at"] = row["turn_finished_at"]
-            if turn_status == "cancelled":
-                state["status"] = "canceled"
-            if turn_status == "failed" and row["error_json"]:
-                state["error"] = json.loads(row["error_json"])
-            state_metadata.setdefault(TURN_STATE, state)
+        # Every fragment must retain its turn state without the first user.
+        state_metadata = metadata
+        nested_metadata = metadata.get("metadata")
+        if isinstance(nested_metadata, dict):
+            state_metadata = dict(nested_metadata)
+            metadata["metadata"] = state_metadata
+        state = {"status": turn_status}
+        if (
+            turn_status in {"failed", "cancelled"}
+            and row["turn_finished_at"] is not None
+        ):
+            state["finished_at"] = row["turn_finished_at"]
+        if turn_status == "cancelled":
+            state["status"] = "canceled"
+        if turn_status == "failed" and row["error_json"]:
+            state["error"] = json.loads(row["error_json"])
+        state_metadata.setdefault(TURN_STATE, state)
 
         updates: dict[str, Any] = {"metadata": metadata}
         if terminal:

@@ -18,6 +18,8 @@ export type CopyableMessage = {
 
 export type CopyableResponse = {
   id?: string;
+  status?: string;
+  metadata?: Record<string, unknown>;
   output?: CopyableMessage[];
 };
 
@@ -68,6 +70,8 @@ export function extractCopyableText(response: CopyableResponse): string {
 export function extractTranscriptTurnId(
   response: CopyableResponse,
 ): string | undefined {
+  const turnId = response.metadata?.turn_id;
+  if (typeof turnId === "string" && turnId) return turnId;
   const responsePrefix = "history-response:";
   if (response.id?.startsWith(responsePrefix)) {
     return response.id.slice(responsePrefix.length) || undefined;

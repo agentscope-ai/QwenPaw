@@ -136,6 +136,9 @@ async def test_get_chat_returns_the_bounded_transcript_page(
     assert history.messages[0].metadata["qwenpaw_turn_state"] == {
         "status": "completed",
     }
+    assert history.steer_scope == (
+        "test-transcript-api:('session-1', 'user-1', 'console')"
+    )
     assert history.history is not None
     assert history.history.has_more is True
     session.get_session_state_dict.assert_not_awaited()
@@ -150,6 +153,108 @@ async def test_get_chat_returns_the_bounded_transcript_page(
     assert [item.content[0].text for item in complete.messages] == [
         f"turn {number}" for number in range(1, 7)
     ]
+    assert complete.steer_scope == history.steer_scope
+    store.start_turn(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        turn_id="cancel-before-output",
+    )
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="cancel-before-output",
+        ordinal=0,
+        message=Message(
+            id="initial",
+            role="user",
+            content=[
+                TextContent(text="ordinary input"),
+            ],
+        ),
+    )
+    store.accept_steer(
+        session_id="session-1",
+        turn_id="cancel-before-output",
+        client_message_id="failed-file",
+        content=[
+            {
+                "type": "file",
+                "file_url": "/media/probe.txt",
+                "file_name": "probe.txt",
+            },
+        ],
+    )
+    store.fail_steers(
+        session_id="session-1",
+        turn_id="cancel-before-output",
+        reason="cancelled",
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="cancel-before-output",
+        status="cancelled",
+    )
+    arguments = dict(
+        chat_id="chat-1",
+        before=None,
+        after_message_id=None,
+        before_message_id=None,
+        limit=1,
+        max_bytes=4096,
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        workspace=_workspace(store),
+    )
+    page = await get_chat_messages(**arguments)
+    assert page.steer_scope == history.steer_scope
+    assert page.turn_fork_capabilities == {"cancel-before-output": False}
+    assert page.steer["needs_sync"] is False
+    assert page.steer["active_turn_id"] is None
+    page_receipts = page.steer["receipts_by_turn"]["cancel-before-output"]
+    assert len(page_receipts) == 1
+    assert page_receipts[0]["status"] == "failed"
+    assert page_receipts[0]["content"][0]["file_name"] == "probe.txt"
+    assert len(page.model_dump_json().encode()) <= 4096
+    oversized = {
+        **page_receipts[0],
+        "content": [
+            {"type": "text", "text": "x" * 8192},
+        ],
+    }
+    with patch.object(
+        store,
+        "history_steers",
+        return_value={
+            "cancel-before-output": [oversized],
+        },
+    ):
+        with pytest.raises(HTTPException) as budget:
+            await get_chat_messages(**arguments)
+        assert budget.value.status_code == 400
+        assert budget.value.detail == "History page byte limit is too small"
+    with patch.object(store, "history_steers", side_effect=OSError("bad")):
+        with pytest.raises(HTTPException) as unavailable:
+            await get_chat_messages(**arguments)
+        assert unavailable.value.status_code == 503
+    with patch.object(store, "can_fork_turn", return_value=True) as capability:
+        available_page = await get_chat_messages(**arguments)
+        assert available_page.turn_fork_capabilities == {
+            "cancel-before-output": True,
+        }
+        assert capability.call_count == 1
+    with patch.object(store, "can_fork_turn", side_effect=ValueError("bad")):
+        unavailable_page = await get_chat_messages(**arguments)
+        assert unavailable_page.messages == page.messages
+        assert unavailable_page.turn_fork_capabilities == {
+            "cancel-before-output": False,
+        }
+    assert [m.id for m in page.messages] == ["initial"]
+    assert page.messages[0].metadata["qwenpaw_turn_state"]["status"] == (
+        "canceled"
+    )
+    receipt = store.list_steers(session_id="session-1", latest=True)[0]
+    assert receipt["status"] == "failed"
+    assert receipt["content"][0]["file_name"] == "probe.txt"
     store.close()
 
 
@@ -671,6 +776,16 @@ async def test_legacy_reads_return_before_shared_migration_finishes(
         channel=child.channel,
     )
     assert inherited.messages[0].content[0].text == "fallback"
+    child_page = await get_chat_messages(
+        chat_id=child.id,
+        before=None,
+        limit=5,
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=child)),
+        workspace=workspace,
+    )
+    assert child_page.steer_scope != projected.steer_scope
+    assert child.session_id in child_page.steer_scope
 
     page = store.get_page(
         session_id="session-1",

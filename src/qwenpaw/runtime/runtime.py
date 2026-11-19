@@ -32,6 +32,7 @@ from ..utils.io_utils import run_async_to_completion
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
+from .steer import current_steer
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
@@ -77,6 +78,16 @@ class Runtime:
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
+        control = current_steer.get()
+        if control is not None and control.owns_request(request):
+            control.envelope = envelope
+            inputs = getattr(request, "input", None) or []
+            if inputs:
+                envelope.bind_turn(
+                    control.turn_id,
+                    inputs[-1].id,
+                    control.scope,
+                )
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
         response_completed = False

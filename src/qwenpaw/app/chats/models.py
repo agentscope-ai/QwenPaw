@@ -184,6 +184,10 @@ class ChatSpec(BaseModel):
         default=None,
         description="Immediate parent chat for a turn fork",
     )
+    fork_name_root_id: Optional[str] = Field(
+        default=None,
+        description="Chat that starts this fork naming series",
+    )
     fork_turn_id: Optional[str] = Field(
         default=None,
         description="Completed parent turn used as the fork boundary",
@@ -298,6 +302,9 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    steer_scope: Optional[str] = None
+    steer: dict | None = None
+    turn_fork_capabilities: dict[str, bool] = Field(default_factory=dict)
     history: Optional["ChatHistoryMetadata"] = None
     context_state: Optional[ChatContextState] = None
 
@@ -313,6 +320,10 @@ class ChatHistoryMetadata(BaseModel):
 
 class ChatMessagePage(ChatHistoryMetadata):
     """One byte-bounded page of durable chat messages."""
+
+    steer_scope: Optional[str] = None
+    steer: dict | None = None
+    turn_fork_capabilities: dict[str, bool] = Field(default_factory=dict)
 
     messages: list[Message] = Field(default_factory=list)
 

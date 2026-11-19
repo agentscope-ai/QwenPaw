@@ -728,6 +728,229 @@ async def create_chat(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class ChatSteerRequest(BaseModel):
+    turn_id: str = Field(min_length=1, max_length=256)
+    client_message_id: str = Field(min_length=1, max_length=128)
+    content: list[dict] = Field(min_length=1, max_length=32)
+
+
+def _history_steer_scope(workspace, chat: ChatSpec) -> str | None:
+    """Bind receipt reads to this chat, including copied fork history."""
+    if workspace.config.backend != "qwenpaw" or chat.channel != "console":
+        return None
+    identity = session_storage_identity(
+        chat.session_id,
+        chat.user_id,
+        chat.channel,
+    )
+    return f"{workspace.agent_id}:{identity}"
+
+
+async def _steer_chat(chat_id, mgr, workspace):
+    chat = await mgr.get_chat(chat_id)
+    if chat is None or _is_app_owned_chat(chat):
+        raise HTTPException(404, "Chat not found")
+    identity = dict(
+        session_id=chat.session_id,
+        user_id=chat.user_id,
+        channel=chat.channel,
+    )
+    key = session_storage_identity(**identity)
+    control = getattr(workspace, "steer_runs", {}).get(key)
+    return identity, control
+
+
+@router.get("/{chat_id}/steer")
+async def get_chat_steer(
+    chat_id: str,
+    turn_id: str | None = None,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    identity, control = await _steer_chat(chat_id, mgr, workspace)
+    try:
+        receipts = await run_sync_io(
+            workspace.transcript_store.list_steers,
+            **identity,
+            turn_id=turn_id or (control.turn_id if control else None),
+            latest=True,
+            include_messages=True,
+        )
+        # Recover only turns observed before a new invocation can start.
+        control = getattr(workspace, "steer_runs", {}).get(
+            session_storage_identity(**identity),
+        )
+        abandoned = {
+            r["turn_id"]
+            for r in receipts
+            if r["status"] == "accepted"
+            and (control is None or r["turn_id"] != control.turn_id)
+        }
+        for lost_turn in abandoned:
+            await run_sync_io(
+                workspace.transcript_store.fail_steers,
+                **identity,
+                turn_id=lost_turn,
+                reason="invocation_lost",
+            )
+        if abandoned:
+            receipts = await run_sync_io(
+                workspace.transcript_store.list_steers,
+                **identity,
+                turn_id=turn_id or (control.turn_id if control else None),
+                latest=True,
+                include_messages=True,
+            )
+    except (KeyError, ValueError):
+        receipts = []
+    return {
+        "scope": (
+            f"{getattr(workspace, 'agent_id', '')}:"
+            f"{session_storage_identity(**identity)}"
+        ),
+        "turn_id": control.turn_id if control else None,
+        "needs_sync": bool(control)
+        or any(receipt["status"] == "accepted" for receipt in receipts),
+        "can_steer": bool(control and not control.unavailable),
+        "reason": control.unavailable if control else "no_active_turn",
+        "receipts": receipts,
+    }
+
+
+@router.post("/{chat_id}/steer")
+async def post_chat_steer(
+    chat_id: str,
+    payload: ChatSteerRequest,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    identity, control = await _steer_chat(chat_id, mgr, workspace)
+    try:
+        receipts = await run_sync_io(
+            workspace.transcript_store.list_steers,
+            **identity,
+            turn_id=payload.turn_id,
+        )
+    except (KeyError, ValueError):
+        receipts = []
+    for receipt in receipts:
+        if receipt["client_message_id"] == payload.client_message_id:
+            if (
+                receipt["turn_id"] != payload.turn_id
+                or receipt["content"] != payload.content
+            ):
+                raise HTTPException(409, "idempotency_conflict")
+            return receipt
+    if control is None or control.turn_id != payload.turn_id:
+        raise HTTPException(409, "no_active_turn")
+    try:
+        return await control.accept(payload.client_message_id, payload.content)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+async def _history_steer(messages, chat, mgr, workspace):
+    """Return page-owned receipts and current conversation sync state."""
+    if workspace.config.backend != "qwenpaw" or chat.channel != "console":
+        return None
+    try:
+        status = await get_chat_steer(chat.id, None, mgr, workspace)
+        receipts = (
+            await run_sync_io(
+                workspace.transcript_store.history_steers,
+                session_id=chat.session_id,
+                user_id=chat.user_id,
+                channel=chat.channel,
+                messages=messages,
+            )
+            if messages
+            else {}
+        )
+        return {
+            "active_turn_id": status["turn_id"],
+            "needs_sync": status["needs_sync"]
+            or any(
+                receipt["status"] == "accepted"
+                for values in receipts.values()
+                for receipt in values
+            ),
+            "receipts_by_turn": receipts,
+        }
+    except Exception:
+        logger.warning("History steer projection unavailable", exc_info=True)
+        raise HTTPException(503, "Conversation receipts unavailable")
+
+
+async def _enriched_history_page(page, chat, mgr, workspace, **options):
+    """Include receipt bytes in the page budget, keeping the same cursor."""
+    budget = options.get("max_bytes", 2 * 1024 * 1024)
+    read_budget = budget
+    while True:
+        result = ChatMessagePage(
+            messages=page.messages,
+            steer=await _history_steer(page.messages, chat, mgr, workspace),
+            turn_fork_capabilities=await _history_fork_capabilities(
+                page.messages,
+                chat,
+                mgr,
+                workspace,
+            ),
+            steer_scope=_history_steer_scope(workspace, chat),
+            **_history_metadata(page).model_dump(),
+        )
+        overflow = len(result.model_dump_json().encode()) - budget
+        if overflow <= 0:
+            return result
+        read_budget -= overflow + 1024
+        if read_budget <= 1024:
+            raise HTTPException(400, "History page byte limit is too small")
+        try:
+            page = await _read_history_page(
+                workspace,
+                chat,
+                **{**options, "max_bytes": read_budget},
+            )
+        except TranscriptPageBudgetError as exc:
+            raise HTTPException(
+                400,
+                "History page byte limit is too small",
+            ) from exc
+        if page is None:
+            raise HTTPException(503, "Conversation history unavailable")
+
+
+async def _history_fork_capabilities(messages, chat, mgr, workspace):
+    """Resolve each visible turn once without failing history reads."""
+    turn_ids = dict.fromkeys(
+        position["turn_id"]
+        for message in messages
+        if isinstance(message.metadata, dict)
+        and isinstance(
+            position := message.metadata.get("qwenpaw_transcript_position"),
+            dict,
+        )
+        and position.get("turn_id")
+    )
+    capabilities = {}
+    for turn_id in turn_ids:
+        try:
+            result = await get_fork_capability(
+                chat.id,
+                turn_id,
+                mgr,
+                workspace,
+            )
+            capabilities[turn_id] = result["can_fork"]
+        except Exception:
+            logger.warning(
+                "History fork capability unavailable for turn %s",
+                turn_id,
+                exc_info=True,
+            )
+            capabilities[turn_id] = False
+    return capabilities
+
+
 @router.get("/{chat_id}/fork-capability")
 async def get_fork_capability(
     chat_id: str,
@@ -735,13 +958,26 @@ async def get_fork_capability(
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> dict:
-    """Report exact native fork availability for one completed turn."""
+    """Report exact fork availability for a persisted turn boundary."""
     chat = await mgr.get_chat(chat_id)
     if chat is None or _is_app_owned_chat(chat):
         raise HTTPException(404, "Chat not found")
     backend = workspace.config.backend
     if backend == "qwenpaw":
-        return {"can_fork": True, "reason": None}
+        try:
+            available = await run_sync_io(
+                workspace.transcript_store.can_fork_turn,
+                session_id=chat.session_id,
+                user_id=chat.user_id,
+                channel=chat.channel,
+                turn_id=turn_id,
+            )
+        except (KeyError, ValueError):
+            available = False
+        return {
+            "can_fork": available,
+            "reason": None if available else "Incomplete turn boundary",
+        }
     descriptor = PluginRegistry().backend_registry.describe(backend)
     if descriptor is None or descriptor.status != "available":
         return {"can_fork": False, "reason": "Backend is unavailable"}
@@ -804,7 +1040,7 @@ async def fork_chat_at_turn(
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatSpec:
-    """Create an independent conversation at one completed turn."""
+    """Create an independent conversation at a verified turn boundary."""
     parent = await mgr.get_chat(chat_id)
     if parent is None or _is_app_owned_chat(parent):
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -1425,10 +1661,16 @@ async def get_chat_messages(
             messages=snapshot.messages,
             migration_pending=True,
         )
-    metadata = _history_metadata(page)
-    return ChatMessagePage(
-        messages=page.messages,
-        **metadata.model_dump(),
+    return await _enriched_history_page(
+        page,
+        chat,
+        mgr,
+        workspace,
+        before=before,
+        after_message_id=after_message_id,
+        before_message_id=before_message_id,
+        limit=limit,
+        max_bytes=max_bytes,
     )
 
 
@@ -1606,14 +1848,43 @@ async def get_chat(
                 messages = list(page.messages) + messages
             return ChatHistory(
                 messages=messages,
+                steer=await _history_steer(
+                    messages,
+                    chat_spec,
+                    mgr,
+                    workspace,
+                ),
+                turn_fork_capabilities=await _history_fork_capabilities(
+                    messages,
+                    chat_spec,
+                    mgr,
+                    workspace,
+                ),
                 status=status,
+                steer_scope=_history_steer_scope(workspace, chat_spec),
                 history=ChatHistoryMetadata(),
                 context_state=context_state,
             )
+        enriched = await _enriched_history_page(
+            transcript_page,
+            chat_spec,
+            mgr,
+            workspace,
+            limit=5,
+            max_bytes=2 * 1024 * 1024 - 1024,
+            max_content_blocks=40,
+        )
         return ChatHistory(
-            messages=transcript_page.messages,
+            messages=enriched.messages,
+            steer=enriched.steer,
+            turn_fork_capabilities=enriched.turn_fork_capabilities,
             status=status,
-            history=_history_metadata(transcript_page),
+            steer_scope=enriched.steer_scope,
+            history=ChatHistoryMetadata(
+                has_more=enriched.has_more,
+                next_before=enriched.next_before,
+                snapshot=enriched.snapshot,
+            ),
             context_state=context_state,
         )
     if backend == "qwenpaw":

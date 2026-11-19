@@ -1,3 +1,11 @@
+import type { CopyableResponse } from "./utils";
+import { ForkBoundary } from "./ForkBoundary";
+import {
+  projectTurnTimeline,
+  type TimelineRow,
+  type SteerReceipt,
+} from "./steerTimeline";
+import { useSteerStore, EMPTY_STEERS } from "../../stores/steerStore";
 /**
  * pages/Chat/HostBubbles.tsx — host-side response renderer for CoPaw-specific
  * Markdown, media download, artifact, and plugin behavior.
@@ -40,7 +48,7 @@ import {
   type IAgentScopeRuntimeResponse,
 } from "@agentscope-ai/chat";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
-import { Avatar, Flex } from "antd";
+import { Avatar, Button, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
@@ -316,24 +324,32 @@ function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
   // Durable items are immutable. Keep the overlapping rows of a moving
   // window from re-rendering expensive tool and reasoning components.
   return metadata?.qwenpaw_history ? (
-    <HistoryResponseMessage key={item.id} item={item} />
+    <HistoryResponseMessage key={responseMessageKey(item)} item={item} />
   ) : (
     renderResponseMessageContent(item)
   );
 }
 
+function responseMessageKey(item: IAgentScopeRuntimeMessage) {
+  return isToolLikeResponseMessageType(item.type)
+    ? AgentScopeRuntimeResponseBuilder.getToolMessageKey(item) || item.id
+    : item.id;
+}
+
 function renderResponseMessageContent(item: IAgentScopeRuntimeMessage) {
   if (isToolLikeResponseMessageType(item.type)) {
-    return <ResponseTool key={item.id} data={item} />;
+    return <ResponseTool key={responseMessageKey(item)} data={item} />;
   }
   switch (item.type) {
     case AgentScopeRuntimeMessageType.MESSAGE:
-      return <HostMessage key={item.id} data={item} />;
+      return <HostMessage key={responseMessageKey(item)} data={item} />;
     case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
-      return <ResponseTool key={item.id} data={item} isApproval />;
+      return (
+        <ResponseTool key={responseMessageKey(item)} data={item} isApproval />
+      );
     case AgentScopeRuntimeMessageType.REASONING:
       return (
-        <div key={item.id} className={styles.reasoningStep}>
+        <div key={responseMessageKey(item)} className={styles.reasoningStep}>
           <ResponseReasoning
             data={
               item.content.length > 1
@@ -359,7 +375,7 @@ function renderResponseMessageContent(item: IAgentScopeRuntimeMessage) {
         </div>
       );
     case AgentScopeRuntimeMessageType.ERROR:
-      return <ResponseError key={item.id} data={item} />;
+      return <ResponseError key={responseMessageKey(item)} data={item} />;
     case AgentScopeRuntimeMessageType.HEARTBEAT:
       return null;
     default:
@@ -368,14 +384,28 @@ function renderResponseMessageContent(item: IAgentScopeRuntimeMessage) {
   }
 }
 
+function EmptyResponseFork({ data }: { data: IAgentScopeRuntimeResponse }) {
+  const actions = useChatAnywhereOptions((options) => options.actions?.list);
+  const action = actions?.find(
+    (item) => (item as { key?: string }).key === "fork",
+  );
+  return action?.render ? (
+    <div className={styles.emptyResponseActions}>
+      {React.createElement(action.render, { data })}
+    </div>
+  ) : null;
+}
+
 function DefaultHostResponseCard({
   data,
   messageId,
   isLast,
   contentPrepend,
   contentAppend,
+  hideActions = false,
 }: {
   data: IAgentScopeRuntimeResponse;
+  hideActions?: boolean;
   messageId: string;
   isLast?: boolean;
   contentPrepend?: React.ReactNode;
@@ -427,6 +457,13 @@ function DefaultHostResponseCard({
   ) {
     return <Bubble.Spin />;
   }
+  if (
+    hideActions &&
+    !messages.length &&
+    !data.error &&
+    data.status !== "canceled"
+  )
+    return null;
 
   return (
     <>
@@ -442,8 +479,12 @@ function DefaultHostResponseCard({
         id={`${messageId}:blocks`}
         itemKey={(block, index) =>
           block.kind === "message"
-            ? block.message.id
-            : `group:${block.messages[0]?.id ?? index}`
+            ? responseMessageKey(block.message)
+            : `group:${
+                block.messages[0]
+                  ? responseMessageKey(block.messages[0])
+                  : index
+              }`
         }
         render={(block, index) => {
           if (block.kind === "message") {
@@ -455,7 +496,9 @@ function DefaultHostResponseCard({
             index === statusStepBlockIndex,
           );
           const presentation = getCollapsedStepPresentation(groupStatus);
-          const firstId = block.messages[0]?.id ?? index;
+          const firstId = block.messages[0]
+            ? responseMessageKey(block.messages[0])
+            : index;
           const stepCount = countCollapsedSteps(block.messages);
           if (stepCount === 0) {
             return (
@@ -463,7 +506,7 @@ function DefaultHostResponseCard({
                 <ResponseWindow
                   items={block.messages}
                   id={`${messageId}:group:${firstId}`}
-                  itemKey={(item) => item.id}
+                  itemKey={responseMessageKey}
                   render={renderResponseMessage}
                 />
               </React.Fragment>
@@ -487,7 +530,7 @@ function DefaultHostResponseCard({
                 <ResponseWindow
                   items={block.messages}
                   id={`${messageId}:group:${firstId}`}
-                  itemKey={(item) => item.id}
+                  itemKey={responseMessageKey}
                   render={renderResponseMessage}
                 />
               )}
@@ -496,7 +539,7 @@ function DefaultHostResponseCard({
         }}
       />
       {data.error ? <ResponseError data={data.error} /> : null}
-      {!messages.length && data.status === "canceled" ? (
+      {data.status === "canceled" && !messages.length && !data.error ? (
         <Bubble.Interrupted
           title={t(
             canceledWithoutReply
@@ -509,10 +552,214 @@ function DefaultHostResponseCard({
       {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
         <ResponseArtifactList messages={messages} />
       ) : null}
-      {!canceledWithoutReply ? (
-        <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      {!hideActions ? (
+        canceledWithoutReply ? (
+          <EmptyResponseFork data={data} />
+        ) : (
+          <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+        )
       ) : null}
     </>
+  );
+}
+
+function SteerResponseCard(
+  props: React.ComponentProps<typeof DefaultHostResponseCard>,
+) {
+  const { t } = useTranslation();
+  const showThinking = useSyncExternalStore(
+    subscribeChatDisplayPreference,
+    getShowThinkingPreference,
+    () => true,
+  );
+  const metadata = (
+    props.data as unknown as {
+      metadata?: {
+        turn_id?: string;
+        steer_scope?: string;
+        initial_user_message_id?: string;
+        qwenpaw_history?: boolean;
+        fork_capability_status?: string;
+        steer_receipts?: SteerReceipt[];
+        steer_receipts_loaded?: boolean;
+      };
+    }
+  ).metadata;
+  const turnId = metadata?.turn_id || props.messageId;
+  const retry = useSteerStore((s) => s.retry[metadata?.steer_scope || ""]);
+  const allReceipts = useSteerStore(
+    (s) => s.receipts[metadata?.steer_scope || ""] || EMPTY_STEERS,
+  );
+  const history =
+    Boolean(metadata?.qwenpaw_history) ||
+    props.data.output.some(
+      (m) =>
+        (m as unknown as { metadata?: Record<string, unknown> }).metadata
+          ?.qwenpaw_history,
+    );
+  const pageOwned =
+    history && metadata?.fork_capability_status !== "in_progress";
+  const receipts = useMemo(() => {
+    const live = allReceipts.filter((r) => r.turn_id === turnId);
+    if (!pageOwned) return live;
+    // Only rows owned by this history fragment may be recovered here.
+    if (!metadata?.steer_receipts_loaded) return [];
+    return (metadata.steer_receipts || []).map((receipt) => {
+      const newer = live.find(
+        (r) => r.client_message_id === receipt.client_message_id,
+      );
+      return newer && newer.revision > receipt.revision ? newer : receipt;
+    });
+  }, [
+    allReceipts,
+    turnId,
+    pageOwned,
+    metadata?.steer_receipts,
+    metadata?.steer_receipts_loaded,
+  ]);
+  const hasSteer =
+    receipts.length > 0 || props.data.output.some((m) => m.role === "user");
+  const timelineEnabled =
+    hasSteer || (!history && Boolean(metadata?.steer_scope));
+  const rows = useMemo((): TimelineRow<IAgentScopeRuntimeMessage>[] => {
+    if (!timelineEnabled) return [];
+    // Stream message-start envelopes can precede their first text delta.
+    // They own an ID, but must not leave a visible segment across a steer.
+    const output = props.data.output.filter(
+      (message) =>
+        message.type !== AgentScopeRuntimeMessageType.HEARTBEAT &&
+        ((message.type !== AgentScopeRuntimeMessageType.MESSAGE &&
+          message.type !== AgentScopeRuntimeMessageType.REASONING) ||
+          message.role === "user" ||
+          message.content.some(
+            (part) =>
+              part.type !== AgentScopeRuntimeContentType.TEXT ||
+              Boolean(part.text?.trim()),
+          )),
+    );
+    const projected = projectTurnTimeline(output, receipts, turnId);
+    if (!projected.some((row) => row.kind === "assistant") && !output.length) {
+      projected.unshift({
+        kind: "assistant",
+        key: `${turnId}:${metadata?.initial_user_message_id || "initial"}`,
+        messages: [],
+      });
+    }
+    return projected;
+  }, [
+    props.data.output,
+    receipts,
+    turnId,
+    timelineEnabled,
+    metadata?.initial_user_message_id,
+  ]);
+  if (!timelineEnabled) return <DefaultHostResponseCard {...props} />;
+  const lastAssistant = rows.reduce(
+    (last, row, index) => (row.kind === "assistant" ? index : last),
+    -1,
+  );
+  const actionSegment = rows.reduce(
+    (last, row, index) =>
+      row.kind === "assistant" &&
+      filterThinkingMessages(row.messages, showThinking).length > 0
+        ? index
+        : last,
+    -1,
+  );
+  const emptyForkSegment = rows.reduce(
+    (last, row, index) =>
+      row.kind === "assistant" || row.status === "applied" ? index : last,
+    -1,
+  );
+  return (
+    <div style={{ width: "100%", minWidth: 0 }}>
+      {props.contentPrepend}
+      {rows.map((row, index) => (
+        <React.Fragment key={row.key}>
+          {row.kind === "user" ? (
+            <div
+              key={row.key}
+              data-steer-message-id={row.messageId}
+              data-role="user"
+              id={row.messageId}
+              aria-label={t("chat.steer.user")}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                width: "100%",
+                margin: "24px 0",
+              }}
+            >
+              <VendorRequestCard
+                data={
+                  {
+                    input: [
+                      {
+                        role: "user",
+                        type: AgentScopeRuntimeMessageType.MESSAGE,
+                        content: row.content || [],
+                      },
+                    ],
+                  } as React.ComponentProps<typeof VendorRequestCard>["data"]
+                }
+                contentAppend={
+                  row.status !== "applied" ? (
+                    <small role="status">
+                      {t(`chat.steer.${row.status}`)}
+                      {row.reason
+                        ? `：${t(`chat.steer.reason.${row.reason}`, {
+                            defaultValue: row.reason,
+                          })}`
+                        : ""}
+                    </small>
+                  ) : null
+                }
+              />
+              {row.status === "sync_failed" && retry ? (
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => void retry(turnId).catch(() => {})}
+                >
+                  {t("chat.steer.retry")}
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <React.Fragment key={row.key}>
+              <DefaultHostResponseCard
+                messageId={`${props.messageId}:${row.key}`}
+                hideActions
+                data={
+                  {
+                    ...props.data,
+                    output: row.messages,
+                    status:
+                      index === lastAssistant ? props.data.status : "completed",
+                    error: index === lastAssistant ? props.data.error : null,
+                  } as IAgentScopeRuntimeResponse
+                }
+              />
+              {index === actionSegment ? (
+                <>
+                  {props.contentAppend}
+                  <ResponseActions
+                    data={props.data}
+                    messageId={props.messageId}
+                    isLast={props.isLast}
+                  />
+                </>
+              ) : null}
+            </React.Fragment>
+          )}
+          {actionSegment < 0 && index === emptyForkSegment ? (
+            <EmptyResponseFork data={props.data} />
+          ) : null}
+        </React.Fragment>
+      ))}
+      {actionSegment < 0 ? props.contentAppend : null}
+    </div>
   );
 }
 
@@ -635,7 +882,7 @@ function HostResponseCardContent(props: {
     );
 
   const fallback = () => (
-    <DefaultHostResponseCard
+    <SteerResponseCard
       data={props.data as unknown as IAgentScopeRuntimeResponse}
       messageId={props.id}
       isLast={props.isLast}
@@ -683,6 +930,7 @@ export function HostResponseCard(props: {
         data={props.data as unknown as IAgentScopeRuntimeResponse}
       >
         <MemoizedHostResponseCard {...props} />
+        <ForkBoundary data={props.data as unknown as CopyableResponse} />
       </ToolCallTurnBoundary>
     </MessageWindowStateContext.Provider>
   );

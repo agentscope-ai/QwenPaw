@@ -1,3 +1,7 @@
+import { useSteerStore } from "../../../stores/steerStore";
+import type { HistorySteer } from "../../../api/types/chat";
+import type { SteerReceipt } from "../steerTimeline";
+import { MESSAGE_QUEUE_ENABLED } from "../chatFeatures";
 import type {
   IAgentScopeRuntimeWebUICreateSessionResult,
   IAgentScopeRuntimeWebUISession,
@@ -52,7 +56,16 @@ const HISTORY_PAGE_TURN_LIMIT = 5;
 /** Publish one bounded server page; keep its cursor for the next interaction. */
 function readHistoryPage(page: ChatMessagePage, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  return { page, messages: convertMessages(page.messages || [], true) };
+  return {
+    page,
+    messages: convertMessages(
+      page.messages || [],
+      true,
+      page.steer_scope,
+      page.turn_fork_capabilities,
+      page.steer,
+    ),
+  };
 }
 
 function mergeCachedHistoryPages(
@@ -495,6 +508,10 @@ const buildResponseCard = (
   terminal?: { status?: string; error?: unknown; finished_at?: string },
   turnId?: string,
   userTimestamp = 0,
+  history = false,
+  steerScope?: string | null,
+  canFork = false,
+  steerReceipts?: SteerReceipt[],
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -533,8 +550,23 @@ const buildResponseCard = (
             ? `history-response:${turnId}`
             : `response_${generateId()}`,
           output: normalizedMessages,
+          metadata: {
+            turn_id: turnId,
+            steer_scope: steerScope,
+            qwenpaw_history: history,
+            can_fork: canFork,
+            steer_receipts: steerReceipts,
+            steer_receipts_loaded: steerReceipts !== undefined,
+            fork_capability_status:
+              terminal?.status === "running"
+                ? "in_progress"
+                : terminal?.status || "completed",
+          },
           object: "response",
-          status: terminal?.status || "completed",
+          status:
+            terminal?.status === "running"
+              ? "in_progress"
+              : terminal?.status || "completed",
           created_at: firstTs || userTimestamp || fallbackNow,
           sequence_number: maxSeq + 1,
           error: terminal?.error ?? null,
@@ -549,9 +581,26 @@ const buildResponseCard = (
         },
       },
     ],
-    msgStatus: terminal?.status === "canceled" ? "interrupted" : "finished",
+    msgStatus:
+      terminal?.status === "running"
+        ? "generating"
+        : terminal?.status === "canceled"
+        ? "interrupted"
+        : "finished",
   };
 };
+
+function getTurnState(message: Message) {
+  const meta = message.metadata as Record<string, unknown> | undefined;
+  const nested = meta?.metadata;
+  const stateMetadata =
+    nested && typeof nested === "object"
+      ? (nested as Record<string, unknown>)
+      : meta;
+  return stateMetadata?.qwenpaw_turn_state as
+    | { status?: string; error?: unknown; finished_at?: string }
+    | undefined;
+}
 
 /**
  * Convert flat backend messages into the card-based format expected by
@@ -564,6 +613,9 @@ const buildResponseCard = (
 const convertMessages = (
   messages: Message[],
   history = false,
+  steerScope?: string | null,
+  forkCapabilities: Record<string, boolean> = {},
+  steer?: HistorySteer | null,
 ): IAgentScopeRuntimeWebUIMessage[] => {
   const sourceMessages = history
     ? messages.map((message) => {
@@ -592,36 +644,48 @@ const convertMessages = (
       | undefined;
     let userTimestamp = 0;
     let turnId: string | undefined;
-    if (sourceMessages[i].role === ROLE_USER) {
+    if (
+      sourceMessages[i].role === ROLE_USER &&
+      (sourceMessages[i].metadata as Record<string, unknown> | undefined)
+        ?.input_kind !== "steer"
+    ) {
       const user = sourceMessages[i++];
       userTimestamp = parseTimestamp(user);
-      const meta = user.metadata as Record<string, unknown> | undefined;
-      const nested = meta?.metadata;
-      const stateMetadata =
-        nested && typeof nested === "object"
-          ? (nested as Record<string, unknown>)
-          : meta;
-      terminal = stateMetadata?.qwenpaw_turn_state as
-        | { status?: string; error?: unknown; finished_at?: string }
-        | undefined;
+      terminal = getTurnState(user);
       turnId = getTranscriptPosition(user)?.turn_id;
       result.push(buildUserCard(user));
     }
     const startIdx = i;
     turnId ??= getTranscriptPosition(sourceMessages[i])?.turn_id;
-    while (i < len && sourceMessages[i].role !== ROLE_USER) {
+    while (
+      i < len &&
+      (sourceMessages[i].role !== ROLE_USER ||
+        (sourceMessages[i].metadata as Record<string, unknown> | undefined)
+          ?.input_kind === "steer")
+    ) {
       const candidateTurnId = getTranscriptPosition(sourceMessages[i])?.turn_id;
       if (turnId && candidateTurnId && candidateTurnId !== turnId) break;
+      terminal ??= getTurnState(sourceMessages[i]);
       i++;
     }
     const outputMsgs = sourceMessages.slice(startIdx, i).map(toOutputMessage);
     if (
       outputMsgs.length ||
       terminal?.status === "failed" ||
+      terminal?.status === "running" ||
       terminal?.status === "canceled"
     ) {
       result.push(
-        buildResponseCard(outputMsgs, terminal, turnId, userTimestamp),
+        buildResponseCard(
+          outputMsgs,
+          terminal,
+          turnId,
+          userTimestamp,
+          history,
+          steerScope,
+          turnId ? forkCapabilities[turnId] === true : false,
+          turnId ? steer?.receipts_by_turn[turnId] : undefined,
+        ),
       );
     }
   }
@@ -738,6 +802,17 @@ const mergeResponseMessages = (
       leftPosition.ordinal - rightPosition.ordinal
     );
   });
+  const olderMetadata = (olderData.metadata ?? {}) as Record<string, unknown>;
+  const newerMetadata = (newerData.metadata ?? {}) as Record<string, unknown>;
+  const receipts = new Map<string, SteerReceipt>();
+  for (const receipt of [
+    ...((olderMetadata.steer_receipts ?? []) as SteerReceipt[]),
+    ...((newerMetadata.steer_receipts ?? []) as SteerReceipt[]),
+  ]) {
+    const previous = receipts.get(receipt.client_message_id);
+    if (!previous || receipt.revision >= previous.revision)
+      receipts.set(receipt.client_message_id, receipt);
+  }
   const olderStatus = String(olderData.status ?? "");
   const preserveOlderTerminal = ["failed", "canceled"].includes(olderStatus);
   const status = preserveOlderTerminal ? olderData.status : newerData.status;
@@ -756,6 +831,15 @@ const mergeResponseMessages = (
             ...newerData,
             status,
             error,
+            metadata: {
+              ...olderMetadata,
+              ...newerMetadata,
+              steer_receipts: [...receipts.values()],
+              steer_receipts_loaded: Boolean(
+                olderMetadata.steer_receipts_loaded &&
+                  newerMetadata.steer_receipts_loaded,
+              ),
+            },
             output: sortedOutput,
             created_at: Math.min(
               olderData.created_at ?? Number.MAX_SAFE_INTEGER,
@@ -774,7 +858,12 @@ const mergeResponseMessages = (
   return {
     ...newer,
     cards,
-    msgStatus: status === "canceled" ? "interrupted" : "finished",
+    msgStatus:
+      status === "in_progress"
+        ? "generating"
+        : status === "canceled"
+        ? "interrupted"
+        : "finished",
     history: olderHistory || newerHistory,
   } as IAgentScopeRuntimeWebUIMessage & { history?: boolean };
 };
@@ -1239,6 +1328,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         if (!this.isActiveOwner(owner)) {
           throw new DOMException("Agent changed", "AbortError");
         }
+        if (result.steer && result.steer_scope)
+          useSteerStore
+            .getState()
+            .hydrateHistory(
+              `${owner.agentId}:${backendId}`,
+              result.steer_scope,
+              result.steer,
+            );
         const nextPage: ChatHistoryMetadata = {
           has_more: result.has_more,
           next_before: result.next_before,
@@ -2301,14 +2398,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         this.prepareForkTurns(backendId, chatHistory.messages || [], owner);
       }
       for (const id of new Set([displayId, backendId])) {
-        useMessageQueueStore
-          .getState()
-          .reconcileHistory(id, owner.agentId, chatHistory.messages || []);
+        if (MESSAGE_QUEUE_ENABLED)
+          useMessageQueueStore
+            .getState()
+            .reconcileHistory(id, owner.agentId, chatHistory.messages || []);
       }
     }
     const generating = isGenerating(chatHistory);
-    const messages = convertMessages(chatHistory.messages || [], true);
+    const messages = convertMessages(
+      chatHistory.messages || [],
+      true,
+      chatHistory.steer_scope,
+      chatHistory.turn_fork_capabilities,
+      chatHistory.steer,
+    );
     if (this.isActiveOwner(owner)) {
+      if (chatHistory.steer && chatHistory.steer_scope)
+        useSteerStore
+          .getState()
+          .hydrateHistory(
+            `${owner.agentId}:${backendId}`,
+            chatHistory.steer_scope,
+            chatHistory.steer,
+          );
       this.resetHistoryWindow(backendId, messages);
     }
 
@@ -2325,6 +2437,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       generating,
       historyPage,
       contextState: chatHistory.context_state,
+      parentChatId: listEntry?.parentChatId,
+      forkTurnId: listEntry?.forkTurnId,
+      forkTurnSeq: listEntry?.forkTurnSeq,
     };
 
     // Cache non-generating sessions only within the epoch that fetched them,

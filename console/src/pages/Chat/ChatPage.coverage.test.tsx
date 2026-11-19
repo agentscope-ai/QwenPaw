@@ -1,3 +1,6 @@
+// Exercise the retained queue implementation explicitly; production freezes it.
+const queueFeature = vi.hoisted(() => ({ MESSAGE_QUEUE_ENABLED: true }));
+vi.mock("./chatFeatures", () => queueFeature);
 /**
  * ChatPage coverage tests
  *
@@ -12,6 +15,7 @@ import { Modal } from "antd";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
+import { TurnForkAction } from "./TurnForkAction";
 import { LongTextPasteInput } from "./LongTextPaste";
 import { ChatRunLifecycle } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Execution/runLifecycle";
 import sessionApi from "./sessionApi";
@@ -192,6 +196,7 @@ vi.mock("@/api/modules/chat", () => ({
     getChatStatus: mockGetChatStatus,
     stopChat: vi.fn(() => Promise.resolve()),
     forkChat: vi.fn(),
+    forkCapability: vi.fn(async () => ({ can_fork: true })),
   },
 }));
 
@@ -592,6 +597,7 @@ vi.mock("./utils", async () => {
 // ---------------------------------------------------------------------------
 describe("ChatPage coverage", () => {
   beforeEach(() => {
+    queueFeature.MESSAGE_QUEUE_ENABLED = true;
     stopBackgroundQueue();
     chatExtensions.__resetForTests();
     capturedOptions = null;
@@ -1297,6 +1303,161 @@ describe("ChatPage coverage", () => {
     });
   });
 
+  it("freezes stored queues while idle submissions and attachments still work", async () => {
+    queueFeature.MESSAGE_QUEUE_ENABLED = false;
+    useMessageQueueStore
+      .getState()
+      .enqueue("test-session", { text: "old queued" });
+    const before = JSON.stringify(
+      useMessageQueueStore.getState().getQueue("test-session"),
+    );
+    const enqueue = vi.spyOn(useMessageQueueStore.getState(), "enqueue");
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "normal",
+      session_id: "test-session",
+    });
+    expect(result.proceed).toBe(true);
+    expect(
+      JSON.stringify(useMessageQueueStore.getState().getQueue("test-session")),
+    ).toBe(before);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(mockRuntimeSubmit).not.toHaveBeenCalled();
+    mockGetChatStatus.mockRejectedValueOnce(new Error("offline"));
+    expect(
+      await capturedOptions.sender.beforeSubmit({
+        query: "keep draft",
+        session_id: "test-session",
+      }),
+    ).toBe(false);
+  });
+
+  it("only shows a cancelled turn fork after capability is confirmed", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    let resolve!: (value: { can_fork: boolean; reason: string | null }) => void;
+    vi.mocked(chatApi.forkCapability).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const props = {
+      data: {
+        status: "canceled",
+        metadata: { turn_id: "cancel-turn" },
+        output: [
+          {
+            role: "assistant",
+            type: "message",
+            content: [{ type: "text", text: "partial reply" }],
+          },
+        ],
+      },
+      chatId: "chat",
+      agentId: "default",
+      onFork: vi.fn(),
+      title: "fork-test",
+    };
+    const view = renderWithProviders(<TurnForkAction {...props} />);
+    expect(screen.queryByRole("button", { name: "fork-test" })).toBeNull();
+    await act(async () => resolve({ can_fork: true, reason: null }));
+    expect(
+      screen.getByRole("button", { name: "fork-test" }),
+    ).toBeInTheDocument();
+    vi.mocked(chatApi.forkCapability).mockResolvedValueOnce({
+      can_fork: false,
+      reason: "missing snapshot",
+    });
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          status: "completed",
+          metadata: { turn_id: "no-snapshot" },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "fork-test" })).toBeNull(),
+    );
+  });
+
+  it("uses history capability without per-card requests and refreshes a restored run", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(chatApi.forkCapability).mockClear();
+    const props = {
+      data: {
+        status: "canceled",
+        output: [
+          {
+            role: "assistant",
+            type: "message",
+            content: [{ type: "text", text: "partial reply" }],
+          },
+        ],
+        metadata: {
+          turn_id: "history-turn",
+          qwenpaw_history: true,
+          fork_capability_status: "canceled",
+          can_fork: true,
+        },
+      },
+      chatId: "chat",
+      agentId: "default",
+      onFork: vi.fn(),
+      title: "history-fork",
+    };
+    const view = renderWithProviders(<TurnForkAction {...props} />);
+    expect(
+      screen.getByRole("button", { name: "history-fork" }),
+    ).toBeInTheDocument();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    view.rerender(
+      <TurnForkAction {...props} data={{ ...props.data, output: [] }} />,
+    );
+    expect(screen.queryByRole("button", { name: "history-fork" })).toBeNull();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          metadata: { ...props.data.metadata, can_fork: false },
+        }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "history-fork" })).toBeNull();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    vi.mocked(chatApi.forkCapability).mockResolvedValueOnce({
+      can_fork: true,
+      reason: null,
+    });
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          metadata: {
+            ...props.data.metadata,
+            fork_capability_status: "in_progress",
+            can_fork: false,
+          },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "history-fork" }),
+      ).toBeInTheDocument(),
+    );
+    expect(chatApi.forkCapability).toHaveBeenCalledTimes(1);
+  });
+
   it("closes and navigates after fork without awaiting sidebar refresh", async () => {
     const { chatApi } = await import("@/api/modules/chat");
     const childId = "44444444-4444-4444-8444-444444444444";
@@ -1328,9 +1489,14 @@ describe("ChatPage coverage", () => {
       await screen.findByTestId("chat-ui");
       await act(async () => {});
       await act(async () => {
-        capturedOptions.actions.list[1].onClick({
-          data: { id: "history-response:legacy:5" },
-        });
+        capturedOptions.actions.list[1]
+          .render({
+            data: { id: "history-response:legacy:5", status: "completed" },
+          })
+          .props.onFork({
+            id: "history-response:legacy:5",
+            status: "completed",
+          });
       });
       expect(confirm).toHaveBeenCalledTimes(1);
       await act(async () => {

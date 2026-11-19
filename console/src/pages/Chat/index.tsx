@@ -1,3 +1,6 @@
+import { TurnForkAction } from "./TurnForkAction";
+import { MESSAGE_QUEUE_ENABLED, STEER_SUBMIT_QUEUE } from "./chatFeatures";
+import { useSteerSender } from "./useSteerSender";
 import { useMessageHistoryNavigation } from "./useMessageHistoryNavigation";
 import { BOTTOM_THRESHOLD_PX, distanceFromBottom } from "./bottomFollow";
 import { ChatBottomFollow } from "./ChatBottomFollow";
@@ -44,7 +47,6 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import {
   CircleAlert as ExclamationCircleOutlined,
   Copy,
-  GitFork,
   Paperclip as SparkAttachmentLine,
   RotateCw,
   Settings as SettingOutlined,
@@ -418,6 +420,7 @@ async function startBackgroundQueue(
   backendSessionId: string,
   chatIdForStatus: string,
 ) {
+  if (!MESSAGE_QUEUE_ENABLED) return;
   // Stop only THIS session's previous background sender (if any)
   stopBackgroundQueue(queueKey);
   if (useMessageQueueStore.getState().getQueue(queueKey).length === 0) return;
@@ -1484,6 +1487,7 @@ export default function ChatPage() {
    */
   const executeQueuedItem = useCallback(
     async (item: QueueItem, allowPaused = false): Promise<boolean> => {
+      if (!MESSAGE_QUEUE_ENABLED) return false;
       const signal = queueExecutionScopeRef.current.signal;
       const canSend = () =>
         !signal.aborted &&
@@ -1730,8 +1734,8 @@ export default function ChatPage() {
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
   // the "other tab is owner" banner on every session switch.
-  const isQueueOnlyTab = ownershipResolved && !isOwner;
-  const hasQueueItems = messageQueue.length > 0;
+  const isQueueOnlyTab = MESSAGE_QUEUE_ENABLED && ownershipResolved && !isOwner;
+  const hasQueueItems = MESSAGE_QUEUE_ENABLED && messageQueue.length > 0;
 
   // Backend session id for the background-task panel (list API + store filter).
   const [bgBackendSessionId, setBgBackendSessionId] = useState("");
@@ -1785,6 +1789,7 @@ export default function ChatPage() {
   }, [backendChatId, queueSessionId, queueKey]);
 
   const scheduleNextSend = useCallback(() => {
+    if (!MESSAGE_QUEUE_ENABLED) return;
     if (
       queueVisitRef.current !== queueVisit ||
       queueExecutionScopeRef.current.signal.aborted
@@ -1845,6 +1850,7 @@ export default function ChatPage() {
   // Reload queue when switching sessions or on first mount
   const prevQueueSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!MESSAGE_QUEUE_ENABLED) return;
     const isFirstMount = prevQueueSessionIdRef.current === null;
     const isSameSession = prevQueueSessionIdRef.current === queueKey;
 
@@ -1878,6 +1884,14 @@ export default function ChatPage() {
   const [chatLoading, setChatLoading] = useState<boolean | string>(false);
   const chatLoadingRef = useRef<boolean | string>(false);
   chatLoadingRef.current = chatLoading;
+  const { message } = useAppMessage();
+  const { submit: submitSteer, hasPending: hasPendingSteer } = useSteerSender(
+    backendChatId || undefined,
+    selectedAgent,
+    usesQwenPawBackend && !MESSAGE_QUEUE_ENABLED,
+    Boolean(chatLoading),
+  );
+
   const prevChatLoadingRef = useRef<boolean | string>(false);
   const pendingHandoffRefreshRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1947,7 +1961,6 @@ export default function ChatPage() {
     scheduleReadyQueue();
     return sdkSessionAdapter.subscribe(scheduleReadyQueue);
   }, [sdkSessionAdapter, scheduleNextSend]);
-  const { message } = useAppMessage();
   const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
@@ -2312,6 +2325,7 @@ export default function ChatPage() {
   // takes over); start background senders for all OTHER sessions with pending
   // items. On unmount (or session switch), start bg sender for THIS session.
   useEffect(() => {
+    if (!MESSAGE_QUEUE_ENABLED) return;
     const currentQueueSessionId = queueKey;
     stopBackgroundQueue(currentQueueSessionId);
     // Kick off background senders for other sessions that have pending items
@@ -2391,7 +2405,54 @@ export default function ChatPage() {
   // Plugin actions use the same durable queue without consuming composer drafts.
   useEffect(() => {
     if (!isChatActivePage) return;
-    const binding = bindChatSubmit((input) => {
+    const binding = bindChatSubmit(async (input) => {
+      if (!MESSAGE_QUEUE_ENABLED) {
+        const identity = sessionApi.getSessionIdentity(chatIdRef.current || "");
+        const requested = sessionApi.getSessionIdentity(input.sessionId);
+        if (
+          !isChatActiveRef.current ||
+          isSessionTransitionRef.current ||
+          !sdkSessionAdapter.isReady(chatIdRef.current) ||
+          input.agentId !== selectedAgent ||
+          (identity.chatId || identity.sdkSessionId) !==
+            (requested.chatId || requested.sdkSessionId)
+        ) {
+          throw new Error(t("chat.pluginSubmission.staleConversation"));
+        }
+        if (chatLoadingRef.current) throw new Error(t("chat.steer.pluginBusy"));
+        const originalChat = chatIdRef.current;
+        if (usesQwenPawBackend && identity.chatId) {
+          const status = await chatApi.getChatStatus(identity.chatId, {
+            agentId: selectedAgent,
+          });
+          if (status.status === "running")
+            throw new Error(t("chat.steer.pluginBusy"));
+        }
+        if (
+          originalChat !== chatIdRef.current ||
+          selectedAgent !== selectedAgentRef.current
+        ) {
+          throw new Error(t("chat.pluginSubmission.staleConversation"));
+        }
+        const execution = chatRef.current?.execution;
+        if (!execution) throw new Error(t("chat.pluginSubmission.notReady"));
+        await execution.execute(
+          {
+            query: input.query,
+            session_id: identity.sessionId,
+            user_id: identity.userId,
+            channel: identity.channel,
+            agent_id: selectedAgent,
+            context: buildChatSubmissionContext(
+              captureRequestContext(),
+              identity,
+              selectedAgent,
+            ),
+          },
+          { source: "direct", sessionId: chatIdRef.current },
+        );
+        return;
+      }
       enqueuePluginSubmission(input, {
         active: isChatActiveRef.current && !isSessionTransitionRef.current,
         ready: sdkSessionAdapter.isReady(chatIdRef.current),
@@ -2425,6 +2486,7 @@ export default function ChatPage() {
   //    enqueue, so we don't slip into a direct SDK send during the brief
   //    idle window between two queued items.
   useEffect(() => {
+    if (!MESSAGE_QUEUE_ENABLED) return;
     const handleEnterEnqueue = (e: KeyboardEvent) => {
       if (!isChatActive() || e.key !== "Enter" || e.shiftKey) return;
       if (!sdkSessionAdapter.isReady(chatIdRef.current) || isSessionTransition)
@@ -2834,9 +2896,10 @@ export default function ChatPage() {
         .getState()
         .migrateSession(fromScopeKey, toScopeKey);
       try {
-        useMessageQueueStore
-          .getState()
-          .migrateQueue(getQueueKey(agentId, fromId), toId, agentId);
+        if (MESSAGE_QUEUE_ENABLED)
+          useMessageQueueStore
+            .getState()
+            .migrateQueue(getQueueKey(agentId, fromId), toId, agentId);
       } catch {
         // ignore migration errors
       }
@@ -3013,9 +3076,10 @@ export default function ChatPage() {
         .getState()
         .migrateSession(fromScopeKey, toScopeKey);
       try {
-        useMessageQueueStore
-          .getState()
-          .migrateQueue(getQueueKey(agentId), sessionId, agentId);
+        if (MESSAGE_QUEUE_ENABLED)
+          useMessageQueueStore
+            .getState()
+            .migrateQueue(getQueueKey(agentId), sessionId, agentId);
       } catch {
         // ignore
       }
@@ -3179,7 +3243,7 @@ export default function ChatPage() {
         message.error(t("chat.forkUnavailable"));
         return;
       }
-      if (!usesQwenPawBackend) {
+      {
         try {
           const capability = await chatApi.forkCapability(
             backendChatId,
@@ -4168,10 +4232,11 @@ export default function ChatPage() {
       const requestContext = captureRequestContext(data.context);
       let backendRunning = false;
       const queueBusy = () =>
-        !isOwnerRef.current ||
-        Boolean(chatLoadingRef.current) ||
-        useMessageQueueStore.getState().getQueue(queueKey).length > 0 ||
-        autoSendTimerRef.current !== null;
+        MESSAGE_QUEUE_ENABLED &&
+        (!isOwnerRef.current ||
+          Boolean(chatLoadingRef.current) ||
+          useMessageQueueStore.getState().getQueue(queueKey).length > 0 ||
+          autoSendTimerRef.current !== null);
       if (!queueBusy() && usesQwenPawBackend && backendChatId) {
         try {
           // Completed SSE can precede TaskTracker cleanup. Retain upstream's
@@ -4181,14 +4246,56 @@ export default function ChatPage() {
           });
           backendRunning = chat.status === "running";
         } catch {
-          // Match direct-send availability on status lookup failure; queued
-          // execution still requires authoritative idle before dispatch.
+          if (!MESSAGE_QUEUE_ENABLED) {
+            message.warning(t("chat.steer.statusUnknown"));
+            return false;
+          }
         }
       }
       const sameVisit = queueVisitRef.current === admissionVisit;
+      // Keep the render-time busy state: an in-flight submission must not
+      // fall through to SDK enqueue if the run ends during the status check.
+      if (
+        !MESSAGE_QUEUE_ENABLED &&
+        (backendRunning ||
+          chatLoading ||
+          chatLoadingRef.current ||
+          hasPendingSteer())
+      ) {
+        try {
+          const content = [
+            ...(val ? [{ type: "text", text: val }] : []),
+            ...buildAttachmentContentItems(submittedAttachments),
+          ];
+          const sent = await submitSteer(content);
+          if (sent && queueVisitRef.current === admissionVisit) {
+            if (localStorage.getItem(draftStorageKey) === submittedDraft) {
+              localStorage.removeItem(draftStorageKey);
+            }
+            pendingFileListRef.current = pendingFileListRef.current.filter(
+              (file) => !submittedFiles.has(file),
+            );
+          }
+          return {
+            proceed: false,
+            clear: sent && queueVisitRef.current === admissionVisit,
+          };
+        } catch (error) {
+          message.warning(
+            error instanceof Error ? error.message : String(error),
+          );
+          return false;
+        }
+      }
+      if (!MESSAGE_QUEUE_ENABLED && !sameVisit) return false;
+      // Retain this enqueue path for restoring queues with manual steer.
+      // It is currently disabled by MESSAGE_QUEUE_ENABLED.
       // Recheck after the await: another submission or navigation may have
       // changed the queue while the status response was in flight.
-      if (backendRunning || !sameVisit || queueBusy()) {
+      if (
+        MESSAGE_QUEUE_ENABLED &&
+        (backendRunning || !sameVisit || queueBusy())
+      ) {
         if (!val && queueAttachments.length === 0) return false;
         const currentQ = useMessageQueueStore.getState().getQueue(queueKey);
         if (currentQ.length >= MAX_QUEUE_SIZE) {
@@ -4590,6 +4697,14 @@ export default function ChatPage() {
         ...i18nConfig?.sender,
         components: { input: LongTextPasteInput },
         beforeSubmit: handleBeforeSubmit,
+        queue:
+          usesQwenPawBackend && !MESSAGE_QUEUE_ENABLED && Boolean(chatLoading)
+            ? {
+                ...STEER_SUBMIT_QUEUE,
+                onSessionNotReady: () =>
+                  message.warning(t("chat.steer.statusUnknown")),
+              }
+            : false,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
           <>
@@ -5033,14 +5148,16 @@ export default function ChatPage() {
             backendCapabilities.fork_mode !== "none")
             ? [
                 {
-                  icon: (
-                    <span title={t("chat.fork")}>
-                      <GitFork />
-                    </span>
+                  key: "fork",
+                  render: ({ data }: { data: CopyableResponse }) => (
+                    <TurnForkAction
+                      data={data}
+                      chatId={backendChatId || undefined}
+                      agentId={selectedAgent}
+                      onFork={forkResponse}
+                      title={t("chat.fork")}
+                    />
                   ),
-                  onClick: ({ data }: { data: CopyableResponse }) => {
-                    forkResponse(data);
-                  },
                 },
               ]
             : []),
@@ -5103,6 +5220,8 @@ export default function ChatPage() {
     navigateToHistoryUserMessage,
     copyResponse,
     forkResponse,
+    submitSteer,
+    hasPendingSteer,
     chatLoading,
     handleFileUpload,
     t,

@@ -975,6 +975,30 @@ describe("durable transcript pagination", () => {
     });
   });
 
+  it("marks an active history turn for SDK reconnect reuse", () => {
+    const messages = T.convertMessages(
+      [
+        msg({
+          id: "active-user",
+          metadata: {
+            qwenpaw_transcript_position: {
+              turn_id: "active-turn",
+              turn_seq: 1,
+              ordinal: 0,
+            },
+            qwenpaw_turn_state: { status: "running" },
+          },
+        }),
+      ],
+      true,
+    );
+    expect(messages[1]).toMatchObject({
+      id: "history-turn:active-turn",
+      msgStatus: "generating",
+      cards: [{ data: { status: "in_progress" } }],
+    });
+  });
+
   it.each(["failed", "canceled"] as const)(
     "keeps empty %s response timestamps stable across reloads",
     (status) => {
@@ -989,7 +1013,12 @@ describe("durable transcript pagination", () => {
           },
         }),
       ];
-      const first = T.convertMessages(input, true)[1].cards?.[0]?.data;
+      const first = T.convertMessages(input, true, "empty-scope")[1].cards?.[0]
+        ?.data;
+      expect(first).toMatchObject({
+        output: [],
+        metadata: { steer_scope: "empty-scope", qwenpaw_history: true },
+      });
       const now = vi.spyOn(Date, "now").mockReturnValue(2000000000000);
       try {
         const reloaded = T.convertMessages(input, true)[1].cards?.[0]?.data;
@@ -1507,3 +1536,115 @@ describe("visible session usage ownership", () => {
     ).toBe(500);
   });
 });
+
+it.each(["running", "canceled", "failed", "completed"])(
+  "keeps steer users and %s state across bounded history pages",
+  (status) => {
+    const messages = ["user", "assistant", "user", "assistant"].map(
+      (role, ordinal) =>
+        msg({
+          id: `steer-${ordinal}`,
+          role,
+          metadata: {
+            qwenpaw_transcript_position: {
+              turn_id: "steered-turn",
+              turn_seq: 1,
+              ordinal,
+            },
+            qwenpaw_turn_state: { status },
+            input_kind: ordinal === 2 ? "steer" : undefined,
+            client_message_id: ordinal === 2 ? "c1" : undefined,
+            after_user_message_id: ordinal === 3 ? "steer-2" : "steer-0",
+            steer_scope: "scope",
+          },
+        }),
+    );
+    const receipt = {
+      turn_id: "steered-turn",
+      client_message_id: "c1",
+      user_message_id: "steer-2",
+      append_seq: 1,
+      revision: 2,
+      status: "applied" as const,
+      content: [
+        {
+          type: "file" as const,
+          file_url: "/media/probe.txt",
+          file_name: "probe.txt",
+        },
+      ],
+    };
+    const full = T.convertMessages(
+      messages,
+      true,
+      "scope",
+      {},
+      {
+        active_turn_id: null,
+        needs_sync: false,
+        receipts_by_turn: { "steered-turn": [receipt] },
+      },
+    );
+    expect(full).toHaveLength(2);
+    const response = full[1].cards?.[0]?.data as {
+      output: Array<{ id: string }>;
+      metadata: unknown;
+    };
+    expect(response.output.map((m) => m.id)).toEqual([
+      "steer-1",
+      "steer-2",
+      "steer-3",
+    ]);
+    expect(response.metadata).toMatchObject({
+      turn_id: "steered-turn",
+      steer_scope: "scope",
+    });
+    const tail = T.convertMessages(
+      messages.slice(2),
+      true,
+      "scope",
+      {
+        "steered-turn": status !== "running",
+      },
+      {
+        active_turn_id: null,
+        needs_sync: false,
+        receipts_by_turn: { "steered-turn": [] },
+      },
+    );
+    expect(tail).toHaveLength(1);
+    expect(tail[0].id).toBe(full[1].id);
+    const expected = status === "running" ? "in_progress" : status;
+    expect(tail[0].cards?.[0]?.data).toMatchObject({ status: expected });
+    const merged = T.mergeHistoryMessages(full, tail);
+    expect(merged[1].cards?.[0]?.data).toMatchObject({
+      status: expected,
+      metadata: {
+        can_fork: status !== "running",
+        fork_capability_status: expected,
+        steer_receipts_loaded: true,
+        steer_receipts: [receipt],
+      },
+    });
+    expect(merged[1].msgStatus).toBe(
+      status === "running"
+        ? "generating"
+        : status === "canceled"
+        ? "interrupted"
+        : "finished",
+    );
+    const assistantOnly = T.convertMessages(
+      messages.slice(3),
+      true,
+      "child-scope",
+    );
+    expect(assistantOnly[0].cards?.[0]?.data).toMatchObject({
+      status: expected,
+      metadata: { steer_scope: "child-scope" },
+    });
+
+    expect(
+      (tail[0].cards?.[0]?.data as typeof response).output.map((m) => m.id),
+    ).toEqual(["steer-2", "steer-3"]);
+  },
+);

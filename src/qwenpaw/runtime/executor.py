@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, AsyncGenerator
 
 from .envelope import Envelope
+from .steer import SteerOutput
 from .heartbeat import (
     _iter_with_heartbeat,
     _HEARTBEAT_TICK,
@@ -63,6 +64,9 @@ class AgentExecutor:
                     last_activity = time.monotonic()
                 continue
 
+            if isinstance(event, SteerOutput):
+                yield event.output
+                continue
             last_activity = time.monotonic()
             self._maybe_stamp_finished_at(event)
 

@@ -4,6 +4,7 @@
 Uses the real :class:`JsonChatRepository` backed by ``tmp_path`` so the
 tests cover the integrated CRUD path without mocking the repo away.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -99,6 +100,32 @@ async def test_create_and_get_chat_round_trip(manager: ChatManager):
     )
     assert nested.name == "Hello (3)"
     assert (await manager.get_chat(nested.id)).name == "Hello (3)"
+
+    renamed = await manager.patch_chat(
+        children[0].id,
+        ChatUpdate(name="Hello"),
+    )
+    assert renamed.fork_name_root_id == renamed.id
+    fresh = await manager.create_chat(
+        _make_spec(session_id="fresh-series").model_copy(
+            update={"parent_chat_id": renamed.id},
+        ),
+    )
+    assert fresh.name == "Hello (1)"
+    assert fresh.parent_chat_id == renamed.id
+    assert fresh.fork_name_root_id == renamed.id
+    unchanged = await manager.patch_chat(
+        fresh.id,
+        ChatUpdate(name=fresh.name),
+    )
+    assert unchanged.fork_name_root_id == renamed.id
+    next_fork = await manager.create_chat(
+        _make_spec(session_id="fresh-next").model_copy(
+            update={"parent_chat_id": fresh.id},
+        ),
+    )
+    assert next_fork.name == "Hello (2)"
+    assert (await manager.get_chat(nested.id)).fork_name_root_id == created.id
 
 
 @pytest.mark.asyncio

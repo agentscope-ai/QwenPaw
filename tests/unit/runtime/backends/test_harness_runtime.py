@@ -225,6 +225,10 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from qwenpaw.app import _app as actual_app
 from qwenpaw.plugins.testing import PluginTestHost
+from qwenpaw.runtime.steer import current_steer
+from qwenpaw.app.chats.api import ChatSteerRequest, post_chat_steer
+steering = sys.argv[2] == "steer"
+steer_workspace = steer_chat = None
 
 class Model(ChatModelBase):
     def __init__(self):
@@ -234,17 +238,37 @@ class Model(ChatModelBase):
             stream=False, context_size=32768,
         )
         self.formatter = OpenAIChatFormatter()
+        self.calls = 0
     async def __call__(self, *args, **kwargs):
+        self.calls += 1
+        if steering and self.calls == 1:
+            control = current_steer.get()
+            assert control is not None and not control.unavailable
+            receipt = await post_chat_steer(
+                steer_chat.id,
+                ChatSteerRequest(turn_id=control.turn_id,
+                                 client_message_id="native-steer",
+                                 content="native-correction"),
+                steer_workspace.chat_manager, steer_workspace,
+            )
+            assert receipt["status"] == "accepted"
         return ChatResponse(
             content=[{"type": "text", "text": "native-answer"}], is_last=True
         )
 
 async def main():
+    global steer_workspace, steer_chat
     assert actual_app.app is not None
     with patch("qwenpaw.agents.model_factory.create_model_and_formatter",
                side_effect=lambda **kwargs: (Model(), OpenAIChatFormatter())):
         async with PluginTestHost(Path(sys.argv[1])) as host:
             assert host.list_harnesses() == ()
+            if steering:
+                steer_workspace = await host._workspace("test")
+                manager = steer_workspace.chat_manager
+                steer_chat = await manager.get_or_create_chat(
+                    "test", "test", "console",
+                )
             events = [event async for event in host.stream_chat("hello")]
             assert events[-1].status == "completed"
             workspace = await host._workspace("test")
@@ -254,6 +278,12 @@ async def main():
             assert any(block.get("text") == "native-answer"
                        for message in saved["agent"]["state"]["context"]
                        for block in message["content"])
+            if steering:
+                assert any(message["role"] == "user"
+                           and any(b.get("text") == "native-correction"
+                                   for b in message["content"])
+                           for message in saved["agent"]["state"]["context"])
+                assert not workspace.steer_runs
     assert not (imports or probes or processes)
     assert not any(name == root or name.startswith(root + ".")
                    for name in sys.modules for root in forbidden)
@@ -262,7 +292,8 @@ asyncio.run(main())
 """
 
 
-def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path):
+@pytest.mark.parametrize("steering", [False, True])
+def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path, steering):
     env = {
         **os.environ,
         "HOME": str(tmp_path / "home"),
@@ -270,7 +301,13 @@ def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path):
         "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
     }
     result = subprocess.run(
-        [sys.executable, "-c", NATIVE_CHILD, str(tmp_path / "native")],
+        [
+            sys.executable,
+            "-c",
+            NATIVE_CHILD,
+            str(tmp_path / "native"),
+            "steer" if steering else "ordinary",
+        ],
         env=env,
         capture_output=True,
         text=True,

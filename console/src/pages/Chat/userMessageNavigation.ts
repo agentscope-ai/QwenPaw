@@ -17,22 +17,52 @@ export function activeUserAtScrollPosition(
 export function getNavigationUsers(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): HistoryUserMessage[] {
-  return messages
-    .filter((item) => item.role === "user")
-    .map((item) => {
-      const request = item.cards?.find(
-        (card) => card.code === "AgentScopeRuntimeRequestCard",
+  return messages.flatMap((item): HistoryUserMessage[] => {
+    if (item.role !== "user") {
+      const response = item.cards?.find(
+        (card) => card.code === "AgentScopeRuntimeResponseCard",
       )?.data as
         | {
-            created_at?: number;
-            input?: Array<{
-              metadata?: { qwenpaw_client_message_id?: string };
-              content?: Array<{ text?: string; filename?: string }>;
+            output?: Array<{
+              id: string;
+              role?: string;
+              created_at?: string;
+              metadata?: { input_kind?: string; client_message_id?: string };
+              content?: Array<{
+                text?: string;
+                filename?: string;
+                file_name?: string;
+              }>;
             }>;
           }
         | undefined;
-      const timestamp = request?.created_at;
-      return {
+      return (response?.output || [])
+        .filter((m) => m.role === "user" && m.metadata?.input_kind === "steer")
+        .map((m) => ({
+          messageId: m.id,
+          clientMessageId: m.metadata?.client_message_id,
+          preview: (m.content || [])
+            .map((c) => c.text || c.file_name || c.filename || "")
+            .join(" ")
+            .slice(0, 160),
+          createdAt: m.created_at || "",
+          anchor: "",
+        }));
+    }
+    const request = item.cards?.find(
+      (card) => card.code === "AgentScopeRuntimeRequestCard",
+    )?.data as
+      | {
+          created_at?: number;
+          input?: Array<{
+            metadata?: { qwenpaw_client_message_id?: string };
+            content?: Array<{ text?: string; filename?: string }>;
+          }>;
+        }
+      | undefined;
+    const timestamp = request?.created_at;
+    return [
+      {
         messageId: item.id,
         clientMessageId:
           request?.input?.[0]?.metadata?.qwenpaw_client_message_id,
@@ -49,8 +79,9 @@ export function getNavigationUsers(
             ).toISOString()
           : "",
         anchor: "",
-      };
-    });
+      },
+    ];
+  });
 }
 
 // Persisted IDs and optimistic SDK IDs can differ for the same user input.

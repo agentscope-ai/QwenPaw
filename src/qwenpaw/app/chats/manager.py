@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from typing import Optional
@@ -289,21 +290,29 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             if spec.parent_chat_id:
                 chats = (await self._repo.load()).chats
                 by_id = {chat.id: chat for chat in chats}
-                root = by_id.get(spec.parent_chat_id)
-                if root is not None:
-                    while root.parent_chat_id in by_id:
-                        root = by_id[root.parent_chat_id]
-                    prefix = f"{root.name} ("
+                parent = by_id.get(spec.parent_chat_id)
+                if parent is not None:
+                    root_id = parent.fork_name_root_id or parent.id
+                    base = re.sub(
+                        r"\s*(?:\([0-9]+\)|（[0-9]+）)$",
+                        "",
+                        parent.name,
+                    ).rstrip()
+                    pattern = re.compile(
+                        rf"{re.escape(base)} (?:\(([0-9]+)\)|（([0-9]+)）)$",
+                    )
                     numbers = [
-                        int(chat.name[len(prefix) : -1])
+                        int(match.group(1) or match.group(2))
                         for chat in chats
-                        if chat.name.startswith(prefix)
-                        and chat.name.endswith(")")
-                        and chat.name[len(prefix) : -1].isdecimal()
+                        if chat.fork_name_root_id == root_id
+                        and (match := pattern.fullmatch(chat.name))
                     ]
                     number = max(numbers, default=0) + 1
                     spec = spec.model_copy(
-                        update={"name": f"{root.name} ({number})"},
+                        update={
+                            "name": f"{base} ({number})",
+                            "fork_name_root_id": root_id,
+                        },
                     )
             await self._repo.upsert_chat(spec)
             return spec
@@ -474,6 +483,8 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             exclude_none=True,
             exclude_unset=True,
         )
+        if "name" in updates and updates["name"] != existing.name:
+            updates["fork_name_root_id"] = existing.id
         merged = existing.model_copy(update=updates)
         if patch.model_fields_set != {"group_id"}:
             merged.updated_at = datetime.now(timezone.utc)

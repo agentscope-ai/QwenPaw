@@ -1,3 +1,5 @@
+// Exercise the retained queue implementation explicitly; production freezes it.
+vi.mock("./chatFeatures", () => ({ MESSAGE_QUEUE_ENABLED: true }));
 /**
  * CoPaw ↔ AgentScope Chat SDK host-contract tests.
  *
@@ -1620,7 +1622,7 @@ describe("ChatPage coverage", () => {
     );
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
-    expect(capturedOptions?.sender?.queue).toBeUndefined();
+    expect(capturedOptions?.sender?.queue).toBe(false);
     expect(typeof beforeSubmit).toBe("function");
     const result = await beforeSubmit({
       query: "hello",

@@ -1,3 +1,9 @@
+import { STEER_SUBMIT_QUEUE } from "./chatFeatures";
+import {
+  createEmptyInputQueueState,
+  enqueueInputQueueState,
+  getInputQueueStorageKey,
+} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue";
 import { ChatSessionActivation } from "./components/ChatSessionActivation";
 import { ChatSessionTransition } from "./components/ChatSessionTransition";
 import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
@@ -172,6 +178,7 @@ function mountHost(
   creationGate?: ReturnType<typeof deferred>,
   observeIdle = false,
   withRetryTransition = false,
+  borrowQueueEntry = false,
 ) {
   let probe!: Probe;
   const sdkRef = {
@@ -289,7 +296,7 @@ function mountHost(
           api: adapter.api,
           onCurrentSessionChange: (id) => sessionApi.activateCreatedSession(id),
         },
-        sender: { queue: false },
+        sender: { queue: borrowQueueEntry ? STEER_SUBMIT_QUEUE : false },
         api: {
           fetch: fixture.transport,
           cancel: (data) =>
@@ -1446,4 +1453,74 @@ describe("published SDK cancellation with CoPaw adapter", () => {
       expect(host.current().input.getSessionLoading?.(A)).toBe(false);
     },
   );
+});
+
+it("borrows the queue entry without storing, restoring or draining queued inputs", async () => {
+  const stored = JSON.stringify(
+    enqueueInputQueueState(
+      createEmptyInputQueueState(),
+      { query: "old queued input", fileList: [] },
+      { ownerTabId: "old-tab" },
+    ).state,
+  );
+  const keys = [
+    getInputQueueStorageKey(A),
+    getInputQueueStorageKey(`default::${A}`),
+  ];
+  keys.forEach((key) => localStorage.setItem(key, stored));
+  const host = mountHost(fixture, undefined, false, false, true);
+  await waitFor(() =>
+    expect(host.loaded).toContainEqual({ id: A, generating: false }),
+  );
+  expect(host.current().controller.inputQueueEnabled).toBe(true);
+  expect(host.current().controller.inputQueue).toEqual([]);
+  await act(async () => {
+    const result = await host
+      .current()
+      .controller.enqueueQueuedInput({ query: "forced enqueue", fileList: [] });
+    expect(result).toMatchObject({ ok: false, reason: "session-not-ready" });
+  });
+  expect(fixture.transport).not.toHaveBeenCalled();
+  act(() => {
+    pendingSubmissions.push(
+      Promise.resolve(
+        host.current().controller.handleSubmit({
+          query: "ordinary attachment",
+          fileList: [
+            {
+              uid: "f1",
+              name: "probe.txt",
+              status: "done",
+              response: { url: "/media/probe.txt" },
+              type: "text/plain",
+            },
+          ],
+        }),
+      ),
+    );
+  });
+  await waitFor(() => expect(fixture.transport).toHaveBeenCalledTimes(1));
+  expect(JSON.stringify(fixture.streams[0].data.input)).toContain(
+    "/media/probe.txt",
+  );
+  await act(async () => {
+    const result = await host
+      .current()
+      .controller.enqueueQueuedInput({
+        query: "busy forced enqueue",
+        fileList: [],
+      });
+    expect(result).toMatchObject({ ok: false, reason: "session-not-ready" });
+    fixture.streams[0].close();
+    await Promise.all(pendingSubmissions);
+  });
+  expect(host.current().controller.inputQueue).toEqual([]);
+  expect(fixture.transport).toHaveBeenCalledTimes(1);
+  keys.forEach((key) => expect(localStorage.getItem(key)).toBe(stored));
+  act(() => host.current().navigate(`/chat/${B}`));
+  await waitFor(() => expect(host.current().path).toBe(`/chat/${B}`));
+  expect(host.current().controller.inputQueue).toEqual([]);
+  expect(fixture.transport).toHaveBeenCalledTimes(1);
+  keys.forEach((key) => expect(localStorage.getItem(key)).toBe(stored));
+  host.unsubscribe();
 });
