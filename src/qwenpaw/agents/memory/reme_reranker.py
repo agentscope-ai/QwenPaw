@@ -4,6 +4,7 @@
 import asyncio
 import ipaddress
 import logging
+import math
 import re
 import socket
 import time
@@ -18,7 +19,6 @@ from ...config.config import (
     RerankerConfig,
     load_agent_config_async,
 )
-from ...utils.io_utils import run_sync_io
 
 logger = logging.getLogger(__name__)
 
@@ -121,11 +121,11 @@ class RerankerTestResult:
     cases: list[RerankerCaseResult] | None = None
 
 
-# Each case is (query, [expected-most-relevant document, distractor,
-# distractor]).
-# A working reranker should rank document 0 first for every case, turning the
-# probe into a small multi-domain ranking-quality estimate instead of a single
-# binary smoke test.
+# Each case is (query, documents, expected_index). The expected most-relevant
+# document deliberately sits at a different position in every case
+# (0, 1, 2, 0, 1), so a service that merely echoes a fixed order, or returns
+# the same score for every document (judged incorrect by the tie rule in
+# _extract_scores), cannot score perfect precision.
 _TEST_SUITE = [
     (
         "How do I reset my password?",
@@ -135,22 +135,25 @@ _TEST_SUITE = [
             "The quick brown fox jumps over the lazy dog.",
             "Today's lunch special is grilled salmon with rice.",
         ],
+        0,
     ),
     (
         "What time is hotel checkout?",
         [
-            "Checkout is at 11 AM; a late checkout may incur a fee.",
             "The stock market closed higher today.",
+            "Checkout is at 11 AM; a late checkout may incur a fee.",
             "The cat slept on the windowsill all afternoon.",
         ],
+        1,
     ),
     (
         "How many grams are in a cup of flour?",
         [
-            "One cup of all-purpose flour weighs about 120 grams.",
             "The train to the airport leaves every 20 minutes.",
             "It rained heavily in the north overnight.",
+            "One cup of all-purpose flour weighs about 120 grams.",
         ],
+        2,
     ),
     (
         "Which planet is closest to the Sun?",
@@ -159,17 +162,34 @@ _TEST_SUITE = [
             "The concert was rescheduled to next Friday.",
             "My neighbour's dog barks at the mail carrier.",
         ],
+        0,
     ),
     (
         "How do I cancel my subscription?",
         [
+            "The recipe calls for two eggs and a cup of milk.",
             "Go to Account > Billing > Cancel subscription to stop "
             "auto-renewal.",
-            "The recipe calls for two eggs and a cup of milk.",
             "Line 3 of the metro is suspended for maintenance.",
         ],
+        1,
     ),
 ]
+
+# Fixed wall-clock slack for the whole suite: DNS validation of the base URL,
+# TLS handshakes and connection setup happen outside the per-request timeout.
+_SUITE_OVERHEAD_SECONDS = 10.0
+
+
+def reranker_suite_deadline_seconds(per_request_timeout: float) -> float:
+    """Explicit wall-clock budget for one complete probe run.
+
+    Covers base URL validation plus every sequential request, each bounded by
+    ``per_request_timeout``, and a fixed overhead allowance. The console uses
+    the same budget (plus a small margin) so the browser never aborts before
+    the backend finishes.
+    """
+    return len(_TEST_SUITE) * per_request_timeout + _SUITE_OVERHEAD_SECONDS
 
 
 def _strip_html(text: str) -> str:
@@ -179,11 +199,31 @@ def _strip_html(text: str) -> str:
     return plain or "non-JSON response"
 
 
+def _redact_secret(text: str, secret: str) -> str:
+    """Remove a credential from text that may echo request headers.
+
+    The console route masks the key as well, but the background sweep logs
+    probe messages directly, so redaction belongs at the probe boundary.
+    """
+    if secret:
+        return text.replace(secret, "***")
+    return text
+
+
 def _extract_scores(
     results: list[Any],
     n_docs: int,
+    expected_index: int,
 ) -> tuple[list[float] | None, bool | None]:
-    """Map returned results back to request order and judge the top rank."""
+    """Map returned results back to request order and judge the top rank.
+
+    Tied top scores count as incorrect: a service returning the same score for
+    every document carries no ranking signal and must not pass as perfect.
+
+    Non-finite scores (``NaN``/``Infinity``) are rejected as an invalid
+    response; comparing them would otherwise let a broken service appear to
+    win by landing "first" on a NaN.
+    """
     score_by_index: dict[int, float] = {}
     for item in results:
         if not isinstance(item, dict):
@@ -191,20 +231,53 @@ def _extract_scores(
         index = item.get("index")
         score = item.get("relevance_score")
         if isinstance(index, int) and isinstance(score, (int, float)):
-            score_by_index[index] = float(score)
+            value = float(score)
+            if not math.isfinite(value):
+                raise ValueError(
+                    "Reranker service returned non-finite relevance scores",
+                )
+            score_by_index[index] = value
     if not all(i in score_by_index for i in range(n_docs)):
         return None, None
     scores = [score_by_index[i] for i in range(n_docs)]
-    top_index = scores.index(max(scores))
-    return scores, top_index == 0
+    top_score = max(scores)
+    if scores.count(top_score) > 1:
+        return scores, False
+    return scores, scores.index(top_score) == expected_index
 
 
-async def _validate_reranker_base_url(base_url: str) -> str:
-    """SSRF-safe validation of a user-supplied reranker base URL.
+@dataclass(frozen=True)
+class _ResolvedTarget:
+    """A validated probe target, pinned to one resolved address."""
 
-    Mirrors ``agents/tools/view_media``: only http/https, no credentials, no
-    localhost, and every resolved address must be globally routable so a
-    console user cannot use the probe to reach internal services.
+    request_url: str
+    host_header: str
+    sni_hostname: str
+    secure: bool
+
+
+async def _validate_reranker_base_url(
+    base_url: str,
+    *,
+    allow_private: bool = False,
+) -> _ResolvedTarget:
+    """Validate a user-supplied reranker base URL before probing it.
+
+    Only http/https, no embedded credentials. By default every resolved address
+    must be globally routable so an untrusted caller cannot use the probe to
+    reach internal services.
+
+    ``allow_private`` reflects the runtime deployment model: the rest of
+    QwenPaw talks to whatever base URL the operator configured, including a
+    reranker on localhost or a private network. The console-only probe endpoint
+    derives this flag from the existing trust boundary
+    (``security.allow_no_auth_hosts`` plus the loopback peer check), so only a
+    caller the server already treats as trusted can probe a local endpoint —
+    there is no extra configuration switch.
+
+    The returned target pins the request to one of the validated addresses
+    (with a ``Host`` header and TLS SNI preserved), so a hostname cannot
+    re-resolve to a different address between validation and the request.
     """
     base = (base_url or "").strip()
     if not base:
@@ -220,14 +293,21 @@ async def _validate_reranker_base_url(base_url: str) -> str:
         raise ValueError("Reranker base URL must not contain credentials")
 
     host = parsed.hostname.rstrip(".")
-    if host.lower() == "localhost":
+    if host.lower() == "localhost" and not allow_private:
         raise ValueError("Reranker base URL targets a non-public address")
 
-    def _resolve() -> tuple[str, ...]:
+    async def _resolve() -> tuple[str, ...]:
         try:
             literal = ipaddress.ip_address(host)
         except ValueError:
-            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            # The event-loop resolver is cancellable, so the suite deadline
+            # stays a hard wall-clock bound rather than waiting out a stuck
+            # synchronous DNS call.
+            infos = await asyncio.get_running_loop().getaddrinfo(
+                host,
+                port,
+                type=socket.SOCK_STREAM,
+            )
             return tuple(
                 dict.fromkeys(
                     str(info[4][0]).split("%", maxsplit=1)[0]
@@ -238,7 +318,7 @@ async def _validate_reranker_base_url(base_url: str) -> str:
         return (str(literal),)
 
     try:
-        addresses = await run_sync_io(_resolve)
+        addresses = await _resolve()
     except OSError as exc:
         raise ValueError(
             "Reranker base URL host could not be resolved",
@@ -253,79 +333,136 @@ async def _validate_reranker_base_url(base_url: str) -> str:
             raise ValueError(
                 "Reranker base URL host resolved to an invalid address",
             ) from exc
-        if not address.is_global:
+        if address.is_global:
+            continue
+        if not allow_private:
+            raise ValueError("Reranker base URL targets a non-public address")
+        # Even when local targets are allowed, reject addresses that cannot
+        # name a real service. Only unspecified and multicast qualify:
+        # is_reserved also flags ::1 on newer Pythons, which would break
+        # IPv6 loopback rerankers.
+        if address.is_unspecified or address.is_multicast:
             raise ValueError("Reranker base URL targets a non-public address")
 
+    selected = addresses[0]
+    selected_address = ipaddress.ip_address(selected)
+    if selected_address.version == 6:
+        selected_netloc = f"[{selected}]"
+    else:
+        selected_netloc = selected
+    if parsed.port is not None:
+        selected_netloc = f"{selected_netloc}:{parsed.port}"
+
     request_path = f"{parsed.path.rstrip('/')}/rerank"
-    return urlunsplit((parsed.scheme, parsed.netloc, request_path, "", ""))
+    request_url = urlunsplit(
+        (parsed.scheme, selected_netloc, request_path, "", ""),
+    )
+    try:
+        ipaddress.ip_address(host)
+        sni_hostname = host
+    except ValueError:
+        try:
+            sni_hostname = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            sni_hostname = host
+    return _ResolvedTarget(
+        request_url=request_url,
+        # Credentials were rejected above, so netloc is exactly host[:port].
+        host_header=parsed.netloc,
+        sni_hostname=sni_hostname,
+        secure=parsed.scheme == "https",
+    )
 
 
 async def test_reranker_model(
     config: RerankerConfig,
     *,
     timeout: float | None = None,
+    allow_private: bool = False,
 ) -> RerankerTestResult:
     """Send real rerank requests for the probe suite and aggregate quality."""
     timeout = config.timeout if timeout is None else timeout
+    deadline = reranker_suite_deadline_seconds(timeout)
     started = time.monotonic()
     try:
-        url = await _validate_reranker_base_url(config.base_url)
-        if not config.model_name or not config.model_name.strip():
-            raise ValueError("Reranker model name is required")
-
-        async def _post(payload: dict[str, Any]) -> httpx.Response:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                # codeql[py/partial-ssrf] base URL validated against SSRF
-                return await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {config.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-
         cases: list[RerankerCaseResult] = []
         correct_count = 0
-        for query, documents in _TEST_SUITE:
-            payload = {
-                "model": config.model_name.strip(),
-                "query": query,
-                "documents": documents,
+        # One HTTP client for the whole suite keeps DNS/TLS setup out of every
+        # case, and one suite-wide deadline bounds URL validation (including
+        # DNS) plus all five sequential requests. Per-request httpx timeouts
+        # only bound a single operation, so a slow-drip server could otherwise
+        # hold the suite open forever.
+        async with asyncio.timeout(deadline):
+            target = await _validate_reranker_base_url(
+                config.base_url,
+                allow_private=allow_private,
+            )
+            if not config.model_name or not config.model_name.strip():
+                raise ValueError("Reranker model name is required")
+
+            headers = {
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+                # The request dials the validated address; the Host header and
+                # TLS SNI keep the origin the operator configured.
+                "Host": target.host_header,
             }
-            # httpx timeouts apply per operation; wait_for adds a hard deadline
-            # so a slow-drip server cannot hold a request open indefinitely.
-            response = await asyncio.wait_for(
-                _post(payload),
-                timeout=timeout + 5,
+            extensions = (
+                {"sni_hostname": target.sni_hostname}
+                if target.secure
+                else None
             )
-            response.raise_for_status()
-            data = response.json()
-            results = data.get("results") if isinstance(data, dict) else None
-            if not isinstance(results, list) or not results:
-                raise RuntimeError(
-                    "Reranker service returned an unexpected response format",
-                )
-            indices = [
-                item.get("index") for item in results if isinstance(item, dict)
-            ]
-            if len(indices) != len(results) or any(
-                not isinstance(i, int) or not 0 <= i < len(documents)
-                for i in indices
-            ):
-                raise RuntimeError(
-                    "Reranker service returned invalid document indices",
-                )
-            scores, correct = _extract_scores(results, len(documents))
-            cases.append(
-                RerankerCaseResult(
-                    query=query,
-                    scores=scores,
-                    correct=correct,
-                ),
-            )
-            if correct is True:
-                correct_count += 1
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                for query, documents, expected_index in _TEST_SUITE:
+                    payload = {
+                        "model": config.model_name.strip(),
+                        "query": query,
+                        "documents": documents,
+                    }
+                    # codeql[py/partial-ssrf] pinned to the validated address
+                    response = await client.post(
+                        target.request_url,
+                        headers=headers,
+                        json=payload,
+                        extensions=extensions,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    results = (
+                        data.get("results") if isinstance(data, dict) else None
+                    )
+                    if not isinstance(results, list) or not results:
+                        raise RuntimeError(
+                            "Reranker service returned an unexpected "
+                            "response format",
+                        )
+                    indices = [
+                        item.get("index")
+                        for item in results
+                        if isinstance(item, dict)
+                    ]
+                    if len(indices) != len(results) or any(
+                        not isinstance(i, int) or not 0 <= i < len(documents)
+                        for i in indices
+                    ):
+                        raise RuntimeError(
+                            "Reranker service returned invalid document "
+                            "indices",
+                        )
+                    scores, correct = _extract_scores(
+                        results,
+                        len(documents),
+                        expected_index,
+                    )
+                    cases.append(
+                        RerankerCaseResult(
+                            query=query,
+                            scores=scores,
+                            correct=correct,
+                        ),
+                    )
+                    if correct is True:
+                        correct_count += 1
 
         scored_cases = [c for c in cases if c.correct is not None]
         total = len(scored_cases)
@@ -340,16 +477,22 @@ async def test_reranker_model(
             precision=precision,
             cases=cases,
         )
-    except (asyncio.TimeoutError, httpx.TimeoutException):
+    except (TimeoutError, httpx.TimeoutException):
         latency_ms = round((time.monotonic() - started) * 1000)
         return RerankerTestResult(
             success=False,
             latency_ms=latency_ms,
-            message=f"Reranker API timed out after {timeout}s",
+            message=(
+                f"Reranker API timed out after {timeout}s "
+                f"per request ({deadline:g}s suite deadline)"
+            ),
         )
     except httpx.HTTPStatusError as exc:
         latency_ms = round((time.monotonic() - started) * 1000)
-        detail = _strip_html(exc.response.text[:300])
+        detail = _redact_secret(
+            _strip_html(exc.response.text[:300]),
+            config.api_key,
+        )
         return RerankerTestResult(
             success=False,
             latency_ms=latency_ms,
@@ -360,10 +503,14 @@ async def test_reranker_model(
         )
     except Exception as exc:
         latency_ms = round((time.monotonic() - started) * 1000)
+        message = _redact_secret(
+            str(exc) or type(exc).__name__,
+            config.api_key,
+        )
         return RerankerTestResult(
             success=False,
             latency_ms=latency_ms,
-            message=str(exc) or type(exc).__name__,
+            message=message,
         )
 
 

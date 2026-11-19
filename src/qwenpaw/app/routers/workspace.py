@@ -36,7 +36,7 @@ from fastapi import (
 )
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
@@ -56,11 +56,9 @@ from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
 )
-from ...agents.memory.reme_reranker import test_reranker_model
+from ...agents.memory.reranker_auto_probe import probe_and_record
 from ...agents.memory.reranker_history import (
-    append_record,
     get_history,
-    make_record,
     service_fingerprint,
 )
 from ...agents.memory.agent_md_manager import AgentMdManager
@@ -128,8 +126,20 @@ class EmbeddingTestResponse(BaseModel):
     message: str
 
 
+class RerankerHistoryRecord(BaseModel):
+    """One recorded verification run."""
+
+    ts: int
+    latency_ms: int = 0
+    precision: float | None = None
+    correct_count: int = 0
+    total: int = 0
+
+
 class RerankerCaseResponse(BaseModel):
     """Result of one reranker probe case."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     query: str
     scores: list[float] | None = None
@@ -139,6 +149,8 @@ class RerankerCaseResponse(BaseModel):
 class RerankerTestResponse(BaseModel):
     """Aggregated result of a reranker probe suite."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     success: bool
     latency_ms: int
     message: str
@@ -146,14 +158,33 @@ class RerankerTestResponse(BaseModel):
     correct_count: int = 0
     precision: float | None = None
     cases: list[RerankerCaseResponse] | None = None
-    history: list[dict] | None = None
+    history: list[RerankerHistoryRecord] | None = None
+
+    @classmethod
+    def from_result(
+        cls,
+        result: Any,
+        *,
+        api_key: str = "",
+        history: list[dict] | None = None,
+    ) -> "RerankerTestResponse":
+        """Convert a probe result in one step, masking the API key."""
+        response = cls.model_validate(result)
+        if api_key:
+            response.message = response.message.replace(api_key, "***")
+        response.history = (
+            [RerankerHistoryRecord.model_validate(item) for item in history]
+            if history is not None
+            else None
+        )
+        return response
 
 
 class RerankerHistoryResponse(BaseModel):
     """History of reranker verification runs for one service fingerprint."""
 
     fingerprint: str
-    history: list[dict] = []
+    history: list[RerankerHistoryRecord] = []
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -1653,44 +1684,53 @@ async def test_embedding_configuration(
 )
 async def test_reranker_configuration(
     reranker_config: RerankerConfig = Body(...),
+    request: Request = None,
 ) -> RerankerTestResponse:
     """Test unsaved reranker settings with a real API call."""
-    result = await test_reranker_model(reranker_config)
+    # The runtime reranker accepts whatever base URL the operator configured,
+    # including a reranker bound to localhost or a private network. The probe
+    # follows the same deployment policy, gated by the server's existing trust
+    # boundary instead of a new toggle: only a caller the console already
+    # treats as trusted (auth disabled, an allow_no_auth_hosts entry, or a
+    # trusted proxy peer) may direct the probe at a non-public address.
+    allow_private = _reranker_probe_allows_private_targets(request)
 
-    message = result.message
-    if reranker_config.api_key:
-        message = message.replace(reranker_config.api_key, "***")
+    result = await probe_and_record(
+        reranker_config,
+        allow_private=allow_private,
+    )
 
     history = None
     if result.success:
-        fingerprint = service_fingerprint(reranker_config)
-        history = append_record(
-            fingerprint,
-            make_record(
-                latency_ms=result.latency_ms,
-                precision=result.precision,
-                correct_count=result.correct_count,
-                total=result.total,
-            ),
-        )
+        history = get_history(service_fingerprint(reranker_config))
 
-    return RerankerTestResponse(
-        success=result.success,
-        latency_ms=result.latency_ms,
-        message=message,
-        total=result.total,
-        correct_count=result.correct_count,
-        precision=result.precision,
-        cases=[
-            RerankerCaseResponse(
-                query=c.query,
-                scores=c.scores,
-                correct=c.correct,
-            )
-            for c in (result.cases or [])
-        ],
+    return RerankerTestResponse.from_result(
+        result,
+        api_key=reranker_config.api_key,
         history=history,
     )
+
+
+def _reranker_probe_allows_private_targets(request: Request | None) -> bool:
+    """Whether this caller may probe a local/private reranker endpoint.
+
+    Reuses the console's existing trust boundary rather than adding a
+    configuration switch: a caller trusted to use the console without a token
+    (auth disabled, or an ``allow_no_auth_hosts`` match) is also trusted to
+    verify the same local reranker the runtime would call.
+    """
+    if request is None:
+        return False
+    from ..auth import is_trusted_local_request
+
+    try:
+        return is_trusted_local_request(request)
+    except Exception:
+        logger.warning(
+            "reranker probe: trust check failed, treating caller as untrusted",
+            exc_info=True,
+        )
+        return False
 
 
 @router.get(

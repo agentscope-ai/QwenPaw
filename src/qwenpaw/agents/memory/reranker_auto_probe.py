@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Background auto-verification of configured reranker services.
 
-Periodically sweeps the enabled agents, and for any whose reranker service
-is enabled with a positive ``auto_verify_interval_hours`` and whose last
-verification is older than that interval, runs the probe suite and appends
-the result to the persistent history.
+Periodically sweeps the enabled agents, and for any whose reranker service is
+enabled with a positive ``auto_verify_interval_hours`` and whose last
+verification is older than that interval, runs the probe suite and appends the
+result to the persistent history.
 """
 
 from __future__ import annotations
@@ -12,24 +12,58 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ...config.config import RerankerConfig
+    from .reme_reranker import RerankerTestResult
 
 logger = logging.getLogger(__name__)
 
 _AUTO_PROBE_SWEEP_SECONDS = 1800.0
 
 
-async def _sweep_once() -> None:
-    from ...config.config import load_agent_config
-    from ...config.utils import load_config
-    from ...utils.io_utils import run_sync_io
+async def probe_and_record(
+    reranker: RerankerConfig,
+    *,
+    allow_private: bool = False,
+) -> RerankerTestResult:
+    """Run one probe suite and append a successful run to the history.
 
+    Shared by the console endpoint and the background sweep so manual and
+    scheduled verification use exactly the same probe-and-record contract.
+    Failed runs are reported to the caller but never recorded as history.
+    """
+    from .reme_reranker import test_reranker_model
     from .reranker_history import (
         append_record,
-        get_history,
         make_record,
         service_fingerprint,
     )
-    from .reme_reranker import test_reranker_model
+
+    result = await test_reranker_model(
+        reranker,
+        allow_private=allow_private,
+    )
+    if result.success:
+        append_record(
+            service_fingerprint(reranker),
+            make_record(
+                latency_ms=result.latency_ms,
+                precision=result.precision,
+                correct_count=result.correct_count,
+                total=result.total,
+            ),
+        )
+    return result
+
+
+async def _sweep_once() -> None:
+    from ...config.utils import load_config
+    from ...utils.io_utils import run_sync_io
+
+    from .reme_reranker import load_reranker_config
+    from .reranker_history import get_history, service_fingerprint
 
     config = await run_sync_io(load_config)
     profiles = config.agents.profiles
@@ -37,7 +71,10 @@ async def _sweep_once() -> None:
 
     for agent_id in profiles:
         try:
-            agent_config = await run_sync_io(load_agent_config, agent_id)
+            # Reuse the runtime loader: the reranker lives under
+            # running.reme_light_memory_config, and reading it from the
+            # profile root silently disabled the whole sweep.
+            reranker = await load_reranker_config(agent_id)
         except Exception:
             logger.exception(
                 "reranker auto-probe: failed to load agent %s",
@@ -45,8 +82,7 @@ async def _sweep_once() -> None:
             )
             continue
 
-        reranker = getattr(agent_config, "reranker_config", None)
-        if reranker is None or not reranker.enabled:
+        if reranker is None:
             continue
         interval_hours = (
             getattr(reranker, "auto_verify_interval_hours", 0) or 0
@@ -57,21 +93,16 @@ async def _sweep_once() -> None:
         try:
             fingerprint = service_fingerprint(reranker)
             history = get_history(fingerprint, limit=1)
-            last_ts = history[-1]["ts"] / 1000.0 if history else 0.0
+            last_ts = (
+                float(history[-1].get("ts", 0)) / 1000.0 if history else 0.0
+            )
             if now - last_ts < interval_hours * 3600:
                 continue
 
-            result = await test_reranker_model(reranker)
+            # Operator-saved config: probe the same endpoint the runtime
+            # would call, including a local/private deployment.
+            result = await probe_and_record(reranker, allow_private=True)
             if result.success:
-                append_record(
-                    fingerprint,
-                    make_record(
-                        latency_ms=result.latency_ms,
-                        precision=result.precision,
-                        correct_count=result.correct_count,
-                        total=result.total,
-                    ),
-                )
                 logger.info(
                     "reranker auto-probe %s: precision=%s (%s/%s)",
                     agent_id,
