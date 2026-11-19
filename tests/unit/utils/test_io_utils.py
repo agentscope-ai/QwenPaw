@@ -386,3 +386,29 @@ async def test_cancelled_append_holds_lock_until_worker_finishes(
         await second
 
     assert second_started.is_set()
+
+
+def test_write_text_atomic_supports_long_ascii_filenames(
+    tmp_path: Path,
+) -> None:
+    """Atomic writes succeed for long ASCII filenames accepted by filesystem."""
+    path = tmp_path / ("a" * 240 + ".md")
+    write_text_atomic(path, "content-initial")
+    assert path.read_text(encoding="utf-8") == "content-initial"
+
+    write_text_atomic(path, "content-updated")
+    assert path.read_text(encoding="utf-8") == "content-updated"
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_write_text_atomic_supports_long_multibyte_filenames(
+    tmp_path: Path,
+) -> None:
+    """Atomic writes succeed for long UTF-8 filenames accepted by filesystem."""
+    path = tmp_path / ("报告" * 40 + ".md")
+    write_text_atomic(path, "第一版")
+    assert path.read_text(encoding="utf-8") == "第一版"
+
+    write_text_atomic(path, "第二版")
+    assert path.read_text(encoding="utf-8") == "第二版"
+    assert not list(tmp_path.glob(".*.tmp"))
