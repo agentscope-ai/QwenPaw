@@ -83,6 +83,12 @@ def _build_launch_kwargs(
         launch["executable_path"] = executable_path
     if params.get("args"):
         launch["args"] = list(params["args"])
+    # Playwright appends its own default switches before ``args``, so a
+    # boolean switch it injects cannot be cancelled by re-appending it —
+    # it has to be filtered out by name.
+    ignore_default_args = params.get("ignore_default_args")
+    if ignore_default_args:
+        launch["ignore_default_args"] = list(ignore_default_args)
     if params.get("proxy"):
         launch["proxy"] = {"server": str(params["proxy"])}
     context: dict[str, Any] = {}
