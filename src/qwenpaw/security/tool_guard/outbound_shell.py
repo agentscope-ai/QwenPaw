@@ -127,20 +127,60 @@ def _wget_sends(args: list[str]) -> bool:
     return False
 
 
-def _httpie_sends(args: list[str]) -> bool:
-    options = args[: args.index("--")] if "--" in args else args
+_HTTPIE_VALUE_OPTIONS = frozenset(
+    """
+    --auth --auth-type --boundary --cert --cert-key --cert-key-pass --ciphers
+    --default-scheme --format-options --history-print --max-headers
+    --max-redirects --output --pretty --print --proxy --raw --response-charset
+    --response-mime --session --session-read-only --ssl --ssl-ciphers --style
+    --timeout --verify
+    """.split(),
+)
+
+
+def _httpie_sends(args: list[str], stdin: bool) -> bool:
+    options: set[str] = set()
+    positional: list[str] = []
+    words = iter(args)
+    for word in words:
+        if word == "--":
+            positional.extend(words)
+            break
+        if word.startswith("--"):
+            option, equals, _ = word.partition("=")
+            options.add(option)
+            if not equals and option in _HTTPIE_VALUE_OPTIONS:
+                next(words, None)
+        elif word.startswith("-") and word != "-":
+            for index, flag in enumerate(word[1:], start=2):
+                options.add("-" + flag)
+                if flag in "aAopPs":
+                    if index == len(word):
+                        next(words, None)
+                    break
+        else:
+            positional.append(word)
     if "--offline" in options and "--no-offline" not in options:
         return False
-    if any(
-        arg.partition("=")[0] in {"-f", "--form", "--multipart", "--raw"}
-        for arg in options
-    ):
+    ignore_stdin = options.intersection({"-I", "--ignore-stdin"})
+    if stdin and (not ignore_stdin or "--no-ignore-stdin" in options):
         return True
+    if options.intersection({"-f", "--form", "--multipart", "--raw"}):
+        return True
+    if len(positional) >= 2 and positional[0].upper() in _WRITE_METHODS:
+        return True
+    # The first positional is the method or URL. An explicit method is
+    # followed by the URL before the request items.
+    explicit_read = positional and positional[0].upper() in {
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "TRACE",
+        "CONNECT",
+    }
+    fields = positional[2:] if explicit_read else positional[1:]
     return any(
-        arg.upper() in _WRITE_METHODS
-        or re.match(r"^(?:@|[\w.-]+(?:@|:=|=(?!=)))", arg)
-        for arg in args
-        if not arg.startswith("-")
+        re.match(r"^(?:@|[\w.-]+(?:@|:=|=(?!=)))", arg) for arg in fields
     )
 
 
@@ -151,6 +191,63 @@ def _word(node: Node) -> str:
     except ValueError:
         return raw
     return parts[0] if len(parts) == 1 else raw
+
+
+def _redirected_stdin(node: Node) -> bool | None:
+    """Return the last redirection of fd 0, or None to inherit stdin."""
+    for redirect in reversed(node.children_by_field_name("redirect")):
+        descriptor = redirect.child_by_field_name("descriptor")
+        if descriptor is not None and descriptor.text != b"0":
+            continue
+        operators = [
+            child.type for child in redirect.children if not child.is_named
+        ]
+        if "<&-" in operators:
+            return False
+        if any(operator.startswith("<") for operator in operators):
+            return True
+    return None
+
+
+def _has_stdin(command: Node, inherited: bool) -> bool:
+    node: Node | None = command
+    while node is not None:
+        redirected = _redirected_stdin(node)
+        if redirected is not None:
+            return redirected
+        parent = node.parent
+        if parent is not None and parent.type == "pipeline":
+            # Bash grammar can attach the last stage's trailing redirects
+            # to a redirected_statement wrapping the entire pipeline.
+            wrapper = parent.parent
+            if wrapper is not None and wrapper.type == "redirected_statement":
+                if node == parent.named_children[-1]:
+                    redirected = _redirected_stdin(wrapper)
+                    if redirected is not None:
+                        return redirected
+                wrapper = wrapper.parent
+            if node != parent.named_children[0]:
+                return True
+            node = wrapper
+        else:
+            node = parent
+    return inherited
+
+
+def _trailing_args(command: Node) -> list[str]:
+    parent = command.parent
+    if parent is not None and parent.type == "pipeline":
+        if command != parent.named_children[-1]:
+            return []
+        parent = parent.parent
+    if parent is None or parent.type != "redirected_statement":
+        return []
+    # The grammar groups words following a redirect with its destination.
+    return [
+        _word(word)
+        for redirect in parent.children_by_field_name("redirect")
+        for word in redirect.children_by_field_name("destination")[1:]
+    ]
 
 
 _WRAPPER_VALUES: dict[str, set[str]] = {
@@ -194,6 +291,7 @@ def _matching_command(
     value: str,
     source: bytes,
     depth: int,
+    inherited_stdin: bool,
 ) -> re.Match[str] | None:
     name = command.child_by_field_name("name")
     if name is None:
@@ -214,6 +312,7 @@ def _matching_command(
                     pattern,
                     script,
                     depth + 1,
+                    _has_stdin(command, inherited_stdin),
                 ):
                     return None
                 node = nodes[index + position + 2]
@@ -226,7 +325,10 @@ def _matching_command(
         return None
     elif executable == "wget" and not _wget_sends(rest):
         return None
-    elif executable in {"http", "https"} and not _httpie_sends(rest):
+    elif executable in {"http", "https"} and not _httpie_sends(
+        rest + _trailing_args(command),
+        _has_stdin(command, inherited_stdin),
+    ):
         return None
     elif executable == "himalaya" and not any(
         pair == ("message", "send") for pair in zip(rest, rest[1:])
@@ -244,6 +346,7 @@ def search_rule_pattern(
     pattern: re.Pattern[str],
     value: str,
     depth: int = 0,
+    inherited_stdin: bool = False,
 ) -> re.Match[str] | None:
     """Resolve outbound executable captures in their shell command context."""
     match = pattern.search(value)
@@ -257,7 +360,14 @@ def search_rule_pattern(
     while pending:
         node = pending.pop()
         if node.type == "command":
-            hit = _matching_command(pattern, node, value, source, depth)
+            hit = _matching_command(
+                pattern,
+                node,
+                value,
+                source,
+                depth,
+                inherited_stdin,
+            )
             if hit:
                 return hit
         pending.extend(reversed(node.named_children))

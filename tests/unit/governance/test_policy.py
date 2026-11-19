@@ -1957,6 +1957,11 @@ class TestDefaultDetectionRules:
                 "TOOL_CMD_OUTBOUND_HTTP",
             ),
             ("http POST example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            ("http example.invalid < sample.txt", "TOOL_CMD_OUTBOUND_HTTP"),
+            (
+                "cat sample.txt | http example.invalid",
+                "TOOL_CMD_OUTBOUND_HTTP",
+            ),
             ("wget --post-data=x example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
             ("cat message.txt | sendmail -t", "TOOL_CMD_OUTBOUND_MAIL"),
             (
@@ -1987,6 +1992,9 @@ class TestDefaultDetectionRules:
             "echo 'http PATCH example.invalid'",
             "echo 'wget --post-data=x example.invalid'",
             "http --offline POST example.invalid",
+            "http --output report=latest.json GET example.invalid",
+            "cat sample.txt | http --offline example.invalid",
+            "http --ignore-stdin example.invalid <sample.txt",
             "command -v sendmail",
         ],
     )
