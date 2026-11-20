@@ -6,6 +6,7 @@ Covers the rename into place and the copy fallback a refused one forces.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,120 @@ class TestInstallStagedSkillDir:
         assert marker.read_text(encoding="utf-8") == "original"
         assert staged.exists()
 
+    def test_the_previous_tree_waits_under_a_hidden_name(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Replacing must not delete the old tree inline: it is moved aside
+        first, under a name no skill enumeration picks up."""
+        staged = _write_tree(tmp_path / "stage" / "demo")
+        target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+        (target / "stale.txt").write_text("old", encoding="utf-8")
+        monkeypatch.setattr(
+            skill_store,
+            "_reclaim_retired_tree",
+            lambda _path: None,
+        )
+
+        skill_store.install_staged_skill_dir(staged, target)
+
+        retired = list(target.parent.glob(".demo.retired-*"))
+        assert len(retired) == 1
+        assert (retired[0] / "stale.txt").read_text(encoding="utf-8") == "old"
+        assert skill_store.is_ignored_skill_entry(retired[0].name)
+
+    def test_a_failed_install_puts_the_previous_tree_back(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        staged = _write_tree(tmp_path / "stage" / "demo")
+        target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+        marker = target / "keep.txt"
+        marker.write_text("original", encoding="utf-8")
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("install failed")
+
+        monkeypatch.setattr(
+            skill_store,
+            "rename_or_copy_directory",
+            _boom,
+        )
+        with pytest.raises(OSError, match="install failed"):
+            skill_store.install_staged_skill_dir(staged, target)
+
+        assert marker.read_text(encoding="utf-8") == "original"
+        assert not list(target.parent.glob(".*.retired-*"))
+
+    def test_keeps_the_old_tree_when_it_cannot_be_moved_back(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """If even the move back fails, the retired tree is the last copy and
+        must not be reclaimed."""
+        staged = _write_tree(tmp_path / "stage" / "demo")
+        target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+
+        real_replace = skill_store.os.replace
+        calls: list[tuple[Path, Path]] = []
+
+        def _replace(source, destination):
+            calls.append((Path(source), Path(destination)))
+            if len(calls) == 2:  # the move back
+                raise OSError("cannot move back")
+            real_replace(source, destination)
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("install failed")
+
+        monkeypatch.setattr(skill_store.os, "replace", _replace)
+        monkeypatch.setattr(
+            skill_store,
+            "rename_or_copy_directory",
+            _boom,
+        )
+        with pytest.raises(OSError, match="install failed"):
+            skill_store.install_staged_skill_dir(staged, target)
+
+        retired = list(target.parent.glob(".demo.retired-*"))
+        assert len(retired) == 1
+        assert (retired[0] / "SKILL.md").is_file()
+
+    def test_a_partial_target_does_not_block_the_move_back(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A copy that dies half way leaves a partial target; putting the old
+        tree back must remove it first instead of giving up."""
+        staged = _write_tree(tmp_path / "stage" / "demo")
+        target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+        marker = target / "keep.txt"
+        marker.write_text("original", encoding="utf-8")
+
+        def _half_copy(_source, destination, **_kwargs):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "partial.txt").write_text(
+                "half",
+                encoding="utf-8",
+            )
+            raise OSError("install failed")
+
+        monkeypatch.setattr(
+            skill_store,
+            "rename_or_copy_directory",
+            _half_copy,
+        )
+        with pytest.raises(OSError, match="install failed"):
+            skill_store.install_staged_skill_dir(staged, target)
+
+        assert marker.read_text(encoding="utf-8") == "original"
+        assert not (target / "partial.txt").exists()
+        assert not list(target.parent.glob(".*.retired-*"))
+
 
 def _raise_locked_error(*_args, **_kwargs):
     raise OSError("locked")
@@ -175,3 +290,113 @@ class TestDownloadUsesTheStagedInstall:
         assert installed == [target]
         assert len(copies) == 1, "the install must not copy the tree again"
         assert (target / "SKILL.md").is_file()
+
+
+class TestRetiredTreeRetention:
+    def test_another_install_keeps_a_tree_left_by_a_killed_run(
+        self,
+        tmp_path: Path,
+    ):
+        """A retired tree may be the only copy of an interrupted overwrite.
+
+        Its name says how the directory was created, not that its contents are
+        safe to drop: a process killed between moving the previous tree aside
+        and renaming the new one leaves the old version here. Reclaiming it on
+        the next, unrelated install turned that window into data loss.
+        """
+        skills_dir = tmp_path / "workspace" / "skills"
+        skills_dir.mkdir(parents=True)
+        retired = skills_dir / ".demo.retired-deadbeef"
+        retired.mkdir()
+        (retired / "SKILL.md").write_text(
+            "previous version",
+            encoding="utf-8",
+        )
+
+        staged = _write_tree(tmp_path / "stage" / "fresh")
+        skill_store.install_staged_skill_dir(staged, skills_dir / "fresh")
+
+        # The reclaim path removes the tree on a daemon thread; give it a
+        # moment before deciding the tree survived.
+        for _ in range(50):
+            if not retired.is_dir():
+                break
+            time.sleep(0.01)
+
+        assert retired.is_dir(), "an interrupted update must stay recoverable"
+        assert (retired / "SKILL.md").read_text(
+            encoding="utf-8",
+        ) == "previous version"
+
+
+# ---------------------------------------------------------------------------
+# Cleanup timing (review: Leirunlin, 2026-11-20)
+# ---------------------------------------------------------------------------
+
+
+def test_a_failed_install_never_schedules_cleanup(tmp_path: Path, monkeypatch):
+    """Reclaiming while the move back can still fail would delete the only
+    recoverable copy, so the failure path schedules nothing."""
+    staged = _write_tree(tmp_path / "stage" / "demo")
+    target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+    scheduled: list[Path] = []
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("install failed")
+
+    monkeypatch.setattr(skill_store, "rename_or_copy_directory", _boom)
+    monkeypatch.setattr(
+        skill_store,
+        "_reclaim_retired_tree",
+        lambda path: scheduled.append(path),
+    )
+
+    with pytest.raises(OSError, match="install failed"):
+        skill_store.install_staged_skill_dir(staged, target)
+
+    assert scheduled == []
+    # The previous tree was moved back, so nothing was lost either.
+    assert (target / "SKILL.md").is_file()
+
+
+def test_cleanup_is_scheduled_only_after_the_new_tree_lands(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """The old tree is reclaimed once the new one is already in place."""
+    staged = _write_tree(tmp_path / "stage" / "demo")
+    target = _write_tree(tmp_path / "workspace" / "skills" / "demo")
+    scheduled: list[Path] = []
+    monkeypatch.setattr(
+        skill_store,
+        "_reclaim_retired_tree",
+        lambda path: scheduled.append(path),
+    )
+
+    skill_store.install_staged_skill_dir(staged, target)
+
+    assert len(scheduled) == 1
+    assert ".demo.retired-" in scheduled[0].name
+    assert (target / "SKILL.md").is_file()
+
+
+def test_a_cleanup_that_cannot_start_leaves_the_tree(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """A thread that refuses to start must not fail the install around it."""
+    tree = tmp_path / ".demo.retired-abc"
+    tree.mkdir()
+
+    class _RefusingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(skill_store.threading, "Thread", _RefusingThread)
+
+    skill_store._reclaim_retired_tree(tree)
+
+    assert tree.is_dir()
