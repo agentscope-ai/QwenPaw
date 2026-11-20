@@ -19,6 +19,7 @@ errors.  Covers:
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,7 +29,10 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.exception_handlers import register_exception_handlers
-from qwenpaw.app.routers.config import router as config_router
+from qwenpaw.app.routers.config import (
+    _validated_channel_config,
+    router as config_router,
+)
 from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
     AgentProfileConfig,
@@ -37,8 +41,10 @@ from qwenpaw.config.config import (
     ChannelConfig,
     Config,
     ConsoleConfig,
+    DiscordConfig,
     HeartbeatConfig,
     OneBotConfig,
+    QQConfig,
     TelegramConfig,
     ThemeConfig,
     ToolGuardConfig,
@@ -146,6 +152,111 @@ def isolated_channel_persistence(tmp_path, monkeypatch, fake_agent_workspace):
         ),
     )
     return directory / "agent.json"
+
+
+def _seed_agent_with_channels(
+    tmp_path,
+    monkeypatch,
+    fake_agent_workspace,
+    channels,
+):
+    """Seed agent.json with the given channels (mirrors the fixture above)."""
+    from qwenpaw.config import utils as config_utils
+
+    root_path = tmp_path / "config.json"
+    monkeypatch.setattr(config_utils, "get_config_path", lambda: root_path)
+    monkeypatch.setattr(config_utils, "_config_cache", None)
+    monkeypatch.setattr(config_utils, "_config_mtime", None)
+    monkeypatch.setattr(config_utils, "_agent_config_cache", {})
+    directory = tmp_path / "default"
+    directory.mkdir()
+    config_utils.save_config(
+        Config(
+            agents=AgentsConfig(
+                profiles={
+                    "default": AgentProfileRef(
+                        id="default",
+                        workspace_dir=str(directory),
+                    ),
+                },
+            ),
+        ),
+    )
+    fake_agent_workspace.config.channels = channels
+    save_agent_config(
+        "default",
+        AgentProfileConfig(
+            id="default",
+            name="Default",
+            channels=fake_agent_workspace.config.channels.model_copy(
+                deep=True,
+            ),
+        ),
+    )
+    return directory / "agent.json"
+
+
+@pytest.fixture
+def isolated_qq_channel_persistence(
+    tmp_path,
+    monkeypatch,
+    fake_agent_workspace,
+):
+    """Seed agent.json with an enabled QQ channel (dummy creds only)."""
+    return _seed_agent_with_channels(
+        tmp_path,
+        monkeypatch,
+        fake_agent_workspace,
+        ChannelConfig(
+            qq=QQConfig(
+                enabled=True,
+                app_id="123456",
+                client_secret="dummy-secret-for-repro-only",
+                markdown_enabled=False,
+                max_reconnect_attempts=5,
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def isolated_discord_channel_persistence(
+    tmp_path,
+    monkeypatch,
+    fake_agent_workspace,
+):
+    """Seed agent.json with an enabled Discord channel (dummy token only)."""
+    return _seed_agent_with_channels(
+        tmp_path,
+        monkeypatch,
+        fake_agent_workspace,
+        ChannelConfig(
+            discord=DiscordConfig(
+                enabled=True,
+                bot_token="dummy-token-for-repro-only",
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def isolated_onebot_token_persistence(
+    tmp_path,
+    monkeypatch,
+    fake_agent_workspace,
+):
+    """Seed agent.json with a OneBot channel holding an access token."""
+    return _seed_agent_with_channels(
+        tmp_path,
+        monkeypatch,
+        fake_agent_workspace,
+        ChannelConfig(
+            onebot=OneBotConfig(
+                enabled=True,
+                access_token="dummy-token-for-repro-only",
+            ),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +529,202 @@ def test_put_onebot_channel_rejects_invalid_value(
         fake_agent_workspace.config.channels.onebot,
         OneBotConfig,
     )
+
+
+# ---------------------------------------------------------------------------
+# Partial channel updates preserve persisted fields (issue #8475)
+# ---------------------------------------------------------------------------
+
+
+def test_validated_channel_config_merges_persisted_state():
+    """The merge+validation boundary: omitted fields keep persisted values.
+
+    The standalone plugin validator cannot preserve a value it was never
+    given, so the merge lives here — a partial update merges the persisted
+    channel config first and only then validates.
+    """
+    persisted = {
+        "enabled": True,
+        "app_id": "123456",
+        "client_secret": "dummy-secret-for-repro-only",
+        "markdown_enabled": False,
+        "max_reconnect_attempts": 5,
+    }
+    merged = _validated_channel_config(
+        "qq",
+        {"app_id": "123456", "client_secret": "dummy-secret-for-repro-only"},
+        existing=persisted,
+    )
+    assert merged["enabled"] is True
+    assert merged["markdown_enabled"] is False
+    assert merged["max_reconnect_attempts"] == 5
+
+    disabled = _validated_channel_config(
+        "qq",
+        {"enabled": False},
+        existing=persisted,
+    )
+    assert disabled["enabled"] is False
+
+    fresh = _validated_channel_config(
+        "qq",
+        {"app_id": "123456", "client_secret": "dummy-secret-for-repro-only"},
+    )
+    assert fresh["enabled"] is False  # schema default for a new channel
+
+
+def test_put_qq_channel_partial_update_preserves_enabled(
+    client,
+    patch_get_agent,
+    isolated_qq_channel_persistence,
+):
+    """A credentials-only PUT must not reset an enabled QQ channel (#8475)."""
+    with (
+        patch(
+            "qwenpaw.config.config.save_agent_config",
+            wraps=save_agent_config,
+        ) as save_mock,
+        patch(
+            "qwenpaw.app.routers.config.schedule_agent_reload",
+        ) as reload_mock,
+    ):
+        response = client.put(
+            "/api/config/channels/qq",
+            json={
+                "app_id": "123456",
+                "client_secret": "dummy-secret-for-repro-only",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is True
+    # Other omitted fields survive the partial update too.
+    assert response.json()["markdown_enabled"] is False
+    assert response.json()["max_reconnect_attempts"] == 5
+    saved = load_agent_config("default")
+    assert saved.channels.qq.enabled is True
+    assert saved.channels.qq.max_reconnect_attempts == 5
+    save_mock.assert_called_once()
+    reload_mock.assert_called_once()
+
+
+def test_put_qq_channel_explicit_disable_still_works(
+    client,
+    caplog,
+    patch_get_agent,
+    isolated_qq_channel_persistence,
+):
+    """An explicit ``enabled: false`` disables, and the flip is logged."""
+    caplog.set_level(logging.WARNING, logger="qwenpaw.app.routers.config")
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels/qq",
+            json={"enabled": False},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is False
+    assert load_agent_config("default").channels.qq.enabled is False
+    assert any(
+        "qq" in record.getMessage() and "True to False" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_put_qq_channel_partial_update_without_flip_logs_nothing(
+    client,
+    caplog,
+    patch_get_agent,
+    isolated_qq_channel_persistence,
+):
+    """No warning when the enabled state does not actually change."""
+    caplog.set_level(logging.WARNING, logger="qwenpaw.app.routers.config")
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels/qq",
+            json={
+                "app_id": "123456",
+                "client_secret": "dummy-secret-for-repro-only",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert not any(
+        "enabled state changed" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_put_channels_bulk_partial_update_preserves_enabled(
+    client,
+    patch_get_agent,
+    isolated_qq_channel_persistence,
+):
+    """Bulk PUT is a per-channel partial update too (#8475)."""
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels",
+            json={"qq": {"app_id": "123456"}},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["qq"]["enabled"] is True
+    assert load_agent_config("default").channels.qq.enabled is True
+
+
+def test_put_new_qq_channel_uses_schema_defaults(
+    client,
+    patch_get_agent,
+    isolated_channel_persistence,
+):
+    """A genuinely-new channel still gets schema defaults (enabled False)."""
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels/qq",
+            json={
+                "app_id": "123456",
+                "client_secret": "dummy-secret-for-repro-only",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is False
+    assert load_agent_config("default").channels.qq.enabled is False
+
+
+def test_put_discord_channel_partial_update_preserves_enabled(
+    client,
+    patch_get_agent,
+    isolated_discord_channel_persistence,
+):
+    """The fix is generic — a second channel type behaves the same (#8475)."""
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels/discord",
+            json={"bot_token": "new-dummy-token"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is True
+    assert response.json()["bot_token"] == "new-dummy-token"
+    assert load_agent_config("default").channels.discord.enabled is True
+
+
+def test_put_onebot_channel_explicit_empty_value_clears_field(
+    client,
+    patch_get_agent,
+    isolated_onebot_token_persistence,
+):
+    """Omission preserves, explicit ``""`` clears — no deletion by omission."""
+    with patch("qwenpaw.app.routers.config.schedule_agent_reload"):
+        response = client.put(
+            "/api/config/channels/onebot",
+            json={"access_token": ""},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["access_token"] == ""
+    assert load_agent_config("default").channels.onebot.access_token == ""
 
 
 # ---------------------------------------------------------------------------
