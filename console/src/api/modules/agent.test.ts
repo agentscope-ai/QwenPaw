@@ -136,7 +136,7 @@ describe("agentApi", () => {
     });
   });
 
-it("testReranker budgets the full five-request suite", async () => {
+  it("testReranker budgets the full five-request suite", async () => {
     const config = {
       enabled: true,
       api_key: `probe-${crypto.randomUUID().replace(/-/g, "")}`,

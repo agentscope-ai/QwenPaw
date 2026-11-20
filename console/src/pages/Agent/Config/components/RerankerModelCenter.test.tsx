@@ -65,7 +65,11 @@ const historyRecord = {
   total: 5,
 };
 
-function Harness({ config = enabledConfig }: { config?: typeof enabledConfig }) {
+function Harness({
+  config = enabledConfig,
+}: {
+  config?: typeof enabledConfig;
+}) {
   const [form] = Form.useForm();
   useEffect(() => {
     form.setFieldsValue({

@@ -48,7 +48,7 @@ class _FakeResponse:
 
 class _FakeAsyncClient:
     # Every request the probe made, in order.
-    posted: list = []
+    posted: list[dict] = []
     # How many clients the probe constructed (one is expected per suite).
     created = 0
 
@@ -107,7 +107,7 @@ def _suite_scores(
     return payloads
 
 
-def _install(monkeypatch, **client_kwargs) -> list[list]:
+def _install(monkeypatch, **client_kwargs) -> list[dict]:
     def factory(**kwargs):
         return _FakeAsyncClient(**kwargs, **client_kwargs)
 

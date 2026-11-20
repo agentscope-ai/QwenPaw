@@ -30,9 +30,7 @@ function canonicalTimeout(timeout: unknown): string {
  * because `crypto.subtle` is unavailable on a plain-HTTP console served from
  * a non-loopback origin.
  */
-export function getRerankerConfigKey(
-  config?: Partial<RerankerConfig>,
-): string {
+export function getRerankerConfigKey(config?: Partial<RerankerConfig>): string {
   if (!config) return "";
   return JSON.stringify([
     config.base_url?.trim().replace(/\/+$/, "") || "",

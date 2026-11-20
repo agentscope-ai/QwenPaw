@@ -15,10 +15,9 @@ import { useRerankerVerification } from "./useRerankerVerification";
 function formRerankerConfig(form: {
   getFieldValue: (name: (string | number)[]) => unknown;
 }): RerankerConfig | undefined {
-  return form.getFieldValue([
-    "reme_light_memory_config",
-    "reranker_config",
-  ]) as RerankerConfig | undefined;
+  return form.getFieldValue(["reme_light_memory_config", "reranker_config"]) as
+    | RerankerConfig
+    | undefined;
 }
 
 export function RerankerModelCenter() {
@@ -276,9 +275,7 @@ export function RerankerModelCenter() {
           ) : history.length > 0 ? (
             <>
               <strong>—</strong>
-              <small>
-                {t("agentConfig.rerankerPrecisionHistoryOnly")}
-              </small>
+              <small>{t("agentConfig.rerankerPrecisionHistoryOnly")}</small>
               <PrecisionSparkline history={history} />
             </>
           ) : (

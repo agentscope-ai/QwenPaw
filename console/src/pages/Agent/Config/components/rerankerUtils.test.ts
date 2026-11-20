@@ -61,9 +61,9 @@ describe("getRerankerConfigKey", () => {
   it("changes whenever a service-affecting field changes", () => {
     const baseline = getRerankerConfigKey(enabledConfig);
 
-    expect(getRerankerConfigKey({ ...enabledConfig, api_key: "other" })).not.toBe(
-      baseline,
-    );
+    expect(
+      getRerankerConfigKey({ ...enabledConfig, api_key: "other" }),
+    ).not.toBe(baseline);
     expect(
       getRerankerConfigKey({ ...enabledConfig, model_name: "other-model" }),
     ).not.toBe(baseline);
@@ -73,9 +73,9 @@ describe("getRerankerConfigKey", () => {
   });
 
   it("preserves fractional timeouts (1.5 != 1)", () => {
-    expect(
-      getRerankerConfigKey({ ...enabledConfig, timeout: 1.5 }),
-    ).not.toBe(getRerankerConfigKey({ ...enabledConfig, timeout: 1 }));
+    expect(getRerankerConfigKey({ ...enabledConfig, timeout: 1.5 })).not.toBe(
+      getRerankerConfigKey({ ...enabledConfig, timeout: 1 }),
+    );
   });
 
   it("ignores form-only fields like the multiplier", () => {

@@ -459,21 +459,25 @@ async def test_reranker_model(
                                 "Reranker service returned an unexpected "
                                 "response format",
                             )
-                        indices = [
-                            item.get("index")
-                            for item in results
-                            if isinstance(item, dict)
-                        ]
+                        indices: list[int] = []
+                        for item in results:
+                            if not isinstance(item, dict):
+                                raise RuntimeError(
+                                    "Reranker service returned invalid "
+                                    "document indices",
+                                )
+                            index = item.get("index")
+                            if not isinstance(index, int) or isinstance(
+                                index, bool
+                            ):
+                                raise RuntimeError(
+                                    "Reranker service returned invalid "
+                                    "document indices",
+                                )
+                            indices.append(index)
                         # Same index contract as the runtime path: every
                         # document exactly once. Duplicate indices must not be
                         # scored as if they were distinct rankings.
-                        if len(indices) != len(results) or any(
-                            not isinstance(i, int) for i in indices
-                        ):
-                            raise RuntimeError(
-                                "Reranker service returned invalid document "
-                                "indices",
-                            )
                         if sorted(indices) != list(range(len(documents))):
                             raise RuntimeError(
                                 "Reranker service returned invalid document "
