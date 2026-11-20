@@ -87,8 +87,17 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 | `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`           | `view_image` 远程图片下载上限（MiB）。接受任意正整数；非法值、`0` 或负数回退到默认值                             |
 | `QWENPAW_MAX_IMAGE_PIXELS`             | 未设置         | 请求时等比例缩放内联图片所使用的最大像素数（`宽 × 高`）。未设置、空值或 `0` 表示关闭；非法值或负数会返回配置错误 |
 | `QWENPAW_CONSOLE_STATIC_DIR`           | _（自动检测）_ | 控制台前端静态文件路径                                                                                           |
+| `QWENPAW_QUERY_ERROR_DUMP_DIR`         | _（系统临时目录）_ | `qwenpaw_query_error_*.json` 诊断文件的保存目录；不存在时自动创建                                            |
+| `QWENPAW_QUERY_ERROR_DUMP_MAX_FILES`   | `40`           | 该目录中保留的错误快照最大数量；设为 `0` 时不限制数量                                                          |
+| `QWENPAW_QUERY_ERROR_DUMP_MAX_TOTAL_MB` | `50`          | 保留的错误快照总容量上限（MiB）；设为 `0` 时不限制总容量                                                       |
+| `QWENPAW_QUERY_ERROR_DUMP_MAX_FILE_MB` | `8`            | 单个错误快照的大小上限（MiB）；超出时优先省略 `agent_state`；设为 `0` 时不限制单文件大小                       |
+| `QWENPAW_QUERY_ERROR_DUMP_MAX_AGE_DAYS` | `7`           | 错误快照的最长保留天数；设为 `0` 时不按时间清理                                                               |
+| `QWENPAW_QUERY_ERROR_DUMP_MIN_INTERVAL_SECONDS` | `60` | 同一会话、同一错误的最小快照间隔（秒）；窗口内重复错误复用上一份快照；设为 `0` 时关闭限频                     |
+| `QWENPAW_QUERY_ERROR_DUMP_AGENT_STATE` | `true`         | 是否在错误快照中记录 `agent_state`；设为 `false` 时仅保留 traceback、异常和请求元数据                          |
 
 启用图片缩放后，如果需要缩放的图片无法处理，请求会返回明确错误，不会回退为发送原图。
+
+错误快照仅在查询失败时写出。默认保存在操作系统临时目录（`tempfile.gettempdir()`），与应用工作目录 `QWENPAW_WORKING_DIR` 无关；在 Windows 上通常是系统盘的用户 `%TEMP%`，即使业务数据位于其他磁盘。每次写入后会执行清理，即使最新快照本身超出总容量上限也会保留；非法的上限值会回退到默认值。单个快照超出 `MAX_FILE_MB` 时，按以下顺序裁剪：`agent_state` 摘要、trace 尾部、request 正文、剩余 `agent_state`，最后仅保留用于定位问题的字段。
 
 **LLM 流式超时：**
 
