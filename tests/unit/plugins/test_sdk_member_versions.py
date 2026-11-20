@@ -49,6 +49,19 @@ def package(tmp_path, source, version):
             "def f(host: PluginTestHost):\n"
             "    return host.run_harness('example', None)\n"
         ),
+    ],
+)
+def test_harness_interfaces_keep_sdk_11_minimum(tmp_path, source):
+    old = package(tmp_path, source, "1.0")
+    assert {finding.code for finding in old.findings} == {"sdk-version"}
+    assert not old.ok
+    current = package(tmp_path, source, "1.1")
+    assert current.ok, current.findings
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
         (
             "from qwenpaw.plugins.resources import ResourceScope as Scope\n"
             "async def f(r: Scope):\n"
@@ -77,10 +90,6 @@ def package(tmp_path, source, version):
             "    await host.search_market('key', '', category='app')\n"
         ),
         (
-            "from qwenpaw.plugins.models import ModelSelection\n"
-            "selection = ModelSelection('provider', 'model')\n"
-        ),
-        (
             "from qwenpaw.plugins.tools import ToolContext\n"
             "async def f(call: ToolContext):\n"
             "    return await call.models.catalog()\n"
@@ -101,7 +110,6 @@ def package(tmp_path, source, version):
             "from qwenpaw.plugins.workflows import WorkflowSpec, "
             "WorkflowSchedule, WorkflowContext, WorkflowResult, WorkflowNotification\n"
         ),
-        "from qwenpaw.plugins.channel_workers import ChannelDefinition\n",
         (
             "from qwenpaw.plugins.channel_workers import ResponsePolicy\n"
             "policy = ResponsePolicy(configured_prefix=False)\n"
@@ -202,7 +210,10 @@ def test_new_member_requires_new_minimum(tmp_path, source):
 @pytest.mark.parametrize(
     "source",
     [
-        "from qwenpaw.plugins.models import ModelSelection\n",
+        (
+            "from qwenpaw.plugins.models import ModelSelection\n"
+            "selection = ModelSelection('provider', 'model')\n"
+        ),
         "from qwenpaw.plugins.channel_workers import ChannelDefinition\n",
         (
             "from qwenpaw.plugins.resources import ResourceScope\n"
@@ -226,21 +237,6 @@ def test_sdk_11_rejects_sdk_12_additions(tmp_path, source):
     assert not old.ok
     assert {finding.code for finding in old.findings} == {"sdk-version"}
     assert package(tmp_path, source, "1.2.0").ok
-
-
-def test_harness_interfaces_keep_sdk_11_minimum(tmp_path):
-    source = (
-        "from qwenpaw.plugins import PluginContext\n"
-        "from qwenpaw.plugins.harnesses import HarnessSpec\n"
-        "from qwenpaw.plugins.testing import PluginTestHost\n"
-        "def f(ctx: PluginContext, host: PluginTestHost):\n"
-        "    ctx.register_harness(None)\n"
-        "    host.list_harnesses()\n"
-        "    host.harness_status('example')\n"
-        "    host.run_harness('example', None)\n"
-    )
-    assert package(tmp_path, source, "1.1.0").ok
-    assert not package(tmp_path, source, "1.0.0").ok
 
 
 def test_old_host_rejects_new_plugin_before_loading(monkeypatch):
@@ -311,21 +307,6 @@ def test_existing_prompt_text_remains_compatible(tmp_path):
 def test_private_context_remains_forbidden(tmp_path):
     report = package(tmp_path, "def f(ctx):\n    return ctx._api\n", "1.2")
     assert any(f.code == "private-context" for f in report.findings)
-
-
-def test_explicit_public_protocol_is_not_private(tmp_path):
-    report = package(
-        tmp_path,
-        (
-            "from qwenpaw.plugins.resources import ResourceScope as Scope\n"
-            "async def f(call: Scope):\n"
-            "    await Scope.__aenter__(call)\n"
-            "    await call.__aexit__(None, None, None)\n"
-        ),
-        "1.2",
-    )
-    assert report.ok, report.findings
-    assert not report.uncovered
 
 
 def test_protocol_exception_does_not_allow_private_methods(tmp_path):

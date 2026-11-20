@@ -69,7 +69,7 @@ for name in ("@types/react", "@types/prop-types", "csstype", "typescript"):
 (root / "author.ts").write_text(
     """
 import {
-  SDK_VERSION, getHost, forApp, tasks, capabilities,
+  SDK_VERSION, getHost, forApp, tasks, capabilities, checkpoints,
   type TaskSnapshot, type CancelResult, type PluginRouteDeclaration,
   type HarnessSettingsProps, type HarnessFrontendExtension,
 } from "@qwenpaw/plugin-sdk";
@@ -86,6 +86,24 @@ const harness: HarnessFrontendExtension = {
 host.harnesses.register("author", harness).dispose();
 window.QwenPaw.harnesses.register("author", harness).dispose();
 const app = forApp("author-app");
+const draft = host.chat.composer.read();
+if (draft) {
+  host.chat.composer.replace(draft, "Improved prompt");
+  // @ts-expect-error Draft snapshots are readonly.
+  draft.text = "other";
+}
+// @ts-expect-error No arbitrary session reader exists on the composer.
+host.chat.composer.read("other-session");
+// @ts-expect-error Unknown methods must be rejected.
+host.chat.composer.replaceAll("text");
+// @ts-expect-error Workspace IDs are strings.
+void host.host.selectAgent(42);
+// @ts-expect-error Model selection requires both identifiers.
+void app.chat("hello", { model: { model_id: "model" } });
+// @ts-expect-error Restore requires an explicitly selected conversation.
+void checkpoints("author-app").restore("checkpoint", {});
+// @ts-expect-error Selected files are paths.
+void checkpoints("author-app").previewRestore("checkpoint", { chatId: "chat", files: true });
 const legacyRoute: PluginRouteDeclaration = {
   path: "/plugin/author/legacy", component: () => null, label: "Legacy label",
 };

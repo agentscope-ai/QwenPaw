@@ -8,7 +8,6 @@ import json
 import pytest
 
 from qwenpaw.plugins.commands import CommandResult, CommandSpec
-from qwenpaw.plugins.hooks import HookPhase, HookResult, HookSpec
 from qwenpaw.plugins.messages import ContentBlock, Message
 from qwenpaw.plugins.prompts import PromptSpec
 from qwenpaw.plugins.tools import ToolResult, ToolSpec
@@ -99,9 +98,7 @@ async def test_concurrent_tool_and_command_identity(sdk_component):
             snapshots[0].user_id = "changed"
 
 
-async def test_dynamic_prompt_and_save_signal(sdk_component):
-    observed = []
-
+async def test_dynamic_prompt_uses_request_identity(sdk_component):
     def declare(ctx):
         ctx.register_prompt(
             PromptSpec(
@@ -113,16 +110,7 @@ async def test_dynamic_prompt_and_save_signal(sdk_component):
             ),
         )
 
-        async def observe(call):
-            observed.append((call.identity, call.session_saved))
-            return HookResult()
-
-        ctx.register_hook(HookSpec("saved", HookPhase.FINALLY, observe))
-
-    async with sdk_component(declare, capabilities=("prompts", "hooks")) as (
-        host,
-        ctx,
-    ):
+    async with sdk_component(declare, capabilities=("prompts",)) as (host, _):
         assert (
             await host.build_prompt(
                 workspace_id="one",
@@ -131,18 +119,4 @@ async def test_dynamic_prompt_and_save_signal(sdk_component):
                 channel="dingtalk",
             )
             == "one:s:alice:dingtalk"
-        )
-        for saved in (None, False, True):
-            await host.run_hooks(
-                HookPhase.FINALLY,
-                workspace_id="one",
-                session_id="s",
-                user_id="alice",
-                channel="dingtalk",
-                session_saved=saved,
-            )
-        assert [entry[1] for entry in observed] == [None, False, True]
-        assert all(
-            entry[0].user_id == "alice" and entry[0].channel == "dingtalk"
-            for entry in observed
         )

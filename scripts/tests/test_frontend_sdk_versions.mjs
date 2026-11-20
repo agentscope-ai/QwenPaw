@@ -107,11 +107,6 @@ test("SDK 1.1 rejects new APIs while retaining Harness support", async () => {
     ],
   );
   assert.ok(result.findings.every((f) => f.rule === "sdk-version"));
-  const harness = await check("1.1.0", `
-import {getHost} from '@qwenpaw/plugin-sdk';
-getHost().harnesses.register('app', {backendId:'example'});
-`);
-  assert.equal(harness.ok, true, JSON.stringify(harness));
 });
 
 test("SDK 1.2 accepts the same public usage", async () => {

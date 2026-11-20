@@ -23,7 +23,7 @@ async def test_run_sync_releases_finished_work_before_scope_closes():
     async with resources:
         for value in range(300):
             assert await resources.run_sync(int, str(value)) == value
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid literal"):
             await resources.run_sync(int, "invalid")
         assert resources.snapshot() == {
             "owner": resources.owner,
@@ -237,17 +237,6 @@ async def test_run_sync_cancellation_retains_actual_thread(monkeypatch):
         await resources.close()
     assert not any(t.ident in worker_ids for t in threading.enumerate())
     assert not resources.snapshot()["resources"]
-
-
-async def test_run_sync_value_error_and_context_manager():
-    root = scope()
-    async with root:
-        async with root.child() as child:
-            assert await child.run_sync(lambda value: value + 1, 4) == 5
-        assert child.closed and not root.snapshot()["resources"]
-        with pytest.raises(ValueError, match="invalid literal"):
-            await root.run_sync(int, "not a number")
-    assert root.closed
 
 
 async def test_async_process_interactive_io_and_close():

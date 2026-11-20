@@ -564,3 +564,15 @@ async def harness_author_host(host: PluginTestHost) -> None:
         AsyncGenerator[ChatEvent, None],
     )
     await events.aclose()
+
+
+async def rejected_author_usage(tool: ToolContext, app: AppContext) -> None:
+    # Strict mypy reports an unused ignore if the SDK accepts an invalid call.
+    await tool.models.nonexistent()  # type: ignore[attr-defined]
+    await tool.models.configured(arbitrary_user="other")  # type: ignore[call-arg]
+    await tool.resources.async_process(["test"], tree="yes")  # type: ignore[arg-type]
+    tool.identity.user_id = "other"  # type: ignore[misc]
+    async with tool.resources.child() as child:
+        child.nonexistent()  # type: ignore[attr-defined]
+    await tool.runs.list(user_id="other")  # type: ignore[call-arg]
+    await app.conversations.history(session_id="other")  # type: ignore[call-arg]

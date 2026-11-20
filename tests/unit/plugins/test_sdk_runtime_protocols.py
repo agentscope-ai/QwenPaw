@@ -28,7 +28,7 @@ async def test_runtime_allows_resource_scope_async_context_protocol(
     operation = (
         """
             owned = ctx.resources.child()
-            entered = await ResourceScope.__aenter__(owned)
+            entered = await Scope.__aenter__(owned)
             try:
                 await entered.run_sync(str, 42)
             finally:
@@ -42,7 +42,7 @@ async def test_runtime_allows_resource_scope_async_context_protocol(
     )
     (tmp_path / "main.py").write_text(
         """
-from qwenpaw.plugins.resources import ResourceScope
+from qwenpaw.plugins.resources import ResourceScope as Scope
 class Plugin:
     def register(self, ctx):
         async def activate(call):
@@ -55,6 +55,7 @@ plugin = Plugin()
     )
     static = check_plugin(tmp_path)
     assert static.ok, static.findings
+    assert not static.uncovered
     report = await _runtime(tmp_path, static)
     assert report.ok, report.findings
     assert report.runtime_checked

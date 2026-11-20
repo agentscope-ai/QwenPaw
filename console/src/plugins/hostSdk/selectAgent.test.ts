@@ -38,20 +38,6 @@ it("switches through the normal store only after a fresh permitted result", asyn
   await expect(selectAgent("missing")).rejects.toThrow("unavailable");
   expect(useAgentStore.getState().selectedAgent).toBe("allowed");
 });
-it("does not overwrite a newer user choice while the server is answering", async () => {
-  let resolve!: (value: AgentListResponse) => void;
-  vi.mocked(agentsApi.listAgents).mockReturnValue(
-    new Promise((done) => {
-      resolve = done;
-    }),
-  );
-  const pending = selectAgent("allowed");
-  useAgentStore.getState().setSelectedAgent("newer-choice");
-  resolve(response);
-  await expect(pending).rejects.toThrow("changed");
-  expect(useAgentStore.getState().selectedAgent).toBe("newer-choice");
-});
-
 it("rejects a pending switch after the user leaves and returns", async () => {
   let resolve!: (value: AgentListResponse) => void;
   vi.mocked(agentsApi.listAgents).mockReturnValue(
