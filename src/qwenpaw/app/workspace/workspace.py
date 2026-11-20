@@ -489,6 +489,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
             return
 
         from ...runtime.runtime import Runtime
+        from ...token_usage.model_wrapper import has_isolated_turn_usage
 
         rt = Runtime(workspace=self, app_services=self._app_services)
         stream = rt.run(request)
@@ -498,7 +499,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         finally:
             from ...plugins._events import observing
 
-            if observing():
+            if observing() or has_isolated_turn_usage():
                 await stream.aclose()
 
     def _register_services(  # pylint: disable=too-many-statements

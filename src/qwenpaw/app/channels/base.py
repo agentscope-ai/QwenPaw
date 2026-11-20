@@ -2024,12 +2024,9 @@ class BaseChannel(ABC):
     @staticmethod
     def _clear_session_turn_usage(session_id: str) -> None:
         """Drop any staged per-session usage (turn start / cancel / error)."""
-        if not session_id:
-            return
-        import importlib
+        from ...token_usage.turn_usage import discard_turn_usage
 
-        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
-        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+        discard_turn_usage(session_id)
 
     async def _commit_turn_usage(
         self,
@@ -2042,54 +2039,21 @@ class BaseChannel(ABC):
         if not session_id:
             return []
         try:
-            import importlib
-
-            turn_usage = importlib.import_module(
-                "qwenpaw.token_usage.turn_usage",
-            )
-            token_usage = importlib.import_module("qwenpaw.token_usage")
+            from ...token_usage.turn_usage import commit_turn_usage
 
             workspace = self._workspace
-            session = (
-                getattr(workspace, "session", None)
-                if workspace is not None
-                else None
-            )
-            agent_id = (
-                getattr(workspace, "agent_id", "default")
-                if workspace is not None
-                else "default"
-            )
             user_id = getattr(request, "user_id", "") or ""
             channel = getattr(request, "channel", "") or self.channel
-            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
+            turn, ctx = await commit_turn_usage(
+                session=getattr(workspace, "session", None),
+                agent_id=getattr(workspace, "agent_id", "default"),
                 session_id=session_id,
-                agent_id=agent_id,
-                session=session,
                 user_id=user_id,
                 channel=channel,
             )
             if turn is None and ctx is None:
                 return []
             self._on_turn_usage_ready(turn, ctx)
-            if turn:
-                logger.info("Usage for session %s: %s", session_id, turn)
-            if session is not None:
-                try:
-                    await token_usage.persist_turn_usage(
-                        session=session,
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        turn=turn,
-                        ctx=ctx,
-                        agent_state=agent_state,
-                    )
-                except Exception:
-                    logger.warning(
-                        "turn usage persist skipped",
-                        exc_info=True,
-                    )
             if not emit_sse:
                 return []
             payload: Dict[str, Any] = {
