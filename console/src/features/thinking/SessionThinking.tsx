@@ -31,11 +31,13 @@ export function SessionThinking({
   agentId,
   sessionId,
   chatId,
+  compact = false,
   onDecisionConfiguredChange,
 }: {
   agentId: string;
   sessionId: string;
   chatId?: string | null;
+  compact?: boolean;
   onDecisionConfiguredChange?: (configured: boolean | undefined) => void;
 }) {
   const { t } = useTranslation();
@@ -190,6 +192,10 @@ export function SessionThinking({
     displayedValue.level === "inherit"
       ? view?.effective ?? displayedValue
       : displayedValue;
+  const modelLabel =
+    view?.model_name ||
+    (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
+    t("modelSelector.selectModel");
   const showPicker = choosing || !view?.model;
   return (
     <ModelPickerPopover
@@ -260,23 +266,28 @@ export function SessionThinking({
     >
       <button
         type="button"
-        className={styles.trigger}
+        className={`${styles.trigger} ${compact ? styles.triggerCompact : ""}`}
         aria-expanded={open}
         aria-label={t("thinkingControl.title")}
+        title={compact ? modelLabel : undefined}
       >
         {view?.provider_id && (
           <ProviderIcon providerId={view.provider_id} size={16} />
         )}
-        {view && !view.model && <Plug size={16} aria-hidden="true" />}
-        <span>
-          {view?.model_name ||
-            (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
-            t("modelSelector.selectModel")}
-        </span>
-        {view?.model && display.level !== "inherit" && (
-          <ThinkingIndicator control={view.control} value={display} />
+        {(!view?.provider_id || (view && !view.model)) && (
+          <Plug size={16} aria-hidden="true" />
         )}
-        <ChevronDown size={12} />
+        {!compact && (
+          <>
+            <span data-composer-collapse-content>{modelLabel}</span>
+            {view?.model && display.level !== "inherit" && (
+              <span data-composer-collapse-content>
+                <ThinkingIndicator control={view.control} value={display} />
+              </span>
+            )}
+            <ChevronDown data-composer-collapse-content size={12} />
+          </>
+        )}
       </button>
     </ModelPickerPopover>
   );
