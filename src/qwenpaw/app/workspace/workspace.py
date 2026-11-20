@@ -35,7 +35,6 @@ from .service_factories import (
     prepare_history_service,
     history_service_reuse_compatible,
     create_driver_service,
-    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
@@ -194,6 +193,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self.cron_start_paused = False
         self._history_retention_days = 0
         self._started = False
+        self._mcp_feature_lock = asyncio.Lock()
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
@@ -446,6 +446,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        wait_ready = getattr(self._manager, "wait_workspace_ready", None)
+        if wait_ready is not None:
+            await wait_ready(self)
         from ...schemas import AgentRequest
 
         if isinstance(request, dict):
@@ -611,6 +614,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 service_class=None,
                 post_init=create_driver_service,
                 stop_method="shutdown_all",
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 optional=True,
@@ -696,19 +700,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ),
         )
 
-        # Priority 51: Driver Card Watcher (conditional)
-        sm.register(
-            ServiceDescriptor(
-                name="driver_config_watcher",
-                service_class=None,
-                post_init=create_driver_config_watcher,
-                start_method="start",
-                stop_method="stop",
-                priority=51,
-                concurrent_init=False,
-            ),
-        )
-
     async def set_reusable_components(self, components: dict) -> None:
         """Set components to reuse from previous instance.
 
@@ -740,6 +731,47 @@ class Workspace:  # pylint: disable=too-many-public-methods
         # Delegate to ServiceManager
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
+
+    async def sync_mcp_features(self, available: bool) -> None:
+        """Align Mail/ACP producers with protocol availability in this instance."""
+        async with self._mcp_feature_lock:
+            if not available:
+                if self.mail_monitor is not None:
+                    await self.mail_monitor.stop()
+                from ...agents.acp.service import get_acp_service
+                from ..mcp.feature_gate import is_mcp_ready
+
+                service = get_acp_service(self.agent_id)
+                if service is not None:
+                    # ACP is agent-scoped: retiring this instance alone must
+                    # not clear sessions used by its successor.
+                    await service.close_all_sessions(
+                        only_if=lambda: get_acp_service(self.agent_id)
+                        is service
+                        and not is_mcp_ready(workspace_id=self.agent_id),
+                    )
+            elif self._started:
+                from ...plugins.registry import PluginRegistry
+                from ...plugins._drivers import workspace_is_current
+
+                registry = PluginRegistry()
+                if not workspace_is_current(
+                    registry,
+                    self,
+                ) or not registry.projector.start_allowed(
+                    "driver_protocol",
+                    "mcp",
+                    "qwenpaw-mcp",
+                    self,
+                ):
+                    return
+                if self.mail_monitor is not None:
+                    await self.mail_monitor.start()
+                else:
+                    descriptor = self._service_manager.descriptors[
+                        "mail_monitor"
+                    ]
+                    await self._service_manager._start_service(descriptor)
 
     async def start_history_retention(self) -> None:
         """Apply maintenance only after this workspace owns the agent."""

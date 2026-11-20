@@ -240,6 +240,7 @@ def test_console_chat_invalid_body_returns_422(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
+@pytest.mark.usefixtures("installed_mcp_plugin")
 def test_mcp_oauth_start_returns_auth_url(app_server) -> None:
     """Test purpose:
     - Verify POST /api/agents/{agentId}/mcp/oauth/start/{client_key}

@@ -257,6 +257,11 @@ export function reloadPawApp(appId: string, entryPage?: string): Promise<void> {
   });
 }
 
+/** Ensure a frontend is present, joining any installation reload in flight. */
+export function ensureFrontendPlugin(pluginId: string): Promise<void> {
+  return loadFrontendPlugin(pluginId);
+}
+
 /** Reload a frontend plugin after installation or update. */
 export function reloadFrontendPlugin(pluginId: string): Promise<boolean> {
   const pending = loadingPlugins.get(pluginId);
