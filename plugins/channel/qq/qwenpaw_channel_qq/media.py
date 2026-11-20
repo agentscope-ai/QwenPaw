@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -16,6 +17,8 @@ from qwenpaw.app.channels.utils import (
 
 from .errors import QQDeliveryError
 from .formatting import _media_path, _resolve_send_path
+
+logger = logging.getLogger(__name__)
 
 _EXT_TYPE_MAP = {
     **dict.fromkeys(
@@ -108,6 +111,7 @@ class QQMedia:
         if not path.is_relative_to(self.root):
             raise QQDeliveryError("MEDIA_PATH_UNAUTHORIZED")
         if exists and not path.is_file():
+            logger.warning(f"QQ local media file unavailable")
             raise QQDeliveryError("MEDIA_FILE_NOT_FOUND")
         return path
 
@@ -145,10 +149,9 @@ class QQMedia:
                 os.close(directory)
 
     async def _download(self, url, filename):
-        if not filename:
-            return None
-        name = Path(filename.replace("\\", "/")).name
+        name = Path(filename.replace("\\", "/")).name if filename else f""
         if name in {"", ".", ".."}:
+            logger.warning(f"QQ attachment has no usable filename")
             return None
         try:
             directory = self._safe_path(self.directory, exists=False)
@@ -158,6 +161,10 @@ class QQMedia:
             self._safe_path(target, exists=False)
             response = await self.platform._request("GET", url)
             if response.status_code != 200:
+                logger.warning(
+                    f"QQ attachment download failed: "
+                    f"HTTP {response.status_code}",
+                )
                 return None
             self._safe_path(directory, exists=False)
             self._safe_path(target, exists=False)
@@ -175,9 +182,10 @@ class QQMedia:
             finally:
                 Path(temporary).unlink(missing_ok=True)
             return str(target)
-        except QQDeliveryError:
-            return None
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"QQ attachment download failed ({type(exc).__name__})",
+            )
             return None
 
     async def parse_attachments(self, attachments):
@@ -217,9 +225,11 @@ class QQMedia:
     async def send(self, route, part, *, reply=False, inline=False):
         kind = part.get("type")
         if kind not in {"image", "video", "audio", "file"}:
+            logger.warning(f"QQ rejected unsupported media part")
             raise QQDeliveryError("MEDIA_TYPE_UNSUPPORTED")
         url, local = _resolve_media_url_and_path(part)
         if not url and not local:
+            logger.warning(f"QQ {kind} send has no media locator")
             raise QQDeliveryError("MEDIA_FILE_NOT_FOUND")
         if local:
             local = str(self._safe_path(local))
@@ -242,24 +252,32 @@ class QQMedia:
             "image",
             "video",
         }:
+            logger.warning(f"QQ destination does not support {kind} media")
             raise QQDeliveryError("MEDIA_TYPE_UNSUPPORTED")
-        path, _, _ = _resolve_send_path(
-            message_type,
-            route.get("sender_id"),
-            route.get("channel_id"),
-            route.get("group_openid"),
-            route.get("guild_id"),
-        )
+        try:
+            path, _, _ = _resolve_send_path(
+                message_type,
+                route.get("sender_id"),
+                route.get("channel_id"),
+                route.get("group_openid"),
+                route.get("guild_id"),
+            )
+        except ValueError:
+            logger.warning(f"QQ guild or DM media target unavailable")
+            raise
         if url and not url.startswith("data:"):
             body = {"image": url}
             if msg_id:
                 body["msg_id"] = msg_id
-            return await self.platform._api_request_async("POST", path, body)
+            result = await self.platform._api_request_async("POST", path, body)
+            logger.debug(f"QQ {kind} send acknowledged by guild or DM API")
+            return result
         temporary = None
         try:
             if url:
                 data = await self.platform._file_io(parse_data_url, url)
                 if data is None:
+                    logger.warning(f"QQ {kind} media data URL is invalid")
                     raise QQDeliveryError("MEDIA_DATA_INVALID")
                 directory = self._safe_path(self.directory, exists=False)
                 directory.mkdir(parents=True, exist_ok=True)
@@ -277,14 +295,19 @@ class QQMedia:
             else:
                 filename = Path(local).name
             content = await self.platform._file_io(self._read_file, local)
-            return await self.platform._api_request_async(
+            result = await self.platform._api_request_async(
                 "POST",
                 path,
                 None,
                 data={"msg_id": msg_id} if msg_id else {},
                 files={"file_image": (filename, content)},
             )
+            logger.debug(f"QQ {kind} send acknowledged by guild or DM API")
+            return result
         except (ValueError, OSError) as exc:
+            logger.warning(
+                f"QQ {kind} media preparation failed ({type(exc).__name__})",
+            )
             raise QQDeliveryError("MEDIA_DATA_INVALID") from exc
         finally:
             if temporary is not None:
@@ -303,6 +326,7 @@ class QQMedia:
         media_type = _content_type_to_media_type(kind, url or local or "")
         message_type = route["message_type"]
         if message_type == "group" and media_type == 4:
+            logger.warning(f"QQ group does not support file media")
             raise QQDeliveryError("MEDIA_TYPE_UNSUPPORTED")
         target = (
             route.get("sender_id")
@@ -310,6 +334,7 @@ class QQMedia:
             else route.get("group_openid")
         )
         if not target or target == "unknown":
+            logger.warning(f"QQ {message_type} media target unavailable")
             raise QQDeliveryError("OUTBOUND_TARGET_UNKNOWN")
         body = {"file_type": media_type, "srv_send_msg": False}
         try:
@@ -323,6 +348,7 @@ class QQMedia:
             elif url.startswith("data:"):
                 data = await self.platform._file_io(parse_data_url, url)
                 if data is None:
+                    logger.warning(f"QQ {kind} media data URL is invalid")
                     raise QQDeliveryError("MEDIA_DATA_INVALID")
                 filename = "file" + data.suffix
                 body.update(
@@ -333,14 +359,24 @@ class QQMedia:
                 filename = Path(url.split("?")[0]).name
                 body["url"] = url
         except (ValueError, OSError) as exc:
+            logger.warning(
+                f"QQ {kind} media preparation failed ({type(exc).__name__})",
+            )
             raise QQDeliveryError("MEDIA_DATA_INVALID") from exc
-        uploaded = await self.platform._api_request_async(
-            "POST",
-            _media_path(message_type, target, "files"),
-            body,
-        )
+        try:
+            uploaded = await self.platform._api_request_async(
+                "POST",
+                _media_path(message_type, target, "files"),
+                body,
+            )
+        except QQDeliveryError as exc:
+            logger.warning(
+                f"QQ {kind} upload failed: reason={exc.reason_code}",
+            )
+            raise
         file_info = uploaded.get("file_info")
         if not isinstance(file_info, str) or not file_info:
+            logger.warning(f"QQ media upload returned no file receipt")
             raise QQDeliveryError(
                 "MEDIA_UPLOAD_INVALID_RECEIPT",
                 side_effect_possible=True,
@@ -358,8 +394,12 @@ class QQMedia:
             outgoing["content"] = filename
         if msg_id:
             outgoing["msg_id"] = msg_id
-        return await self.platform._api_request_async(
+        result = await self.platform._api_request_async(
             "POST",
             _media_path(message_type, target, "messages"),
             outgoing,
         )
+        logger.debug(
+            f"QQ {kind} send acknowledged: destination={message_type}",
+        )
+        return result

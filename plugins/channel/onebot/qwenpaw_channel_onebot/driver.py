@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import hashlib
+import logging
 from collections.abc import Mapping
 import uuid
 
@@ -28,6 +29,8 @@ from .codec import (
     session_id,
 )
 from .platform import OneBotPlatform, OneBotPlatformError
+
+logger = logging.getLogger(__name__)
 
 
 class OneBotDriver(SharedResponseDriver):
@@ -193,6 +196,7 @@ class OneBotDriver(SharedResponseDriver):
         try:
             number = str(int(value))
         except (TypeError, ValueError) as exc:
+            logger.warning(f"OneBot outbound target is invalid")
             raise OneBotPlatformError("OUTBOUND_TARGET_UNKNOWN") from exc
         return {"to_handle": "group:" + number if group else number}
 
@@ -216,6 +220,9 @@ class OneBotDriver(SharedResponseDriver):
                 and value.get("self_id") is not None
             ):
                 self._self_id = str(value["self_id"])
+                logger.info(f"OneBot lifecycle event updated bot identity")
+            elif value.get("meta_event_type") == "heartbeat":
+                logger.debug(f"OneBot heartbeat received")
             return
         if value.get("post_type") != "message":
             return
@@ -286,6 +293,10 @@ class OneBotDriver(SharedResponseDriver):
                 {**value, "message": segments},
             )
             parts = _with_quoted_context(quoted, current)
+            logger.debug(
+                f"OneBot quoted message: segments={len(quoted_segments)} "
+                f"parts={len(quoted)}",
+            )
         else:
             parts = await platform._inbound_media.resolve(
                 parts,
@@ -295,6 +306,9 @@ class OneBotDriver(SharedResponseDriver):
             )
         if not parts:
             return None
+        logger.debug(
+            f"OneBot message received: type={message_type} parts={len(parts)}",
+        )
         sender = value.get("sender")
         sender = sender if isinstance(sender, Mapping) else {}
         meta = {
@@ -330,12 +344,23 @@ class OneBotDriver(SharedResponseDriver):
                 "get_msg",
                 {"message_id": native_id},
             )
-        except OneBotPlatformError:
+        except OneBotPlatformError as exc:
+            logger.warning(
+                f"OneBot quoted message lookup failed: "
+                f"reason={exc.reason_code}",
+            )
             return []
         data = result.get("data")
         data = data if isinstance(data, Mapping) else {}
         segments = _normalize_segments(data.get("message"))
         raw = _normalize_segments(data.get("raw_message"))
+        if not segments and not raw:
+            logger.warning(f"OneBot quoted message has no segments")
+        else:
+            logger.debug(
+                f"OneBot quoted response: segments={len(segments)} "
+                f"raw_segments={len(raw)}",
+            )
         return (
             raw
             if raw

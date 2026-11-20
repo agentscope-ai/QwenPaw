@@ -46,9 +46,7 @@ async def download_media(
             ) as resp:
                 if resp.status >= 400:
                     logger.warning(
-                        "yuanbao: download failed status=%s url=%s",
-                        resp.status,
-                        url,
+                        f"Yuanbao media download failed: HTTP {resp.status}",
                     )
                     return None
 
@@ -92,14 +90,14 @@ async def download_media(
                     os.replace(temporary, local_path)
                 finally:
                     Path(temporary).unlink(missing_ok=True)
-                logger.debug("yuanbao: downloaded %s -> %s", url, local_path)
+                logger.debug(f"Yuanbao media downloaded: bytes={len(data)}")
                 return str(local_path)
 
     except aiohttp.ClientError as exc:
-        logger.error("yuanbao: download error: %s", exc)
+        logger.error(f"Yuanbao media download error ({type(exc).__name__})")
         return None
     except Exception as exc:
-        logger.error("yuanbao: unexpected download error: %s", exc)
+        logger.error(f"Yuanbao media download failed ({type(exc).__name__})")
         return None
 
 

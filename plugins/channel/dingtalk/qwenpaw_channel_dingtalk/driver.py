@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import replace
 import hashlib
 import json
+import logging
 import time
 import uuid
 
@@ -31,6 +32,8 @@ from .content_utils import (
     short_session_id_from_conversation_id,
 )
 from .transport import DingTalkTransport
+
+logger = logging.getLogger(__name__)
 
 
 class DingTalkDeliveryError(RuntimeError):
@@ -219,6 +222,7 @@ class DingTalkDriver(SharedResponseDriver):
                     on_created=created,
                 )
                 if card is not None:
+                    logger.debug(f"DingTalk reply card prepared")
                     resource.update(
                         card_id=card.card_instance_id,
                         conversation_id=card.conversation_id,
@@ -228,6 +232,10 @@ class DingTalkDriver(SharedResponseDriver):
                         unsettled="false",
                     )
             except ChannelError as exc:
+                logger.warning(
+                    f"DingTalk reply card preparation failed: "
+                    f"created={bool(partial)}",
+                )
                 raise DingTalkDeliveryError(
                     "PLATFORM_SEND_FAILED",
                     side_effect_possible=bool(partial),
@@ -290,6 +298,11 @@ class DingTalkDriver(SharedResponseDriver):
         self._connection_generation += 1
         self._platform = DingTalkTransport()
         self._platform.initialize(config)
+        logger.info(
+            f"DingTalk driver configured: "
+            f"streaming={bool(config.get('streaming_enabled'))} "
+            f"cards={self._platform._ai_card_enabled()}",
+        )
         self._platform._journal_owner = True
         self._platform._admit_callback = self._message
         try:
@@ -499,6 +512,7 @@ class DingTalkDriver(SharedResponseDriver):
                     "session_webhook_expired_time"
                 ] = meta.get("session_webhook_expired_time")
                 platform._save_session_webhook_store_to_disk()
+                logger.debug(f"DingTalk session webhook saved")
             handle = (
                 "dingtalk:reply:"
                 + hashlib.sha256(
@@ -842,6 +856,9 @@ class DingTalkDriver(SharedResponseDriver):
                     params.sequence,
                     final=final,
                 ):
+                    logger.warning(
+                        f"DingTalk card update failed: final={final}",
+                    )
                     raise DingTalkDeliveryError(
                         "PLATFORM_SEND_FAILED",
                         side_effect_possible=False,
@@ -862,6 +879,9 @@ class DingTalkDriver(SharedResponseDriver):
                     side_effect_possible=False,
                 )
         except ChannelError as exc:
+            logger.warning(
+                f"DingTalk {operation} failed: created={bool(partial)}",
+            )
             raise DingTalkDeliveryError(
                 "PLATFORM_SEND_FAILED",
                 side_effect_possible=bool(partial),
