@@ -5,13 +5,18 @@ import platform
 import re
 from datetime import datetime, timezone, tzinfo
 from functools import lru_cache
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
 from pydantic import ValidationError
-from qwenpaw.agents.context.scroll.serialize import strip_headline
+from qwenpaw.agents.context.scroll.scaffold_filter import ScaffoldFilter
+from qwenpaw.agents.context.scroll.serialize import (
+    strip_headline,
+    strip_injected_context,
+    strip_model_scaffolding,
+)
 from qwenpaw.schemas import (
     Message,
     TextContent,
@@ -590,15 +595,31 @@ def strip_injected_skill_block(text: str, role: str) -> str:
     return _INJECTED_SKILL_BLOCK_RE.sub("", text)
 
 
-def clean_display_text(text: str, role: str) -> str:
-    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
-    headline fence and the injected ``<skill>`` block. The SSE stream already
-    strips the headline; the HTTP history path didn't, so it reappeared on
-    reload — do both here so every display path matches. Headline first: the
-    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
-    un-anchored.
+def clean_display_text(
+    text: str,
+    role: str,
+    *,
+    state: Any = None,
+) -> str:
+    """Hide model-facing artifacts from the transcript.
+
+    Three kinds reach the transcript and no user ever typed them: the
+    ``⟦ … ⟧`` headline fence, the injected ``<skill>`` block, and the
+    ``<system-info>`` / ``<system-notification>`` blocks that lead an
+    assistant message. The SSE stream already strips the headline and the
+    channel renderer hides the injected blocks; the HTTP history path did
+    neither, so both reappeared on reload. Do the whole set here so every
+    display path matches. Headline first: the ``<skill>`` regex is
+    ``$``-anchored, so a trailing headline would leave it un-anchored.
+
+    ``state`` carries the scaffolding scan across the text blocks of one
+    message, so reasoning that spans blocks is hidden here too.
     """
-    return strip_injected_skill_block(strip_headline(text) or "", role)
+    cleaned = strip_injected_skill_block(strip_headline(text) or "", role)
+    if role != "assistant":
+        return cleaned
+    cleaned = strip_injected_context(cleaned) or ""
+    return strip_model_scaffolding(cleaned, state=state) or ""
 
 
 def _original_user_message(msg: Msg, metadata: dict) -> Message | None:
@@ -725,6 +746,10 @@ def agentscope_msg_to_message(
         current_message = None
         current_type = None
 
+        # One scan per message: a reasoning block may be split across the
+        # message's text blocks, exactly as on the live streaming path.
+        scaffold_state = ScaffoldFilter() if role == "assistant" else None
+
         for block in msg.content:
             # Normalize pydantic block models to dict so the rest of
             # this conversion (which uses .get) handles both shapes.
@@ -768,6 +793,7 @@ def agentscope_msg_to_message(
                     text=clean_display_text(
                         block.get("text", ""),
                         role,
+                        state=scaffold_state,
                     ),
                 )
                 current_message.add_content(new_content=text_content)
@@ -1050,6 +1076,15 @@ def agentscope_msg_to_message(
                 current_message.add_content(new_content=text_content)
 
         if current_message:
+            tail = scaffold_state.flush() if scaffold_state else ""
+            if tail:
+                current_message.add_content(
+                    new_content=TextContent(
+                        delta=False,
+                        index=None,
+                        text=tail,
+                    ),
+                )
             results.append(current_message.completed())
 
     return results

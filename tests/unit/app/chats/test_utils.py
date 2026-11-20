@@ -159,6 +159,60 @@ def test_msg_to_message_hides_headline_in_history_path():
     assert "all set" in rendered
 
 
+def test_clean_display_text_strips_leading_injected_context():
+    text = "<system-info>\nmodel: x\n</system-info>\n\n好了"
+    assert clean_display_text(text, "assistant") == "好了"
+
+
+def test_clean_display_text_strips_inlined_reasoning():
+    """History replay must hide reasoning a model inlined as plain text."""
+    text = "推理半句，我应该先查库里的。</think>主人，我查到了"
+    assert clean_display_text(text, "assistant") == "主人，我查到了"
+
+
+def test_clean_display_text_keeps_user_reasoning_like_text():
+    """Only assistant text is model output; a user's own words stay intact."""
+    text = "what does the </think> marker mean here"
+    assert clean_display_text(text, "user") == text
+
+
+def test_clean_display_text_keeps_user_injected_context_text():
+    text = "<system-info>quoted verbatim by the user</system-info>"
+    assert clean_display_text(text, "user") == text
+
+
+def test_msg_to_message_hides_inlined_reasoning_in_history_path():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "<thinking>只想了没答</thinking>"}],
+    )
+    [message] = agentscope_msg_to_message(msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == ""
+
+
+def test_msg_to_message_hides_injected_context_in_history_path():
+    """Regression: GET /chats/{id} no longer replays the blocks that lead an
+    assistant message, matching what the channel renderer already hides."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "text",
+                "text": (
+                    "<system-notification>tool finished</system-notification>"
+                    "\n\n好了"
+                ),
+            },
+        ],
+    )
+    [message] = agentscope_msg_to_message(msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == "好了"
+
+
 def test_msg_to_message_omits_runtime_hints_from_history():
     msg = Msg(
         name="assistant",

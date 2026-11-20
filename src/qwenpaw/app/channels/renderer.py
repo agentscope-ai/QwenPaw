@@ -192,7 +192,14 @@ class MessageRenderer:
         *,
         semantic: bool,
     ) -> List[SemanticContentPart]:
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.agents.context.scroll.scaffold_filter import (
+            ScaffoldFilter,
+        )
+        from qwenpaw.agents.context.scroll.serialize import (
+            strip_headline,
+            strip_injected_context,
+            strip_model_scaffolding,
+        )
         from qwenpaw.schemas import MessageType
 
         msg_type = getattr(message, "type", None)
@@ -434,20 +441,38 @@ class MessageRenderer:
         def append(part: _OutgoingPart, role: str = "message") -> None:
             result.append(SemanticContentPart(part, role))
 
+        # A message may split one reasoning block across several text blocks.
+        # The scan state is per message so a block that ends mid-reasoning and
+        # the block that closes it are filtered as one stream.
+        scaffold_state = ScaffoldFilter()
+
         suppressed_tool_data = False
+        suppressed_scaffolding = False
         for c in content:
             ctype = getattr(c, "type", None)
             if ctype == ContentType.TEXT and getattr(c, "text", None):
                 # Hide the scroll headline (⟦ … ⟧) from display; it stays in
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
-                if text:
-                    if s.supports_markdown:
-                        # Repair CJK emphasis boundaries (e.g. ``**中文。**后``)
-                        # so channels that render Markdown do not leak the raw
-                        # ``**`` markers.
-                        text = normalize_cjk_emphasis(text)
-                    append(TextContent(text=text))
+                # Injected context notes / background tool hints are stored
+                # as ordinary text; they are not part of the reply either.
+                text = strip_injected_context(text)
+                # Reasoning that a model inlined into plain text is
+                # model-facing as well: drop balanced blocks, truncated
+                # tails and cut-off tool shells before rendering.
+                text = strip_model_scaffolding(text, state=scaffold_state)
+                if not text:
+                    # The block held only model-facing bytes, so this message
+                    # has no reply to show; do not fall back to the
+                    # "[Message type: …]" placeholder below.
+                    suppressed_scaffolding = True
+                    continue
+                if s.supports_markdown:
+                    # Repair CJK emphasis boundaries (e.g. ``**中文。**后``)
+                    # so channels that render Markdown do not leak the raw
+                    # ``**`` markers.
+                    text = normalize_cjk_emphasis(text)
+                append(TextContent(text=text))
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):
                 append(RefusalContent(refusal=c.refusal), "refusal")
             elif ctype == ContentType.IMAGE and getattr(c, "image_url", None):
@@ -521,7 +546,17 @@ class MessageRenderer:
                             ),
                             "rendered",
                         )
-        if not result and msg_type and not suppressed_tool_data:
+        # Release a trailing partial tag that never became one; an unfinished
+        # reasoning block stays suppressed, exactly as in the streaming path.
+        tail = scaffold_state.flush()
+        if tail:
+            append(TextContent(text=tail))
+        if (
+            not result
+            and msg_type
+            and not suppressed_tool_data
+            and not suppressed_scaffolding
+        ):
             append(TextContent(text=f"[Message type: {msg_type}]"), "rendered")
         return result
 

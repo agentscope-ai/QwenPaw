@@ -97,6 +97,78 @@ def strip_headline(text: str | None) -> str | None:
     return cleaned.strip()
 
 
+_INJECTED_BLOCK_RE = re.compile(
+    r"^[ \t]*<(system-[a-z0-9_-]+)>.*?</(?:\1|notification|info|warning|"
+    r"reminder|error)>[ \t]*(?:\r?\n)?",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def strip_injected_context(text: str | None) -> str | None:
+    """Hide framework-injected blocks that lead a message for display.
+
+    Context notes (``<system-info>``), background tool hints
+    (``<system-notification>``) and the other ``system-*`` notices are
+    persisted as ordinary assistant text so they stay in the live context.
+    Those same bytes must not be shown to a channel user. Only balanced blocks
+    that open the text are removed, so prose that merely mentions a tag is
+    left untouched, and the original text is returned unchanged whenever
+    nothing can be removed safely.
+    """
+    if not text:
+        return text
+    visible = text.lstrip()
+    # A leading backtick means the marker is quoted, not injected.
+    while visible and not visible.startswith("`"):
+        match = _INJECTED_BLOCK_RE.match(visible)
+        if match is None:
+            break
+        visible = visible[match.end() :].lstrip()
+    if visible == text.lstrip():
+        return text
+    cleaned = re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return cleaned
+
+
+from qwenpaw.agents.context.scroll.scaffold_filter import (  # noqa: E402
+    ScaffoldDeltaState,
+    ScaffoldFilter,
+    flush_scaffold_delta,
+    strip_scaffold_delta,
+    strip_scaffold_text,
+)
+
+
+def strip_model_scaffolding(
+    text: str | None,
+    *,
+    state: ScaffoldFilter | None = None,
+) -> str | None:
+    """Hide reasoning scaffolding a model wrote into ordinary text.
+
+    Most providers deliver reasoning in a structured field, but some models
+    also inline it: a whole ``<thinking>`` block, a truncated tail that ends
+    in a bare ``</think>``, or a cut-off ``<parameter …>`` tool shell. Those
+    bytes are persisted as normal assistant text, so the display boundary has
+    to drop them or they reach the user verbatim.
+
+    ``state`` carries the scan across the text blocks of one message, so a
+    block that ends mid-reasoning and a block that closes it are handled as
+    one stream rather than independently.
+
+    Quoted material (fenced or indented code, inline spans, blockquote lines)
+    is never touched, so prose and examples that discuss the tags survive.
+    """
+    if not text:
+        return text
+    if state is None:
+        return strip_scaffold_text(text)
+    visible = state.feed(text)
+    if visible == text:
+        return text
+    return re.sub(r"\n{3,}", "\n\n", visible).strip()
+
+
 def strip_headline_delta(
     text: str,
     *,
@@ -171,6 +243,9 @@ def flush_headline_delta(state: HeadlineDeltaState) -> str:
     state.suppressing = False
     state.legacy_comment = False
     return visible
+
+
+SCAFFOLD_STATE_PREFIX = "scaffold:"
 
 
 def _possible_legacy_start_prefix(value: str) -> bool:

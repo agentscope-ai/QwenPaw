@@ -177,6 +177,94 @@ class TestMessageToParts:
         assert len(parts) == 1
         assert parts[0].text == "hello"
 
+    def test_injected_context_block_is_hidden(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                TextContent(
+                    text=(
+                        "<system-notification>\nBackground tool call "
+                        "`x` completed.\n</system-notification>\n好了"
+                    ),
+                ),
+            ],
+        )
+        parts = r.message_to_parts(msg)
+        assert len(parts) == 1
+        assert parts[0].text == "好了"
+
+    def test_every_system_notice_is_hidden(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [TextContent(text="<system-warning>\n注意\n</system-warning>\n好了")],
+        )
+        parts = r.message_to_parts(msg)
+        assert [p.text for p in parts] == ["好了"]
+
+    def test_short_close_system_block_is_hidden(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                TextContent(
+                    text=(
+                        "<system-notification>\nBackground tool call "
+                        "finished.\n</notification>\n好了"
+                    ),
+                ),
+            ],
+        )
+        parts = r.message_to_parts(msg)
+        assert [p.text for p in parts] == ["好了"]
+
+    def test_trailing_close_keeps_the_reply_before_it(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [TextContent(text="主人，改好了。\n\nneed the log first.</think>")],
+        )
+        parts = r.message_to_parts(msg)
+        assert [p.text for p in parts] == ["主人，改好了。"]
+
+    def test_shell_opening_a_paragraph_keeps_narration(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                TextContent(
+                    text='主人，我先查。\n\n<parameter name="content">截断',
+                ),
+            ],
+        )
+        parts = r.message_to_parts(msg)
+        assert [p.text for p in parts] == ["主人，我先查。"]
+
+    def test_injected_only_message_produces_no_part(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [TextContent(text="<system-info>\nonly\n</system-info>")],
+        )
+        assert r.message_to_parts(msg) == []
+
+    def test_inlined_reasoning_is_hidden(self):
+        """A model that writes reasoning into plain text leaks it verbatim."""
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                TextContent(
+                    text="推理半句，我应该先查库里的。</think>主人，我查到了",
+                ),
+            ],
+        )
+        parts = r.message_to_parts(msg)
+        assert len(parts) == 1
+        assert parts[0].text == "主人，我查到了"
+
+    def test_reasoning_only_message_is_not_sent(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [TextContent(text="<thinking>只想了没答</thinking>")],
+        )
+        parts = r.message_to_parts(msg)
+        assert parts == []
+
     def test_refusal_content(self):
         r = MessageRenderer()
         msg = _mk_message(
