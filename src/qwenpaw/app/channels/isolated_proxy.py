@@ -636,17 +636,15 @@ class IsolatedChannelProxy(BaseChannel):
         )
 
     def _record_diagnostic(self, reason, *, error=None):
-        self._last_diagnostic = reason
+        detail = f""
         if (
             isinstance(error, ChannelCallUnknown)
             and error.method == f"channel.response.finish"
         ):
-            logger.warning(
-                f"Channel diagnostic: {reason} rpc_result=unknown "
-                f"request_id={error.request_id}",
-            )
-        else:
-            logger.warning(f"Channel diagnostic: {reason}")
+            reason = f"RESPONSE_FINISH_UNKNOWN"
+            detail = f" rpc_result=unknown request_id={error.request_id}"
+        self._last_diagnostic = reason
+        logger.warning(f"Channel diagnostic: {reason}{detail}")
 
     async def _event_batch(self, params, request):
         # RPC cancellation cannot split queue commit from the dedup record.

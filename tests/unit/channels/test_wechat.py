@@ -653,9 +653,12 @@ async def test_finish_diagnostic_reports_unknown_rpc_result(
         pass
 
     rpc.assert_awaited_once()
-    assert route_proxy._last_diagnostic == f"RESPONSE_FINISH_FAILED"
+    diagnostic = (
+        f"RESPONSE_FINISH_UNKNOWN" if unknown else f"RESPONSE_FINISH_FAILED"
+    )
+    assert (await route_proxy.health_check())[f"last_diagnostic"] == diagnostic
     assert [log for log in caplog.messages if f"RESPONSE_FINISH" in log] == [
-        f"Channel diagnostic: RESPONSE_FINISH_FAILED"
+        f"Channel diagnostic: {diagnostic}"
         + (f" rpc_result=unknown request_id=channel-1-2" if unknown else f""),
     ]
 

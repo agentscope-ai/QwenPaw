@@ -83,17 +83,19 @@ class DiscordPlatform:
             proxy_auth=auth,
         )
 
-        @self._client.event
-        async def on_ready():
+        async def mark_connected(event):
             if not self._stopping:
                 self.connected = True
                 await self.on_state("connected")
-                logger.info(f"Discord Gateway ready")
+                logger.info(f"Discord Gateway {event}")
+
+        @self._client.event
+        async def on_ready():
+            await mark_connected(f"ready")
 
         @self._client.event
         async def on_resumed():
-            await on_ready()
-            logger.info(f"Discord Gateway session resumed")
+            await mark_connected(f"session resumed")
 
         @self._client.event
         async def on_disconnect():

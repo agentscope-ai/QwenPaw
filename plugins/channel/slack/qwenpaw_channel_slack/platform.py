@@ -65,6 +65,17 @@ def _is_non_recoverable_slack_error(error):
     )
 
 
+def _safe_error_code(code):
+    if (
+        isinstance(code, str)
+        and len(code) <= 64
+        and code.isascii()
+        and code.replace(f"_", f"").isalnum()
+    ):
+        return code
+    return None
+
+
 class SlackPlatform:
     channel = "slack"
 
@@ -389,7 +400,8 @@ class SlackPlatform:
             try:
                 result = await await_send(function(**kwargs))
                 if result.get("ok") is False:
-                    logger.warning(f"Slack {label} rejected")
+                    safe_code = _safe_error_code(result.get(f"error"))
+                    logger.warning(f"Slack {label} rejected: code={safe_code}")
                     raise SlackDeliveryError("SLACK_REJECTED")
                 return result
             except (SlackDeliveryError, asyncio.CancelledError):
@@ -414,11 +426,7 @@ class SlackPlatform:
                 code = (
                     response.get("error", "") if response is not None else ""
                 )
-                safe_code = (
-                    code if isinstance(code, str) and len(code) <= 64
-                    and code.isascii() and code.replace(f"_", f"").isalnum()
-                    else None
-                )
+                safe_code = _safe_error_code(code)
                 logger.warning(
                     f"Slack {label} failed: HTTP={status} code={safe_code} "
                     f"error={type(exc).__name__}",

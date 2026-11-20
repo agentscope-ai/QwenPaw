@@ -145,6 +145,18 @@ async def test_own_message_and_other_bot_are_filtered(discord):
     assert len(peer.batches) == 1
 
 
+async def test_gateway_resume_logs_once(discord, caplog):
+    driver, _, _, client, _ = discord
+    caplog.set_level(f"INFO", logger=driver._platform.__module__)
+    await client.handlers[f"on_disconnect"]()
+    caplog.clear()
+    await client.handlers[f"on_resumed"]()
+    assert driver._connected
+    assert [
+        log for log in caplog.messages if log.startswith(f"Discord Gateway")
+    ] == [f"Discord Gateway session resumed"]
+
+
 async def test_attachment_is_downloaded_classified_and_sent_as_file(discord):
     _, peer, identity, _, root = discord
     event, channel = await receive(discord, attachments=[Attachment()])

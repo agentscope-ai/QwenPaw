@@ -211,6 +211,29 @@ async def test_gateway_diagnostics_summarize_native_frames(yuanbao, caplog):
     assert "private-" not in caplog.text
 
 
+async def test_kickout_logs_status_without_raw_fields(yuanbao, caplog):
+    driver, _, _, codec, _, _, _, connections, _ = yuanbao
+    socket = driver._platform._ws
+    payload = codec.encode_pb(
+        codec.KICKOUT_MSG,
+        {
+            f"status": 42,
+            f"reason": f"private-reason",
+            f"otherDeviceName": f"private-device",
+        },
+    )
+    await connections[0].send_bytes(
+        codec.encode_conn_msg(
+            {f"cmdType": codec.CMD_TYPE_PUSH, f"cmd": codec.CMD_KICKOUT},
+            payload,
+        ),
+    )
+    await eventually(lambda: socket.closed)
+    assert driver._platform._stopping
+    assert f"Yuanbao gateway kickout: status=42" in caplog.text
+    assert f"private-" not in caplog.text
+
+
 @pytest.mark.parametrize("group", [None, "native-group"])
 async def test_dm_group_identity_and_reply_target_retain_full_native_id(
     yuanbao,

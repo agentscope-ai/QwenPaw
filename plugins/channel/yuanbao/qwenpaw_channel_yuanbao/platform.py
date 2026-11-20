@@ -39,6 +39,7 @@ from .codec import (
     build_send_group_msg,
     decode_auth_bind_rsp,
     decode_conn_msg,
+    decode_kickout_msg,
     decode_ping_rsp,
     decode_send_rsp,
 )
@@ -729,7 +730,9 @@ class YuanbaoPlatform:
                 except Exception:
                     logger.warning("yuanbao: native push ACK write failed")
         if head.get("cmd") == CMD_KICKOUT:
-            logger.warning(f"Yuanbao gateway sent a kickout frame")
+            kickout = decode_kickout_msg(data) or {}
+            status = kickout.get(f"status")
+            logger.warning(f"Yuanbao gateway kickout: status={status}")
             self._stopping = True
             await self._force_close_ws()
             return
