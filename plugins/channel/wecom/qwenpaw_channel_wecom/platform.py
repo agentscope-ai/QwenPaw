@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import hashlib
 import logging
 from pathlib import Path
+import re
 import threading
 import uuid
 
@@ -37,21 +38,73 @@ _UPLOAD_CMDS = (_UPLOAD_CMD_INIT, _UPLOAD_CMD_CHUNK, _UPLOAD_CMD_FINISH)
 _UPLOAD_ACK_TIMEOUT = 30.0
 _PROCESSING_REFRESH_INTERVAL = 20.0
 _PROCESSING_MAX_DURATION = 180.0
+_SDK_ERRCODE = re.compile(rf"\berrcode=(-?\d{{1,10}})(?=,|$)")
 _PROCESSING_TEXT = "🤔 Thinking..."
 _MAX_ROUTES = 128
 
 
 class _SdkLoggerAdapter:
     def debug(self, message, *args):
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Received push message:",
+                f"Received event callback:",
+                f"Received event callback without eventtype:",
+            ),
+        ):
+            logger.debug(f"WeCom SDK {message.split(':', 1)[0]}")
+            return
         logger.debug(message, *args)
 
     def info(self, message, *args):
         logger.info(message, *args)
 
     def warn(self, message, *args):
+        if isinstance(message, str) and message.startswith(
+            f"Received invalid message format:",
+        ):
+            logger.warning(f"WeCom SDK received invalid message format")
+            return
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Received unknown frame:",
+                f"WebSocket connection closed:",
+            ),
+        ):
+            logger.warning(f"WeCom SDK {message.split(':', 1)[0]}")
+            return
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Heartbeat ack error:",
+                f"Reply ack error:",
+            ),
+        ):
+            match = _SDK_ERRCODE.search(message)
+            code = match[1] if match else None
+            logger.warning(
+                f"WeCom SDK {message.split(':', 1)[0]}: errcode={code}",
+            )
+            return
         logger.warning(message, *args)
 
     def error(self, message, *args):
+        if isinstance(message, str) and message.startswith(
+            f"Authentication failed:",
+        ):
+            match = _SDK_ERRCODE.search(message)
+            code = match[1] if match else None
+            logger.error(f"WeCom SDK authentication failed: errcode={code}")
+            return
+        if isinstance(message, str) and message.startswith(
+            (
+                f"File download",
+                f"WebSocket error:",
+                f"Failed to parse WebSocket message:",
+                f"Failed to handle message:",
+            ),
+        ):
+            logger.error(f"WeCom SDK {message.split(':', 1)[0]}")
+            return
         logger.error(message, *args)
 
 
@@ -178,10 +231,13 @@ class WeComPlatform(InboundDecoder):
         except BaseException:
             await self.stop()
             raise
+        logger.info(f"WeCom channel started")
 
     def _post(self, callback, *args):
         if self._loop is not None and self._loop.is_running():
             self._loop.call_soon_threadsafe(callback, *args)
+        elif not self._stopping:
+            logger.warning(f"WeCom SDK callback has no active event loop")
 
     def _schedule_state(self, state, epoch):
         if len(self._callbacks) >= _MAX_ROUTES:
@@ -232,6 +288,7 @@ class WeComPlatform(InboundDecoder):
         try:
             self._native_queue.put_nowait((kind, frame, epoch))
         except asyncio.QueueFull:
+            logger.warning(f"WeCom SDK event queue full")
             self._connected = False
             self._schedule_state("failed", epoch)
             # Stop admission rather than silently claiming a dropped event was accepted.
@@ -244,10 +301,13 @@ class WeComPlatform(InboundDecoder):
             try:
                 self._check_epoch(epoch)
                 if kind == "message":
+                    logger.debug(f"WeCom SDK message event")
                     await self._on_message(frame)
                 elif kind == "card":
+                    logger.info(f"WeCom SDK template card event")
                     await self._handle_card(frame)
                 elif self.config.get("welcome_text"):
+                    logger.info(f"WeCom SDK enter_chat event")
                     await self._call(
                         "reply_welcome",
                         frame,
@@ -315,8 +375,19 @@ class WeComPlatform(InboundDecoder):
 
         async def send_heartbeat():
             if manager._missed_pong_count >= manager._max_missed_pong:
+                missed = manager._missed_pong_count
+                logger.warning(
+                    f"WeCom missed {missed} heartbeats, reconnecting",
+                )
                 if manager._ws:
-                    await manager._ws.close()
+                    try:
+                        await manager._ws.close()
+                    except Exception as exc:
+                        logger.warning(
+                            f"WeCom heartbeat socket close failed "
+                            f"({type(exc).__name__})",
+                        )
+                        raise
                 return
             await heartbeat()
 
@@ -341,10 +412,13 @@ class WeComPlatform(InboundDecoder):
         def authenticated():
             if not self._stopping:
                 self._epoch += 1
+                logger.info(f"WeCom WebSocket authenticated")
                 self._post(self._schedule_state, "connected", self._epoch)
 
         def disconnected(*_):
             self._epoch += 1
+            if not self._stopping:
+                logger.info(f"WeCom WebSocket disconnected")
             self._post(self._schedule_state, "disconnected", self._epoch)
 
         self._client.on("authenticated", authenticated)
@@ -390,6 +464,10 @@ class WeComPlatform(InboundDecoder):
             ws_loop.run_until_complete(ws_loop.shutdown_asyncgens())
         except BaseException as exc:
             self._thread_error = exc
+            if not self._stopping:
+                logger.error(
+                    f"WeCom WebSocket thread failed ({type(exc).__name__})",
+                )
             self._post(self._schedule_state, "failed", self._epoch)
         finally:
             self._sdk_initialized.set()
@@ -499,6 +577,7 @@ class WeComPlatform(InboundDecoder):
         while not self._native_queue.empty():
             self._native_queue.get_nowait()
             self._native_queue.task_done()
+        logger.info(f"WeCom channel stopped")
 
     @asynccontextmanager
     async def delivery(self):
@@ -537,6 +616,15 @@ class WeComPlatform(InboundDecoder):
             if effect and (
                 not isinstance(result, dict) or result.get("errcode") != 0
             ):
+                code = (
+                    result.get(f"errcode")
+                    if isinstance(result, dict)
+                    else None
+                )
+                safe_code = code if type(code) is int else None
+                logger.warning(
+                    f"WeCom {method} ACK failed: errcode={safe_code}",
+                )
                 raise WeComDeliveryError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -552,7 +640,14 @@ class WeComPlatform(InboundDecoder):
                 ) from exc
             raise
         except Exception as exc:
-            rejected = str(exc).startswith("Reply ack error: errcode=")
+            detail = str(exc)
+            rejected = detail.startswith("Reply ack error: errcode=")
+            match = _SDK_ERRCODE.search(detail) if rejected else None
+            code = match[1] if match else None
+            logger.warning(
+                f"WeCom {method} failed: error={type(exc).__name__} "
+                f"errcode={code} final={kwargs.get('finish')}",
+            )
             raise WeComDeliveryError(
                 "PLATFORM_REJECTED" if rejected else "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=effect and not rejected,
@@ -603,6 +698,9 @@ class WeComPlatform(InboundDecoder):
             )
             self._check_epoch(epoch)
             if ack.get("errcode") != 0:
+                code = ack.get(f"errcode")
+                safe_code = code if type(code) is int else None
+                logger.warning(f"WeCom {cmd} rejected: errcode={safe_code}")
                 raise WeComDeliveryError("PLATFORM_REJECTED")
             body = ack.get("body")
             # Successful chunk acknowledgements may omit the body.
@@ -619,6 +717,10 @@ class WeComPlatform(InboundDecoder):
         except WeComDeliveryError:
             raise
         except Exception as exc:
+            logger.warning(
+                f"WeCom {cmd} acknowledgement unavailable "
+                f"({type(exc).__name__})",
+            )
             raise WeComDeliveryError(
                 "UPLOAD_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -659,11 +761,18 @@ class WeComPlatform(InboundDecoder):
 
     async def _upload_media(self, path, media_type, filename_hint=None):
         async with self.delivery():
-            return await self._upload_media_owned(
-                path,
-                media_type,
-                filename_hint,
-            )
+            try:
+                return await self._upload_media_owned(
+                    path,
+                    media_type,
+                    filename_hint,
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"WeCom {media_type} upload failed "
+                    f"({type(exc).__name__})",
+                )
+                raise
 
     async def _upload_media_owned(self, path, media_type, filename_hint=None):
         if not path.startswith("data:"):
@@ -675,9 +784,11 @@ class WeComPlatform(InboundDecoder):
             if not any(local.is_relative_to(root) for root in self._roots):
                 raise WeComDeliveryError("MEDIA_PATH_UNAUTHORIZED")
             if not local.is_file():
+                logger.warning(f"WeCom local media file unavailable")
                 raise WeComDeliveryError("MEDIA_FILE_UNAVAILABLE")
         async with self._materialize(path, filename_hint) as materialized:
             if materialized is None:
+                logger.warning(f"WeCom media could not be prepared")
                 raise WeComDeliveryError("MEDIA_FILE_UNAVAILABLE")
             local = Path(
                 file_url_to_local_path(materialized.path) or materialized.path,
@@ -705,6 +816,10 @@ class WeComPlatform(InboundDecoder):
                 total_chunks = (
                     len(data) + _UPLOAD_CHUNK_SIZE - 1
                 ) // _UPLOAD_CHUNK_SIZE
+                logger.debug(
+                    f"WeCom {media_type} upload: "
+                    f"bytes={len(data)} chunks={total_chunks}",
+                )
                 value = await self._send_ws_cmd(
                     _UPLOAD_CMD_INIT,
                     {
@@ -745,6 +860,10 @@ class WeComPlatform(InboundDecoder):
                         "UPLOAD_ACK_INVALID",
                         side_effect_possible=True,
                     )
+                logger.debug(
+                    f"WeCom {media_type} upload acknowledged: "
+                    f"chunks={total_chunks}",
+                )
                 return media_id
 
     async def _cancel_processing(self, handle, *, local_only=False):
@@ -824,10 +943,18 @@ class WeComPlatform(InboundDecoder):
                     self._processing_effect(route, state, True),
                 ),
             )
+            logger.info(
+                f"WeCom processing indicator timed out after {elapsed:g}s",
+            )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             state["unknown"] = True
+            logger.warning(
+                f"WeCom processing indicator failed: "
+                f"final={bool(state.get('finishing'))} "
+                f"error={type(exc).__name__}",
+            )
         finally:
             if (
                 self._keepalive_tasks.get(state["stream_id"])
@@ -1062,13 +1189,20 @@ class WeComPlatform(InboundDecoder):
             )
         except ValueError:
             # Preserve the old oversized-key text path before any native card effect.
+            logger.warning(f"WeCom approval card exceeds supported key size")
             return await self.send_parts(
                 route,
                 params.content_parts,
                 params.content_source,
             )
+        except Exception as exc:
+            logger.warning(
+                f"WeCom approval card render failed ({type(exc).__name__})",
+            )
+            raise
         frame = self._frame(route)
         if frame is None:
+            logger.warning(f"WeCom approval card has no native reply frame")
             raise WeComDeliveryError("APPROVAL_TARGET_UNSUPPORTED")
         self._staged_cards[params.delivery_id] = {
             "nonce": nonce,
@@ -1089,6 +1223,10 @@ class WeComPlatform(InboundDecoder):
             await self.send_stream_detail(route, body_text)
             detail_sent = True
         except WeComDeliveryError as exc:
+            logger.debug(
+                f"WeCom approval details send failed: "
+                f"reason={exc.reason_code}",
+            )
             if exc.side_effect_possible:
                 raise
         try:
@@ -1100,6 +1238,7 @@ class WeComPlatform(InboundDecoder):
                     side_effect_possible=True,
                 ) from exc
             raise
+        logger.info(f"WeCom approval card acknowledged")
         return {"final": "true"}
 
     def complete_card_delivery(self, delivery_id, acknowledged):
@@ -1168,7 +1307,12 @@ class WeComPlatform(InboundDecoder):
                 },
             ],
         }
-        return await self.on_event(value)
+        admitted = await self.on_event(value)
+        logger.info(
+            f"WeCom approval callback: action={parsed['action']} "
+            f"admitted={admitted}",
+        )
+        return admitted
 
     async def resolve_approval(self, route, params):
         result = params.approval_resolution
@@ -1213,4 +1357,5 @@ class WeComPlatform(InboundDecoder):
         binding["resolved"] = True
         await self._call("update_template_card", self._frame(route), card)
         binding["resolution_acknowledged"] = True
+        logger.info(f"WeCom approval card updated: action={action}")
         return {"final": "true"}

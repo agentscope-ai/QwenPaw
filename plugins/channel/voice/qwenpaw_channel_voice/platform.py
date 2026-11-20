@@ -400,10 +400,13 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         phone_number_sid = str(config.get("phone_number_sid") or "")
         auth_token = secret.get("twilio_auth_token", "")
         if not account_sid:
+            logger.warning(f"Voice Twilio account SID is missing")
             raise ValueError("Voice twilio_account_sid is required")
         if not phone_number_sid:
+            logger.warning(f"Voice Twilio phone number SID is missing")
             raise ValueError("Voice phone_number_sid is required")
         if not isinstance(auth_token, str) or not auth_token:
+            logger.warning(f"Voice Twilio auth token is missing")
             raise ValueError("Voice twilio_auth_token is required")
         self._configured_host = host
         self._bind_host = await _resolve_dynamic_bind_host(host, port)
@@ -442,10 +445,13 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         self._startup_abort_task = None
         self._startup_task = asyncio.current_task()
         self._startup_settled.clear()
+        phase = f"listener"
         try:
             await self._start_server()
+            phase = f"endpoint"
             self._endpoint_registration_attempted = True
             await self._report_endpoint("register", "starting")
+            phase = f"tunnel"
             tunnel = self._tunnel_factory()
             self._tunnel = tunnel
             if self._forwarding is None:
@@ -453,10 +459,17 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             tunnel_info = await tunnel.start(self._forwarding["host_port"])
             self._public_base_url = tunnel_info.public_url.rstrip("/")
             self._public_wss_url = tunnel_info.public_wss_url.rstrip("/")
+            phase = f"webhook"
             await self._begin_twilio_transaction()
+            phase = f"endpoint"
             await self._report_endpoint("update", "ready")
             self._webhook_transaction_state = "provisional"
-        except BaseException:
+        except BaseException as exc:
+            if isinstance(exc, Exception):
+                logger.warning(
+                    f"Voice startup failed: phase={phase} "
+                    f"error={type(exc).__name__}",
+                )
             self.mark_startup_failed("STARTUP_FAILED")
             self._startup_settled.set()
             await self._abort_startup_resilient()
@@ -506,6 +519,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         self._webhook_rollback_eligible = True
         self._webhook_transaction_state = "candidate_pending"
         await manager.apply_voice_webhook(phone_number_sid, candidate)
+        logger.info(f"Voice Twilio webhook configured")
 
     def confirm_startup(self) -> None:
         """Commit the provisional webhook at response publication."""
@@ -527,6 +541,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         self._webhook_previous = None
         self._webhook_candidate = None
         self._webhook_transaction_state = "committed"
+        logger.info(f"Voice channel started")
 
     def mark_startup_failed(self, reason_code: str) -> None:
         """Fence ingress synchronously before asynchronous compensation."""
@@ -777,6 +792,8 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             )
             if stopped and self._tunnel is tunnel:
                 self._tunnel = None
+            elif not stopped:
+                logger.warning(f"Voice tunnel cleanup incomplete")
         runner = self._runner
         if runner is not None:
             cleaned = await self._run_until(
@@ -827,6 +844,8 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             and not self._webhook_rollback_eligible
             and self._twilio_manager is None
         )
+        if self._cleanup_complete:
+            logger.info(f"Voice channel stopped")
 
     async def _run_until(
         self,
@@ -1204,21 +1223,22 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             )
             if connection is None:
                 return websocket
+            logger.info(f"Voice ConversationRelay WebSocket connected")
             await self._receive_websocket_messages(connection)
         except web.HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             if connection is None:
                 raise
-            logger.exception(
-                f"voice: WebSocket failed for "
-                f"connection={connection.connection_id}",
+            logger.warning(
+                f"Voice WebSocket failed ({type(exc).__name__})",
             )
         finally:
             async with self._admission_lock:
                 self._admissions.pop(admission.task, None)
             if connection is not None:
                 await self._finish_connection(connection, "disconnected")
+                logger.info(f"Voice ConversationRelay WebSocket disconnected")
             elif websocket is not None and not websocket.closed:
                 await websocket.close()
         return websocket
@@ -1232,6 +1252,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         try:
             data = json.loads(value)
         except json.JSONDecodeError:
+            logger.warning(f"Voice ConversationRelay received invalid JSON")
             await connection.websocket.close(
                 code=1003,
                 message=b"Invalid JSON",
@@ -1246,6 +1267,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         try:
             event = await self._native_event(connection, data)
         except ValueError:
+            logger.warning(f"Voice ConversationRelay rejected invalid event")
             await connection.websocket.close(
                 code=1008,
                 message=b"Invalid Voice message",
@@ -1257,6 +1279,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             connection.queue.put_nowait(event)
         except asyncio.QueueFull:
             self._runner_backpressure_total += 1
+            logger.warning(f"Voice ConversationRelay ingress queue full")
             await connection.websocket.close(
                 code=1013,
                 message=b"Voice ingress overloaded",
@@ -1286,6 +1309,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                 text = data.get("voicePrompt", "")
                 if not isinstance(text, str) or not text.strip():
                     return None
+                logger.debug(f"Voice prompt received: chars={len(text)}")
                 event_kind = "message.query"
                 payload = {"text": text}
             elif message_type == "interrupt":
@@ -1303,9 +1327,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                 event_kind = "dtmf"
                 payload = {"digit": digit}
             else:
-                logger.debug(
-                    f"voice: ignored native message type={message_type}",
-                )
+                logger.debug(f"Voice ignored unsupported native message type")
                 return None
             connection.sequence += 1
             sequence = connection.sequence
@@ -1333,6 +1355,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             raise ValueError("Voice setup must be unique")
         call_sid = data.get("callSid")
         if not isinstance(call_sid, str) or not call_sid:
+            logger.warning(f"Voice setup rejected: call SID is missing")
             raise ValueError("Voice setup CallSid is required")
         if call_sid != connection.expected_call_sid:
             raise ValueError("Voice setup CallSid mismatch")
@@ -1354,6 +1377,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
         connection.setup_received = True
         self._calls[call_sid] = connection
         self._bindings[connection.session_binding] = connection
+        logger.info(f"Voice call setup completed")
 
     @staticmethod
     def _require_setup(connection: _Connection) -> None:
@@ -1371,10 +1395,9 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                 handler = self._event_handler
                 if handler is not None:
                     await handler(event)
-            except Exception:
-                logger.exception(
-                    f"voice: event submission failed for "
-                    f"connection={connection.connection_id}",
+            except Exception as exc:
+                logger.warning(
+                    f"Voice event submission failed ({type(exc).__name__})",
                 )
                 await connection.websocket.close(
                     code=1013,
@@ -1476,6 +1499,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                     self._calls.pop(connection.platform_session_id, None)
             if connection.session_binding:
                 self._bindings.pop(connection.session_binding, None)
+            logger.debug(f"Voice call resources released: reason={reason}")
 
     def connection(self, binding: str) -> _Connection:
         connection = self._bindings.get(binding)
@@ -1511,6 +1535,10 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                         {"type": "text", "token": "", "last": True},
                     )
             except Exception as exc:
+                logger.warning(
+                    f"Voice ConversationRelay text write failed "
+                    f"({type(exc).__name__})",
+                )
                 raise VoicePlatformError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -1531,10 +1559,9 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                 connection.end_attempted = True
                 try:
                     await connection.websocket.send_json({"type": "end"})
-                except Exception:
+                except Exception as exc:
                     logger.debug(
-                        "voice: end frame failed",
-                        exc_info=True,
+                        f"Voice end frame failed ({type(exc).__name__})",
                     )
         remaining = max(
             0.0,
@@ -1545,7 +1572,10 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
                 connection.websocket.close(),
                 timeout=remaining,
             )
-        except (asyncio.TimeoutError, Exception):
+        except Exception as exc:
+            logger.warning(
+                f"Voice socket shutdown failed ({type(exc).__name__})",
+            )
             transport = connection.transport
             if transport is not None:
                 transport.abort()

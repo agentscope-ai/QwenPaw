@@ -65,6 +65,17 @@ def _is_non_recoverable_slack_error(error):
     )
 
 
+def _safe_error_code(code):
+    if (
+        isinstance(code, str)
+        and len(code) <= 64
+        and code.isascii()
+        and code.replace(f"_", f"").isalnum()
+    ):
+        return code
+    return None
+
+
 class SlackPlatform:
     channel = "slack"
 
@@ -128,7 +139,7 @@ class SlackPlatform:
         self._app = AsyncApp(
             token=self.bot_token,
             client=self._client,
-            logger=logger,
+            logger=logging.getLogger(f"slack_bolt"),
             ignoring_self_events_enabled=True,
             before_authorize=self._configure_request_client,
         )
@@ -151,9 +162,16 @@ class SlackPlatform:
                     "user_id",
                     "",
                 )
+                logger.debug(
+                    f"Slack bot identity available={bool(self._bot_user_id)}",
+                )
                 return
             except Exception as exc:
                 last = exc
+                logger.warning(
+                    f"Slack auth.test failed: "
+                    f"attempt={attempt + 1} error={type(exc).__name__}",
+                )
                 await asyncio.sleep(2**attempt)
         raise RuntimeError(
             "[slack] Failed to fetch bot user_id after 3 attempts",
@@ -162,9 +180,14 @@ class SlackPlatform:
     async def _on_init(self):
         self._media_dir.mkdir(parents=True, exist_ok=True)
         await self._build_app()
-        self._proxy_url, _reason = _resolve_slack_proxy_url(
+        self._proxy_url, reason = _resolve_slack_proxy_url(
             self.config.get("proxy"),
         )
+        if self._proxy_url or reason:
+            logger.info(
+                f"Slack proxy: enabled={bool(self._proxy_url)} "
+                f"reason={reason}",
+            )
         _apply_slack_proxy(self._client, self._proxy_url)
         await self._fetch_bot_user_id()
         self._event_handler = SlackEventHandler(
@@ -185,6 +208,7 @@ class SlackPlatform:
             )
 
         self._sender = SlackSender(self)
+        logger.debug(f"Slack app initialized")
 
     async def start(self):
         if self._stopping:
@@ -230,6 +254,7 @@ class SlackPlatform:
 
     async def _start(self):
         await self._stop_socket_mode_handler()
+        logger.info(f"Slack Socket Mode connecting")
         self._handler = AsyncSocketModeHandler(
             self._app,
             self.app_token,
@@ -258,6 +283,7 @@ class SlackPlatform:
                 connected = False
             if connected != self.connected:
                 await self._state("connected" if connected else "disconnected")
+                logger.info(f"Slack Socket Mode connected={connected}")
             await asyncio.sleep(0.05)
 
     def _schedule_background(self, coro):
@@ -279,9 +305,14 @@ class SlackPlatform:
         if not self._running:
             return
         if error and _is_non_recoverable_slack_error(error):
+            logger.error(f"Slack Socket Mode authentication failed")
             self._running = False
             await self._state("failed")
             return
+        if error:
+            logger.warning(
+                f"Slack Socket Mode task failed ({type(error).__name__})",
+            )
         await self._state("disconnected")
         await self._restart_socket_mode(
             "task error" if error else "task exited normally",
@@ -292,6 +323,7 @@ class SlackPlatform:
             if not self._running:
                 return
             if self._socket_reconnect_attempt >= SLACK_RECONNECT_MAX_ATTEMPTS:
+                logger.error(f"Slack Socket Mode reconnect attempts exhausted")
                 self._running = False
                 await self._state("failed")
                 return
@@ -306,6 +338,11 @@ class SlackPlatform:
                 delay
                 + delay * SLACK_RECONNECT_JITTER * (2 * random.random() - 1),
             )
+            logger.info(
+                f"Slack Socket Mode reconnecting in {delay:.1f}s "
+                f"attempt={self._socket_reconnect_attempt + 1} "
+                f"reason={reason}",
+            )
             await asyncio.sleep(delay)
             if not self._running:
                 return
@@ -315,6 +352,7 @@ class SlackPlatform:
                 self._socket_reconnect_attempt = 0
             except Exception as exc:
                 if _is_non_recoverable_slack_error(exc):
+                    logger.error(f"Slack reconnect authentication failed")
                     self._running = False
                     await self._state("failed")
                     return
@@ -356,11 +394,14 @@ class SlackPlatform:
         finally:
             self._effect_tasks.discard(task)
 
-    async def effect_call(self, function, **kwargs):
+    async def effect_call(self, function, *, operation=None, **kwargs):
+        label = operation or getattr(function, f"__name__", f"API request")
         for attempt in range(3):
             try:
                 result = await await_send(function(**kwargs))
                 if result.get("ok") is False:
+                    safe_code = _safe_error_code(result.get(f"error"))
+                    logger.warning(f"Slack {label} rejected: code={safe_code}")
                     raise SlackDeliveryError("SLACK_REJECTED")
                 return result
             except (SlackDeliveryError, asyncio.CancelledError):
@@ -372,6 +413,9 @@ class SlackPlatform:
                     delay = _extract_retry_after(exc)
                     delay = 1.5 * (attempt + 1) if delay is None else delay
                     if retry_delay_fits(delay):
+                        logger.warning(
+                            f"Slack {label} rate limited: retry_in={delay}s",
+                        )
                         await await_send(asyncio.sleep(delay))
                         continue
                 rejected = isinstance(status, int) and (
@@ -381,6 +425,11 @@ class SlackPlatform:
                 )
                 code = (
                     response.get("error", "") if response is not None else ""
+                )
+                safe_code = _safe_error_code(code)
+                logger.warning(
+                    f"Slack {label} failed: HTTP={status} code={safe_code} "
+                    f"error={type(exc).__name__}",
                 )
                 raise SlackDeliveryError(
                     (
@@ -452,6 +501,7 @@ class SlackPlatform:
             text = ("💭 " if stream_type == "reasoning" else "") + "⏳ ..."
             response = await self.effect_call(
                 self._client.chat_postMessage,
+                operation=f"stream start",
                 channel=channel,
                 thread_ts=route.get("thread_ts") or None,
                 text=text,
@@ -482,6 +532,7 @@ class SlackPlatform:
             if final and len(display) > SLACK_TEXT_LIMIT:
                 await self.effect_call(
                     self._client.chat_delete,
+                    operation=f"stream placeholder delete",
                     channel=resource["channel_id"],
                     ts=resource["message_ts"],
                 )
@@ -506,6 +557,7 @@ class SlackPlatform:
             try:
                 await self.effect_call(
                     self._client.chat_update,
+                    operation=f"stream end" if final else f"stream delta",
                     channel=resource["channel_id"],
                     ts=resource["message_ts"],
                     text=display,
@@ -514,6 +566,7 @@ class SlackPlatform:
             except SlackDeliveryError as exc:
                 if not final or exc.reason_code != "SLACK_FORMAT_REJECTED":
                     raise
+                logger.info(f"Slack stream end falling back to normal send")
                 result = await self._sender.send_content_parts(
                     resource["channel_id"],
                     [{"type": "text", "text": text}],
@@ -567,10 +620,14 @@ class SlackPlatform:
             try:
                 await handler.close_async()
             except Exception as exc:
+                logger.warning(
+                    f"Slack Socket Mode close failed ({type(exc).__name__})",
+                )
                 failures.append(exc)
             self._remember_sdk_tasks(handler)
         failures.extend(await self._drain_sdk_tasks())
         if failures:
+            logger.warning(f"Slack SDK cleanup failed: errors={len(failures)}")
             raise failures[0]
         self._sdk_tasks.clear()
         self._socket_mode_task = self._handler = None
@@ -632,3 +689,4 @@ class SlackPlatform:
             raise failures[0]
         self._client = self._app = self._sender = self._event_handler = None
         await self._state("disconnected")
+        logger.info(f"Slack channel stopped")
