@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +16,7 @@ from qwenpaw.app.mcp.schemas import (
     MCPAccessRule,
     MCPToolDefaultPolicy,
 )
+from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import (
     DriverCard,
@@ -21,19 +24,24 @@ from qwenpaw.drivers.contracts import (
     coerce_driver_policy,
 )
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
-from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card, load_card
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 from tests.integration.driver_mcp_fakes import (
     FakeStdIOClient,
+    mcp_runtime_host as _mcp_runtime_host,
+    sdk_mcp_manager,
     patch_mcp_runtime_clients,
 )
+
+mcp_runtime_host = _mcp_runtime_host
+_APPROVAL_WAIT_SECONDS = 5
 
 
 async def _registry_with_policy(
     tmp_path: Path,
     policy: list[PolicyRule],
+    host,
 ) -> DriverManager:
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
     dump_card(
@@ -45,12 +53,12 @@ async def _registry_with_policy(
         ),
         card_path(tmp_path / "drivers", "policy_echo", protocol="mcp"),
     )
-    manager = DriverManager(
-        tmp_path / "drivers",
+    manager = await sdk_mcp_manager(
+        host,
+        tmp_path,
         store,
         approval_gate=QwenPawDriverApprovalGate(),
     )
-    manager.register_handler_type("mcp", MCPDriverHandler)
     await manager.build_drivers()
     return manager
 
@@ -60,7 +68,9 @@ async def _next_pending_request(
     task: asyncio.Task,
 ):
     # pylint: disable=protected-access
-    for _ in range(1000):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _APPROVAL_WAIT_SECONDS
+    while loop.time() < deadline:
         if service._pending:
             return next(iter(service._pending.values()))
         if task.done():
@@ -69,7 +79,9 @@ async def _next_pending_request(
                 "Driver invocation completed before creating approval "
                 f"request: {result}",
             )
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
     raise AssertionError("Timed out waiting for approval request")
 
 
@@ -79,11 +91,13 @@ async def _next_pending_request(
 async def test_driver_mcp_policy_deny_blocks_client_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="deny")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -108,22 +122,23 @@ async def test_driver_mcp_policy_deny_blocks_client_call(
 async def test_mcp_policy_update_applies_without_transport_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="allow")],
+        mcp_runtime_host,
     )
     capabilities = {
         item.name: item
         for item in await manager.list_capabilities(kind="tool")
     }
-    service = MCPConfigService(
-        SimpleNamespace(
-            workspace_dir=tmp_path,
-            driver_manager=manager,
-        ),
-    )
+    workspace = mcp_runtime_host._workspaces["test"]
+    config = load_config()
+    config.agents.profiles["test"].workspace_dir = str(tmp_path)
+    save_config(config)
+    service = MCPConfigService(workspace)
 
     reload_attempts = 0
 
@@ -191,11 +206,13 @@ async def test_mcp_policy_update_applies_without_transport_reload(
 async def test_mcp_policy_updates_serialize_persistence_and_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="allow")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -267,11 +284,13 @@ async def test_mcp_policy_updates_serialize_persistence_and_runtime(
 async def test_manual_policy_edit_applies_without_transport_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="allow")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -326,11 +345,13 @@ async def test_manual_policy_edit_applies_without_transport_reload(
 async def test_manual_endpoint_edit_reloads_transport(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="allow")],
+        mcp_runtime_host,
     )
     original_client = FakeStdIOClient.instances[0]
     watcher = DriverConfigWatcher(manager, tmp_path / "drivers")
@@ -366,6 +387,7 @@ async def test_manual_endpoint_edit_reloads_transport(
 async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -376,6 +398,7 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="ask")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -407,7 +430,7 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     result = await task
 
     assert result.ok is True
-    assert result.value == {"echo": {"text": "ok"}}
+    assert result.value.structured_content == {"echo": {"text": "ok"}}
     assert FakeStdIOClient.instances[0].calls == [("echo", {"text": "ok"})]
 
 
@@ -417,6 +440,7 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
 async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -427,6 +451,7 @@ async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="ask")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -455,7 +480,7 @@ async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
 
     after_policy = load_card(stored_path).policy
     assert result.ok is True
-    assert result.value == {"echo": {"text": "auto"}}
+    assert result.value.structured_content == {"echo": {"text": "auto"}}
     assert FakeStdIOClient.instances[0].calls == [("echo", {"text": "auto"})]
     # pylint: disable=protected-access
     assert not service._pending
@@ -469,6 +494,7 @@ async def test_driver_mcp_policy_ask_session_off_auto_allows_no_persist(
 async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -483,6 +509,7 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="ask")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -495,30 +522,22 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
         protocol="mcp",
     )
     before_policy = load_card(stored_path).policy
-    task = asyncio.create_task(
-        manager.invoke_capability(
+    async with asyncio.timeout(_APPROVAL_WAIT_SECONDS):
+        result = await manager.invoke_capability(
             DriverInvocation(
                 capability.capability_id,
                 {"text": "workspace"},
-                {"session_id": "s1", "agent_id": "agent", "user_id": "alice"},
+                {
+                    "session_id": "s1",
+                    "agent_id": "agent",
+                    "user_id": "alice",
+                },
             ),
-        ),
-    )
-
-    for _ in range(1000):
-        if task.done():
-            break
-        # pylint: disable=protected-access
-        assert not service._pending
-        await asyncio.sleep(0)
-    else:
-        task.cancel()
-        pytest.fail("Driver invocation did not auto-allow with agent OFF")
-    result = await task
+        )
 
     after_policy = load_card(stored_path).policy
     assert result.ok is True
-    assert result.value == {"echo": {"text": "workspace"}}
+    assert result.value.structured_content == {"echo": {"text": "workspace"}}
     assert FakeStdIOClient.instances[0].calls == [
         ("echo", {"text": "workspace"}),
     ]
@@ -534,6 +553,7 @@ async def test_driver_mcp_policy_ask_agent_off_auto_allows_no_persist(
 async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -548,6 +568,7 @@ async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="ask")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -575,7 +596,7 @@ async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
     result = await task
 
     assert result.ok is True
-    assert result.value == {"echo": {"text": "auto-agent"}}
+    assert result.value.structured_content == {"echo": {"text": "auto-agent"}}
 
 
 @pytest.mark.asyncio
@@ -584,6 +605,7 @@ async def test_driver_mcp_policy_ask_agent_auto_requires_approval(
 async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -609,35 +631,26 @@ async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="ask")],
+        mcp_runtime_host,
     )
     capability = next(
         item
         for item in await manager.list_capabilities(kind="tool")
         if item.name == "echo"
     )
-    task = asyncio.create_task(
-        manager.invoke_capability(
+    async with asyncio.timeout(_APPROVAL_WAIT_SECONDS):
+        result = await manager.invoke_capability(
             DriverInvocation(
                 capability.capability_id,
                 {"text": "active-agent"},
                 {"session_id": "s1", "user_id": "alice"},
             ),
-        ),
-    )
-
-    for _ in range(1000):
-        if task.done():
-            break
-        # pylint: disable=protected-access
-        assert not service._pending
-        await asyncio.sleep(0)
-    else:
-        task.cancel()
-        pytest.fail("Driver invocation did not auto-allow active agent OFF")
-    result = await task
+        )
 
     assert result.ok is True
-    assert result.value == {"echo": {"text": "active-agent"}}
+    assert result.value.structured_content == {
+        "echo": {"text": "active-agent"},
+    }
     # pylint: disable=protected-access
     assert not service._pending
 
@@ -648,11 +661,13 @@ async def test_driver_mcp_policy_ask_active_agent_off_auto_allows(
 async def test_driver_mcp_policy_deny_still_blocks_when_session_off(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="deny")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -678,6 +693,7 @@ async def test_driver_mcp_policy_deny_still_blocks_when_session_off(
 async def test_driver_mcp_policy_allow_session_strict_requires_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     service = ApprovalService()
@@ -688,6 +704,7 @@ async def test_driver_mcp_policy_allow_session_strict_requires_approval(
     manager = await _registry_with_policy(
         tmp_path,
         [PolicyRule(subject="*", effect="allow")],
+        mcp_runtime_host,
     )
     capability = next(
         item
@@ -719,4 +736,4 @@ async def test_driver_mcp_policy_allow_session_strict_requires_approval(
     result = await task
 
     assert result.ok is True
-    assert result.value == {"echo": {"text": "strict"}}
+    assert result.value.structured_content == {"echo": {"text": "strict"}}

@@ -530,7 +530,7 @@ async def test_uninstall_reservation_blocks_cached_workspace_requests(
     manager = MultiAgentManager()
     workspace = Workspace("cloud-orchestrator", str(work / "cloud-agent"))
     workspace.set_manager(manager)
-    other = object()
+    other = SimpleNamespace(agent_id="other")
     manager.agents.update({"cloud-orchestrator": workspace, "other": other})
     manager.reserve_agent_uninstall(["cloud-orchestrator"])
     load_config = Mock(

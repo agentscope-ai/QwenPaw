@@ -22,11 +22,13 @@ import pytest
 
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.exceptions import ConfigurationException
 
 
-def _fake_workspace() -> MagicMock:
+def _fake_workspace(agent_id: str = "agent") -> MagicMock:
     ws = MagicMock()
-    ws.config = AgentProfileConfig(id="agent", name="Agent")
+    ws.config = AgentProfileConfig(id=agent_id, name="Agent")
+    ws.agent_id = agent_id
     ws.config.running.light_context_config.strategy = "native"
     ws.start_history_retention = AsyncMock()
     ws.start = AsyncMock()
@@ -39,6 +41,7 @@ def _fake_workspace() -> MagicMock:
     ws._service_manager.services.get.return_value = None
     ws._service_manager.get_reusable_services.return_value = {}
     ws.task_tracker.snapshot_active_tasks = AsyncMock(return_value=[])
+    ws.driver_manager = None
     return ws
 
 
@@ -134,7 +137,104 @@ async def test_reload_candidate_starts_once_with_crons_and_channels_deferred(
     assert mgr.agents["agent"] is candidate
     candidate.cron_manager.handoff_from.assert_called_once_with(
         old_instance.cron_manager,
+        resume=False,
     )
+
+
+@pytest.mark.parametrize("cancel_during", ["cleanup", "activation"])
+async def test_cancelled_committed_reload_finishes_driver_handoff(
+    manager,
+    cancel_during,
+):
+    mgr, old_instance = manager
+    new_instance = _fake_workspace()
+    entered, release = asyncio.Event(), asyncio.Event()
+    events = []
+    mgr._create_workspace = lambda agent_id, workspace_dir: new_instance
+
+    async def cleanup(outgoing, agent_id):
+        assert outgoing is old_instance and agent_id == "agent"
+        assert mgr.agents["agent"] is new_instance
+        assert mgr.is_workspace_draining(outgoing)
+        events.append("cleanup-start")
+        if cancel_during == "cleanup":
+            entered.set()
+            await release.wait()
+        events.append("cleanup-done")
+
+    async def activate():
+        assert mgr.agents["agent"] is new_instance
+        events.append("activation-start")
+        if cancel_during == "activation":
+            entered.set()
+            await release.wait()
+        events.append("activation-done")
+
+    mgr._graceful_stop_old_instance = cleanup
+    activation = AsyncMock(side_effect=activate)
+    new_instance.driver_manager = SimpleNamespace(
+        activate_registered_protocols=activation,
+    )
+    pending = asyncio.create_task(mgr.reload_agent("agent"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        pending.cancel()
+        await asyncio.sleep(0)
+        assert not pending.done()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+
+    assert events == [
+        "cleanup-start",
+        "cleanup-done",
+        "activation-start",
+        "activation-done",
+    ]
+    activation.assert_awaited_once_with()
+    new_instance.stop.assert_not_awaited()
+    assert mgr.agents["agent"] is new_instance
+
+
+@pytest.mark.parametrize("retired", ["replaced", "removed", "stopping"])
+async def test_late_driver_activation_cannot_resume_retired_crons(
+    manager,
+    retired,
+):
+    mgr, old_instance = manager
+    new_instance = _fake_workspace()
+    mgr.agents["agent"] = new_instance
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def activate():
+        entered.set()
+        await release.wait()
+
+    new_instance.driver_manager = SimpleNamespace(
+        activate_registered_protocols=activate,
+    )
+    resume = MagicMock()
+    new_instance.cron_manager = SimpleNamespace(resume_scheduling=resume)
+    pending = asyncio.create_task(
+        mgr._complete_reload_handoff(old_instance, new_instance, "agent"),
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        if retired == "replaced":
+            mgr.agents["agent"] = _fake_workspace()
+        elif retired == "removed":
+            mgr.agents.pop("agent")
+        else:
+            mgr._agent_stop_tasks[id(new_instance)] = MagicMock()
+    finally:
+        release.set()
+        with pytest.raises(
+            ConfigurationException,
+            match="Agent 'agent' stopped during startup",
+        ):
+            await pending
+    resume.assert_not_called()
 
 
 async def test_cancelled_plugin_setup_cleans_uncommitted_candidate(manager):
@@ -201,6 +301,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
     retry_started, release_retry = asyncio.Event(), asyncio.Event()
 
     async def stop(**_kwargs):
+        assert not mgr.is_workspace_draining(old)
         if old.stop.await_count == 1:
             raise RuntimeError("plugin still alive")
         retry_started.set()
@@ -213,6 +314,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
         0,
     )
     active = {"request": asyncio.get_running_loop().create_future()}
+    mgr._draining_instances[id(old)] = old
     try:
         await mgr._graceful_stop_old_instance(
             old,
@@ -221,6 +323,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
         )
         await asyncio.wait_for(retry_started.wait(), timeout=1)
         assert mgr._retired_instances[id(old)] is old
+        assert not mgr.is_workspace_draining(old)
         assert mgr.agents["agent"] is new
         new.stop.assert_not_awaited()
         release_retry.set()
@@ -242,7 +345,13 @@ async def test_shutdown_retries_retired_workspace_preserving_reused_services(
     mgr = MultiAgentManager()
     old, new = _fake_workspace(), _fake_workspace()
     mgr.agents["agent"] = new
-    old.stop.side_effect = [RuntimeError("plugin still alive"), None]
+
+    async def stop(**_kwargs):
+        if old.stop.await_count == 1:
+            raise RuntimeError("plugin still alive")
+        old.cancel_active_requests.assert_awaited()
+
+    old.stop.side_effect = stop
     monkeypatch.setattr(
         "qwenpaw.app.multi_agent_manager._OLD_WORKSPACE_CLEANUP_RETRY_SECONDS",
         60,
@@ -257,7 +366,6 @@ async def test_shutdown_retries_retired_workspace_preserving_reused_services(
         call.kwargs == {"final": False} for call in old.stop.await_args_list
     )
     new.stop.assert_awaited_once_with()
-    old.cancel_active_requests.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -390,8 +498,7 @@ async def test_stop_agent_retries_failed_retired_cleanup(monkeypatch):
     """A failed old workspace remains owned without stopping another agent."""
     mgr = MultiAgentManager()
     old = _fake_workspace()
-    old.agent_id = "agent"
-    current, other = _fake_workspace(), _fake_workspace()
+    current, other = _fake_workspace(), _fake_workspace("other")
     mgr.agents.update(agent=current, other=other)
     old.stop.side_effect = [RuntimeError("busy"), RuntimeError("busy"), None]
     monkeypatch.setattr(
@@ -421,7 +528,6 @@ async def test_cancelled_stop_caller_keeps_retired_cleanup_owned(monkeypatch):
     """Cancelled callers leave cleanup owned and the manager lock available."""
     mgr = MultiAgentManager()
     old = _fake_workspace()
-    old.agent_id = "agent"
     current = _fake_workspace()
     mgr.agents["agent"] = current
     entered, release = asyncio.Event(), asyncio.Event()

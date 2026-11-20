@@ -74,6 +74,7 @@ KIND_DIRS = (
     "channel",
     "hub",
     "harness",
+    "protocol",
     "transcription",
 )
 # The shared release publisher accepts bundle archives. The catalog still

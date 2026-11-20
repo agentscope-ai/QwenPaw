@@ -25,6 +25,7 @@ import pytest
 
 from qwenpaw.agents import acp as acp_pkg
 from qwenpaw.app import agent_context
+from qwenpaw.app.mcp import feature_gate
 from qwenpaw.config import config as config_mod
 
 # Package ``tools.__init__`` re-exports the tool function under the same
@@ -101,7 +102,7 @@ def _clear_runner_states():
 
 @pytest.fixture(name="env")
 def _env_fixture():
-    """Patch the four imports the delegation tool resolves at call time.
+    """Patch the dependencies the delegation tool resolves at call time.
 
     ``_get_acp_service`` / ``_get_available_acp_runners`` /
     ``_request_context_chat_id`` / ``_current_agent_id`` all do
@@ -154,6 +155,11 @@ def _env_fixture():
         ),
         patch.object(acp_pkg, "get_acp_service", _get_service),
         patch.object(acp_pkg, "init_acp_service", _init_service),
+        patch.object(
+            feature_gate,
+            "prepare_mcp_for_use",
+            AsyncMock(return_value=True),
+        ),
     ):
         yield state
 

@@ -20,17 +20,31 @@ from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
 
+pytestmark = pytest.mark.usefixtures("ready_mcp_plugin")
+
 MCP_URL = f"{config.base_url}/mcp"
 MCP_CARD_SELECTOR = 'div[class*="mcpGrid"] div[class*="card"]'
 TOGGLE_BTN_SELECTOR = '[role="switch"]'
 CREATE_BTN_SELECTOR = 'button.qwenpaw-btn-primary:has-text("创建客户端"), button.qwenpaw-btn-primary:has-text("Create Client"), button.qwenpaw-btn-primary:has-text("Create")'
 
 
+@pytest.fixture(scope="module")
+def ready_mcp_plugin(api_context):
+    """Prepare the optional MCP runtime for tests that manage clients."""
+    response = api_context.get("/api/mcp-plugin")
+    assert response.ok, f"MCP status returned HTTP {response.status}"
+    if not response.json()["available"]:
+        response = api_context.post("/api/mcp-plugin/install", timeout=60000)
+        assert response.ok, f"Bundled MCP installation returned HTTP {response.status}"
+        state = response.json()
+        assert state["available"], f"MCP unavailable after installation: {state['diagnostics']}"
+
+
 def navigate_to_mcp(page: Page):
     """Navigate to the MCP page and wait for it to load."""
     page.goto(MCP_URL)
     page.wait_for_load_state("domcontentloaded")
-    page.wait_for_timeout(2000)
+    expect(page.locator(CREATE_BTN_SELECTOR).first).to_be_enabled(timeout=15000)
 
 
 # ============================================================================

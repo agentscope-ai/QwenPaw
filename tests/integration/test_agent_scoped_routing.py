@@ -300,12 +300,13 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
+@pytest.mark.usefixtures("installed_mcp_plugin")
 def test_mcp_oauth_revoke_unknown_client(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/agents/{agentId}/mcp/oauth/{client_key} with
       a non-existent client returns 404. The handler calls
-      ``get_agent_for_request`` (real agent-scoped), then checks
-      ``agent.config.mcp.clients``.
+      ``get_agent_for_request`` (real agent-scoped), then checks the
+      workspace's saved MCP sources.
 
     Test flow:
     1. Create a test agent (fresh agent has mcp=None).

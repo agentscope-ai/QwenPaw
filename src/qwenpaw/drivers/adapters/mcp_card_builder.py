@@ -37,6 +37,7 @@ from ..policy_types import DriverPolicy
 
 STATIC_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_STATIC
 OAUTH_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_OAUTH
+OAUTH_TOKEN_FIELDS = frozenset({"access_token", "refresh_token"})
 
 
 def mcp_credential_ref(client_key: str) -> str:
@@ -189,6 +190,24 @@ def build_mcp_driver_card(
             kind=CREDENTIAL_KIND_STATIC,
             ref=env_ref(var),
         )
+    # An explicit manual Authorization replaces OAuth, unless another
+    # endpoint binding still uses it. Auxiliary static headers do not.
+    oauth_alias = mcp_oauth_alias(existing) if existing is not None else None
+    if (
+        oauth_alias
+        and any(
+            name.lower() == "authorization"
+            for name in endpoint.get("headers", {})
+        )
+        and not any(
+            isinstance(spec, dict)
+            and spec.get("source") == "credential"
+            and spec.get("credential") == oauth_alias
+            for section in ("headers", "env")
+            for spec in endpoint.get(section, {}).values()
+        )
+    ):
+        credentials.pop(oauth_alias, None)
     # Generic DriverPolicy defaults to deny as the low-level safe fallback.
     # Console-created MCP clients default to ask so a newly added external
     # server requires human approval instead of failing silently before the
@@ -278,16 +297,21 @@ def build_mcp_client_info_payload(
 def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
     """Return a card with OAuth source and bearer header binding."""
     credentials = _credential_refs_from_existing(card)
-    credentials[OAUTH_CREDENTIAL_ALIAS] = CredentialRef(
+    alias = mcp_oauth_alias(card) or OAUTH_CREDENTIAL_ALIAS
+    credentials[alias] = CredentialRef(
         CREDENTIAL_KIND_OAUTH_AUTH_CODE,
         ref,
     )
     endpoint = dict(card.endpoint)
     if str(endpoint.get("transport") or "stdio") != "stdio":
-        headers = dict(endpoint.get("headers") or {})
+        headers = {
+            name: spec
+            for name, spec in (endpoint.get("headers") or {}).items()
+            if name.lower() != "authorization"
+        }
         headers["Authorization"] = {
             "source": "credential",
-            "credential": OAUTH_CREDENTIAL_ALIAS,
+            "credential": alias,
             "field": "access_token",
             "format": "Bearer {value}",
         }
@@ -295,28 +319,55 @@ def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
     return replace(card, endpoint=endpoint, credentials=credentials)
 
 
-def detach_mcp_oauth_credential(card: DriverCard) -> DriverCard:
-    """Return a card with OAuth source and bearer binding removed."""
-    credentials = _credential_refs_from_existing(card)
-    credentials.pop(OAUTH_CREDENTIAL_ALIAS, None)
-    endpoint = dict(card.endpoint)
-    headers = endpoint.get("headers")
-    if isinstance(headers, dict):
-        updated_headers = dict(headers)
-        auth_spec = updated_headers.get("Authorization")
+def mcp_oauth_alias(card: DriverCard) -> str | None:
+    """Find the declared OAuth credential used by the MCP connection."""
+    aliases = [
+        alias
+        for alias, binding in card.credentials.items()
+        if binding.kind == CREDENTIAL_KIND_OAUTH_AUTH_CODE
+    ]
+    for name, spec in (card.endpoint.get("headers") or {}).items():
         if (
-            isinstance(auth_spec, dict)
-            and auth_spec.get("source") == "credential"
-            and auth_spec.get("credential") == OAUTH_CREDENTIAL_ALIAS
+            name.lower() == "authorization"
+            and isinstance(spec, dict)
+            and spec.get("source") == "credential"
+            and spec.get("credential") in aliases
         ):
-            updated_headers.pop("Authorization", None)
-        endpoint["headers"] = updated_headers
+            return spec["credential"]
+    if OAUTH_CREDENTIAL_ALIAS in aliases:
+        return OAUTH_CREDENTIAL_ALIAS
+    return aliases[0] if len(aliases) == 1 else None
+
+
+def detach_mcp_oauth_credential(
+    card: DriverCard,
+    alias: str,
+    *,
+    remainder_alias: str,
+) -> DriverCard:
+    """Drop the OAuth binding and keep independent headers and environment."""
+    credentials = _credential_refs_from_existing(card)
+    credentials.pop(alias)
+    endpoint = dict(card.endpoint)
+    for section in ("headers", "env"):
+        bindings = endpoint.get(section)
+        if not isinstance(bindings, dict):
+            continue
+        updated = dict(bindings)
+        for name, spec in bindings.items():
+            if (
+                not isinstance(spec, dict)
+                or spec.get("source") != "credential"
+                or spec.get("credential") != alias
+            ):
+                continue
+            if spec.get("field") in OAUTH_TOKEN_FIELDS:
+                updated.pop(name)
+            else:
+                # Older migrations could put ordinary secrets in the same row.
+                updated[name] = {**spec, "credential": remainder_alias}
+        endpoint[section] = updated
     return replace(card, endpoint=endpoint, credentials=credentials)
-
-
-def update_oauth_credential_ref(card: DriverCard, ref: str) -> DriverCard:
-    """Return a copy of card pointing at an OAuth auth-code credential."""
-    return attach_mcp_oauth_credential(card, ref)
 
 
 def _is_tool_access_override(rule: Any) -> bool:
@@ -416,19 +467,27 @@ def _preserve_oauth_authorization_binding(
 ) -> None:
     if existing is None:
         return
-    if OAUTH_CREDENTIAL_ALIAS not in _credential_refs_from_existing(existing):
+    alias = mcp_oauth_alias(existing)
+    if alias is None:
         return
     headers = dict(endpoint.get("headers") or {})
-    if "Authorization" in headers:
+    if any(name.lower() == "authorization" for name in headers):
         return
     existing_headers = existing.endpoint.get("headers")
     if not isinstance(existing_headers, dict):
         return
-    existing_auth = existing_headers.get("Authorization")
+    existing_auth = next(
+        (
+            spec
+            for name, spec in existing_headers.items()
+            if name.lower() == "authorization"
+        ),
+        None,
+    )
     if (
         isinstance(existing_auth, dict)
         and existing_auth.get("source") == "credential"
-        and existing_auth.get("credential") == OAUTH_CREDENTIAL_ALIAS
+        and existing_auth.get("credential") == alias
     ):
         headers["Authorization"] = dict(existing_auth)
         endpoint["headers"] = headers
