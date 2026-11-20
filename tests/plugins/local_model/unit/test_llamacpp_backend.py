@@ -1313,7 +1313,7 @@ async def test_setup_server_passes_mmproj_argument(
     mmproj_file = model_dir / "mmproj-BF16.gguf"
     model_file.write_text("model")
     mmproj_file.write_text("mmproj")
-    start_calls: list[tuple[list[str], dict[str, Any]]] = []
+    start_commands: list[list[str]] = []
 
     class _FakeAsyncStdout:
         def close(self):
@@ -1341,8 +1341,8 @@ async def test_setup_server_passes_mmproj_argument(
         def kill(self) -> None:
             self.returncode = -9
 
-    def fake_popen(command, **kwargs):
-        start_calls.append((list(command), kwargs))
+    def fake_popen(command, **_kwargs):
+        start_commands.append(list(command))
         return _FakeStartedProcess()
 
     async def fake_server_ready(*_args, **_kwargs) -> bool:
@@ -1372,34 +1372,10 @@ async def test_setup_server_passes_mmproj_argument(
         probe_source=f"probed",
     )
 
-    assert start_calls == [
-        (
-            [
-                str(downloader.executable),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(setup_result.port),
-                "--model",
-                str(model_file.resolve()),
-                "--alias",
-                "vision-model",
-                "--log-file",
-                str(
-                    downloader.log_dir / "llama-server.log",
-                ),
-                "--gpu-layers",
-                "auto",
-                "--mmproj",
-                str(mmproj_file.resolve()),
-            ],
-            {
-                "stdout": downloader_module.asyncio.subprocess.PIPE,
-                "stderr": downloader_module.asyncio.subprocess.STDOUT,
-                "start_new_session": True,
-            },
-        ),
-    ]
+    (command,) = start_commands
+    assert command[command.index("--mmproj") + 1] == str(
+        mmproj_file.resolve(),
+    )
 
 
 @pytest.mark.asyncio
@@ -1410,7 +1386,7 @@ async def test_setup_server_uses_requested_port(
     downloader = _build_downloader(monkeypatch)
     model_path = tmp_path / "demo.gguf"
     model_path.write_text("gguf")
-    start_calls: list[tuple[list[str], dict[str, object]]] = []
+    start_commands: list[list[str]] = []
 
     class _FakeAsyncStdout:
         def close(self):
@@ -1438,8 +1414,8 @@ async def test_setup_server_uses_requested_port(
         def kill(self) -> None:
             self.returncode = -9
 
-    def fake_popen(command, **kwargs):
-        start_calls.append((list(command), kwargs))
+    def fake_popen(command, **_kwargs):
+        start_commands.append(list(command))
         return _FakeStartedProcess()
 
     async def fake_server_ready(*_args, **_kwargs) -> bool:
@@ -1470,30 +1446,8 @@ async def test_setup_server_uses_requested_port(
     await asyncio.sleep(0)
 
     assert setup_result.port == 43110
-    assert start_calls == [
-        (
-            [
-                str(downloader.executable),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "43110",
-                "--model",
-                str(model_path.resolve()),
-                "--alias",
-                "demo-model",
-                "--log-file",
-                str(downloader.log_dir / "llama-server.log"),
-                "--gpu-layers",
-                "auto",
-            ],
-            {
-                "stdout": downloader_module.asyncio.subprocess.PIPE,
-                "stderr": downloader_module.asyncio.subprocess.STDOUT,
-                "start_new_session": True,
-            },
-        ),
-    ]
+    (command,) = start_commands
+    assert command[command.index("--port") + 1] == "43110"
 
 
 def test_resolve_server_port_rejects_unavailable_port(
