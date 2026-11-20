@@ -112,6 +112,16 @@ test("SDK 1.2 accepts the same public usage", async () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
+test("SDK 1.2 release candidates reject APIs introduced in the final release", async () => {
+  const result = await check("1.2.0RC1", additions);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.ok(result.findings.every((f) => f.rule === "sdk-version"));
+  assert.ok(
+    result.findings.some((f) => f.message.startsWith("composer ")),
+    JSON.stringify(result),
+  );
+});
+
 test("same-named third-party declarations and old SDK APIs are not rejected", async () => {
   const result = await check(
     "1.0.0",
