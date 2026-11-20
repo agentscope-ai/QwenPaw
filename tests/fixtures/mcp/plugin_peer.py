@@ -10,11 +10,11 @@ from urllib.parse import parse_qs
 
 import uvicorn
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from starlette.responses import JSONResponse
 
 transport, port, evidence = sys.argv[1:]
-mcp = FastMCP("optional-runtime-peer", host="127.0.0.1", port=int(port))
+mcp = MCPServer("optional-runtime-peer")
 _sessions = {}
 _requests = []
 _admission = {"blocked": False, "deny": False}
@@ -38,6 +38,15 @@ class _ObserveSessions:
                     await asyncio.sleep(0.01)
                 if _admission["deny"]:
                     return await JSONResponse({}, status_code=403)(
+                        scope,
+                        receive,
+                        send,
+                    )
+                if (
+                    transport == "legacy-streamable-http"
+                    and headers.get(b"mcp-method") == b"server/discover"
+                ):
+                    return await JSONResponse({}, status_code=404)(
                         scope,
                         receive,
                         send,
@@ -141,9 +150,11 @@ async def token(request):
 
 
 if __name__ == "__main__":
-    if transport == "streamable-http":
+    if transport in {"streamable-http", "legacy-streamable-http"}:
         app = mcp.streamable_http_app()
         app.add_middleware(_ObserveSessions)
         uvicorn.run(app, host="127.0.0.1", port=int(port), log_level="warning")
+    elif transport == "sse":
+        mcp.run(transport="sse", host="127.0.0.1", port=int(port))
     else:
-        mcp.run(transport=transport)
+        mcp.run(transport="stdio")

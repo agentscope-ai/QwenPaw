@@ -1,4 +1,5 @@
-mcp>=1.28,<2.0
+mcp>=2.3.0,<3
 httpx>=0.27.0
+httpx2>=2.10.0
 jsonschema>=4.20.0
 referencing>=0.28.4

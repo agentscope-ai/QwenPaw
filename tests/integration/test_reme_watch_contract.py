@@ -2,10 +2,9 @@
 # pylint: disable=protected-access
 """Offline startup and watcher coverage for the actual embedded ReMe config.
 
-Install the pinned integration dependencies before running the contract::
+Install the project's test dependencies before running the contract::
 
-    python -m pip install reme-ai==0.4.2.0
-    python -m pip install reme-auto-fin==0.1.3 reme-daily-paper==0.1.3
+    python -m pip install -e ".[test]"
     python -m pytest tests/integration/test_reme_watch_contract.py
 """
 

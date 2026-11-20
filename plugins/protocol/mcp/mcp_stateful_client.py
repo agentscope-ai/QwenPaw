@@ -21,11 +21,11 @@ import random
 from contextlib import AsyncExitStack
 from typing import Any, Literal
 
-import httpx
+import httpx2
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 from .diagnostics import error_summary
 from .mcp_streamable_http import timeout_seconds
@@ -47,11 +47,11 @@ except ImportError:
     _ANYIO_TRANSPORT_ERRORS = ()
 
 # All exception types that indicate a dead transport — anyio stream errors,
-# httpx transport failures, and low-level socket/pipe errors (including stdio
+# httpx2 transport failures, and low-level socket/pipe errors (including stdio
 # pipe breaks when an MCP subprocess exits unexpectedly).
 _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     *_ANYIO_TRANSPORT_ERRORS,
-    httpx.TransportError,
+    httpx2.TransportError,
     EOFError,
     ConnectionResetError,
     BrokenPipeError,
@@ -80,9 +80,9 @@ def _is_transport_error(exc: BaseException) -> bool:
     if isinstance(exc, _TRANSPORT_ERRORS):
         return True
 
-    if isinstance(exc, McpError):
+    if isinstance(exc, MCPError):
         error = getattr(exc, "error", None)
-        message = str(getattr(error, "message", exc)).strip().casefold()
+        message = str(getattr(error, "message", "")).strip().casefold()
         return message in _TRANSPORT_MCP_MESSAGES
 
     sub_excs = getattr(exc, "exceptions", None)
@@ -93,7 +93,7 @@ def _is_transport_error(exc: BaseException) -> bool:
 
 def _is_401_error(exc: BaseException) -> bool:
     """Return True if exc (or any sub-exception) is HTTP 401."""
-    if isinstance(exc, httpx.HTTPStatusError):
+    if isinstance(exc, httpx2.HTTPStatusError):
         return exc.response.status_code == 401
     # ExceptionGroup wraps one or more sub-exceptions (Python 3.11+)
     sub_excs = getattr(exc, "exceptions", None)
@@ -1074,9 +1074,22 @@ class HttpStatefulClient(_MCPClientMixin):
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
         if self.transport == "streamable_http":
-            http_client = httpx.AsyncClient(
+            session_id = None
+
+            async def observe_response(response: httpx2.Response) -> None:
+                nonlocal session_id
+                # The SDK no longer exposes a session-ID getter. Capture the
+                # handshake header before the transport's final DELETE.
+                if response.status_code == 401:
+                    response.raise_for_status()
+                if response.is_success and response.request.method == "POST":
+                    session_id = session_id or response.headers.get(
+                        "Mcp-Session-Id",
+                    )
+
+            http_client = httpx2.AsyncClient(
                 headers=self.headers or {},
-                timeout=httpx.Timeout(
+                timeout=httpx2.Timeout(
                     connect=self.timeout,
                     read=self.sse_read_timeout,
                     write=self.timeout,
@@ -1084,6 +1097,7 @@ class HttpStatefulClient(_MCPClientMixin):
                 ),
                 **self.client_kwargs,
             )
+            http_client.event_hooks["response"].append(observe_response)
             await stack.enter_async_context(http_client)
             auth = self.client_kwargs.get("auth")
             prepare = getattr(auth, "prepare_termination", None)
@@ -1096,7 +1110,7 @@ class HttpStatefulClient(_MCPClientMixin):
             if prepare is not None and finish is not None:
                 # Evaluate after ClientSession exits, when the final session
                 # ID is known. This also covers failed opens and reconnects.
-                stack.callback(lambda: prepare(self.url, context[2]()))
+                stack.callback(lambda: prepare(self.url, session_id))
         else:
             context = await stack.enter_async_context(
                 sse_client(
