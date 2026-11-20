@@ -26,6 +26,7 @@ from agentscope.tool import ToolChunk
 
 from ...config.context import get_current_workspace_dir
 from ...constant import EnvVarLoader, WORKING_DIR
+from ...runtime.turn_context import detached_turn_context
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import make_dirs_async, run_sync_io, write_bytes_async
 from ...utils.outbound_media import stage_outbound_file
@@ -549,6 +550,7 @@ async def _probe_multimodal_if_needed(
                     active.provider_id,
                     active.model,
                 ),
+                context=detached_turn_context(),
             )
         else:
             # video: must run full probe to get video result

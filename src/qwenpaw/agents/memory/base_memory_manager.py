@@ -21,6 +21,7 @@ from agentscope.tool import ToolChunk
 
 from ...constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 from ...app.crons.contracts import ServiceCronJob
+from ...runtime.turn_context import detached_turn_context
 
 logger = logging.getLogger(__name__)
 MAX_QUERY_CHARS = 50
@@ -553,6 +554,7 @@ class BaseMemoryManager(ABC):
         ):
             self._auto_memory_worker_task = asyncio.create_task(
                 self._auto_memory_worker(),
+                context=detached_turn_context(),
             )
 
         self._task_counter += 1

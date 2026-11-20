@@ -12,16 +12,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
-from contextvars import ContextVar
 from typing import Any
 
 from ...providers.stream_progress import has_meaningful_stream_content
-
-# Optional request-local custody. The observer retains streams without
-# replacing them.
-_stream_observer: ContextVar[
-    Callable[[AsyncGenerator[Any, None]], None] | None
-] = ContextVar("model_recovery_stream_observer", default=None)
+from ...runtime.turn_context import current_run_streams
 
 
 async def call_with_overflow_recovery(
@@ -38,8 +32,8 @@ async def call_with_overflow_recovery(
         if inspect.isasyncgen(response):
             response = _stream_with_overflow_recovery(response, recover)
     if inspect.isasyncgen(response):
-        if observer := _stream_observer.get():
-            observer(response)
+        if owned := current_run_streams.get():
+            owned.retain(response)
     return response
 
 

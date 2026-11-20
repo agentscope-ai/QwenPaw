@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 import re
 from uuid import uuid4
@@ -1470,6 +1470,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         raise ProviderError(
             message=f"Provider '{self.id}' has no chat model adapter",
         )
+
+    @asynccontextmanager
+    async def _multimodal_probe(self, _model_id: str):
+        """Prepare the connection and yield a probe for a provider snapshot."""
+
+        async def probe(provider, model_id, **options):
+            return await provider.probe_model_multimodal(model_id, **options)
+
+        yield probe
 
     async def probe_model_multimodal(
         self,

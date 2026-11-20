@@ -344,6 +344,31 @@ interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeo
 unreleased resource still prevents replacement; retry public lifecycle operations after
 the fault is resolved. Old contexts cannot write or register resources for a new generation.
 
+## Model providers
+
+`ctx.register_provider(spec)` returns a `ProviderHandle` scoped to that provider.
+Import `ProviderSpec` and `ProviderHandle` from `qwenpaw.plugins.providers`.
+
+Declare `generate` for custom inference, or `protocol="openai-chat"` for the host's
+OpenAI-compatible transport. Optional `connect(ctx, model_id)` returns an async
+context manager yielding the base URL. The host enters it before each call and
+exits when that call ends or its stream closes. The plugin remains in use until
+the owning turn ends. In `connect`, `ctx.connection_purpose` identifies inference
+(`inference`), a connectivity check (`check`), or a multimodal capability probe (`probe`).
+
+Read `handle.published_model_ids` for the current IDs saved by `update(models=...)`.
+
+Await the following handle methods:
+
+- `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields;
+  `None` leaves a field unchanged. `models` replaces the published list while
+  retaining saved settings for matching model IDs.
+- `select(model_id, model_type="chat")` selects this provider's default for a
+  type: `chat` or `decision`. The type must match the published `ModelInfo.model_type`.
+- `clear_selection(model_type="chat")` clears that type's default if it uses this provider
+  and returns whether it was cleared. Agent overrides remain unchanged.
+- `close()` revokes the registration. Old handles become invalid after reload.
+
 ## Public capabilities
 
 | Capability                                          | Public entry                                                                               |
@@ -355,7 +380,8 @@ the fault is resolved. Old contexts cannot write or register resources for a new
 | Messages, attachments, run and approval observation | `qwenpaw.plugins.messages`, `qwenpaw.plugins.events`                                       |
 | Commands, hooks, modes, prompts                     | `commands`, `hooks`, `modes`, `prompts`                                                    |
 | Channels and applications                           | `channels`, `apps`                                                                         |
-| Model providers, memory, markets, skills            | `providers`, `memory`, `markets`, `skills`                                                 |
+| Model providers                                     | `providers.ProviderSpec`, `providers.ProviderHandle`                                       |
+| Memory, markets, skills                             | `memory`, `markets`, `skills`                                                              |
 | Resources, results, testing                         | `resources`, `results`, `testing`                                                          |
 | Exceptions                                          | Import public exceptions such as `SDKError` and `StaleContextError` from `qwenpaw.plugins` |
 

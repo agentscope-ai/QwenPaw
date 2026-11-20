@@ -317,6 +317,11 @@ def build_plugin_catalog() -> dict[str, Any]:
         if bundled_dir.is_dir()
         else get_builtin_hub_plugins_dir().glob("*/plugin.json"),
     )
+    from .local_model_legacy import bundled_local_source
+
+    local_manifest = bundled_local_source() / "plugin.json"
+    if local_manifest.is_file():
+        manifests.append(local_manifest)
     mcp_manifest = get_optional_mcp_plugin_dir() / "plugin.json"
     if mcp_manifest.is_file():
         manifests.append(mcp_manifest)

@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from typing import Protocol, Callable, Awaitable, TYPE_CHECKING
 
+from ..runtime.turn_context import current_run_streams
 from .errors import SDKError, StaleContextError, ToolInputError, ResourceError
 from .resources import Registration, ResourceOwner, ResourceScope
 from .storage import MediaStore, PluginConfig, PluginStorage
@@ -22,7 +23,7 @@ from .prompts import PromptSpec
 from .modes import ModeSpec
 from .skills import SkillSpec
 from .markets import MarketSpec
-from .providers import ProviderSpec
+from .providers import ProviderSpec, ProviderHandle
 from .transcription import TranscriptionSpec
 from .memory import MemorySpec
 from .events import EventSubscription
@@ -35,8 +36,6 @@ if TYPE_CHECKING:
 
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
-# An App run owns only the SDK stream producers spawned in its call chain.
-_stream_tasks = ContextVar("sdk_run_stream_tasks", default=None)
 
 
 class _RunStreams:
@@ -206,11 +205,11 @@ class PluginContext:  # pylint: disable=protected-access
             _activation_owners.reset(token)
 
     @contextmanager
-    def _admission(self, *, cleanup=False):
+    def _admission(self, *, cleanup=False, owner=None):
         activity = self._instance.activity
         task = asyncio.current_task()
         if (id(self), task) not in _activation_owners.get():
-            with activity.invocation(cleanup=cleanup):
+            with activity.invocation(cleanup=cleanup, owner=owner):
                 yield
             return
         # The real Lifecycle mutation owns activation. Projector startup tasks
@@ -264,6 +263,7 @@ class PluginContext:  # pylint: disable=protected-access
         session_id: str,
         deadline=None,
         cleanup=False,
+        owner=None,
     ):
         self._guard()
         from ._models import model_deadline
@@ -273,7 +273,7 @@ class PluginContext:  # pylint: disable=protected-access
             deadline = (
                 inherited if deadline is None else min(deadline, inherited)
             )
-        owned = None if cleanup else _stream_tasks.get()
+        owned = None if cleanup else current_run_streams.get()
         if owned is not None and owned.closing:
             raise SDKError("The owning app run is closing")
         if not (
@@ -281,8 +281,8 @@ class PluginContext:  # pylint: disable=protected-access
             or (id(self), asyncio.current_task()) in _activation_owners.get()
         ):
             raise SDKError("Plugin activation has not completed")
-        with self._admission(cleanup=cleanup):
-            task = asyncio.current_task()
+        with self._admission(cleanup=cleanup, owner=owner):
+            task = owner or asyncio.current_task()
             scope = self.resources.child(
                 workspace_id=workspace_id,
                 instance_id=uuid.uuid4().hex,
@@ -366,7 +366,7 @@ class PluginContext:  # pylint: disable=protected-access
             finally:
                 await stream.aclose()
 
-        owned = _stream_tasks.get()
+        owned = current_run_streams.get()
         if owned is not None and owned.closing:
             raise SDKError("The owning app run is closing")
         producer = (resources or self.resources).task(produce(), label)
@@ -1372,7 +1372,7 @@ class PluginContext:  # pylint: disable=protected-access
             description=f"market:{spec.key}",
         )
 
-    def register_provider(self, spec: ProviderSpec) -> Registration:
+    def register_provider(self, spec: ProviderSpec) -> ProviderHandle:
         from ._providers import register
 
         return register(self, spec)

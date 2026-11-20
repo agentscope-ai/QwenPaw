@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import Mock
 
-from qwenpaw.local_models.download_manager import (
+import pytest
+
+from llamacpp.workers import ModelDownloads
+import llamacpp.download_manager as download_module
+from llamacpp.download_manager import (
     DownloadProgressUpdate,
     DownloadProgressTracker,
     ProcessDownloadController,
@@ -10,7 +16,131 @@ from qwenpaw.local_models.download_manager import (
     ProcessDownloadTask,
     DownloadTaskResult,
     DownloadTaskStatus,
+    ManagedDownloadTask,
 )
+
+
+@pytest.mark.parametrize("exited", [True, False])
+def test_terminal_worker_must_exit_before_releasing_resources(
+    monkeypatch,
+    exited,
+):
+    progress = DownloadProgressTracker()
+    progress.begin()
+    controller = ProcessDownloadController(progress=progress)
+    task = ManagedDownloadTask(
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
+    )
+    task.process.is_alive.return_value = True
+    controller._task = task
+
+    def stop(*args, **kwargs):
+        if not exited:
+            raise RuntimeError("Download worker has not exited")
+
+    monkeypatch.setattr(download_module, "stop_download", stop)
+    result = DownloadTaskResult(
+        status=DownloadTaskStatus.COMPLETED,
+        local_path="/model",
+    )
+    if exited:
+        controller._finish_task(task=task, result=result)
+        assert controller.snapshot()["status"] == "completed"
+        assert controller._task is None
+        task.queue.close.assert_called_once()
+    else:
+        with pytest.raises(RuntimeError, match="has not exited"):
+            controller._finish_task(task=task, result=result)
+        assert controller._task is task
+        assert controller.snapshot()["status"] != "completed"
+        task.queue.close.assert_not_called()
+
+
+@pytest.mark.parametrize("worker_exited", [True, False])
+def test_cancel_racing_with_monitor_reaps_the_worker_once(worker_exited):
+    progress = DownloadProgressTracker()
+    progress.begin()
+    controller = ProcessDownloadController(progress=progress)
+    task = ManagedDownloadTask(Mock(), Mock(), Mock(), Mock())
+    task.process.is_alive.return_value = not worker_exited
+    task.monitor_thread.is_alive.return_value = False
+    controller._task = task
+
+    def terminate():
+        task.process.is_alive.return_value = False
+
+    def finish_download(timeout):
+        controller._finish_task(
+            task=task,
+            result=(
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.COMPLETED,
+                    local_path="/model",
+                )
+                if worker_exited
+                else DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error="Download process exited unexpectedly.",
+                )
+            ),
+            cleanup_spec=not worker_exited,
+        )
+
+    task.process.terminate.side_effect = terminate
+    task.monitor_thread.join.side_effect = finish_download
+    if worker_exited:
+        task.monitor_thread.is_alive.return_value = True
+        controller.cancel()
+        task.monitor_thread.join.assert_not_called()
+        assert controller.is_active()
+
+        task.monitor_thread.is_alive.return_value = False
+        controller.close()
+    else:
+        controller.cancel()
+
+    assert controller.snapshot()["status"] == (
+        "completed" if worker_exited else "cancelled"
+    )
+    assert not controller.is_active()
+    task.process.close.assert_called_once()
+    task.queue.close.assert_called_once()
+
+
+def test_cancel_times_out_on_cleanup_lock_and_can_retry(monkeypatch):
+    progress = DownloadProgressTracker()
+    progress.begin()
+    controller = ProcessDownloadController(progress=progress)
+    task = ManagedDownloadTask(Mock(), Mock(), Mock(), Mock())
+    task.process.is_alive.return_value = False
+    task.monitor_thread.is_alive.return_value = False
+    cleanup = task.spec.task.run_cleanup
+    cleanup.side_effect = [PermissionError("staging is busy"), None]
+    controller._task = task
+    monkeypatch.setattr(download_module, "DOWNLOAD_MONITOR_WAIT_SECONDS", 0.01)
+
+    with pytest.raises(PermissionError, match="staging is busy"):
+        controller._finish_task(
+            task=task,
+            result=DownloadTaskResult(status=DownloadTaskStatus.FAILED),
+            cleanup_spec=True,
+        )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with controller._teardown_lock:
+            cancel = executor.submit(controller.cancel)
+            with pytest.raises(RuntimeError, match="cleanup is still"):
+                cancel.result(timeout=2)
+            assert controller.is_active()
+            task.process.close.assert_not_called()
+
+    controller.cancel()
+    assert cleanup.call_count == 2
+    assert not controller.is_active()
+    assert controller.snapshot()["status"] == "cancelled"
+    task.process.close.assert_called_once()
 
 
 def test_download_task_result_round_trips_through_dict() -> None:
@@ -96,18 +226,12 @@ def test_download_result_message_round_trips() -> None:
 
 
 def test_process_download_task_wraps_worker_hooks() -> None:
-    captured: dict[str, object] = {}
     cleanup_calls: list[str] = []
     progress_update = DownloadProgressUpdate(downloaded_bytes=7)
     finalized_result = DownloadTaskResult(
         status=DownloadTaskStatus.COMPLETED,
         local_path="/tmp/model",
     )
-
-    class _FakeContext:
-        def Process(self, **kwargs):
-            captured.update(kwargs)
-            return object()
 
     task = ProcessDownloadTask(
         target=lambda payload, queue: None,
@@ -117,23 +241,12 @@ def test_process_download_task_wraps_worker_hooks() -> None:
         cleanup=lambda: cleanup_calls.append("cleanup"),
     )
 
-    process = task.create_process(
-        _FakeContext(),
-        process_name="demo-process",
-        queue="queue",
-    )
     result, downloaded_bytes = task.finalize(
         DownloadTaskResult(status=DownloadTaskStatus.COMPLETED),
     )
     task.run_cleanup()
 
-    assert process is not None
-    assert captured == {
-        "target": task.target,
-        "args": ({"demo": "value"}, "queue"),
-        "name": "demo-process",
-        "daemon": True,
-    }
+    assert task.payload == {"demo": "value"}
     assert task.probe_progress() == progress_update
     assert result == finalized_result
     assert downloaded_bytes == 7
@@ -143,12 +256,10 @@ def test_process_download_task_wraps_worker_hooks() -> None:
 def test_handle_message_returns_when_queue_is_closed() -> None:
     progress = DownloadProgressTracker()
     controller = ProcessDownloadController(
-        context=object(),
         progress=progress,
     )
     spec = ProcessDownloadTaskSpec(
         process_name="demo-process",
-        command=["demo"],
         task=ProcessDownloadTask(
             target=lambda payload, queue: None,
             payload={},
@@ -166,13 +277,11 @@ def test_handle_message_stops_after_terminal_result() -> None:
     progress = DownloadProgressTracker()
     progress.begin(total_bytes=5, source="example")
     controller = ProcessDownloadController(
-        context=object(),
         progress=progress,
     )
     finished: list[dict[str, object]] = []
     spec = ProcessDownloadTaskSpec(
         process_name="demo-process",
-        command=["demo"],
         task=ProcessDownloadTask(
             target=lambda payload, queue: None,
             payload={},
@@ -213,13 +322,11 @@ def test_handle_message_marks_finalize_exceptions_as_failed() -> None:
     progress = DownloadProgressTracker()
     progress.begin(total_bytes=5, source="example")
     controller = ProcessDownloadController(
-        context=object(),
         progress=progress,
     )
     finished: list[dict[str, object]] = []
     spec = ProcessDownloadTaskSpec(
         process_name="demo-process",
-        command=["demo"],
         task=ProcessDownloadTask(
             target=lambda payload, queue: None,
             payload={},
@@ -257,3 +364,41 @@ def test_handle_message_marks_finalize_exceptions_as_failed() -> None:
         "Download finalize step failed: file is in use"
     )
     assert finished[0]["cleanup_spec"] is True
+
+
+def test_spawn_worker_loads_plugin_source_without_host_package(
+    tmp_path,
+    monkeypatch,
+):
+    # A small local SDK stub exercises real spawn without network or models.
+    (tmp_path / "huggingface_hub.py").write_text(
+        "from pathlib import Path\n"
+        "def snapshot_download(*, repo_id, local_dir):\n"
+        "    Path(local_dir, 'model.gguf').write_bytes(b'GGUF')\n"
+        "    return local_dir\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    controller = ProcessDownloadController(progress=DownloadProgressTracker())
+    controller.start(
+        ProcessDownloadTaskSpec(
+            process_name="test-plugin-download",
+            task=ProcessDownloadTask(
+                target=ModelDownloads._download_worker,
+                payload={
+                    "repo_id": "test/model",
+                    "source": "huggingface",
+                    "staging_dir": str(tmp_path / "staging"),
+                },
+            ),
+            poll_interval=0.02,
+        ),
+    )
+    task = controller._task
+    try:
+        task.monitor_thread.join(timeout=10)
+        assert not task.monitor_thread.is_alive()
+        assert controller.snapshot()["status"] == "completed"
+        assert (tmp_path / "staging/model.gguf").read_bytes() == b"GGUF"
+        assert controller._task is None
+    finally:
+        controller.close()
