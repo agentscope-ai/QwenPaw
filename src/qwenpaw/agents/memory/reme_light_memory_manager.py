@@ -80,7 +80,7 @@ from ...utils.io_utils import run_sync_io
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
     from reme import ReMe
-    from reme.application import Response
+    from reme.schema import Response
 
 logger = logging.getLogger(__name__)
 
