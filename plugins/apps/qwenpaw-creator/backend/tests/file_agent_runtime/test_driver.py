@@ -2624,6 +2624,11 @@ def test_cancel_during_source_preparation_still_terminalizes_once(
         "subagent.started",
         "subagent.failed",
     ]
+    # `task` stays reserved for TaskView rows; the delegation brief must
+    # never reuse that key or the task view store drops it as a bad row.
+    accepted = lifecycle[0]
+    assert accepted.payload.get("delegationText")
+    assert "task" not in accepted.payload
     assert lifecycle[-1].payload.get("cancelled") is True
 
 

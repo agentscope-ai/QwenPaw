@@ -295,5 +295,6 @@ describe("creator task view refresh ordering", () => {
       ),
     ).not.toThrow();
     expect(useCreatorTaskViewStore.getState().tasks).toEqual([existing]);
+    expect(useCreatorTaskViewStore.getState().runs).toEqual([]);
   });
 });

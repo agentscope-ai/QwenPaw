@@ -78,9 +78,10 @@ function applyRow<T extends Row>(current: T[], incoming: T): T[] {
   return [incoming, ...current.filter((row) => row.id !== incoming.id)];
 }
 
-// `CreatorEvent.data` is one shared, untyped payload: `subagent.accepted`
-// carries the delegation brief (a string) on `task`, while `task.*` carries a
-// TaskView there. Rows feed a WeakMap, so non-object payloads must never pass.
+// `CreatorEvent.data` is one shared, untyped payload: `task.*` carries a
+// TaskView on `task`, while `subagent.accepted` events persisted before the
+// backend renamed the brief to `delegationText` carry a raw string there.
+// Rows feed a WeakMap, so non-object payloads must never pass.
 function asRow<T extends Row>(value: unknown): T | null {
   if (typeof value !== "object" || value === null) return null;
   if (typeof (value as Row).id !== "string") return null;
