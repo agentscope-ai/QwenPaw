@@ -3,22 +3,27 @@
 
 from __future__ import annotations
 
-import contextlib
 import fnmatch
-import importlib
 import logging
-import multiprocessing as mp
-import os
 import shutil
 import uuid
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty
 from typing import Any, Optional
-from enum import Enum
 
-import traceback
 import httpx
-from pydantic import Field
+
+from qwenpaw.plugins import SDKError
+
+from . import hardware as system_info
+from .model_types import (
+    DownloadSource,
+    LocalModelInfo,
+    PICCOLO_REPO_IDS,
+    PICCOLO_DOWNLOAD_PATTERNS,
+)
 
 from .download_manager import (
     DownloadProgressTracker,
@@ -29,31 +34,9 @@ from .download_manager import (
     ProcessDownloadController,
     ProcessDownloadTaskSpec,
 )
-from ..utils import system_info
-from ..utils.stdio import ensure_standard_streams
-from ..providers.provider import ModelInfo
-from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
+from .workers import ModelDownloads
 
 logger = logging.getLogger(__name__)
-PICCOLO_REPO_IDS = {
-    f"{owner}/Piccolo-{size}B{suffix}"
-    for owner in ("agentscope-ai", "AgentScope")
-    for size in (4, 9, 27)
-    for suffix in ("", "-BF16", "-Q8_0", "-Q4_K_M")
-}
-PICCOLO_DOWNLOAD_PATTERNS = [
-    "*.gguf",
-    "LICENSE",
-    "README.md",
-    "decision-inference.json",
-]
-
-
-class DownloadSource(str, Enum):
-    HUGGINGFACE = "huggingface"
-    MODELSCOPE = "modelscope"
-    # First try Hugging Face, then fall back to ModelScope if unreachable
-    AUTO = "auto"
 
 
 def repository_for_source(repo_id: str, source: DownloadSource) -> str:
@@ -74,35 +57,18 @@ def repository_for_source(repo_id: str, source: DownloadSource) -> str:
     return repo_id
 
 
-class LocalModelInfo(ModelInfo):
-    """Metadata for a local model"""
-
-    size_bytes: int = Field(
-        ...,
-        description="Model size in bytes, if known",
-    )
-    downloaded: bool = Field(
-        default=False,
-        description="Whether the model is fully downloaded and ready to use",
-    )
-    source: DownloadSource = Field(
-        default=DownloadSource.AUTO,
-        description="Preferred source to download the model from",
-    )
-
-
-class ModelManager:
+class ModelManager(ModelDownloads):
     """A manager for downloading local models with progress tracking."""
 
     def __init__(
         self,
+        *,
+        data_dir: Path,
     ) -> None:
-        self._context = mp.get_context("spawn")
-        self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
-        self._download_tmp_dir = DEFAULT_LOCAL_PROVIDER_DIR / "tmp"
+        self._model_dir = data_dir / "models"
+        self._download_tmp_dir = data_dir / "tmp"
         self._progress = DownloadProgressTracker()
         self._download_controller = ProcessDownloadController(
-            context=self._context,
             progress=self._progress,
         )
 
@@ -229,22 +195,17 @@ class ModelManager:
                 )
 
         models.extend(
-            model.model_copy(
-                update={
-                    "id": repository_for_source(
-                        model.id,
-                        DownloadSource.MODELSCOPE,
-                    ),
-                    "source": DownloadSource.MODELSCOPE,
-                },
+            replace(
+                model,
+                id=repository_for_source(model.id, DownloadSource.MODELSCOPE),
+                source=DownloadSource.MODELSCOPE,
             )
             for model in list(models)
         )
-        # Each mirror has its own stored ID and lifecycle controls.
-        for model in models:
-            model.downloaded = self.is_downloaded(model.id)
-
-        return models
+        return [
+            replace(model, downloaded=self.is_downloaded(model.id))
+            for model in models
+        ]
 
     def _check_model_exists(self, model_id: str) -> bool:
         """Check if a model directory contains .gguf files."""
@@ -266,8 +227,7 @@ class ModelManager:
             return []
 
         models: list[LocalModelInfo] = []
-        for entry in self._iter_downloaded_model_dirs():
-            repo_id = self._infer_repo_id_from_path(entry)
+        for repo_id, entry in self._downloaded_repositories().items():
             size_bytes = self._calculate_downloaded_size(entry)
             is_piccolo = repo_id in PICCOLO_REPO_IDS
             models.append(
@@ -300,15 +260,49 @@ class ModelManager:
 
         return models
 
-    def remove_downloaded_model(self, model_id: str) -> None:
+    def remove_downloaded_model(
+        self,
+        model_id: str,
+        running_model_id: str | None = None,
+    ) -> None:
         """Delete a downloaded local model by repo id or directory name."""
-        model_path = self.get_model_dir(model_id)
-        if model_path.exists():
-            self._cleanup_path(model_path)
-            self._cleanup_empty_parent_dirs(model_path.parent)
-            return
+        repositories = self._downloaded_repositories()
+        model_dirs = repositories.values()
+        model_dir = repositories.get(model_id)
+        if model_dir is None:
+            # A repository ID can also address its exact on-disk directory.
+            model_dir = next(
+                (
+                    path
+                    for path in model_dirs
+                    if self._infer_repo_id_from_path(path) == model_id
+                ),
+                None,
+            )
+        if model_dir is None:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
 
-        raise ValueError(f"Downloaded local model not found: {model_id}")
+        root = self._model_dir.resolve()
+        model_path = root / model_dir.relative_to(self._model_dir)
+        if model_path.resolve() != model_path:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
+        if any(
+            path != model_dir and path.is_relative_to(model_dir)
+            for path in model_dirs
+        ):
+            raise SDKError(
+                "Cannot delete a directory that contains another model",
+            )
+        if running_model_id is not None:
+            running_path = self.get_model_dir(running_model_id).resolve()
+            if model_path.is_relative_to(running_path) or any(
+                path.exists() and path.samefile(model_path)
+                for path in (running_path, *running_path.parents)
+            ):
+                raise SDKError("Cannot delete a model while it is running")
+
+        shutil.rmtree(model_path)
+        self._cleanup_empty_parent_dirs(model_path.parent, root)
 
     def start_download(
         self,
@@ -329,6 +323,7 @@ class ModelManager:
         final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
+        # TODO: Consider worker-side checks if SDK memory use is significant.
         total_bytes = self._estimate_download_size(
             repo_id=repo_id,
             source=resolved_source,
@@ -349,11 +344,6 @@ class ModelManager:
         }
         spec = ProcessDownloadTaskSpec(
             process_name=f"qwenpaw-model-download-{task_id}",
-            command=[
-                "qwenpaw-model-download",
-                repo_id,
-                resolved_source.value,
-            ],
             task=ProcessDownloadTask(
                 target=type(self)._download_worker,
                 payload=payload,
@@ -420,12 +410,6 @@ class ModelManager:
             downloaded_bytes,
         )
 
-    def _resolve_download_source(self) -> DownloadSource:
-        """Choose Hugging Face when reachable, otherwise use ModelScope."""
-        if self._probe_huggingface():
-            return DownloadSource.HUGGINGFACE
-        return DownloadSource.MODELSCOPE
-
     def _estimate_download_size(
         self,
         repo_id: str,
@@ -453,110 +437,6 @@ class ModelManager:
         return self._check_modelscope_gguf_exists(
             repo_id=repo_id,
         )
-
-    @staticmethod
-    def _download_worker(payload: dict[str, Any], queue: Any) -> None:
-        """Run the blocking SDK download in a child process."""
-        ensure_standard_streams()
-        repo_id = payload["repo_id"]
-        source = DownloadSource(payload["source"])
-        staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
-
-        try:
-            ModelManager._cleanup_path(staging_dir)
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            local_path = ModelManager._download_to_directory(
-                repo_id=repo_id,
-                source=source,
-                local_dir=staging_dir,
-            )
-        except Exception:
-            queue.put(
-                DownloadTaskResult(
-                    status=DownloadTaskStatus.FAILED,
-                    error="Download failed: " + traceback.format_exc(),
-                ).to_message(),
-            )
-            logger.error(
-                "Error when downloading model [%s]:\n%s",
-                repo_id,
-                traceback.format_exc(),
-            )
-            raise
-        queue.put(
-            DownloadTaskResult(
-                status=DownloadTaskStatus.COMPLETED,
-                local_path=str(Path(local_path).resolve()),
-            ).to_message(),
-        )
-
-    @staticmethod
-    def _download_to_directory(
-        repo_id: str,
-        source: DownloadSource,
-        local_dir: Path,
-    ) -> str:
-        """Download a model into the target directory."""
-        if source == DownloadSource.HUGGINGFACE:
-            return ModelManager._download_from_huggingface(
-                repo_id=repo_id,
-                local_dir=local_dir,
-            )
-        return ModelManager._download_from_modelscope(
-            repo_id=repo_id,
-            local_dir=local_dir,
-        )
-
-    @staticmethod
-    def _download_from_huggingface(
-        repo_id: str,
-        local_dir: Path,
-    ) -> str:
-        """Download a model repository from Hugging Face Hub."""
-        try:
-            from huggingface_hub import snapshot_download
-        except ImportError as exc:
-            raise ImportError(
-                "huggingface_hub is required for Hugging Face downloads.",
-            ) from exc
-
-        kwargs = {}
-        if repo_id in PICCOLO_REPO_IDS:
-            # Fetch only GGUF/runtime metadata, including for legacy base IDs.
-            kwargs["allow_patterns"] = PICCOLO_DOWNLOAD_PATTERNS
-        return snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(local_dir),
-            **kwargs,
-        )
-
-    @staticmethod
-    def _download_from_modelscope(
-        repo_id: str,
-        local_dir: Path,
-    ) -> str:
-        """Download a model repository from ModelScope."""
-        options = {}
-        if repo_id in PICCOLO_REPO_IDS:
-            options["allow_file_pattern"] = PICCOLO_DOWNLOAD_PATTERNS
-        with open(
-            os.devnull,
-            "a",
-            encoding="utf-8",
-            buffering=1,
-            errors="replace",
-        ) as sink_stream:
-            with (
-                contextlib.redirect_stdout(
-                    sink_stream,
-                ),
-                contextlib.redirect_stderr(sink_stream),
-            ):
-                return ModelManager._get_modelscope_snapshot_download()(
-                    model_id=repo_id,
-                    local_dir=str(local_dir),
-                    **options,
-                )
 
     def _estimate_huggingface_size(
         self,
@@ -602,33 +482,25 @@ class ModelManager:
     ) -> Optional[int]:
         """Estimate total download bytes from ModelScope metadata."""
         try:
-            hub_api_module = importlib.import_module("modelscope.hub.api")
+            from modelscope_hub import HubApi, HubError
         except ImportError:
             return None
 
         try:
-            files = hub_api_module.HubApi().get_model_files(
-                repo_id,
-            )
-        except (OSError, RuntimeError, TypeError, ValueError):
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
             return None
 
-        total = 0
-        found = False
-        for item in files:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("Path") or item.get("Name") or ""
-            if repo_id in PICCOLO_REPO_IDS and not any(
-                fnmatch.fnmatch(name, pattern)
-                for pattern in PICCOLO_DOWNLOAD_PATTERNS
-            ):
-                continue
-            size = item.get("Size")
-            if isinstance(size, int):
-                total += size
-                found = True
-        return total if found else None
+        if repo_id in PICCOLO_REPO_IDS:
+            files = [
+                file
+                for file in files
+                if any(
+                    fnmatch.fnmatch(file.path, pattern)
+                    for pattern in PICCOLO_DOWNLOAD_PATTERNS
+                )
+            ]
+        return sum(file.size for file in files) if files else None
 
     def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
         try:
@@ -654,19 +526,15 @@ class ModelManager:
 
     def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
         try:
-            hub_api_module = importlib.import_module("modelscope.hub.api")
+            from modelscope_hub import HubApi, HubError
         except ImportError:
-            return False, "`modelscope` is not installed"
+            return False, "`modelscope-hub` is not installed"
         try:
-            files = hub_api_module.HubApi().get_model_files(repo_id)
-        except (OSError, RuntimeError, TypeError, ValueError):
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
             return False, f"Failed to fetch info from {repo_id}"
 
-        if any(
-            isinstance(f, dict)
-            and (f.get("Name", "") or f.get("Path", "")).endswith(".gguf")
-            for f in files
-        ):
+        if any(file.path.endswith(".gguf") for file in files):
             return True, ""
         return (
             False,
@@ -675,6 +543,12 @@ class ModelManager:
                 "not contain any .gguf files."
             ),
         )
+
+    def _resolve_download_source(self) -> DownloadSource:
+        """Choose Hugging Face when reachable, otherwise use ModelScope."""
+        if self._probe_huggingface():
+            return DownloadSource.HUGGINGFACE
+        return DownloadSource.MODELSCOPE
 
     def _detect_available_memory_gb(self) -> float:
         """Prefer VRAM when available, otherwise use system memory."""
@@ -694,23 +568,6 @@ class ModelManager:
         except httpx.HTTPError:
             return False
         return response.status_code < 500
-
-    @staticmethod
-    def _get_modelscope_snapshot_download() -> Any:
-        """Return a compatible ModelScope snapshot downloader."""
-        try:
-            snapshot_module = importlib.import_module(
-                "modelscope.hub.snapshot_download",
-            )
-            return snapshot_module.snapshot_download
-        except ImportError:
-            try:
-                modelscope_module = importlib.import_module("modelscope")
-                return modelscope_module.snapshot_download
-            except ImportError as exc:
-                raise ImportError(
-                    "ModelScope snapshot download is required.",
-                ) from exc
 
     @staticmethod
     def _drain_queue_message(queue: Any) -> Optional[dict[str, Any]]:
@@ -754,45 +611,58 @@ class ModelManager:
             return final_dir
         return final_dir / local_path.relative_to(staging_dir)
 
-    @staticmethod
-    def _cleanup_path(path: Path) -> None:
-        """Delete a file or directory if it exists."""
-        if not path.exists():
-            return
-        if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
-            return
-        path.unlink(missing_ok=True)
-
-    def _iter_downloaded_model_dirs(self) -> list[Path]:
-        candidates: list[Path] = []
-        entries = sorted(
-            self._model_dir.rglob("*"),
-            key=lambda item: item.parts,
-        )
-        for entry in entries:
-            if not entry.is_dir():
+    def _downloaded_repositories(self) -> dict[str, Path]:
+        """Map standalone and owner/repository model IDs to their directories."""
+        roots = []
+        for entry in sorted(self._model_dir.rglob("*")):
+            if not entry.is_dir() or self._is_temporary_download_dir(entry):
                 continue
-            if self._is_temporary_download_dir(entry):
-                continue
-            if not any(entry.rglob("*.gguf")):
+            parts = entry.relative_to(self._model_dir).parts
+            if len(parts) > 2 and any(root in entry.parents for root in roots):
                 continue
             if not self._looks_like_model_root(entry):
                 continue
-            candidates.append(entry)
+            # A standalone model may share its top-level folder with separate
+            # owner/repository entries. Each repository owns its nested weights.
+            pattern = (
+                "*.gguf"
+                if len(parts) == 1 and not entry.is_symlink()
+                else "**/*.gguf"
+            )
+            if any(
+                not weight.name.lower().startswith("mmproj")
+                and not self._is_temporary_download_dir(weight)
+                and weight.is_file()
+                for weight in entry.glob(pattern)
+            ):
+                roots.append(entry)
 
-        selected: list[Path] = []
-        for candidate in sorted(candidates, key=lambda item: len(item.parts)):
-            if any(candidate.is_relative_to(parent) for parent in selected):
-                continue
-            selected.append(candidate)
-        return selected
+        counts = Counter(
+            root.relative_to(self._model_dir).parts[0] for root in roots
+        )
+        repositories = {}
+        for root in roots:
+            parent = root.parent
+            if (
+                root.name == "weights"
+                and parent.parent == self._model_dir
+                and counts[parent.name] == 1
+                and not root.is_symlink()
+                and self._looks_like_model_root(parent)
+                and all(
+                    child.suffix.lower() == ".gguf" for child in root.iterdir()
+                )
+            ):
+                # A legacy standalone model keeps its metadata above weights/.
+                repositories[parent.name] = root
+            else:
+                repositories[self._infer_repo_id_from_path(root)] = root
+        return repositories
 
     def _is_temporary_download_dir(self, path: Path) -> bool:
-        relative_parts = path.relative_to(self._model_dir).parts
         return any(
             part.startswith(".") or part.endswith(".downloading")
-            for part in relative_parts
+            for part in path.relative_to(self._model_dir).parts
         )
 
     def _looks_like_model_root(self, path: Path) -> bool:
@@ -805,8 +675,9 @@ class ModelManager:
         relative_path = model_dir.relative_to(self._model_dir)
         return "/".join(relative_path.parts)
 
-    def _cleanup_empty_parent_dirs(self, path: Path) -> None:
-        while path != self._model_dir and path.exists():
+    @staticmethod
+    def _cleanup_empty_parent_dirs(path: Path, root: Path) -> None:
+        while path != root and path.exists():
             if any(path.iterdir()):
                 return
             path.rmdir()

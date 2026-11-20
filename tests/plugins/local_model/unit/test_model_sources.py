@@ -2,12 +2,14 @@
 """Official mirrors keep source, repository identity and model role aligned."""
 
 import fnmatch
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from qwenpaw.local_models.llamacpp import LlamaCppBackend
-from qwenpaw.local_models.model_manager import (
+from llamacpp.llamacpp import LlamaCppBackend
+from llamacpp.model_manager import (
     DownloadSource,
     ModelManager,
     repository_for_source,
@@ -70,19 +72,19 @@ def test_modelscope_piccolo_downloads_every_shard_without_safetensors(
     tmp_path,
     monkeypatch,
 ):
-    download = MagicMock(return_value=str(tmp_path))
-    monkeypatch.setattr(
-        ModelManager,
-        "_get_modelscope_snapshot_download",
-        lambda: download,
+    api = MagicMock()
+    api.download_repo.return_value = tmp_path
+    monkeypatch.setitem(
+        sys.modules,
+        "modelscope_hub",
+        SimpleNamespace(HubApi=lambda **_: api, HubError=LookupError),
     )
     ModelManager._download_from_modelscope(
         "AgentScope/Piccolo-27B-BF16",
         tmp_path,
     )
-    options = download.call_args.kwargs
-    assert options["model_id"] == "AgentScope/Piccolo-27B-BF16"
-    patterns = options["allow_file_pattern"]
+    assert api.download_repo.call_args.args == ("AgentScope/Piccolo-27B-BF16",)
+    patterns = api.download_repo.call_args.kwargs["allow_patterns"]
     files = [
         "Piccolo-27B-BF16-00001-of-00012.gguf",
         "Piccolo-27B-BF16-00012-of-00012.gguf",
@@ -98,30 +100,22 @@ def test_modelscope_piccolo_downloads_every_shard_without_safetensors(
         "AgentScope/QwenPaw-Flash-9B-Q4_K_M",
         tmp_path,
     )
-    assert "allow_file_pattern" not in download.call_args.kwargs
+    assert "allow_patterns" not in api.download_repo.call_args.kwargs
 
 
 def test_modelscope_size_uses_the_same_download_filter(monkeypatch):
-    import importlib
-    from types import SimpleNamespace
-
     api = SimpleNamespace(
-        get_model_files=lambda _: [
-            {"Path": "part-1.gguf", "Size": 10},
-            {"Path": "part-2.gguf", "Size": 20},
-            {"Path": "decision-inference.json", "Size": 5},
-            {"Path": "model.safetensors", "Size": 999},
+        list_repo_files=lambda repo_id, repo_type: [
+            SimpleNamespace(path="part-1.gguf", size=10),
+            SimpleNamespace(path="part-2.gguf", size=20),
+            SimpleNamespace(path="decision-inference.json", size=5),
+            SimpleNamespace(path="model.safetensors", size=999),
         ],
     )
-    original = importlib.import_module
-    monkeypatch.setattr(
-        importlib,
-        "import_module",
-        lambda name: (
-            SimpleNamespace(HubApi=lambda: api)
-            if name == "modelscope.hub.api"
-            else original(name)
-        ),
+    monkeypatch.setitem(
+        sys.modules,
+        "modelscope_hub",
+        SimpleNamespace(HubApi=lambda: api, HubError=LookupError),
     )
     assert (
         ModelManager()._estimate_modelscope_size("AgentScope/Piccolo-27B-BF16")

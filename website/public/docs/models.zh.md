@@ -16,7 +16,7 @@ QwenPaw 当前支持的本地供应商包括：
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-其中 QwenPaw Local (llama.cpp) 内置在 QwenPaw 中，无需额外安装其他软件，Ollama 和 LM Studio 需要用户提前安装好对应的软件。
+QwenPaw Local 由可选插件提供。Ollama 和 LM Studio 需要单独安装。
 
 QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包含 2B、4B 和 9B 三个版本；除原始模型外，还提供 4 bit 和 8 bit 量化版本，适合不同的显存环境和性能需求。这些模型已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 和 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，下面分别介绍如何在三种本地供应商中使用 QwenPaw-Flash。
 
@@ -24,27 +24,27 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 > QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
 
-QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
+打开 **设置 → 模型**。如果看不到 QwenPaw Local，请打开 **插件管理**，在 **官方插件** 中安装 **QwenPaw Local**（`local-llamacpp`），或在 **已安装插件** 中启用它。然后返回模型页面。
 
 ![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 
-初次配置 QwenPaw Local 时，您需要先下载 llama.cpp 运行库，点击 **下载 llama.cpp** 按钮，QwenPaw 会自动下载并配置好 llama.cpp 运行库，下载完成后您就可以使用 QwenPaw Local 提供商了。
+打开 QwenPaw Local 的管理窗口。如果尚未安装运行库，点击 **安装 llama.cpp**。
 
 ![下载 llama.cpp](https://img.alicdn.com/imgextra/i2/O1CN01zN4QFs1RGyvkxM8lE_!!6000000002085-2-tps-1550-1308.png)
 
-QwenPaw 团队专门训练了一系列适合本地部署的小模型（QwenPaw-Flash 系列），会自动根据您当前的设备（CPU / NVIDIA GPU / Apple M 系列芯片）为您推荐适合的模型版本。如果您希望使用 QwenPaw-Flash，直接在这里选择合适的版本下载并启动即可；如果您希望使用其他模型，也可以通过填写 _模型仓库 ID_ 以及 _下载源_ 来添加其他模型，模型仓库 ID 是指模型在 ModelScope / Hugging Face 等模型仓库中的标识，例如 `Qwen/Qwen3-0.6B-GGUF`，下载源是指下载模型的途径，目前支持 ModelScope 和 Hugging Face 两种下载源。
+从推荐列表下载模型，例如用于聊天的 QwenPaw-Flash。也可以选择 ModelScope 或 Hugging Face，输入 GGUF 模型仓库 ID，例如 `Qwen/Qwen3-0.6B-GGUF`。已有 GGUF 文件可按[本地模型](./models#本地模型)中的步骤手动导入。
 
 ![下载模型](https://img.alicdn.com/imgextra/i2/O1CN01io6OUC1kBvFn3RA8U_!!6000000004646-2-tps-1346-1694.png)
 
-模型下载完成后就可以点击 **启动** 按钮来启动该模型，不同大小的模型启动耗时可能有差异，请耐心等待，启动后 QwenPaw 会自动将全局默认模型切换为该模型。同一时刻只能启动一个模型，启动其他模型时会自动关闭当前正在运行的模型。
+点击模型旁的 **启动**。启动 Flash 会将它设为默认聊天模型。启动 Piccolo 会将它设为默认决策模型。llama.cpp 一次运行一个模型，切换前请等当前请求完成。
 
 ![启动模型](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
 
-在暂时不需要使用模型时，您可以选择 **停止** 模型来停止该模型的服务。
+点击 **停止** 可关闭本地服务。已下载的模型会保留。
 
 ![停止模型](https://img.alicdn.com/imgextra/i4/O1CN01u6zmTW1lCfW2lsXAh_!!6000000004783-2-tps-1354-1796.png)
 
-QwenPaw Local 会自动记录模型启动状态，如果您在关闭 QwenPaw 进程时，QwenPaw Local 模型正在运行，下次打开时会自动尝试重新启动上次使用的模型，从而无需每次启动 QwenPaw 后都手动启动模型。
+重启 QwenPaw 时，如果启用的智能体仍选用已启动过的本地模型，QwenPaw 会尝试恢复该模型。只使用云模型时，llama.cpp 不会随 App 启动。
 
 ## Ollama 配置
 
@@ -227,11 +227,17 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 ### 本地模型
 
-如果使用了 QwenPaw Local (llama.cpp) 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）中保存 llama.cpp 相关的运行库、模型文件以及运行日志，其中
+手动导入 GGUF 时，先找到插件的数据目录。下表中的相对路径以 `$QWENPAW_WORKING_DIR`（默认 `~/.qwenpaw`）为起点。
 
-- **运行库**保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，包含了 llama.cpp 的可执行文件以及相关的动态链接库，这些文件由 QwenPaw 自动下载和配置，如果用户对 llama.cpp 有特殊需求（例如需要使用特定硬件的加速能力），也可以自行编译 llama.cpp 并直接替换该目录下的文件。
-- **下载的模型**会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件以及一些模型元信息文件，如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 GGUF 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）。
-- **日志文件**保存在 `$QWENPAW_WORKING_DIR/local_models/logs` 目录下，启动 llama.cpp 后日志文件会自动保存在该目录下的 `llama-server.log` 文件中。
+| 使用情况                 | 数据目录                              |
+| ------------------------ | ------------------------------------- |
+| 首次使用本地插件         | `plugin-data/local-llamacpp/runtime/` |
+| 从旧版升级，已有本地模型 | 沿用原目录，默认为 `local_models/`    |
+| 已配置插件的 `data_dir`  | 使用该配置指定的目录                  |
+
+在数据目录中创建 `models/组织名/模型名/`，将 GGUF 放进去。例如 `models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`。刷新 QwenPaw Local 模型列表后，即可启动该模型。
+
+同一数据目录下，`bin/` 存放 llama.cpp 运行库，`logs/llama-server.log` 记录服务日志。
 
 ### 生成参数
 

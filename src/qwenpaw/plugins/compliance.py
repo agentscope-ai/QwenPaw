@@ -10,7 +10,7 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
-from .sdk_version import SDK_VERSION
+from .sdk_version import SDK_VERSION, validate_sdk
 
 PUBLIC_API = MappingProxyType(
     {
@@ -91,6 +91,7 @@ PUBLIC_API = MappingProxyType(
             "ProviderContext",
             "ConnectionResult",
             "ProviderSpec",
+            "ProviderHandle",
         ),
         "qwenpaw.plugins.transcription": (
             "TranscriptionSpec",
@@ -213,15 +214,21 @@ class APIExport:
     stability: str = "stable"
 
 
+# TODO: Review how public API introduction versions are maintained.
 API_EXPORTS = tuple(
     APIExport(
         module,
         symbol,
-        since={
-            "qwenpaw.plugins.drivers": "1.2.0",
-            "qwenpaw.plugins.harnesses": "1.1.0",
-            "qwenpaw.plugins.transcription": "1.1.0",
-        }.get(module, "1.0.0"),
+        since=(
+            "1.2.0"
+            if (module, symbol)
+            == ("qwenpaw.plugins.providers", "ProviderHandle")
+            else {
+                "qwenpaw.plugins.drivers": "1.2.0",
+                "qwenpaw.plugins.harnesses": "1.1.0",
+                "qwenpaw.plugins.transcription": "1.1.0",
+            }.get(module, "1.0.0")
+        ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
     for module, symbols in PUBLIC_API.items()
@@ -314,7 +321,6 @@ def check_plugin(directory: str | Path) -> CheckReport:
             or not manifest.get("version")
         ):
             raise ValueError("Manifest requires id and version")
-        from .sdk_version import validate_sdk
         from .dependency_gate import manifest_requirements
 
         validate_sdk(manifest.get("sdk"), manifest["id"])
@@ -590,7 +596,6 @@ def check_plugin(directory: str | Path) -> CheckReport:
         tuple(sorted(dependencies)),
         tuple(sorted(uncovered)),
         package_hash=digest.hexdigest(),
-        sdk_version=SDK_VERSION,
         checked_at=datetime.now(timezone.utc).isoformat(),
         plugin_id=str(manifest.get("id", "")),
         declared_sdk_version=str(declaration.get("version", "")),

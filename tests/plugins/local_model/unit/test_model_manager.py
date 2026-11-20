@@ -5,14 +5,21 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
-from qwenpaw.local_models.download_manager import (
+from qwenpaw.plugins import SDKError
+
+from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from qwenpaw.local_models.model_manager import ModelManager, DownloadSource
+from llamacpp.llamacpp import LlamaCppBackend
+from llamacpp.model_manager import ModelManager, DownloadSource
+
+from llamacpp.workers import ModelDownloads
 
 
 class _FakeController:
@@ -80,11 +87,9 @@ def test_start_download_uses_reachable_source(
     downloader.start_download("Qwen/Qwen2-0.5B-Instruct-GGUF")
 
     assert controller.started_spec is not None
-    assert controller.started_spec.command == [
-        "qwenpaw-model-download",
-        "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        "modelscope",
-    ]
+    assert controller.started_spec.task.payload["repo_id"] == (
+        "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    )
     assert (
         controller.started_spec.model_name == "Qwen/Qwen2-0.5B-Instruct-GGUF"
     )
@@ -152,24 +157,17 @@ def test_get_download_progress_returns_idle_by_default() -> None:
     }
 
 
+@pytest.mark.parametrize("source", list(DownloadSource))
 def test_download_model_rejects_repo_without_gguf(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source: DownloadSource,
 ) -> None:
     downloader = ModelManager()
     controller = _FakeController()
     downloader.__dict__["_download_controller"] = controller
-
-    monkeypatch.setattr(
-        downloader,
-        "get_model_dir",
-        lambda repo_id: tmp_path / repo_id,
-    )
-    monkeypatch.setattr(
-        downloader,
-        "_resolve_download_source",
-        lambda: DownloadSource.MODELSCOPE,
-    )
+    downloader.__dict__["_download_tmp_dir"] = tmp_path / "tmp"
+    previous = controller.snapshot().copy()
     monkeypatch.setattr(
         downloader,
         "_estimate_download_size",
@@ -180,20 +178,14 @@ def test_download_model_rejects_repo_without_gguf(
         "_check_gguf_exists",
         lambda **kwargs: (
             False,
-            (
-                "Repository demo/no-gguf does not contain any .gguf "
-                "files on ModelScope."
-            ),
+            "Repository demo/no-gguf does not contain any .gguf files.",
         ),
     )
-
-    with pytest.raises(
-        ValueError,
-        match="does not contain any .gguf files",
-    ):
-        downloader.start_download("demo/no-gguf")
+    with pytest.raises(ValueError, match="does not contain any .gguf files"):
+        downloader.start_download("demo/no-gguf", source=source)
 
     assert controller.started_spec is None
+    assert controller.snapshot() == previous
 
 
 def test_cancel_download_delegates_to_controller() -> None:
@@ -206,9 +198,14 @@ def test_cancel_download_delegates_to_controller() -> None:
     assert controller.cancel_called is True
 
 
+@pytest.mark.parametrize(
+    "source",
+    [DownloadSource.HUGGINGFACE, DownloadSource.MODELSCOPE],
+)
 def test_start_download_uses_explicit_source_without_probe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source: DownloadSource,
 ) -> None:
     downloader = ModelManager()
     controller = _FakeController()
@@ -243,16 +240,14 @@ def test_start_download_uses_explicit_source_without_probe(
 
     downloader.start_download(
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        source=DownloadSource.HUGGINGFACE,
+        source=source,
     )
 
     assert controller.started_spec is not None
-    assert controller.started_spec.command == [
-        "qwenpaw-model-download",
-        "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        "huggingface",
-    ]
-    assert controller.started_spec.source == "huggingface"
+    assert controller.started_spec.task.payload["repo_id"] == (
+        "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    )
+    assert controller.started_spec.source == source.value
 
 
 def test_finalize_download_result_promotes_staging_dir(
@@ -292,6 +287,7 @@ def test_get_model_dir_preserves_repo_id_path() -> None:
     ("repo_id", "model_type", "name"),
     [
         ("Qwen/Qwen3-0.6B-GGUF", "chat", "Qwen/Qwen3-0.6B-GGUF"),
+        ("custom-model", "chat", "custom-model"),
         ("agentscope-ai/Piccolo-27B", "decision", "Piccolo-27B"),
         ("agentscope-ai/Piccolo-4B-Q8_0", "decision", "Piccolo-4B-Q8_0"),
         ("agentscope-ai/Piccolo-4B-BF16", "decision", "Piccolo-4B-BF16"),
@@ -313,6 +309,8 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     repo_dir.mkdir(parents=True)
     (repo_dir / "model.gguf").write_bytes(b"123")
     (repo_dir / "README.md").write_text("demo", encoding="utf-8")
+    owner_readme = repo_dir.parent / "README.md"
+    owner_readme.touch()
 
     models = downloader.list_downloaded_models()
 
@@ -324,7 +322,7 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     downloader.remove_downloaded_model(repo_id)
 
     assert not repo_dir.exists()
-    assert not (tmp_path / "models" / repo_id.split("/")[0]).exists()
+    assert owner_readme.is_file()
 
 
 def test_list_downloaded_models_ignores_temporary_download_dirs(
@@ -348,28 +346,125 @@ def test_list_downloaded_models_ignores_temporary_download_dirs(
     assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]
 
 
-def test_download_worker_sanitizes_standard_streams(
+def test_list_and_remove_legacy_model_with_nested_weights(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    weights = manager.get_model_dir("my-model/weights")
+    weights.mkdir(parents=True)
+    (weights / "a.gguf").touch()
+    readme = weights.parent / "README.md"
+    readme.touch()
+
+    assert [model.id for model in manager.list_downloaded_models()] == [
+        "my-model",
+    ]
+    manager.remove_downloaded_model("my-model")
+    assert manager.list_downloaded_models() == []
+    assert readme.is_file()
+
+
+def test_delete_rejects_non_model_directories(tmp_path: Path) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    repo = manager.get_model_dir("owner/model")
+    repo.mkdir(parents=True)
+    weights = repo / "model.gguf"
+    weights.touch()
+    (repo.parent / "README.md").touch()
+    notes = manager.get_model_dir("notes")
+    notes.mkdir()
+    (notes / "keep.txt").touch()
+
+    for model_id in ("", "owner", "notes"):
+        with pytest.raises(
+            ValueError,
+            match="Downloaded local model not found",
+        ):
+            manager.remove_downloaded_model(model_id)
+    assert weights.is_file()
+    assert (repo.parent / "README.md").is_file()
+    assert (notes / "keep.txt").is_file()
+
+    for running_model_id in ("owner/model/model.gguf", "owner"):
+        with pytest.raises(
+            SDKError,
+            match="Cannot delete a model while it is running",
+        ):
+            manager.remove_downloaded_model("owner/model", running_model_id)
+    assert weights.is_file()
+
+
+def test_delete_rejects_symlink_to_directory_outside_models(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    outside = tmp_path / "external"
+    outside.mkdir()
+    weights = outside / "model.gguf"
+    weights.touch()
+    alias = manager.get_model_dir("linked-model")
+    alias.parent.mkdir()
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Directory symlinks are unavailable")
+
+    assert [m.id for m in manager.list_downloaded_models()] == ["linked-model"]
+    backend = LlamaCppBackend(data_dir=tmp_path)
+    assert backend._resolve_model_file(alias) == (weights, None)
+    with pytest.raises(ValueError, match="Downloaded local model not found"):
+        manager.remove_downloaded_model("linked-model")
+    assert weights.is_file()
+    assert alias.is_symlink()
+
+
+def test_delete_preserves_a_separate_model_in_a_child_directory(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    child = manager.get_model_dir("owner/model")
+    child.mkdir(parents=True)
+    parent_weights = child.parent / "standalone.gguf"
+    child_weights = child / "model.gguf"
+    parent_weights.touch()
+    child_weights.touch()
+    projection = child.parent / "vision" / "mmproj.gguf"
+    projection.parent.mkdir()
+    projection.touch()
+
+    assert {model.id for model in manager.list_downloaded_models()} == {
+        "owner",
+        "owner/model",
+    }
+    with pytest.raises(SDKError, match="contains another model"):
+        manager.remove_downloaded_model("owner")
+    assert parent_weights.is_file()
+    assert child_weights.is_file()
+
+    manager.remove_downloaded_model("owner/model")
+    assert not child.exists()
+    assert parent_weights.is_file()
+    manager.remove_downloaded_model("owner")
+    assert not projection.exists()
+
+
+def test_download_worker_reports_completion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     queue_messages: list[dict[str, object | dict[str, object]]] = []
-    calls: list[str] = []
 
     class _Queue:
         def put(self, item):
             queue_messages.append(item)
 
     monkeypatch.setattr(
-        "qwenpaw.local_models.model_manager.ensure_standard_streams",
-        lambda: calls.append("sanitized"),
-    )
-    monkeypatch.setattr(
-        ModelManager,
+        ModelDownloads,
         "_download_to_directory",
         staticmethod(lambda **kwargs: str(tmp_path / "downloaded")),
     )
 
-    getattr(ModelManager, "_download_worker")(
+    getattr(ModelDownloads, "_download_worker")(
         {
             "repo_id": "AgentScope/demo",
             "source": "modelscope",
@@ -378,7 +473,7 @@ def test_download_worker_sanitizes_standard_streams(
         _Queue(),
     )
 
-    assert calls == ["sanitized"]
+    assert len(queue_messages) == 1
     assert queue_messages[0]["type"] == "result"
     payload = queue_messages[0]["payload"]
     assert isinstance(payload, dict)
@@ -400,8 +495,9 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
 
     captured: dict[str, object] = {}
 
-    def _fake_snapshot_download(*, model_id: str, local_dir: str) -> str:
-        captured["model_id"] = model_id
+    def download_repo(repo_id: str, repo_type: str, local_dir: Path) -> Path:
+        assert repo_type == "model"
+        captured["model_id"] = repo_id
         captured["local_dir"] = local_dir
         captured["stdout"] = sys.stdout
         captured["stderr"] = sys.stderr
@@ -409,21 +505,25 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
         sys.stderr.flush()
         return local_dir
 
+    api = SimpleNamespace(
+        resolve_endpoint_for_read=MagicMock(side_effect=OSError),
+        download_repo=download_repo,
+    )
     monkeypatch.setattr(sys, "stdout", _BrokenStream())
     monkeypatch.setattr(sys, "stderr", _BrokenStream())
-    monkeypatch.setattr(
-        ModelManager,
-        "_get_modelscope_snapshot_download",
-        staticmethod(lambda: _fake_snapshot_download),
+    monkeypatch.setitem(
+        sys.modules,
+        "modelscope_hub",
+        SimpleNamespace(HubApi=lambda: api, HubError=LookupError),
     )
 
-    result = ModelManager._download_from_modelscope(
+    result = ModelDownloads._download_from_modelscope(
         repo_id="AgentScope/demo",
         local_dir=tmp_path / "download",
     )
 
     assert result == str(tmp_path / "download")
     assert captured["model_id"] == "AgentScope/demo"
-    assert captured["local_dir"] == str(tmp_path / "download")
+    assert captured["local_dir"] == tmp_path / "download"
     assert captured["stdout"] is not sys.stdout
     assert captured["stderr"] is not sys.stderr
