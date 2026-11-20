@@ -18,6 +18,7 @@ from ..providers.provider_manager import ProviderManager
 from .utils import prompt_choice
 
 
+# TODO: Replace legacy manager access through the plugin CLI contract.
 def _get_local_model_manager():
     try:
         from ..local_models import LocalModelManager
@@ -751,10 +752,13 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
 
 # ---------------------------------------------------------------------------
 # Local model management commands
+# TODO: Register these commands for enabled plugins through the shared
+# plugin CLI contract.
+# Command registration is disabled until that integration is available.
 # ---------------------------------------------------------------------------
 
 
-@models_group.command("download")
+# @models_group.command("download")
 @click.argument("repo_id")
 @click.option(
     "--file",
@@ -794,7 +798,9 @@ def download_cmd(
         )
         raise SystemExit(1)
 
-    from ..local_models import DownloadSource
+    from ..local_models import (  # pylint: disable=no-name-in-module
+        DownloadSource,
+    )
 
     source_type = DownloadSource(source) if source else None
     source_label = source_type.value if source_type is not None else "auto"
@@ -830,7 +836,7 @@ def download_cmd(
     )
 
 
-@models_group.command("local")
+# @models_group.command("local")
 def list_local_cmd() -> None:
     """List all downloaded local models."""
     local_model_manager = _get_local_model_manager()
@@ -852,7 +858,7 @@ def list_local_cmd() -> None:
     click.echo()
 
 
-@models_group.command("remove-local")
+# @models_group.command("remove-local")
 @click.argument("model_id")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def remove_local_cmd(model_id: str, yes: bool) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from qwenpaw.local_models.tag_parser import (
+from qwenpaw.providers.tool_tag_parser import (
     extract_thinking_from_text,
     parse_tool_calls_from_text,
     text_contains_think_tag,

@@ -16,7 +16,7 @@ Currently supported local providers include:
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-QwenPaw Local (llama.cpp) is built into QwenPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
+QwenPaw Local is available as an optional plugin. Install Ollama or LM Studio separately to use either provider.
 
 QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use QwenPaw-Flash with each local provider.
 
@@ -24,27 +24,27 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 > QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
-QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
+Open **Settings → Models**. If QwenPaw Local is missing, open **Plugin Manager**. Install **QwenPaw Local** (`local-llamacpp`) from **Official Plugins**, or enable it under **Installed Plugins** if already installed. Return to Models.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 
-When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
+Open the QwenPaw Local model manager. If the runtime is missing, click **Install llama.cpp**.
 
 ![Download llama.cpp](https://img.alicdn.com/imgextra/i1/O1CN01VhSJKd1yhtWZ0SgYc_!!6000000006611-2-tps-1530-1290.png)
 
-QwenPaw team has trained a series of small models (the QwenPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), QwenPaw will automatically recommend suitable model versions for you. If you want to use QwenPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
+Download a recommended model, such as QwenPaw-Flash for chat. To download another GGUF model, select ModelScope or Hugging Face and enter its repository ID, such as `Qwen/Qwen3-0.6B-GGUF`. To import a GGUF file you already have, see [Local Models](./models#Local-Models).
 
 ![Download Model](https://img.alicdn.com/imgextra/i4/O1CN01ualQNr1KMkbpBiuTa_!!6000000001150-2-tps-1342-1680.png)
 
-After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, QwenPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
+Click **Start** next to the model. Starting Flash sets it as the default chat model. Starting Piccolo sets it as the default decision model. llama.cpp runs one model at a time. Wait for active requests to finish before switching.
 
 ![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
 
-When you do not need to use a model temporarily, you can click **Stop** to stop the model service.
+Click **Stop** to shut down the local server. Downloaded models stay on disk.
 
 ![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
-QwenPaw Local will automatically record the model's running state. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model the next time you open QwenPaw, so you do not need to start the model manually each time.
+When QwenPaw restarts, it tries to restore a previously started local model selected by an enabled agent. If you use only cloud models, llama.cpp stays stopped.
 
 ## Ollama Configuration
 
@@ -227,11 +227,17 @@ All provider configurations in QwenPaw are saved in the `$QWENPAW_SECRET_DIR/pro
 
 ### Local Models
 
-If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`).
+To import a GGUF file, first find the plugin’s data directory. Relative paths below start at `$QWENPAW_WORKING_DIR` (default `~/.qwenpaw`).
 
-- **Runtime**: The llama.cpp runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory. It includes the executable files and related dynamic libraries for llama.cpp. These files are automatically downloaded and configured by QwenPaw. If you have special requirements for llama.cpp (such as needing acceleration capabilities for specific hardware), you can compile your own version of llama.cpp and directly replace the files in this directory.
-- **Downloaded Models**: Downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model corresponds to a folder named after its ID, for example, the model with ID `Qwen/Qwen3-0.6B-GGUF` will have a folder at `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. Inside the model folder, you will find the GGUF file for the model and some metadata files. If you need to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the GGUF file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (for example, save the `Qwen3-0.6B.gguf` model file to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
-- **Log Files**: Log files are saved in the `$QWENPAW_WORKING_DIR/local_models/logs` directory. After starting llama.cpp, the log file will be automatically saved as `llama-server.log` in that directory.
+| Setup                               | Data directory                                      |
+| ----------------------------------- | --------------------------------------------------- |
+| First time using the local plugin   | `plugin-data/local-llamacpp/runtime/`               |
+| Upgraded with existing local models | Your original directory, `local_models/` by default |
+| Plugin has a configured `data_dir`  | The directory specified by that setting             |
+
+In the data directory, create `models/owner/model/` and copy the GGUF file there. For example, use `models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`. Refresh the QwenPaw Local model list, then start the model.
+
+The same data directory contains the llama.cpp runtime in `bin/` and the server log in `logs/llama-server.log`.
 
 ### Generation Parameters
 

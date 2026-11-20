@@ -12,7 +12,9 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
+import uuid
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -466,6 +468,63 @@ def copy_skill_dir(source: Path, target: Path) -> None:
     )
 
 
+_RETIRED_MARK = ".retired-"
+ROLLBACK_ROOT_PREFIX = ".qwenpaw_skill_rollback_"
+
+
+def is_installer_owned_skills_entry(name: str) -> bool:
+    """Whether *name* is a directory the installer owns inside ``skills/``.
+
+    Two kinds sit beside the skills themselves: a retired tree left behind by
+    an overwrite (``.<skill>.retired-<hex>``) and a rollback backup root
+    (``.qwenpaw_skill_rollback_<id>``). Both can vanish at any moment while
+    the installer reclaims them, so a copy that walks the skills root has to
+    skip them: reading one mid-deletion fails a copy that has nothing to do
+    with the install.
+    """
+    if not name.startswith("."):
+        return False
+    return _RETIRED_MARK in name or name.startswith(ROLLBACK_ROOT_PREFIX)
+
+
+def _retired_path_for(target_dir: Path) -> Path:
+    """A hidden sibling name that stands in for the previous skill tree."""
+    return target_dir.parent / (
+        f".{target_dir.name}{_RETIRED_MARK}{uuid.uuid4().hex}"
+    )
+
+
+def _reclaim_retired_tree(retired_dir: Path) -> None:
+    """Delete a retired tree without making the caller wait for it.
+
+    ``rmtree`` cannot be interrupted, so removing a large tree inline is what
+    made cancelling an overwrite take seconds. The tree is already out of the
+    way — a dotted sibling name that ``is_ignored_skill_entry`` skips — so the
+    removal is pure cleanup and runs on a daemon thread.
+
+    Failing to start that thread is not an install failure: the tree is
+    already out of the way, so it is left in place, its path is logged, and
+    the caller carries on (a manifest write follows the install).
+    """
+
+    def _remove() -> None:
+        shutil.rmtree(retired_dir, ignore_errors=True)
+
+    try:
+        threading.Thread(
+            target=_remove,
+            name="skill-reclaim",
+            daemon=True,
+        ).start()
+    except RuntimeError:
+        logger.warning(
+            "Could not start cleanup of the retired tree %s; leaving it in "
+            "place",
+            retired_dir,
+            exc_info=True,
+        )
+
+
 def install_staged_skill_dir(staged_dir: Path, target_dir: Path) -> None:
     """Install an already-scanned staged skill at *target_dir*.
 
@@ -477,16 +536,58 @@ def install_staged_skill_dir(staged_dir: Path, target_dir: Path) -> None:
     The stage must already be clean: renaming is only equivalent to
     ``copy_skill_dir`` when that function produced it, because its artifact
     filtering and symlink dereferencing happen during a copy, not a rename.
+
+    An existing target is moved aside and reclaimed afterwards rather than
+    deleted in place, so cancelling an overwrite does not wait for the old
+    tree. If the install fails, the moved-aside tree is moved back; if that
+    move also fails it is kept, being then the only copy left.
+
+    A tree left aside by a run that was killed is *not* reclaimed here or on
+    any later install. Its name records how the directory was created, not
+    whether its contents are safe to drop: between moving the previous tree
+    aside and renaming the new one into place, that tree is the only copy of
+    the skill. A successful install cleans up the tree it retired itself.
     """
     ensure_not_cancelled()
     target_dir.parent.mkdir(parents=True, exist_ok=True)
+    retired_dir: Path | None = None
     if target_dir.exists():
-        shutil.rmtree(target_dir)
-    rename_or_copy_directory(
-        staged_dir,
-        target_dir,
-        copy_directory=copy_skill_dir,
-    )
+        retired_dir = _retired_path_for(target_dir)
+        try:
+            os.replace(target_dir, retired_dir)
+        except OSError:  # a handle on the old tree: fall back to deleting it
+            retired_dir = None
+            shutil.rmtree(target_dir)
+    try:
+        rename_or_copy_directory(
+            staged_dir,
+            target_dir,
+            copy_directory=copy_skill_dir,
+        )
+    except BaseException:
+        if retired_dir is not None:
+            try:
+                # A failed copy can leave a partial target behind; it has to
+                # go, otherwise the move back below cannot land.
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                os.replace(retired_dir, target_dir)
+            except OSError:
+                # The moved-aside tree is the only copy left, so it stays.
+                logger.warning(
+                    "Could not move %s back to %s; leaving it in place",
+                    retired_dir,
+                    target_dir,
+                    exc_info=True,
+                )
+            else:
+                retired_dir = None
+        raise
+    # Only now is the new tree in place. Reclaiming earlier would let an
+    # interrupted move-back delete the only recoverable copy, which is what
+    # the previous ``finally`` could do.
+    if retired_dir is not None:
+        _reclaim_retired_tree(retired_dir)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, get_args
+from typing import Any, Callable, Dict, List, get_args
 
 from agentscope.model import ChatModelBase
 
@@ -321,9 +321,9 @@ class ProviderManager(
     async def update_provider_async(
         self,
         provider_id: str,
-        config: Dict,
+        config: Dict | Callable[[Provider], Dict],
     ) -> bool:
-        """Update a provider and persist its snapshot off the event loop."""
+        """Persist changes, resolving state-dependent fields under the save lock."""
         provider_id = self._normalize_provider_id(provider_id)
         lock = self._provider_save_locks.setdefault(
             provider_id,
@@ -337,12 +337,16 @@ class ProviderManager(
     async def _update_provider_async_locked(
         self,
         provider_id: str,
-        config: Dict,
+        config: Dict | Callable[[Provider], Dict],
     ) -> bool:
         """Persist a detached update snapshot, then commit it in memory."""
         provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return False
+        if callable(config):
+            config = config(provider)
+            if not config:
+                return True
         revision = self._provider_revision(provider_id)
         candidate = provider.configuration_snapshot()
         before_update = candidate.model_dump()
@@ -508,29 +512,6 @@ class ProviderManager(
             model.availability_checked_at = None
             model.availability_verification = "unverified"
 
-    def start_local_model_resume(self, local_manager) -> None:
-        """Schedule background restore of the active local model server."""
-        task = asyncio.create_task(
-            self._resume_local_model(local_manager),
-            name="qwenpaw-local-model-resume",
-        )
-        task.add_done_callback(self._on_local_model_resume_done)
-
-    @staticmethod
-    def _on_local_model_resume_done(task: asyncio.Task[None]) -> None:
-        """Log unexpected failures from background local model restore."""
-        if task.cancelled():
-            return
-
-        exc = task.exception()
-        if exc is not None:
-            logger.warning(
-                "Background local model restore failed: %s",
-                exc,
-                exc_info=exc,
-            )
-        logger.info("Background local model restore completed")
-
     def _resolve_custom_provider_id(self, provider_id: str) -> str:
         """Resolve provider ID conflicts for a custom provider."""
         base_id = provider_id
@@ -661,6 +642,16 @@ class ProviderManager(
         if not provider.enabled:
             raise ProviderError(message=f"Provider is disabled")
         provider.validate_model_selection(model_id, model_type)
+        if model_type == "decision":
+            from .typesafe_provider import (
+                TypeSafeEvaluationError,
+                validate_decision_provider,
+            )
+
+            try:
+                validate_decision_provider(provider_id, provider)
+            except TypeSafeEvaluationError as exc:
+                raise ProviderError(message=str(exc)) from exc
         provider_id = provider.id
         active_model = ModelSlotConfig(
             provider_id=provider_id,
@@ -1115,12 +1106,14 @@ class ProviderManager(
                 will remain at its previous value (not updated).
         """
         provider_id = self._normalize_provider_id(provider_id)
-        if (await run_sync_io(self.get_provider, provider_id)) is None:
+        provider = await run_sync_io(self.get_provider, provider_id)
+        if provider is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
         async def probe_model(candidate: Provider) -> Any:
             candidate.validate_chat_model(model_id)
-            probe_result = await candidate.probe_model_multimodal(
+            probe_result = await probe(
+                candidate,
                 model_id,
                 image_only=image_only,
             )
@@ -1129,13 +1122,13 @@ class ProviderManager(
                     continue
                 if (
                     probe_result.supports_image is not None
-                    and f"supports_image" not in model.config_overrides
+                    and "supports_image" not in model.config_overrides
                 ):
                     model.supports_image = probe_result.supports_image
                 if (
                     not image_only
                     and probe_result.supports_video is not None
-                    and f"supports_video" not in model.config_overrides
+                    and "supports_video" not in model.config_overrides
                 ):
                     model.supports_video = probe_result.supports_video
                 values = (model.supports_image, model.supports_video)
@@ -1154,10 +1147,12 @@ class ProviderManager(
                 break
             return probe_result
 
-        result = await self._mutate_provider_async(
-            provider_id,
-            probe_model,
-        )
+        # Preparing a plugin endpoint can publish its new connection.
+        async with provider._multimodal_probe(model_id) as probe:
+            result = await self._mutate_provider_async(
+                provider_id,
+                probe_model,
+            )
         if result is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
@@ -1201,61 +1196,6 @@ class ProviderManager(
         self._annotation_service.apply(
             self.builtin_providers.values(),
             refresh=refresh,
-        )
-
-    async def _resume_local_model(self, local_manager) -> None:
-        """Resume the active local model server from the previous run."""
-
-        async def _clear_local_provider() -> None:
-            await self.update_provider_async(
-                "qwenpaw-local",
-                {
-                    "base_url": "",
-                    "extra_models": [],
-                },
-            )
-
-        local_models = self.get_provider("qwenpaw-local").extra_models
-        model_id = local_models[0].id if local_models else None
-        if model_id is None:
-            return
-
-        installed, _ = local_manager.check_llamacpp_installation()
-        if not installed:
-            logger.info(
-                "Skipping local model restore because"
-                " llama.cpp is not installed.",
-            )
-            await _clear_local_provider()
-            return
-
-        if not local_manager.is_model_downloaded(model_id):
-            logger.warning(
-                "Skipping local model restore because"
-                " model is not downloaded: %s",
-                model_id,
-            )
-            await _clear_local_provider()
-            return
-
-        try:
-            setup_result = await local_manager.setup_server(model_id)
-        except (FileNotFoundError, RuntimeError, ValueError) as exc:
-            logger.warning(
-                "Failed to restore local model server for %s: %s",
-                model_id,
-                exc,
-            )
-            await _clear_local_provider()
-            return
-
-        setup_result.model_info.model_type = local_models[0].model_type
-        await self.update_provider_async(
-            "qwenpaw-local",
-            {
-                "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
-                "extra_models": [setup_result.model_info],
-            },
         )
 
     def unregister_plugin_provider(self, provider_id: str) -> bool:

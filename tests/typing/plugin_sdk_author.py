@@ -367,3 +367,38 @@ async def harness_author_host(host: PluginTestHost) -> None:
         AsyncGenerator[ChatEvent, None],
     )
     await events.aclose()
+
+
+async def native_provider(context: "PluginContext") -> None:
+    from contextlib import asynccontextmanager
+    from qwenpaw.plugins.providers import (
+        ModelInfo,
+        ProviderContext,
+        ProviderHandle,
+        ProviderSpec,
+    )
+
+    @asynccontextmanager
+    async def connect(
+        call: ProviderContext,
+        model_id: str,
+    ) -> AsyncGenerator[str, None]:
+        assert_type(call.base_url, str)
+        assert_type(model_id, str)
+        yield "http://127.0.0.1:8080/v1"
+
+    provider = assert_type(
+        context.register_provider(
+            ProviderSpec(
+                "example",
+                "Example",
+                protocol="openai-chat",
+                connect=connect,
+            ),
+        ),
+        ProviderHandle,
+    )
+    await provider.update(models=(ModelInfo("model", "Model"),))
+    assert_type(await provider.select("model"), None)
+    assert_type(await provider.clear_selection(), bool)
+    assert_type(context.storage.path("native.bin"), Path)
