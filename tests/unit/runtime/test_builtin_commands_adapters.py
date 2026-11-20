@@ -21,6 +21,10 @@ from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 
 from qwenpaw.runtime import builtin_commands as bc
+from qwenpaw.constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    RUNTIME_CONTEXT_MESSAGE_TAG,
+)
 from qwenpaw.runtime._state_utils import StateProxy
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
@@ -518,6 +522,25 @@ class TestLoadAgentState:
         assert isinstance(state, AgentState)
         assert payload == {"memory": "not-a-dict"}
 
+    async def test_legacy_conversion_filters_injected_context(self):
+        ctx, _ = _session_ctx({"memory": {"messages": []}})
+        injected = Msg(
+            name="system",
+            role="user",
+            content=[TextBlock(text="legacy private context")],
+        )
+        real = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="real question")],
+        )
+        with patch(
+            "qwenpaw.app.chats.utils.parse_legacy_memory_state",
+            return_value=([injected, real], "summary"),
+        ):
+            state, _ = await bc._load_agent_state(ctx)
+        assert [_msg_text(msg) for msg in state.context] == ["real question"]
+
     async def test_unrelated_payload_keys_are_preserved(self):
         ctx, _ = _session_ctx({"mode_state": {"mode": "auto"}})
         state, payload = await bc._load_agent_state(ctx)
@@ -657,6 +680,76 @@ def _patch_command_handler(**kwargs: Any):
 
 
 class TestConversationAdapter:
+    @pytest.mark.parametrize("command", ["history", "compact"])
+    async def test_injected_context_is_neither_consumed_nor_resaved(
+        self,
+        command,
+    ):
+        from qwenpaw.agents.command_handler import CommandHandler
+
+        current = Msg(
+            name="system",
+            role="user",
+            content=[TextBlock(text="current private context")],
+            metadata={QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG},
+        )
+        legacy = Msg(
+            name="system",
+            role="user",
+            content=[TextBlock(text="legacy private context")],
+        )
+        real = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="real question")],
+        )
+        state = AgentState()
+        state.context = [current, legacy, real]
+        ctx, saved = _session_ctx(
+            {"state": state.model_dump(mode="json"), "scroll": {"evicted": 3}},
+            workspace_dir="",
+            memory_manager=None,
+        )
+
+        async def consume_context(handler, messages, _args=""):
+            assert [_msg_text(msg) for msg in messages] == ["real question"]
+            assert [_msg_text(msg) for msg in handler._state.context] == [
+                "real question",
+            ]
+            if command == "compact":
+                handler._state.summary = _msg_text(messages[0])
+            return Msg(
+                name="QwenPaw",
+                role="assistant",
+                content=[TextBlock(text="compacted")],
+            )
+
+        with (
+            patch(
+                "qwenpaw.config.config.load_agent_config",
+                return_value=_cfg(),
+            ),
+            patch.object(
+                CommandHandler,
+                f"_process_{command}",
+                autospec=True,
+                side_effect=consume_context,
+            ),
+        ):
+            result = await bc._make_conversation_adapter(command).handler(
+                ctx,
+                "",
+            )
+
+        assert "private context" not in _msg_text(result)
+        restored = AgentState.model_validate(saved["data"]["state"])
+        assert [_msg_text(msg) for msg in restored.context] == [
+            "real question",
+        ]
+        assert saved["data"]["scroll"] == {"evicted": 3}
+        if command == "compact":
+            assert restored.summary == "real question"
+
     def test_spec_shape(self):
         spec = bc._make_conversation_adapter("compact", help_text="h")
         assert spec.name == "compact"
