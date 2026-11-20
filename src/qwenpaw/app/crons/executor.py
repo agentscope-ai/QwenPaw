@@ -8,7 +8,7 @@ import logging
 import re
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncGenerator, Dict
 
 from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
@@ -276,7 +276,7 @@ class CronExecutor:
 
         final_no_content = False
 
-        async def _run() -> AsyncIterator[Any]:
+        async def _run() -> AsyncGenerator[Any, None]:
             nonlocal delivery_error, final_no_content
 
             async def _deliver(event: Any) -> None:

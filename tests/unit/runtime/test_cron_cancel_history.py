@@ -241,7 +241,8 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
 
 @pytest.mark.asyncio
 async def test_independent_cron_estimates_only_current_turn(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     from qwenpaw.config import config
     from qwenpaw.token_usage.model_wrapper import isolated_turn_usage
@@ -275,7 +276,9 @@ async def test_independent_cron_estimates_only_current_turn(
             await SessionSaveHook().run(ctx)
 
     saved = await session.get_session_state_dict(
-        "cron:test", "user", "console"
+        "cron:test",
+        "user",
+        "console",
     )
     messages = saved["agent"]["state"]["context"]
     assert [msg["content"][0]["text"] for msg in messages] == [
