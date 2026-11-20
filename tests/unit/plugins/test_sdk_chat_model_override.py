@@ -79,6 +79,8 @@ plugin = Plugin()
 async def test_standard_routes_validate_and_forward_model(tmp_path):
     import json
 
+    from qwenpaw.providers.provider_manager import ProviderManager
+
     async with PluginTestHost(tmp_path / "host") as host:
         source = make_plugin(
             tmp_path,
@@ -105,6 +107,53 @@ async def test_standard_routes_validate_and_forward_model(tmp_path):
             )
             assert response.status == 200, response.text
             assert "chosen:second" in response.text
+        providers = await ProviderManager.get_instance().list_provider_info()
+        provider = next(info for info in providers if info.id == "selection")
+        second = next(item for item in provider.models if item.id == "second")
+        previous_status = second.availability_status
+        second.availability_status = "incompatible_api"
+        for model_id, code, reason in (
+            (
+                "second",
+                "PROVIDER_ERROR",
+                "Model 'second' cannot be activated: incompatible_api",
+            ),
+            (
+                "missing",
+                "MODEL_NOT_FOUND",
+                "Model 'selection/missing' not found",
+            ),
+        ):
+            payload = {
+                "message": "rejected override",
+                "model": {**model, "model_id": model_id},
+            }
+            response = await host.request(
+                "POST",
+                "/api/model-selection/chat",
+                json=payload,
+            )
+            assert response.status == 422, response.text
+            assert response.json()["detail"] == {
+                "code": code,
+                "message": reason,
+            }
+            stream = await host.request(
+                "POST",
+                "/api/model-selection/chat/stream",
+                json=payload,
+            )
+            assert stream.status == 200, stream.text
+            events = [
+                json.loads(line.removeprefix("data: "))
+                for line in stream.text.splitlines()
+                if line.startswith("data: ")
+            ]
+            assert len(events) == 1
+            assert events[0]["object"] == "response"
+            assert events[0]["status"] == "failed"
+            assert events[0]["error"]["message"] == reason
+        second.availability_status = previous_status
         for path in ("chat", "chat/stream", "tasks"):
             for invalid in (
                 "second",
@@ -135,7 +184,6 @@ async def test_standard_routes_validate_and_forward_model(tmp_path):
         assert task.json()["status"] == "completed", task.text
         assert task.json()["result"] == "chosen:second"
         from qwenpaw.config.config import load_agent_config, save_agent_config
-        from qwenpaw.providers.provider_manager import ProviderManager
 
         profile = load_agent_config("test")
         profile.active_model = None
