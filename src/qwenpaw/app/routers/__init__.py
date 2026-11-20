@@ -41,6 +41,7 @@ from .community import router as community_router
 from .community_connection import router as community_connection_router
 from .community_report import router as community_report_router
 from .terminal import router as terminal_router
+from .remote_access import router as remote_access_router
 
 router = APIRouter()
 router.include_router(community_router)
@@ -82,6 +83,7 @@ router.include_router(provider_oauth_router)
 router.include_router(pawapps_router)
 router.include_router(checkpoints_router)
 router.include_router(terminal_router)
+router.include_router(remote_access_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

@@ -548,6 +548,16 @@ async def post_console_chat(
                 ),
             )
 
+    relay_run = request.headers.get("X-QwenPaw-Relay-Run")
+    if relay_run:
+        platform = getattr(request.state, "platform_connection", None)
+        if platform is None:
+            platform = getattr(request.app.state, "platform_connection", None)
+        if platform is not None:
+            active = await tracker.snapshot_active_tasks()
+            if task := active.get(chat.id):
+                platform.runs.track(relay_run, task)
+
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
         # finally (detach_subscriber) on client abort / generator teardown.

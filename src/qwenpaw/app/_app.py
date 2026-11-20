@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+import httpx
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,11 +29,13 @@ from ..constant import (
     DOCS_ENABLED,
     LOG_LEVEL_ENV,
     PROJECT_NAME,
+    SECRET_DIR,
     WORKING_DIR,
 )
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..remote_access.runtime import PlatformRuntimeConnection
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -47,6 +50,7 @@ from .auth import (
     TrustedProxySchemeMiddleware,
     auto_register_from_env,
     check_proxy_config_sanity,
+    platform_runtime_headers,
 )
 from .exception_handlers import register_exception_handlers
 from .response_compression import ResponseCompressionMiddleware
@@ -67,6 +71,8 @@ from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
+from .routers.remote_access import callback_router as platform_callback_router
+from .routers.console_frontend import create_console_frontend_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -757,10 +763,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     community_task = asyncio.create_task(community_service.poll_loop())
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
+    api_address = read_last_api()
+    app.state.platform_connection = None
+    if api_address is not None:
+        host, port = api_address
+        host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+        base_url = str(httpx.URL(scheme="http", host=host, port=port))
+        app.state.platform_connection = PlatformRuntimeConnection(
+            SECRET_DIR,
+            base_url,
+            headers=platform_runtime_headers,
+        )
+        await app.state.platform_connection.start()
 
     try:
         yield
     finally:
+        if app.state.platform_connection is not None:
+            await app.state.platform_connection.close()
         await daily_telemetry.close()
         community_task.cancel()
         with suppress(asyncio.CancelledError):
@@ -921,6 +941,7 @@ _CONSOLE_INDEX = (
     Path(_CONSOLE_STATIC_DIR) / "index.html" if _CONSOLE_STATIC_DIR else None
 )
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
+app.include_router(create_console_frontend_router(_CONSOLE_STATIC_DIR))
 
 # The SPA entry (index.html) must never be cached: it references content-hashed
 # JS/CSS bundles, so a stale cached index.html would keep pointing the WebView
@@ -972,6 +993,7 @@ app.include_router(runtime_router)
 
 
 app.include_router(api_router, prefix="/api")
+app.include_router(platform_callback_router)
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

@@ -14,6 +14,7 @@ import { resetFailedLazyImports } from "../utils/lazyWithRetry";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
+  formatChunkDiagnostic,
   readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
@@ -21,6 +22,7 @@ import {
 import type { ChunkDiagnostic } from "../utils/chunkDiagnostics";
 import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
+import { isPlatformWebApp, webRequest } from "../features/platform-web/client";
 import styles from "./ChunkErrorBoundary.module.less";
 
 interface Props {
@@ -193,14 +195,10 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   };
 
   diagnosticText() {
-    return JSON.stringify(
-      {
-        current: this.state.diagnostic,
-        beforeAutomaticReload: this.state.previousDiagnostic,
-      },
-      null,
-      2,
-    );
+    return formatChunkDiagnostic({
+      current: this.state.diagnostic,
+      beforeAutomaticReload: this.state.previousDiagnostic,
+    });
   }
 
   restartRuntime = async () => {
@@ -226,10 +224,19 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     }
   };
 
-  reloadPage = () => {
+  reloadPage = async () => {
     this.diagnosticGeneration += 1;
     this.readinessController?.abort();
-    window.location.reload();
+    if (!isPlatformWebApp) {
+      window.location.reload();
+      return;
+    }
+    this.setState({ recovering: true, restartError: "" });
+    try {
+      await webRequest("/host/reload", {});
+    } catch (error) {
+      this.setState({ recovering: false, restartError: String(error) });
+    }
   };
 
   render() {

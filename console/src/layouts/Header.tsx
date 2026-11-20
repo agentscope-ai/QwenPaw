@@ -18,6 +18,8 @@ import { Slot } from "../plugins/registry/Slot";
 import { applyLanguagePreference } from "../utils/languagePreference";
 import { openExternalLink } from "../utils/openExternalLink";
 import AppBrand from "./AppBrand";
+import { PlatformMobileButton } from "../features/platform-access/PlatformAccess";
+import { useLocation } from "react-router-dom";
 import {
   GITHUB_URL,
   getDocsUrl,
@@ -30,6 +32,7 @@ import styles from "./index.module.less";
 const { Header: AntHeader } = Layout;
 
 export default function Header({ showBrand = false }: { showBrand?: boolean }) {
+  const { pathname } = useLocation();
   const { t, i18n } = useTranslation();
   const { setThemeMode } = useTheme();
 
@@ -126,6 +129,7 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
       </div>
       <div className={styles.headerActions}>
         <Slot name="header.right" kind="fill" />
+        {!pathname.startsWith("/chat") && <PlatformMobileButton />}
         {showBrand && (
           <>
             <div className={styles.utilityGroup}>

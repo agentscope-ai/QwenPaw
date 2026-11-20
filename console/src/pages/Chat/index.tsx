@@ -4051,17 +4051,21 @@ export default function ChatPage() {
               agentTransition={isSessionTransition}
             />
             <ComposerAccessibilityLabels />
-            <ChatHeaderTitle />
-            <span className={styles.headerSpacer} />
-            <ChatActionGroup
-              onToggleTerminal={toggleTerminal}
-              terminalEnabled={terminalEnabled}
-              terminalDisabledReason={terminalDisabledReason}
-              terminalOpen={terminalOpen}
-              onToggleWorkspace={toggleFilesWorkspace}
-              workspaceOpen={filesWorkspaceOpen}
+            <ChatHeaderTitle
+              actions={
+                <>
+                  <ChatActionGroup
+                    onToggleTerminal={toggleTerminal}
+                    terminalEnabled={terminalEnabled}
+                    terminalDisabledReason={terminalDisabledReason}
+                    terminalOpen={terminalOpen}
+                    onToggleWorkspace={toggleFilesWorkspace}
+                    workspaceOpen={filesWorkspaceOpen}
+                  />
+                  {pluginRightHeader}
+                </>
+              }
             />
-            {pluginRightHeader}
           </>
         ),
       },
