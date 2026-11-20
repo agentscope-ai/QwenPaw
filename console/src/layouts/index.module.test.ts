@@ -288,3 +288,34 @@ describe("Sidebar overflow layout", () => {
     expect(darkRule).toContain("background: rgba(255, 255, 255, 0.08);");
   });
 });
+
+describe("Full-screen safe-area insets", () => {
+  it("reserves the top and side insets on the root layout", () => {
+    const marker = "Fix #8796";
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("}", markerIndex) + 1,
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain(".mainLayout");
+    expect(rule).toMatch(/box-sizing:\s*border-box/);
+    expect(rule).toMatch(/padding-top:\s*env\(safe-area-inset-top,\s*0px\)/);
+    expect(rule).toMatch(/padding-left:\s*env\(safe-area-inset-left,\s*0px\)/);
+    expect(rule).toMatch(
+      /padding-right:\s*env\(safe-area-inset-right,\s*0px\)/,
+    );
+  });
+
+  it("keeps the standalone login page clear of the status bar", () => {
+    const loginSource = readFileSync(
+      join(process.cwd(), "src/pages/Login/index.tsx"),
+      "utf8",
+    );
+
+    expect(loginSource).toMatch(
+      /padding:\s*"calc\(24px \+ env\(safe-area-inset-top, 0px\)\) 16px calc\(24px \+ env\(safe-area-inset-bottom, 0px\)\)"/,
+    );
+  });
+});
