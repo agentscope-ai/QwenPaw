@@ -54,6 +54,61 @@
   display: block;
 }
 
+// ---- Office ---------------------------------------------------------------
+
+.officeTabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.officeTab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  padding: 5px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--app-fill-subtle);
+  }
+}
+
+.officeTabActive {
+  color: var(--app-text);
+  font-weight: 600;
+  background: var(--app-surface-subtle);
+  border-color: var(--app-border);
+}
+
+.officeEmpty {
+  padding: 24px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+}
+
+.officeSlide {
+  margin: 1em 0;
+  padding: 0.5em 1em 0.75em;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+
+  h3 {
+    margin-top: 0.5em;
+    color: var(--app-text-secondary);
+    font-size: var(--app-font-caption);
+    text-transform: uppercase;
+  }
+}
+
 // ---- HTML -----------------------------------------------------------------
 
 .htmlWrap {
