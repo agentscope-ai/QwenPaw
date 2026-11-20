@@ -4215,6 +4215,7 @@
     },
     "rateLimitHit": "当前模型已触发限流，请尝试切换其他免费模型。",
     "modelFallbackNotice": "模型已从 {{from}} 切换到 {{to}}（{{reason}}）。",
+    "mediaOmittedNotice": "有 {{count}} 个媒体未发送给模型{{reason}}，原文件仍在。",
     "turnUsagePopover": {
       "ariaLabel": "上下文占用 {{contextRate}}，缓存命中 {{cacheRate}}，查看用量详情",
       "turn": "本轮",

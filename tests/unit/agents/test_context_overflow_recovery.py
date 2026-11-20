@@ -25,6 +25,9 @@ from google.genai import errors as genai_errors
 from PIL import Image
 
 from qwenpaw.agents import prompt
+from qwenpaw.agents.context.overflow_recovery import (
+    call_with_overflow_recovery,
+)
 from qwenpaw.agents.context.visual_compression.runtime.middleware import (
     VisualCompressionMiddleware,
 )
@@ -34,6 +37,7 @@ from qwenpaw.agents.model_factory import (
 )
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.agents.utils.message_request_normalizer import (
+    _omitted_ids,
     mark_media_omitted_after_overflow,
 )
 from qwenpaw.providers.capping_formatter import (
@@ -127,7 +131,7 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
     assert len(scroll.calls) == 1
     assert scroll.calls[0] is agent
     agent.compress_context.assert_not_awaited()
-    agent._prepare_model_input.assert_awaited_once()
+    assert agent._prepare_model_input.await_count == 1
     assert calls == [
         (
             ["system", "old-1", "old-2"],
@@ -535,11 +539,17 @@ async def test_body_recovery_rebuilds_once_without_scroll(
             )
             == "recovered"
         )
-    assert requests == (
-        [(9, [], "auto"), (1, [], "auto")]
-        + ([] if retry_fails else [(1, [], "auto")])
-    )
-    agent._prepare_model_input.assert_awaited_once()
+    # Both refusals share one recovery budget. A retry that is refused
+    # again spends the remaining recovery — omit history first, then try a
+    # smaller rendition — instead of ending the turn.
+    first_call = [(9, [], "auto"), (1, [], "auto")]
+    if retry_fails:
+        first_call.append((1, [], "auto"))
+    assert requests == first_call + ([] if retry_fails else [(1, [], "auto")])
+    # Each recovery rebuilds the input. A retry that is refused again spends
+    # the second recovery on a smaller rendition, so a failing retry
+    # prepares the input twice.
+    assert agent._prepare_model_input.await_count == (2 if retry_fails else 1)
     assert [msg.model_dump()["content"] for msg in agent.state.context] == (
         original_content
     )
@@ -670,9 +680,19 @@ async def test_text_body_overflow_uses_context_recovery(monkeypatch, changes):
     assert len(requests) == (2 if changes else 1)
 
 
-async def test_body_recovery_does_not_fold_active_media(monkeypatch):
+async def test_body_recovery_tightens_limits_without_folding_active_media(
+    monkeypatch,
+):
+    """A body rejection with no historical media tightens, never deletes.
+
+    The active turn is what the user is asking about, so its media must not
+    be folded away. Shrinking the request-scoped limits and retrying once
+    keeps the block and still gives the request a second chance.
+    """
     agent = _media_agent(_media_history()[:2])
     before = agent.state_dict()
+    original_side = agent.formatter.max_image_side
+    original_bytes = agent.formatter.max_bytes
     manager = _ScrollManager([])
     agent._context_manager = manager
     calls = []
@@ -684,6 +704,181 @@ async def test_body_recovery_does_not_fold_active_media(monkeypatch):
     monkeypatch.setattr(Agent, "_call_model", call)
     with pytest.raises(_BodyOverflowError):
         await agent._call_model(agent.state.context, [])
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert not manager.calls
     assert agent.state_dict() == before
+    # The retry keeps every media block: rescaling is not omission.
+    assert _count_wire_media_blocks(calls[1]) == _count_wire_media_blocks(
+        calls[0],
+    )
+    # The tightened limits are only borrowed for that one retry.
+    assert agent.formatter.max_image_side == original_side
+    assert agent.formatter.max_bytes == original_bytes
+
+
+async def test_media_payload_rejection_marks_history_and_retries(monkeypatch):
+    """A 400 naming the media payload must not be replayed forever.
+
+    The non-streaming path used to recognise only 413 / body-size wording,
+    so a "image dimensions exceed the maximum" rejection raised straight
+    through and the block stayed in state.context for every later turn.
+    """
+    agent = _media_agent(_media_history())
+    agent.formatter._qwenpaw_last_wire_media_count = 8
+    agent._retry_with_refreshed_input = AsyncMock(return_value="ok")
+    rejection = _BodyOverflowError(
+        400,
+        "image dimensions exceed the maximum allowed size",
+    )
+
+    assert (
+        await agent._recover_model_overflow(rejection, tool_choice=None)
+        == "ok"
+    )
+    assert agent._retry_with_refreshed_input.await_count == 1
+    marked = sum(len(_omitted_ids(message)) for message in agent.state.context)
+    assert marked == 8
+
+
+async def test_media_payload_rejection_tightens_limits_for_active_turn(
+    monkeypatch,
+):
+    """With no historical media to omit, the failing rendition is rescaled."""
+    agent = _media_agent(
+        [Msg(name="user", role="user", content=[_image("only-active")])],
+    )
+    agent.formatter._qwenpaw_last_wire_media_count = 1
+    # The image is base64, so tightening the limits can re-encode it.
+    agent.formatter._qwenpaw_last_wire_resizable_images = 1
+    original_side = agent.formatter.max_image_side
+    original_bytes = agent.formatter.max_bytes
+    seen = {}
+
+    async def retry(tool_choice, retry=None):
+        seen["side"] = agent.formatter.max_image_side
+        seen["bytes"] = agent.formatter.max_bytes
+        return "ok"
+
+    agent._retry_with_refreshed_input = AsyncMock(side_effect=retry)
+    rejection = _BodyOverflowError(
+        400,
+        "image size exceeds the maximum allowed pixels",
+    )
+
+    assert (
+        await agent._recover_model_overflow(rejection, tool_choice=None)
+        == "ok"
+    )
+    assert seen["side"] < original_side
+    assert seen["bytes"] < original_bytes
+    assert agent.formatter.max_image_side == original_side
+    assert agent.formatter.max_bytes == original_bytes
+
+
+def test_media_omission_notice_is_attached_to_the_reply():
+    """Users must be able to tell "ignored" from "never delivered"."""
+    agent = _media_agent(_media_history()[:1])
+    reply = Msg(
+        name="assistant",
+        role="assistant",
+        content=[TextBlock(text="done")],
+    )
+    agent._note_media_omission(3, "provider media limit")
+    agent._attach_media_omission_notice(reply)
+    assert reply.metadata["qwenpaw_media_omitted"] == {
+        "count": 3,
+        "reason": "provider media limit",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_retry_may_recover_once_more():
+    """The second refusal of one request shares the recovery budget.
+
+    A 413 that omits historical media can be followed by a second 413 about
+    the media in the active turn. Without covering the retry, that second
+    refusal ended the turn with the active image at its original size.
+    """
+    attempts = {"n": 0}
+
+    async def call_model(**_kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("request body too large")
+
+    async def recover(_exc):
+        async def retry():
+            attempts["n"] += 1
+            raise RuntimeError("request body too large")
+            yield  # pragma: no cover
+
+        return retry()
+
+    result = await call_with_overflow_recovery(call_model, recover)
+    with pytest.raises(RuntimeError, match="too large"):
+        async for _ in result:
+            pass
+
+    # initial call + first retry + second retry, then the budget is spent
+    assert attempts["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_recovery_budget_is_capped():
+    """A provider that keeps refusing must not be retried forever."""
+    attempts = {"n": 0}
+
+    async def call_model(**_kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("request body too large")
+
+    async def recover(_exc):
+        async def retry():
+            attempts["n"] += 1
+            raise RuntimeError("request body too large")
+            yield  # pragma: no cover
+
+        return retry()
+
+    result = await call_with_overflow_recovery(
+        call_model,
+        recover,
+        max_recoveries=1,
+    )
+    with pytest.raises(RuntimeError):
+        async for _ in result:
+            pass
+
+    assert attempts["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_second_non_streaming_refusal_reaches_the_shared_budget() -> None:
+    """A refusal raised by the retry itself must recover from the budget.
+
+    With one historical image and an oversized current image, the first
+    recovery omits history and the retried call is refused again. That
+    second refusal used to escape ``call_with_overflow_recovery`` and end
+    the turn, because the recovery call sat outside the retry loop.
+    """
+    attempts: list[int] = []
+    recoveries: list[str] = []
+
+    async def call_model(**kwargs):
+        attempts.append(len(attempts))
+        if len(attempts) < 3:
+            raise RuntimeError(f"413 attempt {len(attempts)}")
+        return "ok"
+
+    async def recover(exc):
+        recoveries.append(str(exc))
+        return await call_model()
+
+    result = await call_with_overflow_recovery(
+        call_model,
+        recover,
+        max_recoveries=2,
+    )
+
+    assert result == "ok"
+    assert len(recoveries) == 2
+    assert len(attempts) == 3
