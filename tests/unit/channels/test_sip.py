@@ -222,7 +222,9 @@ def send_params(identity, event, delivery="delivery-1", text="spoken answer"):
 async def test_real_backend_transcript_sender_turn_delivery_and_finish(
     vendor,
     tmp_path,
+    caplog,
 ):
+    caplog.set_level("DEBUG", logger="qwenpaw_channel_sip.stt_engine")
     async with running(vendor, tmp_path) as (driver, peer, identity):
         call = await incoming(vendor)
         asr = vendor.asrs[-1]
@@ -259,6 +261,8 @@ async def test_real_backend_transcript_sender_turn_delivery_and_finish(
             second["metadata"]["debounce_key"]
             != event["metadata"]["debounce_key"]
         )
+        assert "SIP ASR sentence ready: chars=11" in caplog.text
+        assert "same prompt" not in caplog.text
 
 
 async def test_new_turn_and_speech_interrupt_retire_only_tts(vendor, tmp_path):

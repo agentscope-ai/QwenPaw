@@ -61,6 +61,8 @@ async def xiaoyi(tmp_path, monkeypatch, request):
 
     async def gateway(request):
         name = request.match_info["name"]
+        if name == f"refused":
+            return web.Response(status=403, text=f"private-denial-body")
         headers[name] = dict(request.headers)
         ws = web.WebSocketResponse(autoping=False)
         await ws.prepare(request)
@@ -123,6 +125,42 @@ async def xiaoyi(tmp_path, monkeypatch, request):
         for ws in connections.values():
             await ws.close()
         await runner.cleanup()
+
+
+async def test_gateway_rejection_logs_status_and_role(xiaoyi, caplog):
+    driver, _, _, _, _, _ = xiaoyi
+    primary = driver._platform._connections[f"primary"]
+    connection = type(primary)(
+        f"primary",
+        primary.ws_url.removesuffix(f"/primary") + f"/refused",
+        primary.ak,
+        primary.sk,
+        primary.agent_id,
+        primary.on_message,
+    )
+    try:
+        assert not await connection.connect()
+        assert f"primary connection failed: phase=handshake" in caplog.text
+        assert f"http_status=403" in caplog.text
+        assert f"private-denial-body" not in caplog.text
+        assert primary.ws_url not in caplog.text
+    finally:
+        await connection.disconnect()
+
+
+async def test_a2a_diagnostics_omit_native_frame_contents(xiaoyi, caplog):
+    _, _, _, connections, _, _ = xiaoyi
+    await connections["primary"].send_str(f"private-invalid-json")
+    await connections["primary"].send_json(
+        {**inbound(), "agentId": f"private-other-agent"},
+    )
+    await connections["primary"].send_json(
+        {"agentId": f"local-agent", "method": f"message/stream"},
+    )
+    await eventually(lambda: f"A2A message missing session ID" in caplog.text)
+    assert f"primary invalid JSON ignored" in caplog.text
+    assert f"primary ignored agent ID mismatch" in caplog.text
+    assert f"private-" not in caplog.text
 
 
 def results(value):
@@ -1016,8 +1054,10 @@ async def test_finish_retries_unsent_frame_without_repeating_sent_frames(
     xiaoyi,
     monkeypatch,
     failed_step,
+    caplog,
 ):
-    _, peer, identity, _, _, _ = xiaoyi
+    driver, peer, identity, _, _, _ = xiaoyi
+    caplog.set_level(f"INFO", logger=driver._platform.__module__)
     event = await receive(xiaoyi)
     handle = event[f"response_handle"]
     await send(peer, identity, handle)
@@ -1058,6 +1098,56 @@ async def test_finish_retries_unsent_frame_without_repeating_sent_frames(
     ]
     await finish(peer, identity, handle)
     assert len(results(xiaoyi)) == 3
+    for step in (f"completed", f"final"):
+        assert caplog.text.count(f"completion frame written: step={step}") == 1
+    assert f"session-A" not in caplog.text
+
+
+@pytest.mark.parametrize(f"uncertain_step", [f"completed", f"final"])
+async def test_finish_logs_when_an_uncertain_frame_is_not_retried(
+    xiaoyi,
+    monkeypatch,
+    caplog,
+    uncertain_step,
+):
+    driver, peer, identity, _, _, _ = xiaoyi
+    driver_logger = type(driver).__module__
+    caplog.set_level(f"WARNING", logger=driver_logger)
+    handle = (await receive(xiaoyi))[f"response_handle"]
+    send_finish_step = driver._platform.send_finish_step
+    written_steps = []
+
+    async def lose_result(route, step, state):
+        await send_finish_step(route, step, state)
+        written_steps.append(step)
+        if step == uncertain_step:
+            raise driver.delivery_error(
+                f"PLATFORM_RESULT_UNKNOWN",
+                side_effect_possible=True,
+            )
+
+    monkeypatch.setattr(driver._platform, f"send_finish_step", lose_result)
+    with pytest.raises(RpcError):
+        await finish(peer, identity, handle)
+    assert written_steps[-1] == uncertain_step
+    first_attempt = tuple(written_steps)
+    caplog.clear()
+
+    with pytest.raises(RpcError) as failure:
+        await finish(peer, identity, handle)
+    assert failure.value.data[f"reason_code"] == f"RESPONSE_FINISH_FAILED"
+    assert tuple(written_steps) == first_attempt
+    assert [
+        (record.levelname, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ] == [
+        (
+            f"WARNING",
+            f"XiaoYi completion frame not retried: step={uncertain_step} "
+            f"reason=previous_result_unknown",
+        ),
+    ]
 
 
 async def test_finish_keeps_sent_status_when_cancelled_during_checkpoint(

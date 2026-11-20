@@ -77,6 +77,8 @@ _STATE_MAX_BYTES = 1024 * 1024
 _STATE_MAX_KEYS = 64
 _TEXT_MERGE_MAX_RESPONSES = 128
 _TEXT_MERGE_MAX_BYTES = 768 * 1024
+_DEBOUNCE_ROUTE_LOG_THRESHOLD = 32
+_DEBOUNCE_ROUTE_LOG_INTERVAL = 60.0
 
 
 def _rpc_result_unknown(error):
@@ -86,6 +88,13 @@ def _rpc_result_unknown(error):
         (RPC_LIFECYCLE_ERROR, "PLATFORM_RESULT_UNKNOWN"),
         (JSONRPC_INTERNAL_ERROR, "REQUEST_CANCELLED"),
     }
+
+
+def _finish_result_unknown(error):
+    return (
+        isinstance(error, ChannelCallUnknown)
+        and error.method == f"channel.response.finish"
+    )
 
 
 def _approval_card_params(metadata):
@@ -294,6 +303,7 @@ class IsolatedChannelProxy(BaseChannel):
             default=None,
         )
         self._buffered_handles = {}
+        self._next_debounce_route_log = -math.inf
         self._text_merge = {}
         self._text_merge_bytes = 0
         self._text_merge_stopping = False
@@ -632,9 +642,20 @@ class IsolatedChannelProxy(BaseChannel):
             flush=True,
         )
 
-    def _record_diagnostic(self, reason):
+    def _record_diagnostic(self, reason, *, request_id=None):
+        detail = (
+            f" rpc_result=unknown request_id={request_id}"
+            if request_id is not None
+            else f""
+        )
         self._last_diagnostic = reason
-        logger.warning("Channel diagnostic: %s", reason)
+        logger.warning(f"Channel diagnostic: {reason}{detail}")
+
+    def _record_finish_failure(self, error):
+        if _finish_result_unknown(error):
+            self._last_diagnostic = f"RESPONSE_FINISH_UNKNOWN"
+        else:
+            self._record_diagnostic(f"RESPONSE_FINISH_FAILED")
 
     async def _event_batch(self, params, request):
         # RPC cancellation cannot split queue commit from the dedup record.
@@ -783,6 +804,15 @@ class IsolatedChannelProxy(BaseChannel):
                 while len(self._accepted) > 4096:
                     self._accepted.popitem(last=False)
                 accepted.append(event.event_id)
+        if logger.isEnabledFor(logging.DEBUG):
+            reasons = sorted({item.reason_code for item in rejected})
+            logger.debug(
+                f"{self.channel} ingress batch "
+                f"instance_id={self._launch_spec.instance_id} "
+                f"generation={self._launch_spec.generation} "
+                f"accepted={len(accepted)} duplicate={len(duplicates)} "
+                f"rejected={len(rejected)} reasons={reasons}",
+            )
         return EventBatchAck(
             tuple(accepted),
             tuple(duplicates),
@@ -932,12 +962,25 @@ class IsolatedChannelProxy(BaseChannel):
                 )
         else:
             handles = self._buffered_handles.setdefault(session_id, [])
+            previous_count = len(handles)
             for handle in [
                 *meta.get("_merged_response_handles", []),
                 meta.get("response_handle"),
             ]:
                 if handle and handle not in handles:
                     handles.append(handle)
+            if len(handles) > previous_count:
+                now = time.monotonic()
+                if now >= self._next_debounce_route_log:
+                    waiting = sum(map(len, self._buffered_handles.values()))
+                    if waiting >= _DEBOUNCE_ROUTE_LOG_THRESHOLD:
+                        self._next_debounce_route_log = (
+                            now + _DEBOUNCE_ROUTE_LOG_INTERVAL
+                        )
+                        logger.warning(
+                            f"{self.channel} NO_TEXT_DEBOUNCE_BACKLOG: "
+                            f"waiting_routes={waiting}",
+                        )
         return ready
 
     def merge_native_items(self, items):
@@ -1636,17 +1679,42 @@ class IsolatedChannelProxy(BaseChannel):
                 state.raw_text = None
                 self._text_merge.pop(response_handle)
 
+    def _log_text_merge_finish_skipped(self, error):
+        if isinstance(error, ChannelDeliveryError):
+            reason = (
+                f"PLATFORM_RESULT_UNKNOWN"
+                if error.side_effect_possible
+                else f"PLATFORM_SEND_FAILED"
+            )
+        elif isinstance(error, ChannelCallUnknown) or (
+            isinstance(error, RpcError) and _rpc_result_unknown(error)
+        ):
+            reason = f"PLATFORM_RESULT_UNKNOWN"
+        elif isinstance(error, ValueError) and error.args in (
+            (f"TEXT_MERGE_CAPACITY",),
+            (f"STALE_GENERATION",),
+        ):
+            (reason,) = error.args
+        else:
+            reason = f"TEXT_MERGE_FAILED"
+        logger.warning(
+            f"{self.channel} RESPONSE_FINISH_SKIPPED: "
+            f"stage=text_merge finish_sent=false reason={reason}",
+        )
+
     async def _finish_route(self, meta, outcome):
         if (
             outcome != "cancelled"
             and meta.get("_text_merge_error") is not None
         ):
+            self._log_text_merge_finish_skipped(meta["_text_merge_error"])
             raise meta["_text_merge_error"]
         handles = list(meta.get("_merged_response_handles") or [])
         if meta.get("response_handle"):
             handles.append(meta["response_handle"])
         failure = None
         for handle in dict.fromkeys(handles):
+            checking_text_merge = outcome != f"cancelled"
             try:
                 if outcome == "cancelled":
                     await self._cancel_response_text(handle)
@@ -1670,6 +1738,7 @@ class IsolatedChannelProxy(BaseChannel):
                         # The caller still receives the original send error.
                         # This exact batch has settled without an effect, so
                         # failed finish must release its child route/typing.
+                checking_text_merge = False
                 await self.channel_process.call(
                     "channel.response.finish",
                     {
@@ -1683,6 +1752,13 @@ class IsolatedChannelProxy(BaseChannel):
                 )
                 await self._cancel_response_text(handle)
             except Exception as exc:
+                if checking_text_merge:
+                    self._log_text_merge_finish_skipped(exc)
+                elif _finish_result_unknown(exc):
+                    self._record_diagnostic(
+                        f"RESPONSE_FINISH_UNKNOWN",
+                        request_id=exc.request_id,
+                    )
                 failure = exc
         if failure is not None:
             raise failure
@@ -2088,6 +2164,10 @@ class IsolatedChannelProxy(BaseChannel):
                     and exc.reason_code == "STREAM_OPEN_REJECTED"
                 ):
                     # Lazy opening failed before creating a platform stream.
+                    logger.info(
+                        f"{self.channel} stream open rejected at "
+                        f"stream.delta; using non-streaming reply path",
+                    )
                     send_meta["_isolated_streams"].pop(stream_type, None)
                     return
                 if (
@@ -2131,6 +2211,10 @@ class IsolatedChannelProxy(BaseChannel):
                     or exc.reason_code != "STREAM_OPEN_REJECTED"
                 ):
                     raise
+                logger.info(
+                    f"{self.channel} stream open rejected at stream.end; "
+                    f"using non-streaming reply path",
+                )
                 send_meta["_isolated_streams"].pop(stream_type, None)
             else:
                 send_meta["_last_delivery_id"] = state["delivery_id"]
@@ -2567,23 +2651,23 @@ class IsolatedChannelProxy(BaseChannel):
                             try:
                                 task.result()
                             except BaseException as cleanup_error:
-                                self._record_diagnostic(
-                                    "RESPONSE_FINISH_FAILED",
-                                )
+                                self._record_finish_failure(cleanup_error)
                                 raise cancelled from cleanup_error
                         else:
                             task.add_done_callback(self._observe_cleanup)
                         raise
-                    except Exception:
-                        self._record_diagnostic("RESPONSE_FINISH_FAILED")
+                    except Exception as cleanup_error:
+                        self._record_finish_failure(cleanup_error)
                         if merge_owned:
                             raise
             finally:
                 self._response_context.reset(token)
 
     def _observe_cleanup(self, task):
-        if task.cancelled() or task.exception() is not None:
-            self._record_diagnostic("RESPONSE_FINISH_FAILED")
+        cancelled = task.cancelled()
+        error = None if cancelled else task.exception()
+        if cancelled or error is not None:
+            self._record_finish_failure(error)
 
     async def _consume_request(self, request, payload):
         # Base calls this only after debounce and the host access gate.

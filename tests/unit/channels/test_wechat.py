@@ -9,6 +9,7 @@ import ssl
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -16,15 +17,24 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 from qwenpaw.app.channels import qrcode_sessions
-from qwenpaw.app.channels.isolated_proxy import IsolatedChannelProxy
+from qwenpaw.app.channels.isolated_proxy import (
+    ChannelDeliveryError,
+    IsolatedChannelProxy,
+)
 from qwenpaw.app.channels.management import (
     ChannelManagementService,
     ManagementError,
 )
 from qwenpaw.app.channels.manager import ChannelManager
+from qwenpaw.app.channels.process_supervisor import ChannelCallUnknown
 from qwenpaw.app.channels.wechat_auth_custody import reserve_wechat_auth
 from qwenpaw.app.routers import config as config_router
-from qwenpaw.channel_protocol.models import SendParams
+from qwenpaw.channel_protocol.errors import RpcError, RpcTimeoutError
+from qwenpaw.channel_protocol.models import (
+    DeliveryState,
+    OutboundResult,
+    SendParams,
+)
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -33,9 +43,13 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.plugins.architecture import PluginManifest, PluginRecord
-from qwenpaw.plugins.channel_adapter import ChannelRuntimeSettings
+from qwenpaw.plugins.channel_adapter import (
+    ChannelRuntimeSettings,
+    describe_channel,
+)
 from qwenpaw.plugins.execution_backend import BackendBinding
 from qwenpaw.plugins.ownership import RuntimeKey, RuntimeStopReceipt
+from qwenpaw.schemas import ImageContent
 from tests.channel_support.driver import bind, module
 from tests.channel_support.host import Host
 
@@ -197,15 +211,15 @@ async def runtime(tmp_path, monkeypatch):
     requests, clients = [], []
     real_client = httpx.AsyncClient
     polling, qr_release = asyncio.Event(), asyncio.Event()
-    upload = {}
+    upload, response_overrides = {}, {}
 
     async def transport(request):
         requests.append(request)
         path = request.url.path
         if path.endswith("/getupdates"):
             await polling.wait()
-            return httpx.Response(200, json={"ret": 0, "msgs": []})
-        if path.endswith("/get_bot_qrcode"):
+            value = {f"ret": 0, f"msgs": []}
+        elif path.endswith("/get_bot_qrcode"):
             value = {
                 "qrcode": "scan-code",
                 "qrcode_img_content": "https://login.test/scan",
@@ -232,7 +246,11 @@ async def runtime(tmp_path, monkeypatch):
         else:
             assert path.endswith(("/sendmessage", "/sendtyping")), path
             value = {"ret": 0}
-        return httpx.Response(200, json=value)
+        endpoint = path.rsplit(f"/", 1)[-1]
+        return httpx.Response(
+            200,
+            json=response_overrides.get(endpoint, value),
+        )
 
     def external_client(**kwargs):
         client = real_client(
@@ -274,6 +292,8 @@ async def runtime(tmp_path, monkeypatch):
         requests=requests,
         qr_release=qr_release,
         upload=upload,
+        polling=polling,
+        response_overrides=response_overrides,
     )
     qr_release.set()
     for driver in drivers:
@@ -346,6 +366,53 @@ async def test_context_files_are_workspace_local(
         assert token_file.read_text(encoding=f"utf-8") == f"file-token"
 
 
+async def test_poll_and_typing_log_numeric_platform_codes(runtime, caplog):
+    caplog.set_level(f"INFO")
+    runtime.response_overrides.update(
+        getupdates={f"ret": -14, f"errcode": 401},
+        getconfig={
+            f"ret": 0,
+            f"errcode": 0,
+            f"typing_ticket": f"ticket-value",
+        },
+        sendtyping={f"ret": -2, f"errcode": 404},
+    )
+    rt = await runtime.start()
+    platform = rt.driver._platform
+    platform.start_typing(f"reply", f"user-A", f"context-value")
+    runtime.polling.set()
+    async with asyncio.timeout(3):
+        while f"WeChat sendtyping failed: status=1" not in caplog.text:
+            await asyncio.sleep(0.01)
+    await platform.finish_response(f"reply")
+    assert f"getupdates failed: ret=-14 errcode=401" in caplog.text
+    assert (
+        f"getconfig response: ret=0 errcode=0 has_ticket=True" in caplog.text
+    )
+    for status in (1, 2):
+        assert f"status={status} ret=-2 errcode=404" in caplog.text
+    assert f"ticket-value" not in caplog.text
+    assert f"context-value" not in caplog.text
+
+
+async def test_getconfig_rejection_is_a_warning(runtime, caplog):
+    runtime.response_overrides[f"getconfig"] = {
+        f"ret": -14,
+        f"errcode": 401,
+        f"errmsg": f"private-server-response",
+    }
+    rt = await runtime.start()
+    platform = rt.driver._platform
+    platform.start_typing(f"reply", f"user-A", f"context-value")
+    async with asyncio.timeout(3):
+        await platform._typing_users[f"user-A"][f"task"]
+    assert (
+        f"WARNING",
+        f"WeChat getconfig response: ret=-14 errcode=401 has_ticket=False",
+    ) in [(record.levelname, record.getMessage()) for record in caplog.records]
+    assert f"private-server-response" not in caplog.text
+
+
 async def test_first_scan_transitions_from_auth_required_to_connected(
     runtime,
     tmp_path,
@@ -382,6 +449,16 @@ async def test_first_scan_transitions_from_auth_required_to_connected(
     assert notices[0]["scan_url"] == "https://login.test/scan"
 
 
+async def test_missing_qr_logs_failure_without_response_body(runtime, caplog):
+    runtime.response_overrides[f"get_bot_qrcode"] = {
+        f"errmsg": f"private-qr-response",
+    }
+    with pytest.raises(ValueError, match=f"QRCODE_UNAVAILABLE"):
+        await runtime.start(token=f"")
+    assert f"WeChat QR login failed (ValueError)" in caplog.text
+    assert f"private-qr-response" not in caplog.text
+
+
 @pytest.mark.parametrize(
     "group,session,kind",
     [
@@ -414,6 +491,199 @@ async def test_native_dm_and_group_routes_send_with_context(
     assert sent(runtime)[-1]["item_list"] == [
         {"type": 1, "text_item": {"text": "answer"}},
     ]
+
+
+@pytest.mark.parametrize(f"outcome", [f"timeout", f"recovered", f"rejected"])
+async def test_admission_log_identifies_retained_routes(
+    runtime,
+    monkeypatch,
+    caplog,
+    outcome,
+):
+    rt = await runtime.start()
+    host_call = rt.peer.call
+    timed_out = False
+
+    async def call(method, params):
+        nonlocal timed_out
+        if method == f"event.batch":
+            if outcome == f"rejected":
+                return {
+                    f"batch_id": params[f"batch_id"],
+                    f"rejected_events": [
+                        {
+                            f"event_id": params[f"events"][0][f"event_id"],
+                            f"reason_code": f"CAPABILITY_REQUIRED",
+                            f"retryable": False,
+                        },
+                    ],
+                }
+            if outcome == f"timeout" or not timed_out:
+                timed_out = True
+                raise RpcTimeoutError(f"private-detail")
+        return await host_call(method, params)
+
+    monkeypatch.setattr(rt.peer, f"call", call)
+    if outcome == f"timeout":
+        for index in range(2):
+            with pytest.raises(
+                RuntimeError,
+                match=f"HOST_ADMISSION_EXHAUSTED",
+            ):
+                await rt.driver._platform._message(
+                    message(index, text=f"private-message-{index}"),
+                )
+    else:
+        await rt.driver._platform._message(message(1))
+
+    assert len(rt.peer.batches) == (1 if outcome == f"recovered" else 0)
+    retained = [log for log in caplog.messages if f"route_retained=" in log]
+    assert retained == (
+        [f"wechat event.batch route_retained=true reason=HOST_ACK_UNKNOWN"]
+        if outcome == f"timeout"
+        else []
+    )
+    rows = rt.peer.state[rt.driver._state_key]
+    assert [row[f"kind"] for row in rows] == {
+        f"timeout": [f"active", f"active"],
+        f"recovered": [f"active"],
+        f"rejected": [],
+    }[outcome]
+
+
+@pytest.fixture
+def route_proxy():
+    root = Path(__file__).resolve().parents[3]
+    source = root / f"plugins/channel/wechat"
+    manifest = PluginManifest.from_dict(
+        json.loads((source / f"plugin.json").read_text(encoding=f"utf-8")),
+    )
+    description = describe_channel(source, manifest)
+    prepared = description.prepare_proxy_config({f"enabled": True})
+    return description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=root / f"src",
+        instance_id=f"wechat-log-test",
+        generation=1,
+        qwenpaw_version=f"test",
+        prepared_config=prepared,
+    )
+
+
+async def test_no_text_backlog_logs_routes_across_sessions(
+    route_proxy,
+    caplog,
+):
+    for index in range(34):
+        assert not route_proxy._debounce_payload(
+            {
+                f"meta": {
+                    f"debounce_key": f"private-session-{index % 2}",
+                    f"response_handle": f"private-route-{index}",
+                },
+                f"content_parts": [ImageContent(image_url=f"private-image")],
+            },
+        )
+    assert [
+        log for log in caplog.messages if f"NO_TEXT_DEBOUNCE_BACKLOG" in log
+    ] == [f"wechat NO_TEXT_DEBOUNCE_BACKLOG: waiting_routes=32"]
+
+
+@pytest.mark.parametrize(
+    f"reason",
+    [f"TEXT_MERGE_CAPACITY", f"PLATFORM_RESULT_UNKNOWN", None],
+)
+async def test_finish_log_distinguishes_failure_before_rpc(
+    route_proxy,
+    monkeypatch,
+    caplog,
+    reason,
+):
+    meta = {f"response_handle": f"private-handle"}
+    rpc = AsyncMock(side_effect=RuntimeError(f"private-rpc-error"))
+    monkeypatch.setattr(route_proxy.channel_process, f"call", rpc)
+    if reason == f"TEXT_MERGE_CAPACITY":
+        error = meta[f"_text_merge_error"] = ValueError(reason)
+    elif reason == f"PLATFORM_RESULT_UNKNOWN":
+        error = ChannelDeliveryError(
+            OutboundResult(f"reply", DeliveryState.UNKNOWN, f"private-detail"),
+        )
+        monkeypatch.setattr(
+            route_proxy,
+            f"_flush_response_text",
+            AsyncMock(side_effect=error),
+        )
+    else:
+        error = rpc.side_effect
+
+    with pytest.raises(type(error)) as raised:
+        await route_proxy._finish_route(meta, f"failed")
+    assert raised.value is error
+    warnings = [
+        log for log in caplog.messages if f"RESPONSE_FINISH_SKIPPED" in log
+    ]
+    if reason is None:
+        rpc.assert_awaited_once()
+        assert not warnings
+    else:
+        rpc.assert_not_awaited()
+        assert warnings == [
+            f"wechat RESPONSE_FINISH_SKIPPED: "
+            f"stage=text_merge finish_sent=false reason={reason}",
+        ]
+
+
+@pytest.mark.parametrize(
+    f"earlier_unknown,unknown",
+    [(False, False), (False, True), (True, False), (True, True)],
+)
+async def test_finish_diagnostic_reports_unknown_rpc_result(
+    route_proxy,
+    monkeypatch,
+    caplog,
+    earlier_unknown,
+    unknown,
+):
+    error = (
+        ChannelCallUnknown(f"channel-1-2", f"channel.response.finish", 1)
+        if unknown
+        else RpcError(-32603, f"private-rpc-error")
+    )
+    method = f"channel.response.finish"
+    earlier = ChannelCallUnknown(f"channel-1-1", method, 1)
+    errors = [earlier, error] if earlier_unknown else [error]
+    rpc = AsyncMock(side_effect=errors)
+    monkeypatch.setattr(route_proxy.channel_process, f"call", rpc)
+    handles = [f"private-attachment"] if earlier_unknown else []
+    meta = {
+        f"response_handle": f"private-handle",
+        f"_merged_response_handles": handles,
+    }
+    async with route_proxy._response_scope(meta):
+        pass
+
+    attempted = [
+        call.args[1][f"response_handle"] for call in rpc.await_args_list
+    ]
+    assert attempted == [*handles, f"private-handle"]
+    diagnostic = (
+        f"RESPONSE_FINISH_UNKNOWN" if unknown else f"RESPONSE_FINISH_FAILED"
+    )
+    assert (await route_proxy.health_check())[f"last_diagnostic"] == diagnostic
+    expected = [
+        f"Channel diagnostic: {diagnostic}"
+        + (f" rpc_result=unknown request_id=channel-1-2" if unknown else f""),
+    ]
+    if earlier_unknown:
+        expected.insert(
+            0,
+            f"Channel diagnostic: RESPONSE_FINISH_UNKNOWN rpc_result=unknown "
+            f"request_id=channel-1-1",
+        )
+    warnings = [log for log in caplog.messages if f"RESPONSE_FINISH" in log]
+    assert warnings == expected
 
 
 async def test_outbound_image_encrypts_and_sends_native_media(

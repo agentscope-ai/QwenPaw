@@ -212,8 +212,11 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 if part is not None:
                     content.append(part)
 
-        except Exception:
-            logger.exception("failed to fetch richText download url(s)")
+        except Exception as exc:
+            logger.warning(
+                f"DingTalk richText download lookup failed "
+                f"({type(exc).__name__})",
+            )
         return content
 
     def _handle_quoted_media(
@@ -397,10 +400,8 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             raw_msg_id = str(
                 raw_data.get("msgId") or raw_data.get("msg_id") or "",
             ).strip()
-            logger.info(
-                "dingtalk raw callback: msgId=%r keys=%s",
-                raw_msg_id or "(empty)",
-                list(raw_data.keys()) if isinstance(raw_data, dict) else "?",
+            logger.debug(
+                f"DingTalk callback: has_message_id={bool(raw_msg_id)}",
             )
             incoming_message = ChatbotMessage.from_dict(callback.data)
 
@@ -562,16 +563,12 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     raw_msg_id,
                 )
             ):
-                logger.info(
-                    "dingtalk duplicate ignored: raw_msg_id=%r from=%s",
-                    raw_msg_id,
-                    sender,
-                )
+                logger.debug(f"DingTalk duplicate callback ignored")
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
             logger.info(
-                "dingtalk accept: raw_msg_id=%r",
-                raw_msg_id or "(empty)",
+                f"DingTalk parsing callback: "
+                f"has_message_id={bool(raw_msg_id)}",
             )
             native = {
                 "channel_id": "dingtalk",
@@ -589,7 +586,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 bool(native.get("session_webhook")),
                 bool((native.get("meta") or {}).get("session_webhook")),
             )
-            logger.info("recv from=%s text=%s", sender, text[:100])
+            logger.info(
+                f"DingTalk received message: text_chars={len(text)} "
+                f"parts={len(parts_to_send)}",
+            )
             if self._admit_callback is None:
                 self._emit_native_threadsafe(native)
             elif asyncio.get_running_loop() is self._main_loop:

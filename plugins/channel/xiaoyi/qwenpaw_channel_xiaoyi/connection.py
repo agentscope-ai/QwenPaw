@@ -70,13 +70,17 @@ class XiaoYiConnection:
         }
         if self._ssl is not None:
             kwargs["ssl"] = self._ssl
+        phase = f"handshake"
         try:
             async with asyncio.timeout(CONNECTION_TIMEOUT):
                 self._ws = await self._session.ws_connect(
                     self.ws_url,
                     **kwargs,
                 )
+                logger.info(f"XiaoYi {self.server_name} WebSocket connected")
+                phase = f"init"
                 await self._send_init_message()
+                logger.debug(f"XiaoYi {self.server_name} init frame sent")
             self.connected = True
             self._heartbeat_task = asyncio.create_task(
                 self._heartbeat_loop(),
@@ -87,10 +91,15 @@ class XiaoYiConnection:
             await self._cleanup()
             raise
         except Exception as exc:
+            status = (
+                exc.status
+                if isinstance(exc, aiohttp.ClientResponseError)
+                else None
+            )
             logger.warning(
-                f"xiaoyi [%s]: connection failed (%s)",
-                self.server_name,
-                type(exc).__name__,
+                f"XiaoYi {self.server_name} connection failed: "
+                f"phase={phase} http_status={status} "
+                f"({type(exc).__name__})",
             )
             await self._cleanup()
             return False
@@ -106,6 +115,7 @@ class XiaoYiConnection:
         return bool(finished)
 
     async def disconnect(self):
+        has_resources = self._ws is not None or self._session is not None
         self.connected = False
         tasks = [
             task
@@ -119,6 +129,8 @@ class XiaoYiConnection:
         # Keep each resource reference if closing that resource fails.
         await self._cleanup()
         self._heartbeat_task = self._receive_task = None
+        if has_resources:
+            logger.debug(f"XiaoYi {self.server_name} connection released")
 
     async def _cleanup(self):
         failures = []
@@ -128,6 +140,10 @@ class XiaoYiConnection:
                 try:
                     await resource.close()
                 except Exception as exc:
+                    logger.warning(
+                        f"XiaoYi {self.server_name} resource close failed: "
+                        f"resource={name} ({type(exc).__name__})",
+                    )
                     failures.append(exc)
                 else:
                     setattr(self, name, None)
@@ -145,6 +161,10 @@ class XiaoYiConnection:
             raise
         except Exception as exc:
             # A write exception does not prove that the remote missed it.
+            logger.warning(
+                f"XiaoYi {self.server_name} WebSocket write result unknown "
+                f"({type(exc).__name__})",
+            )
             raise XiaoYiDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -182,6 +202,9 @@ class XiaoYiConnection:
                     self._pong.clear()
                     self._ping_token = secrets.token_bytes(8)
                     await self._ws.ping(self._ping_token)
+                    logger.debug(
+                        f"XiaoYi {self.server_name} heartbeat written",
+                    )
                 try:
                     await asyncio.wait_for(self._pong.wait(), PONG_TIMEOUT)
                 except TimeoutError:
@@ -189,15 +212,13 @@ class XiaoYiConnection:
                     if self._dispatching_text or self._pong.is_set():
                         continue
                     logger.warning(
-                        f"xiaoyi [%s]: Pong timeout",
-                        self.server_name,
+                        f"XiaoYi {self.server_name} Pong timeout",
                     )
                     return
         except Exception as exc:
             logger.warning(
-                f"xiaoyi [%s]: heartbeat failed (%s)",
-                self.server_name,
-                type(exc).__name__,
+                f"XiaoYi {self.server_name} heartbeat failed "
+                f"({type(exc).__name__})",
             )
         finally:
             self.connected = False
@@ -205,14 +226,16 @@ class XiaoYiConnection:
     async def _handle_text(self, data):
         try:
             value = json.loads(data)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
             logger.warning(
-                "xiaoyi [%s]: invalid JSON ignored",
-                self.server_name,
+                f"XiaoYi {self.server_name} invalid JSON ignored "
+                f"({type(exc).__name__})",
             )
             return
         if isinstance(value, dict):
             await self.on_message(value, self.server_name)
+        else:
+            logger.debug(f"XiaoYi {self.server_name} ignored non-object JSON")
 
     async def _receive_loop(self):
         close_code = reason = None
@@ -223,10 +246,10 @@ class XiaoYiConnection:
                     self._dispatching_text = True
                     try:
                         await self._handle_text(message.data)
-                    except Exception:
-                        logger.exception(
-                            "xiaoyi [%s]: message rejected",
-                            self.server_name,
+                    except Exception as exc:
+                        logger.error(
+                            f"XiaoYi {self.server_name} message handling "
+                            f"failed ({type(exc).__name__})",
                         )
                     finally:
                         self._dispatching_text = False

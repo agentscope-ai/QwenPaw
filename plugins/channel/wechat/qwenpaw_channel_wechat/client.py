@@ -63,6 +63,17 @@ def _connection_details(error):
     return errno, verify_code, tls_error
 
 
+def response_codes(response: object) -> tuple[int | None, int | None]:
+    """Extract numeric iLink status codes for diagnostics."""
+    if not isinstance(response, dict):
+        return None, None
+    ret, errcode = response.get(f"ret"), response.get(f"errcode")
+    return (
+        ret if type(ret) is int else None,
+        errcode if type(errcode) is int else None,
+    )
+
+
 class ILinkClient:
     """Async HTTP client for the WeChat iLink Bot API.
 
@@ -172,6 +183,8 @@ class ILinkClient:
                 if not retry_delay_fits(delay):
                     raise
                 await await_send(asyncio.sleep(delay))
+        if resp.is_error:
+            logger.warning(f"WeChat {path} failed: HTTP {resp.status_code}")
         resp.raise_for_status()
         return resp.json()
 
@@ -227,7 +240,7 @@ class ILinkClient:
             try:
                 data = await self.get_qrcode_status(qrcode)
             except httpx.ReadTimeout:
-                # Credentials and encrypted media locators are never logged.
+                logger.debug(f"WeChat QR status poll timed out; retrying")
                 elapsed += poll_interval
                 continue
             status = data.get("status", "")
@@ -358,7 +371,6 @@ class ILinkClient:
         Returns:
             API response dict.
         """
-        # Credentials and encrypted media locators are never logged.
         resp = await self._post(
             "ilink/bot/sendtyping",
             {
@@ -368,7 +380,17 @@ class ILinkClient:
                 "base_info": {"channel_version": _CHANNEL_VERSION},
             },
         )
-        # Credentials and encrypted media locators are never logged.
+        ret, errcode = response_codes(resp)
+        if ret not in (None, 0) or errcode not in (None, 0):
+            logger.warning(
+                f"WeChat sendtyping failed: status={status} "
+                f"ret={ret} errcode={errcode}",
+            )
+        else:
+            logger.debug(
+                f"WeChat sendtyping response: status={status} "
+                f"ret={ret} errcode={errcode}",
+            )
         return resp
 
     # ------------------------------------------------------------------
@@ -532,13 +554,17 @@ class ILinkClient:
             aeskey=aes_key_hex,  # Send hex-encoded key to API
         )
 
-        # Credentials and encrypted media locators are never logged.
+        ret, errcode = response_codes(upload_resp)
+        logger.debug(
+            f"WeChat getuploadurl response: ret={ret} errcode={errcode}",
+        )
         upload_url = upload_resp.get("upload_full_url", "")
         if not upload_url:
             # API might return upload_param instead,
             # need to construct URL manually
             upload_param = upload_resp.get("upload_param", "")
             if upload_param:
+                logger.debug(f"WeChat CDN upload using derived location")
                 cdn_base = "https://novac2c.cdn.weixin.qq.com/c2c"
                 enc_param = quote(upload_param, safe="")
                 # Add filekey as query parameter
@@ -547,8 +573,11 @@ class ILinkClient:
                     f"{cdn_base}/upload?encrypted_query_param={enc_param}"
                     f"&filekey={filekey}"
                 )
-                # Credentials and encrypted media locators are never logged.
             else:
+                logger.warning(
+                    f"WeChat getuploadurl returned no location: "
+                    f"ret={ret} errcode={errcode}",
+                )
                 raise ValueError(
                     "No upload_full_url or upload_param in "
                     "getuploadurl response missing upload location",
@@ -561,14 +590,21 @@ class ILinkClient:
             "Content-Type": "application/octet-stream",
         }
 
-        # Credentials and encrypted media locators are never logged.
+        logger.debug(
+            f"WeChat uploading to CDN: media_type={media_type} "
+            f"encrypted_bytes={filesize}",
+        )
         resp = await self._client.post(
             upload_url,
             content=encrypted_data,
             headers=headers,
             timeout=120.0,
         )
-        # Credentials and encrypted media locators are never logged.
+        logger.debug(f"WeChat CDN upload response: HTTP {resp.status_code}")
+        if resp.is_error:
+            logger.warning(
+                f"WeChat CDN upload failed: HTTP {resp.status_code}",
+            )
         resp.raise_for_status()
 
         # Get download parameters from response header
@@ -580,16 +616,16 @@ class ILinkClient:
             "X-Encrypted-Param",
             "",
         )
-        # Credentials and encrypted media locators are never logged.
 
         # Validate encrypt_query_param before returning
         if not encrypt_query_param:
-            # Credentials and encrypted media locators are never logged.
+            logger.warning(f"WeChat CDN upload returned no encrypted locator")
             raise ValueError(
                 "upload_media failed: CDN did not return "
                 "encrypt_query_param in response headers. "
                 "Files cannot be sent without this parameter.",
             )
+        logger.debug(f"WeChat CDN upload returned encrypted locator")
 
         return {
             "encrypt_query_param": encrypt_query_param,
@@ -664,8 +700,10 @@ class ILinkClient:
         # Upload image
         upload_result = await self.upload_media(image_path, 1, to_user_id)
 
-        # Log media parameters for debugging
-        # Credentials and encrypted media locators are never logged.
+        logger.debug(
+            f"WeChat image ready to send: "
+            f"encrypted_bytes={upload_result['filesize']}",
+        )
 
         # Send image message
         return await self.sendmessage(

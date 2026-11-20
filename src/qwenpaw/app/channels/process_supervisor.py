@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from ...channel_protocol.artifacts import code_root_digest
 from dataclasses import dataclass, field, replace
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -317,6 +318,10 @@ class ChannelProcess(PluginProcess):
         )
         packet["config"] = dict(spec.config)
         packet["private_env"] = spec.private_env
+        if self._mode in {f"run", f"manage"}:
+            packet[f"channel_log_level"] = logging.getLogger(
+                f"qwenpaw",
+            ).getEffectiveLevel()
         if self._mode == "manage":
             packet.update(
                 plugin_id=spec.plugin_id,

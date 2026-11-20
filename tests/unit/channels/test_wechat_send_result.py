@@ -46,7 +46,7 @@ def test_ret_and_errcode_success_is_unchanged():
     _check({"ret": 0, "errcode": 0, "message_id": "test-123"})
 
 
-def test_status_errors_still_win_when_message_id_is_present():
+def test_status_errors_still_win_when_message_id_is_present(caplog):
     failed = _reason({"message_id": "test-123", "ret": 1}, sent=False)
     assert failed.reason_code == "PLATFORM_SEND_FAILED"
     assert failed.side_effect_possible is False
@@ -56,6 +56,10 @@ def test_status_errors_still_win_when_message_id_is_present():
     invalid = _reason({"message_id": "test-123", "ret": -2})
     assert invalid.reason_code == "CONTEXT_TOKEN_INVALID"
     assert invalid.side_effect_possible is False
+    assert f"ret=1 errcode=None" in caplog.text
+    assert f"ret=None errcode=4" in caplog.text
+    assert f"ret=-2 errcode=None" in caplog.text
+    assert f"test-123" not in caplog.text
 
 
 def test_missing_status_without_message_id_stays_unknown():

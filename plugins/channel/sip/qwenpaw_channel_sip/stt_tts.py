@@ -168,6 +168,7 @@ async def _stream_aliyun(
         def on_error(self, message: str) -> None:
             if not errors:
                 errors.append("TTS_STREAM_FAILED")
+                logger.error(f"SIP TTS SDK reported a stream failure")
             _enqueue(None)
 
         def on_close(self) -> None:
