@@ -60,6 +60,7 @@ from .reme_reranker import (
     rerank_and_cap_response,
     rerank_search_results,
 )
+from .reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH, list_tag_files
 from ..model_factory import create_model_and_formatter_async
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
@@ -96,6 +97,26 @@ _REME_LLM_ACTIONS = frozenset(
     {"auto_dream", "auto_memory", "daily_paper", "auto_fin"},
 )
 _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
+    "list_tag_files": {
+        "description": "List memory files carrying one entity tag.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tag": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_MEMORY_TAG_QUERY_LENGTH,
+                },
+                "page": {"type": "integer", "minimum": 1},
+                "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            },
+            "required": ["tag"],
+        },
+    },
     "undo_reindex": {
         "description": (
             "Restore the embedding configuration associated with the "
@@ -1028,6 +1049,11 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                 parameters,
                 kwargs,
             )
+            if action == "list_tag_files":
+                return MemoryActionResponse(
+                    success=True,
+                    answer=await list_tag_files(reme, **kwargs),
+                )
             if action not in {"reindex", "undo_reindex"}:
                 return await self._run_reme_job(
                     action,

@@ -730,31 +730,6 @@ async def clear_chat_project_dirs(
     return await _project_dirs_response(updated, workspace)
 
 
-@router.put("/{chat_id}/decision-settings")
-async def set_decision_settings(
-    chat_id: str,
-    enabled: bool = Body(..., strict=True),
-    mgr: ChatManager = Depends(get_chat_manager),
-    workspace=Depends(get_workspace),
-):
-    """Save a decision preference for an existing session."""
-    from ...config.config import load_agent_config
-    from ...services.session_thinking import decision_settings
-
-    if await mgr.get_chat(chat_id) is None:
-        raise HTTPException(404, "Chat not found")
-    config = await asyncio.to_thread(load_agent_config, workspace.agent_id)
-    settings = await asyncio.to_thread(decision_settings, config, enabled)
-    if enabled and not settings["configured"]:
-        raise HTTPException(
-            422,
-            "No agent or global decision model configured",
-        )
-    if await mgr.set_session_decision(chat_id, enabled) is None:
-        raise HTTPException(404, "Chat not found")
-    return settings
-
-
 @router.get(f"/thinking-default")
 async def get_default_thinking(
     provider_id: str | None = None,
@@ -903,16 +878,19 @@ async def get_chat(
         chat_spec.user_id,
         chat_spec.channel,
     )
-    backend = workspace.config.backend
+    from ...config.config import load_agent_config_async
+
+    config = await load_agent_config_async(workspace.agent_id)
+    backend = config.backend
     context = ((state.get("agent") or {}).get("state") or {}).get("context")
     if not context and backend != "qwenpaw":
         try:
-            await workspace.harness_runtime.hydrate_session(
-                backend=backend,
+            await workspace.backend_runtime.hydrate_session(
+                backend,
                 session_id=chat_spec.session_id,
                 user_id=chat_spec.user_id,
                 channel=chat_spec.channel,
-                settings=dict(workspace.config.backend_settings),
+                settings=dict(config.backend_settings),
             )
             state = await session.get_session_state_dict(
                 chat_spec.session_id,

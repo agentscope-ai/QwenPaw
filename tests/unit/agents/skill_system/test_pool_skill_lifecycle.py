@@ -9,6 +9,8 @@ Regression coverage:
 - GitHub issue #3702: malformed manifest entries must not crash skill listing
 - GitHub issue #6537 (#3270): restart reconciliation must preserve tags
 - GitHub issue #1367: skill names containing path separators must be rejected
+- GitHub issue #8126: a cancelled pool download must not leave a partial
+  install, and must keep the skill and settings that were already there
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from qwenpaw.agents.skill_system import registry as skill_registry
 from qwenpaw.agents.skill_system import store as skill_store
 from qwenpaw.agents.skill_system.pool_service import SkillPoolService
 from qwenpaw.constant import WORKING_DIR
+from qwenpaw.exceptions import SkillImportCancelled
 
 
 def _skill_md(name: str, description: str = "desc for tests") -> str:
@@ -562,3 +565,108 @@ def test_working_dir_is_isolated(pool_env):
         f"skill pool not isolated into a temp dir: {pool_dir} "
         f"(real WORKING_DIR={WORKING_DIR})"
     )
+
+
+class TestCancelledDownloadLeavesNoPartialInstall:
+    """#8126: a cancellation has to be safe to honour.
+
+    The job API promises that a cancelled download leaves no partial install
+    and keeps the skill that was already there, together with its settings.
+    Both are the same guarantee: the workspace is not touched until the last
+    check has passed, so an interrupted download simply never publishes, and
+    the manifest write that registers the skill is never reached.
+    """
+
+    def _arm_cancel_during_staging(self, pool_dir: Path):
+        """Cancel once the copy is under way but nothing is published yet."""
+        # Give the pool skill a few files so the cancellation lands between
+        # two of them instead of on the very first check.
+        for index in range(3):
+            (pool_dir / "demo" / f"extra{index}.txt").write_text(
+                f"extra {index}\n",
+                encoding="utf-8",
+            )
+        calls = {"count": 0}
+
+        def checker() -> bool:
+            calls["count"] += 1
+            # The first call is the one before the target is touched.
+            return calls["count"] > 2
+
+        return checker, calls
+
+    def test_previous_skill_and_its_settings_survive_a_cancellation(
+        self,
+        pool_env,
+    ):
+        service, pool_dir = pool_env
+        assert service.create_skill("demo", _skill_md("demo")) == "demo"
+        checker, calls = self._arm_cancel_during_staging(pool_dir)
+
+        workspace_dir = pool_dir.parent / "workspaces" / "agent_x"
+        installed = workspace_dir / "skills" / "demo"
+        _write_skill_dir(installed, "demo")
+        marker = installed / "MARKER.txt"
+        marker.write_text("previous version\n", encoding="utf-8")
+        _write_workspace_manifest(
+            workspace_dir,
+            {
+                "demo": {
+                    "enabled": False,
+                    "channels": ["qq"],
+                    "config": {"threshold": 7},
+                },
+            },
+        )
+
+        with skill_store.with_cancel_checker(checker):
+            with pytest.raises(SkillImportCancelled):
+                service.download_to_workspace(
+                    "demo",
+                    workspace_dir,
+                    overwrite=True,
+                )
+
+        assert calls["count"] > 2, "the copy really was interrupted"
+        assert (
+            marker.read_text(encoding="utf-8") == "previous version\n"
+        ), "the interrupted copy must not have replaced the skill"
+        assert not (
+            installed / "extra0.txt"
+        ).exists(), "the pool version must not have been published"
+        entry = _read_workspace_manifest(workspace_dir)["skills"]["demo"]
+        assert entry["enabled"] is False
+        assert entry["channels"] == ["qq"]
+        assert entry["config"] == {"threshold": 7}
+
+    def test_a_cancelled_fresh_install_leaves_nothing_behind(self, pool_env):
+        service, pool_dir = pool_env
+        assert service.create_skill("demo", _skill_md("demo")) == "demo"
+        checker, calls = self._arm_cancel_during_staging(pool_dir)
+
+        workspace_dir = pool_dir.parent / "workspaces" / "agent_y"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        with skill_store.with_cancel_checker(checker):
+            with pytest.raises(SkillImportCancelled):
+                service.download_to_workspace(
+                    "demo",
+                    workspace_dir,
+                    overwrite=True,
+                )
+
+        assert calls["count"] > 2, "the copy really was interrupted"
+        assert not (
+            workspace_dir / "skills" / "demo"
+        ).exists(), (
+            "a cancelled install must not leave a partial skill directory"
+        )
+        # A workspace that was never written to has no manifest at all, which
+        # is itself the strongest form of "nothing was registered".
+        manifest_path = workspace_dir / "skill.json"
+        registered = (
+            _read_workspace_manifest(workspace_dir).get("skills", {})
+            if manifest_path.exists()
+            else {}
+        )
+        assert "demo" not in registered

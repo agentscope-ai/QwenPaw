@@ -160,7 +160,7 @@ describe("Chat mobile layout styles", () => {
     expect(chatSource).not.toContain("SESSION_HISTORY_DRAWER_STORAGE_KEY");
   });
 
-  it("keeps the mobile composer toolbar in two stable columns", () => {
+  it("keeps the mobile composer toolbar in two stable rows", () => {
     const composerStart = stylesSource.indexOf(
       "/* Mobile composer: keep the input row dominant",
     );
@@ -170,9 +170,7 @@ describe("Chat mobile layout styles", () => {
     );
 
     expect(composerStart).toBeGreaterThanOrEqual(0);
-    expect(composerRule).toContain(
-      "grid-template-columns: minmax(0, 1fr) auto",
-    );
+    expect(composerRule).toContain("grid-template-columns: minmax(0, 1fr);");
     expect(composerRule).toContain("min-height: 44px");
     expect(composerRule).toContain("min-width: 44px !important");
     expect(composerRule).toContain("flex-wrap: nowrap");

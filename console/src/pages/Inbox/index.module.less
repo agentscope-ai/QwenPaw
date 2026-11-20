@@ -66,6 +66,7 @@
 
 .messagesToolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
@@ -74,8 +75,16 @@
 
 .messagesSelectionTools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+.unreadFilter {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 40px;
 }
 
 .selectedCountText {
@@ -641,6 +650,10 @@
 
   .paginationWrap {
     justify-content: center;
+  }
+
+  .unreadFilter {
+    min-height: var(--app-hit-touch);
   }
 }
 

@@ -38,7 +38,12 @@ async def load_reranker_config(agent_id: str) -> RerankerConfig | None:
             "reranker_config",
             None,
         )
-        if config is not None and config.enabled and config.model_name:
+        if (
+            config is not None
+            and config.enabled
+            and config.model_name
+            and config.api_key.strip()
+        ):
             return config
     except Exception:
         logger.warning("[rerank] failed to load config", exc_info=True)
@@ -53,6 +58,9 @@ async def call_reranker_api(
     """Return document indices ordered by an OpenAI-compatible reranker."""
     if not config.base_url:
         logger.warning("[rerank] base_url not configured")
+        return None
+    if not config.api_key.strip():
+        logger.warning("[rerank] api_key not configured")
         return None
     if not query or not documents:
         return None
@@ -117,6 +125,7 @@ class RerankerTestResult:
     message: str
     total: int = 0
     correct_count: int = 0
+    incomplete_count: int = 0
     precision: float | None = None
     cases: list[RerankerCaseResult] | None = None
 
@@ -260,7 +269,7 @@ async def _validate_reranker_base_url(
     base_url: str,
     *,
     allow_private: bool = False,
-) -> _ResolvedTarget:
+) -> list[_ResolvedTarget]:
     """Validate a user-supplied reranker base URL before probing it.
 
     Only http/https, no embedded credentials. By default every resolved address
@@ -275,9 +284,11 @@ async def _validate_reranker_base_url(
     caller the server already treats as trusted can probe a local endpoint —
     there is no extra configuration switch.
 
-    The returned target pins the request to one of the validated addresses
-    (with a ``Host`` header and TLS SNI preserved), so a hostname cannot
+    The returned targets pin the request to one of the validated addresses
+    (with ``Host`` header and TLS SNI preserved), so a hostname cannot
     re-resolve to a different address between validation and the request.
+    One target is returned per validated address, letting the probe fall back
+    when a dual-stack hostname has only one family listening.
     """
     base = (base_url or "").strip()
     if not base:
@@ -344,19 +355,6 @@ async def _validate_reranker_base_url(
         if address.is_unspecified or address.is_multicast:
             raise ValueError("Reranker base URL targets a non-public address")
 
-    selected = addresses[0]
-    selected_address = ipaddress.ip_address(selected)
-    if selected_address.version == 6:
-        selected_netloc = f"[{selected}]"
-    else:
-        selected_netloc = selected
-    if parsed.port is not None:
-        selected_netloc = f"{selected_netloc}:{parsed.port}"
-
-    request_path = f"{parsed.path.rstrip('/')}/rerank"
-    request_url = urlunsplit(
-        (parsed.scheme, selected_netloc, request_path, "", ""),
-    )
     try:
         ipaddress.ip_address(host)
         sni_hostname = host
@@ -365,13 +363,29 @@ async def _validate_reranker_base_url(
             sni_hostname = host.encode("idna").decode("ascii")
         except UnicodeError:
             sni_hostname = host
-    return _ResolvedTarget(
-        request_url=request_url,
-        # Credentials were rejected above, so netloc is exactly host[:port].
-        host_header=parsed.netloc,
-        sni_hostname=sni_hostname,
-        secure=parsed.scheme == "https",
-    )
+
+    request_path = f"{parsed.path.rstrip('/')}/rerank"
+    targets: list[_ResolvedTarget] = []
+    for value in addresses:
+        address = ipaddress.ip_address(value)
+        if address.version == 6:
+            netloc = f"[{value}]"
+        else:
+            netloc = value
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        targets.append(
+            _ResolvedTarget(
+                request_url=urlunsplit(
+                    (parsed.scheme, netloc, request_path, "", ""),
+                ),
+                # Credentials were rejected above, so netloc is host[:port].
+                host_header=parsed.netloc,
+                sni_hostname=sni_hostname,
+                secure=parsed.scheme == "https",
+            ),
+        )
+    return targets
 
 
 async def test_reranker_model(
@@ -393,80 +407,118 @@ async def test_reranker_model(
         # only bound a single operation, so a slow-drip server could otherwise
         # hold the suite open forever.
         async with asyncio.timeout(deadline):
-            target = await _validate_reranker_base_url(
+            targets = await _validate_reranker_base_url(
                 config.base_url,
                 allow_private=allow_private,
             )
             if not config.model_name or not config.model_name.strip():
                 raise ValueError("Reranker model name is required")
+            # Match the runtime reranker, which refuses to call without a key;
+            # never send an empty "Bearer " header.
+            if not config.api_key or not config.api_key.strip():
+                raise ValueError("Reranker API key is not configured")
 
-            headers = {
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json",
-                # The request dials the validated address; the Host header and
-                # TLS SNI keep the origin the operator configured.
-                "Host": target.host_header,
-            }
-            extensions = (
-                {"sni_hostname": target.sni_hostname}
-                if target.secure
-                else None
-            )
             async with httpx.AsyncClient(timeout=timeout) as client:
-                for query, documents, expected_index in _TEST_SUITE:
-                    payload = {
-                        "model": config.model_name.strip(),
-                        "query": query,
-                        "documents": documents,
-                    }
-                    # codeql[py/partial-ssrf] pinned to the validated address
-                    response = await client.post(
-                        target.request_url,
-                        headers=headers,
-                        json=payload,
-                        extensions=extensions,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    results = (
-                        data.get("results") if isinstance(data, dict) else None
-                    )
-                    if not isinstance(results, list) or not results:
-                        raise RuntimeError(
-                            "Reranker service returned an unexpected "
-                            "response format",
-                        )
-                    indices = [
-                        item.get("index")
-                        for item in results
-                        if isinstance(item, dict)
-                    ]
-                    if len(indices) != len(results) or any(
-                        not isinstance(i, int) or not 0 <= i < len(documents)
-                        for i in indices
-                    ):
-                        raise RuntimeError(
-                            "Reranker service returned invalid document "
-                            "indices",
-                        )
-                    scores, correct = _extract_scores(
-                        results,
-                        len(documents),
-                        expected_index,
-                    )
-                    cases.append(
-                        RerankerCaseResult(
-                            query=query,
-                            scores=scores,
-                            correct=correct,
-                        ),
-                    )
-                    if correct is True:
-                        correct_count += 1
 
-        scored_cases = [c for c in cases if c.correct is not None]
-        total = len(scored_cases)
-        precision = (correct_count / total) if total else None
+                async def _probe(target: _ResolvedTarget) -> None:
+                    nonlocal correct_count
+                    headers = {
+                        "Authorization": f"Bearer {config.api_key}",
+                        "Content-Type": "application/json",
+                        # The request dials the validated address; the Host
+                        # header and TLS SNI keep the configured origin.
+                        "Host": target.host_header,
+                    }
+                    extensions = (
+                        {"sni_hostname": target.sni_hostname}
+                        if target.secure
+                        else None
+                    )
+                    for query, documents, expected_index in _TEST_SUITE:
+                        payload = {
+                            "model": config.model_name.strip(),
+                            "query": query,
+                            "documents": documents,
+                        }
+                        # codeql[py/partial-ssrf] pinned to a validated address
+                        response = await client.post(
+                            target.request_url,
+                            headers=headers,
+                            json=payload,
+                            extensions=extensions,
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        results = (
+                            data.get("results")
+                            if isinstance(data, dict)
+                            else None
+                        )
+                        if not isinstance(results, list) or not results:
+                            raise RuntimeError(
+                                "Reranker service returned an unexpected "
+                                "response format",
+                            )
+                        indices = [
+                            item.get("index")
+                            for item in results
+                            if isinstance(item, dict)
+                        ]
+                        # Same index contract as the runtime path: every
+                        # document exactly once. Duplicate indices must not be
+                        # scored as if they were distinct rankings.
+                        if len(indices) != len(results) or any(
+                            not isinstance(i, int) for i in indices
+                        ):
+                            raise RuntimeError(
+                                "Reranker service returned invalid document "
+                                "indices",
+                            )
+                        if sorted(indices) != list(range(len(documents))):
+                            raise RuntimeError(
+                                "Reranker service returned invalid document "
+                                "indices",
+                            )
+                        scores, correct = _extract_scores(
+                            results,
+                            len(documents),
+                            expected_index,
+                        )
+                        cases.append(
+                            RerankerCaseResult(
+                                query=query,
+                                scores=scores,
+                                correct=correct,
+                            ),
+                        )
+                        if correct is True:
+                            correct_count += 1
+
+                # A dual-stack hostname may resolve to a family the service
+                # does not listen on (commonly ::1 for an IPv4-only service).
+                # Retry the next validated address on connection failures,
+                # all within the same suite deadline.
+                last_connect_error: Exception | None = None
+                for target in targets:
+                    try:
+                        await _probe(target)
+                        break
+                    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                        last_connect_error = exc
+                        cases.clear()
+                        correct_count = 0
+                else:
+                    raise last_connect_error or RuntimeError(
+                        "Reranker service connection failed",
+                    )
+
+        incomplete_count = sum(1 for case in cases if case.correct is None)
+        total = len(cases)
+        precision = (
+            correct_count / total
+            if total and incomplete_count < total
+            else None
+        )
         latency_ms = round((time.monotonic() - started) * 1000)
         return RerankerTestResult(
             success=True,
@@ -474,6 +526,7 @@ async def test_reranker_model(
             message="Reranker service is available",
             total=total,
             correct_count=correct_count,
+            incomplete_count=incomplete_count,
             precision=precision,
             cases=cases,
         )

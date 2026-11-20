@@ -4,14 +4,7 @@ import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Spin, Popover, Segmented } from "antd";
-import {
-  Switch,
-  Button,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-} from "@agentscope-ai/design";
+import { Switch, Button, Form, Input } from "@agentscope-ai/design";
 import api from "../../../api";
 import {
   Zap as ThunderboltOutlined,
@@ -23,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { ConfigFields } from "@/components/ConfigFields";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -160,75 +154,7 @@ function ToolConfigModal({
     >
       <Spin spinning={loadingConfig}>
         <Form form={form} layout="vertical" onValuesChange={schedule}>
-          {tool.config_fields?.map((field) => {
-            // Render different input types based on field type
-            const renderInput = () => {
-              switch (field.type) {
-                case "password":
-                  return (
-                    <Input.Password
-                      placeholder={field.placeholder}
-                      autoComplete="off"
-                    />
-                  );
-
-                case "number":
-                  return (
-                    <InputNumber
-                      placeholder={field.placeholder}
-                      min={field.min}
-                      max={field.max}
-                      style={{ width: "100%" }}
-                    />
-                  );
-
-                case "boolean":
-                  return <Switch />;
-
-                case "select":
-                  return (
-                    <Select placeholder={field.placeholder}>
-                      {field.options?.map((option) => (
-                        <Select.Option key={option} value={option}>
-                          {option}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  );
-
-                case "textarea":
-                  return (
-                    <Input.TextArea
-                      placeholder={field.placeholder}
-                      rows={4}
-                      autoSize={{ minRows: 2, maxRows: 8 }}
-                    />
-                  );
-
-                case "text":
-                default:
-                  return <Input placeholder={field.placeholder} />;
-              }
-            };
-
-            return (
-              <Form.Item
-                key={field.name}
-                name={field.name}
-                label={field.label}
-                rules={[
-                  {
-                    required: field.required,
-                    message: `${field.label} is required`,
-                  },
-                ]}
-                help={field.help}
-                valuePropName={field.type === "boolean" ? "checked" : "value"}
-              >
-                {renderInput()}
-              </Form.Item>
-            );
-          })}
+          <ConfigFields fields={tool.config_fields ?? []} />
         </Form>
       </Spin>
     </Modal>
@@ -427,6 +353,7 @@ export default function ToolsPage() {
                   className={styles.section}
                   key={group.label}
                   aria-label={group.label}
+                  data-settings-target={`tools.groups.${group.key}`}
                 >
                   <h2 className={styles.sectionTitle}>
                     {group.label}
@@ -453,7 +380,11 @@ export default function ToolsPage() {
                           index={index}
                           animate={!entered.current}
                         >
-                          <InteractiveCard className={styles.toolCard} tilt={2}>
+                          <InteractiveCard
+                            className={styles.toolCard}
+                            tilt={2}
+                            data-settings-target={`tool:${tool.name}`}
+                          >
                             <div className={styles.cardHeader}>
                               <span className={styles.toolIcon}>
                                 <Icon
@@ -543,6 +474,11 @@ export default function ToolsPage() {
                                 <div className={styles.rowActions}>
                                   {canConfigure && (
                                     <Button
+                                      data-settings-open={
+                                        WEBSEARCH_TOOL_NAMES.has(tool.name)
+                                          ? "web-search"
+                                          : undefined
+                                      }
                                       data-press
                                       className={styles.toggleButton}
                                       aria-label={`${t(
@@ -577,6 +513,7 @@ export default function ToolsPage() {
                                     data-press
                                     className={styles.toggleButton}
                                     aria-pressed={tool.async_execution}
+                                    data-settings-target="tools.asyncExecution"
                                     onClick={() => toggleAsyncExecution(tool)}
                                     disabled={batchLoading}
                                     icon={

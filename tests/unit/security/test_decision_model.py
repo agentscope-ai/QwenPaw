@@ -18,6 +18,7 @@ from agentscope.classifier import (
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.typesafe_provider import TypeSafeProvider
 from qwenpaw.security.decision_model import (
+    _MAX_CODE_CHARS,
     _decision_provider,
     _interpret,
     _is_read_only_shell_listing,
@@ -57,6 +58,104 @@ def _probabilities(choice):
 
 
 _RISK_QUESTIONS = ("destructive", "secret_exposure", "privilege_change")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["RunCode", "run_code"])
+@pytest.mark.parametrize(
+    "code",
+    [
+        "token_count = 1\nsecret_exposure = False\nprint(token_count)\n",
+        "access_key_count = 0\nsecret_key_length = 32\nprint(secret_key_length)",
+        "for n in range(2):\r\n\tprint(n)\r\n",
+        "# harmless padding\n" * 40 + "print(1)",
+        "#" + "x" * (_MAX_CODE_CHARS - 1),
+        "await tools.read_file(file_path='notes.txt')",
+    ],
+)
+async def test_code_mode_submits_complete_python(monkeypatch, tool_name, code):
+    seen = []
+
+    async def evaluate(_provider, **request):
+        seen.append(request["state"])
+        return _response()
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", evaluate)
+    result = await assess_tool_call(
+        tool_name,
+        code,
+        params={"code": code},
+        sandboxed=True,
+    )
+    assert not result.needs_approval
+    assert len(seen) == 1
+    assert seen[0]["code"] == code
+    assert "target" not in seen[0]
+    assert seen[0]["input_kind"] == "python_script"
+    assert seen[0]["sandboxed"] is True
+    assert seen[0]["inner_tool_governance"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "#" + "x" * _MAX_CODE_CHARS,
+        "print(1)\x00",
+        "if broken syntax",
+        "password = 'arbitrary-private-value'",
+        "my_password = 'arbitrary-private-value'",
+        "send(api_key='arbitrary-private-value')",
+        "print('sk-1234567890abcdefghijkl')",
+        "print('\\x73k-1234567890abcdefghijkl')",
+        "print(open('/home/user/.ssh/id_rsa').read())",
+        "# Authorization: Bearer private-value\nprint(1)",
+    ],
+)
+async def test_code_preflight_never_resolves_provider(monkeypatch, code):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("preflight must not resolve or call provider")
+
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model._decision_provider",
+        unexpected,
+    )
+    result = await assess_tool_call("RunCode", code, params={"code": code})
+    assert result.needs_approval
+    assert "model not called" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_code_model_risk_and_failure_require_approval(monkeypatch):
+    code = "import os\nos.remove('report.txt')"
+
+    async def risky(_provider, **request):
+        assert request["state"]["code"] == code
+        return _response(choice="risky", risk=0.99)
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", risky)
+    assert (await assess_tool_call("RunCode", code)).needs_approval
+
+    async def unavailable(*args, **kwargs):
+        raise ValueError("invalid service response")
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", unavailable)
+    result = await assess_tool_call("RunCode", code)
+    assert result.needs_approval
+    assert "service/response unavailable" in result.reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["echo a\necho b", "x" * 601, "echo token"])
+async def test_shell_preflight_is_unchanged(monkeypatch, target):
+    def unexpected(*args, **kwargs):
+        raise AssertionError("shell disclosure filter must remain active")
+
+    monkeypatch.setattr(
+        "qwenpaw.security.decision_model._decision_provider",
+        unexpected,
+    )
+    assert (await assess_tool_call("Bash", target)).needs_approval
 
 
 def _response(*, choice="routine", confidence=0.95, risk=0.01):

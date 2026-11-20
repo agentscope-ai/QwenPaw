@@ -40,6 +40,9 @@ from schemas.common import StrictModel
 from services.document_reader import is_supported_document
 from services.file_agent_runtime.notifications import RuntimeEventKind
 from services.file_agent_runtime.registry import get_creator_agent_runtime
+from services.media.source_memory import source_memory_service
+from services.media.source_observation import source_observation_service
+from services.media.source_video_reader import source_video_reader_service
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileError,
@@ -383,6 +386,69 @@ def _asset_size_bytes(item: _AssetInput | _StagedAssetInput) -> int:
     return len(item.content)
 
 
+def _media_kind_compatible(*, stored: str, uploaded: str) -> bool:
+    """True when *uploaded* media kind can safely reuse *stored*.
+
+    ``other`` is the opaque fallback (e.g. application/octet-stream): it
+    accepts any concrete kind, which is then upgraded on the stored row.
+    A stored concrete kind (image/audio/video) is only compatible with the
+    same concrete kind — bytes alone do not turn an image into audio.
+    """
+    if stored in (uploaded, "other"):
+        return True
+    return False
+
+
+def _reusable_source_version(
+    *,
+    files: dict[str, Any],
+    versions: dict[str, Any],
+    checksum: str,
+    media_kind: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return every file-backed AssetVersion already holding these exact bytes.
+
+    Idempotency only spans one client request identity, so re-picking the same
+    file is a fresh ``Idempotency-Key`` and used to mint a second AssetVersion,
+    a second ProjectSource and a second copy of the bytes on disk. Only
+    file-backed versions qualify: a remote-URL version hashes the URL, not the
+    content, so matching it here would point a local upload at media that may
+    never have been cached.
+
+    Projects created before this rule can hold several versions of the same
+    bytes under different logical Assets, so results are sorted by
+    ``created_at`` (earliest-first, ``version_id`` as tie-breaker): the
+    oldest healthy candidate whose stored media kind is compatible with
+    *media_kind* is picked by the caller.
+    """
+
+    matches = [
+        version
+        for version in versions.values()
+        if version.get("checksum") == checksum
+        and version.get("file_id")
+        and version["file_id"] in files
+    ]
+    if media_kind is not None:
+        matches = [
+            version
+            for version in matches
+            if _media_kind_compatible(
+                stored=version.get("media_kind", "other"),
+                uploaded=media_kind,
+            )
+        ]
+    if not matches:
+        return []
+    return sorted(
+        matches,
+        key=lambda version: (
+            str(version.get("created_at") or ""),
+            str(version.get("version_id") or ""),
+        ),
+    )
+
+
 _AV_MIME_PREFIXES = (
     ("image/", "image"),
     ("video/", "video"),
@@ -491,6 +557,22 @@ def _ingest_many_locked(
     attach_source: bool,
     scope: str,
 ) -> tuple[dict[str, Any], bool]:
+    """Publish staged Assets under one per-Project idempotency boundary.
+
+    Two identities are kept apart on purpose. ``key`` (the Idempotency-Key) is
+    the request identity: replaying it must not create anything, and the
+    durable record answers from cache. Content identity is the sha256 of the
+    bytes: an upload whose checksum already has a file-backed AssetVersion in
+    this Project reuses that version and its logical Asset rather than adding
+    a duplicate row plus a second copy on disk, and its response item carries
+    ``reused: true``. A batch that only finds duplicates writes nothing at all
+    because the candidate equals the base and the commit below is skipped.
+
+    Remote-URL registration (``_register_remote_asset_sync``) is deliberately
+    outside this rule: its checksum is a URL hash and its task/cache records
+    pin the key-derived Asset ids, so deduplicating it would have to carry a
+    reused id through the download Task as well.
+    """
     if not inputs:
         raise ValidationError("至少需要一个 Asset")
     records = IdempotencyRecordStore(_records_root(services, project_id))
@@ -548,76 +630,141 @@ def _ingest_many_locked(
             file_store = AssetFileStore(
                 services.projects.project_root(project_id),
             )
-            output_items: list[dict[str, str]] = []
+            output_items: list[dict[str, Any]] = []
             created_at = datetime.now(UTC)
             for index, item in enumerate(inputs):
                 suffix = str(index)
-                logical_asset_id = _stable_id("asset", project_id, key, suffix)
-                version_id = _stable_id(
-                    "asset-version",
-                    project_id,
-                    key,
-                    suffix,
-                )
-                file_id = _stable_id("file", project_id, key, suffix)
                 source_id = _stable_id("source", project_id, key, suffix)
                 checksum = _asset_checksum(item)
                 size_bytes = _asset_size_bytes(item)
-                relative_uri = PurePosixPath(
-                    "assets",
-                    "sources",
-                    f"{file_id}{_extension(item.name, item.media_type)}",
-                ).as_posix()
-                indexed = IndexedFile(
-                    file_id=file_id,
-                    kind="source_original",
-                    relative_uri=relative_uri,
-                    sha256=checksum,
-                    size_bytes=size_bytes,
-                    media_type=item.media_type,
-                    created_at=created_at,
-                )
-                version = SourceAssetVersion(
-                    version_id=version_id,
-                    logical_asset_id=logical_asset_id,
-                    name=item.name,
-                    file_id=file_id,
+                new_media_kind = _media_kind(item.media_type, item.name)
+                candidates = _reusable_source_version(
+                    files=files,
+                    versions=versions,
                     checksum=checksum,
-                    media_kind=_media_kind(item.media_type, item.name),
-                    media_type=item.media_type,
-                    created_at=created_at,
-                    metadata={"clientRequestId": key},
+                    media_kind=new_media_kind,
                 )
-                existing_file = files.get(file_id)
-                existing_version = versions.get(version_id)
-                if existing_file is not None or existing_version is not None:
-                    if existing_file != indexed.model_dump(
-                        mode="json",
-                    ) or existing_version != version.model_dump(mode="json"):
-                        raise ConflictError("Asset 稳定 ID 已存在但内容不同")
-                    _ensure_existing_file(file_store, indexed)
-                else:
-                    staged = (
-                        item.staged
-                        if isinstance(item, _StagedAssetInput)
-                        else file_store.stage_bytes(
-                            item.content,
-                            staging_id=operation_id[:80],
-                        )
-                    )
+                reusable: dict[str, Any] | None = None
+                for cand in candidates:
                     try:
-                        file_store.publish(
-                            staged,
-                            relative_uri,
-                            expected_sha256=checksum,
-                            expected_size_bytes=size_bytes,
+                        _ensure_existing_file(
+                            file_store,
+                            IndexedFile.model_validate(
+                                files[cand["file_id"]],
+                            ),
                         )
-                    except AssetAlreadyExists:
-                        file_store.abandon(staged)
+                        reusable = cand
+                        break
+                    except StorageIntegrityError:
+                        # This candidate's file is damaged; try the next
+                        # healthy version with the same checksum instead
+                        # of falling back to a fresh upload.
+                        continue
+                reused_name: str | None = None
+                if reusable is not None:
+                    # These bytes are already creative material in this
+                    # Project, so the upload keeps the identity it already
+                    # has: no second index entry and no second file on disk.
+                    logical_asset_id = reusable["logical_asset_id"]
+                    version_id = reusable["version_id"]
+                    file_id = reusable["file_id"]
+                    reused_name = str(reusable.get("name") or "") or None
+                    # When the stored media kind is "other" (e.g.
+                    # application/octet-stream from a raw upload without
+                    # postIngestAction), upgrade it to the upload's concrete
+                    # kind so parsers that inspect the version row
+                    # (voice-sample validators, media-kind routers) see the
+                    # real format instead of the opaque fallback.
+                    stored_kind = reusable.get("media_kind", "other")
+                    if stored_kind == "other" and new_media_kind != "other":
+                        versions[version_id]["media_kind"] = new_media_kind
+                        versions[version_id]["media_type"] = item.media_type
+                else:
+                    logical_asset_id = _stable_id(
+                        "asset",
+                        project_id,
+                        key,
+                        suffix,
+                    )
+                    version_id = _stable_id(
+                        "asset-version",
+                        project_id,
+                        key,
+                        suffix,
+                    )
+                    file_id = _stable_id("file", project_id, key, suffix)
+                    relative_uri = PurePosixPath(
+                        "assets",
+                        "sources",
+                        f"{file_id}{_extension(item.name, item.media_type)}",
+                    ).as_posix()
+                    indexed = IndexedFile(
+                        file_id=file_id,
+                        kind="source_original",
+                        relative_uri=relative_uri,
+                        sha256=checksum,
+                        size_bytes=size_bytes,
+                        media_type=item.media_type,
+                        created_at=created_at,
+                    )
+                    version = SourceAssetVersion(
+                        version_id=version_id,
+                        logical_asset_id=logical_asset_id,
+                        name=item.name,
+                        file_id=file_id,
+                        checksum=checksum,
+                        media_kind=_media_kind(item.media_type, item.name),
+                        media_type=item.media_type,
+                        created_at=created_at,
+                        metadata={"clientRequestId": key},
+                    )
+                    existing_file = files.get(file_id)
+                    existing_version = versions.get(version_id)
+                    if (
+                        existing_file is not None
+                        or existing_version is not None
+                    ):
+                        if existing_file != indexed.model_dump(
+                            mode="json",
+                        ) or existing_version != version.model_dump(
+                            mode="json",
+                        ):
+                            raise ConflictError(
+                                "Asset 稳定 ID 已存在但内容不同",
+                            )
                         _ensure_existing_file(file_store, indexed)
-                    files[file_id] = indexed.model_dump(mode="json")
-                    versions[version_id] = version.model_dump(mode="json")
-                if attach_source and source_id not in source_items:
+                    else:
+                        staged = (
+                            item.staged
+                            if isinstance(item, _StagedAssetInput)
+                            else file_store.stage_bytes(
+                                item.content,
+                                staging_id=operation_id[:80],
+                            )
+                        )
+                        try:
+                            file_store.publish(
+                                staged,
+                                relative_uri,
+                                expected_sha256=checksum,
+                                expected_size_bytes=size_bytes,
+                            )
+                        except AssetAlreadyExists:
+                            file_store.abandon(staged)
+                            _ensure_existing_file(file_store, indexed)
+                        files[file_id] = indexed.model_dump(mode="json")
+                        versions[version_id] = version.model_dump(mode="json")
+                existing_source = next(
+                    (
+                        entry
+                        for entry in source_items.values()
+                        if entry["logical_asset_id"] == logical_asset_id
+                    ),
+                    None,
+                )
+                if attach_source and existing_source is None:
+                    # One logical Asset stays one Source: a re-upload must not
+                    # duplicate the material in the source panel either.
                     source = ProjectSource(
                         source_id=source_id,
                         display_name=item.name,
@@ -626,14 +773,16 @@ def _ingest_many_locked(
                     )
                     source_items[source_id] = source.model_dump(mode="json")
                     source_order.append(source_id)
-                output_items.append(
-                    {
-                        "name": item.name,
-                        "assetId": logical_asset_id,
-                        "assetVersionId": version_id,
-                        "checksum": checksum,
-                    },
-                )
+                output_item: dict[str, Any] = {
+                    "name": item.name,
+                    "assetId": logical_asset_id,
+                    "assetVersionId": version_id,
+                    "checksum": checksum,
+                    "reused": reusable is not None,
+                }
+                if reused_name is not None:
+                    output_item["reusedName"] = reused_name
+                output_items.append(output_item)
 
             # A recovered retry may find every index entry already published.
             # Avoid manufacturing a no-op generation in that case.
@@ -870,6 +1019,10 @@ async def _notify_assets_uploaded(
     Uploads that precede the first session message stay silent — the launch
     composer sends its refs with the first user message, and waking the
     dispatcher before any instruction exists would start a run with no goal.
+
+    A re-uploaded file lands as ``reused``: the refs still name usable media,
+    but the wording must not claim a new Asset entered the library, or the
+    Agent will plan work around material it already has.
     """
 
     runtime = get_creator_agent_runtime()
@@ -883,10 +1036,37 @@ async def _notify_assets_uploaded(
         )
         if session.last_message_seq <= 0:
             return
-        names = "、".join(str(item["name"]) for item in items)
+        # The ingest released the lifecycle lock, so a concurrent delete may
+        # have taken one of these versions away in the meantime. A ref to a
+        # vanished version would fail the moment the Agent reads the material,
+        # so only what still exists gets advertised.
+        live = await asyncio.to_thread(services.projects.read, project_id)
+        surviving = live.project.assets.source_versions_by_id
+        usable = [
+            item
+            for item in items
+            if str(item.get("assetVersionId") or "") in surviving
+        ]
+        if not usable:
+            return
+        names = "、".join(str(item["name"]) for item in usable)
+        reused = sum(1 for item in usable if item.get("reused"))
+        if reused == len(usable):
+            lead = (
+                f"用户再次提供了 {len(usable)} 个素材：{names}。"
+                "这些内容与已入库素材相同，本次没有新增素材，"
+                "引用指向的仍是原有版本。"
+            )
+        elif reused:
+            lead = (
+                f"用户刚上传了 {len(usable)} 个素材：{names}，"
+                f"其中 {reused} 个与已入库素材内容相同，已复用原有版本。"
+            )
+        else:
+            lead = f"用户刚上传了 {len(usable)} 个素材：{names}。"
         refs = [
             f"asset-version:{item['assetVersionId']}"
-            for item in items
+            for item in usable
             if item.get("assetVersionId")
         ]
         await runtime.notifications.notify(
@@ -894,8 +1074,7 @@ async def _notify_assets_uploaded(
             kind=RuntimeEventKind.SOURCE_ASSETS_UPLOADED,
             request_id=request_id,
             text=(
-                f"用户刚上传了 {len(items)} 个素材：{names}。"
-                "素材已入库并可直接引用；如果你此前在等待用户提供素材，"
+                lead + "素材已入库并可直接引用；如果你此前在等待用户提供素材，"
                 "现在可以基于它们继续当前工作。"
                 "这是状态同步，不是新的用户修改意见。"
             ),
@@ -1000,7 +1179,9 @@ def _register_remote_asset_sync(
             ).model_dump(mode="json")
             existing_source = source_items.get(source_id)
             if existing_source is not None and existing_source != source:
-                raise ConflictError("远程 ProjectSource 稳定 ID 已存在但内容不同")
+                raise ConflictError(
+                    "远程 ProjectSource 稳定 ID 已存在但内容不同",
+                )
             if existing_source is None:
                 source_items[source_id] = source
                 source_order.append(source_id)
@@ -1416,12 +1597,14 @@ def _download_source_cache_sync(
         _source_cache_progress_set(
             identity,
             state="cached",
-            received_bytes=download.staged.size_bytes
-            if download is not None
-            else 0,
-            total_bytes=download.staged.size_bytes
-            if download is not None
-            else expected_size_bytes,
+            received_bytes=(
+                download.staged.size_bytes if download is not None else 0
+            ),
+            total_bytes=(
+                download.staged.size_bytes
+                if download is not None
+                else expected_size_bytes
+            ),
         )
     except BaseException as error:
         if not isinstance(error, KeyboardInterrupt):
@@ -1613,7 +1796,9 @@ async def download_source_cache(
 
 def _translate(error: BaseException) -> None:
     if isinstance(error, IdempotencyConflictError):
-        raise ConflictError("Idempotency-Key 已用于不同的 Asset 请求") from error
+        raise ConflictError(
+            "Idempotency-Key 已用于不同的 Asset 请求",
+        ) from error
     if isinstance(error, IdempotencyStateConflictError):
         raise ConflictError("Asset idempotency 状态冲突") from error
     if isinstance(error, AssetFileError):
@@ -1775,6 +1960,8 @@ async def ingest_asset(
         "status": result["status"],
         "progress": result["progress"],
         "assetVersionId": item["assetVersionId"],
+        "reused": bool(item.get("reused")),
+        "reusedName": item.get("reusedName"),
         "result": {"items": result["items"], "idempotentReplay": replayed},
         "error": None,
     }
@@ -2011,6 +2198,445 @@ async def get_asset_content(
             "ETag": f'"sha256:{indexed.sha256}"',
         },
     )
+
+
+async def _cancel_deleted_asset_task(
+    exec_store: ProjectExecutionStore,
+    project_id: str,
+    task: TaskRecord,
+) -> None:
+    """Settle one still-active Task whose input asset was deleted."""
+
+    try:
+        await asyncio.to_thread(
+            exec_store.transition_task,
+            project_id,
+            task.task_id,
+            expected_status={TaskStatus.QUEUED, TaskStatus.RUNNING},
+            status=TaskStatus.CANCELLED,
+            updates={
+                "error": {
+                    "code": "SOURCE_ASSET_DELETED",
+                    "message": "Source asset was deleted",
+                },
+            },
+        )
+    except Exception:  # noqa: BLE001 - best-effort cancellation
+        logger.warning(
+            "asset delete: failed to cancel task %s",
+            task.task_id,
+            exc_info=True,
+        )
+
+
+def _task_targets_deleted_asset(
+    task: TaskRecord,
+    *,
+    deleted_logical_id: str | None,
+    version_id: str,
+    remaining_source_ids: set[str],
+) -> bool:
+    """Whether one durable Task is reading the asset being deleted.
+
+    Not every media-execution Task belongs to a SpecialistRun:
+    ``observe_source_clip`` schedules a standalone Task whose asset identity
+    lives in ``input_refs`` / ``metadata.targetRef`` /
+    ``metadata.assetVersionId``. Matching only ``Task.run_id`` would leave
+    those workers running against media that has just been deleted.
+    """
+
+    if str(task.metadata.get("assetVersionId") or "") == version_id:
+        return True
+    refs = list(task.input_refs)
+    target_ref = task.metadata.get("targetRef")
+    if target_ref:
+        refs.append(str(target_ref))
+    for ref in refs:
+        if ref.startswith("asset:"):
+            if (
+                deleted_logical_id
+                and ref.removeprefix("asset:") == deleted_logical_id
+            ):
+                return True
+        elif ref.startswith("source:"):
+            if ref.removeprefix("source:") not in remaining_source_ids:
+                return True
+    return False
+
+
+@router.delete("/assets/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_source_asset_version(
+    project_id: str,
+    version_id: str,
+    force: bool = Query(
+        False,
+        description="解除时间线中的可解除引用后强制删除",
+    ),
+    services: CreatorFileServices = Depends(project_file_services),
+) -> None:
+    """Delete an uploaded source asset version and its unreferenced files.
+
+    This removes the version from the project metadata and deletes any
+    on-disk files that are no longer referenced by remaining metadata.
+    If the version is still referenced elsewhere (timeline elements,
+    visual variants, etc.), the deletion is refused with a 409 Conflict
+    whose ``details.timelineReferences`` name the occupying shots.
+    ``force`` clears the references an Element can survive without; audio
+    and Edit Elements still have to be deleted by the caller first.
+
+    After deletion, any pending SpecialistRuns or Tasks that reference
+    the deleted version's logical asset are cancelled to prevent stale
+    agent operations.
+    """
+    from domain.enums import (
+        SpecialistRunStatus,
+        TERMINAL_SPECIALIST_STATUSES,
+    )
+
+    # Capture the deleted version's identity BEFORE removal so the
+    # post-delete cancellation can match runs/tasks that targeted this logical
+    # asset (`asset:<id>`) or a source that no longer exists (`source:<id>`).
+    deleted_logical_id: str | None = None
+    try:
+        pre = await asyncio.to_thread(services.projects.read, project_id)
+        ver = pre.project.assets.source_versions_by_id.get(version_id)
+        deleted_logical_id = ver.logical_asset_id if ver else None
+    except Exception:  # noqa: BLE001 - identity capture is best-effort
+        logger.warning(
+            "asset delete: pre-read identity failed",
+            exc_info=True,
+        )
+
+    try:
+        snapshot = await asyncio.to_thread(
+            services.projects.remove_source_asset_version,
+            project_id,
+            version_id,
+            force,
+        )
+    except NotFoundError:
+        raise
+    except ConflictError:
+        raise
+    except Exception as error:
+        # Never forward an internal exception sentence (a pydantic field error,
+        # say) to the client: it names model internals the user cannot act on.
+        logger.exception(
+            "asset delete failed: project=%s version=%s",
+            _log_safe(project_id),
+            _log_safe(version_id),
+        )
+        raise StorageIntegrityError("素材删除失败，请稍后重试") from error
+
+    # Cancel pending runs/tasks that targeted the deleted asset. A run may
+    # reference the asset as `asset:<logicalAssetId>` (delegate_to_agent
+    # contract) or `source:<sourceId>` (internal command). We cancel when the
+    # logical asset matches, or when its `source:` target no longer exists
+    # after deletion. A live in-process specialist worker is cancelled through
+    # the runtime so it emits its own terminal lifecycle event; only runs with
+    # no live owner here fall back to a durable-state CAS cancellation via the
+    # execution store, whose scratch/credit release remain owned by each
+    # scheduler's own cancel path.
+    try:
+        exec_store = ProjectExecutionStore(services.root)
+        runs = await asyncio.to_thread(
+            exec_store.list_specialist_runs,
+            project_id,
+        )
+        tasks = await asyncio.to_thread(exec_store.list_tasks, project_id)
+        runtime = get_creator_agent_runtime()
+
+        remaining_source_ids = set(
+            snapshot.project.sources.sources.items.keys(),
+        )
+        active_run_statuses = (
+            set(SpecialistRunStatus) - TERMINAL_SPECIALIST_STATUSES
+        )
+        active_task_statuses = {TaskStatus.QUEUED, TaskStatus.RUNNING}
+        settled_task_ids: set[str] = set()
+
+        for run in runs:
+            if run.status not in active_run_statuses:
+                continue
+
+            should_cancel = False
+            for ref in run.target_refs:
+                if ref.startswith("asset:"):
+                    if (
+                        deleted_logical_id
+                        and ref.removeprefix("asset:") == deleted_logical_id
+                    ):
+                        should_cancel = True
+                        break
+                elif ref.startswith("source:"):
+                    if ref.removeprefix("source:") not in remaining_source_ids:
+                        should_cancel = True
+                        break
+            if not should_cancel:
+                continue
+
+            # Prefer cancelling the live in-process worker: it persists the
+            # CANCELLED status AND emits the terminal `subagent.failed`
+            # lifecycle event, which is what disarms the Agent status bar. A
+            # durable-only transition below would leave the worker running
+            # (its events keep the activity "in progress"), and pre-transitioning
+            # the run would make the worker skip its terminal event and freeze
+            # the indicator. Only fall back to the durable CAS path when no live
+            # worker owns the run in this process. The runtime claims a run whose
+            # worker has not been spawned yet too: admission registers its owner
+            # before writing the record and settles a revocation that lands
+            # inside the hand-over awaits, so the window between "record exists"
+            # and "worker exists" is never orphaned here.
+            if runtime is not None and runtime.cancel_specialist_run(
+                project_id,
+                run.run_id,
+                reason="source_asset_deleted",
+            ):
+                continue
+
+            cancelled = False
+            try:
+                await asyncio.to_thread(
+                    exec_store.transition_specialist_run,
+                    project_id,
+                    run.run_id,
+                    expected_status=active_run_statuses,
+                    status=SpecialistRunStatus.CANCELLED,
+                    updates={
+                        "metadata": {
+                            **run.metadata,
+                            "cancelReason": "SOURCE_ASSET_DELETED",
+                        },
+                    },
+                )
+                cancelled = True
+            except ExecutionStateConflict:
+                # A concurrent terminalizer (worker finaliser, another
+                # DELETE) already settled the record — it owns the event.
+                pass
+            except Exception:  # noqa: BLE001 - best-effort cancellation
+                logger.warning(
+                    "asset delete: failed to cancel run %s",
+                    run.run_id,
+                    exc_info=True,
+                )
+
+            if not cancelled:
+                continue
+
+            # The run was settled through the durable CAS above, but unlike
+            # the live-worker path (`cancel_specialist_run` returning True),
+            # no `subagent.failed{cancelled}` lifecycle event was emitted.
+            # The frontend `subagentActivities` is purely SSE-event-driven:
+            # without this terminal event it stays `completed: false` and
+            # the Agent status bar shows the specialist's activity (e.g.
+            # "素材理解中") forever, even though the durable record is
+            # already CANCELLED and `agentStatusBar.runningTaskCount` is 0.
+            try:
+                session = await asyncio.to_thread(
+                    services.sessions.get_project_session_snapshot,
+                    project_id,
+                )
+                await asyncio.to_thread(
+                    services.sessions.append_event,
+                    project_id,
+                    session.session_id,
+                    event_type="subagent.failed",
+                    actor="file_agent_runtime",
+                    round_id=(
+                        f"agent-round-"
+                        f"{run.metadata.get('parentRunId') or run.run_id}"
+                    ),
+                    payload={
+                        "runId": run.run_id,
+                        "role": run.role.value,
+                        "parentActionId": (
+                            run.metadata.get("parentActionId") or ""
+                        ),
+                        "targetRefs": list(run.target_refs),
+                        "cancelled": True,
+                        "error": "source_asset_deleted",
+                    },
+                )
+            except RuntimeSessionNotFound:
+                # No active runtime session — nothing to notify, but the
+                # run is already CANCELLED in the execution store.
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: terminal event for run %s failed",
+                    run.run_id,
+                    exc_info=True,
+                )
+
+            for task in tasks:
+                if task.task_id in settled_task_ids:
+                    continue
+                if task.status not in active_task_statuses:
+                    continue
+                matches_asset = _task_targets_deleted_asset(
+                    task,
+                    deleted_logical_id=deleted_logical_id,
+                    version_id=version_id,
+                    remaining_source_ids=remaining_source_ids,
+                )
+                if task.run_id != run.run_id and not matches_asset:
+                    continue
+                settled_task_ids.add(task.task_id)
+                await _cancel_deleted_asset_task(exec_store, project_id, task)
+
+        # --- Post-deletion re-check ---
+        # Between the initial list and the mass cancellation a specialist
+        # run may have been durably created: the driver discovered the
+        # source in the project snapshot, but the DELETE landed before
+        # the handle was registered in `_specialist_tasks`.  One extra
+        # sweep catches these late-arriving orphans and emits the
+        # terminal event the frontend needs.
+        late_runs = await asyncio.to_thread(
+            exec_store.list_specialist_runs,
+            project_id,
+        )
+        first_pass_ids = {r.run_id for r in runs}
+        for run in late_runs:
+            if run.run_id in first_pass_ids:
+                continue
+            if run.status not in active_run_statuses:
+                continue
+            should_cancel = False
+            for ref in run.target_refs:
+                if ref.startswith("asset:"):
+                    if (
+                        deleted_logical_id
+                        and ref.removeprefix("asset:") == deleted_logical_id
+                    ):
+                        should_cancel = True
+                        break
+                elif ref.startswith("source:"):
+                    if ref.removeprefix("source:") not in remaining_source_ids:
+                        should_cancel = True
+                        break
+            if not should_cancel:
+                continue
+
+            if runtime is not None and runtime.cancel_specialist_run(
+                project_id,
+                run.run_id,
+                reason="source_asset_deleted",
+            ):
+                continue
+
+            # Same durable CAS + event pattern as the primary loop.
+            cancelled = False
+            try:
+                await asyncio.to_thread(
+                    exec_store.transition_specialist_run,
+                    project_id,
+                    run.run_id,
+                    expected_status=active_run_statuses,
+                    status=SpecialistRunStatus.CANCELLED,
+                    updates={
+                        "metadata": {
+                            **run.metadata,
+                            "cancelReason": "SOURCE_ASSET_DELETED",
+                        },
+                    },
+                )
+                cancelled = True
+            except ExecutionStateConflict:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: late-check failed to cancel run %s",
+                    run.run_id,
+                    exc_info=True,
+                )
+            if not cancelled:
+                continue
+            try:
+                session = await asyncio.to_thread(
+                    services.sessions.get_project_session_snapshot,
+                    project_id,
+                )
+                await asyncio.to_thread(
+                    services.sessions.append_event,
+                    project_id,
+                    session.session_id,
+                    event_type="subagent.failed",
+                    actor="file_agent_runtime",
+                    round_id=(
+                        f"agent-round-"
+                        f"{run.metadata.get('parentRunId') or run.run_id}"
+                    ),
+                    payload={
+                        "runId": run.run_id,
+                        "role": run.role.value,
+                        "parentActionId": (
+                            run.metadata.get("parentActionId") or ""
+                        ),
+                        "targetRefs": list(run.target_refs),
+                        "cancelled": True,
+                        "error": "source_asset_deleted",
+                    },
+                )
+            except RuntimeSessionNotFound:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: late-check terminal event "
+                    "for run %s failed",
+                    run.run_id,
+                    exc_info=True,
+                )
+
+        # Standalone media Tasks (observation, memory build, frame read) belong
+        # to no SpecialistRun, so the loop above never reached them. Each owner
+        # service has to stop its own live worker first — a durable transition
+        # alone would leave the coroutine running, paying for the next model
+        # stage and publishing artifacts of media that has just been deleted —
+        # then settle any Task still active on that asset.
+        for revoke in (
+            source_observation_service(services).cancel_for_asset,
+            source_video_reader_service(services).cancel_for_asset,
+            source_memory_service(services).cancel_for_asset,
+        ):
+            try:
+                await revoke(
+                    project_id,
+                    logical_asset_id=deleted_logical_id,
+                    version_id=version_id,
+                )
+            except Exception:  # noqa: BLE001 - best-effort cancellation
+                logger.warning(
+                    "asset delete: stopping media workers for project %s failed",
+                    project_id,
+                    exc_info=True,
+                )
+        refreshed_tasks = await asyncio.to_thread(
+            exec_store.list_tasks,
+            project_id,
+        )
+        for task in refreshed_tasks:
+            if task.run_id is not None:
+                continue
+            if task.task_id in settled_task_ids:
+                continue
+            if task.status not in active_task_statuses:
+                continue
+            if not _task_targets_deleted_asset(
+                task,
+                deleted_logical_id=deleted_logical_id,
+                version_id=version_id,
+                remaining_source_ids=remaining_source_ids,
+            ):
+                continue
+            settled_task_ids.add(task.task_id)
+            await _cancel_deleted_asset_task(exec_store, project_id, task)
+    except Exception:  # noqa: BLE001 - best-effort cleanup
+        logger.warning(
+            "asset delete: run/task cancellation failed for project %s",
+            project_id,
+            exc_info=True,
+        )
 
 
 __all__ = ["router"]

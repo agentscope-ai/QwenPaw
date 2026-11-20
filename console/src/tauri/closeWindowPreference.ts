@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type CloseAction = "minimize-to-tray" | "quit" | "stop-service";
+export type CloseAction = "minimize-to-tray" | "stop-service";
 
 export function setRememberedCloseAction(
   action: CloseAction | null,

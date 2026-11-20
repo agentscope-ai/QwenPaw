@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 
 import type { RerankerConfig } from "@/api/types/agent";
-import {
-  getRerankerServiceFingerprint,
-  isRerankerConfigured,
-} from "./rerankerUtils";
+import { getRerankerConfigKey, isRerankerConfigured } from "./rerankerUtils";
+
+// Generated per run so no credential-like literal is committed.
+const TEST_API_KEY = `probe-${crypto.randomUUID().replace(/-/g, "")}`;
 
 const enabledConfig: RerankerConfig = {
   enabled: true,
-  api_key: "secret",
+  api_key: TEST_API_KEY,
   base_url: "https://api.siliconflow.cn/v1/",
   model_name: "BAAI/bge-reranker-v2-m3",
   candidate_multiplier: 3,
@@ -39,90 +39,52 @@ describe("isRerankerConfigured", () => {
   });
 });
 
-describe("getRerankerServiceFingerprint", () => {
-  it("returns an opaque sha256 digest without leaking the API key", async () => {
-    const fingerprint = await getRerankerServiceFingerprint(enabledConfig);
-
-    expect(fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(fingerprint).not.toContain("secret");
-    expect(fingerprint).not.toContain("siliconflow");
-  });
-
-  it("ignores trailing slashes in the base URL", async () => {
-    const withSlash = await getRerankerServiceFingerprint(enabledConfig);
-    const withoutSlash = await getRerankerServiceFingerprint({
-      ...enabledConfig,
-      base_url: "https://api.siliconflow.cn/v1",
-    });
-
-    expect(withSlash).toBe(withoutSlash);
-  });
-
-  it("changes whenever a service-affecting field changes", async () => {
-    const baseline = await getRerankerServiceFingerprint(enabledConfig);
-
-    expect(
-      await getRerankerServiceFingerprint({
-        ...enabledConfig,
-        api_key: "other",
-      }),
-    ).not.toBe(baseline);
-    expect(
-      await getRerankerServiceFingerprint({
-        ...enabledConfig,
-        model_name: "other-model",
-      }),
-    ).not.toBe(baseline);
-    expect(
-      await getRerankerServiceFingerprint({ ...enabledConfig, timeout: 5 }),
-    ).not.toBe(baseline);
-  });
-
-  it("preserves fractional timeouts (1.5 != 1)", async () => {
-    const fractional = await getRerankerServiceFingerprint({
-      ...enabledConfig,
-      timeout: 1.5,
-    });
-    const whole = await getRerankerServiceFingerprint({
-      ...enabledConfig,
-      timeout: 1,
-    });
-
-    expect(fractional).not.toBe(whole);
-  });
-
-  it("ignores form-only fields like the multiplier", async () => {
-    const baseline = await getRerankerServiceFingerprint(enabledConfig);
-
-    expect(
-      await getRerankerServiceFingerprint({
-        ...enabledConfig,
-        candidate_multiplier: 5,
-      }),
-    ).toBe(baseline);
-  });
-
-  it("returns an empty fingerprint for a missing config", async () => {
-    expect(await getRerankerServiceFingerprint(undefined)).toBe("");
-  });
-
-  // Cross-language contract pin: tests/unit/agents/memory/
-  // test_reranker_history.py asserts the same digest for the canonical
-  // config ["https://fixture.example/v1", "", "fixture-model", "10"], so a
-  // normalization drift on either side fails CI.
-  it("matches the backend golden digest", async () => {
-    const fingerprint = await getRerankerServiceFingerprint({
-      enabled: true,
-      api_key: "",
-      base_url: "https://fixture.example/v1",
-      model_name: "fixture-model",
-      candidate_multiplier: 3,
-      timeout: 10,
-      auto_verify_interval_hours: 0,
-    });
-
-    expect(fingerprint).toBe(
-      "sha256:141b3dd720b233ef5706bf153260cca3ba2c82084715fd868518b9882c05a7cf",
+describe("getRerankerConfigKey", () => {
+  it("is synchronous and needs no WebCrypto", () => {
+    // `crypto.subtle` is unavailable on a plain-HTTP console served from a
+    // non-loopback origin; this helper must work anyway.
+    expect(typeof getRerankerConfigKey(enabledConfig)).toBe("string");
+    expect(getRerankerConfigKey(enabledConfig)).toContain(
+      "https://api.siliconflow.cn/v1",
     );
+  });
+
+  it("ignores trailing slashes in the base URL", () => {
+    expect(getRerankerConfigKey(enabledConfig)).toBe(
+      getRerankerConfigKey({
+        ...enabledConfig,
+        base_url: "https://api.siliconflow.cn/v1",
+      }),
+    );
+  });
+
+  it("changes whenever a service-affecting field changes", () => {
+    const baseline = getRerankerConfigKey(enabledConfig);
+
+    expect(getRerankerConfigKey({ ...enabledConfig, api_key: "other" })).not.toBe(
+      baseline,
+    );
+    expect(
+      getRerankerConfigKey({ ...enabledConfig, model_name: "other-model" }),
+    ).not.toBe(baseline);
+    expect(getRerankerConfigKey({ ...enabledConfig, timeout: 5 })).not.toBe(
+      baseline,
+    );
+  });
+
+  it("preserves fractional timeouts (1.5 != 1)", () => {
+    expect(
+      getRerankerConfigKey({ ...enabledConfig, timeout: 1.5 }),
+    ).not.toBe(getRerankerConfigKey({ ...enabledConfig, timeout: 1 }));
+  });
+
+  it("ignores form-only fields like the multiplier", () => {
+    expect(
+      getRerankerConfigKey({ ...enabledConfig, candidate_multiplier: 5 }),
+    ).toBe(getRerankerConfigKey(enabledConfig));
+  });
+
+  it("returns an empty key for a missing config", () => {
+    expect(getRerankerConfigKey(undefined)).toBe("");
   });
 });

@@ -6,6 +6,9 @@
   "remote_id": "google",
   "template_owner": true,
   "default_model_ids": [
+    "gemini-4-argon",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.1-pro-preview",
     "gemini-3-flash-preview",
     "gemini-3.1-flash-lite-preview",
@@ -16,13 +19,82 @@
   ],
   "models": [
     {
+      "id": "gemini-4-argon",
+      "name": "Gemini 4 Argon",
+      "max_input_length": 1048576,
+      "max_output_length": 1048576,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://ai.google.dev/gemini-api/docs/latest-model",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://ai.google.dev/gemini-api/docs/latest-model",
+          "updated_at": "2026-10-26"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/long-decode",
+          "updated_at": "2026-10-26",
+          "note": "Unified context shared by input, thinking and output. SDK automatic continuation is required above 65536 output tokens."
+        }
+      },
+      "released_at": "2026-10-13",
+      "is_recommended": true,
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_off": false,
+        "wire": "gemini_level"
+      }
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "name": "gemini-3.8-flash",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-09-02"
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "name": "gemini-3.5-flash-lite",
+      "max_input_length": 1048576,
+      "max_output_length": 65536,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "released_at": "2026-07-21"
+    },
+    {
       "id": "gemini-3.1-pro-preview",
       "name": "Gemini 3.1 Pro Preview",
       "supports_image": true,
       "supports_video": true,
       "probe_source": "documentation",
       "is_free": false,
-      "is_recommended": true,
+      "is_recommended": false,
       "source": "builtin",
       "availability_status": "unverified",
       "availability_retryable": true,
@@ -505,18 +577,6 @@
       "released_at": "2026-05-28"
     },
     {
-      "id": "gemini-3.5-flash-lite",
-      "name": "gemini-3.5-flash-lite",
-      "max_input_length": 1048576,
-      "max_output_length": 65536,
-      "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
-      "supports_image": true,
-      "supports_audio": true,
-      "supports_video": true,
-      "released_at": "2026-07-21"
-    },
-    {
       "id": "gemini-3-pro-image-preview",
       "name": "gemini-3-pro-image-preview",
       "max_input_length": 131072,
@@ -586,18 +646,6 @@
       "supports_audio": true,
       "supports_video": true,
       "released_at": "2026-04-22"
-    },
-    {
-      "id": "gemini-3.8-flash",
-      "name": "gemini-3.8-flash",
-      "max_input_length": 1048576,
-      "max_output_length": 65536,
-      "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
-      "supports_image": true,
-      "supports_audio": true,
-      "supports_video": true,
-      "released_at": "2026-09-02"
     },
     {
       "id": "gemini-3.5-live-translate-preview",

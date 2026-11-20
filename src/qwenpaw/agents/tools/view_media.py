@@ -28,6 +28,7 @@ from ...config.context import get_current_workspace_dir
 from ...constant import EnvVarLoader, WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import make_dirs_async, run_sync_io, write_bytes_async
+from ...utils.outbound_media import stage_outbound_file
 from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .file_io import _path_to_file_url, _resolve_file_path
 from ..utils.image_freezing import (
@@ -504,36 +505,22 @@ async def _probe_multimodal_if_needed(
     For ``video``: runs the full probe and waits for the video result,
     since video support cannot be inferred from the image probe alone.
 
-    Uses the same agent-specific model resolution as
-    ``_get_active_model_info`` so that per-agent model overrides are
-    respected.
+    Uses the same executing-model resolution as ``_get_active_model_info``
+    so capability checks and probes target the same provider/model.
 
     Returns the probe result (True/False) for the requested media type,
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info
+        from ..prompt import _get_active_model_info, _get_active_model_slot
         from ...providers.provider_manager import ProviderManager
 
         model_info, _ = await run_sync_io(_get_active_model_info)
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
-        # Resolve agent-specific active model (mirrors _get_active_model_info)
         manager = ProviderManager.get_instance()
-        active = None
-        try:
-            from ...app.agent_context import get_current_agent_id
-            from ...config.config import load_agent_config
-
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-        if not active:
-            active = await run_sync_io(manager.get_active_model)
+        active = await run_sync_io(_get_active_model_slot)
         if not active:
             return None
 
@@ -880,7 +867,15 @@ async def view_video(video_path: str) -> ToolChunk:
     if err is not None:
         return err
 
-    file_url = _path_to_file_url(str(resolved))
+    try:
+        snapshot = await stage_outbound_file(resolved)
+    except (OSError, ValueError) as exc:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(text=f"Error: failed to stage video: {exc}")],
+        )
+    file_url = _path_to_file_url(str(snapshot))
     text_msg = (
         fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
     )
@@ -988,7 +983,17 @@ async def view_audio(audio_path: str) -> ToolChunk:
                 ],
             )
 
-        file_url = _path_to_file_url(audio_file)
+        try:
+            snapshot = await stage_outbound_file(audio_file)
+        except (OSError, ValueError) as exc:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[
+                    TextBlock(text=f"Error: failed to stage audio: {exc}"),
+                ],
+            )
+        file_url = _path_to_file_url(str(snapshot))
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

@@ -88,9 +88,7 @@ In the Console's **Agent → Workspace** page, you can:
    - **Enabled** (switch on, green dot shown): File content is loaded into the system prompt
    - **Disabled** (switch off): File is not loaded into the system prompt
 4. **Adjust load order**: Enabled files can be drag-and-drop reordered, **affecting their concatenation order in the system prompt** (top to bottom, files higher up are loaded first)
-5. **Upload/download workspace**:
-   - Upload ZIP files (max 100MB) to batch import persona files into workspace (overwrites same-named files; non-`.md` files won't display in UI but are preserved)
-   - Download entire workspace as ZIP for backup
+5. **Back up/restore workspace**: Use **Settings → Backup**; see [Backup & Restore](./backup).
 6. **View workspace path**: Page header shows the current workspace's full path
 
 **Hot reload:** Changes to persona files take effect automatically—no server restart needed.
@@ -138,7 +136,7 @@ You can switch the agent's language in the Console's **Agent → Runtime Config*
 2. This is the **agent's own language** setting that determines the system prompt language
 3. It's **independent of the Console UI language** (Console language is switched in the top-right corner)
 
-**Warning:** Switching agent language overwrites your custom modifications to persona files. Back up important content first (use the Console's "Download" feature to backup the entire workspace).
+**Warning:** Switching agent language overwrites your custom modifications to persona files. Back up important content first using **Settings → Backup**.
 
 ---
 

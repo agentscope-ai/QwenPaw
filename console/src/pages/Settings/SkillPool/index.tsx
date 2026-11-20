@@ -258,7 +258,9 @@ function SkillPoolPage() {
           skills={pool.skills}
           workspaces={pool.workspaces}
           initialSkillNames={pool.broadcastInitialNames}
+          downloadState={pool.downloadState}
           onCancel={pool.closeModal}
+          onCancelDownload={pool.cancelDownload}
           onConfirm={pool.handleBroadcast}
         />
 

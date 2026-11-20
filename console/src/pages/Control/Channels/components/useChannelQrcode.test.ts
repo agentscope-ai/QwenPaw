@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../../api/request";
 
 // The api module is mocked once so both QR helpers are stable spies. The hook
 // only re-creates fetchQrcode from its config, and the mount effect depends on
@@ -7,18 +8,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getChannelQrcode: vi.fn(),
   getChannelQrcodeStatus: vi.fn(),
+  cancelChannelQrcode: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../../../api", () => ({
   api: {
     getChannelQrcode: mocks.getChannelQrcode,
     getChannelQrcodeStatus: mocks.getChannelQrcodeStatus,
+    cancelChannelQrcode: mocks.cancelChannelQrcode,
   },
 }));
 
 import { useChannelQrcode, type ChannelQrcodeConfig } from "./useChannelQrcode";
 
 const QR = "data:image/png;base64,QR";
+const custodyShape = expect.objectContaining({
+  take: expect.any(Function),
+  cancel: expect.any(Function),
+});
 
 /** Callbacks kept referentially stable across renders (see mock note above). */
 const cbs = vi.hoisted(() => ({
@@ -30,6 +37,7 @@ const baseConfig = (
   over: Partial<ChannelQrcodeConfig> = {},
 ): ChannelQrcodeConfig => ({
   channel: "wechat",
+  agentId: "agent-a",
   successStatus: "confirmed",
   successCredentialKey: "openid",
   onSuccess: cbs.onSuccess,
@@ -92,7 +100,10 @@ describe("useChannelQrcode", () => {
 
     expect(result.current.qrcodeImg).toBe(QR);
     expect(result.current.loading).toBe(false);
-    expect(mocks.getChannelQrcode).toHaveBeenCalledWith("wechat", undefined);
+    expect(mocks.getChannelQrcode).toHaveBeenCalledWith("wechat", undefined, {
+      agentId: "agent-a",
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("forwards the extra query params to the qrcode request", async () => {
@@ -105,9 +116,32 @@ describe("useChannelQrcode", () => {
     });
     await flush();
 
-    expect(mocks.getChannelQrcode).toHaveBeenCalledWith("wechat", {
-      scene: "login",
+    expect(mocks.getChannelQrcode).toHaveBeenCalledWith(
+      "wechat",
+      {
+        scene: "login",
+      },
+      { agentId: "agent-a", signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it("stops polling when WeChat rejects a duplicate credential", async () => {
+    vi.useFakeTimers();
+    mocks.getChannelQrcodeStatus.mockRejectedValueOnce(
+      new ApiError(409, "ACCOUNT_IN_USE"),
+    );
+    const { result } = renderHook(() => useChannelQrcode(baseConfig()));
+
+    await act(async () => {
+      await result.current.fetchQrcode();
     });
+    await tick();
+    await tick();
+
+    expect(cbs.onError).toHaveBeenCalledExactlyOnceWith("account-in-use");
+    expect(cbs.onSuccess).not.toHaveBeenCalled();
+    expect(result.current.qrcodeImg).toBe("");
+    expect(mocks.getChannelQrcodeStatus).toHaveBeenCalledTimes(1);
   });
 
   it("reports a fetch error when the backend returns no image", async () => {
@@ -174,6 +208,7 @@ describe("useChannelQrcode", () => {
       "wechat",
       "tok-1",
       undefined,
+      { agentId: "agent-a", signal: expect.any(AbortSignal) },
     );
   });
 
@@ -209,10 +244,14 @@ describe("useChannelQrcode", () => {
     await flush();
     await tick();
 
-    expect(cbs.onSuccess).toHaveBeenCalledWith({
-      openid: "u-42",
-      token: "t-9",
-    });
+    expect(cbs.onSuccess).toHaveBeenCalledWith(
+      {
+        openid: "u-42",
+        token: "t-9",
+      },
+      { agentId: "agent-a", channel: "wechat", token: "tok-1" },
+      custodyShape,
+    );
     expect(cbs.onError).not.toHaveBeenCalled();
     expect(result.current.qrcodeImg).toBe("");
   });
@@ -302,7 +341,11 @@ describe("useChannelQrcode", () => {
 
     // The fresh poll confirms first and latches confirmedRef.
     await tick(1000);
-    expect(cbs.onSuccess).toHaveBeenCalledWith({ openid: "fresh" });
+    expect(cbs.onSuccess).toHaveBeenCalledWith(
+      { openid: "fresh" },
+      { agentId: "agent-a", channel: "wechat", token: "tok-1" },
+      custodyShape,
+    );
     expect(cbs.onSuccess).toHaveBeenCalledTimes(1);
 
     // Now the stale callback resolves: the latch must swallow it.
@@ -312,7 +355,11 @@ describe("useChannelQrcode", () => {
     });
 
     expect(cbs.onSuccess).toHaveBeenCalledTimes(1);
-    expect(cbs.onSuccess).not.toHaveBeenCalledWith({ openid: "stale" });
+    expect(cbs.onSuccess).not.toHaveBeenCalledWith(
+      { openid: "stale" },
+      { agentId: "agent-a", channel: "wechat", token: "tok-1" },
+      custodyShape,
+    );
   });
 
   it("requires the success credential key to be truthy, not just the status", async () => {
@@ -358,7 +405,11 @@ describe("useChannelQrcode", () => {
     await flush();
     await tick();
 
-    expect(cbs.onSuccess).toHaveBeenCalledWith({ corp_userid: "c-1" });
+    expect(cbs.onSuccess).toHaveBeenCalledWith(
+      { corp_userid: "c-1" },
+      { agentId: "agent-a", channel: "wechat", token: "tok-1" },
+      custodyShape,
+    );
   });
 
   // ── polling: terminal failures ──────────────────────────────────────────
@@ -656,6 +707,7 @@ describe("useChannelQrcode", () => {
       "wechat",
       "tok-2",
       undefined,
+      { agentId: "agent-a", signal: expect.any(AbortSignal) },
     );
   });
 

@@ -6,9 +6,10 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import AbstractContextManager as ContextManager
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, ContextManager, TypeVar
+from typing import Any, Callable, TypeVar
 
 from .errors import SDKError
 from .messages import Attachment

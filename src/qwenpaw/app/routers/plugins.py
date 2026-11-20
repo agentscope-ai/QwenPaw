@@ -4,29 +4,128 @@
 static files.  Also provides runtime install / uninstall endpoints."""
 
 import asyncio
+import http.client
 import json
 import logging
 import mimetypes
 import re
-import shutil
+import ssl
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ...plugins.dependency_upgrade import (
+    DependencyUpgradeRequired,
+    dependency_upgrades,
+)
+from ...plugins.dependency_gate import SharedDependencyError
 from ...market.registry import MarketProviderBusyError
+from ...installation_origin import read_plugin_origin
+from ...utils.io_utils import run_sync_io
 from ...plugins.activity import PluginBusyError
 from ...plugins.registry import MemoryBackendInUseError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
+
+
+def dependency_http_error(exc):
+    """Keep upgrade decisions machine-readable for every install client."""
+    if isinstance(exc, DependencyUpgradeRequired):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "DEPENDENCY_UPGRADE_REQUIRED",
+                "message": str(exc),
+                "operation": exc.operation,
+            },
+        )
+    code = exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED"
+    instructions = {
+        "DEPENDENCY_UNSATISFIED": "Resolve the missing dependency requirements, then retry installation.",
+        "DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED": (
+            "The dependency environment changed; verify the active "
+            "environment, then retry installation."
+        ),
+        "DEPENDENCY_REPAIR_REQUIRED": "Complete the pending dependency repair before retrying installation.",
+        "DEPENDENCY_RESTART_REQUIRED": (
+            "Restart the backend to release the affected dependencies, "
+            "then retry installation."
+        ),
+    }
+    logger.info("Plugin dependency refusal: code=%s", _log_safe(code))
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": str(exc),
+            "instructions": [
+                instructions.get(
+                    code,
+                    "Review the dependency preparation error before retrying installation.",
+                ),
+            ],
+        },
+    )
+
+
+def _upgrade_manager(request):
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    return dependency_upgrades(loader)
+
+
+@router.get("/dependency-upgrades/{operation_id}")
+async def dependency_upgrade_status(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).status,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/dependency-upgrades/{operation_id}/apply")
+async def apply_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await _upgrade_manager(request).apply(operation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (SharedDependencyError, DependencyUpgradeRequired) as exc:
+        raise dependency_http_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DEPENDENCY_UPGRADE_BLOCKED", "message": str(exc)},
+        ) from exc
+
+
+@router.delete("/dependency-upgrades/{operation_id}")
+async def cancel_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).cancel,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _interrupt_options(interrupt_tasks: bool) -> dict[str, Any]:
@@ -37,6 +136,80 @@ def _interrupt_options(interrupt_tasks: bool) -> dict[str, Any]:
 def _log_safe(value: object) -> str:
     """Strip CR/LF so request-derived values cannot forge log entries."""
     return str(value).replace("\r", "").replace("\n", "")
+
+
+# Marker file dropped into a plugin's install directory when it was
+# installed from the AgentScope plugin market.  Remembers the scoped
+# market id (e.g. ``@owner/name``) so update checks can match the
+# installed plugin back to its market entry exactly instead of
+# re-deriving identity from the free-form ``author`` field, which
+# frequently differs from the market owner login (#8176).
+_MARKET_MARKER_FILE = ".qwenpaw-market.json"
+
+# ``{market}/plugins/{owner}/{name}/archive/zip/{ref}`` download URLs
+# (the shape both ``buildMarketDownloadUrl`` and the update flow use).
+_MARKET_ARCHIVE_URL_RE = re.compile(
+    r"^/plugins/(?P<owner>[^/\s]+)/(?P<name>[^/\s]+)/archive/zip/[^/\s]+$",
+)
+
+
+def _market_id_from_source(source: str) -> Optional[str]:
+    """Return the scoped market id for an official-market archive URL.
+
+    Any other source (local path, third-party host, non-archive market
+    path) returns ``None`` so provenance is only recorded when the
+    plugin verifiably came from the official market.
+    """
+    value = str(source or "").strip()
+    if not value.startswith(("http://", "https://")):
+        return None
+    parsed = urlsplit(value)
+    market_host = urlsplit(_PLUGIN_MARKET_BASE_URL).hostname or ""
+    if not market_host or (parsed.hostname or "") != market_host:
+        return None
+    match = _MARKET_ARCHIVE_URL_RE.match(parsed.path)
+    if match is None:
+        return None
+    return f"@{match.group('owner')}/{match.group('name')}"
+
+
+def _read_market_id(plugin_dir: Path) -> Optional[str]:
+    """Read the recorded market id from a plugin's install directory."""
+    try:
+        payload = json.loads(
+            (plugin_dir / _MARKET_MARKER_FILE).read_text(encoding="utf-8"),
+        )
+    except (OSError, ValueError, TypeError):
+        return None
+    market_id = payload.get("market_id") if isinstance(payload, dict) else None
+    if isinstance(market_id, str) and market_id.strip():
+        return market_id.strip()
+    return None
+
+
+async def _stamp_market_provenance(source_path: Path, source: str) -> None:
+    """Record market provenance inside a freshly extracted plugin tree.
+
+    Called before the loader copies the tree into the plugins directory,
+    so the marker is carried into the install, replaced on update, and
+    removed with the plugin on uninstall.  Non-market sources are left
+    untouched.
+    """
+    market_id = _market_id_from_source(source)
+    if market_id is None:
+        return
+    payload = json.dumps(
+        {"schema_version": 1, "market_id": market_id},
+        sort_keys=True,
+    )
+
+    def _write() -> None:
+        (source_path / _MARKET_MARKER_FILE).write_text(
+            payload,
+            encoding="utf-8",
+        )
+
+    await asyncio.to_thread(_write)
 
 
 class UnquiescentUnloadError(RuntimeError):
@@ -140,6 +313,13 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "sdk_harnesses": "harnesses"
+                in (manifest.sdk or {}).get("capabilities", []),
+                "market_id": _read_market_id(item),
+                "installation_origin": read_plugin_origin(
+                    plugins_dir,
+                    manifest.id,
+                ),
             },
         )
     return result
@@ -164,15 +344,9 @@ def _safe_extract_zip(
     Raises:
         ValueError: If any member would escape extract_path
     """
-    extract_resolved = extract_path.resolve()
-    for member in zip_ref.namelist():
-        member_path = (extract_path / member).resolve()
-        if not member_path.is_relative_to(extract_resolved):
-            raise ValueError(
-                f"Zip Slip detected: {member} would extract "
-                "outside the target directory",
-            )
-    zip_ref.extractall(extract_path)
+    from ...plugins.archive import safe_extract_zip
+
+    safe_extract_zip(zip_ref, extract_path)
 
 
 def _find_plugin_dir(base: Path) -> Path:
@@ -208,6 +382,7 @@ async def _load_plugin_with_optional_force_reinstall(
     reload_agents: bool = True,
     pawport_owner: dict | None = None,
     recover_incomplete: bool = False,
+    installation_source: str = "",
 ):
     """Load a plugin, optionally unloading first under one lifecycle lock.
 
@@ -233,7 +408,10 @@ async def _load_plugin_with_optional_force_reinstall(
         )
         del plugin_id
 
-    return await loader.load_plugin_from_path(
+    from ...plugins.dependency_upgrade import install_with_upgrade
+
+    return await install_with_upgrade(
+        loader,
         source_path=source_path,
         install_dir=get_plugins_dir(),
         force=force,
@@ -241,6 +419,7 @@ async def _load_plugin_with_optional_force_reinstall(
         before_force_unload=_before_force_unload if force else None,
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
+        installation_source=installation_source,
     )
 
 
@@ -297,6 +476,12 @@ async def list_plugins(request: Request):
             "diagnostics": list(record.diagnostics or []),
             "plugin_type": manifest.plugin_type,
             "frontend_entry": manifest.entry.frontend,
+            "market_id": _read_market_id(record.source_path),
+            "installation_origin": await run_sync_io(
+                read_plugin_origin,
+                record.source_path.parent,
+                manifest.id,
+            ),
         }
 
     return list(result.values())
@@ -343,6 +528,20 @@ async def install_plugin_source(
 
     normalized = str(source or "").strip()
     temp_dir: Optional[Path] = None
+    if normalized.startswith("bundled:"):
+        from ...plugins.official_channels import async_bundled_channel_source
+
+        async with async_bundled_channel_source(
+            normalized.removeprefix("bundled:"),
+            retain=loader.retains_preparation_source,
+        ) as source_path:
+            return await _load_plugin_with_optional_force_reinstall(
+                loader,
+                request,
+                source_path,
+                force=force,
+                reload_agents=reload_agents,
+            )
     try:
         if normalized.startswith(("http://", "https://")):
             temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
@@ -358,11 +557,17 @@ async def install_plugin_source(
             source_path = await asyncio.to_thread(Path(normalized).resolve)
             if not await asyncio.to_thread(source_path.exists):
                 raise FileNotFoundError(f"Path not found: {normalized}")
+        await _stamp_market_provenance(source_path, normalized)
         return await _load_plugin_with_optional_force_reinstall(
             loader,
             request,
             source_path,
             force=force,
+            installation_source=(
+                normalized
+                if normalized.startswith(("http://", "https://"))
+                else ""
+            ),
             **_interrupt_options(interrupt_tasks),
             reload_agents=reload_agents,
             pawport_owner=pawport_owner,
@@ -370,7 +575,7 @@ async def install_plugin_source(
         )
     finally:
         if temp_dir is not None:
-            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+            await loader.cleanup_preparation_source(temp_dir)
 
 
 async def uninstall_plugin_source(
@@ -441,6 +646,8 @@ async def install_plugin(
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PluginBusyError as exc:
@@ -459,12 +666,19 @@ async def install_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
         "diagnostics": list(record.diagnostics or []),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+            f"Plugin '{record.manifest.name}' installation: {record.status}."
         ),
     }
 
@@ -518,6 +732,8 @@ async def upload_plugin(
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PluginBusyError as exc:
@@ -533,19 +749,25 @@ async def upload_plugin(
             detail=f"Plugin installation failed: {exc}",
         ) from exc
     finally:
-        if await asyncio.to_thread(temp_dir.exists):
-            await asyncio.to_thread(shutil.rmtree, temp_dir, True)
+        await loader.cleanup_preparation_source(temp_dir)
 
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
         "diagnostics": list(record.diagnostics or []),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+            f"Plugin '{record.manifest.name}' installation: {record.status}."
         ),
     }
 
@@ -681,7 +903,8 @@ async def unload_plugin_keep_config(
     summary="Repair plugin dependencies",
     description=(
         "Explicitly install missing plugin dependencies, then load. "
-        "Host-package upgrades are rejected and require a backend restart."
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
     ),
 )
 async def repair_plugin_dependencies(plugin_id: str, request: Request):
@@ -696,6 +919,8 @@ async def repair_plugin_dependencies(plugin_id: str, request: Request):
         record = await loader.repair_dependencies(plugin_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
@@ -932,10 +1157,19 @@ async def set_plugin_enabled(
         record = await loader.lifecycle.set_enabled(plugin_id, True)
         return {
             "id": plugin_id,
-            "enabled": True,
-            "loaded": record is not None,
-            "status": getattr(record, "status", "inactive"),
-            "message": f"Plugin '{plugin_id}' enabled.",
+            "enabled": bool(getattr(record, "enabled", False))
+            and getattr(record, "status", None) == "active",
+            "loaded": getattr(record, "status", None) == "active",
+            "status": getattr(record, "status", "failed"),
+            "diagnostics": list(
+                getattr(record, "diagnostics", None)
+                or getattr(record, "errors", []),
+            ),
+            "needs_restart": getattr(record, "needs_restart", False),
+            "message": (
+                f"Plugin '{plugin_id}' enable result: "
+                f"{getattr(record, 'status', 'failed')}."
+            ),
         }
     except HTTPException:
         raise
@@ -946,10 +1180,9 @@ async def set_plugin_enabled(
     except Exception as exc:
         logger.error(
             "Failed to set enabled=%s for plugin '%s': %s",
-            body.enabled,
+            _log_safe(body.enabled),
             _log_safe(plugin_id),
-            exc,
-            exc_info=True,
+            _log_safe(exc),
         )
         raise HTTPException(
             status_code=500,
@@ -997,6 +1230,13 @@ async def serve_plugin_ui_file(
             )
         source_path = candidate
 
+    from ...utils.io_utils import run_sync_io
+
+    return await run_sync_io(_plugin_file_response, source_path, file_path)
+
+
+def _plugin_file_response(source_path: Path, file_path: str):
+    """Resolve/stat one static file without touching loader state."""
     full_path = (source_path / file_path).resolve()
 
     if not full_path.is_relative_to(source_path.resolve()):
@@ -1089,7 +1329,7 @@ async def search_market_plugins(
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
-_DOWNLOAD_TIMEOUT = 60  # seconds per read chunk; total limit is implicit
+_DOWNLOAD_TIMEOUT = 60  # seconds per socket operation; no total limit
 
 _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 
@@ -1097,15 +1337,16 @@ _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 async def _async_download(url: str, dest: Path) -> None:
     """Download a URL to a file using a thread pool.
 
-    Streams the response in chunks with a per-operation socket timeout
-    so a stalled server cannot hang the request indefinitely.
+    Streams the response in chunks with a per-operation socket timeout.
+    This does not impose a total download time limit.
 
     Args:
         url: HTTP(S) URL to download
         dest: Destination file path
 
     Raises:
-        RuntimeError: If the download exceeds the size cap or times out.
+        RuntimeError: If the download exceeds the size cap, times out,
+            or fails with a network or HTTP protocol error.
     """
 
     def _download() -> None:
@@ -1127,4 +1368,13 @@ async def _async_download(url: str, dest: Path) -> None:
                         )
                     fh.write(chunk)
 
-    await asyncio.to_thread(_download)
+    try:
+        await asyncio.to_thread(_download)
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        ssl.SSLError,
+        http.client.HTTPException,
+    ) as exc:
+        raise RuntimeError(f"Plugin download failed: {exc}") from exc

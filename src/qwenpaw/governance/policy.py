@@ -767,6 +767,20 @@ class GovernancePolicy:
             if getattr(finding, "rule_id", "") == "SENSITIVE_FILE_BLOCK"
         ]
 
+        # A CRITICAL finding must not be cancelled by an ALLOW rule. Phase 2
+        # below is first-match-wins, so a broad rule such as ``Bash(gh *)``
+        # would otherwise swallow the finding collected in Phase 1 for a
+        # compound command like
+        # ``gh --version && powershell -c New-Object -ComObject Excel.Application``
+        # and run it without any approval. Sensitive-path findings already
+        # had this protection; the same reasoning applies to any CRITICAL
+        # detection, including the bundled Office COM rule.
+        critical_findings = [
+            finding
+            for finding in findings
+            if getattr(finding, "severity", "") == "CRITICAL"
+        ]
+
         # ── Phase 1.5: Shell danger keyword detection ──
         # Regex-based check that catches command variants missed by
         # the fnmatch-based builtin deny rules.
@@ -798,6 +812,18 @@ class GovernancePolicy:
                         findings=findings or None,
                         source="STRICT mode",
                     )
+                if action == GovernanceAction.ALLOW and critical_findings:
+                    # CRITICAL detection findings outrank an ALLOW rule, so a
+                    # broad match cannot silently release a command the deep
+                    # scan flagged. Severity still does not deny by itself:
+                    # the call goes to the normal approval prompt.
+                    top = _top_finding(critical_findings)
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason=getattr(top, "description", "") or top.title,
+                        findings=findings,
+                        source=_findings_source(critical_findings),
+                    )
                 if (
                     action == GovernanceAction.ALLOW
                     and sensitive_path_findings
@@ -825,6 +851,18 @@ class GovernancePolicy:
                         reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
+                    )
+                if action == GovernanceAction.ALLOW and critical_findings:
+                    # CRITICAL detection findings outrank an ALLOW rule, so a
+                    # broad match cannot silently release a command the deep
+                    # scan flagged. Severity still does not deny by itself:
+                    # the call goes to the normal approval prompt.
+                    top = _top_finding(critical_findings)
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason=getattr(top, "description", "") or top.title,
+                        findings=findings,
+                        source=_findings_source(critical_findings),
                     )
                 if (
                     action == GovernanceAction.ALLOW

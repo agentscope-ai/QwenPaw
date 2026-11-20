@@ -660,6 +660,14 @@ async def _policy_tool_call(
 # ---------------------------------------------------------------------------
 
 
+def _decision_approval_title(reason: str) -> str:
+    if reason.startswith("Decision model preflight"):
+        return "Local preflight requires approval — model not called"
+    if reason.startswith("Decision model service/response unavailable"):
+        return "Decision model unavailable — manual approval required"
+    return "Decision model risk assessment requires approval"
+
+
 async def _ask_user_approval(
     governor: ResourceGovernor,
     tc_spec: ToolCallSpec,
@@ -766,7 +774,7 @@ async def _ask_user_approval(
                         "Sandbox Violation — Approve Unsandboxed Execution?"
                         if violation_msg
                         else (
-                            "Decision model assessment requires approval"
+                            _decision_approval_title(governance_reason or "")
                             if source in {"jev", "decision_model"}
                             else "Policy Approval Required"
                         )
@@ -820,7 +828,7 @@ async def _ask_user_approval(
                 rule_id="decision_model_assessment",
                 category=GuardThreatCategory.RESOURCE_ABUSE,
                 severity=GuardSeverity.INFO,
-                title="Decision model assessment requires approval",
+                title=_decision_approval_title(governance_reason or ""),
                 description=governance_reason
                 or "Decision model assessment was uncertain",
                 tool_name=tool_name,

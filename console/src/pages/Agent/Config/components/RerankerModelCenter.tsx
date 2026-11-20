@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import InlineHelp from "@/components/InlineHelp";
 import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,15 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import { isRerankerConfigured } from "./rerankerUtils";
 import styles from "../index.module.less";
 import { useRerankerVerification } from "./useRerankerVerification";
+
+function formRerankerConfig(form: {
+  getFieldValue: (name: (string | number)[]) => unknown;
+}): RerankerConfig | undefined {
+  return form.getFieldValue([
+    "reme_light_memory_config",
+    "reranker_config",
+  ]) as RerankerConfig | undefined;
+}
 
 export function RerankerModelCenter() {
   const { t } = useTranslation();
@@ -26,12 +35,13 @@ export function RerankerModelCenter() {
   const multiplier = rerankerConfig?.candidate_multiplier ?? 3;
   const rerankerConfigured = isRerankerConfigured(rerankerConfig);
   const {
+    agentId,
     testingReranker,
     setTestingReranker,
     testedReranker,
     testedRerankerIsCurrent,
     history,
-    serviceFingerprint,
+    configKey,
     markVerified,
     setHistory,
     clearVerification,
@@ -42,16 +52,27 @@ export function RerankerModelCenter() {
   const verifiedReranker =
     testedReranker && testedReranker.verifiedAt > 0 ? testedReranker : null;
 
-  // Load the persistent verification history for the current service so the
-  // precision slot can show a trend even before a manual verification. The
-  // fingerprint is computed once by the hook; this effect only fetches.
+  // Request identity for the manual probe: a late response must not touch
+  // state, dialogs or the loading flag once the agent or config changed.
+  const requestIdRef = useRef(0);
+  const agentIdRef = useRef(agentId);
+  const configKeyRef = useRef(configKey);
   useEffect(() => {
-    if (!serviceFingerprint) return;
+    agentIdRef.current = agentId;
+  }, [agentId]);
+  useEffect(() => {
+    configKeyRef.current = configKey;
+  }, [configKey]);
+
+  // Load the persistent verification history from the backend. The backend
+  // resolves the saved agent config and computes the fingerprint itself, so
+  // the console never needs `crypto.subtle` (unavailable on plain HTTP).
+  useEffect(() => {
     let cancelled = false;
     api
-      .getRerankerHistory(serviceFingerprint)
-      .then(async (res) => {
-        if (!cancelled) await setHistory(res.history, serviceFingerprint);
+      .getRerankerHistory()
+      .then((res) => {
+        if (!cancelled) setHistory(res.history);
       })
       .catch(() => {
         // History is best-effort; a failed fetch must not block the UI.
@@ -59,7 +80,7 @@ export function RerankerModelCenter() {
     return () => {
       cancelled = true;
     };
-  }, [serviceFingerprint, setHistory]);
+  }, [agentId, setHistory]);
 
   const testReranker = async () => {
     try {
@@ -71,10 +92,7 @@ export function RerankerModelCenter() {
       return;
     }
 
-    const config = form.getFieldValue([
-      "reme_light_memory_config",
-      "reranker_config",
-    ]) as RerankerConfig | undefined;
+    const config = formRerankerConfig(form);
     if (!config || !isRerankerConfigured(config)) {
       modal.error({
         title: t("agentConfig.rerankerTestFailed"),
@@ -84,22 +102,31 @@ export function RerankerModelCenter() {
     }
 
     setTestingReranker(true);
-    // Snapshot the fingerprint of the config being tested. If the form changes
-    // while the request is in flight, markVerified drops the stale verdict.
-    const testedFingerprint = serviceFingerprint;
+    const requestId = ++requestIdRef.current;
+    const testedAgentId = agentId;
+    const testedConfigKey = configKey;
+    // The response is only applicable while this exact test is the latest
+    // request, for the same agent, with the same still-configured settings.
+    const isCurrent = () =>
+      requestId === requestIdRef.current &&
+      agentIdRef.current === testedAgentId &&
+      configKeyRef.current === testedConfigKey &&
+      isRerankerConfigured(formRerankerConfig(form));
+
     try {
       const result = await api.testReranker(config);
+      if (!isCurrent()) return;
       if (result.success) {
         await markVerified(
           result.latency_ms,
           result.precision,
           result.correct_count,
           result.total,
-          testedFingerprint,
+          testedConfigKey,
         );
         // The backend appends this run to history before responding; refresh
-        // the trend from the same series.
-        await setHistory(result.history ?? [], testedFingerprint);
+        // the trend from the same series (no second file read).
+        setHistory(result.history ?? []);
         const precisionLine =
           result.precision !== null
             ? t("agentConfig.rerankerPrecisionResult", {
@@ -122,13 +149,15 @@ export function RerankerModelCenter() {
         });
       }
     } catch (error) {
+      if (!isCurrent()) return;
       clearVerification();
       modal.error({
         title: t("agentConfig.rerankerTestFailed"),
         content: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      setTestingReranker(false);
+      // A newer request owns the loading flag; an older one must not clear it.
+      if (requestId === requestIdRef.current) setTestingReranker(false);
     }
   };
 

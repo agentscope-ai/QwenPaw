@@ -1,13 +1,9 @@
-import { Button } from "@agentscope-ai/design";
+import {
+  LoadingState as SharedLoadingState,
+  type LoadingStateProps,
+} from "@/components/LoadingState";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-
-interface LoadingStateProps {
-  message: string;
-  error?: boolean;
-  onRetry?: () => void;
-  className?: string;
-}
 
 export function LoadingState({
   message,
@@ -18,18 +14,14 @@ export function LoadingState({
   const { t } = useTranslation();
 
   return (
-    <div className={`${styles.loading} ${className ?? ""}`}>
-      <span
-        className={styles.loadingText}
-        style={{ color: error ? "#ff4d4f" : undefined }}
-      >
-        {message}
-      </span>
-      {error && onRetry && (
-        <Button onClick={onRetry} style={{ marginTop: 12 }}>
-          {t("common.refresh")}
-        </Button>
-      )}
-    </div>
+    <SharedLoadingState
+      className={`${styles.loading} ${className ?? ""}`}
+      textClassName={styles.loadingText}
+      message={message}
+      error={error}
+      errorColor="#ff4d4f"
+      onRetry={onRetry}
+      retryLabel={t("common.refresh")}
+    />
   );
 }

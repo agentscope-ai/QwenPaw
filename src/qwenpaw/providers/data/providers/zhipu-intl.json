@@ -5,6 +5,9 @@
   "remote_id": "zai",
   "template_owner": false,
   "default_model_ids": [
+    "glm-5.3",
+    "glm-5.3-flash",
+    "glm-5.3-flashx",
     "glm-4.7-flash",
     "glm-5",
     "glm-5.2",
@@ -13,6 +16,108 @@
     "glm-5v-turbo"
   ],
   "models": [
+    {
+      "id": "glm-5.3",
+      "name": "glm-5.3",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "released_at": "2026-08-14",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "compat_effort"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26"
+        }
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "glm-5.3-flash",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "ranking_id": "z-ai/glm-5.3-flash",
+      "released_at": "2026-08-26",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "compat_effort"
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26"
+        }
+      }
+    },
+    {
+      "id": "glm-5.3-flashx",
+      "name": "GLM-5.3-FlashX",
+      "max_input_length": 1000000,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26"
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "compat_effort"
+      }
+    },
     {
       "id": "glm-4.7-flash",
       "name": "GLM-4.7-Flash",
@@ -236,19 +341,6 @@
       "released_at": "2025-07-28"
     },
     {
-      "id": "glm-5.3-flash",
-      "name": "glm-5.3-flash",
-      "max_input_length": 1000000,
-      "max_output_length": 131072,
-      "max_output_length_source": "catalog",
-      "supports_tool_calling": true,
-      "supports_image": true,
-      "supports_audio": false,
-      "supports_video": true,
-      "ranking_id": "z-ai/glm-5.3-flash",
-      "released_at": "2026-08-26"
-    },
-    {
       "id": "glm-4.5",
       "name": "glm-4.5",
       "max_input_length": 131072,
@@ -285,16 +377,42 @@
       "released_at": "2026-01-19"
     },
     {
-      "id": "glm-5.3",
-      "name": "glm-5.3",
+      "id": "glm-5.3-flashx-legal",
+      "name": "GLM-5.3-FlashX-Legal",
       "max_input_length": 1000000,
       "max_output_length": 131072,
       "max_output_length_source": "catalog",
       "supports_tool_calling": true,
-      "supports_image": false,
+      "supports_image": true,
       "supports_audio": false,
-      "supports_video": false,
-      "released_at": "2026-08-14"
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26",
+          "note": "Enterprise API access requires an application."
+        },
+        "thinking_control": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false,
+        "wire": "compat_effort"
+      }
     }
   ]
 }

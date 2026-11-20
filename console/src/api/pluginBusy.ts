@@ -4,7 +4,7 @@ import i18n from "../i18n";
 /** Retry a busy operation only after explicit consent to interrupt its tasks. */
 export async function requestWithPluginBusyConfirmation(
   request: (interruptTasks: boolean) => Promise<Response>,
-  action: "update" | "uninstall",
+  action: "update" | "uninstall" | "disable",
 ): Promise<Response> {
   const response = await request(false);
   if (response.status !== 409) return response;

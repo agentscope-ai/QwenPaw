@@ -1,0 +1,2 @@
+aiohttp>=3.9.0
+aiofiles>=24.1.0

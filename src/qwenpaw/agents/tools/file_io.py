@@ -12,8 +12,10 @@ from agentscope.tool import ToolChunk
 
 from .utils import (
     build_truncation_metadata,
-    truncate_text_output,
+    read_file_native,
     read_file_safe,
+    replace_text_preserving_newlines,
+    truncate_text_output,
     DEFAULT_MAX_BYTES,
     TRUNCATION_METADATA_KEY,
 )
@@ -402,7 +404,7 @@ async def edit_file(
                 _get_encoding_for_file,
                 resolved_path,
             )
-            content = await read_file_safe(resolved_path)
+            original = await read_file_native(resolved_path)
         except FileNotFoundError:
             return ToolChunk(
                 is_last=True,
@@ -443,20 +445,29 @@ async def edit_file(
                 ],
             )
 
-        if old_text not in content:
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.ERROR,
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"Error: The text to replace was not found in {file_path}.",
-                    ),
-                ],
-            )
-
         try:
-            new_content = content.replace(old_text, new_text)
+            # Match and per-line newline preservation are CPU-heavy.
+            # write_text_atomic_async already runs through run_sync_io.
+            new_content = await run_sync_io(
+                replace_text_preserving_newlines,
+                original,
+                old_text,
+                new_text,
+            )
+            if new_content is None:
+                return ToolChunk(
+                    is_last=True,
+                    state=ToolResultState.ERROR,
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "Error: The text to replace was "
+                                f"not found in {file_path}."
+                            ),
+                        ),
+                    ],
+                )
             await write_text_atomic_async(
                 resolved_path,
                 new_content,

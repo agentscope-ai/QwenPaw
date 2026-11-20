@@ -37,9 +37,10 @@ export function RuntimeWorkbench({
       }}
       items={groups.map(({ id, keys }) => ({
         key: id,
-        label: t(`runtimeDesign.${id}`),
+        label: <span data-settings-tab={id}>{t(`runtimeDesign.${id}`)}</span>,
         children: (
           <motion.div
+            data-settings-target={`runtimeDesign.${id}`}
             className={styles.modules}
             initial={false}
             animate={{ opacity: active.id === id ? 1 : 0 }}
@@ -56,6 +57,7 @@ export function RuntimeWorkbench({
                 <section
                   key={item.key}
                   data-runtime-key={item.key}
+                  data-settings-target={`runtime:${item.key}`}
                   className={styles.module}
                 >
                   {item.children}

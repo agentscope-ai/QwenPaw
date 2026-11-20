@@ -136,7 +136,7 @@ describe("agentApi", () => {
     });
   });
 
-  it("testReranker budgets the full five-request suite", async () => {
+it("testReranker budgets the full five-request suite", async () => {
     const config = {
       enabled: true,
       api_key: `probe-${crypto.randomUUID().replace(/-/g, "")}`,
@@ -165,5 +165,30 @@ describe("agentApi", () => {
         (5 * timeout + 10) * 1000,
       );
     }
+  });
+
+  it("getRerankerHistory lets the backend resolve the saved config", async () => {
+    await agentApi.getRerankerHistory();
+
+    expect(request).toHaveBeenCalledWith("/workspace/reranker/history", {
+      timeout: 15_000,
+    });
+  });
+
+  it("getTranscriptionModel calls GET /workspace/transcription-model", async () => {
+    vi.mocked(request).mockResolvedValue({ transcription_model: "whisper-1" });
+    const result = await agentApi.getTranscriptionModel();
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model");
+    expect(result).toEqual({ transcription_model: "whisper-1" });
+  });
+
+  it("updateTranscriptionModel sends PUT with transcription_model", async () => {
+    await agentApi.updateTranscriptionModel("FunAudioLLM/SenseVoiceSmall");
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({
+        transcription_model: "FunAudioLLM/SenseVoiceSmall",
+      }),
+    });
   });
 });

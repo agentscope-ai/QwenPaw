@@ -27,9 +27,11 @@ async def probe_and_record(
     reranker: RerankerConfig,
     *,
     allow_private: bool = False,
-) -> RerankerTestResult:
+) -> tuple[RerankerTestResult, list[dict] | None]:
     """Run one probe suite and append a successful run to the history.
 
+    Returns the result plus the updated series (``None`` on failure), so the
+    console route can reuse it instead of reading the file a second time.
     Shared by the console endpoint and the background sweep so manual and
     scheduled verification use exactly the same probe-and-record contract.
     Failed runs are reported to the caller but never recorded as history.
@@ -45,8 +47,9 @@ async def probe_and_record(
         reranker,
         allow_private=allow_private,
     )
+    history: list[dict] | None = None
     if result.success:
-        append_record(
+        history = append_record(
             service_fingerprint(reranker),
             make_record(
                 latency_ms=result.latency_ms,
@@ -55,7 +58,7 @@ async def probe_and_record(
                 total=result.total,
             ),
         )
-    return result
+    return result, history
 
 
 async def _sweep_once() -> None:
@@ -101,7 +104,10 @@ async def _sweep_once() -> None:
 
             # Operator-saved config: probe the same endpoint the runtime
             # would call, including a local/private deployment.
-            result = await probe_and_record(reranker, allow_private=True)
+            result, _history = await probe_and_record(
+                reranker,
+                allow_private=True,
+            )
             if result.success:
                 logger.info(
                     "reranker auto-probe %s: precision=%s (%s/%s)",

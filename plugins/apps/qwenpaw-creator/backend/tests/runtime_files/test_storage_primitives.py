@@ -934,3 +934,29 @@ def test_truncated_compressed_record_reports_corruption(tmp_path):
 
     with pytest.raises(CorruptRecordError):
         AtomicJsonRecordStore(path, DemoRecord).read()
+
+
+def test_staged_temp_path_is_never_longer_than_its_target(tmp_path) -> None:
+    """A publish must never need a longer path than the record it writes.
+
+    Staging created ``.<name>.<8 random>.tmp``, about 14 characters longer
+    than the target, so on Windows with long paths disabled a record that
+    fits under the legacy MAX_PATH limit still failed in ``mkstemp`` and left
+    its parent directory behind (#8163).
+    """
+    captured: list[tuple[str, Path]] = []
+    for label, publish in (
+        ("create", atomic_store_module.atomic_create_bytes),
+        ("replace", atomic_store_module.atomic_replace_bytes),
+    ):
+        target = tmp_path / label / "journal.json"
+        captured.clear()
+        publish(
+            target,
+            b"{}\n",
+            stage_hook=lambda stage, path: captured.append((stage, path)),
+        )
+        staged = [path for stage, path in captured if stage == "temp_created"]
+        assert len(staged) == 1
+        assert staged[0].parent == target.parent
+        assert len(str(staged[0])) <= len(str(target))

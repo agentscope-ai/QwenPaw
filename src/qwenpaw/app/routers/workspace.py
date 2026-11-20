@@ -1,24 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Workspace API – download / upload the entire WORKING_DIR as a zip.
+"""Workspace APIs for agent files, settings, and project directories.
 
-Also includes agent file management, language settings, audio/transcription
-configuration, running config, and system prompt files.
+Includes language settings, audio/transcription configuration, running
+config, and system prompt files.
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
-import io
 import json
 import logging
 import mimetypes
 import secrets
-import shutil
 import stat
 import tempfile
 import os
-import zipfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +54,7 @@ from ...agents.memory.embedding_model import (
     test_embedding_model,
 )
 from ...agents.memory.reranker_auto_probe import probe_and_record
+from ...agents.memory.reme_reranker import load_reranker_config
 from ...agents.memory.reranker_history import (
     get_history,
     service_fingerprint,
@@ -156,6 +154,7 @@ class RerankerTestResponse(BaseModel):
     message: str
     total: int = 0
     correct_count: int = 0
+    incomplete_count: int = 0
     precision: float | None = None
     cases: list[RerankerCaseResponse] | None = None
     history: list[RerankerHistoryRecord] | None = None
@@ -197,24 +196,6 @@ def _dir_stats(root: Path) -> tuple[int, int]:
                 count += 1
                 size += p.stat().st_size
     return count, size
-
-
-def _zip_directory(root: Path) -> io.BytesIO:
-    """Create an in-memory zip archive of *root* and return the buffer.
-
-    All files **and** directories (including empty ones) are included.
-    """
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for entry in sorted(root.rglob("*")):
-            arcname = entry.relative_to(root).as_posix()
-            if entry.is_file():
-                zf.write(entry, arcname)
-            elif entry.is_dir():
-                # Zip spec: directory entries end with '/'
-                zf.write(entry, arcname + "/")
-    buf.seek(0)
-    return buf
 
 
 # ---------------------------------------------------------------------------
@@ -1197,9 +1178,11 @@ async def workspace_watch_events(
                 change_name = (
                     "added"
                     if change_type is Change.added
-                    else "deleted"
-                    if change_type is Change.deleted
-                    else "modified"
+                    else (
+                        "deleted"
+                        if change_type is Change.deleted
+                        else "modified"
+                    )
                 )
                 events.append(
                     {"change": change_name, "path": rel.as_posix()},
@@ -1474,7 +1457,10 @@ async def put_transcription_provider_type(
     """Set the transcription provider type."""
     raw = body.get("transcription_provider_type")
     provider_type = (str(raw) if raw is not None else "").strip().lower()
+    from ...plugins.registry import PluginRegistry
+
     valid = {"disabled", "whisper_api", "local_whisper"}
+    valid.update(PluginRegistry().get_transcription_backends())
     if provider_type not in valid:
         raise HTTPException(
             status_code=400,
@@ -1493,19 +1479,29 @@ async def put_transcription_provider_type(
 
 @router.get(
     "/local-whisper-status",
-    summary="Check local whisper availability",
+    summary="Read local whisper status",
     description=(
-        "Check whether the local whisper provider can be used. "
-        "Returns availability of ffmpeg and openai-whisper."
+        "Read plugin and dependency readiness and the last dependency import "
+        "result without importing Whisper or loading a model."
     ),
 )
 async def get_local_whisper_status() -> dict:
-    """Check local whisper dependencies."""
-    from ...agents.utils.audio_transcription import (
-        check_local_whisper_available,
-    )
+    """Read installation readiness and the last dependency import result."""
+    from ...plugins.local_whisper import get_runtime_status
 
-    return check_local_whisper_available()
+    return await get_runtime_status()
+
+
+@router.post("/local-whisper-install", status_code=202)
+async def install_local_whisper() -> dict:
+    """Install the bundled SDK plugin through the standard plugin loader."""
+    from ...plugins.local_whisper import get_service, get_status
+
+    service = get_service()
+    if service is None:
+        raise HTTPException(503, "Backend is still starting; retry shortly")
+    service.request()
+    return await run_sync_io(get_status)
 
 
 @router.get(
@@ -1556,6 +1552,51 @@ async def put_transcription_provider(
     return {"provider_id": provider_id}
 
 
+@router.get(
+    "/transcription-model",
+    summary="Get transcription model name",
+    description=(
+        "Get the model name used for Whisper API transcription. "
+        'Empty means the built-in default ("whisper-1").'
+    ),
+)
+async def get_transcription_model() -> dict:
+    """Get the Whisper API transcription model name."""
+    config = load_config()
+    return {"transcription_model": config.agents.transcription_model}
+
+
+@router.put(
+    "/transcription-model",
+    summary="Set transcription model name",
+    description=(
+        "Set the model name used for Whisper API transcription. "
+        "Non-OpenAI providers need their own model id, e.g. "
+        '"FunAudioLLM/SenseVoiceSmall" for SiliconFlow. '
+        'Use empty string "" to fall back to the default "whisper-1".'
+    ),
+)
+async def put_transcription_model(
+    body: dict = Body(
+        ...,
+        description=(
+            "Model name, e.g. "
+            '{"transcription_model": "FunAudioLLM/SenseVoiceSmall"} '
+            'or {"transcription_model": ""} to reset'
+        ),
+    ),
+) -> dict:
+    """Set the Whisper API transcription model name."""
+    raw = body.get("transcription_model")
+    model = (str(raw) if raw is not None else "").strip()
+
+    def apply_model(config: Any) -> None:
+        config.agents.transcription_model = model
+
+    await run_sync_io(mutate_config, apply_model)
+    return {"transcription_model": model}
+
+
 @router.post(
     "/transcribe",
     summary="Transcribe audio to text",
@@ -1585,6 +1626,26 @@ async def post_transcribe_audio(
                 ),
             },
         )
+
+    if provider_type == "local_whisper":
+        from ...plugins.local_whisper import get_status
+        from ...plugins.registry import PluginRegistry
+
+        status = await run_sync_io(get_status)
+        backend = PluginRegistry().get_transcription_backend(provider_type)
+        if not status["available"] or backend is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "TRANSCRIPTION_UNAVAILABLE",
+                    "message": status.get("error")
+                    or (
+                        "Local Whisper is preparing or unavailable. "
+                        "Check installation and ffmpeg in "
+                        "Voice Transcription settings."
+                    ),
+                },
+            )
 
     # Validate file type
     allowed_extensions = {
@@ -1695,14 +1756,10 @@ async def test_reranker_configuration(
     # trusted proxy peer) may direct the probe at a non-public address.
     allow_private = _reranker_probe_allows_private_targets(request)
 
-    result = await probe_and_record(
+    result, history = await probe_and_record(
         reranker_config,
         allow_private=allow_private,
     )
-
-    history = None
-    if result.success:
-        history = get_history(service_fingerprint(reranker_config))
 
     return RerankerTestResponse.from_result(
         result,
@@ -1737,12 +1794,25 @@ def _reranker_probe_allows_private_targets(request: Request | None) -> bool:
     "/reranker/history",
     response_model=RerankerHistoryResponse,
     summary="Get reranker verification history",
-    description="Return recorded verification runs for a service fingerprint",
+    description=(
+        "Return recorded verification runs for the agent's saved reranker "
+        "configuration"
+    ),
 )
 async def get_reranker_history(
-    fingerprint: str = Query(...),
+    request: Request,
 ) -> RerankerHistoryResponse:
-    """Return the stored verification history for a reranker service."""
+    """Return history for the saved reranker service of this agent.
+
+    The fingerprint is computed server-side from the saved configuration, so
+    the console never has to hash in the browser (``crypto.subtle`` is absent
+    on plain-HTTP origins).
+    """
+    workspace = await get_agent_for_request(request)
+    saved = await load_reranker_config(workspace.agent_id)
+    if saved is None:
+        return RerankerHistoryResponse(fingerprint="", history=[])
+    fingerprint = service_fingerprint(saved)
     return RerankerHistoryResponse(
         fingerprint=fingerprint,
         history=get_history(fingerprint),
@@ -2303,158 +2373,6 @@ async def put_system_prompt_files(
     schedule_agent_reload(request, workspace.agent_id)
 
     return files
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
-    """Ensure *data* is a valid zip without path-traversal entries."""
-    if not zipfile.is_zipfile(io.BytesIO(data)):
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file is not a valid zip archive",
-        )
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        for name in zf.namelist():
-            resolved = (workspace_dir / name).resolve()
-            if not str(resolved).startswith(str(workspace_dir)):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Zip contains unsafe path: {name}",
-                )
-
-
-def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
-    """Extract zip data and merge into workspace_dir (blocking operation)."""
-    tmp_dir = None
-    try:
-        tmp_dir = Path(tempfile.mkdtemp(prefix="qwenpaw_upload_"))
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            zf.extractall(tmp_dir)
-
-        top_entries = list(tmp_dir.iterdir())
-        extract_root = tmp_dir
-        if len(top_entries) == 1 and top_entries[0].is_dir():
-            extract_root = top_entries[0]
-
-        workspace_dir.mkdir(parents=True, exist_ok=True)
-
-        for item in extract_root.iterdir():
-            dest = workspace_dir / item.name
-            if item.is_file():
-                shutil.copy2(item, dest)
-            else:
-                if dest.exists() and dest.is_file():
-                    dest.unlink()
-                shutil.copytree(item, dest, dirs_exist_ok=True)
-    finally:
-        if tmp_dir and tmp_dir.is_dir():
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-def _validate_and_extract_zip(data: bytes, workspace_dir: Path) -> None:
-    """Validate and extract zip data (blocking operation)."""
-    _validate_zip_data(data, workspace_dir)
-    _extract_and_merge_zip(data, workspace_dir)
-
-
-# ---------------------------------------------------------------------------
-# Workspace Download/Upload Endpoints
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/download",
-    summary="Download workspace as zip",
-    description=(
-        "Package the entire agent workspace into a zip archive and stream "
-        "it back as a downloadable file."
-    ),
-    responses={
-        200: {
-            "content": {"application/zip": {}},
-            "description": "Zip archive of agent workspace",
-        },
-    },
-)
-async def download_workspace(request: Request):
-    """Stream agent workspace as a zip file."""
-
-    agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
-
-    if not workspace_dir.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workspace does not exist: {workspace_dir}",
-        )
-
-    buf = await asyncio.to_thread(_zip_directory, workspace_dir)
-
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"qwenpaw_workspace_{agent.agent_id}_{timestamp}.zip"
-
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-        },
-    )
-
-
-@router.post(
-    "/upload",
-    response_model=dict,
-    summary="Upload zip and merge into workspace",
-    description=(
-        "Upload a zip archive.  Paths present in the zip are merged into "
-        "agent workspace (files overwritten, dirs merged).  Paths not in "
-        "the zip are left unchanged (e.g. qwenpaw.db, runtime dirs). "
-        "Download packs the entire workspace; upload only "
-        "overwrites/merges zip contents."
-    ),
-)
-async def upload_workspace(
-    request: Request,
-    file: UploadFile = File(
-        ...,
-        description="Zip archive to merge into agent workspace",
-    ),
-) -> dict:
-    """
-    Merge uploaded zip contents into agent workspace (overwrite, not clear).
-    """
-
-    if file.content_type and file.content_type not in (
-        "application/zip",
-        "application/x-zip-compressed",
-        "application/octet-stream",
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Expected a zip file, got content-type: {file.content_type}"
-            ),
-        )
-
-    agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
-    data = await file.read()
-
-    try:
-        await asyncio.to_thread(_validate_and_extract_zip, data, workspace_dir)
-        return {"success": True}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to merge workspace: {exc}",
-        ) from exc
 
 
 @router.get("/commands/available")

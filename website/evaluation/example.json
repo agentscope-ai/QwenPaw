@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "id": "example",
+  "date": "2026-10-16T19:40:02Z",
+  "kind": "official",
+  "experiment": "example",
+  "sdk_version": "2.2.2",
+  "source_repository": "https://github.com/agentscope-ai/QwenPaw",
+  "provider": "dashscope",
+  "model": "glm-5.2",
+  "harness": "qwenpaw",
+  "parameters": {
+    "max_context_length": 1048576,
+    "max_response_length": 131072
+  },
+  "exchange_rate": {
+    "cny_per_usd": 7.0,
+    "basis": "fixed"
+  },
+  "board": {
+    "id": "acp-agents",
+    "name": "ACP Agents",
+    "group_by": "model_harness"
+  },
+  "benchmarks": [
+    {
+      "id": "gaia",
+      "name": "GAIA",
+      "revision": "1.0",
+      "expected": 165,
+      "judge": {
+        "kind": "programmatic",
+        "model": null,
+        "scorer": "harbor-gaia@1.0",
+        "official_model": null,
+        "prompt_revision": null,
+        "parity_note": ""
+      },
+      "observation_id": "qwenpaw-2.2.2-glm-5.2-gaia-20261016",
+      "date": "2026-10-16T19:40:02Z",
+      "summary": {
+        "score_sum": 112.0,
+        "failures": {
+          "execution_error": 5
+        },
+        "model_cost": {
+          "amount": 452.692648,
+          "currency": "CNY"
+        },
+        "model_cost_count": 165,
+        "judge_cost": {
+          "amount": 0.0,
+          "currency": "USD"
+        },
+        "judge_cost_count": 165,
+        "runtime_seconds_sum": 84120.269616,
+        "runtime_count": 165
+      }
+    }
+  ]
+}

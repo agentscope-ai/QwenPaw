@@ -970,9 +970,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   `,
   // ── macOS traffic lights (window header, left side) ───────────────────
   headerMac: css`
+    --os-window-control-size: 40px;
+    --os-window-controls-width: calc(var(--os-window-control-size) * 3);
     height: 42px;
     flex: 0 0 42px;
-    display: flex;
+    display: grid;
+    grid-template-columns:
+      var(--os-window-controls-width) minmax(0, 1fr)
+      var(--os-window-controls-width);
     align-items: center;
     padding: 0 13px;
     background: ${p.barBg};
@@ -987,7 +992,8 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &[data-active="false"] {
       opacity: 0.86;
     }
-    @media (max-width: 600px) {
+    @media (max-width: 600px), (any-pointer: coarse) {
+      --os-window-control-size: var(--app-hit-touch);
       height: 52px;
       flex-basis: 52px;
       padding: 0 4px;
@@ -996,19 +1002,14 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   lights: css`
     display: flex;
     align-items: center;
-    gap: 2px;
-    width: 76px;
-    height: 40px;
-    @media (max-width: 600px) {
-      width: 132px;
-      height: 52px;
-      gap: 0;
-    }
+    width: var(--os-window-controls-width);
+    height: var(--os-window-control-size);
   `,
   light: css`
     position: relative;
-    width: 24px;
-    height: 34px;
+    width: var(--os-window-control-size);
+    height: var(--os-window-control-size);
+    flex: 0 0 var(--os-window-control-size);
     border-radius: 8px;
     border: none;
     padding: 0;
@@ -1043,10 +1044,6 @@ const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
     &:disabled {
       cursor: default;
       opacity: 0.55;
-    }
-    @media (max-width: 600px) {
-      width: 44px;
-      height: 44px;
     }
   `,
   lightClose: css`

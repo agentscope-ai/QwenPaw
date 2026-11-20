@@ -3,6 +3,7 @@
 
 import secrets
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -11,9 +12,11 @@ from fastapi.testclient import TestClient
 from qwenpaw.agents.memory.reme_reranker import RerankerTestResult
 from qwenpaw.app import auth
 from qwenpaw.app.routers import workspace
+from qwenpaw.config.config import RerankerConfig
 
 _TEST_BASE_URL = "https://api.example.com/v1"
 _TEST_KEY = f"probe-{secrets.token_hex(12)}"
+_SAVED_FINGERPRINT = "sha256:" + "a" * 64
 
 
 def _config(**overrides) -> dict:
@@ -53,6 +56,7 @@ def _probe_result(**overrides) -> RerankerTestResult:
         "message": "Reranker service is available",
         "total": 5,
         "correct_count": 5,
+        "incomplete_count": 0,
         "precision": 1.0,
         "cases": [],
     }
@@ -60,15 +64,25 @@ def _probe_result(**overrides) -> RerankerTestResult:
     return RerankerTestResult(**values)
 
 
+def _saved_config() -> RerankerConfig:
+    return RerankerConfig(
+        enabled=True,
+        api_key=_TEST_KEY,
+        base_url=_TEST_BASE_URL,
+        model_name="probe-reranker",
+        timeout=10,
+        auto_verify_interval_hours=24,
+    )
+
+
 def test_trusted_caller_may_probe_local_endpoint(monkeypatch) -> None:
     captured = {}
 
     async def fake_probe(reranker, *, allow_private=False):
         captured["allow_private"] = allow_private
-        return _probe_result()
+        return _probe_result(), None
 
     monkeypatch.setattr(workspace, "probe_and_record", fake_probe)
-    monkeypatch.setattr(workspace, "get_history", lambda _fp: [])
 
     client = _client(monkeypatch, allow_no_auth_hosts=("10.0.0.9",))
     response = client.post("/api/workspace/reranker/test", json=_config())
@@ -82,10 +96,9 @@ def test_untrusted_caller_cannot_probe_local_endpoint(monkeypatch) -> None:
 
     async def fake_probe(reranker, *, allow_private=False):
         captured["allow_private"] = allow_private
-        return _probe_result()
+        return _probe_result(), None
 
     monkeypatch.setattr(workspace, "probe_and_record", fake_probe)
-    monkeypatch.setattr(workspace, "get_history", lambda _fp: [])
 
     client = _client(monkeypatch, allow_no_auth_hosts=("192.168.1.5",))
     response = client.post(
@@ -97,26 +110,29 @@ def test_untrusted_caller_cannot_probe_local_endpoint(monkeypatch) -> None:
     assert captured["allow_private"] is False
 
 
-def test_probe_response_masks_api_key_and_reuses_history(monkeypatch) -> None:
+def test_probe_response_masks_api_key_and_reuses_returned_series(
+    monkeypatch,
+) -> None:
     calls = []
+    series = [
+        {
+            "ts": 1,
+            "latency_ms": 5,
+            "precision": 1.0,
+            "correct_count": 5,
+            "total": 5,
+        },
+    ]
 
     async def fake_probe(reranker, *, allow_private=False):
         calls.append((reranker.api_key, allow_private))
-        return _probe_result(message=f"auth failed for {_TEST_KEY}")
+        return _probe_result(message=f"auth failed for {_TEST_KEY}"), series
 
     monkeypatch.setattr(workspace, "probe_and_record", fake_probe)
     monkeypatch.setattr(
         workspace,
         "get_history",
-        lambda fingerprint: [
-            {
-                "ts": 1,
-                "latency_ms": 5,
-                "precision": 1.0,
-                "correct_count": 5,
-                "total": 5,
-            },
-        ],
+        lambda fingerprint: pytest.fail("the route must reuse the series"),
     )
 
     client = _client(monkeypatch, allow_no_auth_hosts=("10.0.0.9",))
@@ -127,12 +143,13 @@ def test_probe_response_masks_api_key_and_reuses_history(monkeypatch) -> None:
     assert _TEST_KEY not in body["message"]
     assert body["message"] == "auth failed for ***"
     assert body["history"][0]["precision"] == 1.0
+    assert body["incomplete_count"] == 0
     assert calls == [(_TEST_KEY, True)]
 
 
 def test_probe_response_omits_history_for_failed_run(monkeypatch) -> None:
     async def fake_probe(reranker, *, allow_private=False):
-        return _probe_result(success=False, message="boom")
+        return _probe_result(success=False, message="boom"), None
 
     monkeypatch.setattr(workspace, "probe_and_record", fake_probe)
     monkeypatch.setattr(
@@ -149,28 +166,112 @@ def test_probe_response_omits_history_for_failed_run(monkeypatch) -> None:
     assert body["history"] is None
 
 
-def test_history_endpoint_returns_digest_series(monkeypatch) -> None:
+def test_history_endpoint_uses_saved_config_fingerprint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        workspace,
+        "get_agent_for_request",
+        AsyncMock(return_value=SimpleNamespace(agent_id="default")),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "load_reranker_config",
+        AsyncMock(return_value=_saved_config()),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "service_fingerprint",
+        lambda _config: _SAVED_FINGERPRINT,
+    )
     monkeypatch.setattr(
         workspace,
         "get_history",
-        lambda fingerprint: [
-            {
-                "ts": 1,
-                "latency_ms": 5,
-                "precision": 0.5,
-                "correct_count": 1,
-                "total": 2,
-            },
-        ],
+        lambda fingerprint: (
+            [
+                {
+                    "ts": 1,
+                    "latency_ms": 5,
+                    "precision": 0.5,
+                    "correct_count": 1,
+                    "total": 2,
+                },
+            ]
+            if fingerprint == _SAVED_FINGERPRINT
+            else []
+        ),
     )
 
     client = _client(monkeypatch)
-    response = client.get(
-        "/api/workspace/reranker/history",
-        params={"fingerprint": "sha256:" + "a" * 64},
-    )
+    # No client-supplied fingerprint: the browser never hashes.
+    response = client.get("/api/workspace/reranker/history")
 
     body = response.json()
     assert response.status_code == 200
-    assert body["fingerprint"] == "sha256:" + "a" * 64
+    assert body["fingerprint"] == _SAVED_FINGERPRINT
     assert body["history"][0]["precision"] == 0.5
+
+
+def test_history_endpoint_without_saved_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        workspace,
+        "get_agent_for_request",
+        AsyncMock(return_value=SimpleNamespace(agent_id="default")),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "load_reranker_config",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "get_history",
+        lambda fingerprint: pytest.fail("no fingerprint, no lookup"),
+    )
+
+    client = _client(monkeypatch)
+    response = client.get("/api/workspace/reranker/history")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body == {"fingerprint": "", "history": []}
+
+
+def test_history_endpoint_tolerates_malformed_records(monkeypatch) -> None:
+    """A null entry under a valid fingerprint must not 500 the endpoint."""
+    monkeypatch.setattr(
+        workspace,
+        "get_agent_for_request",
+        AsyncMock(return_value=SimpleNamespace(agent_id="default")),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "load_reranker_config",
+        AsyncMock(return_value=_saved_config()),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "service_fingerprint",
+        lambda _config: _SAVED_FINGERPRINT,
+    )
+
+    from qwenpaw.agents.memory import reranker_history as history_module
+
+    monkeypatch.setattr(
+        history_module,
+        "_load",
+        lambda: {_SAVED_FINGERPRINT: [None, {"ts": 7, "precision": 0.75}]},
+    )
+
+    client = _client(monkeypatch)
+    response = client.get("/api/workspace/reranker/history")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["history"] == [
+        {
+            "ts": 7,
+            "latency_ms": 0,
+            "precision": 0.75,
+            "correct_count": 0,
+            "total": 0,
+        },
+    ]

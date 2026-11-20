@@ -13,10 +13,12 @@ import {
  */
 
 import React from "react";
+import type { harnessNamespace } from "./harnesses";
 import i18n from "../i18n";
 import ReactDOM from "react-dom";
-import * as antd from "antd";
-import * as antdIcons from "@ant-design/icons";
+import type * as antd from "antd";
+import type * as antdIcons from "@ant-design/icons";
+import { getHostUiDependencies } from "./hostUiDependencies";
 import { getApiUrl, getApiToken, getApiBaseUrl } from "../api/config";
 import {
   buildAuditNamespace,
@@ -42,6 +44,10 @@ import {
   memoryBackendNamespace,
   type MemoryBackendNamespace,
 } from "./memoryBackends";
+import {
+  settingsSearchNamespace,
+  type SettingsSearchNamespace,
+} from "./settingsSearch";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -210,6 +216,10 @@ export interface WindowNamespace {
   paw?: PawSdkFactory;
   /** Memory backend configuration UI contributed by memory plugins. */
   memoryBackends?: MemoryBackendNamespace;
+  /** Backend-owned settings, attached by installHostSdk(). */
+  harnesses?: typeof harnessNamespace;
+  /** Searchable settings metadata contributed by plugins. */
+  settingsSearch?: SettingsSearchNamespace;
 }
 
 declare global {
@@ -254,8 +264,12 @@ export function installHostExternals(): void {
     window.QwenPaw.host = {
       React,
       ReactDOM,
-      antd,
-      antdIcons,
+      get antd() {
+        return getHostUiDependencies().antd;
+      },
+      get antdIcons() {
+        return getHostUiDependencies().antdIcons;
+      },
       get apiBaseUrl() {
         return getApiBaseUrl();
       },
@@ -274,6 +288,9 @@ export function installHostExternals(): void {
   if (!window.QwenPaw.paw) window.QwenPaw.paw = pawSdkFactory;
   if (!window.QwenPaw.memoryBackends) {
     window.QwenPaw.memoryBackends = memoryBackendNamespace;
+  }
+  if (!window.QwenPaw.settingsSearch) {
+    window.QwenPaw.settingsSearch = settingsSearchNamespace;
   }
 
   // ── Back-compat shim ───────────────────────────────────────────────────

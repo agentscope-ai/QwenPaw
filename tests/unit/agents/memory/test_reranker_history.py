@@ -66,15 +66,15 @@ def test_fingerprint_preserves_fractional_timeout() -> None:
     )
 
 
-# Cross-language contract pin: console rerankerUtils.test.ts asserts the same
-# digest for the canonical config ["https://fixture.example/v1", "",
-# "fixture-model", "10"], so a normalization drift on either side fails CI.
+# Fingerprint contract pin: the canonical array for this fixture must keep
+# producing this digest. The console no longer hashes (history lookup is
+# server-side), so this guards the backend's own normalization from drift.
 GOLDEN_DIGEST = (
     "sha256:141b3dd720b233ef5706bf153260cca3ba2c82084715fd868518b9882c05a7cf"
 )
 
 
-def test_fingerprint_matches_console_golden_digest() -> None:
+def test_fingerprint_matches_golden_digest() -> None:
     assert (
         service_fingerprint(
             RerankerConfig(
@@ -154,6 +154,29 @@ def test_load_drops_malformed_series(tmp_path, monkeypatch) -> None:
     assert module.get_history(current_key) == []
     persisted = json.loads(path.read_text(encoding="utf-8"))
     assert list(persisted) == ["sha256:" + "b" * 64]
+
+
+def test_get_history_skips_malformed_records(tmp_path, monkeypatch) -> None:
+    """A null or non-numeric entry keeps the rest of the series usable."""
+    path = _point_history_at(tmp_path, monkeypatch)
+    fingerprint = service_fingerprint(_config())
+    path.write_text(
+        json.dumps(
+            {
+                fingerprint: [
+                    None,
+                    {"ts": 1, "precision": 0.5},
+                    {"ts": "not-a-number"},
+                    "garbage",
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    history = module.get_history(fingerprint)
+
+    assert [record["ts"] for record in history] == [1]
 
 
 def test_append_and_history_roundtrip(tmp_path, monkeypatch) -> None:

@@ -388,6 +388,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => {
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
+  useBackendCapabilities: vi.fn(() => undefined),
 }));
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
@@ -453,11 +454,11 @@ vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
   },
 }));
 
-vi.mock("./components/HarnessApprovalToggle", () => ({
+vi.mock("./components/BackendApprovalToggle", () => ({
   default: () => <div data-testid="harness-approval" />,
 }));
 
-vi.mock("./components/HarnessModelSelector", () => ({
+vi.mock("./components/BackendModelSelector", () => ({
   default: () => <div data-testid="harness-model" />,
 }));
 
@@ -1935,10 +1936,10 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     const toggle = mockApprovalLevelToggle.mock.lastCall?.[0] as {
-      decisionModelEnabled?: boolean;
+      decisionModelConfigured?: boolean;
       onChange: (level: string) => void;
     };
-    expect(toggle.decisionModelEnabled).toBeUndefined();
+    expect(toggle.decisionModelConfigured).toBeUndefined();
     act(() => toggle.onChange("JEV"));
 
     await capturedOptions.api.fetch({

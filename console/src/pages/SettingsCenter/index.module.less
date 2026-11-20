@@ -846,11 +846,18 @@
   }
 }
 
-.content :global([data-search-highlight="true"]) {
+:global([data-search-highlight="true"]) {
   outline: 2px solid var(--app-accent-border);
   outline-offset: 5px;
   border-radius: 8px;
   scroll-margin-block: 24px;
+}
+
+.searchPath {
+  display: block;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 /* Navigation keeps its controls anchored while only the grouped list scrolls. */

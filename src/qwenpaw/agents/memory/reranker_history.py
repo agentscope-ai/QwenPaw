@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import threading
 import time
 from pathlib import Path
@@ -141,12 +142,30 @@ def append_record(
         return list(series)
 
 
+def _is_valid_record(record: Any) -> bool:
+    """Whether a stored record has the fields the API requires.
+
+    A malformed entry (for example ``null``) must not fail the whole history
+    response; the rest of the series stays usable.
+    """
+    if not isinstance(record, dict):
+        return False
+    ts = record.get("ts")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return False
+    return math.isfinite(float(ts))
+
+
 def get_history(fingerprint: str, limit: int = 50) -> list[dict[str, Any]]:
-    """Return the most recent records for a fingerprint."""
+    """Return the most recent valid records for a fingerprint."""
     with _LOCK:
         data = _load()
-        series = data.get(fingerprint, [])
-        return list(series[-limit:])
+        series = [
+            record
+            for record in data.get(fingerprint, [])
+            if _is_valid_record(record)
+        ]
+        return series[-limit:]
 
 
 def make_record(

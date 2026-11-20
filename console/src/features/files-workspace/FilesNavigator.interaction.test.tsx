@@ -7,6 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import FilesNavigator from "./FilesNavigator";
 import type { DirectoryEntry, DirectoryPage, FileTarget } from "./types";
 
@@ -28,6 +29,7 @@ vi.mock("react-i18next", () => ({
         "files.profile": "Profile",
         "files.daily": "Daily",
         "files.digest": "Digest",
+        "files.memoryTagsLabel": "Tags",
         "files.upload": "Upload",
         "files.addSystemPrompt": "Add from workspace",
         "files.addSystemPromptTitle": "Add a system prompt file",
@@ -165,6 +167,53 @@ describe("FilesNavigator interactions", () => {
     mocks.getSystemPromptFiles.mockResolvedValue([]);
     mocks.setSystemPromptFiles.mockImplementation(async (files) => files);
     mocks.fileGlyphRender.mockClear();
+  });
+
+  it("keeps Tags in the same navigation bar and returns to the file tree", async () => {
+    function UnifiedNavigator() {
+      const [tagsActive, setTagsActive] = useState(false);
+      return (
+        <FilesNavigator
+          selectedPath=""
+          onSelect={vi.fn()}
+          activeMemoryGraphRoot={null}
+          onShowMemoryGraph={vi.fn()}
+          onShowFiles={() => setTagsActive(false)}
+          memoryTagsActive={tagsActive}
+          memoryTagsPanel={<div>Tag results</div>}
+          onShowMemoryTags={() => setTagsActive(true)}
+          scope={{ kind: "agent", agentId: "default" }}
+        />
+      );
+    }
+    render(<UnifiedNavigator />);
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Workspace",
+      "Profile",
+      "Daily",
+      "Digest",
+      "Tags",
+    ]);
+    fireEvent.click(screen.getByRole("tab", { name: "Tags" }));
+    expect(screen.getByRole("tab", { name: "Tags" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    expect(screen.getByText("Tag results")).toBeVisible();
+    expect(screen.queryByRole("tree")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Daily" }));
+    expect(screen.getByRole("tab", { name: "Daily" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByText("Tag results")).not.toBeInTheDocument();
+    expect(screen.getByRole("tree")).toBeVisible();
+    await waitFor(() => expect(mocks.listMemoryFiles).toHaveBeenCalled());
   });
 
   it("shows loading instead of an empty state while the root request is pending", async () => {

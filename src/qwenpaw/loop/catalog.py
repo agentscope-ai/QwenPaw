@@ -86,6 +86,7 @@ class ToolCallBudgetParams(_Params):
 class QualitativeRubricParams(_Params):
     """Natural-language rubric parameters."""
 
+    use_decision_model: bool = False
     rubric: str = Field(
         default=("Verify the task before stopping. Continue if work remains."),
         min_length=1,
@@ -257,6 +258,7 @@ def _entries() -> list[GateCatalogEntry]:
             category="quality",
             params_model=QualitativeRubricParams,
             factory=lambda params: QualitativeRubricGate(**_dump(params)),
+            cost="model_call",
             exclusive_group="completion_rubric",
         ),
         GateCatalogEntry(

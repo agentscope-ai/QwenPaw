@@ -5,8 +5,9 @@ import { DefaultBlock, MediaPreview, ToolCardShell } from "../shared";
 import { shortFileName, stringifyResult, toDisplayUrl } from "../shared/utils";
 
 interface OutputBlock {
-  type: "text" | "image" | "audio" | "video";
+  type: "text" | "data" | "image" | "audio" | "video";
   text?: string;
+  name?: string;
   filename?: string;
   source?: {
     type: "url" | "base64";
@@ -32,7 +33,7 @@ function outputBlocks(result: unknown): OutputBlock[] {
       (block) =>
         block &&
         typeof block === "object" &&
-        ["text", "image", "audio", "video"].includes(block.type),
+        ["text", "data", "image", "audio", "video"].includes(block.type),
     )
   ) {
     return parsed;
@@ -79,7 +80,12 @@ export default function CodeModeCard({
         }
         const source = block.source;
         if (!source) return null;
-        const type = block.type;
+        const kind =
+          block.type === "data" ? source.media_type.split("/")[0] : block.type;
+        const type =
+          kind === "image" || kind === "audio" || kind === "video"
+            ? kind
+            : "file";
         const url =
           source.type === "base64"
             ? `data:${source.media_type};base64,${source.data}`
@@ -90,7 +96,11 @@ export default function CodeModeCard({
             media={{
               url,
               type,
-              name: block.filename || shortFileName(source.url || "") || type,
+              name:
+                block.name ||
+                block.filename ||
+                shortFileName(source.url || "") ||
+                type,
             }}
           />
         );

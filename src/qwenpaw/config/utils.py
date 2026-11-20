@@ -52,6 +52,7 @@ _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
 
+
 # Unknown root fields are normally discarded on save. These non-secret keys
 # remain only long enough for an optional plugin to adopt pre-plugin state.
 # Remove an entry after its documented compatibility window closes.
@@ -404,12 +405,19 @@ def get_available_channels() -> Tuple[str, ...]:
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
-    all_keys = tuple(registry.keys())
+    from ..plugins.registry import PluginRegistry
+
+    static_keys = [
+        key
+        for key, row in PluginRegistry().get_channel_catalog().items()
+        if row.runtime_settings is not None
+    ]
+    all_keys = tuple(dict.fromkeys([*registry, *static_keys]))
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:
         enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k in enabled) or all_keys
+        return tuple(k for k in all_keys if k in enabled)
 
     raw_disabled = EnvVarLoader.get_str(
         "QWENPAW_DISABLED_CHANNELS",
@@ -417,7 +425,7 @@ def get_available_channels() -> Tuple[str, ...]:
     ).strip()
     if raw_disabled:
         disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k not in disabled) or all_keys
+        return tuple(k for k in all_keys if k not in disabled)
 
     return all_keys
 

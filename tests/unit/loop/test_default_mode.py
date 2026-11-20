@@ -3,14 +3,33 @@
 """Tests for DefaultMode gate ownership and lifecycle."""
 from __future__ import annotations
 
+import asyncio
+import threading
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agentscope.classifier import (
+    BinaryAnswer,
+    ChoiceAnswer,
+)
+from agentscope.message import (
+    AssistantMsg,
+    DataBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    URLSource,
+    UserMsg,
+)
 
+from qwenpaw.config.config import RubricGateConfig
+from qwenpaw.loop.gates import StopAction
+from qwenpaw.loop.gates import rubric as rubric_module
 from qwenpaw.loop.gates.doom_loop import DoomLoopGate
 from qwenpaw.loop.gates.iteration import IterationGate
 from qwenpaw.modes.default import DefaultMode
+from qwenpaw.providers import typesafe_provider
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +61,7 @@ def _running_config(
         enabled=True,
         max_iterations=max_iters,
     )
-    rubric = SimpleNamespace(
+    rubric = RubricGateConfig(
         enabled=rubric_enabled,
         prompt="continue working",
         max_interventions=1,
@@ -171,3 +190,308 @@ async def test_conversation_reset_clears_session_and_pending_state():
 
     assert iteration._state() is None
     assert agent._gate_pending_stop is None
+
+
+@pytest.fixture
+def decision_check(monkeypatch):
+    provider = Mock(evaluate=AsyncMock())
+    resolve = Mock(return_value=(provider, "jev-test"))
+    monkeypatch.setattr(typesafe_provider, "resolve_decision_model", resolve)
+    history = [
+        UserMsg("user", "Export the report."),
+        AssistantMsg(
+            "agent",
+            [
+                ThinkingBlock(thinking="private reasoning"),
+                ToolResultBlock(
+                    id="export-1",
+                    name="export",
+                    state="error",
+                    output=[TextBlock(text="File not found")],
+                ),
+            ],
+        ),
+    ]
+    agent = SimpleNamespace(
+        _agent_config=SimpleNamespace(decision_model=None),
+        state=SimpleNamespace(
+            context=history,
+            summary="",
+            tool_context=SimpleNamespace(activated_groups=set()),
+        ),
+        toolkit=SimpleNamespace(get_tool_schemas=AsyncMock(return_value=[])),
+    )
+    return (
+        {
+            "agent": agent,
+            "final_msg": AssistantMsg("agent", "I will export it."),
+        },
+        resolve,
+        provider.evaluate,
+    )
+
+
+async def test_jev_is_opt_in_and_preserves_self_check(decision_check):
+    ctx, resolve, evaluate = decision_check
+    ctx["agent"].toolkit.get_tool_schemas.return_value = [
+        {
+            "type": "function",
+            "function": {
+                "name": "export",
+                "description": "Export the report.\nParameter details.",
+                "parameters": {"type": "object"},
+            },
+        },
+    ]
+    config = _running_config()
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    assert (
+        await mode.handler(ctx)
+    ).continuation_message == config.loop.rubric.prompt
+    resolve.assert_not_called()
+
+    config.loop.rubric.use_decision_model = True
+    await mode.on_turn_start(_context(config))
+    await mode.handler({**ctx, "has_tool_calls": True})
+    resolve.assert_not_called()
+    evaluate.return_value.content = {"continue": BinaryAnswer(0.5)}
+    result = await mode.handler(ctx)
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == config.loop.rubric.prompt
+    assert (await mode.handler(ctx)).action == StopAction.TERMINATE
+    evaluate.assert_awaited_once()
+    request = evaluate.call_args.kwargs
+    assert set(request["questions"]) == {"continue", "reason"}
+    assert request["state"]["available_tools"] == [
+        {"name": "export", "description": "Export the report."},
+    ]
+    assert request["state"]["candidate_response"] == "I will export it."
+    (result,) = request["state"]["conversation"][1]["content"]
+    assert result["state"] == "error" and result["output"] == "File not found"
+
+
+@pytest.mark.parametrize("phase", ["resolver", "client", "request", "cleanup"])
+@pytest.mark.parametrize(
+    "cancel",
+    [False, True],
+    ids=["timeout", "user_cancel"],
+)
+async def test_jev_deadline_does_not_wait_for_provider_cleanup(
+    decision_check,
+    monkeypatch,
+    phase,
+    cancel,
+):
+    ctx, resolve, _ = decision_check
+    provider = typesafe_provider.TypeSafeProvider(
+        id="typesafe",
+        name="TypeSafe",
+    )
+    started = asyncio.Event()
+    release_async = asyncio.Event()
+    release_sync = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def block_initialization():
+        loop.call_soon_threadsafe(started.set)
+        assert release_sync.wait(5), "Initialization was not released"
+
+    async def evaluate(*_args, **_kwargs):
+        if phase == "request":
+            started.set()
+            try:
+                await release_async.wait()
+            except asyncio.CancelledError:
+                # A late provider result must not delay fallback or cancellation.
+                await release_async.wait()
+        return SimpleNamespace(
+            content={
+                "continue": BinaryAnswer(0.9),
+                "reason": ChoiceAnswer("promised_action", 0.9, {}),
+            },
+        )
+
+    async def close():
+        if phase == "cleanup":
+            started.set()
+            await release_async.wait()
+
+    classifier = AsyncMock(side_effect=evaluate)
+    classifier.client = SimpleNamespace(aclose=AsyncMock(side_effect=close))
+
+    def create(*_args, **_kwargs):
+        if phase == "client":
+            block_initialization()
+        return classifier
+
+    def resolve_model(*_args):
+        if phase == "resolver":
+            block_initialization()
+        return provider, "jev-test"
+
+    resolve.side_effect = resolve_model
+    monkeypatch.setattr(
+        typesafe_provider.TypeSafeProvider,
+        "as_decision_model",
+        create,
+    )
+    monkeypatch.setattr(
+        typesafe_provider.TypeSafeProvider,
+        "validate_model_selection",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        rubric_module,
+        "_DECISION_TIMEOUT_SECONDS",
+        5 if cancel else 0.2,
+    )
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    previous_tasks = set(rubric_module._pending_decision_tasks)
+    call = asyncio.create_task(mode.handler(ctx))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if cancel:
+            call.cancel()
+        done, _ = await asyncio.wait({call}, timeout=1)
+        assert call in done, "The caller waited for blocked provider work"
+        if cancel:
+            with pytest.raises(asyncio.CancelledError):
+                call.result()
+        else:
+            result = call.result()
+            assert result.continuation_message == config.loop.rubric.prompt
+            assert (await mode.handler(ctx)).action == StopAction.TERMINATE
+        pending = rubric_module._pending_decision_tasks - previous_tasks
+        assert len(pending) == 1
+        assert not next(iter(pending)).done()
+    finally:
+        release_sync.set()
+        release_async.set()
+        if not call.done():
+            call.cancel()
+        pending = rubric_module._pending_decision_tasks - previous_tasks
+        await asyncio.wait_for(
+            asyncio.gather(call, *pending, return_exceptions=True),
+            timeout=2,
+        )
+    assert rubric_module._pending_decision_tasks == previous_tasks
+    resolve.assert_called_once()
+    if phase == "resolver":
+        classifier.client.aclose.assert_not_awaited()
+    else:
+        classifier.client.aclose.assert_awaited_once()
+    assert classifier.await_count == (
+        1 if phase in {"request", "cleanup"} else 0
+    )
+
+
+@pytest.mark.parametrize("block_summary", [False, True])
+async def test_jev_includes_summary_and_omits_inline_media(
+    decision_check,
+    block_summary,
+):
+    ctx, _, evaluate = decision_check
+    agent = ctx["agent"]
+    summary = "The user requires the report at output/final.csv."
+    image = DataBlock(
+        name="report.png",
+        source=URLSource(
+            url="data:image/png;base64,aGVsbG8=",
+            media_type="image/png",
+        ),
+    )
+    agent.state.summary = (
+        [TextBlock(text=summary), image] if block_summary else summary
+    )
+    agent.state.context[0].content.append(image)
+    agent.state.context[1].content[-1].output.append(image)
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    evaluate.return_value.content = {"continue": BinaryAnswer(0.1)}
+
+    await mode.handler(ctx)
+
+    state = evaluate.call_args.kwargs["state"]
+    assert summary in state["conversation_summary"]
+    assert "aGVsbG8=" not in str(state)
+    assert "report.png" in state["conversation"][0]["content"][-1]["text"]
+    assert "report.png" in state["conversation"][1]["content"][-1]["output"]
+
+
+@pytest.mark.parametrize(
+    "unavailable",
+    [False, True],
+    ids=["no_issue", "unavailable"],
+)
+async def test_jev_reason_lasts_one_self_check_within_the_shared_limit(
+    decision_check,
+    unavailable,
+):
+    ctx, resolve, evaluate = decision_check
+    config = _running_config()
+    rubric = config.loop.rubric
+    rubric.use_decision_model = True
+    rubric.max_interventions = 2
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    evaluate.return_value.content = {
+        "continue": BinaryAnswer(0.9),
+        "reason": ChoiceAnswer(
+            "promised_action",
+            0.9,
+            {"promised_action": 0.9},
+        ),
+    }
+    result = await mode.handler(ctx)
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == (
+        f"{rubric.prompt}\nCheck this possible issue against the conversation "
+        "and tool results before acting. A requested action was promised but "
+        "has not been performed."
+    )
+    assert _find_gate(mode, IterationGate)._state().iteration == 0
+
+    if unavailable:
+        resolve.side_effect = typesafe_provider.TypeSafeEvaluationError(
+            "No model",
+        )
+    else:
+        evaluate.return_value.content = {"continue": BinaryAnswer(0.1)}
+    result = await mode.handler(ctx)
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == rubric.prompt
+    assert (await mode.handler(ctx)).action == StopAction.TERMINATE
+    assert resolve.call_count == 2
+    assert evaluate.await_count == (1 if unavailable else 2)
+
+
+@pytest.mark.parametrize(
+    ("probability", "confidence"),
+    [(1.2, 0.9), (0.9, 1.2), (0.9, True), (0.9, 0.5)],
+)
+async def test_jev_requires_two_confident_answers(
+    decision_check,
+    probability,
+    confidence,
+):
+    ctx, _, evaluate = decision_check
+    config = _running_config()
+    config.loop.rubric.use_decision_model = True
+    mode = DefaultMode()
+    await mode.on_turn_start(_context(config))
+    evaluate.return_value.content = {
+        "continue": BinaryAnswer(probability),
+        "reason": ChoiceAnswer("missing_result", confidence, {}),
+    }
+
+    result = await mode.handler(ctx)
+
+    assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert result.continuation_message == config.loop.rubric.prompt
+    evaluate.assert_awaited_once()

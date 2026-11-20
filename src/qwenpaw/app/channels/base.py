@@ -4,6 +4,7 @@
 """
 Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -173,6 +174,7 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
+        self._stream_flush_tasks: set[asyncio.Task[None]] = set()
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -375,52 +377,79 @@ class BaseChannel(ABC):
 
     async def _access_control_gate(self, payload: Any) -> bool:
         """Check access control. Returns True if blocked."""
-        if not self.access_control_enabled:
-            return False
-
         # Prefer acl_sender_id (real sender, unaffected by shared session)
         if isinstance(payload, dict):
             sender_id = (
                 payload.get("acl_sender_id") or payload.get("sender_id") or ""
             )
-            meta = dict(payload.get("meta") or {})
+            raw_meta = payload.get("meta") or {}
         else:
             sender_id = (
                 getattr(payload, "acl_sender_id", "")
                 or getattr(payload, "user_id", "")
                 or ""
             )
-            meta = dict(getattr(payload, "channel_meta", None) or {})
+            raw_meta = getattr(payload, "channel_meta", None) or {}
 
+        if sender_id and not self.access_control_enabled:
+            return False
+        meta = dict(raw_meta)
+        is_group = bool(meta.get("is_group", False))
         if not sender_id:
+            # Unknown principals cannot be enrolled into pending/allowlists.
+            # Historical allow_from alone does not restrict an open policy.
+            policy = self.group_policy if is_group else self.dm_policy
+            controlled = (
+                self.access_control_group
+                if is_group
+                else self.access_control_dm
+            )
+            return policy != "open" or controlled
+
+        if not self.access_control_enabled:
             return False
 
         # Skip if access control not enabled for this chat type
-        is_group = meta.get("is_group", False)
         if is_group and not self.access_control_group:
             return False
         if not is_group and not self.access_control_dm:
             return False
 
-        store = self._get_acl_store()
-        channel_key = self.channel
+        from ...utils.io_utils import run_sync_io
 
-        # ── Whitelist / blacklist / pending decision ────────────────────
-        if store.is_whitelisted(channel_key, sender_id):
-            return False  # allowed
+        workspace = self._workspace
+        identity = self._identity() if hasattr(self, "_identity") else None
 
-        if store.is_blacklisted(channel_key, sender_id):
-            deny_msg = self._acl_msg("blocked")
-        else:
-            first_message = self._extract_query_from_payload(payload)
-            username = meta.get("user_name") or ""
-            store.add_pending(
-                channel_key,
-                sender_id,
-                first_message,
-                username=username,
+        def current():
+            return self._workspace is workspace and (
+                identity is None
+                or (self._identity() == identity and self._ingress_open)
             )
-            deny_msg = self._acl_msg("pending", sender_id=sender_id)
+
+        cached = getattr(self, "_acl_cached_store", None)
+        store = cached[1] if cached and cached[0] is workspace else None
+        if store is None:
+            workspace_dir = (
+                Path(workspace.workspace_dir)
+                if workspace is not None
+                else None
+            )
+            store = await run_sync_io(get_access_control_store, workspace_dir)
+            if not current():
+                return True
+            self._acl_cached_store = (workspace, store)
+        decision = await run_sync_io(
+            store.check_or_add_pending,
+            self.channel,
+            sender_id,
+            self._extract_query_from_payload(payload),
+            username=meta.get("user_name") or "",
+        )
+        if not current():
+            return True
+        if decision == "allow":
+            return False
+        deny_msg = self._acl_msg(decision, sender_id=sender_id)
 
         # ── Send deny message back via the channel's own send() ─────────
         try:
@@ -569,6 +598,7 @@ class BaseChannel(ABC):
             payload,
             self._stream_with_tracker,
             owner=self._workspace,
+            channel_id=self.channel,
             on_finished=self._workspace.chat_manager.mark_chat_finished,
         )
 
@@ -577,6 +607,7 @@ class BaseChannel(ABC):
                 async for _ in self._workspace.task_tracker.stream_from_queue(
                     queue,
                     chat.id,
+                    cancel_run=True,
                 ):
                     pass
             except asyncio.CancelledError:
@@ -727,27 +758,7 @@ class BaseChannel(ABC):
             "",
         ):
             # Finalize current streaming box before starting a new one
-            flush_meta = self._get_stream_flush_meta(
-                send_meta,
-                stream_type,
-            )
-            task = flush_meta.get("task")
-            if task and not task.done():
-                try:
-                    await asyncio.wait_for(
-                        task,
-                        timeout=self._STREAM_FLUSH_TIMEOUT_S,
-                    )
-                except (
-                    asyncio.TimeoutError,
-                    asyncio.CancelledError,
-                    Exception,
-                ):
-                    task.cancel()
-            send_meta.get("_stream_flush", {}).pop(
-                stream_type,
-                None,
-            )
+            await self._await_stream_flush(send_meta, stream_type)
             accumulated = streaming_buffers.pop(stream_type, "")
             await self.on_streaming_end(
                 request,
@@ -781,10 +792,9 @@ class BaseChannel(ABC):
         # Guard 1: previous flush still in-flight
         task = flush_meta.get("task")
         if task and not task.done():
-            elapsed = now - flush_meta.get("last_ts", 0.0)
-            if elapsed > self._STREAM_FLUSH_TIMEOUT_S:
-                task.cancel()
             return True
+        if task:
+            task.result()
 
         # Guard 2: minimum interval not elapsed
         if self._STREAM_DELTA_MIN_INTERVAL_S > 0:
@@ -799,7 +809,14 @@ class BaseChannel(ABC):
         from qwenpaw.agents.context.scroll.serialize import strip_headline
 
         display_text = strip_headline(streaming_buffers[stream_type]) or ""
-        flush_meta["task"] = asyncio.create_task(
+        timeout = self._stream_flush_timeout()
+        deadline = (
+            None
+            if timeout is None
+            else asyncio.get_running_loop().time() + timeout
+        )
+        flush_meta["deadline"] = deadline
+        task = flush_meta["task"] = asyncio.create_task(
             self._safe_streaming_delta(
                 request,
                 to_handle,
@@ -807,8 +824,11 @@ class BaseChannel(ABC):
                 send_meta,
                 stream_type,
                 display_text,
+                deadline,
             ),
         )
+        self._stream_flush_tasks.add(task)
+        task.add_done_callback(self._stream_flush_done)
         return True
 
     async def _on_stream_msg_end(
@@ -835,28 +855,7 @@ class BaseChannel(ABC):
                 return True
 
             # Await pending flush to ensure ordering before finalize
-            flush_meta = self._get_stream_flush_meta(
-                send_meta,
-                stream_type,
-            )
-            task = flush_meta.get("task")
-            if task and not task.done():
-                try:
-                    await asyncio.wait_for(
-                        task,
-                        timeout=self._STREAM_FLUSH_TIMEOUT_S,
-                    )
-                except (
-                    asyncio.TimeoutError,
-                    asyncio.CancelledError,
-                    Exception,
-                ):
-                    task.cancel()
-            # Clean up flush state
-            send_meta.get("_stream_flush", {}).pop(
-                stream_type,
-                None,
-            )
+            await self._await_stream_flush(send_meta, stream_type)
 
             buf = streaming_buffers.pop(stream_type, "")
             accumulated = self._extract_text_from_event(event) or buf
@@ -921,6 +920,8 @@ class BaseChannel(ABC):
 
         last_response = None
         process_iterator = None
+        flush_cleanup_attempted = False
+        flush_cleanup_complete = False
         msg_id_to_stream_type: Dict[str, str] = {}
         streaming_buffers: Dict[str, str] = {}
         headline_stream_states: dict[str, Any] = {}
@@ -1001,6 +1002,9 @@ class BaseChannel(ABC):
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
                 self._clear_session_turn_usage(session_id)
+                flush_cleanup_attempted = True
+                await self._stop_stream_flushes(send_meta)
+                flush_cleanup_complete = True
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -1030,8 +1034,6 @@ class BaseChannel(ABC):
                 f"{sanitize_log_value(raw_session)[:34]}",
             )
             self._clear_session_turn_usage(session_id)
-            if process_iterator is not None:
-                await process_iterator.aclose()
             raise
 
         except Exception as e:
@@ -1041,6 +1043,15 @@ class BaseChannel(ABC):
                 f"agent={to_handle}",
             )
             self._clear_session_turn_usage(session_id)
+            if not flush_cleanup_attempted:
+                flush_cleanup_attempted = True
+                try:
+                    await self._stop_stream_flushes(send_meta)
+                except TimeoutError as cleanup_error:
+                    raise e from cleanup_error
+                flush_cleanup_complete = True
+            if not flush_cleanup_complete:
+                raise
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -1048,7 +1059,18 @@ class BaseChannel(ABC):
             )
             raise
         finally:
-            await self._finish_response_cycle(session_id)
+            try:
+                if process_iterator is not None:
+                    await process_iterator.aclose()
+            finally:
+                try:
+                    if not flush_cleanup_attempted:
+                        await self._stop_stream_flushes(send_meta)
+                except TimeoutError:
+                    # Stop/replacement must retry these still-owned tasks.
+                    logger.warning("streaming flush cleanup pending")
+                finally:
+                    await self._finish_response_cycle(session_id)
 
     @staticmethod
     def _sanitize_surrogate_text(text: str) -> str:
@@ -1520,6 +1542,14 @@ class BaseChannel(ABC):
             # Always attach so channel _before_consume_process can use it
             # (e.g. Feishu save receive_id for cron send).
             setattr(request, "channel_meta", meta_from_payload)
+        await self._consume_request(request, payload)
+
+    async def _consume_request(
+        self,
+        request: "AgentRequest",
+        payload: Any,
+    ) -> None:
+        """Run an admitted direct request, including response preparation."""
         to_handle = self.get_to_handle_from_request(request)
         await self._before_consume_process(request)
         # Prefer meta built from payload so session_webhook is present when
@@ -1683,6 +1713,74 @@ class BaseChannel(ABC):
     # Streaming hooks — override in subclasses
     # ------------------------------------------------------------------
 
+    def _stream_flush_timeout(self) -> float | None:
+        """Fallback for hooks without their own outbound execution budget."""
+        return self._STREAM_FLUSH_TIMEOUT_S
+
+    def _stream_flush_done(self, task: asyncio.Task[None]) -> None:
+        self._stream_flush_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning("streaming delta failed", exc_info=task.exception())
+
+    async def _await_stream_flush(self, send_meta, stream_type) -> None:
+        from ...plugins.custody import TASK_STOP_SECONDS
+
+        flushes = send_meta.get("_stream_flush", {})
+        state = flushes.get(stream_type, {})
+        task = state.get("task")
+        try:
+            if task is not None:
+                # The task owns its execution deadline; joining never resets it.
+                deadline = state.get("deadline")
+                timeout = (
+                    None
+                    if deadline is None
+                    else max(
+                        0,
+                        deadline
+                        + TASK_STOP_SECONDS
+                        - asyncio.get_running_loop().time(),
+                    )
+                )
+                _, pending = await asyncio.wait({task}, timeout=timeout)
+                if pending:
+                    raise TimeoutError("Channel streaming flush did not stop")
+                task.result()
+        finally:
+            if task is None or task.done():
+                flushes.pop(stream_type, None)
+
+    async def _stop_stream_flushes(
+        self,
+        send_meta=None,
+        *,
+        cancel=True,
+    ) -> None:
+        from ...plugins.custody import TASK_STOP_SECONDS
+
+        flushes = (send_meta or {}).get("_stream_flush", {})
+        tasks = (
+            {state["task"] for state in flushes.values() if state.get("task")}
+            if send_meta is not None
+            else set(self._stream_flush_tasks)
+        )
+        for task in tasks:
+            if cancel and not task.done() and not task.cancelling():
+                task.cancel()
+        try:
+            if tasks:
+                _, pending = await asyncio.wait(
+                    tasks,
+                    timeout=TASK_STOP_SECONDS,
+                )
+                if pending:
+                    raise TimeoutError("Channel streaming flush did not stop")
+        finally:
+            for kind, state in tuple(flushes.items()):
+                task = state.get("task")
+                if task is None or task.done():
+                    flushes.pop(kind, None)
+
     def _get_stream_flush_meta(
         self,
         send_meta: Dict[str, Any],
@@ -1707,8 +1805,22 @@ class BaseChannel(ABC):
         send_meta: Dict[str, Any],
         stream_type: str,
         accumulated_text: str,
+        deadline: float | None,
     ) -> None:
-        """Wrapper that invokes on_streaming_delta and catches errors."""
+        """Install a fallback deadline once, at execution start."""
+        task = asyncio.current_task()
+        expiry = object()
+
+        def expire():
+            # Lifecycle cancellation may already be awaiting hook cleanup.
+            if not task.done() and not task.cancelling():
+                task.cancel(expiry)
+
+        timer = (
+            asyncio.get_running_loop().call_at(deadline, expire)
+            if deadline is not None
+            else None
+        )
         try:
             await self.on_streaming_delta(
                 request,
@@ -1718,13 +1830,15 @@ class BaseChannel(ABC):
                 stream_type,
                 accumulated_text=accumulated_text,
             )
-        except Exception:
-            logger.warning("streaming delta failed", exc_info=True)
-            flush_meta = self._get_stream_flush_meta(
-                send_meta,
-                stream_type,
-            )
-            flush_meta["last_ts"] = 0.0
+        except asyncio.CancelledError as exc:
+            if exc.args == (expiry,) and task.uncancel() == 0:
+                raise TimeoutError(
+                    "Channel streaming flush timed out",
+                ) from None
+            raise
+        finally:
+            if timer is not None:
+                timer.cancel()
 
     async def on_streaming_start(
         self,
@@ -2257,6 +2371,15 @@ class BaseChannel(ABC):
 
     async def start(self) -> None:
         raise NotImplementedError
+
+    async def prepare_stop(self) -> bool:
+        """Settle owned calls before draining.
+
+        Return True when preparation requires ingress to remain closed, even
+        if draining fails. This default leaves legacy channels resumable.
+        """
+        await self._stop_stream_flushes(cancel=False)
+        return False
 
     async def stop(self) -> None:
         raise NotImplementedError

@@ -21,22 +21,7 @@
 
 /* ---- Main Tabs (Tool Guard / Skill Scanner) ---- */
 .mainTabs {
-  .settings-tabs();
-
-  > :global(.qwenpaw-tabs-nav),
-  > :global(.ant-tabs-nav) {
-    position: relative;
-    padding: 0 !important;
-    border: 0;
-    border-bottom: 1px solid var(--app-border-subtle);
-    border-radius: 0;
-    background: transparent;
-  }
-
-  :global(.qwenpaw-tabs-tab),
-  :global(.ant-tabs-tab) {
-    padding-inline: 0;
-  }
+  .flat-settings-tabs();
 
   /* The leading settings card repeats the tab bar's own frame. Drop that
      shell so settings sit directly on the page, below the tab rule. */

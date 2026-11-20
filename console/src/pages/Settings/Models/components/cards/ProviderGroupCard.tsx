@@ -153,6 +153,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         <button
           type="button"
           className={styles.selectedModelsLink}
+          data-settings-target="models.manageModels"
           onClick={() => onOpenModels(activeProvider)}
         >
           <span>

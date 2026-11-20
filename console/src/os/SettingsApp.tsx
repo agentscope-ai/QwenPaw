@@ -14,12 +14,14 @@ import {
   Cpu,
   Sparkles,
   Globe,
+  MessagesSquare,
   ShieldCheck,
   BarChart3,
   Archive,
   Mic,
   Bug,
   SlidersHorizontal,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { useRoutes } from "../plugins/registry/hooks";
@@ -39,6 +41,12 @@ interface SettingsItem {
 
 /** Mirrors the core.settings-group entries in builtinMenu. */
 const SETTINGS_ITEMS: SettingsItem[] = [
+  {
+    routeId: "core.community",
+    labelKey: "community.title",
+    fallback: "Community",
+    Icon: MessagesSquare,
+  },
   {
     routeId: "core.agents",
     labelKey: "nav.agents",
@@ -68,6 +76,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.security",
     fallback: "Security",
     Icon: ShieldCheck,
+  },
+  {
+    routeId: "core.offload-policy",
+    labelKey: "nav.offloadPolicy",
+    fallback: "Tool Offload",
+    Icon: Wrench,
   },
   {
     routeId: "core.token-usage",

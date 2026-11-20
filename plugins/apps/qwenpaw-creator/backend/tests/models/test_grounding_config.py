@@ -158,3 +158,50 @@ def test_grounding_runtime_policy_does_not_read_environment(monkeypatch):
     assert [
         (env_name, getter()) for env_name, getter, _expected in policy
     ] == [(env_name, expected) for env_name, _getter, expected in policy]
+
+
+def test_grounding_protocol_follows_the_borrowed_credential(
+    tmp_path,
+    monkeypatch,
+):
+    """The verifier's wire format belongs to the key it spends.
+
+    Reproduced from the review: a grounding section pointed at the LLM's Token
+    Plan credential was judged by the VLM section's protocol, so the crop went
+    to the model-bound Bailian upload that a Token Plan key cannot use
+    (``getPolicy`` answers 401) and the request was assembled for a wire format
+    the endpoint does not speak. Editing the unrelated VLM section was the only
+    way to change either decision.
+    """
+    config_path = tmp_path / "model_config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    for name in (
+        "WEB_GROUNDING_VALIDATION_SOURCE",
+        "WEB_GROUNDING_LLM_PROTOCOL",
+        "WEB_GROUNDING_VLM_PROTOCOL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        config,
+        "get_text_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    monkeypatch.setattr(
+        config,
+        "get_vlm_protocol",
+        lambda: "DashScope Qwen-VL",
+    )
+    config._clear_user_config_cache()
+
+    try:
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "llm")
+        assert config.get_web_grounding_model_protocol() == "Aliyun Token Plan"
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "vlm")
+        assert config.get_web_grounding_model_protocol() == "DashScope Qwen-VL"
+        # A section that names its own credential answers for its protocol.
+        monkeypatch.setenv("WEB_GROUNDING_VALIDATION_SOURCE", "custom")
+        monkeypatch.setenv("WEB_GROUNDING_LLM_PROTOCOL", "OpenAI Compatible")
+        assert config.get_web_grounding_model_protocol() == "OpenAI Compatible"
+    finally:
+        config._clear_user_config_cache()

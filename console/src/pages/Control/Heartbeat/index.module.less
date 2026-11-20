@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/pageHeader.less";
+
 .heartbeatPage {
   :global {
     .qwenpaw-spark-card-wrapper {
@@ -25,36 +27,7 @@
 }
 
 .pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  flex: 1;
-}
-
-.breadcrumbParent {
-  color: var(--app-text-tertiary);
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: var(--app-text-quaternary);
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: var(--app-text);
-  font-weight: 600;
-  font-size: 20px;
+  .page-header-frame();
 }
 
 .title {

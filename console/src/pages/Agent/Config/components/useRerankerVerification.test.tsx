@@ -73,6 +73,7 @@ describe("useRerankerVerification", () => {
       correctCount: 3,
       total: 3,
     });
+    expect(stored?.configKey).toBe(result.current.configKey);
     expect(result.current.testedRerankerIsCurrent).toBe(true);
   });
 
@@ -118,8 +119,6 @@ describe("useRerankerVerification", () => {
       currentConfig: { ...enabledConfig, model_name: "other-reranker-model" },
     });
 
-    // The fingerprint resolves asynchronously, so the invalidation lands a
-    // tick after the rerender.
     await waitFor(() =>
       expect(result.current.testedRerankerIsCurrent).toBe(false),
     );
@@ -129,7 +128,7 @@ describe("useRerankerVerification", () => {
     const { result } = renderVerificationHook(enabledConfig);
 
     await act(async () => {
-      await result.current.setHistory([historyRecord]);
+      result.current.setHistory([historyRecord]);
     });
 
     // No verdict exists at all: history lives in its own slice.
@@ -143,7 +142,7 @@ describe("useRerankerVerification", () => {
     const { result } = renderVerificationHook(enabledConfig);
 
     await act(async () => {
-      await result.current.setHistory([]);
+      result.current.setHistory([]);
     });
 
     const state = useRerankerVerificationStore.getState();
@@ -151,29 +150,24 @@ describe("useRerankerVerification", () => {
     expect(result.current.history).toEqual([]);
   });
 
-  it("drops history and verdicts for a superseded service config", async () => {
+  it("drops a verdict for a superseded configuration", async () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
-    await waitFor(() =>
-      expect(result.current.serviceFingerprint).toMatch(/^sha256:/),
-    );
-    const staleFingerprint = result.current.serviceFingerprint;
+    const staleConfigKey = result.current.configKey;
 
     rerender({
       currentConfig: { ...enabledConfig, model_name: "changed-reranker" },
     });
     await waitFor(() =>
-      expect(result.current.serviceFingerprint).not.toBe(staleFingerprint),
+      expect(result.current.configKey).not.toBe(staleConfigKey),
     );
 
     await act(async () => {
-      await result.current.setHistory([historyRecord], staleFingerprint);
-      await result.current.markVerified(321, 1, 5, 5, staleFingerprint);
+      await result.current.markVerified(321, 1, 5, 5, staleConfigKey);
     });
 
     expect(
       useRerankerVerificationStore.getState().verificationByAgent.default,
     ).toBeUndefined();
-    expect(result.current.history).toEqual([]);
   });
 
   it("a late history response does not erase a completed manual result", async () => {
@@ -187,7 +181,7 @@ describe("useRerankerVerification", () => {
     expect(manual?.verifiedAt).toBeGreaterThan(0);
 
     await act(async () => {
-      await result.current.setHistory([historyRecord]);
+      result.current.setHistory([historyRecord]);
     });
 
     expect(
@@ -204,7 +198,7 @@ describe("useRerankerVerification", () => {
     // The manual probe response already carries the freshly appended series.
     await act(async () => {
       await result.current.markVerified(321, 1.0, 5, 5);
-      await result.current.setHistory([older, newer]);
+      result.current.setHistory([older, newer]);
     });
     expect(result.current.history.map((entry) => entry.ts)).toEqual([
       1_000, 2_000,
@@ -212,7 +206,7 @@ describe("useRerankerVerification", () => {
 
     // A GET that started earlier resolves afterwards with the stale series.
     await act(async () => {
-      await result.current.setHistory([older]);
+      result.current.setHistory([older]);
     });
 
     expect(result.current.history.map((entry) => entry.ts)).toEqual([
@@ -220,7 +214,7 @@ describe("useRerankerVerification", () => {
     ]);
   });
 
-  it("multiplier-only change keeps verification fingerprint stable", async () => {
+  it("multiplier-only change keeps verification config key stable", async () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
     await act(async () => {
@@ -231,12 +225,12 @@ describe("useRerankerVerification", () => {
 
     rerender({ currentConfig: { ...enabledConfig, candidate_multiplier: 5 } });
     await waitFor(() =>
-      expect(result.current.serviceFingerprint).toBe(before?.fingerprint),
+      expect(result.current.configKey).toBe(before?.configKey),
     );
 
     const after =
       useRerankerVerificationStore.getState().verificationByAgent.default;
-    expect(after?.fingerprint).toBe(before?.fingerprint);
+    expect(after?.configKey).toBe(before?.configKey);
     expect(after?.verifiedAt).toBe(before?.verifiedAt);
     expect(after?.precision).toBe(1.0);
   });

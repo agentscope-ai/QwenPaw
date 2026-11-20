@@ -107,6 +107,29 @@ export interface ChatSubmitInput {
   sessionId: string;
 }
 
+/**
+ * Theme roles a plugin may override: `styles/tokens.css` roles without the
+ * `--app-` prefix. The set is closed on purpose — the remaining `--app-*`
+ * roles stay host implementation details.
+ */
+export type ThemeTokenKey =
+  | "bg"
+  | "surface"
+  | "surface-raised"
+  | "border"
+  | "text"
+  | "text-secondary";
+
+/** Both schemes are required, so a theme can never leave one unreadable. */
+export interface ThemeTokenValue {
+  light: string;
+  dark: string;
+}
+
+export type ThemeTokenOverrides = Partial<
+  Record<ThemeTokenKey, ThemeTokenValue>
+>;
+
 export interface QwenPawChatNamespace {
   /** Last registration for a language wins; disposing it restores the previous one. */
   codeBlock(
@@ -135,6 +158,12 @@ export interface QwenPawChatNamespace {
       pluginId: string,
       partial: Partial<{ colorPrimary: string }>,
     ): Disposable;
+    /**
+     * Override semantic theme roles for light and dark schemes at once.
+     * Later registrations win per token; disposing falls back to the
+     * registration below it.
+     */
+    overrideTokens(pluginId: string, tokens: ThemeTokenOverrides): Disposable;
   };
   leftHeader: {
     set(
@@ -310,6 +339,23 @@ export interface QwenPawMemoryBackendsNamespace {
   register(pluginId: string, extension: MemoryBackendExtension): Disposable;
 }
 
+/** Harness frontend settings contributions, available since SDK 1.1.0. */
+export interface HarnessSettingsProps {
+  backendId: string;
+  value: Record<string, unknown>;
+  onChange(value: Record<string, unknown>): void;
+  open: boolean;
+}
+
+export interface HarnessFrontendExtension {
+  backendId: string;
+  SettingsComponent?: React.ComponentType<HarnessSettingsProps>;
+}
+
+export interface QwenPawHarnessesNamespace {
+  register(pluginId: string, extension: HarnessFrontendExtension): Disposable;
+}
+
 export interface PluginRouteDeclaration {
   path: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,6 +373,7 @@ export interface QwenPawWindowNamespace {
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   memoryBackends: QwenPawMemoryBackendsNamespace;
+  harnesses: QwenPawHarnessesNamespace;
   modules: Record<string, Record<string, unknown>>;
   paw?: {
     forApp(appId: string): import("./paw.js").PawSdk;

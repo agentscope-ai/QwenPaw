@@ -509,6 +509,14 @@ def _base_config() -> dict[str, Any]:
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "order_by": {
+                            "type": "string",
+                            "enum": ["tag", "file_count"],
+                        },
+                        "order": {
+                            "type": "string",
+                            "enum": ["asc", "desc"],
+                        },
                         "page": {"type": "integer", "minimum": 1},
                         "page_size": {
                             "type": "integer",

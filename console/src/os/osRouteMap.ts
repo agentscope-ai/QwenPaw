@@ -28,11 +28,13 @@ export interface RouteLike {
  * opens System Settings and selects the matching pane.
  */
 export const SETTINGS_ROUTE_IDS = new Set<string>([
+  "core.community",
   "core.agents",
   "core.models",
   "core.skill-pool",
   "core.environments",
   "core.security",
+  "core.offload-policy",
   "core.token-usage",
   "core.backups",
   "core.voice-transcription",

@@ -265,7 +265,9 @@ class MultimodalHintContributor(SyncPromptContributor):
     def contribute_sync(self, ctx: "HookContext") -> str | None:
         from ..agents.prompt import build_multimodal_hint
 
-        hint = build_multimodal_hint()
+        hint = build_multimodal_hint(
+            (getattr(ctx, "extras", None) or {}).get("agent_config"),
+        )
         return hint or None
 
 

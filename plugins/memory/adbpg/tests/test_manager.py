@@ -83,7 +83,7 @@ async def test_adbpg_search_finds_nested_imported_memory(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
+async def test_adbpg_auto_memory_search_injects_recall_hint(tmp_path):
     manager = _manager(
         tmp_path,
         config=ADBPGMemoryConfig(
@@ -122,10 +122,13 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
     assert memory_msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] == [
         block.id for block in memory_msg.content
     ]
-    assert memory_msg.content[2].name == "memory_search"
-    assert '"max_results": 2' in memory_msg.content[2].input
-    assert memory_msg.content[3].name == "memory_search"
-    assert memory_msg.content[3].output[0].text.endswith("喜欢猫")
+    assert len(memory_msg.content) == 1
+    hint_text = memory_msg.content[0].hint
+    assert hint_text.startswith("<auto_memory_recall>")
+    assert "query: 我喜欢什么动物" in hint_text
+    assert "max_results: 2" in hint_text
+    assert "[1] (adbpg, score: 0.88)\n喜欢猫" in hint_text
+    assert hint_text.rstrip().endswith("as silent background context.)")
     manager.memory_search.assert_awaited_once_with(
         query="我喜欢什么动物",
         max_results=2,

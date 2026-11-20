@@ -46,6 +46,7 @@ import {
 } from "./components/acpFormValues";
 import styles from "../../Control/Channels/index.module.less";
 import stylesACP from "./index.module.less";
+import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 const BUILTIN_ACP_ORDER = [
   "opencode",
@@ -169,6 +170,8 @@ function ACPPage() {
   const [saving, setSaving] = useState(false);
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [nodeModalOpen, setNodeModalOpen] = useState(false);
+  const searchRequest = useSettingsSearchSurface("acp", nodeModalOpen);
+  const handledSearch = useRef<typeof searchRequest>(null);
   const [nodeRuntime, setNodeRuntime] = useState<ACPNodeRuntimeStatus | null>(
     null,
   );
@@ -396,6 +399,28 @@ function ACPPage() {
     setNodeModalOpen(true);
     void fetchNodeRuntime(ownerAgent);
   };
+
+  useEffect(() => {
+    if (
+      searchRequest?.targetId !== "acp.nodePath" ||
+      handledSearch.current === searchRequest ||
+      !loadedConfig ||
+      loadedConfigOwner !== selectedAgent
+    )
+      return;
+    const owner = getWritableOwner();
+    if (!owner) return;
+    handledSearch.current = searchRequest;
+    setNodeModalOpen(true);
+    void fetchNodeRuntime(owner);
+  }, [
+    searchRequest,
+    loadedConfig,
+    loadedConfigOwner,
+    selectedAgent,
+    getWritableOwner,
+    fetchNodeRuntime,
+  ]);
 
   const handleCardClick = (key: string) => {
     if (!getWritableOwner()) return;
@@ -746,7 +771,10 @@ function ACPPage() {
         footer={null}
         destroyOnHidden
       >
-        <div className={stylesACP.nodeSettings}>
+        <div
+          className={stylesACP.nodeSettings}
+          data-settings-target="acp.nodePath"
+        >
           <label className={stylesACP.nodeLabel}>{t("acp.nodePath")}</label>
           <Select
             value={selectedNodeValue}

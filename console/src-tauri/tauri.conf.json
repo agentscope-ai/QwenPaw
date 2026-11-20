@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "QwenPaw Desktop",
+        "create": false,
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -47,6 +48,7 @@
     "resources": [
       "binaries/qwenpaw-backend",
       "binaries/python-runtime",
+      "binaries/channel-runtime",
       "binaries/node-runtime"
     ],
     "windows": {

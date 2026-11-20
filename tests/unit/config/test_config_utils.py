@@ -440,23 +440,31 @@ class TestGetAvailableChannels:
         monkeypatch.delenv("QWENPAW_DISABLED_CHANNELS", raising=False)
         assert cu.get_available_channels() == ("console", "feishu")
 
-    def test_enabled_whitelist_no_match_returns_all(
+    def test_enabled_whitelist_no_match_returns_empty(
         self,
         monkeypatch,
         fake_registry,
     ):
         monkeypatch.setenv("QWENPAW_ENABLED_CHANNELS", "ghost")
         monkeypatch.delenv("QWENPAW_DISABLED_CHANNELS", raising=False)
-        assert cu.get_available_channels() == (
-            "console",
-            "dingtalk",
-            "feishu",
-        )
+        assert cu.get_available_channels() == ()
 
     def test_disabled_blacklist(self, monkeypatch, fake_registry):
         monkeypatch.delenv("QWENPAW_ENABLED_CHANNELS", raising=False)
         monkeypatch.setenv("QWENPAW_DISABLED_CHANNELS", "feishu")
         assert cu.get_available_channels() == ("console", "dingtalk")
+
+    def test_disabled_blacklist_all_returns_empty(
+        self,
+        monkeypatch,
+        fake_registry,
+    ):
+        monkeypatch.delenv("QWENPAW_ENABLED_CHANNELS", raising=False)
+        monkeypatch.setenv(
+            "QWENPAW_DISABLED_CHANNELS",
+            "console, dingtalk, feishu",
+        )
+        assert cu.get_available_channels() == ()
 
     def test_enabled_wins_over_disabled(self, monkeypatch, fake_registry):
         monkeypatch.setenv("QWENPAW_ENABLED_CHANNELS", "console")

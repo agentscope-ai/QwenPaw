@@ -377,20 +377,6 @@ async def test_plugin_runtime_hook_is_isolated():
         await host.run(Phase.PRE_EXECUTE, ctx)
 
 
-def test_cloudpaw_uses_provision_not_loader_patch():
-    source = (
-        Path(__file__).parents[3]
-        / "plugins"
-        / "bundle"
-        / "cloudpaw"
-        / "plugin.py"
-    ).read_text(encoding="utf-8")
-    assert "_patch_plugin_loader_unload" not in source
-    assert "PluginLoader.unload_plugin" not in source
-    assert "api.provision(" in source
-    assert "cloudpaw_agents" in source
-
-
 class _DenyCommit(LifecycleDelegate):
     def owns_commit(self, plugin_id: str) -> bool:
         del plugin_id

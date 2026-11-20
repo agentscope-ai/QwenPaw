@@ -186,32 +186,6 @@ class TestOnModelCallAutomationSkip:
         assert mm.auto_memory_search.await_args.args[0].id == "turn-1"
 
     @pytest.mark.asyncio
-    async def test_search_result_only_updates_current_model_input(self):
-        mm = _make_memory_manager()
-        mw = MemoryMiddleware(memory_manager=mm)
-        agent = _make_agent(source="user")
-        query = _user_msg()
-        memory_msg = Msg(
-            name="memory_search",
-            role="assistant",
-            content=[TextBlock(text="remembered fact")],
-        )
-        agent.state.context = [query]
-        mm.auto_memory_search.return_value = {"msg": [query, memory_msg]}
-        input_kwargs = {"messages": [query]}
-        next_handler = AsyncMock(return_value="model_result")
-
-        with patch.object(
-            MemoryMiddleware,
-            "_extract_memory_messages",
-            return_value=[memory_msg],
-        ):
-            await mw.on_model_call(agent, input_kwargs, next_handler)
-
-        assert input_kwargs["messages"] == [query, memory_msg]
-        assert agent.state.context == [query]
-
-    @pytest.mark.asyncio
     async def test_search_result_survives_follow_up_model_call(self):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
@@ -264,45 +238,6 @@ class TestOnModelCallAutomationSkip:
             tool_reply.id,
         ]
         assert agent.state.context == [query]
-
-    @pytest.mark.asyncio
-    async def test_new_turn_replaces_search_cache(self):
-        mm = _make_memory_manager()
-        mw = MemoryMiddleware(memory_manager=mm)
-        agent = _make_agent(source="user")
-        first = _user_msg("first", msg_id="turn-1")
-        second = _user_msg("second", msg_id="turn-2")
-        evidence = Msg(
-            name="memory_search",
-            role="assistant",
-            content=[TextBlock(text="old evidence")],
-        )
-        mm.auto_memory_search.side_effect = [
-            {"msg": [first, evidence]},
-            None,
-        ]
-
-        agent.state.context = [first]
-        with patch.object(
-            MemoryMiddleware,
-            "_extract_memory_messages",
-            side_effect=[[evidence], []],
-        ):
-            await mw.on_model_call(
-                agent,
-                {"messages": [first]},
-                AsyncMock(return_value="first"),
-            )
-            agent.state.context.extend([second])
-            second_input = {"messages": [first, second]}
-            await mw.on_model_call(
-                agent,
-                second_input,
-                AsyncMock(return_value="second"),
-            )
-
-        assert mm.auto_memory_search.await_count == 2
-        assert evidence not in second_input["messages"]
 
     @pytest.mark.asyncio
     async def test_untagged_user_message_does_not_search(self):

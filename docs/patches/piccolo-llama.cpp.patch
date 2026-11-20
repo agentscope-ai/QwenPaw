@@ -1,0 +1,378 @@
+--- a/common/common.h
++++ b/common/common.h
+@@ -967,6 +967,7 @@
+ // typed decision models, see "<arch>.decision.type" in the model metadata
+ enum common_decision_type {
+     COMMON_DECISION_TYPE_NONE,    // not a decision model
++    COMMON_DECISION_TYPE_PICCOLO,   // flex_twice prompts, noncausal full attention, candidate logits
+     COMMON_DECISION_TYPE_OPENJEV, // logits of one label token per option, read at the last prompt token
+     COMMON_DECISION_TYPE_LEV,     // same as openjev, noul is read from a rating scale
+     COMMON_DECISION_TYPE_KEV,     // dot product of the hidden states of the last token and of one end token per option
+--- a/common/common.cpp
++++ b/common/common.cpp
+@@ -1174,6 +1174,7 @@
+ };
+ 
+ static const std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NAMES = {
++    { COMMON_DECISION_TYPE_PICCOLO,          "blink"         },
+     { COMMON_DECISION_TYPE_OPENJEV,        "openjev"       },
+     { COMMON_DECISION_TYPE_LEV,            "lev"           },
+     { COMMON_DECISION_TYPE_KEV,            "kev"           },
+--- a/tools/server/server-common.cpp
++++ b/tools/server/server-common.cpp
+@@ -207,6 +207,7 @@
+ std::vector<std::string> server_model_output_modalities(common_decision_type decision_type, bool has_cap_chat, bool has_cap_tts) {
+     std::vector<std::string> out;
+     switch (decision_type) {
++        case COMMON_DECISION_TYPE_PICCOLO:
+         case COMMON_DECISION_TYPE_OPENJEV:
+         case COMMON_DECISION_TYPE_LEV:
+         case COMMON_DECISION_TYPE_KEV:
+--- a/tools/server/server-decision.h
++++ b/tools/server/server-decision.h
+@@ -150,6 +150,12 @@
+     std::string text_marker;
+     size_t      max_head_tokens   = 0; // question + options
+     size_t      max_option_tokens = 48;
++
++    // PICCOLO
++    llama_tokens piccolo_head;
++    llama_tokens piccolo_tail;
++    size_t piccolo_max_context = 65536;
++    void fill_task_piccolo(const json & state, const std::vector<server_decision_question> & questions, const server_decision_question & question, server_task & task) const;
+ 
+     // H2O_LIGHTNING
+     std::vector<std::string> quoted_spellings; // texts of the special tokens, quoted in the input, longest first
+--- a/tools/server/server-decision.cpp
++++ b/tools/server/server-decision.cpp
+@@ -106,7 +106,7 @@
+         }
+         n_options_max   = labels.size();
+         noul_true_first = true;
+-    } else if (model_type == COMMON_DECISION_TYPE_LEV || model_type == COMMON_DECISION_TYPE_GRANITE_SWITCH || model_type == COMMON_DECISION_TYPE_NIMBLE || model_type == COMMON_DECISION_TYPE_PPLX_DECIDER || model_type == COMMON_DECISION_TYPE_VLLM_D3) {
++    } else if (model_type == COMMON_DECISION_TYPE_PICCOLO || model_type == COMMON_DECISION_TYPE_LEV || model_type == COMMON_DECISION_TYPE_GRANITE_SWITCH || model_type == COMMON_DECISION_TYPE_NIMBLE || model_type == COMMON_DECISION_TYPE_PPLX_DECIDER || model_type == COMMON_DECISION_TYPE_VLLM_D3) {
+         // label codes are A..Z then AA..ZZ, only the ones that are a single token are used
+         std::vector<std::string> codes;
+         for (char a = 'A'; a <= 'Z'; a++) {
+@@ -125,6 +125,24 @@
+             }
+         }
+         n_options_max = labels.size();
++        if (model_type == COMMON_DECISION_TYPE_PICCOLO) {
++            if (decision_meta_str(model, decision_meta_str(model, "general.architecture") + ".attention.causal") != "false") {
++                throw std::runtime_error("Piccolo requires noncausal full attention");
++            }
++            piccolo_head = common_tokenize(vocab, decision_meta_str(model, prefix + "prompt.head"), false, true);
++            piccolo_tail = common_tokenize(vocab, decision_meta_str(model, prefix + "prompt.tail"), false, true);
++            if (piccolo_head.empty() || piccolo_tail.empty() || labels.size() != 255) {
++                throw std::runtime_error("Invalid Piccolo prompt metadata or candidate labels");
++            }
++            const auto answer = common_tokenize(vocab, "Answer: (", false, true);
++            for (size_t i = 0; i < labels.size(); i++) {
++                auto expected = answer;
++                expected.push_back(labels[i]);
++                if (common_tokenize(vocab, "Answer: (" + label_texts[i], false, true) != expected) {
++                    throw std::runtime_error("Piccolo candidate is not one token at the answer boundary");
++                }
++            }
++        }
+         if (model_type == COMMON_DECISION_TYPE_VLLM_D3) {
+             canonical_legend = true;
+         }
+@@ -269,10 +287,10 @@
+         // the vllm-d3 prompt has a default question
+         // h2o-lightning: the instructions can be left out, the template has a default, and the type defaults to choice
+         const bool is_h2o = type == COMMON_DECISION_TYPE_H2O_LIGHTNING;
+-        const json instructions = q.contains("instructions") ? q.at("instructions") : (is_h2o ? json(std::string()) : json());
++        const json instructions = q.contains("instructions") ? q.at("instructions") : ((is_h2o || type == COMMON_DECISION_TYPE_PICCOLO) ? json(std::string()) : json());
+         // minicpm-ocr-jev answers one fixed question, the prompt is entirely in the template
+         const bool is_ocr_jev = type == COMMON_DECISION_TYPE_MINICPM_OCR_JEV;
+-        if (instructions.is_null() && type != COMMON_DECISION_TYPE_VLLM_D3 && !is_h2o && !is_ocr_jev) {
++        if (instructions.is_null() && type != COMMON_DECISION_TYPE_PICCOLO && type != COMMON_DECISION_TYPE_VLLM_D3 && !is_h2o && !is_ocr_jev) {
+             throw err("\"instructions\" must be provided");
+         }
+         if (strict_payload && (!decision_is_payload(instructions) || instructions == "")) {
+@@ -300,7 +318,7 @@
+                 }
+                 question.options.push_back({key, description});
+             }
+-            if (strict_payload && question.options.size() < 2) {
++            if ((strict_payload || type == COMMON_DECISION_TYPE_PICCOLO) && question.options.size() < 2) {
+                 throw err("\"criteria\" must have at least 2 options");
+             }
+             if (choice_sorted) {
+@@ -314,8 +332,8 @@
+             if (is_h2o && (!criteria.is_array() || criteria.empty())) {
+                 throw err("\"criteria\" must be a non-empty array");
+             }
+-            if (!is_h2o && (!criteria.is_array() || criteria.size() < 2 || criteria.size() > 10)) {
+-                throw err("\"criteria\" must be an array of 2 to 10 levels");
++            if (!is_h2o && (!criteria.is_array() || criteria.size() < 2 || criteria.size() > (type == COMMON_DECISION_TYPE_PICCOLO ? 255u : 10u))) {
++                throw err("\"criteria\" must be an array of supported score levels");
+             }
+             for (size_t i = 0; i < criteria.size(); i++) {
+                 if (strict_payload && !decision_is_payload(criteria.at(i))) {
+@@ -882,6 +900,117 @@
+     return out;
+ }
+ 
++// FlexDM v1.0 state annotations and token boundaries (MIT, Copyright 2026 1000luca).
++static json decision_piccolo_indices(const json & val, int depth = 0) {
++    if (depth >= RECURSIVE_LIMIT) {
++        throw std::invalid_argument("Piccolo state is nested too deeply");
++    }
++    if (val.is_array()) {
++        json out = json::array();
++        for (size_t i = 0; i < val.size(); i++) {
++            json item = decision_piccolo_indices(val.at(i), depth + 1);
++            if (val.size() >= 8) {
++                json indexed = json{{"_index", i}};
++                if (item.is_object()) {
++                    for (const auto & [key, value] : item.items()) {
++                        indexed[key] = value;
++                    }
++                } else {
++                    indexed["value"] = item;
++                }
++                item = std::move(indexed);
++            }
++            out.push_back(item);
++        }
++        return out;
++    }
++    if (val.is_object()) {
++        json out = json::object();
++        for (const auto & [key, item] : val.items()) {
++            out[key] = decision_piccolo_indices(item, depth + 1);
++        }
++        return out;
++    }
++    return val;
++}
++
++static std::string decision_piccolo_text(const json & val) {
++    return val.is_string() ? val.get<std::string>() : decision_py_dumps(val, -1, ", ", ": ", false);
++}
++
++void server_decision_context::fill_task_piccolo(
++        const json & state,
++        const std::vector<server_decision_question> & questions,
++        const server_decision_question & question,
++        server_task & task) const {
++    const auto encode = [this](const std::string & text) { return common_tokenize(vocab, text, false, true); };
++    const auto append = [](llama_tokens & dest, const llama_tokens & part) { dest.insert(dest.end(), part.begin(), part.end()); };
++    const auto text = [](const server_decision_question & q) {
++        if (q.type == SERVER_DECISION_QUESTION_NOUL && (q.instructions.is_null() || q.instructions == "")) {
++            return std::string("Which answer fits the context?");
++        }
++        return decision_piccolo_text(q.instructions);
++    };
++    std::string listing = "Questions that will be asked about the context:\n";
++    for (const auto & q : questions) {
++        listing += "- " + text(q) + "\n";
++    }
++    listing += "\n";
++    const std::string state_text = decision_piccolo_text(decision_piccolo_indices(state));
++    llama_tokens ctx = piccolo_head;
++    append(ctx, encode(listing));
++    append(ctx, encode("Context:\n" + state_text));
++    const llama_tokens again = encode("\n\nRead the same input again before answering:\n" + listing + "Context:\n" + state_text);
++    llama_tokens suffix = piccolo_tail;
++    append(suffix, encode("Answer: ("));
++    std::vector<llama_tokens> pieces;
++    size_t once_tokens = ctx.size();
++    bool repeat = true;
++    size_t selected = 0;
++    for (const auto & q : questions) {
++        llama_tokens part = encode("\n\nQuestion: " + text(q) + "\nOptions:");
++        std::string short_options;
++        for (size_t i = 0; i < q.options.size(); i++) {
++            const auto & opt = q.options[i];
++            std::string option = q.type == SERVER_DECISION_QUESTION_NOUL ? (opt.key == "true" ? "yes" : "no") : opt.key;
++            if (!opt.description.is_null() && opt.description != "") {
++                option += ": " + decision_piccolo_text(opt.description);
++            }
++            if (q.options.size() <= 10) {
++                short_options += "\n(" + label_texts[i] + ") " + option;
++            } else {
++                append(part, encode("\n("));
++                part.push_back(labels[i]);
++                append(part, encode(") " + option));
++            }
++        }
++        if (q.options.size() <= 10) {
++            append(part, encode(short_options));
++        }
++        once_tokens += part.size() + suffix.size();
++        repeat = repeat && ctx.size() + 2 * part.size() + again.size() + suffix.size() < piccolo_max_context;
++        if (q.id == question.id) {
++            selected = pieces.size();
++        }
++        pieces.push_back(std::move(part));
++    }
++    repeat = repeat && once_tokens <= 3000;
++    const auto & part = pieces.at(selected);
++    append(ctx, part);
++    if (repeat) {
++        append(ctx, again);
++        append(ctx, part);
++    }
++    append(ctx, suffix);
++    if (ctx.size() >= piccolo_max_context) {
++        throw std::invalid_argument("Complete Piccolo prompt exceeds context; truncation is not allowed");
++    }
++    task.tokens = server_tokens(ctx, false);
++    task.decision.labels.assign(labels.begin(), labels.begin() + question.options.size());
++    task.decision.no_batching = true;
++    task.params.cache_prompt = false;
++}
++
+ json server_decision_context::prepare_state(const json & state) const {
+     if (type != COMMON_DECISION_TYPE_H2O_LIGHTNING) {
+         return state;
+@@ -1193,6 +1322,13 @@
+         mtmd_context * mctx,
+         const mtmd_helper_init_opt & init_opt,
+         server_task & task) const {
++    if (type == COMMON_DECISION_TYPE_PICCOLO) {
++        if (!files.empty()) {
++            throw std::invalid_argument("Piccolo local decisions currently accept text and JSON only");
++        }
++        fill_task_piccolo(state, questions, question, task);
++        return;
++    }
+     // each question has its own prompt, with the spans that the head reads
+     if (type == COMMON_DECISION_TYPE_VLLM_DECISION2) {
+         fill_task_joint(state, { question }, files, mctx, init_opt, task);
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -1321,6 +1321,9 @@
+ 
+         try {
+             decision.init(model_tgt);
++            if (decision.type == COMMON_DECISION_TYPE_PICCOLO && llama_get_causal_attn(ctx_tgt)) {
++                throw std::runtime_error("Piccolo requires bidirectional prompt attention");
++            }
+         } catch (const std::exception & e) {
+             SRV_ERR("failed to init decision model: %s\n", e.what());
+             return false;
+--- a/conversion/qwen.py
++++ b/conversion/qwen.py
+@@ -676,6 +676,29 @@
+ class Qwen3_5TextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+     model_arch = gguf.MODEL_ARCH.QWEN35
+ 
++    def _set_piccolo_metadata(self):
++        descriptor_path = self.dir_model / "decision-inference.json"
++        if not descriptor_path.is_file():
++            return
++        descriptor = json.loads(descriptor_path.read_text())
++        if descriptor.get("attention_mode") != "bidirectional_prompt" or descriptor.get("prompt_variant") != "flex_twice":
++            raise ValueError("Unsupported Qwen3.5 decision inference contract")
++        from transformers import AutoTokenizer
++        tokenizer = AutoTokenizer.from_pretrained(self.dir_model, local_files_only=True)
++        sentinel = "@@JEVLAB_USER_CONTENT@@"
++        rendered = tokenizer.apply_chat_template([{"role": "user", "content": sentinel}], tokenize=False, add_generation_prompt=True, enable_thinking=False)
++        head, tail = rendered.split(sentinel)
++        for opened, closed in (("<think>\n", "</think>\n\n"), ("<think>", "</think>\n\n"), ("<|channel>thought\n", "<channel|>")):
++            if tail.endswith(opened):
++                tail += closed
++        self.gguf_writer.add_causal_attention(False)
++        self.gguf_writer.add_decision_type(gguf.DecisionType.PICCOLO)
++        self.gguf_writer.add_string("qwen35.decision.prompt.head", head)
++        self.gguf_writer.add_string("qwen35.decision.prompt.tail", tail)
++        self.gguf_writer.add_chat_template([{"name": "systemone", "template": "{# Piccolo uses the token-exact flex_twice layout. #}"}])
++        for kind in ("choice", "score", "noul"):
++            self.gguf_writer.add_decision_temperature(kind, 1.0)
++
+     def __init__(self, dir_model, *args, **kwargs):
+         # Inner TextModel does not own mtp.*. Set no_mtp before mixin bumps block_count.
+         hparams = kwargs.pop("hparams", None)
+@@ -688,6 +711,7 @@
+     def set_gguf_parameters(self):
+         super().set_gguf_parameters()
+         self._try_set_pooling_type()
++        self._set_piccolo_metadata()
+ 
+ 
+ @ModelBase.register("MiniCPMOCRForSequenceClassification")
+--- a/gguf-py/gguf/constants.py
++++ b/gguf-py/gguf/constants.py
+@@ -6534,6 +6534,7 @@
+ 
+ class DecisionType:
+     LAYA    = "laya"     # head blocks + scorer on the hidden state of one marker token per option
++    PICCOLO = "blink"
+     OPENJEV = "openjev"  # logits of one label token per option
+     LEV     = "lev"      # same as openjev, noul is read from a rating scale
+     KEV     = "kev"      # dot product of the hidden states of the last token and of one end token per option
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -400,3 +400,7 @@
+     target_link_libraries(test-export-graph-ops PRIVATE gguf-model-data)
+     target_compile_definitions(test-export-graph-ops PRIVATE LLAMA_HF_FETCH)
+ endif()
++
++if (LLAMA_BUILD_SERVER)
++    llama_build(test-piccolo-layout.cpp LINK server-context)
++endif()
+--- /dev/null
++++ b/tests/test-piccolo-layout.cpp
+@@ -0,0 +1,33 @@
++#include "../tools/server/server-decision.h"
++#include <fstream>
++#include <iostream>
++
++// Export actual runtime token rows for comparison with the checkpoint tokenizer.
++int main(int argc, char ** argv) {
++    if (argc != 3) { return 2; }
++    llama_model_params params = llama_model_default_params();
++    params.vocab_only = true;
++    llama_model * model = llama_model_load_from_file(argv[1], params);
++    if (!model) { return 3; }
++    try {
++        server_decision_context ctx;
++        ctx.init(model);
++        json body;
++        std::ifstream input(argv[2]);
++        body = json::parse(std::string(std::istreambuf_iterator<char>(input), {}));
++        auto questions = ctx.parse_questions(body);
++        json out = json::array();
++        for (const auto & question : questions) {
++            server_task task;
++            ctx.fill_task(body.at("state"), questions, question, 0, {}, nullptr, {}, task);
++            out.push_back({{"question_id", question.id}, {"input_ids", task.tokens.get_text_tokens()},
++                           {"candidate_ids", task.decision.labels}});
++        }
++        std::cout << out.dump() << std::endl;
++    } catch (const std::exception & e) {
++        std::cerr << e.what() << std::endl;
++        llama_model_free(model);
++        return 1;
++    }
++    llama_model_free(model);
++}
+--- /dev/null
++++ b/licenses/LICENSE-FlexDM
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 1000luca
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.

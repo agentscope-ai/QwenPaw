@@ -50,8 +50,21 @@ async def test_list_actions_only_exposes_servable_jobs() -> None:
 
     actions = await manager.list_actions()
 
-    assert set(actions) == {"status", "undo_reindex"}
+    assert set(actions) == {"status", "undo_reindex", "list_tag_files"}
     assert actions["status"]["description"] == "test action"
+
+
+@pytest.mark.asyncio
+async def test_tag_file_action_validates_pagination_before_reading_index():
+    manager = _manager_with_jobs({})
+    for kwargs in [
+        {"tag": "赵六", "page": 0},
+        {"tag": "赵六", "page_size": 101},
+        {"tag": ""},
+    ]:
+        with pytest.raises(ValueError):
+            await manager.run_action("list_tag_files", **kwargs)
+    manager._run_reme_job.assert_not_awaited()
 
 
 @pytest.mark.asyncio

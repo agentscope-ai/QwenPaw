@@ -150,7 +150,12 @@ async def run(phase):
             load_config().plugins,
             activate=True,
         )
-        assert records[PLUGIN_ID].status == "active"
+        record = records[PLUGIN_ID]
+        assert record.status == "active", {
+            "phase": phase,
+            "status": record.status,
+            "diagnostics": record.diagnostics,
+        }
         if phase == "cycle":
             await call("initial", "1.0.0", 2)
             report = await loader.lifecycle.update_config(
@@ -173,7 +178,11 @@ async def run(phase):
             assert not hasattr(tools, TOOL_NAME)
             assert load_config().plugins[PLUGIN_ID]["enabled"] is False
             record = await loader.lifecycle.set_enabled(PLUGIN_ID, True)
-            assert record.status == "active"
+            assert record.status == "active", {
+                "phase": phase,
+                "status": record.status,
+                "diagnostics": record.diagnostics,
+            }
             await call("updated", "2.0.0", 5)
         elif phase == "cold":
             await call("updated", "2.0.0", 6)

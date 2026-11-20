@@ -1,22 +1,11 @@
+@import (reference) "../../styles/sessionHeaders.less";
+
 .header {
-  position: relative;
-  display: flex;
-  width: calc(100% - 12px);
-  height: 32px;
-  align-items: center;
-  gap: 6px;
-  margin: 2px 6px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--app-text-tertiary);
-  cursor: pointer;
+  .session-header();
 }
 
 .header:hover {
-  background: var(--app-fill-faint);
-  color: var(--app-text);
+  .session-header-hover();
 
   .more {
     opacity: 1;
@@ -38,10 +27,7 @@
 .more,
 .pinMark,
 .lockMark {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
+  .session-header-icon();
 }
 
 .chevron {
@@ -53,29 +39,11 @@
 }
 
 .label {
-  min-width: 0;
-  overflow: hidden;
-  flex: 1;
-  font-size: 12px;
-  font-weight: 620;
-  letter-spacing: 0.01em;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  .session-header-label();
 }
 
 .count {
-  display: inline-flex;
-  min-width: 20px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--app-fill-subtle);
-  color: var(--app-text-secondary);
-  font-size: 10px;
-  transition: opacity 0.15s ease;
+  .session-header-count();
 }
 
 .pinMark {

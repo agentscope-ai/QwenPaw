@@ -105,7 +105,7 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
             "label": "Provider",
             "type": "select",
             "options": ["tavily", "anysearch", "firecrawl"],
-            "default": "tavily",
+            "default": "anysearch",
         },
         {
             "name": "api_key",
@@ -443,7 +443,11 @@ async def get_tool_config(
             None,
         )
         if pw_field:
-            ref_provider = (provider or "").strip() or result.get("provider")
+            ref_provider = (
+                (provider or "").strip()
+                or str(result.get("provider") or "").strip()
+                or ("anysearch" if tool_name == "web_search" else None)
+            )
             if ref_provider:
                 result["provider"] = ref_provider
                 ref = _builtin_credential_ref(

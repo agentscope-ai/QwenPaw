@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from qwenpaw.plugins import PluginBusyError
+from qwenpaw.plugins import PluginBusyError, activity
 from qwenpaw.plugins.testing import PluginTestHost
 from .test_sdk_channel_routing_contract import (
     CHANNEL,
@@ -89,9 +89,15 @@ async def test_repeated_cancellation_preserves_queued_terminal_callback(
         await host.stop_channel(CHANNEL)
 
 
+@pytest.mark.parametrize(
+    f"message,status",
+    [(f"ordinary", f"completed"), (f"empty-output", f"failed")],
+)
 async def test_stop_retains_terminal_task_queued_before_callback_admission(
     tmp_path,
     monkeypatch,
+    message,
+    status,
 ):
     # Keep this ownership/cleanup scenario and its assertions together.
     # pylint: disable=too-many-statements
@@ -145,7 +151,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
             "_before_consume_process",
             remember_request,
         )
-        await host.receive_channel(CHANNEL, incoming("empty-output", "queued"))
+        await host.receive_channel(CHANNEL, incoming(message, f"queued"))
         await asyncio.wait_for(queued.wait(), WAIT_TIMEOUT)
         assert len(notifications) == 2
         stopping = asyncio.create_task(host.stop_channel(CHANNEL))
@@ -174,7 +180,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
         assert not cancelled
         events = ctx.storage.read_json("events.json")
         assert [event["phase"] for event in events] == ["start", "end"]
-        assert events[-1]["status"] == "completed"
+        assert events[-1][f"status"] == status
         assert events[0]["run_id"] == events[1]["run_id"]
 
         assert channel._run_states == {}
@@ -224,7 +230,7 @@ async def test_host_close_retains_native_tracker_completion_callback(
         )
         await host.receive_channel(
             CHANNEL,
-            incoming("empty-output", "native-tail"),
+            incoming(f"ordinary", f"native-tail"),
         )
         await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         native = callback_tasks[0]
@@ -359,16 +365,12 @@ async def test_channel_stop_closes_actual_overflow_stream_before_owner_exit(
     tmp_path,
     monkeypatch,
     boundary,
-    request,
 ):
     # Keep this ownership/cleanup scenario and its assertions together.
     # pylint: disable=too-many-statements
     from qwenpaw.agents import react_agent
     from .sdk_author_fixture import make_plugin
     from .test_sdk_channel_routing_contract import SOURCE
-
-    if boundary == "blocked-close":
-        request.getfixturevalue("short_interrupt_timeout")
 
     streams = []
     closing, release, closed = (
@@ -468,11 +470,13 @@ async def test_channel_stop_closes_actual_overflow_stream_before_owner_exit(
             assert len(streams) == 1
             assert streams[0].ag_frame is not None
             if boundary == "blocked-close":
-                with pytest.raises(PluginBusyError):
-                    await host.reload(
-                        "extension-contract",
-                        interrupt_tasks=True,
-                    )
+                with monkeypatch.context() as patch:
+                    patch.setattr(activity, "INTERRUPT_TIMEOUT_SECONDS", 0.2)
+                    with pytest.raises(PluginBusyError):
+                        await host.reload(
+                            "extension-contract",
+                            interrupt_tasks=True,
+                        )
                 assert closing.is_set() and not closed.is_set()
                 assert (
                     host.resource_snapshot("extension-contract")[

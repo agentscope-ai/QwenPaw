@@ -35,7 +35,7 @@ if (Test-Path $DocsDest) { Remove-Item -Recurse -Force $DocsDest }
 New-Item -ItemType Directory -Force -Path $DocsDest | Out-Null
 Copy-Item -Path (Join-Path $DocsSrc "*.md") -Destination $DocsDest -Force
 
-Write-Host "[wheel_build] Building wheel + sdist..."
+Write-Host "[wheel_build] Building wheel + sdist with bundled offline channel sources..."
 python -m pip install --upgrade "pip>=26.2.2"
 if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
 python -m pip install --upgrade "certifi>=2026.10.19"

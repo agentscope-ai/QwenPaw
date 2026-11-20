@@ -1,6 +1,7 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { DependencyUpgradeOperation } from "./plugin";
 import type {
   AgentRequest,
   AgentsRunningConfig,
@@ -36,6 +37,7 @@ export interface RerankerTestResponse {
   message: string;
   total: number;
   correct_count: number;
+  incomplete_count?: number;
   precision: number | null;
   cases: RerankerCaseResponse[] | null;
   history: RerankerHistoryRecord[] | null;
@@ -49,8 +51,29 @@ export interface MemoryBackendDescriptor {
   metadata?: Record<string, unknown>;
 }
 
+export interface LocalWhisperStatus {
+  available: boolean;
+  ffmpeg_installed: boolean;
+  whisper_installed: boolean;
+  plugin_installed: boolean;
+  plugin_enabled: boolean;
+  plugin_status: "missing" | "inactive" | "registered" | "active" | "failed";
+  state:
+    | "missing"
+    | "disabled"
+    | "installing"
+    | "needs_confirmation"
+    | "ready"
+    | "inactive"
+    | "missing_dependencies"
+    | "failed";
+  error?: string;
+  dependency_upgrade?: DependencyUpgradeOperation;
+}
+
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
+  | "TRANSCRIPTION_UNAVAILABLE"
   | "FILE_TOO_LARGE"
   | "UNSUPPORTED_FILE_TYPE";
 
@@ -121,11 +144,9 @@ export const agentApi = {
       timeout: (5 * (config.timeout ?? 10) + 10 + 5) * 1000,
     }),
 
-  getRerankerHistory: (fingerprint: string) =>
+  getRerankerHistory: () =>
     request<{ fingerprint: string; history: RerankerHistoryRecord[] }>(
-      `/workspace/reranker/history?fingerprint=${encodeURIComponent(
-        fingerprint,
-      )}`,
+      "/workspace/reranker/history",
       { timeout: 15_000 },
     ),
 
@@ -174,12 +195,28 @@ export const agentApi = {
       },
     ),
 
+  getTranscriptionModel: () =>
+    request<{ transcription_model: string }>("/workspace/transcription-model"),
+
+  updateTranscriptionModel: (transcription_model: string) =>
+    request<{ transcription_model: string }>("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({ transcription_model }),
+    }),
+
   getLocalWhisperStatus: () =>
-    request<{
-      available: boolean;
-      ffmpeg_installed: boolean;
-      whisper_installed: boolean;
-    }>("/workspace/local-whisper-status"),
+    request<LocalWhisperStatus>("/workspace/local-whisper-status"),
+
+  installLocalWhisper: () =>
+    request<LocalWhisperStatus>("/workspace/local-whisper-install", {
+      method: "POST",
+    }),
+
+  enableLocalWhisper: () =>
+    request("/plugins/local-whisper/enabled", {
+      method: "POST",
+      body: JSON.stringify({ enabled: true }),
+    }),
 
   transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
     const formData = new FormData();

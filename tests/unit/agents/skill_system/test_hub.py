@@ -909,6 +909,25 @@ class TestNormalizeBundle:
         assert scripts == {"b.py": "s"}
         assert extra == {"assets": {"c.txt": "c"}}
 
+    def test_preserves_binary_file(self):
+        payload = b"\x89PNG\x00\xff"
+        _, _, _, _, extra_files = hub._normalize_bundle(
+            {
+                "name": "demo-skill",
+                "files": {"SKILL.md": SKILL_MD, "assets/image.png": payload},
+            },
+        )
+        assert extra_files == {"assets": {"image.png": payload}}
+
+    def test_rejects_non_utf8_skill_markdown(self):
+        with pytest.raises(SkillsError, match="SKILL.md is not valid UTF-8"):
+            hub._normalize_bundle(
+                {
+                    "name": "demo-skill",
+                    "files": {"SKILL.md": b"\xff"},
+                },
+            )
+
     def test_existing_trees_win_over_files(self):
         data = {
             "content": SKILL_MD,
@@ -1387,17 +1406,34 @@ class TestGithubApiFunctions:
         assert _run(hub._github_get_dir_entries("o", "r", "d", "main")) == []
 
     def test_read_file_download_url(self, monkeypatch):
-        async def _fake_text(url, params=None):
-            return "downloaded"
+        async def _fake_bytes(url, params=None):
+            return b"downloaded"
 
-        monkeypatch.setattr(hub, "_http_text_get", _fake_text)
+        monkeypatch.setattr(hub, "_http_bytes_get", _fake_bytes)
         out = _run(hub._github_read_file({"download_url": "http://x/f"}))
-        assert out == "downloaded"
+        assert out == b"downloaded"
+
+    def test_read_file_download_url_preserves_binary(self, monkeypatch):
+        payload = b"\x89PNG\x00\xff"
+
+        async def _fake_bytes(url, params=None):
+            return payload
+
+        async def _fake_text(url, params=None):
+            return payload.decode("utf-8", errors="replace")
+
+        monkeypatch.setattr(hub, "_http_bytes_get", _fake_bytes)
+        monkeypatch.setattr(hub, "_http_text_get", _fake_text)
+        assert (
+            _run(hub._github_read_file({"download_url": "http://x/f.png"}))
+            == payload
+        )
 
     def test_read_file_base64_content(self):
-        encoded = base64.b64encode(b"decoded content").decode()
+        payload = b"\x89PNG\x00\xff"
+        encoded = base64.b64encode(payload).decode()
         out = _run(hub._github_read_file({"content": encoded}))
-        assert out == "decoded content"
+        assert out == payload
 
     def test_read_file_bad_base64(self):
         with pytest.raises(SkillsError, match="Unable to read"):
@@ -2717,6 +2753,81 @@ class TestPrepareInstallPayload:
 
 
 class TestInstallSkillFromHub:
+    def test_install_preserves_github_binary_files(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        skill_md = b"---\nname: demo-skill\ndescription: demo\n---\n# Demo"
+        payload = b"\x89PNG\x00\xff"
+        file_payloads = {
+            "https://raw.example/skills/demo/SKILL.md": skill_md,
+            "https://raw.example/skills/demo/assets/image.png": payload,
+        }
+
+        async def _branch(owner, repo):
+            return "main"
+
+        async def _entry(owner, repo, path, ref):
+            if path != "skills/demo/SKILL.md":
+                request = httpx.Request("GET", "https://api.github.test")
+                response = httpx.Response(404, request=request)
+                raise httpx.HTTPStatusError(
+                    "not found",
+                    request=request,
+                    response=response,
+                )
+            return {
+                "type": "file",
+                "path": path,
+                "download_url": ("https://raw.example/skills/demo/SKILL.md"),
+            }
+
+        async def _entries(owner, repo, path, ref):
+            assert path == "skills/demo"
+            return [
+                {
+                    "type": "file",
+                    "path": "skills/demo/SKILL.md",
+                    "download_url": (
+                        "https://raw.example/skills/demo/SKILL.md"
+                    ),
+                },
+                {
+                    "type": "file",
+                    "path": "skills/demo/assets/image.png",
+                    "download_url": (
+                        "https://raw.example/skills/demo/assets/image.png"
+                    ),
+                },
+            ]
+
+        async def _bytes(url, params=None, accept="", max_bytes=None):
+            return file_payloads[url]
+
+        async def _text(url, params=None):
+            return file_payloads[url].decode("utf-8", errors="replace")
+
+        monkeypatch.setattr(hub, "_github_get_default_branch", _branch)
+        monkeypatch.setattr(hub, "_github_get_content_entry", _entry)
+        monkeypatch.setattr(hub, "_github_get_dir_entries", _entries)
+        monkeypatch.setattr(hub, "_http_bytes_get", _bytes)
+        monkeypatch.setattr(hub, "_http_text_get", _text)
+        result = _run(
+            hub.install_skill_from_hub(
+                workspace_dir=tmp_path,
+                bundle_url=("https://github.com/o/r/tree/main/skills/demo"),
+            ),
+        )
+        store = importlib.import_module("qwenpaw.agents.skill_system.store")
+        installed_file = (
+            store.get_workspace_skills_dir(tmp_path)
+            / result.name
+            / "assets"
+            / "image.png"
+        )
+        assert installed_file.read_bytes() == payload
+
     def test_success(self, monkeypatch, tmp_path):
         async def _prepare(url, version, target, provider=None):
             assert provider is None

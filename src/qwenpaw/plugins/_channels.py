@@ -51,7 +51,6 @@ def register(plugin, spec):
     # This host adapter bridges SDK contracts to private runtime services.
     # pylint: disable=protected-access
     from ..app.channels.base import BaseChannel
-    from ..app.channels.registry import _BUILTIN_SPECS
     from ..schemas import (
         TextContent,
         ImageContent,
@@ -62,8 +61,6 @@ def register(plugin, spec):
 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", spec.name):
         raise SDKError("Channel name must be a safe identifier")
-    if spec.name in _BUILTIN_SPECS:
-        raise SDKError("An SDK channel cannot replace a built-in channel")
 
     class Adapter(BaseChannel):
         channel = spec.name
@@ -81,9 +78,11 @@ def register(plugin, spec):
             values = (
                 config.model_dump()
                 if hasattr(config, "model_dump")
-                else dict(config)
-                if isinstance(config, Mapping)
-                else dict(vars(config))
+                else (
+                    dict(config)
+                    if isinstance(config, Mapping)
+                    else dict(vars(config))
+                )
             )
             super().__init__(
                 process,
@@ -104,9 +103,9 @@ def register(plugin, spec):
             self._closed = False
             self._receiving = False
             self._stopping = False
+            self._prepare_stop_lock = asyncio.Lock()
             self._calls = {}
             self._call_done = {}
-            self._call_cancels = {}
             self._tracker_calls = set()
             self._terminal_notifications = set()
             self._sdk_id = uuid.uuid4().hex
@@ -168,6 +167,10 @@ def register(plugin, spec):
                             status = "failed"
                             raise
                         finally:
+                            from ..utils.io_utils import (
+                                run_async_to_completion,
+                            )
+
                             owned.closing = True
                             _stream_observer.reset(observer_token)
                             _stream_tasks.reset(owner_token)
@@ -181,15 +184,22 @@ def register(plugin, spec):
                                 task for task in owned.tasks if not task.done()
                             }:
                                 for task in pending:
-                                    task.cancel()
+                                    if not task.cancelling():
+                                        task.cancel()
                                 try:
                                     await asyncio.wait(pending)
                                 except asyncio.CancelledError:
                                     status = "cancelled"
                             while owned.streams or owned.scopes:
                                 for close_scope in owned.closers():
+                                    closing = asyncio.create_task(
+                                        close_scope(),
+                                    )
+                                    plugin._instance.activity.retain_cleanup(
+                                        closing,
+                                    )
                                     try:
-                                        await close_scope()
+                                        await run_async_to_completion(closing)
                                     except asyncio.CancelledError:
                                         status = "cancelled"
                                     except Exception as exc:
@@ -212,6 +222,7 @@ def register(plugin, spec):
                 return plugin._managed_stream(
                     lambda: produce(request),
                     f"channel:{spec.name}:run",
+                    wait_for_cleanup=True,
                 )
 
             owned_process._sdk_original_process = original_process
@@ -270,15 +281,10 @@ def register(plugin, spec):
                 self._calls[task] -= 1
                 if not self._calls[task]:
                     del self._calls[task]
-                    # Only retract cancellation requests issued by our scoped
-                    # stop. A shared queue worker may continue after this call.
-                    for _ in range(self._call_cancels.pop(task, 0)):
-                        task.uncancel()
                     self._call_done.pop(task).set_result(None)
                     if propagate_cancel and task.cancelling():
-                        # The manager owns the queue worker's lifetime. A host
-                        # stream may consume its cancellation while producing
-                        # a terminal event; do not then return to queue.get().
+                        # Host streams may consume cancellation to produce a
+                        # terminal event; the request still remains cancelled.
                         raise asyncio.CancelledError
 
         def _receive(self, message):
@@ -306,9 +312,11 @@ def register(plugin, spec):
             ):
                 return
             self._enqueue(
-                _Incoming((request,))
-                if message.session_scope != "default"
-                else request,
+                (
+                    _Incoming((request,))
+                    if message.session_scope != "default"
+                    else request
+                ),
             )
 
         # Keep the existing adapter callback signature.
@@ -357,9 +365,11 @@ def register(plugin, spec):
             )
             request = self.build_agent_request_from_user_content(
                 self.channel,
-                "group"
-                if message.session_scope == "group"
-                else message.sender_id,
+                (
+                    "group"
+                    if message.session_scope == "group"
+                    else message.sender_id
+                ),
                 sid,
                 parts,
             )
@@ -370,9 +380,9 @@ def register(plugin, spec):
                 "bot_mentioned": message.mentioned,
                 "sdk_reply_to": message.reply_to,
                 "_sdk_channel_instance": self._sdk_id,
-                "_sdk_message_ids": (message.message_id,)
-                if message.message_id
-                else (),
+                "_sdk_message_ids": (
+                    (message.message_id,) if message.message_id else ()
+                ),
                 "_sdk_session_scope": message.session_scope,
                 "_sdk_sender_id": message.sender_id,
             }
@@ -486,19 +496,25 @@ def register(plugin, spec):
                 self._receiving = True
                 await plugin._call(self._backend.start, self._sdk_context)
 
-        # Keep related adapter declarations and lifecycle ordering together.
-        # pylint: disable-next=too-many-branches
-        async def stop(self):
-            if self._closed:
-                return
-            self._receiving = False
-            self._stopping = True
-            from .custody import stop_task, TASK_STOP_SECONDS
-
+        async def prepare_stop(self):
             if asyncio.current_task() in self._calls:
                 raise SDKError(
                     "A channel callback cannot stop its own active call",
                 )
+            # Concurrent stop paths must not cancel an invocation a second
+            # time while its first cancellation is running async cleanup.
+            async with self._prepare_stop_lock:
+                return await self._prepare_stop()
+
+        # Keep related adapter declarations and lifecycle ordering together.
+        # pylint: disable-next=too-many-branches
+        async def _prepare_stop(self):
+            if self._closed:
+                return True
+            self._receiving = False
+            self._stopping = True
+            from .custody import TASK_STOP_SECONDS
+
             # A transport must stay usable for cancellation/final stream events
             # until its actual consumers and TaskTracker producers have
             # stopped.
@@ -525,24 +541,24 @@ def register(plugin, spec):
                     completion = self._call_done.get(task)
                     if completion is None:
                         continue
-                    if task in self._tracker_calls:
-                        await stop_task(task, f"channel:{spec.name}:run")
-                    else:
-                        # A queue worker can swallow cancellation and return to
-                        # queue.get(); only this channel's invocation must end.
-                        if task.cancel():
-                            self._call_cancels[task] = (
-                                self._call_cancels.get(task, 0) + 1
-                            )
-                        _, pending = await asyncio.wait(
-                            {completion},
-                            timeout=TASK_STOP_SECONDS,
+                    if not task.cancelling():
+                        task.cancel()
+                    _, pending = await asyncio.wait(
+                        {completion},
+                        timeout=TASK_STOP_SECONDS,
+                    )
+                    if pending:
+                        raise SDKError(
+                            f"Channel {spec.name!r} call has not "
+                            "stopped; retry is required",
                         )
-                        if pending:
-                            raise SDKError(
-                                f"Channel {spec.name!r} call has not "
-                                "stopped; retry is required",
-                            )
+            await self._stop_stream_flushes()
+            return True
+
+        async def stop(self):
+            if self._closed:
+                return
+            await self.prepare_stop()
             if self._backend is not None:
                 result = await plugin._call(
                     self._backend.stop,
@@ -586,13 +602,24 @@ def register(plugin, spec):
             )
 
         async def consume_one(self, payload):
-            if self._receiving and self._owns_request(payload):
+            if self._owns_request(payload):
                 await super().consume_one(payload)
 
         async def _consume_one_request(self, payload):
-            if not self._receiving or not self._owns_request(payload):
+            if not self._owns_request(payload):
                 return
             if isinstance(payload, _Incoming) and not payload.requests:
+                return
+            if not self._receiving or plugin._instance.activity.blocked:
+                # These accepted messages belong to this exact instance.
+                # Interruption cancels them before a run starts; a successor
+                # must never replay them or emit a terminal for an absent run.
+                logger.info(
+                    "Cancelled queued messages for stopping channel %s "
+                    "instance %s",
+                    spec.name,
+                    self._sdk_id,
+                )
                 return
             self._guard()
             session_id = (
@@ -616,9 +643,9 @@ def register(plugin, spec):
                     if not allowed:
                         return
                     payload = super().merge_requests(allowed)
-                    # Identity comes from the first accepted sender. Delivery
-                    # addresses may expire, so use the newest accepted
-                    # metadata.
+                    # Identity comes from the first accepted sender.
+                    # Delivery addresses may expire, so use the newest
+                    # accepted metadata.
                     payload.channel_meta = {
                         **allowed[0].channel_meta,
                         **{
@@ -778,14 +805,14 @@ def register(plugin, spec):
                     # A terminal waiting behind a slow start remains owned and
                     # queued. Dropping it could leave a late-created platform
                     # card permanently running after the model has finished.
-                    if phase == "start":
+                    if phase == "start" and not task.cancelling():
                         task.cancel()
                     logger.warning(
                         "Channel %s run notification timed out",
                         spec.name,
                     )
             except asyncio.CancelledError:
-                if phase == "start":
+                if phase == "start" and not task.cancelling():
                     task.cancel()
                 raise
 
@@ -1085,23 +1112,26 @@ def register(plugin, spec):
                 accumulated_text,
             )
 
-    handle = plugin._register_contribution(
-        plugin._api.register_channel,
-        Adapter,
-        label=spec.label,
-        description=spec.description,
-        config_fields=[
-            {
-                **field,
-                "type": (
-                    "switch"
-                    if field.get("type") == "boolean"
-                    else field.get("type", "text")
-                ),
-            }
-            for field in spec.config_fields
-        ],
-        icon=spec.icon,
-        doc_url=spec.doc_url,
-    )
+    try:
+        handle = plugin._register_contribution(
+            plugin._api.register_channel,
+            Adapter,
+            label=spec.label,
+            description=spec.description,
+            config_fields=[
+                {
+                    **field,
+                    "type": (
+                        "switch"
+                        if field.get("type") == "boolean"
+                        else field.get("type", "text")
+                    ),
+                }
+                for field in spec.config_fields
+            ],
+            icon=spec.icon,
+            doc_url=spec.doc_url,
+        )
+    except (ValueError, TypeError) as exc:
+        raise SDKError(str(exc)) from exc
     return plugin._with_admission(handle, Adapter)

@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/contentStates.less";
+
 .content {
   flex: 1;
   overflow-y: auto;
@@ -15,8 +17,7 @@
 }
 
 .loading {
-  text-align: center;
-  padding: 60px;
+  .loading-state();
   color: var(--app-text-tertiary);
 }
 

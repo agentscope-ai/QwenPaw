@@ -1626,6 +1626,10 @@
   flex: 0 1 auto;
   overflow: hidden;
 
+  @media (max-width: 600px) {
+    min-width: var(--app-hit-touch);
+  }
+
   > * {
     min-width: 0;
     max-width: 100%;

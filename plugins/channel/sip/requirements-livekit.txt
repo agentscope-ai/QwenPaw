@@ -1,0 +1,4 @@
+# Explicit optional LiveKit entry; install into the selected shared runtime.
+-r requirements.txt
+livekit>=1.0.0
+livekit-api>=0.6.0

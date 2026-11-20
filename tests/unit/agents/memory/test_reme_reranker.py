@@ -229,9 +229,45 @@ async def test_probe_without_scores_skips_ranking_verdict(
 
     assert result.success is True
     assert result.precision is None
-    assert result.total == 0
+    assert result.total == 5
+    assert result.incomplete_count == 5
     assert result.cases[0].scores is None
     assert result.cases[0].correct is None
+
+
+@pytest.mark.asyncio
+async def test_probe_incomplete_cases_do_not_inflate_precision(monkeypatch):
+    """Two correctly ranked cases and three without scores must report 2/5,
+    not 2/2."""
+    unranked = {"results": [{"index": 0}, {"index": 1}, {"index": 2}]}
+    ranked = _results(0.9, 0.1, 0.1)
+    # Cases 0 and 3 expect index 0; cases 1/2/4 expect 1/2 but are unscored.
+    payloads = [ranked, unranked, unranked, ranked, unranked]
+    _install(
+        monkeypatch,
+        responses=[_FakeResponse(payload=p) for p in payloads],
+    )
+
+    result = await module.test_reranker_model(_config())
+
+    assert result.success is True
+    assert result.total == 5
+    assert result.correct_count == 2
+    assert result.incomplete_count == 3
+    assert result.precision == 2 / 5
+
+
+@pytest.mark.asyncio
+async def test_probe_rejects_duplicate_indices(monkeypatch) -> None:
+    """Duplicate indices are invalid for the runtime path too; they must not
+    be scored as if they were distinct documents."""
+    payload = {"results": [{"index": 0}, {"index": 0}, {"index": 1}]}
+    _install(monkeypatch, response=_FakeResponse(payload=payload))
+
+    result = await module.test_reranker_model(_config())
+
+    assert result.success is False
+    assert "invalid document indices" in result.message
 
 
 @pytest.mark.asyncio
@@ -243,6 +279,27 @@ async def test_probe_rejects_out_of_range_indices(monkeypatch) -> None:
 
     assert result.success is False
     assert "invalid document indices" in result.message
+
+
+@pytest.mark.asyncio
+async def test_probe_refuses_blank_api_key_like_runtime(monkeypatch) -> None:
+    posted = _install(
+        monkeypatch,
+        response=_FakeResponse(
+            payload=_results(
+                0.9,
+                0.1,
+                0.1,
+            )
+        ),
+    )
+
+    result = await module.test_reranker_model(_config(api_key="   "))
+
+    assert result.success is False
+    assert "API key" in result.message
+    # Aligned with call_reranker_api: no request, and never an empty Bearer.
+    assert posted == []
 
 
 @pytest.mark.asyncio
@@ -401,12 +458,14 @@ async def test_probe_deadline_covers_url_validation(monkeypatch):
 
     async def slow_validate(*_args, **_kwargs):
         await asyncio.sleep(1)
-        return module._ResolvedTarget(
-            request_url="https://example.com/v1/rerank",
-            host_header="example.com",
-            sni_hostname="example.com",
-            secure=True,
-        )
+        return [
+            module._ResolvedTarget(
+                request_url="https://example.com/v1/rerank",
+                host_header="example.com",
+                sni_hostname="example.com",
+                secure=True,
+            ),
+        ]
 
     _install(monkeypatch)
     monkeypatch.setattr(module, "_validate_reranker_base_url", slow_validate)
@@ -562,6 +621,54 @@ async def test_probe_pins_ipv6_literal_with_brackets(monkeypatch) -> None:
     assert result.success is True
     assert posted[0]["url"] == "http://[::1]:8000/v1/rerank"
     assert posted[0]["headers"]["Host"] == "[::1]:8000"
+
+
+@pytest.mark.asyncio
+async def test_probe_falls_back_to_next_validated_address(monkeypatch):
+    """A dual-stack hostname with an IPv4-only service must still verify:
+    the probe retries the remaining validated addresses within the suite
+    deadline."""
+    monkeypatch.setattr(
+        module.asyncio,
+        "get_running_loop",
+        lambda: _fake_dns(["::1", "127.0.0.1"]),
+    )
+    posted = _install(
+        monkeypatch,
+        responses=[
+            _FakeResponse(payload=payload)
+            for payload in _suite_scores(top_at=_expected_indices())
+        ],
+    )
+
+    async def post(self, url, headers=None, json=None, extensions=None):
+        type(self).posted.append(
+            {
+                "url": url,
+                "headers": headers,
+                "json": json,
+                "extensions": extensions,
+            },
+        )
+        if "[::1]" in url:
+            raise httpx.ConnectError("connection refused")
+        served = self._served
+        self._served += 1
+        return self._responses[min(served, len(self._responses) - 1)]
+
+    monkeypatch.setattr(_FakeAsyncClient, "post", post)
+
+    result = await module.test_reranker_model(
+        _config(base_url="http://reranker.lan:8000/v1"),
+        allow_private=True,
+    )
+
+    assert result.success is True
+    assert result.correct_count == 5
+    urls = [entry["url"] for entry in posted]
+    assert urls[0] == "http://[::1]:8000/v1/rerank"
+    assert urls[1] == "http://127.0.0.1:8000/v1/rerank"
+    assert len(urls) == 6  # one refused connect, then the five-case suite
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,65 @@
+name: Plugin Release Guard
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      host-artifact:
+        type: string
+        default: ""
+      plugins-artifact:
+        type: string
+        default: ""
+      check-source:
+        type: boolean
+        default: true
+      dry-run:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: plugins-release
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-infra
+          sparse-checkout: |
+            .github/actions/check-plugin-release
+            scripts/pack
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: inputs.host-artifact != ''
+        with:
+          name: ${{ inputs.host-artifact }}
+          path: dist/host
+      - uses: actions/download-artifact@v4
+        if: inputs.plugins-artifact != ''
+        with:
+          name: ${{ inputs.plugins-artifact }}
+          path: dist/plugins
+      - uses: ./.release-infra/.github/actions/check-plugin-release
+        with:
+          artifacts-root: dist
+          project-root: ${{ inputs.check-source && '.' || '' }}
+          dry-run: ${{ inputs.dry-run }}
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}

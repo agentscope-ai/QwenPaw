@@ -3,7 +3,8 @@ import { create } from "zustand";
 import type { RerankerHistoryRecord } from "@/api/modules/agent";
 
 export interface VerifiedReranker {
-  fingerprint: string;
+  /** In-memory identity of the configuration that was tested. */
+  configKey: string;
   latency: number;
   precision: number | null;
   correctCount: number;
@@ -11,20 +12,11 @@ export interface VerifiedReranker {
   verifiedAt: number;
 }
 
-/** Fetched history series, kept apart from the manual verification verdict. */
-export interface RerankerHistorySeries {
-  fingerprint: string;
-  records: RerankerHistoryRecord[];
-}
-
 interface RerankerVerificationStore {
   verificationByAgent: Record<string, VerifiedReranker>;
-  historyByAgent: Record<string, RerankerHistorySeries>;
+  historyByAgent: Record<string, RerankerHistoryRecord[]>;
   setVerification: (agentId: string, verification: VerifiedReranker) => void;
-  setHistory: (
-    agentId: string,
-    series: RerankerHistorySeries,
-  ) => void;
+  setHistory: (agentId: string, records: RerankerHistoryRecord[]) => void;
   clearVerification: (agentId: string) => void;
 }
 
@@ -33,8 +25,8 @@ interface RerankerVerificationStore {
  *
  * This state deliberately is not persisted to browser storage: a successful
  * connectivity check is a point-in-time observation and should not survive an
- * application restart. The service fingerprint makes the result valid only
- * for the exact settings that were tested.
+ * application restart. The configuration key makes the result valid only for
+ * the exact settings that were tested.
  *
  * Historical precision series live in a separate slice. Loading history can
  * therefore never manufacture a "Verified" verdict, and a late history
@@ -51,11 +43,11 @@ export const useRerankerVerificationStore = create<RerankerVerificationStore>(
           [agentId]: verification,
         },
       })),
-    setHistory: (agentId, series) =>
+    setHistory: (agentId, records) =>
       set((state) => ({
         historyByAgent: {
           ...state.historyByAgent,
-          [agentId]: series,
+          [agentId]: records,
         },
       })),
     clearVerification: (agentId) =>

@@ -4,7 +4,9 @@ import type { RerankerHistoryRecord } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRerankerVerificationStore } from "@/stores/rerankerVerificationStore";
-import { getRerankerServiceFingerprint } from "./rerankerUtils";
+import { getRerankerConfigKey } from "./rerankerUtils";
+
+const EMPTY_HISTORY: RerankerHistoryRecord[] = [];
 
 export function useRerankerVerification(
   config: RerankerConfig | undefined,
@@ -16,8 +18,8 @@ export function useRerankerVerification(
   const verifiedReranker = useRerankerVerificationStore(
     (state) => state.verificationByAgent[agentId] ?? null,
   );
-  const storedHistory = useRerankerVerificationStore(
-    (state) => state.historyByAgent[agentId] ?? null,
+  const history = useRerankerVerificationStore(
+    (state) => state.historyByAgent[agentId] ?? EMPTY_HISTORY,
   );
   const setVerification = useRerankerVerificationStore(
     (state) => state.setVerification,
@@ -30,36 +32,24 @@ export function useRerankerVerification(
   );
   const previousAgentIdRef = useRef(agentId);
 
-  // The fingerprint is async (SHA-256 via WebCrypto). Compute it once here and
-  // expose the resolved value so the component does not duplicate the
-  // computation, and so history loading and manual verification always compare
-  // against the same value.
-  const fingerprintPromise = useMemo(
-    () => getRerankerServiceFingerprint(config),
+  // Synchronous in-memory identity. No WebCrypto: `crypto.subtle` is missing
+  // on a plain-HTTP console served from a non-loopback origin, and history
+  // lookup is done server-side from the saved agent config.
+  const configKey = useMemo(
+    () => getRerankerConfigKey(config),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [config?.base_url, config?.api_key, config?.model_name, config?.timeout],
   );
-  const [serviceFingerprint, setServiceFingerprint] = useState("");
-  useEffect(() => {
-    let cancelled = false;
-    fingerprintPromise
-      .then((fingerprint) => {
-        if (!cancelled) setServiceFingerprint(fingerprint);
-      })
-      .catch(() => {
-        if (!cancelled) setServiceFingerprint("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fingerprintPromise]);
 
-  // Live fingerprint for stale-response checks (state updates lag the
-  // promise resolution by one render).
-  const serviceFingerprintRef = useRef("");
+  // Latest values for stale-response checks (callbacks close over old renders).
+  const configKeyRef = useRef(configKey);
   useEffect(() => {
-    serviceFingerprintRef.current = serviceFingerprint;
-  }, [serviceFingerprint]);
+    configKeyRef.current = configKey;
+  }, [configKey]);
+  const agentIdRef = useRef(agentId);
+  useEffect(() => {
+    agentIdRef.current = agentId;
+  }, [agentId]);
 
   const clearVerification = useCallback(
     () => clearStoredVerification(agentId),
@@ -72,15 +62,15 @@ export function useRerankerVerification(
       precision: number | null,
       correctCount: number,
       total: number,
-      testedFingerprint?: string,
+      testedConfigKey?: string,
     ) => {
-      const fingerprint = testedFingerprint || (await fingerprintPromise);
+      const key = testedConfigKey || configKey;
       // A verdict for a service the form has since moved away from must not
       // be presented as the current one.
-      const live = serviceFingerprintRef.current;
-      if (live && fingerprint !== live) return;
+      const live = configKeyRef.current;
+      if (live && key !== live) return;
       setVerification(agentId, {
-        fingerprint,
+        configKey: key,
         latency,
         precision,
         correctCount,
@@ -88,42 +78,28 @@ export function useRerankerVerification(
         verifiedAt: Date.now(),
       });
     },
-    [agentId, fingerprintPromise, setVerification],
+    [agentId, configKey, setVerification],
   );
 
   /**
    * Refresh the stored history series. History is a separate slice, so it can
    * neither manufacture nor replace a successful verification verdict.
    *
-   * `requestedFingerprint` is captured when the fetch starts; if the live
-   * fingerprint has moved on, the response belongs to a superseded service and
-   * is dropped instead of clobbering the current state.
+   * A read that started before a newer run was recorded can resolve
+   * afterwards; keep the newer series instead of regressing it.
    */
   const setHistory = useCallback(
-    async (
-      history: RerankerHistoryRecord[],
-      requestedFingerprint?: string,
-    ) => {
-      const fingerprint = requestedFingerprint ?? (await fingerprintPromise);
-      if (!fingerprint) return;
-      const live = serviceFingerprintRef.current;
-      if (live && fingerprint !== live) return;
-      if (fingerprint !== (await fingerprintPromise)) return;
-      // A history read that started before a newer run was recorded can
-      // resolve afterwards. Keep the newer series instead of regressing it.
+    (records: RerankerHistoryRecord[]) => {
       const existing =
-        useRerankerVerificationStore.getState().historyByAgent[agentId];
-      if (existing && existing.fingerprint === fingerprint) {
-        const existingLast =
-          existing.records[existing.records.length - 1]?.ts ??
-          Number.NEGATIVE_INFINITY;
-        const incomingLast =
-          history[history.length - 1]?.ts ?? Number.NEGATIVE_INFINITY;
-        if (incomingLast < existingLast) return;
-      }
-      setStoredHistory(agentId, { fingerprint, records: history });
+        useRerankerVerificationStore.getState().historyByAgent[agentId] ?? [];
+      const existingLast =
+        existing[existing.length - 1]?.ts ?? Number.NEGATIVE_INFINITY;
+      const incomingLast =
+        records[records.length - 1]?.ts ?? Number.NEGATIVE_INFINITY;
+      if (incomingLast < existingLast) return;
+      setStoredHistory(agentId, records);
     },
-    [agentId, fingerprintPromise, setStoredHistory],
+    [agentId, setStoredHistory],
   );
 
   useEffect(() => {
@@ -138,20 +114,16 @@ export function useRerankerVerification(
   }, [agentId, clearVerification, config, configured]);
 
   const testedRerankerIsCurrent =
-    Boolean(serviceFingerprint) &&
-    verifiedReranker?.fingerprint === serviceFingerprint;
-  const historyIsCurrent =
-    Boolean(serviceFingerprint) &&
-    storedHistory?.fingerprint === serviceFingerprint;
-  const history = historyIsCurrent ? storedHistory.records : [];
+    Boolean(configKey) && verifiedReranker?.configKey === configKey;
 
   return {
+    agentId,
     testingReranker,
     setTestingReranker,
     testedReranker: verifiedReranker,
     testedRerankerIsCurrent,
     history,
-    serviceFingerprint,
+    configKey,
     markVerified,
     setHistory,
     clearVerification,

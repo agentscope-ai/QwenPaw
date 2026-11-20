@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 import anthropic
 import httpx
 import openai
@@ -176,3 +178,22 @@ def test_unknown_error_does_not_allow_retry_or_fallback() -> None:
     assert decision.kind == "unknown"
     assert decision.retryable is False
     assert decision.fallback_eligible is False
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (413, "Content Too Large"),
+        (None, "Error code: 413 - rejected"),
+        (400, "request body is too large"),
+        (500, "Failed to buffer the request body: length limit exceeded"),
+        (None, "Failed to buffer the request body: length limit exceeded"),
+    ],
+)
+def test_body_overflow_does_not_retry_or_fallback(status, message):
+    assert asdict(classify_model_error(HttpError(status, message))) == {
+        "kind": "request_body_overflow",
+        "status_code": status,
+        "retryable": False,
+        "fallback_eligible": False,
+    }

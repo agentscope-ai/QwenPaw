@@ -111,7 +111,7 @@ describe("WebSearchConfigModal", () => {
   });
 
   it("shows the optional api_key field and tavily hint while provider is tavily", async () => {
-    hoisted.getToolConfig.mockResolvedValueOnce({});
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     renderModal();
 
     await waitFor(() => {
@@ -133,15 +133,13 @@ describe("WebSearchConfigModal", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("switching to anysearch shows the api_key field, quota hint and register link", async () => {
+  it("defaults to anysearch with the api_key field, quota hint and register link", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({});
     renderModal();
 
     await waitFor(() => {
-      expect(selectedProvider()).toBe("tavily");
+      expect(selectedProvider()).toBe("anysearch");
     });
-
-    await switchProvider("anysearch");
 
     expect(passwordInput()).not.toBeNull();
     // Typography.Text splits the hint into before/link/after children, so
@@ -156,10 +154,13 @@ describe("WebSearchConfigModal", () => {
     const link = screen.getByRole("link", { name: "anysearch.com" });
     expect(link).toHaveAttribute("href", "https://anysearch.com");
     expect(link).toHaveAttribute("target", "_blank");
+    expect(
+      screen.queryByRole("link", { name: "tavily.com" }),
+    ).not.toBeInTheDocument();
   });
 
   it("lists firecrawl and loads its credential slot when selected", async () => {
-    hoisted.getToolConfig.mockResolvedValueOnce({});
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     renderModal();
 
     await waitFor(() => {
@@ -177,7 +178,7 @@ describe("WebSearchConfigModal", () => {
   });
 
   it("re-fetches with the selected provider when switching inside the modal", async () => {
-    hoisted.getToolConfig.mockResolvedValueOnce({});
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     renderModal();
 
     await waitFor(() => {
@@ -195,7 +196,7 @@ describe("WebSearchConfigModal", () => {
 
   it("refills the api_key from the switched provider's credential slot", async () => {
     hoisted.getToolConfig
-      .mockResolvedValueOnce({}) // open: saved config (tavily)
+      .mockResolvedValueOnce({ provider: "tavily" }) // open: saved config
       .mockResolvedValueOnce({
         // switch to anysearch: its own credential slot
         provider: "anysearch",
@@ -215,7 +216,7 @@ describe("WebSearchConfigModal", () => {
   });
 
   it("saves the submitted values through onSave", async () => {
-    hoisted.getToolConfig.mockResolvedValueOnce({});
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderModal(onSave);
 
@@ -241,7 +242,7 @@ describe("WebSearchConfigModal", () => {
   });
 
   it("saves a tavily api_key into the tavily credential slot", async () => {
-    hoisted.getToolConfig.mockResolvedValueOnce({});
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderModal(onSave);
 
@@ -270,7 +271,7 @@ describe("WebSearchConfigModal provider-slot isolation", () => {
 
   it("loads the tavily credential slot when switching back from anysearch", async () => {
     hoisted.getToolConfig
-      .mockResolvedValueOnce({}) // open: saved config (tavily)
+      .mockResolvedValueOnce({ provider: "tavily" }) // open: saved config
       .mockResolvedValueOnce({
         // switch to anysearch: its own credential slot
         provider: "anysearch",
@@ -406,13 +407,13 @@ describe("WebSearchConfigModal initial-load failure", () => {
     hoisted.getToolConfig.mockResolvedValue({});
   });
 
-  it("retries the saved-config request instead of forcing the tavily slot", async () => {
+  it("retries the saved-config request instead of forcing the default slot", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     hoisted.getToolConfig
       .mockRejectedValueOnce(new Error("network"))
       .mockResolvedValueOnce({
-        provider: "anysearch",
-        api_key: "***as_sk_restored***",
+        provider: "tavily",
+        api_key: "***tvly_restored***",
       });
 
     render(
@@ -431,15 +432,15 @@ describe("WebSearchConfigModal initial-load failure", () => {
     });
     expect(hoisted.getToolConfig).toHaveBeenCalledWith("web_search");
     expect(hoisted.getToolConfig).not.toHaveBeenCalledWith("web_search", {
-      provider: "tavily",
+      provider: "anysearch",
     });
 
     fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
 
     await waitFor(() => {
-      expect(selectedProvider()).toBe("anysearch");
+      expect(selectedProvider()).toBe("tavily");
     });
-    expect(passwordInput()).toHaveValue("***as_sk_restored***");
+    expect(passwordInput()).toHaveValue("***tvly_restored***");
     // Retry must call the initial saved-config endpoint again (no provider).
     expect(
       hoisted.getToolConfig.mock.calls.filter(

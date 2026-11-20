@@ -1142,6 +1142,46 @@ async def test_summary_fitting_loads_folded_results_only_once(
     assert "ORIGINAL-OUTCOME-7731" in prompt
 
 
+async def test_summary_retry_shares_configured_budget(
+    store: HistoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    mgr = make_manager(store, summary_timeout_seconds=180)
+    agent = FakeAgent(old)
+    agent.model = PlainSummaryModel([900, 300], [_VALID_CONTINUATION_SUMMARY])
+    mgr._persist_new(agent)
+    now = 100.0
+    timeouts = []
+    original = mgr._validated_summary_attempt
+
+    async def slow_first_attempt(*args, **kwargs):
+        nonlocal now
+        timeouts.append(kwargs["timeout"])
+        if len(timeouts) == 1:
+            # A slow reasoning model exceeds the former 60s budget before
+            # producing a candidate that needs a quality repair.
+            now += 75
+            raise scroll_manager_module._SummaryCandidateError(
+                "missing headings",
+            )
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        scroll_manager_module,
+        "time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
+    monkeypatch.setattr(mgr, "_validated_summary_attempt", slow_first_attempt)
+
+    await mgr._update_continuation_summary(agent, old)
+
+    assert timeouts == pytest.approx([180, 105])
+    assert mgr._summary_update_failed is False
+    assert mgr._continuation_summary is not None
+    assert mgr.last_compress["summary_retries"] == 1
+
+
 async def test_summary_timeout_covers_prompt_fitting(
     store: HistoryStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -1161,8 +1201,8 @@ async def test_summary_timeout_covers_prompt_fitting(
 
     monkeypatch.setattr(mgr, "_fit_summary_prompt", hanging_fit)
     monkeypatch.setattr(
-        scroll_manager_module,
-        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        mgr,
+        "_summary_timeout_seconds",
         0.01,
     )
 
@@ -1315,8 +1355,8 @@ async def test_summary_timeout_preserves_valid_previous_without_retry(
     # Leave enough headroom for those stages on slower Windows CI runners so
     # this test deterministically reaches the intentionally hanging model.
     monkeypatch.setattr(
-        scroll_manager_module,
-        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        mgr,
+        "_summary_timeout_seconds",
         1.0,
     )
 
@@ -1607,6 +1647,63 @@ async def test_overflow_recovery_forces_compaction_and_reports_change(
     assert forced_config.trigger_ratio == pytest.approx(1e-6)
     assert forced_config.reserve_ratio == pytest.approx(0.1)
     assert agent.context_config.trigger_ratio == pytest.approx(0.8)
+
+
+@pytest.mark.parametrize(
+    ("before", "remaining"),
+    [(600, 400), (900, 200)],
+)
+async def test_overflow_recovery_preserves_conservative_token_baseline(
+    store: HistoryStore,
+    before: int,
+    remaining: int,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")], tokens=[before, 200, 200])
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        mgr.last_compress["folded"] = 1
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+    assert await mgr.recover_from_context_overflow(agent)
+    # Trigger = 800: a 600-token estimate needs a 200-token correction;
+    # a 900-token estimate needs none. Check both sides of the max formula.
+    assert await mgr._live_tokens(agent) == remaining
+
+
+@pytest.mark.parametrize(
+    ("model_key", "context_size", "expected"),
+    [
+        ("provider:model", 1000, 850),
+        ("provider:other-model", 1000, 650),
+        ("provider:model", 2000, 650),
+    ],
+)
+async def test_overflow_margin_survives_session_restore_for_same_model(
+    store: HistoryStore,
+    model_key: str,
+    context_size: int,
+    expected: int,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")], tokens=[600, 200])
+    agent.model.model_key = "provider:model"
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        mgr.last_compress["folded"] = 1
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+    assert await mgr.recover_from_context_overflow(agent)
+    checkpoint = json.loads(json.dumps(mgr.to_dict()))
+
+    restored = make_manager(store)
+    restored.load_state(checkpoint)
+    rebuilt_agent = FakeAgent([user("next request")], tokens=650)
+    rebuilt_agent.model.model_key = model_key
+    rebuilt_agent.model.context_size = context_size
+    assert await restored._live_tokens(rebuilt_agent) == expected
 
 
 async def test_fold_not_triggered_between_reserve_and_trigger(

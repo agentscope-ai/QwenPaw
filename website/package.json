@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
+    "dev": "pnpm evaluation:build && vite",
+    "build": "pnpm evaluation:build && tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
     "format": "tsc -b --noEmit && prettier --write .",
     "format:check": "tsc -b --noEmit && prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "evaluation:build": "node scripts/build-evaluation-index.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -44,6 +45,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "ajv": "8.17.1",
     "prettier": "3.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.6.2",

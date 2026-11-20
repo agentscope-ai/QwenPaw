@@ -130,6 +130,7 @@ class DefaultMode(AgentMode):
                 QualitativeRubricGate(
                     rubric=loop_config.rubric.prompt,
                     max_evaluations=(loop_config.rubric.max_interventions),
+                    use_decision_model=loop_config.rubric.use_decision_model,
                 ),
             )
 

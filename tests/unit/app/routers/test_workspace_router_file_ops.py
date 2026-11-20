@@ -5,14 +5,13 @@ Covers the endpoints and helpers the existing workspace test files do
 not exercise: ``GET /workspace/code-files`` (ETag short-circuit, size
 cap), ``GET /workspace/binary-files`` (MIME gating, size cap),
 ``GET /workspace/html-file-uri`` (HTML-only resolution), the recursive
-``_list_all_files`` walker with skip pruning, the merge-style zip
-extractor, and ``POST /workspace/transcribe`` guards.
+``_list_all_files`` walker with skip pruning, and
+``POST /workspace/transcribe`` guards.
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 import io
-import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -268,81 +267,6 @@ class TestListAllFiles:
 
     def test_missing_root_returns_empty(self, tmp_path):
         assert workspace_router._list_all_files(tmp_path / "nope") == []
-
-
-# ---------------------------------------------------------------------------
-# _extract_and_merge_zip
-# ---------------------------------------------------------------------------
-
-
-def _zip_with_entries(entries: dict[str, str]) -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zf:
-        for name, content in entries.items():
-            zf.writestr(name, content)
-    return buffer.getvalue()
-
-
-class TestExtractAndMergeZip:
-    def test_single_top_level_dir_is_unwrapped(self, tmp_path):
-        data = _zip_with_entries(
-            {
-                "bundle/SKILL.md": "# skill",
-                "bundle/scripts/run.sh": "echo hi",
-            },
-        )
-        workspace_router._extract_and_merge_zip(data, tmp_path / "ws")
-        assert (tmp_path / "ws" / "SKILL.md").read_text(encoding="utf-8") == (
-            "# skill"
-        )
-        assert (tmp_path / "ws" / "scripts" / "run.sh").exists()
-
-    def test_multiple_top_level_entries_extracted_as_is(self, tmp_path):
-        data = _zip_with_entries(
-            {"a.txt": "A", "b/c.txt": "C"},
-        )
-        workspace_router._extract_and_merge_zip(data, tmp_path / "ws")
-        assert (tmp_path / "ws" / "a.txt").read_text(encoding="utf-8") == "A"
-        assert (tmp_path / "ws" / "b" / "c.txt").read_text(
-            encoding="utf-8",
-        ) == "C"
-
-    def test_existing_file_replaced_and_dir_merged(self, tmp_path):
-        workspace = tmp_path / "ws"
-        workspace.mkdir()
-        (workspace / "old.txt").write_text("old", encoding="utf-8")
-        (workspace / "scripts").mkdir()
-        (workspace / "scripts" / "keep.sh").write_text(
-            "keep",
-            encoding="utf-8",
-        )
-        data = _zip_with_entries(
-            {
-                "old.txt": "new",
-                "scripts/added.sh": "added",
-            },
-        )
-        workspace_router._extract_and_merge_zip(data, workspace)
-        assert (workspace / "old.txt").read_text(encoding="utf-8") == "new"
-        assert (workspace / "scripts" / "keep.sh").exists()
-        assert (workspace / "scripts" / "added.sh").exists()
-
-    def test_no_temp_dir_left_behind(self, tmp_path, monkeypatch):
-        import tempfile as _tempfile
-
-        created: list[str] = []
-        original_mkdtemp = _tempfile.mkdtemp
-
-        def tracking_mkdtemp(*args, **kwargs):
-            result = original_mkdtemp(*args, **kwargs)
-            created.append(result)
-            return result
-
-        monkeypatch.setattr(_tempfile, "mkdtemp", tracking_mkdtemp)
-        data = _zip_with_entries({"a.txt": "A"})
-        workspace_router._extract_and_merge_zip(data, tmp_path / "ws")
-        assert created
-        assert not any(Path(entry).exists() for entry in created)
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import httpx
-from PIL import Image
+from PIL import Image, ImageOps
 
 from models import config as model_config
 from services.runtime_files.safe_remote_download import safe_download_bytes
@@ -40,6 +40,30 @@ DASHSCOPE_TEMP_UPLOAD_CACHE_SECONDS = 47 * 60 * 60
 # a single image must stay below 30MB and the request body below 64MB.
 SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 REFERENCE_IMAGE_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+
+# Inline images step down this ladder (longest edge in px, JPEG quality)
+# until the encoded bytes fit the caller's budget. Providers bill vision
+# tokens rather than request bytes, so a downscaled image still answers the
+# question whereas a hard refusal leaves the understanding record silently
+# empty. Mirrors the video clip ladder in services.media.source_observation.
+IMAGE_INLINE_LADDER = (
+    (2048, 85),
+    (1536, 80),
+    (1024, 75),
+    (768, 70),
+)
+# A video *generation* reference is the visual basis of the output rather
+# than a question to answer, so it keeps more detail than the VLM ladder
+# above. The 1600px floor is a provider constraint, not a quality
+# preference: HappyHorse r2v rejects a short side under 400px, and 1600
+# still leaves 640px at the widest legal 2.5:1 aspect ratio.
+VIDEO_REFERENCE_INLINE_LADDER = (
+    (4096, 92),
+    (3200, 88),
+    (2560, 85),
+    (2048, 82),
+    (1600, 78),
+)
 
 _dashscope_temp_upload_cache: dict[
     tuple[str, int, int, str, str],
@@ -408,6 +432,108 @@ async def upload_reference_bytes_to_dashscope_temp(
         api_key=api_key,
         model_name=model_name,
     )
+
+
+# EXIF Orientation values that need a pixel transform. 1 and a missing tag
+# both mean the stored pixels are already upright.
+_EXIF_ORIENTATION_TAG = 0x0112
+
+
+def upright_image(image: Image.Image) -> Image.Image:
+    """Bake EXIF Orientation into the pixels.
+
+    Re-encoding drops the tag, so without this a portrait phone photo
+    reaches the model lying on its side: the only hint that viewers should
+    rotate it is gone from the JPEG we hand over.
+    """
+    orientation = image.getexif().get(_EXIF_ORIENTATION_TAG)
+    if isinstance(orientation, int) and 2 <= orientation <= 8:
+        return ImageOps.exif_transpose(image)
+    return image
+
+
+def flatten_alpha(image: Image.Image) -> Image.Image:
+    """Composite transparent pixels onto white before dropping the alpha.
+
+    ``convert("RGB")`` discards the alpha channel and keeps whatever the
+    encoder stored underneath the transparent pixels — usually black. UI
+    captures and scanned documents are exactly the images that outgrow the
+    inline budget, so without this a transparent-background page reaches the
+    model as pale text on black, the one rendering it reads worst. Flattening
+    also satisfies providers that reject an alpha channel outright (Wan r2v
+    documents PNG without a transparency channel).
+
+    A colour key counts as transparency too: ``tRNS`` is legal on RGB and L
+    PNGs, and PIL applies it inside ``convert("RGBA")`` — measured on Pillow
+    10, the declared floor, and on 13: a black key over black pixels yields
+    alpha 0 and flattens to white, while a key that does not match the pixel
+    keeps alpha 255.  The fast path therefore has to test for the key and not
+    for the mode alone.
+    """
+    keyed = "transparency" in image.info
+    if image.mode == "RGB" and not keyed:
+        return image
+    has_alpha = image.mode in {"RGBA", "LA"} or (
+        keyed and image.mode in {"P", "RGB", "L"}
+    )
+    if not has_alpha:
+        return image.convert("RGB")
+    rgba = image.convert("RGBA")
+    flat = Image.new("RGB", rgba.size, (255, 255, 255))
+    flat.paste(rgba, mask=rgba.getchannel("A"))
+    return flat
+
+
+def downscale_image_to_budget(
+    content: bytes,
+    max_bytes: int,
+    *,
+    ladder: tuple[tuple[int, int], ...] = IMAGE_INLINE_LADDER,
+    label: str = "",
+) -> bytes | None:
+    """Re-encode *content* down *ladder* until the JPEG fits *max_bytes*.
+
+    Returns ``None`` when the bytes are not a decodable image, or when even
+    the smallest rung stays over budget, so callers keep their own refusal
+    instead of inheriting a transport error.
+
+    The result is always JPEG whatever the source format was, so a caller
+    that names the payload must use a ``.jpg`` suffix:
+    ``_reference_media_type`` trusts the filename first and would otherwise
+    label JPEG bytes with the source image's MIME type.
+
+    The catch below is deliberately broad, and narrowing it would be a
+    regression: PIL raises ``DecompressionBombError`` for a file over its
+    pixel ceiling, and that type derives from ``Exception`` rather than
+    ``OSError``, so an ``(OSError, ValueError)`` clause would let an
+    oversized screenshot escape instead of reaching the refusal.
+    """
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            image.load()
+            image = upright_image(image)
+            image = flatten_alpha(image)
+            for max_edge, quality in ladder:
+                frame = image.copy()
+                frame.thumbnail((max_edge, max_edge), Image.LANCZOS)
+                buffer = io.BytesIO()
+                frame.save(
+                    buffer,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                )
+                payload = buffer.getvalue()
+                if len(payload) <= max_bytes:
+                    return payload
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.info(
+            "inline downscale unavailable for %s (%s)",
+            label or f"{len(content)} bytes",
+            exc,
+        )
+        return None
+    return None
 
 
 def reference_media_data_url(content: bytes, filename: str) -> str:

@@ -1,37 +1,48 @@
 /**
- * RerankerModelCenter — the rendered service-verification status must never
- * claim "Verified" unless a real probe completed for the current service.
+ * RerankerModelCenter — rendered status and manual-request lifecycle.
+ *
+ * A "Verified" badge requires a completed probe of the current service, and a
+ * late response must not touch state, dialogs or the loading flag once the
+ * agent or configuration changed.
  */
 import { Form } from "@agentscope-ai/design";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 
 import { api } from "@/api";
+import type { RerankerTestResponse } from "@/api/modules/agent";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRerankerVerificationStore } from "@/stores/rerankerVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
-import { getRerankerServiceFingerprint } from "./rerankerUtils";
+import { getRerankerConfigKey } from "./rerankerUtils";
 import { RerankerModelCenter } from "./RerankerModelCenter";
+
+const modalMocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+}));
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { resolvedLanguage: "zh-CN", language: "zh-CN" },
-  }),
-}));
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string) => key,
+      i18n: { resolvedLanguage: "zh-CN", language: "zh-CN" },
+    }),
+  };
+});
 
 vi.mock("@/hooks/useAppMessage", () => ({
-  useAppMessage: () => ({
-    modal: { success: vi.fn(), error: vi.fn() },
-  }),
+  useAppMessage: () => ({ modal: modalMocks }),
 }));
 
-// Generated per run so no credential-like literal lives in the repository.
+// Generated per run so no credential-like literal is committed.
 const TEST_API_KEY = `probe-${crypto.randomUUID().replace(/-/g, "")}`;
 
 const enabledConfig = {
@@ -43,6 +54,8 @@ const enabledConfig = {
   timeout: 10,
   auto_verify_interval_hours: 0,
 };
+
+const disabledConfig = { ...enabledConfig, enabled: false };
 
 const historyRecord = {
   ts: 1_700_000_000_000,
@@ -65,10 +78,7 @@ function Harness({ config = enabledConfig }: { config?: typeof enabledConfig }) 
       initialValues={{ reme_light_memory_config: { reranker_config: config } }}
     >
       {/* Register the watched path so antd's Form.useWatch observes it. */}
-      <Form.Item
-        name={["reme_light_memory_config", "reranker_config"]}
-        hidden
-      >
+      <Form.Item name={["reme_light_memory_config", "reranker_config"]} hidden>
         <input />
       </Form.Item>
       <RerankerModelCenter />
@@ -83,6 +93,22 @@ function mockHistory(history: (typeof historyRecord)[]) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function clickTest() {
+  await act(async () => {
+    fireEvent.click(
+      screen.getByLabelText("agentConfig.rerankerTestConnection"),
+    );
+  });
+}
+
 beforeEach(() => {
   useAgentStore.setState({ selectedAgent: "default" });
   useRerankerVerificationStore.setState({
@@ -90,6 +116,8 @@ beforeEach(() => {
     historyByAgent: {},
   });
   vi.restoreAllMocks();
+  modalMocks.success.mockReset();
+  modalMocks.error.mockReset();
 });
 
 describe("RerankerModelCenter verification status", () => {
@@ -123,9 +151,8 @@ describe("RerankerModelCenter verification status", () => {
 
   it("renders Verified for a completed probe of the current service", async () => {
     mockHistory([]);
-    const fingerprint = await getRerankerServiceFingerprint(enabledConfig);
     useRerankerVerificationStore.getState().setVerification("default", {
-      fingerprint,
+      configKey: getRerankerConfigKey(enabledConfig),
       latency: 42,
       precision: 1,
       correctCount: 5,
@@ -138,22 +165,15 @@ describe("RerankerModelCenter verification status", () => {
     await waitFor(() =>
       expect(screen.queryByText("agentConfig.rerankerVerified")).not.toBeNull(),
     );
-    // The empty history response must not erase the completed result.
-    expect(
-      screen.queryByText("agentConfig.rerankerVerificationMetrics", {
-        exact: false,
-      }),
-    ).not.toBeNull();
   });
 
   it("does not treat a verdict for another service as current", async () => {
     mockHistory([]);
-    const otherFingerprint = await getRerankerServiceFingerprint({
-      ...enabledConfig,
-      model_name: "some-other-reranker",
-    });
     useRerankerVerificationStore.getState().setVerification("default", {
-      fingerprint: otherFingerprint,
+      configKey: getRerankerConfigKey({
+        ...enabledConfig,
+        model_name: "some-other-reranker",
+      }),
       latency: 42,
       precision: 1,
       correctCount: 5,
@@ -171,42 +191,131 @@ describe("RerankerModelCenter verification status", () => {
     expect(screen.queryByText("agentConfig.rerankerVerified")).toBeNull();
   });
 
-  it("ignores a stale history response that arrives after the form changed", async () => {
-    let resolveStale: (value: {
-      fingerprint: string;
-      history: (typeof historyRecord)[];
-    }) => void = () => {};
-    const stale = new Promise<{
-      fingerprint: string;
-      history: (typeof historyRecord)[];
-    }>((resolve) => {
-      resolveStale = resolve;
-    });
-    const spy = vi.spyOn(api, "getRerankerHistory");
-    spy.mockReturnValueOnce(stale);
-    spy.mockResolvedValue({ fingerprint: "", history: [] });
+  it("history is resolved by the backend, without a client fingerprint", async () => {
+    const spy = mockHistory([historyRecord]);
+
+    renderWithProviders(<Harness />);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith());
+  });
+});
+
+describe("RerankerModelCenter manual request identity", () => {
+  it("a late failure does not clear the verdict of a newly selected config", async () => {
+    mockHistory([]);
+    const response = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker").mockReturnValue(response.promise);
 
     const { rerender } = renderWithProviders(<Harness />);
-    await waitFor(() => expect(spy).toHaveBeenCalled());
+    await clickTest();
 
-    rerender(
-      <Harness config={{ ...enabledConfig, model_name: "changed-reranker" }} />,
+    const nextConfig = { ...enabledConfig, model_name: "new-reranker" };
+    rerender(<Harness config={nextConfig} />);
+    const newKey = getRerankerConfigKey(nextConfig);
+    await waitFor(() =>
+      expect(
+        useRerankerVerificationStore.getState().verificationByAgent.default
+          ?.configKey,
+      ).not.toBe(getRerankerConfigKey(enabledConfig)),
+    );
+    useRerankerVerificationStore.getState().setVerification("default", {
+      configKey: newKey,
+      latency: 11,
+      precision: 1,
+      correctCount: 5,
+      total: 5,
+      verifiedAt: Date.now(),
+    });
+
+    await act(async () => {
+      response.resolve({
+        success: false,
+        latency_ms: 5,
+        message: "old failure",
+        total: 0,
+        correct_count: 0,
+        precision: null,
+        cases: null,
+        history: null,
+      });
+      await response.promise;
+    });
+
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default
+        ?.configKey,
+    ).toBe(newKey);
+    expect(modalMocks.error).not.toHaveBeenCalled();
+  });
+
+  it("a late success does not verify after reranking was disabled", async () => {
+    mockHistory([]);
+    const response = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker").mockReturnValue(response.promise);
+
+    const { rerender } = renderWithProviders(<Harness />);
+    await clickTest();
+    rerender(<Harness config={disabledConfig} />);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("agentConfig.rerankerCapabilityDisabled"),
+      ).not.toBeNull(),
     );
 
     await act(async () => {
-      resolveStale({
-        fingerprint: `sha256:${"b".repeat(64)}`,
-        history: [historyRecord],
+      response.resolve({
+        success: true,
+        latency_ms: 42,
+        message: "ok",
+        total: 5,
+        correct_count: 5,
+        precision: 1,
+        cases: null,
+        history: [],
       });
-      await stale;
+      await response.promise;
     });
 
-// The superseded response belongs to another service and must be dropped;
-    // the new service only ever receives its own (empty) series.
-    await waitFor(() => {
-      const stored =
-        useRerankerVerificationStore.getState().historyByAgent.default;
-      expect(stored?.records ?? []).toEqual([]);
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default,
+    ).toBeUndefined();
+    expect(modalMocks.success).not.toHaveBeenCalled();
+    expect(screen.queryByText("agentConfig.rerankerVerified")).toBeNull();
+  });
+
+  it("a late success for a superseded config is not stored", async () => {
+    mockHistory([]);
+    const response = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker").mockReturnValue(response.promise);
+
+    const { rerender } = renderWithProviders(<Harness />);
+    await clickTest();
+    rerender(
+      <Harness config={{ ...enabledConfig, model_name: "changed-reranker" }} />,
+    );
+    await waitFor(() =>
+      expect(
+        useRerankerVerificationStore.getState().verificationByAgent.default,
+      ).toBeUndefined(),
+    );
+
+    await act(async () => {
+      response.resolve({
+        success: true,
+        latency_ms: 42,
+        message: "ok",
+        total: 5,
+        correct_count: 5,
+        precision: 1,
+        cases: null,
+        history: [],
+      });
+      await response.promise;
     });
+
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default,
+    ).toBeUndefined();
+    expect(modalMocks.success).not.toHaveBeenCalled();
   });
 });

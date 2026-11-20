@@ -30,8 +30,14 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from contextvars import copy_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+from ..utils.shell_resources import (
+    ShellOutputBuffer,
+    watch_shell_process_async,
+)
 
 from ._cleanup_logging import cleanup_errors, cleanup_logging
 
@@ -42,6 +48,7 @@ from .config import (  # noqa: E402  pylint: disable=wrong-import-position
     NETWORK_DOMAIN_HINT,
     ExecutionResult,
     SandboxConfig,
+    is_volume_root,
     network_allow_is_absolute,
     report_unenforced_config,
 )
@@ -1024,7 +1031,7 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
     """
     if kernel32 is None:
         kernel32 = _get_kernel32()
-    chunks: List[bytes] = []
+    buffer = ShellOutputBuffer()
     buf_size = 8192
     buf = (ctypes.c_ubyte * buf_size)()
     bytes_read = ctypes.wintypes.DWORD(0)
@@ -1039,13 +1046,13 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
         )
         if not ok:
             if bytes_read.value > 0:
-                chunks.append(bytes(buf[: bytes_read.value]))
+                buffer.append(bytes(buf[: bytes_read.value]))
             break
         if bytes_read.value == 0:
             break
-        chunks.append(bytes(buf[: bytes_read.value]))
+        buffer.append(bytes(buf[: bytes_read.value]))
 
-    return b"".join(chunks)
+    return buffer.value()
 
 
 def _create_job_object() -> Optional[ctypes.wintypes.HANDLE]:
@@ -1126,6 +1133,15 @@ def _reset_dacl_to_inherited(path: str) -> bool:
     Returns:
         True if the DACL was reset successfully.
     """
+    # Never reset a volume root: this rewrites the DACL of the entire
+    # volume, which can make the drive inaccessible.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to reset the DACL of volume root %s",
+            path,
+        )
+        return False
+
     advapi32 = _get_advapi32()
 
     # UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
@@ -1525,6 +1541,16 @@ def _set_path_ace(
     Returns:
         True if the ACE was set successfully.
     """
+    # Sandbox ACLs are inheritable, so writing one on a volume root
+    # re-propagates it to every child of the volume. Refuse here as well
+    # as in SandboxConfig, so no caller can reintroduce that write.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to set an ACE on volume root %s",
+            path,
+        )
+        return False
+
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
 
@@ -1542,6 +1568,19 @@ def _set_path_ace(
     )
     if rc != 0:
         logger.warning("GetNamedSecurityInfoW(%s) failed: rc=%d", path, rc)
+        return False
+
+    # A NULL DACL means "no protection at all". Merging our ACE into it
+    # would write a DACL holding only the sandbox SID, silently locking
+    # every other trustee (SYSTEM, Administrators, the user) out of the
+    # path. Refuse rather than create that state.
+    if not p_dacl.value:
+        logger.warning(
+            "Refusing to set an ACE on %s: its DACL is NULL",
+            path,
+        )
+        if p_sd:
+            kernel32.LocalFree(p_sd)
         return False
 
     ea = _build_explicit_access(
@@ -1692,8 +1731,18 @@ def _wait_and_read_process(
     timeout_ms = timeout_seconds * 1000
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        f_stdout = pool.submit(_read_pipe, stdout_handle, kernel32)
-        f_stderr = pool.submit(_read_pipe, stderr_handle, kernel32)
+        f_stdout = pool.submit(
+            copy_context().run,
+            _read_pipe,
+            stdout_handle,
+            kernel32,
+        )
+        f_stderr = pool.submit(
+            copy_context().run,
+            _read_pipe,
+            stderr_handle,
+            kernel32,
+        )
 
         wait_result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
         timed_out = wait_result == _WC.WAIT_TIMEOUT
@@ -2335,7 +2384,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 env["no_proxy"] = ""
 
             assert self._h_token is not None
-            _, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
+            pid, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
                 _create_process_as_user,
                 self._h_token,
                 cmd,
@@ -2344,6 +2393,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 self._config.shell_executable,
             )
             self._process_handle = h_proc
+            await watch_shell_process_async(pid)
             self._job_handle = h_job
 
             assert h_stdout is not None and h_stderr is not None

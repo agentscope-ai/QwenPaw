@@ -4,12 +4,15 @@
 # pylint: disable=protected-access
 
 import io
+import json
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import types
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -192,3 +195,122 @@ def test_save_file_passes_headers_to_download_request(
     assert captured_url == "http://127.0.0.1:43123/api/backups/abc/export"
     assert captured_headers["authorization"] == "Bearer tok"
     assert captured_headers["x-agent-id"] == "agent-a"
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="the decoded-path branch only runs on Windows",
+)
+def test_open_workspace_html_opens_the_decoded_local_path(
+    monkeypatch,
+) -> None:
+    """A percent-encoded UTF-8 file URI opens via its decoded local path.
+
+    Windows ShellExecute percent-decodes file URLs with the ANSI code page,
+    so a UTF-8 (Chinese) workspace path sent as ``file:///E:/%E5%...``
+    failed with ERROR_FILE_NOT_FOUND (issue #8502).
+    """
+    workspace_dir = Path(tempfile.mkdtemp())
+    report = workspace_dir / "工作区" / "report.html"
+    report.parent.mkdir(parents=True)
+    report.write_text("<html></html>", encoding="utf-8")
+    encoded_uri = report.as_uri()
+
+    opened: list[str] = []
+
+    def fake_browser_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(desktop_cmd.webbrowser, "open", fake_browser_open)
+
+    def fake_urlopen(request: urllib.request.Request) -> _Response:
+        return _Response(json.dumps({"uri": encoded_uri}).encode("utf-8"))
+
+    monkeypatch.setattr(desktop_cmd, "urlopen", fake_urlopen)
+
+    resolved = desktop_cmd.WebViewAPI().open_workspace_html(
+        "http://127.0.0.1:43123/api/workspace/html-file-uri",
+        {},
+    )
+
+    assert resolved is True
+    assert opened == [str(report)]
+
+
+def test_open_workspace_html_keeps_the_file_uri_off_windows(
+    monkeypatch,
+) -> None:
+    """Non-Windows platforms keep receiving the original file URI.
+
+    macOS ``webbrowser.open`` goes through AppleScript ``open location``,
+    which expects a URL — a bare path like ``/tmp/report.html`` breaks
+    HTML preview there (review comment on PR #8524).
+    """
+    opened: list[str] = []
+
+    def fake_browser_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(desktop_cmd.webbrowser, "open", fake_browser_open)
+
+    def fake_urlopen(request: urllib.request.Request) -> _Response:
+        uri = "file:///tmp/report.html"
+        return _Response(json.dumps({"uri": uri}).encode("utf-8"))
+
+    monkeypatch.setattr(desktop_cmd, "urlopen", fake_urlopen)
+    monkeypatch.setattr(desktop_cmd.sys, "platform", "darwin")
+
+    resolved = desktop_cmd.WebViewAPI().open_workspace_html(
+        "http://127.0.0.1:43123/api/workspace/html-file-uri",
+        {},
+    )
+
+    assert resolved is True
+    assert opened == ["file:///tmp/report.html"]
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="the UNC decode branch only runs on Windows",
+)
+def test_open_workspace_html_decodes_unc_uri_with_host(monkeypatch) -> None:
+    """A UNC file URI keeps its host segment after decoding (Windows).
+
+    ``file://server/share/report.html`` carries the host in ``netloc``;
+    decoding only ``path`` produced ``\\share\\report.html`` and lost the
+    ``\\\\server`` prefix (review comment on PR #8524).
+    """
+    opened: list[str] = []
+
+    def fake_browser_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(desktop_cmd.webbrowser, "open", fake_browser_open)
+
+    def fake_urlopen(request: urllib.request.Request) -> _Response:
+        uri = "file://server/share/report.html"
+        return _Response(json.dumps({"uri": uri}).encode("utf-8"))
+
+    monkeypatch.setattr(desktop_cmd, "urlopen", fake_urlopen)
+    monkeypatch.setattr(desktop_cmd.sys, "platform", "win32")
+
+    resolved = desktop_cmd.WebViewAPI().open_workspace_html(
+        "http://127.0.0.1:43123/api/workspace/html-file-uri",
+        {},
+    )
+
+    assert resolved is True
+    assert opened == ["\\\\server\\share\\report.html"]
+
+
+def test_open_workspace_html_rejects_non_loopback_target() -> None:
+    assert (
+        desktop_cmd.WebViewAPI().open_workspace_html(
+            "http://example.invalid/api/workspace/html-file-uri",
+            {},
+        )
+        is False
+    )

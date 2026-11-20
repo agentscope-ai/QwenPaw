@@ -1,0 +1,15 @@
+{
+  "id": "slack",
+  "name": "Slack",
+  "version": "0.1.0",
+  "type": "channel",
+  "description": "Slack Socket Mode messaging channel; standalone integration preview.",
+  "author": "QwenPaw Team",
+  "entry": {
+    "descriptor": "channel.json"
+  },
+  "qwenpaw_version": {
+    "min": "2.3.0.post1"
+  },
+  "publish": true
+}

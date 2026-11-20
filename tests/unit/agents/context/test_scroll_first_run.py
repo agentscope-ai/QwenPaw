@@ -14,11 +14,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 import qwenpaw.agents.context as context_mod
 import qwenpaw.agents.context.scroll.manager as scroll_manager_mod
 from qwenpaw.agents.context import build_scroll_components
-from qwenpaw.config.config import LightContextConfig
+from qwenpaw.config.config import LightContextConfig, ScrollContextConfig
 
 
 class _DummyModel:
@@ -64,6 +65,46 @@ def test_removed_eviction_headline_settings_are_ignored():
         config.scroll_config,
         "summarize_eviction_timeout_seconds",
     )
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_summary_timeout_config_reaches_manager(tmp_path: Path, shared):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+
+    config = _agent_config()
+    config.running.light_context_config.scroll_config.summary_timeout_seconds = (
+        600
+    )
+    # Exercise the same JSON round-trip as persisted agent configuration.
+    config.running.light_context_config = (
+        LightContextConfig.model_validate_json(
+            config.running.light_context_config.model_dump_json(),
+        )
+    )
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    components = None
+    try:
+        components = build_scroll_components(
+            agent_config=config,
+            workspace_dir=str(tmp_path),
+            model=_DummyModel(),
+            session_id="s1",
+            agent_id="ag1",
+            history_store=supplied,
+        )
+        assert components is not None
+        assert components.context_manager._summary_timeout_seconds == 600
+    finally:
+        if components is not None:
+            components.context_manager.close()
+        if supplied is not None:
+            supplied.close()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_summary_timeout_rejects_unbounded_or_invalid_values(timeout):
+    with pytest.raises(ValidationError):
+        ScrollContextConfig(summary_timeout_seconds=timeout)
 
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
@@ -147,22 +188,47 @@ def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
     assert _notice_records(caplog) == []
 
 
-def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
-    histories = []
+@pytest.mark.parametrize("shared", [False, True])
+def test_wiring_failure_closes_only_owned_history_store(
+    tmp_path: Path,
+    monkeypatch,
+    shared,
+):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+    from qwenpaw.agents.context.scroll import repl
 
-    def fail_manager(**kwargs):
+    histories = []
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    manager_class = scroll_manager_mod.ScrollContextManager
+
+    def track_manager(**kwargs):
         histories.append(kwargs["history"])
+        return manager_class(**kwargs)
+
+    def fail_tool(**_kwargs):
         raise RuntimeError("wiring failed")
 
     monkeypatch.setattr(
         scroll_manager_mod,
         "ScrollContextManager",
-        fail_manager,
+        track_manager,
     )
+    monkeypatch.setattr(repl, "make_recall_history_python", fail_tool)
 
-    assert _build(tmp_path) is None
-    assert len(histories) == 1
-    assert histories[0].closed is True
+    try:
+        components = build_scroll_components(
+            agent_config=_agent_config(),
+            workspace_dir=tmp_path,
+            model=_DummyModel(),
+            session_id="s1",
+            history_store=supplied,
+        )
+        assert components is None
+        assert len(histories) == 1
+        assert histories[0].closed is (not shared)
+    finally:
+        if supplied is not None:
+            assert supplied.close() is True
 
 
 def test_invalid_history_path_falls_back_without_writing_outside_workspace(

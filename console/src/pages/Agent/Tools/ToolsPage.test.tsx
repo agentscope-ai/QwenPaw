@@ -6,7 +6,8 @@ const state = vi.hoisted(() => ({
   enableAll: vi.fn(),
   disableAll: vi.fn(),
 }));
-vi.mock("react-i18next", async () => {
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
   const { createInstance } = await import("i18next");
   const en = await import("../../../locales/en.json");
   const zh = await import("../../../locales/zh.json");
@@ -19,7 +20,7 @@ vi.mock("react-i18next", async () => {
       zh: { translation: zh.default },
     },
   });
-  return { useTranslation: () => ({ t: i18n.t.bind(i18n), i18n }) };
+  return { ...actual, useTranslation: () => ({ t: i18n.t.bind(i18n), i18n }) };
 });
 vi.mock("./useTools", () => ({
   useTools: () => ({

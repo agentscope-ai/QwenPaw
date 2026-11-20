@@ -2,96 +2,95 @@
 """Public provider contracts through the production model factory."""
 
 import asyncio
+import inspect
 
 import pytest
 
 from .sdk_author_fixture import make_plugin
 
-SOURCE = """
-from qwenpaw.plugins.providers import (
-    ProviderSpec,
-    ModelInfo,
-    ModelChunk,
-    ModelUsage,
-)
-from qwenpaw.plugins.messages import ContentBlock
 
+def declare_provider(ctx):
+    from qwenpaw.plugins.providers import (
+        ProviderSpec,
+        ModelInfo,
+        ModelChunk,
+        ModelUsage,
+    )
+    from qwenpaw.plugins.messages import ContentBlock
 
-class Plugin:
-    def register(self, ctx):
-        async def generate(call, request):
-            assert not hasattr(call, "workspace") and not hasattr(
-                call, "agent"
-            )
-            ctx.storage.write_json(
-                "request.json",
-                {
-                    "provider": call.provider_id,
-                    "workspace": call.workspace_id,
-                    "session": call.session_id,
-                    "model": request.model_id,
-                    "text": request.messages[0].content[0].text,
-                    "tools": list(request.tools),
-                    "options": request.options,
-                    "choice": (
-                        request.tool_choice.mode
-                        if request.tool_choice
-                        else None
-                    ),
-                },
-            )
-            try:
-                yield ModelChunk(
-                    (ContentBlock(type="thinking", text="reason"),),
-                    id="response-1",
-                )
-                yield ModelChunk(
-                    (
-                        ContentBlock(
-                            type="tool_call",
-                            id="call-1",
-                            name="calculate",
-                            arguments='{"x":3}',
-                        ),
-                    ),
-                    id="response-1",
-                )
-                yield ModelChunk(
-                    (ContentBlock(text="answer"),),
-                    is_last=True,
-                    usage=ModelUsage(12, 3),
-                    id="response-1",
-                    metadata={"finish": "ok"},
-                )
-            finally:
-                ctx.storage.write_json("closed.json", True)
-
-        ctx.register_provider(
-            ProviderSpec(
-                "sdk-provider",
-                "SDK Provider",
-                generate,
-                models=(ModelInfo("sdk-model", "SDK model"),),
-                require_api_key=False,
-            )
+    async def generate(call, request):
+        assert not hasattr(call, "workspace") and not hasattr(call, "agent")
+        ctx.storage.write_json(
+            "request.json",
+            {
+                "provider": call.provider_id,
+                "workspace": call.workspace_id,
+                "session": call.session_id,
+                "model": request.model_id,
+                "text": request.messages[0].content[0].text,
+                "tools": list(request.tools),
+                "options": request.options,
+                "choice": (
+                    request.tool_choice.mode if request.tool_choice else None
+                ),
+            },
         )
+        try:
+            yield ModelChunk(
+                (ContentBlock(type="thinking", text="reason"),),
+                id="response-1",
+            )
+            yield ModelChunk(
+                (
+                    ContentBlock(
+                        type="tool_call",
+                        id="call-1",
+                        name="calculate",
+                        arguments='{"x":3}',
+                    ),
+                ),
+                id="response-1",
+            )
+            yield ModelChunk(
+                (ContentBlock(text="answer"),),
+                is_last=True,
+                usage=ModelUsage(12, 3),
+                id="response-1",
+                metadata={"finish": "ok"},
+            )
+        finally:
+            ctx.storage.write_json("closed.json", True)
+
+    ctx.register_provider(
+        ProviderSpec(
+            "sdk-provider",
+            "SDK Provider",
+            generate,
+            models=(ModelInfo("sdk-model", "SDK model"),),
+            require_api_key=False,
+        ),
+    )
 
 
-plugin = Plugin()
-"""
+# The disk-load/reload representative runs the same self-contained declaration.
+SOURCE = inspect.getsource(declare_provider) + (
+    "\nclass Plugin:\n"
+    "    register = staticmethod(declare_provider)\n"
+    "plugin = Plugin()\n"
+)
 
 
 async def test_provider_preserves_public_request_and_multiblock_response(
-    tmp_path,
+    sdk_component,
 ):
     from qwenpaw.plugins.messages import ContentBlock, Message
     from qwenpaw.plugins.providers import ModelToolChoice
-    from qwenpaw.plugins.testing import PluginTestHost
 
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(
-            make_plugin(tmp_path, SOURCE, ["providers", "storage"]),
-        )
+    async with sdk_component(
+        declare_provider,
+        plugin_id="extension-contract",
+        capabilities=("providers", "storage"),
+    ) as (host, ctx):
         assert (await host.discover_models("sdk-provider"))[
             0
         ].id == "sdk-model"
@@ -195,33 +194,21 @@ async def test_provider_cross_task_stream_keeps_owner_busy_and_closes(
 
 @pytest.mark.parametrize("case", ["missing_terminal", "after_terminal"])
 async def test_provider_rejects_invalid_stream_terminal_protocol(
-    tmp_path,
+    sdk_component,
     case,
 ):
     from qwenpaw.plugins import SDKError
+    from qwenpaw.plugins.providers import ProviderSpec, ModelInfo, ModelChunk
     from qwenpaw.plugins.messages import ContentBlock, Message
-    from qwenpaw.plugins.testing import PluginTestHost
 
-    source = """
-from qwenpaw.plugins.providers import (
-    ProviderSpec,
-    ModelInfo,
-    ModelChunk,
-)
-from qwenpaw.plugins.messages import ContentBlock
-
-
-class Plugin:
-    def register(self, ctx):
+    def declare(ctx):
         async def generate(call, request):
             yield ModelChunk(
                 (ContentBlock(text="first"),),
                 is_last=ctx.config.get("case") == "after_terminal",
             )
             if ctx.config.get("case") == "after_terminal":
-                yield ModelChunk(
-                    (ContentBlock(text="illegal trailing data"),)
-                )
+                yield ModelChunk((ContentBlock(text="illegal trailing data"),))
 
         ctx.register_provider(
             ProviderSpec(
@@ -230,17 +217,15 @@ class Plugin:
                 generate,
                 models=(ModelInfo("sdk-model", "SDK model"),),
                 require_api_key=False,
-            )
+            ),
         )
 
-
-plugin = Plugin()
-"""
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(
-            make_plugin(tmp_path, source, ["providers", "config"]),
-            config={"case": case},
-        )
+    async with sdk_component(
+        declare,
+        plugin_id="extension-contract",
+        capabilities=("providers", "config"),
+        config={"case": case},
+    ) as (host, ctx):
         model = await host.create_model("sdk-provider", "sdk-model")
         with pytest.raises(SDKError, match="terminal"):
             async for _ in model.stream(

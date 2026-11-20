@@ -9,6 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabbedEditor from "./TabbedEditor";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
+import type { FileTarget } from "../../features/files-workspace/types";
 
 const SCOPE_KEY = "agent:default";
 
@@ -61,9 +62,11 @@ vi.mock("../../hooks/useAppMessage", () => ({
 function Harness({
   onSaveFile,
   onDownloadFile,
+  onOpenFile,
 }: {
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
+  onOpenFile?: (target: FileTarget) => void;
 }) {
   const tabs = useCodingTabsStore(
     (state) => state.tabsByAgent[SCOPE_KEY] ?? [],
@@ -93,10 +96,38 @@ function Harness({
         store.setTabContent(SCOPE_KEY, path, content)
       }
       onDownloadFile={onDownloadFile}
+      onOpenFile={onOpenFile}
       onSaveFile={onSaveFile}
     />
   );
 }
+
+describe("TabbedEditor Markdown navigation (#8528)", () => {
+  it.each([
+    ["docs/a.md", undefined],
+    ["workspace-root::docs/a.md", "workspace"],
+    [
+      "project:C:/Projects/secondary::docs/a.md",
+      "project:C:/Projects/secondary",
+    ],
+  ] as const)("retains the root of persisted tab %s", async (path, root) => {
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [SCOPE_KEY]: [{ path, content: "[next](./b.md)", dirty: false }],
+      },
+      activeTabByAgent: { [SCOPE_KEY]: path },
+      diffsByAgent: {},
+    });
+    const onOpenFile = vi.fn();
+    render(<Harness onSaveFile={vi.fn()} onOpenFile={onOpenFile} />);
+    fireEvent.click(await screen.findByRole("link", { name: "next" }));
+    expect(onOpenFile).toHaveBeenCalledWith({
+      source: "workspace",
+      path: "docs/b.md",
+      root,
+    });
+  });
+});
 
 describe("TabbedEditor diff resolution", () => {
   beforeEach(() => {

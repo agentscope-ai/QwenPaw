@@ -38,6 +38,7 @@ from qwenpaw.exceptions import (
 
 from .history_path import normalize_history_db_filename
 from .timezone import detect_system_timezone
+from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
@@ -399,6 +400,8 @@ class DiscordConfig(BaseChannelConfig):
 
 
 class DingTalkConfig(BaseChannelConfig):
+    model_config = ConfigDict(extra="allow")
+
     client_id: str = ""
     client_secret: str = ""
     message_type: str = "markdown"
@@ -426,13 +429,18 @@ class FeishuConfig(BaseChannelConfig):
     if False (default), each member gets an independent session.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     app_id: str = ""
     app_secret: str = ""
     encrypt_key: str = ""
     verification_token: str = ""
     media_dir: Optional[str] = None
     # "feishu" / "lark", or a full http(s) base URL for custom gateways.
-    domain: str = "feishu"
+    domain: str = Field(
+        default="feishu",
+        json_schema_extra={"pattern": "^(feishu$|lark$|https?://)"},
+    )
 
     @field_validator("domain")
     @classmethod
@@ -454,6 +462,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
@@ -544,12 +553,13 @@ class WecomConfig(BaseChannelConfig):
 class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
-    homeserver: str = ""
-
-    @field_validator("homeserver")
-    @classmethod
-    def strip_trailing_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+    homeserver: str = Field(
+        default="",
+        json_schema_extra={NORMALIZER_MARKER: "strip_trailing_slash"},
+    )
+    strip_trailing_slash = field_validator("homeserver", mode="after")(
+        strip_trailing_slash,
+    )
 
     user_id: str = ""
     access_token: str = ""
@@ -626,6 +636,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
@@ -649,7 +660,7 @@ class WeChatConfig(BaseChannelConfig):
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/wechat_bot_token).
+                            (default <workspace>/wechat/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -1284,6 +1295,17 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
+    summary_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Total continuation-summary timeout in seconds, including input "
+            "preparation, generation, validation and one quality retry. "
+            "Increase for slow reasoning models or long conversations."
+        ),
+    )
+
     history_retention_days: int = Field(
         default=30,
         ge=0,
@@ -1549,6 +1571,7 @@ class RubricGateConfig(BaseModel):
             "early stop on text-only responses"
         ),
     )
+    use_decision_model: bool = False
     prompt: str = Field(
         default=(
             "You did not call any tool in the "
@@ -2474,6 +2497,14 @@ class AgentProfileConfig(BaseModel):
         """Record the content version represented by this model."""
         self._source_digest = digest
 
+    @property
+    def uses_scroll_history(self) -> bool:
+        """Whether this runtime writes through to durable Scroll history."""
+        return (
+            self.backend == "qwenpaw"
+            and self.running.light_context_config.strategy == "scroll"
+        )
+
     id: str = Field(..., description="Unique agent ID")
     name: str = Field(..., description="Human-readable agent name")
     description: str = Field(default="", description="Agent description")
@@ -2668,11 +2699,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "
@@ -3427,10 +3454,25 @@ class ThemeConfig(BaseModel):
         return value
 
 
+class ChannelPluginState(BaseModel):
+    """Host distribution intent, never runtime ownership or credentials."""
+
+    version: int = 0
+    preset: Literal["light", "channels-full"] = "light"
+    legacy_pending: list[str] = Field(default_factory=list)
+    legacy_captured: list[str] = Field(default_factory=list)
+    uninstalled: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
     channels: ChannelConfig = ChannelConfig()
+    channel_plugin_state: ChannelPluginState = Field(
+        default_factory=ChannelPluginState,
+    )
+    channel_send_timeouts: Dict[str, float] = Field(default_factory=dict)
+
     mcp: MCPConfig = MCPConfig()
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     last_api: LastApiConfig = LastApiConfig()
@@ -3458,6 +3500,13 @@ class Config(BaseModel):
         "Skills found here are read-only (no edit/create); they can be "
         "listed, downloaded to a workspace, and deleted.",
     )
+
+    @field_validator("channel_send_timeouts", mode="before")
+    @classmethod
+    def _validate_channel_send_timeouts(cls, value):
+        from ..channel_protocol.outbound_budget import validate_send_timeouts
+
+        return validate_send_timeouts(value)
 
 
 ChannelConfigUnion = Union[
@@ -3751,15 +3800,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         save_agent_config(agent_id, fallback_config)
         return fallback_config
 
-    try:
-        current_fingerprint = _agent_config_fingerprint(agent_config_path)
-    except OSError as exc:
-        raise ConfigurationException(
-            config_key="agent",
-            message=f"Agent '{agent_id}' config is temporarily unavailable",
-        ) from exc
-
     with _agent_config_lock:
+        try:
+            current_fingerprint = _agent_config_fingerprint(agent_config_path)
+        except OSError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' config is temporarily unavailable",
+            ) from exc
         cached_entry = _agent_config_cache.get(agent_id)
         if (
             isinstance(cached_entry, _AgentConfigCacheEntry)
@@ -4007,6 +4055,12 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
             payload = candidate.model_dump(exclude_none=True)
             saved_digest = _json_payload_digest(payload)
+            if not candidate.uses_scroll_history:
+                from ..agents.context.scroll.sync import (
+                    invalidate_agent_migration,
+                )
+
+                invalidate_agent_migration(workspace_dir)
             write_json_atomic(agent_config_path, payload)
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)

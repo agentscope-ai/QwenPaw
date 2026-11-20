@@ -19,6 +19,11 @@ def test_exported_author_suite_collects_outside_checkout(tmp_path):
     )
     selected = checker["prepare_author_tests"](source, tmp_path)
     assert "test_sdk_install_transaction.py" in selected
+    assert not {
+        "test_sdk_channel_routing_contract.py",
+        "test_sdk_provider_contract.py",
+        "test_sdk_resource_contract.py",
+    }.intersection(selected)
     assert "test_sdk_dependency_environment.py" not in selected
     code = """
 import importlib.abc
@@ -41,6 +46,7 @@ raise SystemExit(pytest.main([
         if not key.startswith(("PYTHON", "QWENPAW_"))
     }
     env.update(
+        QWENPAW_DEPENDENCY_STATE_DIR=str(tmp_path / "dependency-state"),
         QWENPAW_WORKING_DIR=str(tmp_path / "working"),
         QWENPAW_SECRET_DIR=str(tmp_path / "secrets"),
     )

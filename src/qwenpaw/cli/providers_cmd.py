@@ -207,6 +207,11 @@ def configure_provider_api_key_interactive(
             base_url = None
 
     if not defn.require_api_key:
+        if base_url is not None and not manager.update_provider(
+            provider_id,
+            {"base_url": base_url},
+        ):
+            raise click.ClickException("Failed to update provider base URL.")
         click.echo(
             f"{defn.name} does not require API key configuration. Skipping.",
         )
@@ -351,6 +356,34 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
     if use_defaults:
         return cur or (all_models[0].id if all_models else "")
 
+    if pid == "ollama":
+        manager = _manager()
+        discovery = asyncio.run(
+            manager.discover_provider_models(pid, save=False),
+        )
+        models = [m for m in discovery.models if m.model_type == "chat"]
+        if not discovery.success or not models:
+            reason = (
+                f"Cannot discover Ollama models: {discovery.error}"
+                if not discovery.success
+                else "Ollama returned no chat models."
+            )
+            if not all_models:
+                raise click.ClickException(reason)
+            click.echo(f"{reason} Using configured models.", err=True)
+            models = all_models
+        selected = _pick_model_from_list(
+            models,
+            "Select LLM model:",
+            current_model=cur,
+        )
+        # Discovery candidates are not configured models. Persist only the
+        # user's selection, preserving overrides on an existing model.
+        if defn.get_model_info(selected) is None:
+            model = next(m for m in models if m.id == selected)
+            asyncio.run(manager.add_model_to_provider(pid, model))
+        return selected
+
     if all_models:
         return _pick_model_from_list(
             all_models,
@@ -425,19 +458,19 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
             click.style(f"Error: provider '{pid}' not found.", fg="red"),
         )
         raise SystemExit(1)
-    model = _select_llm_model(
-        defn,
-        pid,
-        current_slot,
-        use_defaults=use_defaults,
-    )
-    if not model and use_defaults:
-        click.echo(
-            f"No default model for {defn.name}. "
-            "Run 'qwenpaw models config' to set one.",
-        )
-        return
     try:
+        model = _select_llm_model(
+            defn,
+            pid,
+            current_slot,
+            use_defaults=use_defaults,
+        )
+        if not model and use_defaults:
+            click.echo(
+                f"No default model for {defn.name}. "
+                "Run 'qwenpaw models config' to set one.",
+            )
+            return
         asyncio.run(manager.activate_model(pid, model))
     except (ValueError, AppBaseException) as exc:
         if use_defaults:

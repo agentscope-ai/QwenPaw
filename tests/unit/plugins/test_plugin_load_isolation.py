@@ -509,19 +509,53 @@ async def test_unowned_load_has_no_local_effects(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "preprovisioned",
+    [True, False],
+    ids=["present", "missing"],
+)
 async def test_owned_load_preserves_foreign_dependency_environment(
     loader,
     tmp_path,
     monkeypatch,
+    preprovisioned,
 ):
     monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
     root, manifest, markers = _ownership_probe(tmp_path)
     loader.lifecycle.delegate.owns_dependency_env = Mock(return_value=False)
     (root / "requirements.txt").write_text("foreign-environment==1")
+    if preprovisioned:
+        dependency_site = tmp_path / "foreign-dependency-site"
+        info = dependency_site / "foreign_environment-1.dist-info"
+        info.mkdir(parents=True)
+        (dependency_site / "foreign_environment.py").write_text("VALUE = 1\n")
+        (info / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: foreign-environment\nVersion: 1\n",
+        )
+        (info / "top_level.txt").write_text("foreign_environment\n")
+        (info / "RECORD").write_text(
+            "foreign_environment.py,,\n"
+            "foreign_environment-1.dist-info/METADATA,,\n",
+        )
+        monkeypatch.syspath_prepend(str(dependency_site))
     install = AsyncMock(side_effect=AssertionError("must not install"))
     monkeypatch.setattr(loader, "_install_requirements_locked", install)
+    monkeypatch.setattr(loader, "_prepare_python_dependencies", install)
+    monkeypatch.setattr(loader, "_acquire_dependency_wheels", install)
     record = await loader.lifecycle.load(manifest, root, allow_install=True)
-    assert record.status == "active"
-    assert all(marker.exists() for marker in markers)
+    if preprovisioned:
+        assert record.status == "active"
+        assert all(marker.exists() for marker in markers)
+    else:
+        assert record.status == "failed" and not record.enabled
+        assert any(
+            error.startswith(
+                "DEPENDENCY_UNSATISFIED: delegate-probe: "
+                "foreign-environment==1",
+            )
+            for error in record.diagnostics
+        )
+        assert not any(marker.exists() for marker in markers)
+        assert not loader.registry.runtime_owners.leases(manifest.id)
     install.assert_not_called()
     await loader.unload_plugin(manifest.id)

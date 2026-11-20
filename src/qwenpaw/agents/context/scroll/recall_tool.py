@@ -26,10 +26,11 @@ import binascii
 import hashlib
 import json
 import logging
+import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from agentscope.message import DataBlock, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
@@ -835,13 +836,14 @@ def _run_search(
     return rows, label
 
 
-def make_recall_history(
+def make_recall_history(  # pylint: disable=too-many-statements
     *,
     history_db_path: str,
     session_id: str | None,
     agent_id: str | None = None,
     loop_guard: RecallLoopGuard | None = None,
     page_max_bytes: int = DEFAULT_MAX_BYTES,
+    on_database_error: Optional[Callable[[BaseException], None]] = None,
 ):
     """Build a ``recall_history`` tool bound to one session's history.
 
@@ -1059,6 +1061,11 @@ def make_recall_history(
                     request_fingerprint,
                 )
             except Exception as exc:  # noqa: BLE001 - surface, never crash
+                if on_database_error is not None and isinstance(
+                    exc,
+                    sqlite3.DatabaseError,
+                ):
+                    await run_sync_io(on_database_error, exc)
                 if loop_guard is not None and isinstance(
                     exc,
                     RecallSnapshotChangedError,
