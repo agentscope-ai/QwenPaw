@@ -17,6 +17,7 @@ import httpx
 
 from .io_helpers import (
     SERVER_GRACE_SECONDS,
+    create_server_job,
     finish,
     run_io,
     stop_server,
@@ -64,6 +65,7 @@ class LlamaCppBackend(BinaryDownloads):
         self.target_dir = data_dir / "bin"
         self.log_dir = data_dir / "logs"
         self._server_process: subprocess.Popen | None = None
+        self._server_job = create_server_job()
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
@@ -454,14 +456,19 @@ class LlamaCppBackend(BinaryDownloads):
         )
 
         async def launch():
-            self._server_process = await asyncio.to_thread(
+            process = await asyncio.to_thread(
                 subprocess.Popen,
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 **process_options(),
             )
-            return self._server_process
+            # Bind the server to this process before anything can wait on it:
+            # if we die abruptly the kernel takes it down too, instead of
+            # leaving an orphan holding its port and its memory (#8830).
+            self._server_job.assign(process)
+            self._server_process = process
+            return process
 
         return await finish(launch())
 
