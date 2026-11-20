@@ -43,7 +43,9 @@ from qwenpaw.channel_protocol.response_lifecycle import (
     ResponseCleanupState,
     ResponseResourceRef,
     ResponseRouteAggregate,
+    ResponseRouteKind,
     ResponseRouteSnapshot,
+    RESPONSE_ROUTE_STALE_TTL_MS,
     ResponseStateError,
 )
 
@@ -117,6 +119,16 @@ class SharedResponseDriver:
         migrated = False
         for row in rows:
             snapshot = ResponseRouteSnapshot.from_mapping(row)
+            if (
+                snapshot.kind is ResponseRouteKind.ACTIVE
+                and snapshot.opened_at_ms is None
+            ):
+                snapshot = replace(
+                    snapshot,
+                    version=snapshot.version + 1,
+                    opened_at_ms=self._routes.clock_ms(),
+                )
+                migrated = True
             compact = self._compact_stream_attempts(snapshot)
             if compact != snapshot:
                 snapshot = replace(compact, version=snapshot.version + 1)
@@ -150,13 +162,32 @@ class SharedResponseDriver:
                     "response route is closed",
                 )
             rows = self._routes.snapshots()
-            if len(rows) >= _MAX_ROUTES:
+            if (
+                len(rows) >= _MAX_ROUTES
+                and self._routes.snapshot(handle) is None
+            ):
                 completed = sorted(
                     (row for row in rows if self._evictable(row)),
                     key=lambda row: row.closed_at_ms,
                 )
                 if completed:
                     self._evict(completed[0].response_handle)
+                else:
+                    stale = sorted(
+                        (
+                            row
+                            for row in self._routes.stale_active(
+                                RESPONSE_ROUTE_STALE_TTL_MS,
+                            )
+                            if (
+                                row.response_handle != handle
+                                and self._active_route_evictable(row)
+                            )
+                        ),
+                        key=lambda row: row.opened_at_ms,
+                    )
+                    if stale:
+                        self._evict(stale[0].response_handle)
             for old in self._routes.expired_completed():
                 if self._evictable(old):
                     self._routes.commit_gc(old)
@@ -1257,8 +1288,25 @@ class SharedResponseDriver:
             )
         )
 
+    def _active_route_evictable(self, snapshot):
+        """Return whether an old active route can leave the live checkpoint."""
+        return (
+            snapshot.kind is ResponseRouteKind.ACTIVE
+            and not any(
+                admission_key[0] == snapshot.response_handle
+                for admission_key in self._inflight_admissions
+            )
+            and not (
+                self._locks.get(snapshot.response_handle)
+                and self._locks[snapshot.response_handle].locked()
+            )
+        )
+
     def _evict(self, handle):
-        replacement = ResponseRouteAggregate(max_entries=_MAX_ROUTES)
+        replacement = ResponseRouteAggregate(
+            max_entries=_MAX_ROUTES,
+            clock_ms=self._routes.clock_ms,
+        )
         for row in self._routes.snapshots():
             if row.response_handle != handle:
                 replacement.restore(row)
