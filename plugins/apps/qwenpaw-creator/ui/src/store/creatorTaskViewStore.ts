@@ -78,6 +78,15 @@ function applyRow<T extends Row>(current: T[], incoming: T): T[] {
   return [incoming, ...current.filter((row) => row.id !== incoming.id)];
 }
 
+// `CreatorEvent.data` is one shared, untyped payload: `subagent.accepted`
+// carries the delegation brief (a string) on `task`, while `task.*` carries a
+// TaskView there. Rows feed a WeakMap, so non-object payloads must never pass.
+function asRow<T extends Row>(value: unknown): T | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (typeof (value as Row).id !== "string") return null;
+  return value as T;
+}
+
 export const useCreatorTaskViewStore = create<CreatorTaskViewState>(
   (set, get) => ({
     projectId: null,
@@ -121,8 +130,8 @@ export const useCreatorTaskViewStore = create<CreatorTaskViewState>(
     },
     consumeEvent: (event) => {
       if (event.projectId !== get().projectId) return;
-      const run = event.data.run as SpecialistRunView | undefined;
-      const task = event.data.task as TaskView | undefined;
+      const run = asRow<SpecialistRunView>(event.data.run);
+      const task = asRow<TaskView>(event.data.task);
       if (run)
         set((state) => ({
           runs: applyRow(state.runs, run),

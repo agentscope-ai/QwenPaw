@@ -268,4 +268,32 @@ describe("creator task view refresh ordering", () => {
       tasks: [task("p2", "RUNNING")],
     });
   });
+
+  it("ignores the string delegation brief that subagent.accepted carries on `task`", () => {
+    const existing: TaskView = {
+      id: "t1",
+      projectId: "p1",
+      transactionId: null,
+      specialistRunId: null,
+      kind: "compose",
+      targetRef: "project:p1",
+      status: "RUNNING",
+      progress: null,
+      resultRefs: [],
+    };
+    useCreatorTaskViewStore.setState({ projectId: "p1", tasks: [existing] });
+    const store = useCreatorTaskViewStore.getState();
+    // Replayed history written before the backend renamed the field keeps the
+    // brief under `task`; a WeakMap keyed by rows must never see a string.
+    expect(() =>
+      store.consumeEvent(
+        ev(1, "subagent.accepted", {
+          runId: "run-1",
+          role: "source_intelligence_agent",
+          task: "分析这段小猫视角影片（cat_camera_1.mp4）",
+        }),
+      ),
+    ).not.toThrow();
+    expect(useCreatorTaskViewStore.getState().tasks).toEqual([existing]);
+  });
 });

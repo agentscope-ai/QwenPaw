@@ -6293,7 +6293,10 @@ class FileCreatorAgentRuntime:
                 "subagent.accepted",
                 parent_run_id,
                 request,
-                {**common, "task": delegated.task},
+                # `task` is reserved for TaskView rows on the UI side; the
+                # delegation brief must use its own key so the two shapes
+                # never collide under one namespace.
+                {**common, "delegationText": delegated.task},
             )
             if handle.cancel_reason is not None:
                 return await _settle_revoked(announce=True)
