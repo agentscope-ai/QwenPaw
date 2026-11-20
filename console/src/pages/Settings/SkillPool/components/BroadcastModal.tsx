@@ -115,6 +115,7 @@ export function BroadcastModal({
           selectedSkillNames.length === 0 || selectedWorkspaceIds.length === 0,
       }}
       title={t("skillPool.broadcast")}
+      okText={t("confirmation.loadSkillsToAgents")}
       width={760}
     >
       <div className={transferStyles.summary} aria-live="polite">

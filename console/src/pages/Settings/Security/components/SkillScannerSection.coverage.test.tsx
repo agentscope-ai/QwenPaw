@@ -947,6 +947,21 @@ describe("SkillScannerSection - clear history confirmation", () => {
     });
     expect(h.scanner.clearBlockedHistory).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the confirmation retryable when clearing history fails", async () => {
+    h.scanner.clearBlockedHistory.mockResolvedValue(false);
+    seedState({ blockedHistory: [makeBlocked()] });
+    render(<SkillScannerSection />);
+    fireEvent.click(
+      screen.getByText("security.skillScanner.scanAlerts.clearAll"),
+    );
+    await expect(confirmArg().onOk?.()).rejects.toThrow(
+      "confirmation.clearScanHistoryFailed",
+    );
+    expect(h.message.error).toHaveBeenCalledWith(
+      "confirmation.clearScanHistoryFailed",
+    );
+  });
 });
 
 describe("SkillScannerSection - whitelist tab", () => {
@@ -1078,7 +1093,7 @@ describe("SkillScannerSection - whitelist tab", () => {
     expect(h.message.error).not.toHaveBeenCalled();
   });
 
-  it("still reports success when disabling the skill throws", async () => {
+  it("reports partial completion if disabling the removed skill fails", async () => {
     stubLocaleString("FORMATTED_TIME");
     h.scanner.removeFromWhitelist.mockResolvedValue(true);
     h.disableSkill.mockRejectedValue(new Error("disable failed"));
@@ -1094,12 +1109,10 @@ describe("SkillScannerSection - whitelist tab", () => {
     await act(async () => {
       await confirmArg().onOk?.();
     });
-    expect(h.message.success).toHaveBeenCalledWith(
-      "security.skillScanner.whitelist.removeSuccess",
+    expect(h.message.warning).toHaveBeenCalledWith(
+      "confirmation.skillRemovedButNotDisabled",
     );
-    expect(h.message.success).not.toHaveBeenCalledWith(
-      "security.skillScanner.whitelist.removeAndDisabled",
-    );
+    expect(h.message.success).not.toHaveBeenCalled();
     expect(h.message.error).not.toHaveBeenCalled();
   });
 

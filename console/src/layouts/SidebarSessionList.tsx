@@ -446,7 +446,9 @@ export default function SidebarSessionList({
           "chat.groups.deleteHint",
           "Conversations will return to their built-in group.",
         ),
+        okText: t("confirmation.deleteGroup"),
         okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         onOk: async () => {
           await deleteGroup(groupId);
           await refreshSessions();

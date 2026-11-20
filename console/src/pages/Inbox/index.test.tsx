@@ -19,17 +19,23 @@ const mocks = vi.hoisted(() => ({
   pendingCount: 0,
   newArrival: false,
   approvals: [] as unknown[],
+  applyApprovalSnapshot: (() => undefined) as (approvals: unknown[]) => void,
   sendApprovalCommand: vi.fn(),
+  isApprovalPending: vi.fn(),
+  confirmAction: vi.fn(),
   stopChat: vi.fn(),
   getRealIdForSession: vi.fn((id: string) => id),
   getInboxTrace: vi.fn(),
   getInboxEvents: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  translate: (key: string, opts?: Record<string, unknown>) =>
+    opts ? `${key}:${JSON.stringify(opts)}` : key,
 }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) =>
-      opts ? `${key}:${JSON.stringify(opts)}` : key,
+    t: mocks.translate,
     i18n: { language: "en" },
   }),
 }));
@@ -146,10 +152,11 @@ vi.mock("../../components/ApprovalCard/ApprovalCard", () => ({
 }));
 
 vi.mock("../../contexts/ApprovalContext", () => ({
-  useApprovalContext: () => ({
-    approvals: mocks.approvals,
-    setApprovals: vi.fn(),
-  }),
+  useApprovalContext: () => {
+    const [approvals, setApprovals] = React.useState(mocks.approvals);
+    mocks.applyApprovalSnapshot = setApprovals;
+    return { approvals, setApprovals };
+  },
 }));
 
 vi.mock("../../hooks/useInboxWobble", () => ({
@@ -159,6 +166,7 @@ vi.mock("../../hooks/useInboxWobble", () => ({
 vi.mock("../../api/modules/commands", () => ({
   commandsApi: {
     sendApprovalCommand: (...a: unknown[]) => mocks.sendApprovalCommand(...a),
+    isApprovalPending: mocks.isApprovalPending,
   },
 }));
 
@@ -261,9 +269,19 @@ vi.mock("antd", async () => {
     onConfirm,
   }: {
     children?: React.ReactNode;
-    onConfirm?: () => void;
-  }) => <span onClick={onConfirm}>{children}</span>;
-  return { ...actual, Tabs, Empty, Pagination, Popconfirm };
+    onConfirm?: () => void | Promise<void>;
+  }) => (
+    <span onClick={() => mocks.confirmAction(onConfirm?.())}>{children}</span>
+  );
+  const actualMessage = actual.message as Record<string, unknown>;
+  return {
+    ...actual,
+    message: { ...actualMessage, warning: mocks.warn, error: mocks.error },
+    Tabs,
+    Empty,
+    Pagination,
+    Popconfirm,
+  };
 });
 
 import InboxPage from "./index";
@@ -301,7 +319,7 @@ function makeInboxData(messages: PushMessage[], summaryUnread = 0) {
     markMessageAsRead: vi.fn(),
     markAllMessagesAsRead: vi.fn().mockResolvedValue(summaryUnread),
     deleteMessage: vi.fn(),
-    deleteMessages: vi.fn().mockResolvedValue(0),
+    deleteMessages: vi.fn().mockResolvedValue([]),
     triggerHarvest: vi.fn(),
     refreshPushMessages: vi.fn(),
     pushMessagesLoading: false,
@@ -322,12 +340,109 @@ beforeEach(() => {
   mocks.pendingCount = 0;
   mocks.newArrival = false;
   mocks.approvals = [];
+  mocks.isApprovalPending.mockReset().mockResolvedValue(true);
+  mocks.confirmAction.mockClear();
+  mocks.warn.mockClear();
+  mocks.error.mockClear();
   localStorage.clear();
 });
 
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
+  it.each([false, true])(
+    "focuses only the requested approval when Inbox is already mounted=%s",
+    async (mounted) => {
+      makeInboxData([]);
+      const target = {
+        request_id: "target",
+        created_at: Date.now() / 1000,
+        timeout_seconds: 60,
+      };
+      mocks.approvals = [{ ...target, request_id: "other" }, target];
+      const path = "/inbox?tab=approvals&approval=target";
+      renderWithProviders(
+        <>
+          <Link to={path}>Open target</Link>
+          <InboxPage />
+        </>,
+        { initialEntries: [mounted ? "/inbox?tab=messages" : path] },
+      );
+      if (mounted)
+        fireEvent.click(screen.getByRole("link", { name: "Open target" }));
+      const card = await screen.findByTestId("approval-card-target");
+      await waitFor(() => expect(card.parentElement).toHaveFocus());
+      expect(
+        screen.getByTestId("approval-card-other").parentElement,
+      ).not.toHaveFocus();
+      expect(mocks.isApprovalPending).toHaveBeenCalledExactlyOnceWith("target");
+    },
+  );
+
+  it("reports a notification whose request is no longer pending", async () => {
+    makeInboxData([]);
+    mocks.isApprovalPending.mockResolvedValue(false);
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?tab=approvals&approval=resolved-request"],
+    });
+    await waitFor(() =>
+      expect(mocks.warn).toHaveBeenCalledWith("approval.unavailable"),
+    );
+    expect(screen.queryByTestId("approval-card-resolved-request")).toBeNull();
+  });
+
+  it("never adds a card after a stale positive deep-link check", async () => {
+    makeInboxData([]);
+    const target = {
+      request_id: "target",
+      created_at: Date.now() / 1000,
+      timeout_seconds: 60,
+    };
+    let resolveCheck!: (pending: boolean) => void;
+    mocks.isApprovalPending.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+    mocks.approvals = [target];
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?tab=approvals&approval=target"],
+    });
+    expect(screen.getByTestId("approval-card-target")).toBeInTheDocument();
+
+    act(() => mocks.applyApprovalSnapshot([]));
+    await act(async () => resolveCheck(true));
+
+    expect(
+      screen.queryByTestId("approval-card-target"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("focuses a verified card when it arrives from polling", async () => {
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?tab=approvals&approval=target"],
+    });
+    await act(async () => {});
+    expect(
+      screen.queryByTestId("approval-card-target"),
+    ).not.toBeInTheDocument();
+
+    act(() =>
+      mocks.applyApprovalSnapshot([
+        {
+          request_id: "target",
+          created_at: Date.now() / 1000,
+          timeout_seconds: 60,
+        },
+      ]),
+    );
+
+    expect(
+      screen.getByTestId("approval-card-target").parentElement,
+    ).toHaveFocus();
+  });
+
   it("opens a notification event even when it is outside the loaded list", async () => {
     const data = makeInboxData([]);
     mocks.getInboxEvents.mockResolvedValue({
@@ -632,6 +747,36 @@ describe("InboxPage", () => {
     await waitFor(() => {
       expect(data.deleteMessages).toHaveBeenCalledWith(["m1"]);
     });
+  });
+
+  it("waits for batch deletion and keeps failed messages selected for retry", async () => {
+    const data = makeInboxData([pushMsg("m1"), pushMsg("m2")]);
+    let finishDelete!: (deletedIds: string[]) => void;
+    data.deleteMessages.mockReturnValueOnce(
+      new Promise<string[]>((resolve) => {
+        finishDelete = resolve;
+      }),
+    );
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByText("inbox.batchOperation"));
+    fireEvent.click(screen.getByTestId("sel-m1"));
+    fireEvent.click(screen.getByTestId("sel-m2"));
+    fireEvent.click(screen.getByText("inbox.batchDeleteButton"));
+
+    expect(mocks.confirmAction).toHaveBeenCalledWith(expect.any(Promise));
+    expect(data.deleteMessages).toHaveBeenCalledWith(["m1", "m2"]);
+    expect(screen.getByTestId("sel-m1")).toBeChecked();
+    expect(screen.getByTestId("sel-m2")).toBeChecked();
+
+    await act(async () => finishDelete(["m1"]));
+    expect(screen.getByTestId("sel-m1")).not.toBeChecked();
+    expect(screen.getByTestId("sel-m2")).toBeChecked();
+    expect(mocks.error).toHaveBeenCalledWith("communityInbox.deleteFailed");
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("inbox.batchDeleteButton"));
+    });
+    expect(data.deleteMessages).toHaveBeenLastCalledWith(["m2"]);
   });
 
   it("exits batch mode and clears the selection", async () => {

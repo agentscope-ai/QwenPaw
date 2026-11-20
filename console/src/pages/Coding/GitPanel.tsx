@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Button,
   Input,
@@ -64,6 +65,7 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function GitPanel({ chatId }: { chatId?: string }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -470,11 +472,13 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
                             </button>
                           </Tooltip>
                           <Popconfirm
-                            title={`Revert commit "${c.message}"?`}
-                            description="This creates a new commit that undoes these changes."
+                            title={t("confirmation.revertCommit")}
+                            description={`${c.message} — ${t(
+                              "confirmation.revertCommitHint",
+                            )}`}
                             onConfirm={() => void handleRevert(c)}
-                            okText="Revert"
-                            cancelText="Cancel"
+                            okText={t("confirmation.revertCommit")}
+                            cancelText={t("common.cancel")}
                             placement="topRight"
                           >
                             <Tooltip title="Revert this commit">
@@ -554,7 +558,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
           setNewBranchModal(false);
           setNewBranchName("");
         }}
-        okText="Create & Switch"
+        okText={t("confirmation.createAndSwitchBranch")}
         width={360}
       >
         <Input
@@ -590,6 +594,7 @@ function FileRow({
   actionIcon,
   actionTip,
 }: FileRowProps) {
+  const { t } = useTranslation();
   const name = file.path.split("/").pop() ?? file.path;
   return (
     <div className={styles.fileRow}>
@@ -605,11 +610,11 @@ function FileRow({
         </Tooltip>
         {onDiscard && (
           <Popconfirm
-            title="Discard changes?"
-            description={`Discard all changes in ${file.path}?`}
+            title={t("confirmation.discardFileChanges")}
+            description={file.path}
             onConfirm={onDiscard}
-            okText="Discard"
-            cancelText="Cancel"
+            okText={t("confirmation.discardFileChanges")}
+            cancelText={t("confirmation.keepFileChanges")}
             okButtonProps={{ danger: true }}
             placement="topRight"
           >

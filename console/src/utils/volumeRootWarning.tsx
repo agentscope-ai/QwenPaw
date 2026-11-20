@@ -35,7 +35,8 @@ export function confirmVolumeRootProjectDir({
     Modal.confirm({
       title: t("projectDirectory.volumeRootWarningTitle"),
       content: t("projectDirectory.volumeRootWarningMessage", { path }),
-      okText: t("common.confirm"),
+      okText: t("confirmation.useDirectory"),
+      autoFocusButton: "cancel",
       cancelText: t("common.cancel"),
       onOk: () => settle(true),
       onCancel: () => settle(false),

@@ -256,12 +256,18 @@ export function useSkillsPage() {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
-  const confirmOverwrite = (title: string, content: ReactNode) =>
+  const confirmOverwrite = (
+    title: string,
+    okText: string,
+    content: ReactNode,
+  ) =>
     new Promise<boolean>((resolve) => {
       Modal.confirm({
         title,
         content,
-        okText: t("common.confirm"),
+        okText,
+        okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         cancelText: t("common.cancel"),
         onOk: () => resolve(true),
         onCancel: () => resolve(false),
@@ -536,6 +542,7 @@ export function useSkillsPage() {
         if (detail?.reason !== "conflict") throw error;
         const confirmed = await confirmOverwrite(
           t("skillPool.overwriteConfirm"),
+          t("confirmation.overwriteSkill"),
           <div>
             {t("skills.overwriteExistingList")}
             <ul>
@@ -609,6 +616,7 @@ export function useSkillsPage() {
       if (conflictingNames.length > 0) {
         const confirmed = await confirmOverwrite(
           t("skillPool.overwriteConfirm"),
+          t("confirmation.overwritePoolSkills"),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{t("skills.overwriteExistingList")}</div>
             <ul style={{ margin: 0, paddingLeft: 20 }}>
@@ -701,6 +709,13 @@ export function useSkillsPage() {
           : t("skills.overwriteExistingList");
         const confirmed = await confirmOverwrite(
           title,
+          t(
+            allBuiltinUpgrades
+              ? "confirmation.updateSkills"
+              : allLanguageSwitch
+              ? "confirmation.changeSkillLanguage"
+              : "confirmation.overwriteSkills",
+          ),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{subtitle}</div>
             {conflicts.map((conflict) => (
@@ -850,8 +865,9 @@ export function useSkillsPage() {
             ))}
           </ul>
         ),
-        okText: t("common.delete"),
+        okText: t("confirmation.deleteSelectedSkills"),
         okType: "danger",
+        autoFocusButton: "cancel",
         cancelText: t("common.cancel"),
         onOk: () => resolve(ownsMutationOwner(owner)),
         onCancel: () => resolve(false),

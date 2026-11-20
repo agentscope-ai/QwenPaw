@@ -7,6 +7,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import en from "../../locales/en.json";
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) =>
+      key.split(".").reduce<unknown>((value, part) => {
+        return (value as Record<string, unknown> | undefined)?.[part];
+      }, en) ?? key,
+  }),
+}));
 
 const gitMocks = vi.hoisted(() => ({
   status: vi.fn(),
@@ -195,10 +205,9 @@ describe("GitPanel", () => {
       .closest("[class*='fileRow']") as HTMLElement;
     // Row button order: [View diff, Discard, Stage]
     await user.click(within(row).getAllByRole("button")[1]);
-    await waitFor(() =>
-      expect(screen.getByText("Discard")).toBeInTheDocument(),
+    await user.click(
+      await screen.findByRole("button", { name: "Discard changes" }),
     );
-    await user.click(screen.getByText("Discard"));
     await waitFor(() =>
       expect(gitMocks.discard).toHaveBeenCalledWith(["b.ts"], undefined),
     );
@@ -376,8 +385,9 @@ describe("GitPanel", () => {
       .getByText("first commit")
       .closest("[class*='logEntry']") as HTMLElement;
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
-    await user.click(screen.getByText("Revert"));
+    await user.click(
+      await screen.findByRole("button", { name: "Revert this commit" }),
+    );
     await waitFor(() => expect(gitMocks.revert).toHaveBeenCalled());
   });
 
@@ -405,8 +415,9 @@ describe("GitPanel", () => {
     );
 
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
-    await user.click(screen.getByText("Revert"));
+    await user.click(
+      await screen.findByRole("button", { name: "Revert this commit" }),
+    );
     await waitFor(() =>
       expect(gitMocks.revert).toHaveBeenCalledWith("abc123", undefined),
     );
@@ -474,7 +485,7 @@ describe("GitPanel", () => {
 
     const nameInput = await screen.findByPlaceholderText("branch-name");
     await user.type(nameInput, "my-branch");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
 
     await waitFor(() =>
       expect(gitMocks.checkout).toHaveBeenCalledWith(
@@ -499,7 +510,7 @@ describe("GitPanel", () => {
     await user.click(screen.getByText("New branch"));
 
     await screen.findByPlaceholderText("branch-name");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
     await settle();
     expect(gitMocks.checkout).not.toHaveBeenCalled();
   });
@@ -560,7 +571,7 @@ describe("GitPanel", () => {
 
     const nameInput = await screen.findByPlaceholderText("branch-name");
     await user.type(nameInput, "my-branch");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
 
     await waitFor(() =>
       expect(gitMocks.checkout).toHaveBeenCalledWith(

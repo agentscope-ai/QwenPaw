@@ -634,7 +634,8 @@ export function LocalModelManageModal({
       }),
       okText: t("models.localCancelDownloadAction"),
       okButtonProps: { danger: true },
-      cancelText: t("common.close"),
+      cancelText: t("confirmation.keepDownloading"),
+      autoFocusButton: "cancel",
       onOk: async () => {
         try {
           setLlamacppDownload((prev) =>
@@ -646,7 +647,7 @@ export function LocalModelManageModal({
               : prev,
           );
           await api.cancelLlamacppDownload();
-          message.success(t("models.localDownloadCancelled"));
+          message.info(t("confirmation.downloadCancellationRequested"));
           await refreshStatus();
           startPolling();
         } catch (error) {
@@ -725,7 +726,8 @@ export function LocalModelManageModal({
         content: t("models.localCancelDownloadConfirm", { repo: modelName }),
         okText: t("models.localCancelDownloadAction"),
         okButtonProps: { danger: true },
-        cancelText: t("common.close"),
+        cancelText: t("confirmation.keepDownloading"),
+        autoFocusButton: "cancel",
         onOk: async () => {
           try {
             setModelDownloadState((prev) =>
@@ -737,7 +739,7 @@ export function LocalModelManageModal({
                 : prev,
             );
             await api.cancelLocalModelDownload();
-            message.success(t("models.localDownloadCancelled"));
+            message.info(t("confirmation.downloadCancellationRequested"));
             await refreshStatus();
             startPolling();
           } catch (error) {
@@ -786,8 +788,8 @@ export function LocalModelManageModal({
             current: getLocalModelDisplayName(serverStatus.model_name),
             next: model.name,
           }),
-          okText: t("models.localSwitchModel"),
-          cancelText: t("models.cancel"),
+          okText: t("confirmation.switchModel"),
+          cancelText: t("confirmation.keepCurrentModel"),
           onOk: run,
         });
         return;
@@ -829,8 +831,9 @@ export function LocalModelManageModal({
         className: styles.modelConfirmModal,
         title: t("models.localDeleteModel"),
         content: t("models.localDeleteConfirm", { name: model.name }),
-        okText: t("common.delete"),
+        okText: t("models.localDeleteModel"),
         okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         cancelText: t("common.cancel"),
         onOk: async () => {
           setDeletingModelName(model.id);

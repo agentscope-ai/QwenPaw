@@ -82,6 +82,7 @@ class QwenPawDriverApprovalGate:
                 "display": {
                     "tool_name": display_tool_name,
                     "tool_source": display_tool_source,
+                    "approval_behavior": "once",
                 },
                 "driver": {
                     "name": context.driver_name,

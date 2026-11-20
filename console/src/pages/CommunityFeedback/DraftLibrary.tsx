@@ -142,6 +142,8 @@ export function DraftLibrary({
                   </Button>
                   <Popconfirm
                     title={t("communityDrafts.deleteConfirm")}
+                    okText={t("confirmation.deleteDraft")}
+                    okButtonProps={{ danger: true }}
                     onConfirm={() => remove(item.id)}
                   >
                     <Button className={styles.deleteBtn} type="text" danger>

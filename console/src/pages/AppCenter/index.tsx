@@ -261,7 +261,8 @@ export default function AppCenterPage() {
           `This will delete the app directory of "${app.name}". ` +
           "This cannot be undone.",
       }),
-      okText: t("appCenter.uninstall", "卸载"),
+      okText: t("confirmation.uninstallApp"),
+      autoFocusButton: "cancel",
       okButtonProps: { danger: true },
       cancelText: t("common.cancel", "Cancel"),
       onOk: async () => {

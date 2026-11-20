@@ -229,6 +229,7 @@ export default function CheckpointsPage() {
         okText: t(confirmKey),
         cancelText: t("common.cancel"),
         okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         onOk: async () => {
           const result = await checkpointsApi.gc(body);
           message.success(t(successKey, { count: result.deleted_refs.length }));
@@ -281,6 +282,7 @@ export default function CheckpointsPage() {
       okText: t("checkpoints.reset.confirm"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       onOk: async () => {
         await checkpointsApi.reset();
         setSelected(null);

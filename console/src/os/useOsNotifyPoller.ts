@@ -33,6 +33,7 @@ function mapApprovals(approvals: PendingApproval[]): OsNotifyItem[] {
     read: false,
     requestId: approval.request_id,
     rootSessionId: approval.root_session_id,
+    canApproveOnce: approval.approval_behavior === "once",
   }));
 }
 

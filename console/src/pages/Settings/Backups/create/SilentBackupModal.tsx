@@ -27,7 +27,11 @@ export default function SilentBackupModal({
   onSuccess,
 }: Props) {
   const { t } = useTranslation();
-  const runner = useBackupRunner({ onSuccess, onClose });
+  const runner = useBackupRunner({
+    onSuccess,
+    onClose,
+    resumeActiveOnStartFailure: false,
+  });
 
   useEffect(() => {
     if (!target) return;
@@ -38,7 +42,7 @@ export default function SilentBackupModal({
       scope,
       agents,
     });
-    // runner.start is stable (doesn't change between renders)
+    // Start one snapshot for the selected restore target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
@@ -46,11 +50,19 @@ export default function SilentBackupModal({
     <Modal
       title={t("backup.creatingPreRestoreBackup")}
       open={target !== null}
-      onCancel={runner.cancel}
+      onCancel={runner.loading ? runner.cancel : onClose}
       footer={
-        <Button danger onClick={runner.cancel}>
-          {t("common.cancel")}
-        </Button>
+        runner.loading ? (
+          <Button danger loading={runner.cancelling} onClick={runner.cancel}>
+            {t(
+              runner.cancelling
+                ? "confirmation.cancellingBackup"
+                : "confirmation.cancelBackup",
+            )}
+          </Button>
+        ) : (
+          <Button onClick={onClose}>{t("common.close")}</Button>
+        )
       }
       destroyOnHidden
       centered

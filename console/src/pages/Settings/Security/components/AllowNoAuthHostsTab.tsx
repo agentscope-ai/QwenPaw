@@ -189,7 +189,7 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
                     title={t("security.allowNoAuthHosts.removeConfirm")}
                     description={<code>{host}</code>}
                     onConfirm={() => handleRemove(host)}
-                    okText={t("common.delete")}
+                    okText={t("confirmation.removeFromAllowlist")}
                     cancelText={t("common.cancel")}
                   >
                     <Button

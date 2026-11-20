@@ -262,7 +262,7 @@ export function FileGuardSection({
                       <code className={local.confirmPath}>{path}</code>
                     }
                     onConfirm={() => handleRemove(path)}
-                    okText={t("common.delete")}
+                    okText={t("confirmation.removeFileProtection")}
                     cancelText={t("common.cancel")}
                   >
                     <Button

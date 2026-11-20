@@ -151,6 +151,8 @@ export function SkillScannerSection() {
       Modal.confirm({
         title: t("security.skillScanner.whitelist.removeConfirm"),
         content: t("security.skillScanner.whitelist.removeWillDisable"),
+        okText: t("confirmation.removeAndDisable"),
+        autoFocusButton: "cancel",
         onOk: async () => {
           const ok = await removeFromWhitelist(skillName);
           if (!ok) {
@@ -163,7 +165,7 @@ export function SkillScannerSection() {
               t("security.skillScanner.whitelist.removeAndDisabled"),
             );
           } catch {
-            message.success(t("security.skillScanner.whitelist.removeSuccess"));
+            message.warning(t("confirmation.skillRemovedButNotDisabled"));
           }
         },
       });
@@ -174,11 +176,18 @@ export function SkillScannerSection() {
   const handleClearHistory = useCallback(() => {
     Modal.confirm({
       title: t("security.skillScanner.scanAlerts.clearConfirm"),
+      okText: t("confirmation.clearScanHistory"),
+      okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       onOk: async () => {
-        await clearBlockedHistory();
+        if (!(await clearBlockedHistory())) {
+          const error = t("confirmation.clearScanHistoryFailed");
+          message.error(error);
+          throw new Error(error);
+        }
       },
     });
-  }, [clearBlockedHistory, t]);
+  }, [clearBlockedHistory, message, t]);
 
   if (loading || !config) return null;
 

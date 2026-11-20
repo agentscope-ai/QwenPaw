@@ -300,6 +300,7 @@ async def _policy_tool_check_permissions(
 
     governor = getattr(self, "_qp_governor", None)
     self._qp_raw_params = input_data or {}
+    self._qp_execution_level = None
 
     # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
@@ -375,6 +376,12 @@ async def _policy_tool_check_permissions(
         )
 
     tc_spec = self._build_tc_spec()
+    # Retain this call's level after F1 restores the shared policy.
+    self._qp_execution_level = (
+        effective_level.value
+        if effective_level is not None
+        else governor.policy.execution_level
+    )
 
     if f1_active:
         # Temporarily force STRICT for this evaluation only, then restore
@@ -505,6 +512,7 @@ async def _policy_tool_check_permissions(
             policy_findings=decision.findings,
             governance_reason=decision.reason,
             source=decision.source,
+            execution_level=self._qp_execution_level,
         )
     else:
         # Unknown decision → deny as safe default
@@ -627,6 +635,7 @@ async def _policy_tool_call(
         violation_msg=violation_msg or None,
         governance_reason=governance_reason,
         source=governance_source,
+        execution_level=getattr(self, "_qp_execution_level", None),
     )
 
     if decision.behavior == PermissionBehavior.ALLOW:
@@ -677,6 +686,7 @@ async def _ask_user_approval(
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
     source: str = "No rule hit",
+    execution_level: str | None = None,
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -720,6 +730,17 @@ async def _ask_user_approval(
         )
     )
     display_target = generalized_target or target
+    # Describe the existing consumer without promising rule persistence.
+    if source in {"jev", "decision_model"} or governor.is_builtin_ask(
+        tc_spec,
+    ):
+        approval_behavior = "once"
+    elif execution_level == "strict" or source == "STRICT mode":
+        approval_behavior = "strict"
+    elif target and agent_id and session_id:
+        approval_behavior = "session_rule"
+    else:
+        approval_behavior = "unknown"
 
     # Construct a ToolGuardResult for ApprovalService.
     # If deep-scan findings were attached by policy.evaluate(),
@@ -865,6 +886,7 @@ async def _ask_user_approval(
                 "exact_target": target,
                 "similar_target": display_target,
                 "is_generalized": display_target != target,
+                "approval_behavior": approval_behavior,
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),

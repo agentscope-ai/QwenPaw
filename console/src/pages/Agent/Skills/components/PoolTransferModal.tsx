@@ -79,7 +79,7 @@ export function PoolTransferModal({
             disabled={!hasSelection}
             className={styles.modalOkButton}
           >
-            {t("common.confirm")}
+            {t(isUpload ? "skills.uploadToPool" : "skills.downloadFromPool")}
           </Button>
         </div>
       }

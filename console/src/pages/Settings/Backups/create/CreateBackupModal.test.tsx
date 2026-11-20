@@ -56,7 +56,7 @@ describe("backup scope selection", () => {
       screen.getByRole("checkbox", { name: "backup.scopeAgents" }),
     ).not.toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: "backup.fullBackup" }));
-    fireEvent.click(screen.getByRole("button", { name: "common.confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: "backup.createTitle" }));
     expect(runner.start).toHaveBeenCalledWith(
       expect.objectContaining({
         agents: ["one", "two"],

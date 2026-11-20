@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
@@ -253,11 +253,15 @@ describe("SessionProjectDirectory", () => {
         name: "projectDirectory.createDirectory",
       }),
     );
-    await user.type(
-      screen.getByPlaceholderText("projectDirectory.directoryNamePlaceholder"),
-      "reports",
+    const folderName = screen.getByPlaceholderText(
+      "projectDirectory.directoryNamePlaceholder",
     );
-    await user.click(screen.getByRole("button", { name: "common.confirm" }));
+    await user.type(folderName, "reports");
+    await user.click(
+      within(
+        folderName.closest("[class*='createDirectoryForm']") as HTMLElement,
+      ).getByRole("button", { name: "projectDirectory.createDirectory" }),
+    );
 
     await waitFor(() => {
       expect(mockCreateDirectory).toHaveBeenCalledWith("/projects", "reports");

@@ -222,7 +222,7 @@ describe("FilesDrawer workspace popups", () => {
     expect(drawer).toContainElement(confirmation);
     await user.click(
       within(confirmation).getByRole("button", {
-        name: "common.cancel",
+        name: "common.keepEditing",
       }),
     );
     await waitFor(() => expect(confirmation).not.toBeInTheDocument());

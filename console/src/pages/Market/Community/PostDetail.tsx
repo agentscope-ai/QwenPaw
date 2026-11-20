@@ -142,9 +142,10 @@ export function PostDetail({ id }: { id: string }) {
     modal.confirm({
       title: t("communityPage.deleteTitle"),
       content: t("communityPage.deleteHelp", { title: post?.title }),
-      okText: t("communityPage.deletePost"),
+      okText: t("confirmation.deletePost"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       onOk: async () => {
         setBusy("delete");
         setActionError(undefined);

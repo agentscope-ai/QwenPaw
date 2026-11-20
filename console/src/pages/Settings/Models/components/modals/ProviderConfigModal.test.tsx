@@ -184,7 +184,7 @@ describe("ProviderConfigModal", () => {
     it("shows revoke and test buttons only with a key and connection check", () => {
       renderModal(makeProvider({ api_key: "sk-abc" }));
       expect(
-        screen.getAllByText("models.revokeAuthorization").length,
+        screen.getAllByText("confirmation.clearLocalKey").length,
       ).toBeGreaterThan(0);
       expect(screen.getByText("models.testConnection")).toBeInTheDocument();
     });
@@ -192,7 +192,7 @@ describe("ProviderConfigModal", () => {
     it("hides revoke button when no api key is configured", () => {
       renderModal();
       expect(
-        screen.queryByText("models.revokeAuthorization"),
+        screen.queryByText("confirmation.clearLocalKey"),
       ).not.toBeInTheDocument();
     });
 
@@ -467,7 +467,7 @@ describe("ProviderConfigModal", () => {
 
   describe("revoke authorization", () => {
     async function openConfirm(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getAllByText("models.revokeAuthorization")[0]);
+      await user.click(screen.getAllByText("confirmation.clearLocalKey")[0]);
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
       const opts = confirmSpy.mock.calls[
         confirmSpy.mock.calls.length - 1
@@ -477,7 +477,7 @@ describe("ProviderConfigModal", () => {
       await opts.onOk();
     }
 
-    it("revokes through the confirm dialog (active llm provider)", async () => {
+    it("reports the cleared key without claiming the active model was cleared", async () => {
       const user = userEvent.setup();
       const { onSaved } = renderModal(makeProvider({ api_key: "sk-live" }), {
         active_llm: { provider_id: "custom-provider", model: "test-model" },
@@ -491,7 +491,7 @@ describe("ProviderConfigModal", () => {
       );
       expect(onSaved).toHaveBeenCalled();
       expect(messageMocks.success).toHaveBeenCalledWith(
-        "models.authorizationRevoked",
+        "confirmation.localKeyCleared",
       );
     });
 
@@ -504,7 +504,7 @@ describe("ProviderConfigModal", () => {
       await openConfirm(user);
 
       expect(messageMocks.success).toHaveBeenCalledWith(
-        "models.authorizationRevokedSimple",
+        "confirmation.localKeyCleared",
       );
     });
 
@@ -513,9 +513,10 @@ describe("ProviderConfigModal", () => {
       const user = userEvent.setup();
       renderModal(makeProvider({ api_key: "sk-live" }));
 
-      await openConfirm(user);
+      await expect(openConfirm(user)).rejects.toThrow("cannot revoke");
 
       expect(messageMocks.error).toHaveBeenCalledWith("cannot revoke");
+      expect(messageMocks.success).not.toHaveBeenCalled();
     });
 
     it("uses the active-llm confirm content variant", async () => {
@@ -524,12 +525,12 @@ describe("ProviderConfigModal", () => {
         active_llm: { provider_id: "custom-provider", model: "test-model" },
       });
 
-      await user.click(screen.getAllByText("models.revokeAuthorization")[0]);
+      await user.click(screen.getAllByText("confirmation.clearLocalKey")[0]);
       await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
       const opts = confirmSpy.mock.calls[
         confirmSpy.mock.calls.length - 1
       ]?.[0] as { content: string };
-      expect(opts.content).toBe("models.revokeConfirmContent");
+      expect(opts.content).toBe("confirmation.clearActiveProviderKeyHint");
     });
   });
 
@@ -800,7 +801,7 @@ describe("subscription and OAuth credentials in the shared provider form", () =>
     );
     expect(
       await screen.findByRole("button", {
-        name: "modelSelector.oauthContinue",
+        name: "confirmation.openAuthorization",
       }),
     ).toBeInTheDocument();
   });
@@ -864,7 +865,9 @@ describe("subscription and OAuth credentials in the shared provider form", () =>
       ).toBeInTheDocument();
       const continueSignIn = () =>
         fireEvent.click(
-          screen.getByRole("button", { name: "modelSelector.oauthContinue" }),
+          screen.getByRole("button", {
+            name: "confirmation.openAuthorization",
+          }),
         );
       continueSignIn();
       await waitFor(() =>
@@ -875,7 +878,11 @@ describe("subscription and OAuth credentials in the shared provider form", () =>
         ),
       );
       expect(screen.getByText("test@example.com")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "confirmation.cancelAuthorization",
+        }),
+      );
       await waitFor(() =>
         expect(requestMock).toHaveBeenCalledWith(
           "/providers/chatgpt/cancel/pending-sign-in",

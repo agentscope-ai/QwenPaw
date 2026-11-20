@@ -14,6 +14,7 @@ import { handleBackupJobSnapshot } from "./progress";
 interface UseBackupRunnerOptions {
   onSuccess?: () => void;
   onClose?: () => void;
+  resumeActiveOnStartFailure?: boolean;
 }
 
 /**
@@ -23,10 +24,12 @@ interface UseBackupRunnerOptions {
 export function useBackupRunner({
   onSuccess,
   onClose,
+  resumeActiveOnStartFailure = true,
 }: UseBackupRunnerOptions) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -93,9 +96,21 @@ export function useBackupRunner({
     abortControllerRef.current = null;
     jobIdRef.current = null;
     cancelRequestedRef.current = false;
+    setCancelling(false);
     setLoading(false);
     setProgress(0);
     setProgressMsg("");
+  };
+
+  const sendCancel = async (jobId: string) => {
+    try {
+      return await api.cancelBackupJob(jobId);
+    } catch {
+      cancelRequestedRef.current = false;
+      setCancelling(false);
+      message.error(t("confirmation.cancelBackupFailed"));
+      return null;
+    }
   };
 
   const execute = async (getInitial: () => Promise<BackupJobSnapshot>) => {
@@ -104,17 +119,13 @@ export function useBackupRunner({
     setProgressMsg(t("backup.progressStarting"));
 
     try {
-      const initial = await getInitial();
+      let initial = await getInitial();
       jobIdRef.current = initial.job_id;
-      if (cancelRequestedRef.current) {
-        try {
-          await api.cancelBackupJob(initial.job_id);
-        } catch (err) {
-          cancelRequestedRef.current = false;
-          throw err;
-        }
-        onClose?.();
-        return;
+      if (initial.status === "cancel_requested") {
+        cancelRequestedRef.current = true;
+        setCancelling(true);
+      } else if (cancelRequestedRef.current && !isTerminal(initial)) {
+        initial = (await sendCancel(initial.job_id)) ?? initial;
       }
 
       const terminal = await observeUntilTerminal(initial);
@@ -122,6 +133,7 @@ export function useBackupRunner({
         throw new Error(terminal.error || "Backup failed");
       }
       if (terminal.status === "cancelled") {
+        reset();
         onClose?.();
         return;
       }
@@ -129,15 +141,14 @@ export function useBackupRunner({
       onSuccess?.();
       onClose?.();
     } catch (err) {
-      if (
-        cancelRequestedRef.current ||
-        (err instanceof Error && err.name === "AbortError")
-      ) {
+      if (err instanceof Error && err.name === "AbortError") {
         return;
       }
       message.error(t("backup.createFailed"));
     } finally {
       setLoading(false);
+      setCancelling(false);
+      cancelRequestedRef.current = false;
       abortControllerRef.current = null;
       jobIdRef.current = null;
     }
@@ -148,6 +159,7 @@ export function useBackupRunner({
       try {
         return await api.startBackupJob(data);
       } catch (err) {
+        if (!resumeActiveOnStartFailure) throw err;
         const active = await api.getActiveBackupJob();
         if (active) return active;
         throw err;
@@ -158,19 +170,21 @@ export function useBackupRunner({
     execute(() => Promise.resolve(snapshot));
 
   const cancel = async () => {
+    if (!loading || cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
+    setCancelling(true);
     const jobId = jobIdRef.current;
-    if (!jobId) return;
-    try {
-      await api.cancelBackupJob(jobId);
-      abortControllerRef.current?.abort();
-      reset();
-      onClose?.();
-    } catch {
-      cancelRequestedRef.current = false;
-      message.error(t("backup.createFailed"));
-    }
+    if (jobId) await sendCancel(jobId);
   };
 
-  return { loading, progress, progressMsg, start, resume, cancel, reset };
+  return {
+    loading,
+    cancelling,
+    progress,
+    progressMsg: cancelling ? t("confirmation.cancellingBackup") : progressMsg,
+    start,
+    resume,
+    cancel,
+    reset,
+  };
 }

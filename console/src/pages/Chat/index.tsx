@@ -117,6 +117,7 @@ import {
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
+import type { PendingApproval } from "../../api/modules/console";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import {
   useChatScalarSnapshot,
@@ -221,6 +222,7 @@ interface ApprovalMessageData {
   isGeneralized?: boolean;
   exactTarget?: string;
   similarTarget?: string;
+  approvalBehavior?: PendingApproval["approval_behavior"];
   sourceType: string;
 }
 
@@ -2161,6 +2163,7 @@ export default function ChatPage() {
         isGeneralized: approval.is_generalized,
         exactTarget: approval.exact_target,
         similarTarget: approval.similar_target,
+        approvalBehavior: approval.approval_behavior,
         sourceType: approval.source_type,
       });
     }
@@ -2196,7 +2199,7 @@ export default function ChatPage() {
   const handleApprove = useCallback(
     async (requestId: string, scope?: "exact" | "similar") => {
       const request = approvalRequests.get(requestId);
-      if (!request) return;
+      if (!request) throw new ApiError(404, "Approval request unavailable");
 
       const rootSessionId = request.rootSessionId || request.sessionId;
       const currentChatId = chatIdRef.current;
@@ -2216,50 +2219,29 @@ export default function ChatPage() {
           isSessionTransitionRef.current,
         )
       ) {
-        console.warn("[Chat] Ignoring stale approval action target");
-        return;
+        throw new ApiError(
+          409,
+          "Approval request is outside the active session",
+        );
       }
 
-      try {
-        const cardElement = document.querySelector(
-          `[data-approval-id="${requestId}"]`,
-        );
-        if (cardElement) {
-          cardElement.classList.add("approvalCardExit");
-        }
-
-        await commandsApi.sendApprovalCommand(
-          "approve",
-          requestId,
-          rootSessionId,
-          undefined,
-          scope,
-        );
-        setApprovals((prev) =>
-          prev.filter((item) => item.request_id !== requestId),
-        );
-        message.success(t("approval.approved"));
-
-        // Delay removal to let exit animation complete
-        setTimeout(() => {
-          setApprovalRequests((prev) => {
-            const next = new Map(prev);
-            next.delete(requestId);
-            return next;
-          });
-        }, 300);
-      } catch (error) {
-        message.error(t("approval.approveFailed"));
-        console.error("Failed to approve:", error);
-      }
+      await commandsApi.sendApprovalCommand(
+        "approve",
+        requestId,
+        rootSessionId,
+        undefined,
+        scope,
+      );
+      dismissApproval(requestId);
+      message.success(t("approval.approved"));
     },
-    [approvalRequests, t, message, setApprovals],
+    [approvalRequests, t, message, dismissApproval],
   );
 
   const handleDeny = useCallback(
     async (requestId: string) => {
       const request = approvalRequests.get(requestId);
-      if (!request) return;
+      if (!request) throw new ApiError(404, "Approval request unavailable");
 
       // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
       const rootSessionId = request.rootSessionId || request.sessionId;
@@ -2280,40 +2262,23 @@ export default function ChatPage() {
           isSessionTransitionRef.current,
         )
       ) {
-        console.warn("[Chat] Ignoring stale approval action target");
-        return;
+        throw new ApiError(
+          409,
+          "Approval request is outside the active session",
+        );
       }
 
-      try {
-        // Add exit animation class
-        const cardElement = document.querySelector(
-          `[data-approval-id="${requestId}"]`,
-        );
-        if (cardElement) {
-          cardElement.classList.add("approvalCardExit");
-        }
-
-        await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
-        setApprovals((prev) =>
-          prev.filter((item) => item.request_id !== requestId),
-        );
-        message.success(t("approval.denied"));
-
-        // Delay removal to let animation complete
-        // Backend will remove from pending list, next poll will update UI
-        setTimeout(() => {
-          setApprovalRequests((prev) => {
-            const next = new Map(prev);
-            next.delete(requestId);
-            return next;
-          });
-        }, 300); // Match animation duration
-      } catch (error) {
-        message.error(t("approval.denyFailed"));
-        console.error("Failed to deny:", error);
-      }
+      await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
+      dismissApproval(requestId);
+      message.success(
+        t(
+          request.approvalBehavior === "session_app"
+            ? "approval.appDenied"
+            : "approval.denied",
+        ),
+      );
     },
-    [approvalRequests, t, message, setApprovals],
+    [approvalRequests, t, message, dismissApproval],
   );
 
   // Use custom hooks for better separation of concerns
@@ -4756,6 +4721,7 @@ export default function ChatPage() {
                   isGeneralized={request.isGeneralized}
                   exactTarget={request.exactTarget}
                   similarTarget={request.similarTarget}
+                  approvalBehavior={request.approvalBehavior}
                   onApprove={(reqId, scope) => handleApprove(reqId, scope)}
                   onDeny={handleDeny}
                   onCancel={() => {

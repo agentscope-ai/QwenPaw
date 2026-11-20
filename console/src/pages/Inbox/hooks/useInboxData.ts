@@ -517,7 +517,7 @@ export const useInboxData = ({
   const deleteMessages = useCallback(async (messageIds: string[]) => {
     const targetQuery = queryKeyRef.current;
     const ids = [...new Set(messageIds.map((id) => id.trim()).filter(Boolean))];
-    if (!ids.length) return 0;
+    if (!ids.length) return [];
     const results = await Promise.allSettled(
       ids.map((id) => api.deleteInboxEvent(id)),
     );
@@ -545,7 +545,7 @@ export const useInboxData = ({
         new Error(tRef.current("communityInbox.deleteFailed")),
       );
     if (deletedIds.length) notifyInboxChanged({ deletedIds });
-    return deletedIds.length;
+    return deletedIds;
   }, []);
 
   const deleteMessage = useCallback(

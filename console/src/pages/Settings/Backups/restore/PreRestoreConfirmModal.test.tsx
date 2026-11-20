@@ -204,12 +204,12 @@ describe("PreRestoreConfirmModal copy", () => {
     );
     const paragraphs = baseElement.querySelectorAll(".ant-modal-body p");
     expect(paragraphs).toHaveLength(1);
-    expect(paragraphs[0].textContent).toBe("backup.preRestoreBackupContent");
+    expect(paragraphs[0].textContent).toBe("confirmation.backupChoiceHint");
     // The paragraph is the whole body: the metadata of the backup being
     // restored is deliberately NOT repeated here (that is RestoreBackupModal's
     // job), so the gate stays a yes/no question.
     expect(baseElement.querySelector(".ant-modal-body")?.textContent).toBe(
-      "backup.preRestoreBackupContent",
+      "confirmation.backupChoiceHint",
     );
     expect(paragraphs[0].getAttribute("style")).toBe("line-height: 1.6;");
   });
@@ -220,8 +220,8 @@ describe("PreRestoreConfirmModal copy", () => {
     const labels = footerButtons(baseElement).map((b) => b.textContent);
     expect(labels).toEqual([
       "common.cancel",
-      "backup.preRestoreBackupNo",
-      "backup.preRestoreBackupYes",
+      "confirmation.skipBackup",
+      "confirmation.backupFirst",
     ]);
 
     // No hard-coded English anywhere in the dialog. The needles are the REAL
@@ -243,7 +243,7 @@ describe("PreRestoreConfirmModal copy", () => {
     // because the modal rendered nothing.
     for (const key of [
       "backup.preRestoreBackupTitle",
-      "backup.preRestoreBackupContent",
+      "confirmation.backupChoiceHint",
       "common.cancel",
     ]) {
       expect(rendered).toContain(key);

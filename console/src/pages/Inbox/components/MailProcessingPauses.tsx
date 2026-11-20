@@ -35,10 +35,10 @@ export function MailProcessingPauses() {
         selected.pause_id,
       );
       message.success(t("inbox.mailProcessingResumed"));
+      setSelected(null);
     } catch {
       message.error(t("inbox.mailProcessingResumeFailed"));
     } finally {
-      setSelected(null);
       submittingRef.current = false;
       setSubmitting(false);
       refresh();

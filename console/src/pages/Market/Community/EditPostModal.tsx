@@ -72,7 +72,7 @@ export function EditPostModal({
             loading={busy}
             onClick={() => void save()}
           >
-            {t("communityPage.saveEdit")}
+            {t("confirmation.publishChanges")}
           </Button>
         </Space>
       }

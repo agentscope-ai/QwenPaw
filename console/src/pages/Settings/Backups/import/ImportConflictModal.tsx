@@ -31,7 +31,7 @@ export default function ImportConflictModal({
           {t("common.cancel")}
         </Button>,
         <Button key="replace" type="primary" danger onClick={() => onChoice()}>
-          {t("backup.importReplace")}
+          {t("confirmation.overwriteBackup")}
         </Button>,
       ]}
     >

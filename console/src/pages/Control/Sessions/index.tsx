@@ -154,8 +154,9 @@ function SessionsPage() {
     Modal.confirm({
       title: t("sessions.confirmDelete"),
       content: t("sessions.deleteConfirm"),
-      okText: t("cronJobs.deleteText"),
-      okType: "primary",
+      okText: t("confirmation.deleteSession"),
+      okType: "danger",
+      autoFocusButton: "cancel",
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {
         await deleteSession(sessionId, ownerAgentId);
@@ -186,8 +187,9 @@ function SessionsPage() {
       content: t("sessions.batchDeleteConfirm", {
         count: selectedRowKeys.length,
       }),
-      okText: t("cronJobs.deleteText"),
+      okText: t("confirmation.deleteSelectedSessions"),
       okType: "danger",
+      autoFocusButton: "cancel",
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {
         const success = await batchDeleteSessions(

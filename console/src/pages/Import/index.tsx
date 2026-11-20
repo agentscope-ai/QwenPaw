@@ -1012,7 +1012,9 @@ function ImportWorkflow() {
         <Modal
           open={confirmRetry}
           title={t("common.retry")}
-          okText={t("common.retry")}
+          okText={t("portabilityImport.retrySelected", {
+            count: selectedRetryAssets.length,
+          })}
           cancelText={t("common.cancel")}
           onCancel={() => setConfirmRetry(false)}
           onOk={() => void runRetry()}

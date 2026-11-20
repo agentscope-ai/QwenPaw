@@ -168,6 +168,11 @@ const AgentTile = memo(function AgentTile({
             )}
             disabled={locked}
             onConfirm={() => onToggle(agent.id, agent.enabled)}
+            okText={t(
+              agent.enabled
+                ? "confirmation.disableAgent"
+                : "confirmation.enableAgent",
+            )}
           >
             <Button
               type="text"
@@ -335,6 +340,11 @@ export function AgentGallery(props: AgentGalleryProps) {
                     : "agent.enableConfirmDesc",
                 )}
                 onConfirm={() => onToggle(agent.id, agent.enabled)}
+                okText={t(
+                  agent.enabled
+                    ? "confirmation.disableAgent"
+                    : "confirmation.enableAgent",
+                )}
                 disabled={locked}
               >
                 <Button
@@ -349,8 +359,10 @@ export function AgentGallery(props: AgentGalleryProps) {
               <Popconfirm
                 title={t("agent.deleteConfirm")}
                 description={t("agent.deleteConfirmDesc")}
-                onConfirm={() => {
-                  onDelete(agent.id);
+                okText={t("confirmation.deleteAgent")}
+                okButtonProps={{ danger: true }}
+                onConfirm={async () => {
+                  await onDelete(agent.id);
                   setSelected(null);
                 }}
                 disabled={locked}

@@ -504,7 +504,17 @@ export function MailAccessControlDrawer({
       width: 80,
       render: (_: unknown, record: MailACLUserEntry) => (
         <Popconfirm
-          title={t("inbox.confirmRemove")}
+          title={t(
+            activeTab === "whitelist"
+              ? "confirmation.removeFromAllowlist"
+              : "confirmation.removeFromBlocklist",
+          )}
+          description={`${record.agent_id}: ${record.address}`}
+          okText={t(
+            activeTab === "whitelist"
+              ? "confirmation.removeFromAllowlist"
+              : "confirmation.removeFromBlocklist",
+          )}
           onConfirm={() => handleRemoveFromList(record)}
         >
           <Button type="text" danger size="small" icon={<Trash2 size={14} />} />
@@ -554,6 +564,7 @@ export function MailAccessControlDrawer({
           <Popconfirm
             title={t("inbox.confirmApprove")}
             onConfirm={() => handleBatchPendingAction("approve")}
+            okText={t("confirmation.approveSelected")}
           >
             <Button
               type="primary"
@@ -567,6 +578,8 @@ export function MailAccessControlDrawer({
           <Popconfirm
             title={t("inbox.confirmDeny")}
             onConfirm={() => handleBatchPendingAction("deny")}
+            okText={t("confirmation.blockSelected")}
+            okButtonProps={{ danger: true }}
           >
             <Button size="small" icon={<X size={14} />} loading={batchLoading}>
               {t("inbox.batchDeny")}
@@ -575,6 +588,7 @@ export function MailAccessControlDrawer({
           <Popconfirm
             title={t("inbox.confirmDismiss")}
             onConfirm={() => handleBatchPendingAction("dismiss")}
+            okText={t("confirmation.dismissSelected")}
           >
             <Button
               danger
@@ -655,7 +669,19 @@ export function MailAccessControlDrawer({
       {selectedListKeys.length > 0 && (
         <Space style={{ marginBottom: 8 }}>
           <Popconfirm
-            title={t("inbox.confirmRemove")}
+            title={t(
+              activeTab === "whitelist"
+                ? "confirmation.removeFromAllowlist"
+                : "confirmation.removeFromBlocklist",
+            )}
+            description={t("confirmation.selectionCount", {
+              count: selectedListKeys.length,
+            })}
+            okText={t(
+              activeTab === "whitelist"
+                ? "confirmation.removeFromAllowlist"
+                : "confirmation.removeFromBlocklist",
+            )}
             onConfirm={handleBatchRemove}
           >
             <Button

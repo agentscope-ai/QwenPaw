@@ -107,6 +107,7 @@ export function ImportBuiltinModal({
       open={open}
       onCancel={handleCancel}
       onOk={handleConfirm}
+      okText={t("skillPool.importBuiltin")}
       title={t("skillPool.importBuiltin")}
       okButtonProps={{
         disabled: selected.size === 0,

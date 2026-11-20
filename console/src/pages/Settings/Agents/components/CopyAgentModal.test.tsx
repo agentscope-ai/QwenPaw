@@ -140,7 +140,7 @@ function reassertControlledValues() {
 
 function confirmButton(): HTMLButtonElement {
   return screen
-    .getByText("common.confirm")
+    .getByText("confirmation.copyAgent")
     .closest("button") as HTMLButtonElement;
 }
 

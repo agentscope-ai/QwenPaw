@@ -424,6 +424,7 @@ export function PendingApprovalsDrawer({
               count: selectedRowKeys.length,
             })}
             onConfirm={() => handleBatchAction("approve")}
+            okText={t("confirmation.approveSelected")}
             disabled={!hasSelection}
           >
             <Button
@@ -441,6 +442,8 @@ export function PendingApprovalsDrawer({
               count: selectedRowKeys.length,
             })}
             onConfirm={() => handleBatchAction("deny")}
+            okText={t("confirmation.blockSelected")}
+            okButtonProps={{ danger: true }}
             disabled={!hasSelection}
           >
             <Button
@@ -457,6 +460,7 @@ export function PendingApprovalsDrawer({
               count: selectedRowKeys.length,
             })}
             onConfirm={() => handleBatchAction("dismiss")}
+            okText={t("confirmation.dismissSelected")}
             disabled={!hasSelection}
           >
             <Button

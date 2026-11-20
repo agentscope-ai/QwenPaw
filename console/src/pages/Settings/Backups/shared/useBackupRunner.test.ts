@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
+import { ApiError } from "@/api/request";
 import type {
   BackupJobSnapshot,
   CreateBackupRequest,
@@ -144,29 +145,71 @@ describe("useBackupRunner", () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it("cancel calls onClose and resets state", async () => {
+  it.each([false, true])(
+    "observes an existing job after a start conflict only when enabled=%s",
+    async (resumeActiveOnStartFailure) => {
+      const otherJob = { ...runningSnapshot, job_id: "other-window-job" };
+      apiMocks.startBackupJob.mockRejectedValue(
+        new ApiError(409, "Another backup is running"),
+      );
+      apiMocks.getActiveBackupJob.mockResolvedValue(otherJob);
+      apiMocks.streamBackupJob.mockImplementation(async (_id, onSnapshot) => {
+        onSnapshot({ ...otherJob, status: "completed" });
+      });
+      const onSuccess = vi.fn();
+      const onClose = vi.fn();
+      const { result } = renderHook(() =>
+        useBackupRunner({
+          onSuccess,
+          onClose,
+          ...(resumeActiveOnStartFailure
+            ? {}
+            : { resumeActiveOnStartFailure: false }),
+        }),
+      );
+
+      await act(async () => {
+        await result.current.start(data);
+      });
+
+      expect(result.current.loading).toBe(false);
+      if (resumeActiveOnStartFailure) {
+        expect(apiMocks.streamBackupJob).toHaveBeenCalledWith(
+          otherJob.job_id,
+          expect.any(Function),
+          expect.any(AbortSignal),
+        );
+        expect(onSuccess).toHaveBeenCalledOnce();
+      } else {
+        expect(apiMocks.getActiveBackupJob).not.toHaveBeenCalled();
+        expect(apiMocks.streamBackupJob).not.toHaveBeenCalled();
+        expect(messageMock.error).toHaveBeenCalledWith("backup.createFailed");
+        expect(onSuccess).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("waits for terminal cancellation, even after the request is accepted", async () => {
     apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
     apiMocks.cancelBackupJob.mockResolvedValue({
       ...runningSnapshot,
       status: "cancel_requested",
     });
+    let emitTerminal: () => void;
     apiMocks.streamBackupJob.mockImplementation(
-      async (
-        _jobId: string,
-        _onSnapshot: (snapshot: BackupJobSnapshot) => void,
-        signal?: AbortSignal,
-      ) =>
-        new Promise((_resolve, reject) => {
-          signal?.addEventListener("abort", () => {
-            const error = new Error("aborted");
-            error.name = "AbortError";
-            reject(error);
-          });
+      (_jobId: string, onSnapshot: (snapshot: BackupJobSnapshot) => void) =>
+        new Promise<void>((resolve) => {
+          emitTerminal = () => {
+            onSnapshot({ ...runningSnapshot, status: "cancelled" });
+            resolve();
+          };
         }),
     );
+    const onSuccess = vi.fn();
     const onClose = vi.fn();
     const { result } = renderHook(() =>
-      useBackupRunner({ onSuccess: vi.fn(), onClose }),
+      useBackupRunner({ onSuccess, onClose }),
     );
 
     void act(() => {
@@ -179,10 +222,18 @@ describe("useBackupRunner", () => {
 
     await act(async () => {
       await result.current.cancel();
+      await result.current.cancel();
     });
 
     expect(apiMocks.cancelBackupJob).toHaveBeenCalledWith("job-1");
+    expect(apiMocks.cancelBackupJob).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(true);
+    expect(result.current.progressMsg).toBe("confirmation.cancellingBackup");
+
+    await act(async () => emitTerminal());
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
     expect(result.current.loading).toBe(false);
     expect(result.current.progress).toBe(0);
     expect(result.current.progressMsg).toBe("");

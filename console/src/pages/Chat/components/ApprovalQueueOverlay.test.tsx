@@ -161,6 +161,43 @@ describe("ApprovalQueueOverlay", () => {
     ).toBeTruthy();
   });
 
+  it("keeps each approval's submission state while switching approvals", async () => {
+    const user = userEvent.setup();
+
+    function StatefulCard({ label }: { label: string }) {
+      const [submitted, setSubmitted] = useState(false);
+      return (
+        <button
+          type="button"
+          disabled={submitted}
+          onClick={() => setSubmitted(true)}
+        >
+          {submitted ? `Submitted ${label}` : `Resolve ${label}`}
+        </button>
+      );
+    }
+
+    render(
+      <ApprovalQueueOverlay
+        items={requests}
+        renderItem={(item) => <StatefulCard label={item.label} />}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Resolve First approval" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next approval" }));
+    expect(
+      screen.getByRole("button", { name: "Resolve Second approval" }),
+    ).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Previous approval" }));
+    expect(
+      screen.getByRole("button", { name: "Submitted First approval" }),
+    ).toBeDisabled();
+  });
+
   it("selects and focuses the approval targeted by a notification", async () => {
     render(
       <ApprovalQueueOverlay
@@ -172,8 +209,8 @@ describe("ApprovalQueueOverlay", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Second approval")).toBeInTheDocument();
-      expect(screen.queryByText("First approval")).toBeNull();
+      expect(screen.getByText("Second approval")).toBeVisible();
+      expect(screen.getByText("First approval")).not.toBeVisible();
       expect(
         document.querySelector('[data-approval-id="second"]'),
       ).toHaveFocus();

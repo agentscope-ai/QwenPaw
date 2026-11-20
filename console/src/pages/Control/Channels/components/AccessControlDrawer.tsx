@@ -392,7 +392,17 @@ export function AccessControlDrawer({
       width: 80,
       render: (_: unknown, record: ACLUserEntry) => (
         <Popconfirm
-          title={`Remove ${record.userId}?`}
+          title={t(
+            activeTab === "whitelist"
+              ? "confirmation.removeFromAllowlist"
+              : "confirmation.removeFromBlocklist",
+          )}
+          description={`${selectedChannel}: ${record.userId}`}
+          okText={t(
+            activeTab === "whitelist"
+              ? "confirmation.removeFromAllowlist"
+              : "confirmation.removeFromBlocklist",
+          )}
           onConfirm={() => handleRemove(record.userId)}
         >
           <Button
@@ -476,9 +486,19 @@ export function AccessControlDrawer({
               </Typography.Text>
             )}
             <Popconfirm
-              title={t("channels.batchRemoveConfirm", {
+              title={t(
+                activeTab === "whitelist"
+                  ? "confirmation.removeFromAllowlist"
+                  : "confirmation.removeFromBlocklist",
+              )}
+              description={t("channels.selectedCount", {
                 count: selectedRowKeys.length,
               })}
+              okText={t(
+                activeTab === "whitelist"
+                  ? "confirmation.removeFromAllowlist"
+                  : "confirmation.removeFromBlocklist",
+              )}
               onConfirm={handleBatchRemove}
               disabled={selectedRowKeys.length === 0}
             >

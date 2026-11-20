@@ -147,7 +147,7 @@ function renderModal(
 
 async function confirmAndSubmit(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByText("backup.restoreConfirm"));
-  await user.click(screen.getByText("common.confirm"));
+  await user.click(screen.getByText("confirmation.restoreBackup"));
 }
 
 describe("RestoreBackupModal", () => {
@@ -172,7 +172,7 @@ describe("RestoreBackupModal", () => {
     const user = userEvent.setup();
     renderModal();
     await waitFor(() => expect(apiMocks.getBackup).toHaveBeenCalled());
-    const ok = screen.getByText("common.confirm").closest("button");
+    const ok = screen.getByText("confirmation.restoreBackup").closest("button");
     expect(ok).toBeDisabled();
     await user.click(screen.getByText("backup.restoreConfirm"));
     expect(ok).toBeEnabled();
@@ -187,7 +187,9 @@ describe("RestoreBackupModal", () => {
     );
     expect(messageMocks.error).toHaveBeenCalledWith("backup.detailLoadFailed");
     await user.click(screen.getByText("backup.restoreConfirm"));
-    expect(screen.getByText("common.confirm").closest("button")).toBeDisabled();
+    expect(
+      screen.getByText("confirmation.restoreBackup").closest("button"),
+    ).toBeDisabled();
   });
 
   it.each([

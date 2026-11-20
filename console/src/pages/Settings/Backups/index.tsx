@@ -148,6 +148,7 @@ export default function BackupsPage() {
         onCancel={importFlow.clearConflict}
       />
       <BackupTrustDialog
+        action="import"
         open={!!importFlow.trustFileName}
         mode={importFlow.trustMode ?? "foreign"}
         backupName={importFlow.trustFileName ?? undefined}

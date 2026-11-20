@@ -8,6 +8,7 @@
 import { Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
+import styles from "./PreRestoreConfirmModal.module.less";
 
 interface Props {
   target: BackupMeta | null;
@@ -31,23 +32,19 @@ export default function PreRestoreConfirmModal({
       centered
       width={520}
       onCancel={onCancel}
-      footer={[
-        <Button key="cancel" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>,
-        <Button key="no" onClick={() => target && onNoBackup(target)}>
-          {t("backup.preRestoreBackupNo")}
-        </Button>,
-        <Button
-          key="yes"
-          type="primary"
-          onClick={() => target && onYesBackup(target)}
-        >
-          {t("backup.preRestoreBackupYes")}
-        </Button>,
-      ]}
+      footer={
+        <div className={styles.actions}>
+          <Button onClick={onCancel}>{t("common.cancel")}</Button>
+          <Button onClick={() => target && onNoBackup(target)}>
+            {t("confirmation.skipBackup")}
+          </Button>
+          <Button type="primary" onClick={() => target && onYesBackup(target)}>
+            {t("confirmation.backupFirst")}
+          </Button>
+        </div>
+      }
     >
-      <p style={{ lineHeight: 1.6 }}>{t("backup.preRestoreBackupContent")}</p>
+      <p style={{ lineHeight: 1.6 }}>{t("confirmation.backupChoiceHint")}</p>
     </Modal>
   );
 }
