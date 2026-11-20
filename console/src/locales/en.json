@@ -3322,6 +3322,8 @@
     "openDirectory": "Open {{name}}"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "Generate follow-up suggestions",
+    "autoGenerateFollowupTooltip": "Show suggestions after the latest turn finishes successfully. Click to add to your draft. Turning this off stops generation for future replies.",
     "advancedRuntime": "Advanced runtime",
     "title": "Configuration",
     "projectDirectoryTitle": "Default Agent workspace",
@@ -4287,6 +4289,8 @@
     "system": "System"
   },
   "chat": {
+    "followupAdd": "Add to input",
+    "followupFailed": "Could not add the suggestion. Check the current chat and input state, then try again.",
     "quoteFollowUp": "Quote to follow-up",
     "longTextPaste": {
       "title": "Paste long text",

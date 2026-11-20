@@ -16,7 +16,13 @@
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, { useMemo, useSyncExternalStore } from "react";
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -38,6 +44,12 @@ import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle } from "lucide-react";
 import { hasTruncatedModelOutput } from "./completionNotice";
+import {
+  FollowupContext,
+  FollowupPlacementContext,
+  getFollowupText,
+  type FollowupSource,
+} from "./followupContext";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import {
@@ -80,11 +92,16 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
 
+const ResponseFollowupContext = createContext<FollowupSource | undefined>(
+  undefined,
+);
+
 const HostMessage = React.memo(function HostMessage({
   data,
 }: {
   data: IAgentScopeRuntimeMessage;
 }) {
+  const followupSource = useContext(ResponseFollowupContext);
   const replaceMediaURL = useChatAnywhereOptions(
     (options) => options.api?.replaceMediaURL,
   );
@@ -113,6 +130,12 @@ const HostMessage = React.memo(function HostMessage({
                 <AssistantMarkdown
                   messageId={`${data.id}:${index}`}
                   content={item.text}
+                  followupSource={
+                    followupSource?.messageId === data.id &&
+                    followupSource.contentIndex === index
+                      ? followupSource
+                      : undefined
+                  }
                   cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
                   // Native text deltas omit content.status; the message owns
                   // their lifecycle. Keep the legacy Markdown cursor separate.
@@ -220,6 +243,28 @@ function DefaultHostResponseCard({
   contentPrepend?: React.ReactNode;
   contentAppend?: React.ReactNode;
 }) {
+  const followup = useContext(FollowupContext);
+  const [followupPlacement, setFollowupPlacement] =
+    useState<HTMLDivElement | null>(null);
+  let followupSource: FollowupSource | undefined;
+  if (
+    isLast &&
+    followup &&
+    !followup.blocked &&
+    followup.chatId &&
+    followup.invalidatedResponseId !== data.id
+  ) {
+    const finalText = getFollowupText(data);
+    if (finalText) {
+      followupSource = {
+        ...finalText,
+        agentId: followup.agentId,
+        chatId: followup.chatId,
+        responseCardId: messageId,
+        responseId: data.id,
+      };
+    }
+  }
   const { t } = useTranslation();
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
@@ -266,68 +311,71 @@ function DefaultHostResponseCard({
   }
 
   return (
-    <>
-      {avatar ? (
-        <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
-          <Avatar src={avatar} />
-          {nickNode ? <span>{nickNode}</span> : null}
-        </Flex>
-      ) : null}
-      {contentPrepend}
-      {messageBlocks.map((block, index) => {
-        if (block.kind === "message") {
-          return renderResponseMessage(block.message);
-        }
+    <FollowupPlacementContext.Provider value={followupPlacement}>
+      <ResponseFollowupContext.Provider value={followupSource}>
+        {avatar ? (
+          <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
+            <Avatar src={avatar} />
+            {nickNode ? <span>{nickNode}</span> : null}
+          </Flex>
+        ) : null}
+        {contentPrepend}
+        {messageBlocks.map((block, index) => {
+          if (block.kind === "message") {
+            return renderResponseMessage(block.message);
+          }
 
-        const groupStatus = getCollapsedGroupStatus(
-          data.status,
-          index === statusStepBlockIndex,
-        );
-        const presentation = getCollapsedStepPresentation(groupStatus);
-        const firstId = block.messages[0]?.id ?? index;
-        const stepCount = countCollapsedSteps(block.messages);
-        if (stepCount === 0) {
-          return (
-            <React.Fragment key={`messages-${firstId}`}>
-              {block.messages.map(renderResponseMessage)}
-            </React.Fragment>
+          const groupStatus = getCollapsedGroupStatus(
+            data.status,
+            index === statusStepBlockIndex,
           );
-        }
-        return (
-          <LazyAccordion
-            className={styles.collapsedSteps}
-            key={getCollapsedStepRenderKey(
-              firstId,
-              messageDisplayMode,
-              presentation.status,
-            )}
-            status={presentation.status}
-            title={t(presentation.titleKey, {
-              count: stepCount,
-            })}
-            defaultOpen={presentation.defaultOpen}
-            renderChildren={() => (
-              <>{block.messages.map(renderResponseMessage)}</>
-            )}
-          />
-        );
-      })}
-      {hasTruncatedModelOutput(data) ? (
-        <div role="status" className={styles.completionWarning}>
-          <AlertTriangle size={16} aria-hidden="true" />
-          <span>{t("chat.outputTruncated")}</span>
-        </div>
-      ) : null}
-      {data.error ? <ResponseError data={data.error} /> : null}
-      {!messages.length && data.status === "canceled" ? (
-        <Bubble.Interrupted title={t("chat.turnCanceled")} />
-      ) : null}
-      {contentAppend}
-      {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
-        <ResponseArtifactList messages={messages} />
-      ) : null}
-      <ResponseActions data={data} messageId={messageId} isLast={isLast} />
-    </>
+          const presentation = getCollapsedStepPresentation(groupStatus);
+          const firstId = block.messages[0]?.id ?? index;
+          const stepCount = countCollapsedSteps(block.messages);
+          if (stepCount === 0) {
+            return (
+              <React.Fragment key={`messages-${firstId}`}>
+                {block.messages.map(renderResponseMessage)}
+              </React.Fragment>
+            );
+          }
+          return (
+            <LazyAccordion
+              className={styles.collapsedSteps}
+              key={getCollapsedStepRenderKey(
+                firstId,
+                messageDisplayMode,
+                presentation.status,
+              )}
+              status={presentation.status}
+              title={t(presentation.titleKey, {
+                count: stepCount,
+              })}
+              defaultOpen={presentation.defaultOpen}
+              renderChildren={() => (
+                <>{block.messages.map(renderResponseMessage)}</>
+              )}
+            />
+          );
+        })}
+        {hasTruncatedModelOutput(data) ? (
+          <div role="status" className={styles.completionWarning}>
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>{t("chat.outputTruncated")}</span>
+          </div>
+        ) : null}
+        {data.error ? <ResponseError data={data.error} /> : null}
+        {!messages.length && data.status === "canceled" ? (
+          <Bubble.Interrupted title={t("chat.turnCanceled")} />
+        ) : null}
+        {contentAppend}
+        {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+          <ResponseArtifactList messages={messages} />
+        ) : null}
+        <div ref={setFollowupPlacement} />
+        <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      </ResponseFollowupContext.Provider>
+    </FollowupPlacementContext.Provider>
   );
 }
 

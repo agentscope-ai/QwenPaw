@@ -216,5 +216,6 @@ export interface AgentsRunningConfig {
   memory_backend_configs?: Record<string, Record<string, unknown>>;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
+  followup: { enabled: boolean };
   auto_title_config: AutoTitleConfig;
 }

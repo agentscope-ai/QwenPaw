@@ -135,6 +135,11 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostResponseCard } from "./HostBubbles";
+import {
+  FollowupContext,
+  addFollowupToDraft,
+  type FollowupSource,
+} from "./followupContext";
 import { QuoteSelection } from "./QuoteSelection";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
@@ -2523,10 +2528,75 @@ export default function ChatPage() {
     return () => window.removeEventListener("model-switched", handler);
   }, [fetchMultimodalCaps]);
 
+  const [invalidatedFollowup, setInvalidatedFollowup] = useState<{
+    agentId: string;
+    chatId: string;
+    responseId: string;
+  }>();
+  const invalidatedFollowupRef = useRef(invalidatedFollowup);
+  const invalidateFollowup = useCallback(() => {
+    const currentChat = chatIdRef.current;
+    if (!currentChat) return;
+    const messages =
+      chatRef.current?.messages.getSessionMessages(currentChat) || [];
+    const latest = messages[messages.length - 1];
+    const response = latest?.cards?.find(
+      (card) => card.code === "AgentScopeRuntimeResponseCard",
+    )?.data;
+    if (response?.status !== "completed") return;
+    const invalidated = {
+      agentId: selectedAgent,
+      chatId: currentChat,
+      responseId: response.id as string,
+    };
+    invalidatedFollowupRef.current = invalidated;
+    setInvalidatedFollowup(invalidated);
+  }, [selectedAgent]);
+
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
   const [whisperChecked, setWhisperChecked] = useState(false);
+
+  const followupBlocked =
+    !usesQwenPawBackend ||
+    !isChatActiveRef.current ||
+    isSessionTransition ||
+    isAgentTransition ||
+    !chatId ||
+    !sdkSessionAdapter.isReady(chatId) ||
+    Boolean(chatLoading) ||
+    messageQueue.length > 0;
+  const addFollowup = (source: FollowupSource, prompt: string) => {
+    const invalidated = invalidatedFollowupRef.current;
+    return addFollowupToDraft(source, prompt, {
+      agentId: selectedAgent,
+      chatId: chatIdRef.current || "",
+      blocked:
+        followupBlocked ||
+        !isChatActiveRef.current ||
+        isSessionTransitionRef.current ||
+        queueVisitRef.current !== queueVisit ||
+        Boolean(chatLoadingRef.current) ||
+        useMessageQueueStore.getState().getQueue(queueKey).length > 0,
+      invalidatedResponseId:
+        invalidated?.agentId === selectedAgent &&
+        invalidated.chatId === chatIdRef.current
+          ? invalidated.responseId
+          : undefined,
+      inputBusy:
+        isComposingRef.current ||
+        Boolean(whisperSpeechRef.current?.isRecording()) ||
+        Boolean(whisperSpeechRef.current?.isLoading()),
+      textarea:
+        chatMessagesAreaRef.current?.querySelector<HTMLTextAreaElement>(
+          "textarea[data-quote-composer]",
+        ) || null,
+      messages:
+        chatRef.current?.messages.getSessionMessages(chatIdRef.current || "") ||
+        [],
+    });
+  };
 
   // Check if Whisper transcription is configured
   useEffect(() => {
@@ -3450,6 +3520,11 @@ export default function ChatPage() {
       // Every turn goes through this fetch, including the SDK's own regenerate.
       // Clear only this session: another session may still have a stopped turn.
       clearTurnStopped(entrySnapshot.sessionId);
+      if (
+        entrySnapshot.agentId === selectedAgent &&
+        fallbackLocalChatId === chatIdRef.current
+      )
+        invalidateFollowup();
       const approvalAtSubmission =
         typeof entrySnapshot.context.approval_level === "string"
           ? normalizeLevel(entrySnapshot.context.approval_level)
@@ -3665,7 +3740,13 @@ export default function ChatPage() {
           : undefined,
       );
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+      invalidateFollowup,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -4058,6 +4139,7 @@ export default function ChatPage() {
           },
         });
         if (sameVisit) {
+          invalidateFollowup();
           pendingFileListRef.current = [];
           localStorage.removeItem(getDraftStorageKey(selectedAgent, chatId));
         } else if (
@@ -4077,6 +4159,7 @@ export default function ChatPage() {
         return { proceed: false, clear: sameVisit };
       }
 
+      invalidateFollowup();
       const prepared = usesQwenPawBackend
         ? beginLoopModeSubmission(data.query)
         : data.query;
@@ -4909,6 +4992,7 @@ export default function ChatPage() {
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
     customFetch,
+    invalidateFollowup,
     copyResponse,
     handleFileUpload,
     t,
@@ -5003,32 +5087,46 @@ export default function ChatPage() {
               .filter(Boolean)
               .join(" ")}
           >
-            <LongTextPasteProvider
-              enabled={supportsAttachments}
-              scopeKey={queueKey}
+            <FollowupContext.Provider
+              value={{
+                agentId: selectedAgent,
+                chatId: chatId || "",
+                blocked: followupBlocked,
+                invalidatedResponseId:
+                  invalidatedFollowup?.agentId === selectedAgent &&
+                  invalidatedFollowup.chatId === chatId
+                    ? invalidatedFollowup.responseId
+                    : undefined,
+                addFollowup,
+              }}
             >
-              <RichFileReferenceInputProvider
-                onOpenReference={(reference, trigger) =>
-                  void openInlineFileReference(reference, trigger)
-                }
+              <LongTextPasteProvider
+                enabled={supportsAttachments}
+                scopeKey={queueKey}
               >
-                <ChatSessionTransition
-                  adapter={sdkSessionAdapter}
-                  sessionId={chatId}
-                  pending={isSessionTransition}
-                  error={routeResolution.error}
-                  onRetry={retrySession}
+                <RichFileReferenceInputProvider
+                  onOpenReference={(reference, trigger) =>
+                    void openInlineFileReference(reference, trigger)
+                  }
                 >
-                  {!isAgentTransition && (
-                    <AgentScopeRuntimeWebUI
-                      ref={chatRef}
-                      key={refreshKey}
-                      options={options}
-                    />
-                  )}
-                </ChatSessionTransition>
-              </RichFileReferenceInputProvider>
-            </LongTextPasteProvider>
+                  <ChatSessionTransition
+                    adapter={sdkSessionAdapter}
+                    sessionId={chatId}
+                    pending={isSessionTransition}
+                    error={routeResolution.error}
+                    onRetry={retrySession}
+                  >
+                    {!isAgentTransition && (
+                      <AgentScopeRuntimeWebUI
+                        ref={chatRef}
+                        key={refreshKey}
+                        options={options}
+                      />
+                    )}
+                  </ChatSessionTransition>
+                </RichFileReferenceInputProvider>
+              </LongTextPasteProvider>
+            </FollowupContext.Provider>
             <QuoteSelection
               containerRef={chatMessagesAreaRef}
               scopeKey={queueKey}

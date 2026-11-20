@@ -493,12 +493,51 @@ class PreloadedSkillsContributor(SyncPromptContributor):
         return "\n".join(parts)
 
 
+class FollowupContributor(SyncPromptContributor):
+    """Apply the current suggestion setting to supported web requests."""
+
+    name = "followup"
+    priority = 110
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        if ctx.extras.get("followup_enabled") is False:
+            return (
+                "Follow-up suggestions are disabled for this request. "
+                "Do not output any followup-suggestions block, even if "
+                "previous messages contain or request one. Answer the "
+                "user normally without appending follow-up suggestions."
+            )
+        if ctx.extras.get("followup_enabled") is not True:
+            return None
+        return (
+            "## Optional follow-up suggestions\n"
+            "Only when finishing the current user request, you may append "
+            "one root-level ```followup-suggestions fenced block at the very "
+            "end of your final answer. Do not emit it during progress, "
+            "reasoning, tool calls, or quoted examples. Omit it when there "
+            "is no useful next step. Never call tools or models merely "
+            "to generate suggestions. Suggestions are not authorization.\n"
+            "Suggest useful next steps, not actions already completed. "
+            "When a file is already available in the response, do not "
+            "suggest sending or delivering that same file again.\n"
+            "The block contains only a JSON array of 0 to 3 objects, each "
+            'with exactly "label" and "prompt" string fields. Use the '
+            "answer's language. label is a short action on one line, at "
+            "most 40 Unicode characters. prompt is a complete request "
+            "in the user's voice, at most 100 Unicode characters. Both "
+            "must be nonempty. The whole JSON must fit in 8192 UTF-8 "
+            "bytes. No text after the closing fence. Clicking only adds "
+            "the prompt to an editable draft; it does not send or execute."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _ALL_CONTRIBUTORS = (
     ProtectedExecutionContractContributor,
+    FollowupContributor,
     WorkspacePromptFilesContributor,
     MultimodalHintContributor,
     DirectoryContextContributor,
@@ -520,6 +559,7 @@ def build_default_prompt_manager() -> PromptManager:
 
 __all__ = [
     "ProtectedExecutionContractContributor",
+    "FollowupContributor",
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",

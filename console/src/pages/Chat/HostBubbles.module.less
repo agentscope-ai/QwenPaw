@@ -122,3 +122,61 @@
     user-select: none;
   }
 }
+
+.followupSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--app-space-2);
+  margin-top: var(--app-space-4);
+
+  .followupSuggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-2);
+    height: auto;
+    min-height: max(var(--app-control-md), var(--app-hit-target));
+    max-width: 100%;
+    padding: var(--app-space-2) var(--app-space-3);
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    background: transparent;
+    color: var(--app-text);
+    box-shadow: none;
+    font-size: var(--app-font-body);
+    line-height: 1.5;
+    white-space: normal;
+    text-align: left;
+    transition:
+      background-color var(--app-motion-fast) var(--app-easing-standard),
+      border-color var(--app-motion-fast) var(--app-easing-standard),
+      color var(--app-motion-fast) var(--app-easing-standard);
+
+    > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    &:not(:disabled):hover,
+    &:focus-visible {
+      background: var(--app-accent-soft);
+      border-color: var(--app-accent-border);
+      color: var(--app-accent-text);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+      outline-offset: 2px;
+    }
+
+    &:not(:disabled):active {
+      border-color: var(--app-accent-text);
+    }
+  }
+
+  .followupIcon {
+    flex: 0 0 auto;
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+    stroke-width: 1.75;
+  }
+}

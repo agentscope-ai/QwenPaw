@@ -620,6 +620,15 @@ class AgentBuilder:
 
         ctx_extras = getattr(ctx, "extras", {}) or {}
         preloaded_skills = ctx_extras.pop("preloaded_skills", ())
+        request = getattr(ctx, "request", None)
+        request_context = getattr(request, "request_context", None) or {}
+        followup_enabled = (
+            agent_config.running.followup.enabled
+            if agent_config.backend == "qwenpaw"
+            and getattr(request, "channel", None) == "console"
+            and request_context.get("followup_supported") is True
+            else None
+        )
         prompt_ctx = SimpleNamespace(
             workspace_dir=workspace_dir,
             agent_id=getattr(ctx, "agent_id", None),
@@ -630,6 +639,7 @@ class AgentBuilder:
                 "agent_config": agent_config,
                 "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
                 "preloaded_skills": preloaded_skills,
+                "followup_enabled": followup_enabled,
             },
         )
 

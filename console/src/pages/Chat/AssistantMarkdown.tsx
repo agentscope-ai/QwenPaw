@@ -6,7 +6,6 @@ import React, {
 } from "react";
 import { Markdown } from "@agentscope-ai/chat";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
-import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock/RenderableCodeBlock";
 import { useChatListSnapshot } from "../../plugins/registry/useChatExtensions";
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
@@ -16,6 +15,8 @@ import {
 } from "../../plugins/hostSdk/hooks";
 import type { ChatListSnapshot } from "../../plugins/registry/chatExtensions";
 import { resolveLanguage } from "../../components/RenderableCodeBlock/language";
+import { FollowupSuggestions } from "./FollowupSuggestions";
+import type { FollowupSource } from "./followupContext";
 import { CodeBlockSlot, StableCodeBlocks } from "./StableCodeBlocks";
 
 import type { ComponentProps } from "@ant-design/x-markdown";
@@ -68,7 +69,44 @@ function getCodeBlockKey(node: MarkdownNode): string | undefined {
   return blockKeys.get(node);
 }
 
+const followupNodes = new WeakMap<MarkdownNode, boolean>();
+
+/** Inspect the existing parser tree once; never parse Markdown a second time. */
+function isTerminalFollowup(node: MarkdownNode): boolean {
+  if (!followupNodes.has(node)) {
+    let root = node;
+    while (root.parent) root = root.parent;
+    while (root.prev) root = root.prev;
+    const candidates: MarkdownNode[] = [];
+    const visit = (current: MarkdownNode) => {
+      if (
+        "attribs" in current &&
+        current.name === "code" &&
+        current.attribs["data-block"] === "true" &&
+        current.attribs["data-lang"]?.split(/\s/)[0] === "followup-suggestions"
+      )
+        candidates.push(current);
+      if ("children" in current) current.children.forEach(visit);
+    };
+    for (
+      let current: MarkdownNode | null = root;
+      current;
+      current = current.next
+    )
+      visit(current);
+    for (const candidate of candidates) followupNodes.set(candidate, false);
+    const pre = node.parent;
+    const rootLevel = pre && (!pre.parent || pre.parent.type === "root");
+    let next = pre?.next;
+    while (next?.type === "text" && !("data" in next && next.data.trim()))
+      next = next.next;
+    followupNodes.set(node, candidates.length === 1 && !!rootLevel && !next);
+  }
+  return followupNodes.get(node) === true;
+}
+
 interface BlockContext {
+  followupSource?: FollowupSource;
   entries: ChatListSnapshot["response.codeBlocks"];
   streaming: boolean;
   messageId: string;
@@ -82,6 +120,23 @@ function AssistantCodeBlock(
 ) {
   const ctx = useContext(CodeBlockContext);
   const language = resolveLanguage(props.lang, props.className);
+  if (props.block === true && language === "followup-suggestions") {
+    const node = props.domNode;
+    if (
+      !ctx?.followupSource ||
+      ctx.streaming ||
+      props.streamStatus !== "done" ||
+      !node ||
+      !("attribs" in node) ||
+      node.attribs["data-lang"] !== "followup-suggestions" ||
+      typeof props.children !== "string" ||
+      !isTerminalFollowup(node)
+    )
+      return null;
+    return (
+      <FollowupSuggestions source={ctx.followupSource} text={props.children} />
+    );
+  }
   const entry =
     props.block === true
       ? ctx?.entries
@@ -127,11 +182,13 @@ export function AssistantMarkdown({
   cursor,
   isStreaming = cursor,
   messageId,
+  followupSource,
 }: {
   content: string;
   cursor: boolean;
   isStreaming?: boolean;
   messageId: string;
+  followupSource?: FollowupSource;
 }) {
   const deferredContent = useDeferredValue(content);
   const baseFontSize = useEffectiveFontSize();
@@ -147,21 +204,11 @@ export function AssistantMarkdown({
   ) {
     scope.current.sessionId = session.id;
   }
-  const extended = entries.length > 0;
-  if (!extended) {
-    return (
-      <Markdown
-        baseFontSize={baseFontSize}
-        components={renderableCodeComponents}
-        content={deferredContent}
-        cursor={cursor}
-      />
-    );
-  }
   return (
     <CodeBlockContext.Provider
       value={{
         entries,
+        followupSource,
         // Do not finalize an unfinished block against the previous deferred
         // source when the last delta and completion arrive together.
         streaming: isStreaming || deferredContent !== content,
@@ -175,7 +222,11 @@ export function AssistantMarkdown({
           components={assistantCodeComponents}
           content={deferredContent}
           // The vendor cursor appends a literal token, which corrupts unfinished DSL.
-          cursor={false}
+          cursor={
+            cursor &&
+            entries.length === 0 &&
+            !content.includes("followup-suggestions")
+          }
         />
       </StableCodeBlocks>
     </CodeBlockContext.Provider>
