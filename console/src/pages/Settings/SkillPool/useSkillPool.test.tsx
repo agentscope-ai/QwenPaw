@@ -1038,9 +1038,7 @@ describe("useSkillPool — getBuiltinImportStatusLabel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleAutomationQuickAction (replaces handleToggleAutoUpdate after upstream #7232:
-// builtin skills toggle auto_update + auto_sync together; others toggle auto_sync only;
-// when a builtin skill has mixed auto_update/auto_sync, defer to openEdit)
+// Independent automation actions from the card menu.
 // ---------------------------------------------------------------------------
 describe("useSkillPool — handleAutomationQuickAction", () => {
   beforeEach(() => {
@@ -1059,7 +1057,12 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
     hoisted.checkScanWarningsMock.mockResolvedValue(undefined);
   });
 
-  it("enables automation for builtin skill and shows success", async () => {
+  it.each([
+    ["auto_sync", false],
+    ["auto_sync", true],
+    ["auto_update", false],
+    ["auto_update", true],
+  ] as const)("toggles only %s from %s", async (setting, enabled) => {
     apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
 
     const { result } = await renderAndLoad();
@@ -1069,48 +1072,30 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
         poolSkill({
           name: "auto-skill",
           source: "builtin",
-          auto_sync: false,
-          auto_update: false,
+          auto_sync: enabled,
+          auto_update: enabled,
         }),
+        setting,
       );
     });
 
     expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
       "auto-skill",
-      { auto_update: true, auto_sync: { enabled: true } },
+      setting === "auto_update"
+        ? { auto_update: !enabled }
+        : { auto_sync: { enabled: !enabled } },
     );
     expect(messageMock.success).toHaveBeenCalledWith(
-      "skillPool.automationEnabled",
+      `${
+        setting === "auto_update"
+          ? "skillPool.builtinAutoUpdate"
+          : "skillPool.autoSync"
+      }: ${enabled ? "common.disabled" : "common.enabled"}`,
     );
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({
       pool: true,
       workspaces: true,
     });
-  });
-
-  it("disables automation for builtin skill and shows success", async () => {
-    apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
-
-    const { result } = await renderAndLoad();
-
-    await act(async () => {
-      await result.current.handleAutomationQuickAction(
-        poolSkill({
-          name: "auto-skill",
-          source: "builtin",
-          auto_sync: true,
-          auto_update: true,
-        }),
-      );
-    });
-
-    expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
-      "auto-skill",
-      { auto_update: false, auto_sync: { enabled: false } },
-    );
-    expect(messageMock.success).toHaveBeenCalledWith(
-      "skillPool.automationDisabled",
-    );
   });
 
   it("toggles auto_sync only for non-builtin skill", async () => {
@@ -1121,6 +1106,7 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
     await act(async () => {
       await result.current.handleAutomationQuickAction(
         poolSkill({ name: "custom-skill", source: "local", auto_sync: false }),
+        "auto_sync",
       );
     });
 
@@ -1129,7 +1115,7 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
       { auto_sync: { enabled: true } },
     );
     expect(messageMock.success).toHaveBeenCalledWith(
-      "skillPool.autoSyncEnabled",
+      "skillPool.autoSync: common.enabled",
     );
   });
 
@@ -1148,6 +1134,7 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
           auto_sync: false,
           auto_update: false,
         }),
+        "auto_update",
       );
     });
 
@@ -1157,30 +1144,64 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
     expect(messageMock.success).not.toHaveBeenCalled();
   });
 
-  it("opens edit drawer instead of toggling for builtin skill with mixed state", async () => {
-    apiMocks.getPoolSkill.mockResolvedValue({
-      name: "mixed-skill",
-      content: "",
-      config: {},
-      tags: [],
-    });
+  it.each(["auto_sync", "auto_update"] as const)(
+    "toggles %s directly for a builtin skill with mixed state",
+    async (setting) => {
+      apiMocks.updatePoolSkillAutomation.mockResolvedValue({});
 
+      const { result } = await renderAndLoad();
+
+      await act(async () => {
+        await result.current.handleAutomationQuickAction(
+          poolSkill({
+            name: "mixed-skill",
+            source: "builtin",
+            auto_sync: true,
+            auto_update: false,
+          }),
+          setting,
+        );
+      });
+
+      expect(apiMocks.updatePoolSkillAutomation).toHaveBeenCalledWith(
+        "mixed-skill",
+        setting === "auto_update"
+          ? { auto_update: true }
+          : { auto_sync: { enabled: false } },
+      );
+      expect(apiMocks.getPoolSkill).not.toHaveBeenCalled();
+      expect(result.current.mode).toBeNull();
+    },
+  );
+
+  it("clears the pending state after a failed update", async () => {
+    let rejectUpdate!: (reason: Error) => void;
+    apiMocks.updatePoolSkillAutomation.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectUpdate = reject;
+      }),
+    );
     const { result } = await renderAndLoad();
+    let pending!: Promise<void>;
 
-    await act(async () => {
-      await result.current.handleAutomationQuickAction(
-        poolSkill({
-          name: "mixed-skill",
-          source: "builtin",
-          auto_sync: true,
-          auto_update: false,
-        }),
+    act(() => {
+      pending = result.current.handleAutomationQuickAction(
+        poolSkill({ name: "pending-skill" }),
+        "auto_sync",
       );
     });
 
-    expect(apiMocks.updatePoolSkillAutomation).not.toHaveBeenCalled();
-    expect(apiMocks.getPoolSkill).toHaveBeenCalledWith("mixed-skill");
-    expect(result.current.mode).toBe("edit");
+    expect(result.current.automationPendingSkills.has("pending-skill")).toBe(
+      true,
+    );
+
+    await act(async () => {
+      rejectUpdate(new Error("Update failed"));
+      await pending;
+    });
+
+    expect(result.current.automationPendingSkills.size).toBe(0);
+    expect(messageMock.error).toHaveBeenCalledWith("Update failed");
   });
 
   it("shows error when API fails", async () => {
@@ -1198,6 +1219,7 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
           auto_sync: false,
           auto_update: false,
         }),
+        "auto_sync",
       );
     });
 
@@ -1217,6 +1239,7 @@ describe("useSkillPool — handleAutomationQuickAction", () => {
           auto_sync: false,
           auto_update: false,
         }),
+        "auto_sync",
       );
     });
 
@@ -2539,6 +2562,110 @@ describe("useSkillPool — computed properties", () => {
 
     // Cleanup
     localStorage.removeItem("qwenpaw.skill-pool.builtin-notice.ack");
+  });
+
+  it("keeps the outdated reminder after filtering and viewing builtin updates", async () => {
+    apiMocks.listPoolBuiltinSources.mockResolvedValue([]);
+    const notice = {
+      has_updates: true,
+      fingerprint: "fp-outdated",
+      total_changes: 1,
+      updated: [{ name: "browser", status: "outdated" }],
+    };
+    const { result } = await renderAndLoad({
+      skills: [{ name: "browser", source: "builtin", sync_status: "outdated" }],
+      notice,
+    });
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+
+    act(() => result.current.setSearchQuery("no matching skills"));
+
+    expect(result.current.sortedSkills).toEqual([]);
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+
+    await act(async () => {
+      await result.current.openImportBuiltin();
+    });
+
+    expect(result.current.hasUnseenBuiltinNotice).toBe(false);
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+
+    act(() => result.current.closeImportBuiltin());
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+    localStorage.removeItem("qwenpaw.skill-pool.builtin-notice.ack");
+  });
+
+  it("clears the version reminder even when old removed skills remain", async () => {
+    const { result } = await renderAndLoad({
+      skills: [{ name: "browser", source: "builtin", sync_status: "outdated" }],
+      notice: {
+        has_updates: true,
+        fingerprint: "before-update",
+        total_changes: 1,
+        updated: [{ name: "browser", status: "outdated" }],
+      },
+    });
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+
+    apiMocks.refreshSkillPool.mockResolvedValue([
+      poolSkill({ name: "browser", source: "builtin", sync_status: "synced" }),
+      poolSkill({ name: "legacy", source: "builtin", sync_status: "removed" }),
+    ]);
+    apiMocks.getPoolBuiltinNotice.mockResolvedValue({
+      has_updates: true,
+      fingerprint: "removed-source",
+      total_changes: 1,
+      updated: [],
+      removed: [{ name: "legacy" }],
+    });
+    await act(async () => {
+      await result.current.handleRefresh();
+    });
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(false);
+    expect(result.current.hasUnseenBuiltinNotice).toBe(true);
+  });
+
+  it.each(["missing", "conflict", "current"])(
+    "does not flag %s builtin notices as version updates",
+    async (status) => {
+      const { result } = await renderAndLoad({
+        notice: {
+          has_updates: true,
+          fingerprint: `notice-${status}`,
+          total_changes: 1,
+          added: [{ name: "browser", status }],
+          updated: [{ name: "other", status }],
+        },
+      });
+
+      expect(result.current.hasBuiltinVersionUpdates).toBe(false);
+      expect(result.current.hasUnseenBuiltinNotice).toBe(true);
+    },
+  );
+
+  it("recognizes a newer source version even without an old notice baseline", async () => {
+    const { result } = await renderAndLoad({
+      notice: {
+        has_updates: true,
+        fingerprint: "new-baseline",
+        total_changes: 1,
+        added: [{ name: "browser", status: "outdated" }],
+      },
+    });
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(true);
+  });
+
+  it("ignores stale pool status when no newer builtin version is available", async () => {
+    const { result } = await renderAndLoad({
+      skills: [{ name: "legacy", source: "builtin", sync_status: "outdated" }],
+    });
+
+    expect(result.current.hasBuiltinVersionUpdates).toBe(false);
   });
 
   it("workspaces are loaded and available", async () => {

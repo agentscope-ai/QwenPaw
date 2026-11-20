@@ -251,7 +251,7 @@ class TestPoolBuiltinSyncStatus:
             == {}
         )
 
-    def test_builtin_missing_from_the_package_is_outdated(
+    def test_builtin_missing_from_the_package_is_removed(
         self,
         packaged_root,
     ):
@@ -267,11 +267,119 @@ class TestPoolBuiltinSyncStatus:
 
         status = reg.get_pool_builtin_sync_status()
         assert status["gamma"] == {
-            "sync_status": "outdated",
+            f"sync_status": f"removed",
             "latest_version_text": "",
             "available_languages": [],
         }
         assert status["alpha"]["sync_status"] == "synced"
+
+    @pytest.mark.parametrize(
+        (f"current", f"packaged"),
+        [(f"1.0", f"2.0"), (f"2.0", f"1.0")],
+    )
+    @pytest.mark.parametrize(f"source_name_only", [False, True])
+    def test_removed_language_preserves_the_installed_copy(
+        self,
+        packaged_root,
+        current,
+        packaged,
+        source_name_only,
+    ):
+        removed_dir = _packaged_variant(
+            packaged_root,
+            f"alpha",
+            f"zh",
+            current,
+        )
+        _packaged_variant(packaged_root, f"alpha", f"en", packaged)
+        reg.import_builtin_skills(
+            [{f"skill_name": f"alpha", f"language": f"zh"}],
+        )
+        manifest = _read_manifest()
+        if source_name_only:
+            del manifest[f"skills"][f"alpha"][f"builtin_language"]
+            _write_manifest(manifest)
+        pool_md = reg.get_skill_pool_dir() / f"alpha" / f"SKILL.md"
+        installed_content = pool_md.read_bytes()
+        (removed_dir / f"SKILL.md").unlink()
+        removed_dir.rmdir()
+        reg.refresh_packaged_builtin_registry()
+
+        reg.ensure_skill_pool_initialized()
+
+        assert _read_manifest() == manifest
+        assert reg.get_pool_builtin_sync_status()[f"alpha"] == {
+            f"sync_status": f"removed",
+            f"latest_version_text": f"",
+            f"available_languages": [f"en"],
+        }
+        candidate = reg.list_builtin_import_candidates()[0]
+        assert candidate[f"current_language"] == f"zh"
+        assert candidate[f"status"] == f"removed"
+        assert candidate[f"languages"][f"en"][f"status"] == f"removed"
+        notice = reg.get_pool_builtin_update_notice()
+        assert notice[f"added"] == []
+        assert notice[f"updated"] == []
+        assert [item[f"name"] for item in notice[f"removed"]] == [f"alpha"]
+        assert notice[f"actionable_skill_names"] == []
+        assert notice[f"total_changes"] == 1
+
+        result = reg.import_builtin_skills(
+            [{f"skill_name": f"alpha", f"language": f"en"}],
+        )
+
+        assert result[f"conflicts"][0][f"status"] == f"language_switch"
+        assert pool_md.read_bytes() == installed_content
+
+    @pytest.mark.parametrize(
+        (f"current", f"packaged", f"expected"),
+        [
+            (f"1.0", f"2.0", f"outdated"),
+            (f"1.10", f"1.9", f"synced"),
+            (f"2.0", f"1.0", f"synced"),
+            (f"1.0", f"1.0.0", f"synced"),
+            (f"v1.0", f"1.0", f"synced"),
+            (f"1.0rc1", f"1.0", f"outdated"),
+            (f"1.0", f"1.0rc1", f"synced"),
+            (f"custom", f"1.0", f"conflict"),
+            (f"", f"1.0", f"conflict"),
+            (f"custom", f"custom", f"synced"),
+        ],
+    )
+    def test_version_status_agrees_with_import_candidates(
+        self,
+        packaged_root,
+        current,
+        packaged,
+        expected,
+    ):
+        _packaged_variant(packaged_root, f"alpha", f"en", packaged)
+        _write_manifest(
+            {
+                f"builtin_skill_names": [f"alpha"],
+                f"skills": {
+                    f"alpha": {
+                        f"name": f"alpha",
+                        f"source": f"builtin",
+                        f"builtin_language": f"en",
+                        f"version_text": current,
+                    },
+                },
+            },
+        )
+
+        sync = reg.get_pool_builtin_sync_status()[f"alpha"]
+        candidate = reg.list_builtin_import_candidates()[0]
+
+        assert sync[f"sync_status"] == expected
+        assert candidate[f"status"] == (
+            f"current" if expected == f"synced" else expected
+        )
+        assert sync[f"latest_version_text"] == (
+            packaged if expected == f"outdated" else f""
+        )
+        notice = reg.get_pool_builtin_update_notice()
+        assert bool(notice[f"updated"]) == (expected != f"synced")
 
 
 # ---------------------------------------------------------------------------

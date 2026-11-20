@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 from ...drivers.errors import DriverCardError
 from ...drivers.storage import card_paths_for_name, load_card
 from ...exceptions import SkillsError
@@ -458,17 +460,14 @@ def _resolve_pool_builtin_language(
         return ""
 
     configured = str(entry.get("builtin_language", "") or "").strip().lower()
-    if configured in variants:
+    # Preserve recorded identity even when its packaged language was removed.
+    if configured in BUILTIN_SKILL_LANGUAGES:
         return configured
 
     source_identity = _parse_builtin_skill_identity(
         str(entry.get("builtin_source_name", "") or "").strip(),
     )
-    if (
-        source_identity is not None
-        and source_identity.name == canonical_name
-        and source_identity.language in variants
-    ):
+    if source_identity is not None and source_identity.name == canonical_name:
         return source_identity.language
 
     # Migration fallback: match pool SKILL.md content against packaged
@@ -505,6 +504,18 @@ def _resolve_pool_builtin_language(
     return fallback if fallback in variants else sorted(variants.keys())[0]
 
 
+def _get_builtin_version_status(current: str, packaged: str) -> str:
+    """Report an update only when the packaged version is newer."""
+    if current == packaged:
+        return f"current"
+    try:
+        if Version(current) < Version(packaged):
+            return f"outdated"
+        return f"current"
+    except InvalidVersion:
+        return f"conflict"
+
+
 def _build_builtin_language_spec(
     language: str,
     variant: BuiltinSkillVariant,
@@ -521,20 +532,17 @@ def _build_builtin_language_spec(
         current_variant = variants.get(current_language)
         if current_source != "builtin":
             status = "conflict"
-        elif (
-            current_variant is not None
-            and current_version_text == current_variant.version_text
-        ):
-            status = "current"
-        elif (
-            current_version_text
-            and current_variant is not None
-            and current_variant.version_text
-            and current_version_text != current_variant.version_text
-        ):
-            status = "outdated"
+        elif current_variant is not None:
+            status = _get_builtin_version_status(
+                current_version_text,
+                current_variant.version_text,
+            )
         else:
-            status = "conflict"
+            status = (
+                f"removed"
+                if current_language in BUILTIN_SKILL_LANGUAGES
+                else f"conflict"
+            )
     return {
         "language": language,
         "description": variant.description,
@@ -869,7 +877,10 @@ def migrate_pool_builtin_language_fields() -> bool:
                     if preferred_language in variants
                     else sorted(variants.keys())[0]
                 )
-            source_name = variants[language].source_name
+            variant = variants.get(language)
+            if variant is None:
+                continue
+            source_name = variant.source_name
             if entry.get("builtin_language") != language:
                 entry["builtin_language"] = language
                 changed = True
@@ -1426,9 +1437,10 @@ def get_pool_builtin_sync_status(
     builtin pool skill.
 
     Status values:
-    - ``synced``: pool builtin version matches the packaged builtin version
-    - ``outdated``: builtin version differs, or the packaged builtin
-    was removed
+    - ``synced``: the pool builtin is not behind the packaged version
+    - ``outdated``: the packaged builtin has a newer version
+    - ``removed``: the packaged builtin or its language is no longer present
+    - ``conflict``: the version texts cannot be compared
     """
     registry = _get_packaged_builtin_registry()
     if not registry:
@@ -1452,7 +1464,7 @@ def get_pool_builtin_sync_status(
         variant = variants.get(language)
         if variant is None:
             result[name] = {
-                "sync_status": "outdated",
+                f"sync_status": f"removed",
                 "latest_version_text": "",
                 "available_languages": sorted(variants.keys()),
             }
@@ -1460,25 +1472,24 @@ def get_pool_builtin_sync_status(
         current_version_text = str(
             pool_entry.get("version_text", "") or "",
         )
-        if current_version_text != variant.version_text:
-            result[name] = {
-                "sync_status": "outdated",
-                "latest_version_text": variant.version_text,
-                "available_languages": sorted(variants.keys()),
-            }
-        else:
-            result[name] = {
-                "sync_status": "synced",
-                "latest_version_text": "",
-                "available_languages": sorted(variants.keys()),
-            }
+        status = _get_builtin_version_status(
+            current_version_text,
+            variant.version_text,
+        )
+        result[name] = {
+            f"sync_status": f"synced" if status == f"current" else status,
+            f"latest_version_text": (
+                variant.version_text if status == f"outdated" else f""
+            ),
+            f"available_languages": sorted(variants.keys()),
+        }
     for name, pool_entry in pool_skills.items():
         if not is_pool_builtin_entry(pool_entry):
             continue
         if name in registry:
             continue
         result[name] = {
-            "sync_status": "outdated",
+            f"sync_status": f"removed",
             "latest_version_text": "",
             "available_languages": [],
         }
@@ -1531,11 +1542,14 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
             registry=registry,
             preferred_language=pref,
         )
+        candidate_status = str(candidate.get(f"status", f"") or f"")
+        if candidate_status == f"removed":
+            removed.append(candidate)
+            continue
         if name not in previous_builtin_names:
             added.append(candidate)
             continue
 
-        candidate_status = str(candidate.get("status", "") or "")
         if candidate_status == "missing":
             missing.append(candidate)
             continue
