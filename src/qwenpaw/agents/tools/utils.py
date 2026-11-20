@@ -13,6 +13,10 @@ from typing import Any
 
 from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
+from ..utils.file_handling import (
+    decode_text_bytes,
+    single_line_log_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -543,24 +547,79 @@ def truncate_text_output(
         return text, {}
 
 
-def _decode_text_bytes(content: bytes) -> str:
-    """Decode a binary snapshot the same way ``read_file_safe`` does."""
-    try:
-        return content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return content.decode("utf-8-sig", errors="ignore")
+def _decode_capped_text_snapshot(
+    content: bytes,
+    *,
+    file_name: object,
+    truncated: bool,
+) -> str:
+    """Decode one read snapshot on the shared strict ladder.
+
+    A capped read keeps a valid prefix and drops a multibyte character
+    cut by the cap. Newlines are folded the same way as a full read
+    (``\r\n`` / ``\r`` → ``\n``).
+    """
+    return decode_text_bytes(
+        content,
+        normalize_newlines=True,
+        truncated=truncated,
+        file_name=file_name,
+    ).text
 
 
-def _read_file_bytes_sync(file_path: str, max_bytes: int) -> bytes:
-    """Read one byte snapshot from a single opened file handle."""
+def _decode_text_bytes(
+    content: bytes,
+    *,
+    file_name: object = "<bytes>",
+) -> str:
+    """Decode with the encoding ladder, keeping CR/LF as decoded.
+
+    ``read_file_native`` / ``edit_file`` need original endings. Callers that
+    want LF-only text normalize after this returns.
+    """
+    return decode_text_bytes(
+        content,
+        normalize_newlines=False,
+        file_name=file_name,
+    ).text
+
+
+def _decode_text_bytes_with_encoding(
+    content: bytes,
+    *,
+    file_name: object = "<bytes>",
+    truncated: bool = False,
+):
+    """Decode keeping CR/LF and return ``(text, encoding, lossy)``."""
+    decoded = decode_text_bytes(
+        content,
+        normalize_newlines=False,
+        truncated=truncated,
+        file_name=file_name,
+    )
+    return decoded.text, decoded.encoding, decoded.lossy
+
+
+def _read_file_bytes_sync(
+    file_path: str,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Read one byte snapshot from a single opened file handle.
+
+    The boolean is true when the file is longer than the bytes returned.
+    Both come from that handle: ``fstat`` then ``read``, with no second
+    stat after the handle is closed.
+    """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(file_path)
     if not path.is_file():
         raise IsADirectoryError(file_path)
     with path.open("rb") as file:
-        read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
-        return file.read(read_size)
+        file_size = os.fstat(file.fileno()).st_size
+        read_size = min(file_size, max_bytes)
+        content = file.read(read_size)
+    return content, file_size > read_size
 
 
 def _read_file_safe_sync(
@@ -568,18 +627,45 @@ def _read_file_safe_sync(
     max_bytes: int,
 ) -> str:
     """Read one byte snapshot and normalize newlines to LF."""
-    content = _read_file_bytes_sync(file_path, max_bytes)
-    text = _decode_text_bytes(content)
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    content, truncated = _read_file_bytes_sync(file_path, max_bytes)
+    # Prefer the shared encoding ladder (utf-8 → gbk/cp936 → …). When the
+    # snapshot is shorter than the file, keep a valid prefix and drop a
+    # multibyte character cut by the cap.
+    return _decode_capped_text_snapshot(
+        content,
+        file_name=file_path,
+        truncated=truncated,
+    )
 
 
 def _read_file_native_sync(
     file_path: str,
     max_bytes: int,
 ) -> str:
-    """Read one byte snapshot and keep ``\\n``, ``\\r\\n``, and ``\\r``."""
-    content = _read_file_bytes_sync(file_path, max_bytes)
-    return _decode_text_bytes(content)
+    """Read one byte snapshot and keep original newline sequences."""
+    text, _encoding, _lossy = _read_file_native_with_encoding_sync(
+        file_path,
+        max_bytes,
+    )
+    return text
+
+
+def _read_file_native_with_encoding_sync(
+    file_path: str,
+    max_bytes: int,
+) -> tuple[str, str, bool]:
+    """Read one snapshot and return ``(text, encoding, lossy)``.
+
+    ``truncated`` comes from the same handle as the bytes, so a cut
+    multibyte character is dropped instead of falling through to
+    Latin-1. Newlines stay as they were on disk.
+    """
+    content, truncated = _read_file_bytes_sync(file_path, max_bytes)
+    return _decode_text_bytes_with_encoding(
+        content,
+        file_name=file_path,
+        truncated=truncated,
+    )
 
 
 async def read_file_safe(
@@ -609,6 +695,22 @@ async def read_file_native(
     be written back with the endings they had on disk.
     """
     return await run_sync_io(_read_file_native_sync, file_path, max_bytes)
+
+
+async def read_file_native_with_encoding(
+    file_path: str,
+    max_bytes: int = MAX_FILE_READ_BYTES,
+) -> tuple[str, str, bool]:
+    """Read a snapshot and return ``(text, encoding, lossy)``.
+
+    ``edit_file`` uses the encoding to write back a strict decode, and
+    refuses when the decode was lossy.
+    """
+    return await run_sync_io(
+        _read_file_native_with_encoding_sync,
+        file_path,
+        max_bytes,
+    )
 
 
 def _to_lf(text: str) -> str:
