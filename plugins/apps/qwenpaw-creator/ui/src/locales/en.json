@@ -716,6 +716,7 @@
     "visualSetting": "Visual setting",
     "expired": "Expired",
     "defaultLook": "Default look",
+    "lookN": "Look {{n}}",
     "visualSettingSuffix": "visual setting",
     "byOwner": "By Ownership",
     "viewInBlueprint": "View in video script",

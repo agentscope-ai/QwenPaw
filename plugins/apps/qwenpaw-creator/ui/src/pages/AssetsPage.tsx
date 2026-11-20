@@ -435,24 +435,37 @@ function visualVariantForVersion(
   return null;
 }
 
-function visualVariantCardName(variant: VisualVariantDocument): string {
-  const variantName = variant.variant_id
+/**
+ * Readable title for one character-variant card.
+ *
+ * The description line already shows `requirements`, so the title must NOT
+ * repeat it (an earlier cut of the first sentence read as title==body). The
+ * variant model has no short human name either -- its id is an English slug.
+ * So the title is the character name; a lone look is just that name, and
+ * several looks get a short non-duplicating tag (默认造型 / 造型N) so the
+ * cards stay distinguishable without echoing the description.
+ */
+export function characterVariantCardName(
+  entity: VisualEntityDocument,
+  variant: VisualVariantDocument,
+): string {
+  // "默认造型 / 造型N" is character wording; scenes and props just carry
+  // their entity name (the description line distinguishes them).
+  if (entity.kind !== "character") return entity.name;
+  const looks = entity.variants?.order ?? [];
+  if (looks.length <= 1) return entity.name;
+  const slug = variant.variant_id
     .replace(/^(?:visual-variant:|variant:|var:)/, "")
     .split(":")
     .at(-1)
     ?.trim();
-  if (!variantName) return visualVariantLabel(variant, 36);
-  if (variantName.toLocaleLowerCase() === "default")
-    return i18n.t("assets.defaultLook");
-  return variantName
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((word) => {
-      if (/^(?:nba|wnba|nfl|mlb|nhl|2d|3d)$/i.test(word))
-        return word.toLocaleUpperCase();
-      return `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
-    })
-    .join(" ");
+  if (slug?.toLocaleLowerCase() === "default")
+    return `${entity.name} · ${i18n.t("assets.defaultLook")}`;
+  const index = looks.indexOf(variant.variant_id);
+  // A variant missing from ``order`` has no position: fall back to the bare
+  // character name, never "小周 · 小周".
+  if (index < 0) return entity.name;
+  return `${entity.name} · ${i18n.t("assets.lookN", { n: index + 1 })}`;
 }
 
 function visualSettingCardName(
@@ -460,7 +473,7 @@ function visualSettingCardName(
   variant: VisualVariantDocument | null,
 ): string {
   if (entity.kind !== "character" || !variant) return entity.name;
-  return visualVariantCardName(variant);
+  return characterVariantCardName(entity, variant);
 }
 
 function assetItems(project: ProjectDocument): AssetItem[] {
@@ -600,9 +613,10 @@ function assetItems(project: ProjectDocument): AssetItem[] {
         entityId: visualVariant?.entity.entity_id,
         variantId: visualVariant?.variant.variant_id,
         variantLabel: visualVariant
-          ? `${visualVariant.entity.name} · ${visualVariantCardName(
+          ? characterVariantCardName(
+              visualVariant.entity,
               visualVariant.variant,
-            )}`
+            )
           : undefined,
         variantState: visualVariant
           ? visualVariant.variant.selected_artifact_version_id ===
@@ -663,7 +677,9 @@ function assetItems(project: ProjectDocument): AssetItem[] {
           entityId: entity.entity_id,
           variantId: variant?.variant_id,
           variantOrder: variantIndex,
-          variantLabel: variant ? visualVariantCardName(variant) : undefined,
+          variantLabel: variant
+            ? characterVariantCardName(entity, variant)
+            : undefined,
           variantState: variant
             ? artifact
               ? "active"
