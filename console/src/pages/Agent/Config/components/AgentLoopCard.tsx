@@ -14,6 +14,7 @@ import { SettingsField } from "@/components/interaction/SettingsField";
 import { useState } from "react";
 import {
   Card,
+  Checkbox,
   Form,
   Select,
   Switch,
@@ -258,6 +259,21 @@ function DoomLoopSection() {
   );
 }
 
+function RubricDecisionField({ name }: { name: (string | number)[] }) {
+  const { t } = useTranslation();
+  const label = t("agentConfig.rubricUseDecisionModel");
+  return (
+    <SettingsField
+      name={name}
+      label={label}
+      tooltip={t("agentConfig.rubricUseDecisionModelHelp")}
+      valuePropName="checked"
+    >
+      <Checkbox aria-label={label} />
+    </SettingsField>
+  );
+}
+
 function RubricSection() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
@@ -294,6 +310,9 @@ function RubricSection() {
       </SettingsField>
       {enabled && (
         <>
+          <RubricDecisionField
+            name={["loop", "rubric", "use_decision_model"]}
+          />
           <SettingsField
             name={["loop", "rubric", "prompt"]}
             label={t(
@@ -903,15 +922,7 @@ function GateParamsEditor({
   if (type === "qualitative_rubric") {
     return (
       <>
-        <SettingsField
-          name={[...base, "max_evaluations"]}
-          label={t(
-            "agentConfig.loopMode.maxEvaluations",
-            "Maximum evaluation rounds",
-          )}
-        >
-          <InputNumber min={1} max={10} style={{ width: "100%" }} />
-        </SettingsField>
+        <RubricDecisionField name={[...base, "use_decision_model"]} />
         <SettingsField
           name={[...base, "rubric"]}
           label={t(
@@ -924,6 +935,15 @@ function GateParamsEditor({
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+        </SettingsField>
+        <SettingsField
+          name={[...base, "max_evaluations"]}
+          label={t(
+            "agentConfig.loopMode.maxEvaluations",
+            "Maximum evaluation rounds",
+          )}
+        >
+          <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </SettingsField>
       </>
     );

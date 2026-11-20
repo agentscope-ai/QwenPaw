@@ -74,9 +74,9 @@ class _LogSink:
     """One host-owned consumer; never wait on handlers from the event loop."""
 
     def __init__(self) -> None:
-        self.queue: queue.Queue[tuple[str, threading.Event]] = queue.Queue(
-            maxsize=_QUEUE_SIZE,
-        )
+        self.queue: queue.Queue[
+            tuple[str, threading.Event, str, int]
+        ] = queue.Queue(maxsize=_QUEUE_SIZE)
         self.closed = threading.Event()
         self.thread = threading.Thread(
             target=self._consume,
@@ -86,25 +86,29 @@ class _LogSink:
         self.thread.start()
         atexit.register(self.close)
 
-    def submit(self, message: str) -> threading.Event | None:
+    def submit(
+        self,
+        message: str,
+        logger_name: str,
+        level: int,
+    ) -> threading.Event | None:
         if self.closed.is_set():
             return None
         delivered = threading.Event()
         try:
-            self.queue.put_nowait((message, delivered))
+            self.queue.put_nowait((message, delivered, logger_name, level))
         except queue.Full:
             return None
         return delivered
 
     def _consume(self) -> None:
-        logger = logging.getLogger("qwenpaw.plugins.worker")
         while not self.closed.is_set() or not self.queue.empty():
             try:
-                message, delivered = self.queue.get(timeout=0.05)
+                message, delivered, name, level = self.queue.get(timeout=0.05)
             except queue.Empty:
                 continue
             try:
-                logger.warning("%s", message)
+                logging.getLogger(name).log(level, "%s", message)
             except Exception:
                 # A broken handler must not kill forwarding or pipe draining.
                 pass
@@ -123,13 +127,18 @@ _sink: _LogSink | None = None
 _sink_lock = threading.Lock()
 
 
-def _submit(message: str) -> threading.Event | None:
+def _submit(
+    message: str,
+    *,
+    logger_name: str = "qwenpaw.plugins.worker",
+    level: int = logging.WARNING,
+) -> threading.Event | None:
     global _sink
     if _sink is None:
         with _sink_lock:
             if _sink is None:
                 _sink = _LogSink()
-    return _sink.submit(message)
+    return _sink.submit(message, logger_name, level)
 
 
 class WorkerLogs:
@@ -152,6 +161,7 @@ class WorkerLogs:
         self.attempts = self.bytes = 0
         self.omitted_lines = self.omitted_bytes = 0
         self.last_delivery: threading.Event | None = None
+        self.startup_records = 0
 
     def feed(self, chunk: bytes) -> None:
         for index, part in enumerate(chunk.split(b"\n")):
@@ -208,6 +218,19 @@ class WorkerLogs:
 
     def _line(self) -> None:
         self._refresh()
+        # Root causes and one slow-start sample must survive an SDK log flood.
+        # This separate lifetime budget cannot turn into unbounded forwarding.
+        if (
+            self.buffer.startswith(b"startup_diagnostic_error ")
+            and self.startup_records < 32
+        ):
+            self.startup_records += 1
+            text = _clean(self.buffer.decode("utf-8", "replace"))
+            message = (self.prefix + text).encode("utf-8")[:_LINE_BYTES]
+            self.last_delivery = _submit(message.decode("utf-8", "ignore"))
+            self.buffer.clear()
+            self.line_bytes = 0
+            return
         # Retry a pending summary once on window rollover (or at EOF), rather
         # than spending every remaining attempt on a full sink.
         if self.attempts == 0:

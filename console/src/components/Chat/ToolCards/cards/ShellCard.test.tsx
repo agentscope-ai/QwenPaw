@@ -2,12 +2,10 @@
 /**
  * Contract tests for ShellCard.
  *
- * Two behaviours are worth pinning. First the command text: shells accept the
- * command under two different param names, and a call that carries neither
- * still has to render with the generic title instead of an empty one. Second
- * the failed-call shape: when the shell errored the card deliberately renders
- * no output block at all, because the error surface belongs to the shell and
- * showing a stale stdout next to it would be misleading.
+ * Two behaviours are worth pinning. First, the intent supplied by the model
+ * is the card title, with the command as its fallback. Second, the failed-call
+ * shape deliberately renders no output block because the error surface belongs
+ * to the shell and stale stdout would be misleading.
  *
  * There was no test file for this card before this one.
  */
@@ -56,7 +54,7 @@ const createContent = (
   id: "shell-1",
   name: "execute_shell_command",
   status: "done",
-  params: { command: "ls -la" },
+  params: { command: "ls -la", title: "Inspect workspace files" },
   result: "total 0",
   ...overrides,
 });
@@ -64,16 +62,26 @@ const createContent = (
 const titleText = () => screen.getByTestId("card-title").textContent;
 
 describe("ShellCard", () => {
-  it("puts the command in the title", () => {
+  it("puts the shell intent in the title", () => {
     render(<ShellCard content={createContent()} />);
 
-    expect(titleText()).toBe('tool.shell[{"command":"ls -la"}]');
+    expect(titleText()).toBe(
+      'tool.shellCompleted[{"command":"Inspect workspace files"}]',
+    );
+  });
+
+  it("falls back to the command when no intent was given", () => {
+    render(
+      <ShellCard content={createContent({ params: { command: "pwd" } })} />,
+    );
+
+    expect(titleText()).toBe('tool.shellCompleted[{"command":"pwd"}]');
   });
 
   it("accepts the command under the cmd param name too", () => {
     render(<ShellCard content={createContent({ params: { cmd: "pwd" } })} />);
 
-    expect(titleText()).toBe('tool.shell[{"command":"pwd"}]');
+    expect(titleText()).toBe('tool.shellCompleted[{"command":"pwd"}]');
   });
 
   it("prefers command over cmd when both are present", () => {
@@ -83,19 +91,19 @@ describe("ShellCard", () => {
       />,
     );
 
-    expect(titleText()).toBe('tool.shell[{"command":"ls"}]');
+    expect(titleText()).toBe('tool.shellCompleted[{"command":"ls"}]');
   });
 
-  it("uses the default title when no command was given", () => {
+  it("uses the default title when no intent or command was given", () => {
     render(<ShellCard content={createContent({ params: {} })} />);
 
-    expect(titleText()).toBe("tool.shellDefault");
+    expect(titleText()).toBe("tool.shellCompletedDefault");
   });
 
   it("uses the default title when the call carries no params", () => {
     render(<ShellCard content={createContent({ params: NO_PARAMS })} />);
 
-    expect(titleText()).toBe("tool.shellDefault");
+    expect(titleText()).toBe("tool.shellCompletedDefault");
   });
 
   it("shows the command output in the output block", () => {
@@ -122,10 +130,12 @@ describe("ShellCard", () => {
     expect(screen.getByTestId("card-body").textContent).toBe("");
   });
 
-  it("still names the command in the title of a failed call", () => {
+  it("still shows the intent in the title of a failed call", () => {
     render(<ShellCard content={createContent({ status: "error" })} />);
 
-    expect(titleText()).toBe('tool.shell[{"command":"ls -la"}]');
+    expect(titleText()).toBe(
+      'tool.shell[{"command":"Inspect workspace files"}]',
+    );
   });
 
   it("renders no output block when the result is not text", () => {
@@ -134,12 +144,60 @@ describe("ShellCard", () => {
     expect(screen.queryByTestId("block-Output")).toBeNull();
   });
 
-  it("titles a running shell the same way as a finished one", () => {
+  it("does not expose a large command when an intent is available", () => {
+    const command = `python -c ${"x".repeat(20_000)}`;
+
     render(
-      <ShellCard content={createContent({ status: "calling", result: "" })} />,
+      <ShellCard
+        content={createContent({
+          params: { command, title: "Process generated data" },
+        })}
+      />,
     );
 
-    expect(titleText()).toBe('tool.shell[{"command":"ls -la"}]');
+    expect(titleText()).toBe(
+      'tool.shellCompleted[{"command":"Process generated data"}]',
+    );
+    expect(titleText()).not.toContain(command);
+  });
+
+  it("keeps long command endings distinguishable without an intent", () => {
+    const commonPrefix = `curl ${"x".repeat(140)}`;
+    const firstCommand = `${commonPrefix}/first-response.json`;
+    const secondCommand = `${commonPrefix}/second-response.json`;
+    const { rerender } = render(
+      <ShellCard
+        content={createContent({ params: { command: firstCommand } })}
+      />,
+    );
+    const firstTitle = titleText();
+
+    rerender(
+      <ShellCard
+        content={createContent({ params: { command: secondCommand } })}
+      />,
+    );
+    const secondTitle = titleText();
+
+    expect(firstTitle).toContain("…");
+    expect(firstTitle).toContain("/first-response.json");
+    expect(secondTitle).toContain("/second-response.json");
+    expect(firstTitle).not.toBe(secondTitle);
+  });
+
+  it("updates the title after a long-running command ends", () => {
+    const running = createContent({ status: "calling", result: "" });
+    const { rerender } = render(<ShellCard content={running} />);
+
+    expect(titleText()).toBe(
+      'tool.shell[{"command":"Inspect workspace files"}]',
+    );
     expect(screen.queryByTestId("block-Output")).toBeNull();
+
+    rerender(<ShellCard content={createContent()} />);
+
+    expect(titleText()).toBe(
+      'tool.shellCompleted[{"command":"Inspect workspace files"}]',
+    );
   });
 });

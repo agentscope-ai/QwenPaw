@@ -27,6 +27,7 @@ import {
   type ACLUserEntry,
 } from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
+import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 interface AccessControlDrawerProps {
   open: boolean;
@@ -55,6 +56,7 @@ export function AccessControlDrawer({
   onClose,
 }: AccessControlDrawerProps) {
   const { t } = useTranslation();
+  const searchRequest = useSettingsSearchSurface("channels", open);
   const { message } = useAppMessage();
   const [allACLs, setAllACLs] = useState<Record<string, ACLData>>({});
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
@@ -99,6 +101,14 @@ export function AccessControlDrawer({
     setRemovingUserIds(new Set());
   }, [open, ownerAgentId]);
 
+  useEffect(() => {
+    if (open && searchRequest?.surface === "channel-acl") {
+      setActiveTab(
+        searchRequest.tabId === "blacklist" ? "blacklist" : "whitelist",
+      );
+    }
+  }, [open, searchRequest]);
+
   const beginAction = (key: string) => {
     if (!ensureCanMutate() || actionTokensRef.current.has(key)) return null;
     const token = ++actionSequenceRef.current;
@@ -139,14 +149,16 @@ export function AccessControlDrawer({
       if (keys.length === 0) {
         setSelectedChannel(null);
       } else if (!selectedChannel || !keys.includes(selectedChannel)) {
-        setSelectedChannel(keys[0]);
+        setSelectedChannel(
+          searchRequest?.surface === "channel-acl" ? null : keys[0],
+        );
       }
     } catch {
       // silent
     } finally {
       if (loadVersion === loadVersionRef.current) setLoading(false);
     }
-  }, [canMutate, ownerAgentId, selectedChannel]);
+  }, [canMutate, ownerAgentId, selectedChannel, searchRequest?.surface]);
 
   useEffect(() => {
     if (open) fetchACLs();
@@ -404,156 +416,166 @@ export function AccessControlDrawer({
       onClose={onClose}
       destroyOnHidden
     >
-      <Tabs
-        activeKey={activeTab}
-        onChange={(k) => {
-          setActiveTab(k as "whitelist" | "blacklist");
-          setSelectedRowKeys([]);
-        }}
-        items={[
-          { key: "whitelist", label: t("channels.whitelist") },
-          { key: "blacklist", label: t("channels.blacklist") },
-        ]}
-        tabBarExtraContent={
-          <Button
-            type="primary"
-            icon={<PlusOutlined size="1em" />}
-            onClick={() => setAddModalOpen(true)}
-            disabled={!selectedChannel}
-          >
-            {t("channels.addUser")}
-          </Button>
-        }
-      />
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <Select
-          value={selectedChannel}
-          onChange={(value) => {
-            setSelectedChannel(value);
+      <div data-settings-target={`channels.${activeTab}`}>
+        {!selectedChannel && searchRequest?.surface === "channel-acl" && (
+          <p role="status">
+            {t(
+              "settingsCenter.searchSelectChannel",
+              "Choose a channel to locate this setting.",
+            )}
+          </p>
+        )}
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => {
+            setActiveTab(k as "whitelist" | "blacklist");
             setSelectedRowKeys([]);
           }}
-          style={{ width: 180 }}
-          disabled={channelKeys.length === 0}
-          placeholder={t("channels.filterByChannel")}
-          options={channelKeys.map((key) => ({
-            label: getChannelLabel(key as ChannelKey, t),
-            value: key,
-          }))}
-        />
-        <Space>
-          {selectedRowKeys.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-              {t("channels.selectedCount", { count: selectedRowKeys.length })}
-            </Typography.Text>
-          )}
-          <Popconfirm
-            title={t("channels.batchRemoveConfirm", {
-              count: selectedRowKeys.length,
-            })}
-            onConfirm={handleBatchRemove}
-            disabled={selectedRowKeys.length === 0}
-          >
+          items={[
+            { key: "whitelist", label: t("channels.whitelist") },
+            { key: "blacklist", label: t("channels.blacklist") },
+          ]}
+          tabBarExtraContent={
             <Button
-              danger
-              size="small"
-              icon={<DeleteOutlined size="1em" />}
-              disabled={selectedRowKeys.length === 0}
-              loading={batchLoading}
+              type="primary"
+              icon={<PlusOutlined size="1em" />}
+              onClick={() => setAddModalOpen(true)}
+              disabled={!selectedChannel}
             >
-              {t("channels.batchRemove")}
+              {t("channels.addUser")}
             </Button>
-          </Popconfirm>
-        </Space>
-      </div>
+          }
+        />
 
-      <Table
-        dataSource={listData}
-        columns={columns}
-        rowKey={(record) => record.userId}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        size="small"
-        loading={loading}
-        pagination={{ pageSize: 10, showSizeChanger: false }}
-        locale={{
-          emptyText: (
-            <div style={{ padding: "48px 0" }}>
-              {activeTab === "whitelist"
-                ? t("channels.noWhitelistUsers")
-                : t("channels.noBlacklistUsers")}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 12,
+          }}
+        >
+          <Select
+            value={selectedChannel}
+            onChange={(value) => {
+              setSelectedChannel(value);
+              setSelectedRowKeys([]);
+            }}
+            style={{ width: 180 }}
+            disabled={channelKeys.length === 0}
+            placeholder={t("channels.filterByChannel")}
+            options={channelKeys.map((key) => ({
+              label: getChannelLabel(key as ChannelKey, t),
+              value: key,
+            }))}
+          />
+          <Space>
+            {selectedRowKeys.length > 0 && (
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                {t("channels.selectedCount", { count: selectedRowKeys.length })}
+              </Typography.Text>
+            )}
+            <Popconfirm
+              title={t("channels.batchRemoveConfirm", {
+                count: selectedRowKeys.length,
+              })}
+              onConfirm={handleBatchRemove}
+              disabled={selectedRowKeys.length === 0}
+            >
+              <Button
+                danger
+                size="small"
+                icon={<DeleteOutlined size="1em" />}
+                disabled={selectedRowKeys.length === 0}
+                loading={batchLoading}
+              >
+                {t("channels.batchRemove")}
+              </Button>
+            </Popconfirm>
+          </Space>
+        </div>
+
+        <Table
+          dataSource={listData}
+          columns={columns}
+          rowKey={(record) => record.userId}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
+          size="small"
+          loading={loading}
+          pagination={{ pageSize: 10, showSizeChanger: false }}
+          locale={{
+            emptyText: (
+              <div style={{ padding: "48px 0" }}>
+                {activeTab === "whitelist"
+                  ? t("channels.noWhitelistUsers")
+                  : t("channels.noBlacklistUsers")}
+              </div>
+            ),
+          }}
+        />
+
+        <Modal
+          title={t("channels.addUser")}
+          open={addModalOpen}
+          onCancel={() => {
+            setAddModalOpen(false);
+            setNewUserId("");
+            setNewUsername("");
+            setNewRemark("");
+          }}
+          onOk={async () => {
+            if (await handleAdd()) setAddModalOpen(false);
+          }}
+          confirmLoading={addLoading}
+          okButtonProps={{ disabled: addLoading || !newUserId.trim() }}
+          destroyOnHidden
+        >
+          <Space direction="vertical" style={{ width: "100%" }} size={16}>
+            <div>
+              <Typography.Text
+                strong
+                style={{ display: "block", marginBottom: 6 }}
+              >
+                {t("channels.userId")}
+              </Typography.Text>
+              <Input
+                placeholder={t("channels.addUserPlaceholder")}
+                value={newUserId}
+                onChange={(e) => setNewUserId(e.target.value)}
+              />
             </div>
-          ),
-        }}
-      />
-
-      <Modal
-        title={t("channels.addUser")}
-        open={addModalOpen}
-        onCancel={() => {
-          setAddModalOpen(false);
-          setNewUserId("");
-          setNewUsername("");
-          setNewRemark("");
-        }}
-        onOk={async () => {
-          if (await handleAdd()) setAddModalOpen(false);
-        }}
-        confirmLoading={addLoading}
-        okButtonProps={{ disabled: addLoading || !newUserId.trim() }}
-        destroyOnHidden
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <div>
-            <Typography.Text
-              strong
-              style={{ display: "block", marginBottom: 6 }}
-            >
-              {t("channels.userId")}
-            </Typography.Text>
-            <Input
-              placeholder={t("channels.addUserPlaceholder")}
-              value={newUserId}
-              onChange={(e) => setNewUserId(e.target.value)}
-            />
-          </div>
-          <div>
-            <Typography.Text
-              strong
-              style={{ display: "block", marginBottom: 6 }}
-            >
-              {t("channels.username")}
-            </Typography.Text>
-            <Input
-              placeholder={t("channels.usernamePlaceholder")}
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-            />
-          </div>
-          <div>
-            <Typography.Text
-              strong
-              style={{ display: "block", marginBottom: 6 }}
-            >
-              {t("channels.remark")}
-            </Typography.Text>
-            <Input
-              placeholder={t("channels.remarkPlaceholder")}
-              value={newRemark}
-              onChange={(e) => setNewRemark(e.target.value)}
-            />
-          </div>
-        </Space>
-      </Modal>
+            <div>
+              <Typography.Text
+                strong
+                style={{ display: "block", marginBottom: 6 }}
+              >
+                {t("channels.username")}
+              </Typography.Text>
+              <Input
+                placeholder={t("channels.usernamePlaceholder")}
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+              />
+            </div>
+            <div>
+              <Typography.Text
+                strong
+                style={{ display: "block", marginBottom: 6 }}
+              >
+                {t("channels.remark")}
+              </Typography.Text>
+              <Input
+                placeholder={t("channels.remarkPlaceholder")}
+                value={newRemark}
+                onChange={(e) => setNewRemark(e.target.value)}
+              />
+            </div>
+          </Space>
+        </Modal>
+      </div>
     </Drawer>
   );
 }

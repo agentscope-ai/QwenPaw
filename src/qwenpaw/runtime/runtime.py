@@ -23,6 +23,7 @@ from typing import Any, AsyncGenerator
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
+from ..utils.io_utils import run_async_to_completion
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -279,13 +280,9 @@ class Runtime:
         interrupted turn's text is not lost on reload.
 
         ``state_dict()`` is called synchronously to snapshot the agent
-        state *before* any further event-loop iteration.  The I/O write
-        is wrapped in ``asyncio.shield`` so it completes even when the
-        outer task's ``_must_cancel`` flag triggers a re-cancellation on
-        the next ``await``.  In that case the shielded inner task still
-        runs to completion in the background; the ``proxy`` owns an
-        independent copy of the data so ``agent.close()`` in the
-        ``finally`` block cannot corrupt it.
+        state *before* any further event-loop iteration. Persistence is
+        awaited through repeated cancellation so draining a native request
+        also drains its final save before Scroll migration can complete.
 
         .. note:: Why hardcoded instead of a hook?
 
@@ -293,7 +290,7 @@ class Runtime:
            ``hooks.run(Phase.ON_ERROR)``, so it executes even when
            re-cancellation skips all ON_ERROR hooks.  The synchronous
            parts (inject + restore + state_dict) complete before any ``await``,
-           and ``asyncio.shield`` protects the I/O — guarantees that a
+           and cancellation protection covers the I/O — guarantees that a
            generic hook framework cannot provide.
 
         TODO: Session saving and cron history restoration have cancel-path
@@ -360,7 +357,7 @@ class Runtime:
             )
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
-            await asyncio.shield(
+            await run_async_to_completion(
                 session.save_session_state(
                     session_id=ctx.session_id,
                     user_id=user_id,
@@ -376,8 +373,8 @@ class Runtime:
             )
         except asyncio.CancelledError:
             logger.info(
-                "cancel-save: outer await re-cancelled, inner save "
-                "continues in background (session=%s)",
+                "cancel-save: finished waiting for persistence after "
+                "repeated cancellation (session=%s)",
                 ctx.session_id,
             )
         except Exception:

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@agentscope-ai/design";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -10,11 +10,15 @@ interface ApprovalQueueItem {
 interface ApprovalQueueOverlayProps<T extends ApprovalQueueItem> {
   items: readonly T[];
   renderItem: (item: T) => ReactNode;
+  focusedRequestId?: string | null;
+  focusKey?: string;
 }
 
 export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
   items,
   renderItem,
+  focusedRequestId,
+  focusKey,
 }: ApprovalQueueOverlayProps<T>) {
   const { t } = useTranslation();
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
@@ -30,6 +34,11 @@ export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
       ? requestedIndex
       : Math.min(positionIndex, Math.max(items.length - 1, 0));
   const activeItem = items[activeIndex];
+  const cardRef = useRef<HTMLDivElement>(null);
+  const handledFocus = useRef<{
+    requestId: string;
+    key?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -51,6 +60,23 @@ export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
     positionIndex,
     requestedIndex,
   ]);
+
+  useEffect(() => {
+    if (
+      !focusedRequestId ||
+      !items.some((item) => item.requestId === focusedRequestId) ||
+      (handledFocus.current?.requestId === focusedRequestId &&
+        handledFocus.current.key === focusKey)
+    ) {
+      return;
+    }
+    if (activeItem?.requestId !== focusedRequestId) {
+      setActiveRequestId(focusedRequestId);
+      return;
+    }
+    cardRef.current?.focus({ preventScroll: true });
+    handledFocus.current = { requestId: focusedRequestId, key: focusKey };
+  }, [activeItem, focusedRequestId, focusKey, items]);
 
   if (!activeItem) return null;
 
@@ -121,7 +147,20 @@ export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
           }
         />
       </div>
-      <div data-approval-id={activeItem.requestId}>
+      <div
+        ref={cardRef}
+        tabIndex={-1}
+        data-approval-id={activeItem.requestId}
+        style={
+          activeItem.requestId === focusedRequestId
+            ? {
+                outline: "2px solid var(--app-focus-ring)",
+                outlineOffset: 4,
+                borderRadius: 12,
+              }
+            : undefined
+        }
+      >
         {renderItem(activeItem)}
       </div>
     </section>

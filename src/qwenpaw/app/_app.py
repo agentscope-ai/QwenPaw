@@ -92,19 +92,14 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-async def _sync_scroll_history_on_startup() -> None:
-    """Run the composed legacy-history migration outside the event loop."""
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
-
-        await run_sync_io(sync_all_scroll_agents)
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
-
-
 async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        await plugin_loader.stop_dependency_installs()
+    whisper_install = getattr(app.state, "local_whisper_install", None)
+    if whisper_install is not None:
+        await whisper_install.close()
     if plugin_loader is not None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
         from ..plugins.lifecycle import UnloadMode
@@ -183,10 +178,9 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    try:
-        await _stop_workspaces_after_dependents_impl(app, import_jobs)
-    finally:
-        completed.set()
+    await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    # A failed stop can leave live dependents; retain the exit deadline.
+    completed.set()
 
 
 async def _stop_workspaces_after_dependents_impl(
@@ -274,6 +268,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
+    from .mcp_plugin_upgrade import read_startup_migration
+
+    mcp_startup = await run_sync_io(read_startup_migration)
+
     auto_register_from_env()
     check_proxy_config_sanity()
 
@@ -317,17 +315,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             "Recovered %d interrupted PawPort import transaction(s)",
             len(recovered_transactions),
         )
-
-    # Migrate old conversations from sessions/*.json into each scroll agent's
-    # history.db, so chats from before scroll existed stay recallable. This is
-    # a one-off backfill, not core startup work: if it fails, we log and keep
-    # booting — that agent just won't have its old chats imported (scroll still
-    # records new turns normally). The import sits inside the try for the same
-    # reason — even a failed import must not block init.
-    #
-    # Note: being pure backfill, this could later run asynchronously (off the
-    # boot path) to speed up startup.
-    await _sync_scroll_history_on_startup()
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
@@ -604,20 +591,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader.registry.set_workspace_manager(workspace_registry)
             plugin_loader.registry.set_plugin_http_app(app)
+            app.state.plugin_registry = plugin_loader.registry
 
-            config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
-            logger.debug(
-                f"Loading plugins with {len(plugin_configs)} config(s)",
-            )
+            from .mcp_plugin_upgrade import prepare_startup_plugins
 
-            # Phase 1: register only; projection waits for activate_all
-            await plugin_loader.load_all_plugins(
-                configs=plugin_configs,
-                types=["channel", "memory", "hub"],
-                activate=False,
+            await prepare_startup_plugins(
+                plugin_loader,
+                workspace_registry,
+                app=app,
+                startup=mcp_startup,
             )
             try:
                 seed_errors = await provision_bundled_channels(plugin_loader)
@@ -629,7 +611,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     )
             except (OSError, ValueError, KeyError, TypeError, RuntimeError):
                 logger.exception("Official channel migration pending")
-            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            logger.debug("Phase 1: startup-critical plugins registered")
             app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
@@ -667,11 +649,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
+            plugin_configs = load_config(get_config_path()).plugins
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 activate=False,
             )
-            logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+            logger.debug(
+                f"Loaded {len(loaded_plugins)} plugin(s) with "
+                f"{len(plugin_configs)} configured entries",
+            )
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
@@ -686,6 +672,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             logger.debug("Activating loaded plugins...")
             await plugin_loader.activate_all_loaded()
+
+            from ..plugins.local_whisper import LocalWhisperInstallService
+
+            app.state.local_whisper_install = LocalWhisperInstallService(
+                plugin_loader,
+                WORKING_DIR
+                / "plugin_runtime"
+                / "migrations"
+                / "local-whisper.json",
+            )
+            await app.state.local_whisper_install.start()
 
             # ---- Approval Service ----
             try:
@@ -756,6 +753,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 app.state.market_startup_failed = True
                 app.state.market_ready.set()
 
+    from .community_connection import CommunityConnectionService
+
+    community_service = CommunityConnectionService()
+    app.state.community_connection_service = community_service
+    community_task = asyncio.create_task(community_service.poll_loop())
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
 
@@ -763,6 +765,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         yield
     finally:
         await daily_telemetry.close()
+        community_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await community_task
+        await community_service.close()
+
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

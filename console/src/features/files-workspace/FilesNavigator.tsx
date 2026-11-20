@@ -50,6 +50,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
+import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import {
   isProjectRoot,
   projectRootPath,
@@ -519,6 +520,7 @@ export default function FilesNavigator({
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
+  const [modal, modalContextHolder] = Modal.useModal();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   // Depend on these primitives rather than on `scope`: the parent rebuilds the
   // scope object on every render, so a callback keyed on it would re-run the
@@ -555,6 +557,7 @@ export default function FilesNavigator({
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const [directoryRevision, setDirectoryRevision] = useState(0);
+  const directoryIdentitySeq = useRef(0);
   const [expansion, setExpansion] = useState<
     Record<string, ReadonlySet<string>>
   >({});
@@ -621,7 +624,7 @@ export default function FilesNavigator({
     );
     if (!hasUnsavedProjectState) return true;
     return new Promise<boolean>((resolve) => {
-      Modal.confirm({
+      modal.confirm({
         title: t("files.changeDirectoryTitle"),
         content: t("files.changeDirectoryWarning"),
         okText: t("common.confirm"),
@@ -630,7 +633,7 @@ export default function FilesNavigator({
         onCancel: () => resolve(false),
       });
     });
-  }, [scopeKey, t]);
+  }, [modal, scopeKey, t]);
 
   const handleDirectoryChanged = useCallback(() => {
     useCodingTabsStore.getState().clearProjectTabs(scopeKey);
@@ -804,12 +807,14 @@ export default function FilesNavigator({
   }, [allProfileFiles, managedProfileNames, profileSearch]);
 
   const loadDirectoryIdentity = useCallback(async () => {
+    const seq = ++directoryIdentitySeq.current;
     const agentInfo = await projectDirectoryApi.get();
     const effectiveProject = projectDirOverride
       ? projectDirOverride
       : chatId
       ? (await chatProjectDirectoryApi.get(chatId)).project_dir
       : agentInfo.path;
+    if (seq !== directoryIdentitySeq.current) return;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
     if (scopeKind !== "session") {
@@ -819,11 +824,12 @@ export default function FilesNavigator({
     }
     try {
       const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      if (seq !== directoryIdentitySeq.current) return;
       setBoundDirs(snapshot.dirs);
     } catch {
       // Fall back to the single directory above rather than blanking the
       // switcher: the tree itself is still perfectly usable.
-      setBoundDirs([]);
+      if (seq === directoryIdentitySeq.current) setBoundDirs([]);
     }
   }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
@@ -876,6 +882,22 @@ export default function FilesNavigator({
   useEffect(() => {
     void Promise.all([loadDirectoryIdentity(), loadProfile()]);
   }, [loadDirectoryIdentity, loadProfile]);
+
+  useEffect(() => {
+    const sequence = directoryIdentitySeq;
+    const unsubscribe = listenForProjectDirectoryChanges(
+      (changedScopeKey, options) => {
+        if (changedScopeKey !== scopeKey || !options.preserveTabs) return;
+        // Refresh data without unmounting the open directory editor.
+        setDirectoryRevision((current) => current + 1);
+        void loadDirectoryIdentity();
+      },
+    );
+    return () => {
+      unsubscribe();
+      sequence.current++;
+    };
+  }, [loadDirectoryIdentity, scopeKey]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -1073,6 +1095,7 @@ export default function FilesNavigator({
       data-root={rootFlavour}
       aria-label={t("files.navigator")}
     >
+      {modalContextHolder}
       <header className={styles.navigatorHeader}>
         <div className={styles.directoryToolbar}>
           <div className={styles.directoryContext} data-root={rootFlavour}>

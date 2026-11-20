@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Button, Input, Tooltip } from "@agentscope-ai/design";
 import { Switch } from "antd";
 import {
@@ -66,25 +66,49 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   const { t } = useTranslation();
 
   const [phase, setPhase] = useState<OAuthPhase>("idle");
+  const [sessionId, setSessionId] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const requestGeneration = useRef(0);
+
+  useEffect(() => {
+    setPhase("idle");
+    setSessionId("");
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [clientKey]);
 
   // Poll backend every 2s when waiting, for existing clients
   useEffect(() => {
-    if (phase !== "waiting" || !clientKey) return;
+    if (phase !== "waiting" || !clientKey || !sessionId) return;
+    let active = true;
+    let settled = false;
     const timer = setInterval(async () => {
       try {
-        const st = await api.getOAuthStatus(clientKey);
-        if (st.authorized) {
+        const st = await api.getOAuthStatus(clientKey, sessionId);
+        if (!active || settled) return;
+        if (st.attempt_status === "succeeded") {
+          settled = true;
           setPhase("success");
           onAuthChanged?.();
+        } else if (
+          st.attempt_status === "failed" ||
+          st.attempt_status === "expired"
+        ) {
+          settled = true;
+          setPhase("error");
+          setErrorMsg(t("mcp.oauth.attemptFailed"));
         }
       } catch {
         // ignore
       }
     }, 2000);
-    return () => clearInterval(timer);
-  }, [phase, clientKey, onAuthChanged]);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [phase, clientKey, sessionId, onAuthChanged, t]);
 
   // Determine combined authorized state
   const isAuthorized =
@@ -102,6 +126,11 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
   // Capture before any type narrowing caused by isAuthorized/isExpired guards
   const isRevoking = phase === "revoking";
+  const canRevoke =
+    isAuthorized ||
+    isExpired ||
+    isRevoking ||
+    (!isNewClient && currentOAuthStatus?.can_revoke);
 
   const handleStartOAuth = useCallback(async () => {
     if (!url.trim()) {
@@ -114,7 +143,9 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     }
 
     setPhase("starting");
+    setSessionId("");
     setErrorMsg("");
+    const generation = ++requestGeneration.current;
 
     try {
       const resp = await api.startOAuth(clientKey, {
@@ -125,10 +156,13 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         token_endpoint: tokenEndpoint,
       });
 
+      if (generation !== requestGeneration.current) return;
+      setSessionId(resp.session_id);
       setPhase("waiting");
       openExternalLink(resp.auth_url, "_blank", "popup,width=600,height=700");
       // The existing useEffect polls backend every 2s while phase === "waiting"
     } catch (err: unknown) {
+      if (generation !== requestGeneration.current) return;
       const msg =
         err instanceof Error ? err.message : t("mcp.oauth.startFailed");
       if (
@@ -144,6 +178,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
   const handleRevoke = useCallback(async () => {
     if (!clientKey) return;
+    setErrorMsg("");
     setPhase("revoking");
     try {
       await api.revokeOAuth(clientKey);
@@ -151,8 +186,9 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       onAuthChanged?.();
     } catch {
       setPhase("idle");
+      setErrorMsg(t("mcp.oauth.failed"));
     }
-  }, [clientKey, onAuthChanged]);
+  }, [clientKey, onAuthChanged, t]);
 
   if (!oauthEnabled) {
     return null;
@@ -195,7 +231,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         )}
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {(isAuthorized || isExpired) && clientKey && (
+          {canRevoke && clientKey && (
             <Button size="small" onClick={handleRevoke} loading={isRevoking}>
               <span
                 style={{ display: "inline-flex", alignItems: "center", gap: 4 }}

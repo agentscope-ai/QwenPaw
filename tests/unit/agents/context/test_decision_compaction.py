@@ -132,6 +132,43 @@ async def compact(compactor, agent, *, refs=None):
 
 
 @pytest.mark.asyncio
+async def test_local_model_splits_evidence_without_changing_user_settings(
+    model,
+    monkeypatch,
+):
+    from qwenpaw.providers.local_decision_model import LocalDecisionModel
+
+    class LocalFixture(LocalDecisionModel):
+        def __init__(self):
+            self.client = SimpleNamespace(aclose=AsyncMock())
+
+        async def __call__(self, **kwargs):
+            return await model(**kwargs)
+
+    monkeypatch.setattr(
+        decision_compaction,
+        "create_decision_model_async",
+        AsyncMock(return_value=LocalFixture()),
+    )
+    agent = make_agent()
+    config_before = agent._agent_config.model_dump()
+    compactor = DecisionCompactor()
+    try:
+        result = await compact(compactor, agent)
+        assert result.changed
+        assert model.await_count > 1
+        seen = [
+            unit["id"]
+            for call in model.await_args_list
+            for unit in call.kwargs["state"]["evidence_units"]
+        ]
+        assert len(seen) == len(set(seen)) == 3
+        assert agent._agent_config.model_dump() == config_before
+    finally:
+        await compactor.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["drain", "client"])
 async def test_close_finishes_after_repeated_cancellation(model, phase):
     """Drain and close the borrowed client before shutdown finishes."""
@@ -440,6 +477,77 @@ async def test_cancellation_during_host_count_rolls_back(model):
         await compactor.compact(agent, tokens=100000)
     assert agent.state.context is before
     await compactor.close()
+
+
+@pytest.mark.asyncio
+async def test_scroll_margin_cannot_hide_candidate_token_growth(
+    model,
+    tmp_path,
+):
+    # Raw usage grows 600 -> 650; comparing against corrected 850 must not pass.
+    agent = make_agent()
+    agent.model.model_key = "provider:model"
+    agent.model.context_size = 1000
+    agent.context_config.reserve_ratio = 0.1
+    original = agent.state.context
+    snapshot = [m.model_dump(mode="json") for m in original]
+    original_chars = len(json.dumps(await agent._prepare_model_input()))
+    candidate_counts = []
+
+    async def count(**kwargs):
+        if agent.state.context is original:
+            return 600
+        # A shorter preview can still tokenize to more tokens, including
+        # the recovery reference and placeholder added to the request.
+        assert len(json.dumps(kwargs)) < original_chars
+        candidate_counts.append(650)
+        return 650
+
+    agent.model.count_tokens = count
+    history = HistoryStore(tmp_path / "history.db")
+    manager = ScrollContextManager(
+        history=history,
+        session_id="session",
+        agent_id="agent",
+    )
+    manager.load_state(
+        {
+            "token_estimate": {
+                "margin": 250,
+                "model_key": "provider:model",
+                "context_size": 1000,
+            },
+        },
+    )
+    results = []
+    compact_candidate = agent.try_decision_compact
+
+    async def compact_with_result(**kwargs):
+        result = await compact_candidate(**kwargs)
+        results.append(result)
+        return result
+
+    agent.try_decision_compact = compact_with_result
+    manager._batch_fold_completed_tool_results = AsyncMock(
+        side_effect=RuntimeError("Continue normal folding"),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="Continue normal folding"):
+            await manager.compress(agent)
+        assert candidate_counts == [650]
+        assert results == [
+            DecisionCompactionResult(changed=False, tokens_after=600),
+        ]
+        assert agent.state.context is original
+        assert [m.model_dump(mode="json") for m in original] == snapshot
+        folding_args = (
+            manager._batch_fold_completed_tool_results.await_args.kwargs
+        )
+        assert folding_args["tokens"] == 850
+    finally:
+        if getattr(agent, "_decision_compactor", None) is not None:
+            await agent._decision_compactor.close()
+        history.close()
 
 
 @pytest.mark.asyncio

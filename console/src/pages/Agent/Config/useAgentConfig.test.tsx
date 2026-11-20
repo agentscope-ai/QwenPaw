@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { AgentsRunningConfig } from "../../../api/types";
+import { SettingsRuntimeConfigContext } from "../../SettingsCenter/SettingsSearchRequest";
 
 // vi.hoisted runs before the hoisted vi.mock factories, so the shared mock
 // objects are available inside them.
@@ -321,6 +323,43 @@ describe("useAgentConfig", () => {
     });
 
     expect(onConfigLoaded).toHaveBeenCalledWith(savedConfig);
+  });
+
+  it("updates settings search only after a successful config load or save", async () => {
+    const updateSearch = vi.fn();
+    const loadedConfig = makeConfig({ memory_manager_backend: "none" });
+    const savedConfig = makeConfig({ memory_manager_backend: "remelight" });
+    apiMocks.getAgentRunningConfig.mockResolvedValue(loadedConfig);
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(savedConfig);
+    const { result } = renderHook(() => useAgentConfig(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <SettingsRuntimeConfigContext.Provider value={updateSearch}>
+          {children}
+        </SettingsRuntimeConfigContext.Provider>
+      ),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(updateSearch).toHaveBeenCalledWith("agent-1", loadedConfig);
+
+    updateSearch.mockClear();
+    await act(async () => {
+      await result.current.handleSave(true);
+    });
+    expect(updateSearch).toHaveBeenCalledExactlyOnceWith(
+      "agent-1",
+      savedConfig,
+    );
+
+    updateSearch.mockClear();
+    apiMocks.updateAgentRunningConfig.mockRejectedValue(
+      new Error("save failed"),
+    );
+    await act(async () => {
+      await expect(result.current.handleSave(true)).rejects.toThrow(
+        "save failed",
+      );
+    });
+    expect(updateSearch).not.toHaveBeenCalled();
   });
 
   it("handleSave persists configToSave containing approval_level", async () => {

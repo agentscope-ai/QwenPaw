@@ -88,10 +88,9 @@ Notes:
 - The **website** (GitHub Pages, `qwenpaw.agentscope.io`) is deployed only for
   **stable** and `.postN` releases; pre-releases are skipped so the public site
   advertises only GA versions.
-- The desktop OSS `latest` files and the Tauri auto-update manifest are currently
-  updated for **every** release, including betas (this matches the previous
-  `desktop-release.yml` behavior and is unchanged here). Making the desktop
-  `latest`/updater stable-only is a possible future improvement.
+- The Tauri auto-update manifest is updated only for **stable** and `.postN`
+  releases, matching the web console's stable-only policy. Pre-release installers
+  remain available for manual download.
 
 ## Troubleshooting
 

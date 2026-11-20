@@ -22,6 +22,7 @@ import {
 } from "./useProjectLaunch";
 import AttachmentChip from "./AttachmentChip";
 import ModelConfigModal from "./ModelConfigModal";
+import SubtitleSettingsPicker from "./SubtitleSettingsPicker";
 import VideoTemplatePicker from "./VideoTemplatePicker";
 import { useRecreateStore } from "@/store/recreateStore";
 
@@ -63,6 +64,14 @@ export default function HeroComposerCard() {
     setAspectRatio,
     selectedTemplateId,
     setSelectedTemplateId,
+    subtitlePolicy,
+    setSubtitlePolicy,
+    subtitleTemplate,
+    setSubtitleTemplate,
+    subtitleStyle,
+    setSubtitleStyle,
+    subtitleAnimation,
+    setSubtitleAnimation,
     attachments,
     addFiles,
     addUrl,
@@ -111,6 +120,9 @@ export default function HeroComposerCard() {
       listItem: "!text-sm !text-[var(--color-text-primary)]",
     },
   } as const;
+
+  // The subtitle pill is the policy dropdown; picking 自动 opens the window
+  // that holds the style packs and the overrides.
 
   return (
     <div
@@ -375,6 +387,17 @@ export default function HeroComposerCard() {
               variant="borderless"
               className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)] dark:!bg-white/5"
               classNames={pillSelectClassNames}
+            />
+            <SubtitleSettingsPicker
+              policy={subtitlePolicy}
+              onPolicyChange={setSubtitlePolicy}
+              template={subtitleTemplate}
+              onTemplateChange={setSubtitleTemplate}
+              style={subtitleStyle}
+              onStyleChange={setSubtitleStyle}
+              animation={subtitleAnimation}
+              onAnimationChange={setSubtitleAnimation}
+              selectClassNames={pillSelectClassNames}
             />
           </>
         )}

@@ -3,7 +3,7 @@
 
 Tests cover:
 - GET /api/providers: list providers
-- GET /api/providers/{provider_id}: get provider details
+- GET /api/models/{provider_id}/pool: get a provider model pool
 - POST /api/providers: add provider
 """
 
@@ -23,11 +23,13 @@ def test_providers_list(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_providers_get_nonexistent(app_server) -> None:
-    """Test GET /api/providers/{provider_id} with non-existent provider."""
-    url = "/api/models/nonexistent-provider-12345/config"
-    response = app_server.api_request("GET", url)
-    # Should return 404 or similar error
-    assert response.status_code in [404, 400]
+    """A model pool request for an unknown provider returns 404."""
+    response = app_server.api_request(
+        "GET",
+        "/api/models/nonexistent-provider-12345/pool",
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Provider not found"
 
 
 @pytest.mark.integration

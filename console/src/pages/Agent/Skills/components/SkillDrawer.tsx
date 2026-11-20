@@ -345,6 +345,7 @@ export function SkillDrawer({
                     </Form.Item>
                     <Form.Item
                       name="preload"
+                      data-settings-target="skills.preload"
                       label={t("skills.preload")}
                       valuePropName="checked"
                       initialValue={false}

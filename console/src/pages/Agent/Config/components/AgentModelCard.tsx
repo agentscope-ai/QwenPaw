@@ -121,7 +121,10 @@ export function AgentModelCard() {
         </div>
       ) : agent ? (
         <>
-          <div className={styles.choice}>
+          <div
+            className={styles.choice}
+            data-settings-target="models.primaryModel"
+          >
             <span>{t("models.primaryModel")}</span>
             <div className={styles.choiceControl}>
               <ModelChoice

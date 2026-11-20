@@ -6,11 +6,11 @@ ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:0.
 # -----------------------------------------------------------------------------
 # Stage 1: build console frontend (dist not committed in repo).
 # -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS console-builder
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS console-builder
 WORKDIR /app
 COPY console /app/console
 COPY src/qwenpaw/plugins/frontend /app/src/qwenpaw/plugins/frontend
-RUN cd /app/console && npm ci --include=dev && npm run build
+RUN cd /app/console && npm ci --include=dev && NODE_OPTIONS=--max-old-space-size=6144 npm run build
 
 # Alias for uv binary so COPY --from can reference a build-arg image.
 FROM ${UV_IMAGE} AS uv-src
@@ -121,6 +121,7 @@ COPY scripts/pack ./scripts/pack
 COPY plugins/channel ./plugins/channel
 COPY src ./src
 COPY plugins/hub ./plugins/hub
+COPY plugins/transcription ./plugins/transcription
 COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
 COPY website/public/docs/ ./src/qwenpaw/docs/
 # Inject console dist from build stage (repo does not commit dist).

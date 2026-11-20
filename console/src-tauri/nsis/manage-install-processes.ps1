@@ -1,9 +1,10 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
-    [ValidateSet("Prepare", "Restore")]
+    [ValidateSet("Prepare", "Restore", "BeginInstall", "ClearRuntime", "CompleteInstall", "CompleteUninstall", "AbortInstall")]
     [string]$Action = "Prepare",
-    [int]$NsisProcessId = 0
+    [int]$NsisProcessId = 0,
+    [switch]$GateCli
 )
 
 # Prepare a recognized QwenPaw installation for NSIS replacement. The script
@@ -14,6 +15,10 @@ $ErrorActionPreference = "Stop"
 $gateMarker = "QWENPAW_INSTALL_MAINTENANCE"
 $launcher = Join-Path $env:USERPROFILE ".qwenpaw\bin\qwenpaw-nm-host.bat"
 $launcherBackup = "$launcher.qwenpaw-maintenance"
+$cli = Join-Path $InstallDir "binaries\qwenpaw-backend\qwenpaw.exe"
+$cliBackup = "$cli.qwenpaw-maintenance"
+$cliStaged = "$cli.qwenpaw-new"
+$installMarker = Join-Path $InstallDir ".qwenpaw-installing"
 
 function Get-NormalizedPath {
     param([string]$Path)
@@ -144,7 +149,9 @@ function Test-IsQwenPawInstall {
     if (-not $Root) {
         return $false
     }
-    if (Test-LauncherTargetsRoot -Root $Root) {
+    if ((Test-LauncherTargetsRoot -Root $Root) -or
+        (Test-Path -LiteralPath $installMarker -PathType Leaf) -or
+        (Test-Path -LiteralPath "$cli.qwenpaw-installing" -PathType Leaf)) {
         return $true
     }
 
@@ -205,7 +212,8 @@ function Test-IsAutomaticProcess {
     $relative = $Process.ExecutablePath.Substring($Root.Length).TrimStart("\")
     if ($relative -ieq "qwenpaw-desktop.exe" -or
         $relative -ieq "binaries\qwenpaw-backend\qwenpaw-backend.exe" -or
-        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe") {
+        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe" -or
+        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-maintenance") {
         return $true
     }
     $isBundledPython = (
@@ -243,7 +251,97 @@ function Write-ProcessList {
     }
 }
 
+function Assert-RuntimeTree {
+    param([object]$Item)
+
+    if ("$($Item.Attributes)" -match "ReparsePoint") {
+        throw "Cannot safely replace a linked runtime path: $($Item.FullName)"
+    }
+    if ($Item.PSIsContainer) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $Item.FullName -Force)) {
+            Assert-RuntimeTree -Item $child
+        }
+    }
+}
+
 try {
+    if ($Action -eq "BeginInstall") {
+        # Persist before the first overwrite, including fresh installations.
+        # A later installer must not restore an old CLI into a partial update.
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+        Set-Content -LiteralPath $installMarker -Value $gateMarker -Encoding Ascii
+        # An older uninstaller may have restored the browser launcher.
+        Enable-NativeHostGate -Root (Get-InstallRoot)
+        exit 0
+    }
+    if ($Action -eq "ClearRuntime") {
+        $root = Get-InstallRoot
+        if (-not $root -or -not (Test-Path -LiteralPath $installMarker -PathType Leaf)) {
+            throw "Begin installation before replacing bundled runtimes."
+        }
+        $rootItem = Get-Item -LiteralPath $InstallDir
+        if (-not $rootItem.Parent) {
+            throw "Cannot replace runtimes at a filesystem root."
+        }
+        for ($parent = $rootItem; $null -ne $parent; $parent = $parent.Parent) {
+            if ("$($parent.Attributes)" -match "ReparsePoint") {
+                throw "Cannot safely replace runtimes under a linked installation."
+            }
+        }
+        $binaries = Get-ChildItem -LiteralPath $root -Force |
+            Where-Object { $_.Name -eq "binaries" }
+        if (-not $binaries) {
+            exit 0
+        }
+        if (-not $binaries.PSIsContainer -or "$($binaries.Attributes)" -match "ReparsePoint") {
+            throw "Cannot safely replace runtimes under: $($binaries.FullName)"
+        }
+        $runtimes = @(Get-ChildItem -LiteralPath $binaries.FullName -Force |
+            Where-Object { $_.Name -in @("qwenpaw-backend", "python-runtime", "channel-runtime", "node-runtime") })
+        # Validate every tree before deleting any payload; never follow links.
+        foreach ($item in $runtimes) {
+            if (-not $item.PSIsContainer -or
+                -not (Test-PathBelowRoot -Path $item.FullName -Root $root)) {
+                throw "Unexpected bundled runtime path: $($item.FullName)"
+            }
+            Assert-RuntimeTree -Item $item
+        }
+        foreach ($item in $runtimes) {
+            Remove-Item -LiteralPath $item.FullName -Recurse -Force
+            if (Test-Path -LiteralPath $item.FullName) {
+                throw "Bundled runtime cleanup is incomplete: $($item.FullName)"
+            }
+        }
+        exit 0
+    }
+    if ($Action -in @("CompleteInstall", "CompleteUninstall")) {
+        if ($Action -eq "CompleteInstall") {
+            if (Test-Path -LiteralPath $cliStaged) {
+                Move-Item -LiteralPath $cliStaged -Destination $cli -Force
+            } elseif (-not (Test-Path -LiteralPath $cli)) {
+                throw "The new qwenpaw executable is missing. Run the installer again."
+            }
+        }
+        foreach ($path in @($cliBackup, $cliStaged, $installMarker, "$cli.qwenpaw-installing")) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+        Restore-NativeHostLauncher -Root (Get-InstallRoot)
+        exit 0
+    }
+    if ($Action -eq "AbortInstall") {
+        if ((Test-Path -LiteralPath $installMarker) -or
+            (Test-Path -LiteralPath "$cli.qwenpaw-installing")) {
+            Enable-NativeHostGate -Root (Get-InstallRoot)
+            throw "Installation is incomplete. Run the installer again to restore the qwenpaw command."
+        }
+        if (Test-Path -LiteralPath $cliBackup) {
+            Move-Item -LiteralPath $cliBackup -Destination $cli -Force
+        }
+        Restore-NativeHostLauncher -Root (Get-InstallRoot)
+        exit 0
+    }
     if ($Action -eq "Restore") {
         $requestedRoot = (Get-NormalizedPath -Path $InstallDir).TrimEnd("\")
         Restore-NativeHostLauncher -Root $requestedRoot
@@ -261,13 +359,30 @@ try {
 
     Enable-NativeHostGate -Root $root
     $nsisProcessIds = Get-NsisProcessIds -ProcessId $NsisProcessId
-    $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
-    $automatic = @(
-        $scoped | Where-Object {
-            Test-IsAutomaticProcess -Process $_ -Root $root
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
+        $automatic = @(
+            $scoped | Where-Object {
+                Test-IsAutomaticProcess -Process $_ -Root $root
+            }
+        )
+        Stop-ProcessRecords -Processes $automatic
+
+        if (-not $GateCli -or -not (Test-Path -LiteralPath $cli)) {
+            break
         }
-    )
-    Stop-ProcessRecords -Processes $automatic
+        try {
+            # External version probes can restart the CLI after the sweep.
+            # Keep its normal path absent until all new resources are ready.
+            Move-Item -LiteralPath $cli -Destination $cliBackup -Force
+            break
+        } catch {
+            if ($attempt -eq 4) {
+                throw
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
 
     $remaining = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
     if ($remaining.Count -gt 0) {

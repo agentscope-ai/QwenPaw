@@ -220,8 +220,34 @@ def dependency_metadata_identity(sites, identity):
     return _bundle_dependency_fingerprint(identity, tuple(metadata))
 
 
+def bundle_runtime_identity(runtime=None) -> str:
+    """Bind retained transactions to the actual bundled resources."""
+    if runtime is None:
+        runtime = runtime_manifest()
+    _root, manifest_path, _launcher_paths = _runtime_resource_context()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bundle_identity = {
+        key: manifest[key]
+        for key in (
+            "python_runtime_release",
+            "host_wheel_sha256",
+            "official_index_sha256",
+        )
+    }
+    # RECORD identifies payload changes even at the same package version.
+    # Only immutable bundle metadata participates, never user overlays.
+    fingerprint = dependency_metadata_identity(
+        runtime[2],
+        json.dumps(
+            [runtime[3], runtime[4], bundle_identity],
+            sort_keys=True,
+        ),
+    )
+    return f"bundle-{fingerprint}"
+
+
 def plugin_runtime_site(runtime_root: Path, runtime=None) -> Path:
-    """Share an ABI site, isolated by bundled wheel identity on desktop."""
+    """Reuse the user dependency site across bundle updates for the same ABI."""
     if runtime is None and getattr(sys, "frozen", False):
         runtime = runtime_manifest()
     identity = (
@@ -238,29 +264,7 @@ def plugin_runtime_site(runtime_root: Path, runtime=None) -> Path:
         f"py{major}.{minor}-{identity['system'].lower()}-"
         f"{identity['machine'].lower()}"
     )
-    target = runtime_root / bucket
-    if runtime is not None:
-        _root, manifest_path, _launcher_paths = _runtime_resource_context()
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        bundle_identity = {
-            key: manifest[key]
-            for key in (
-                "python_runtime_release",
-                "host_wheel_sha256",
-                "official_index_sha256",
-            )
-        }
-        # RECORD identifies payload changes even at the same package version.
-        # Only immutable bundle metadata participates, never user overlays.
-        fingerprint = dependency_metadata_identity(
-            runtime[2],
-            json.dumps(
-                [identity, runtime[4], bundle_identity],
-                sort_keys=True,
-            ),
-        )
-        target /= f"bundle-{fingerprint}"
-    return target / "site"
+    return runtime_root / bucket / "site"
 
 
 def resolve_default_channel_runtime(*, provision=True):

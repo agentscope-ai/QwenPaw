@@ -32,9 +32,9 @@ from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
     create_history_service,
+    prepare_history_service,
     history_service_reuse_compatible,
     create_driver_service,
-    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
@@ -45,7 +45,7 @@ from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
-from ...config.config import load_agent_config
+from ...config.config import load_agent_config, load_agent_config_async
 from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
@@ -191,12 +191,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
         self.cron_start_paused = False
+        self._history_retention_days = 0
         self._started = False
+        self._mcp_feature_lock = asyncio.Lock()
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
-        self._harness_runtime = None
+        self._backend_runtime = None
 
         # Register all services
         self._register_services()
@@ -293,18 +295,18 @@ class Workspace:  # pylint: disable=too-many-public-methods
         return self._local_workspace
 
     @property
-    def harness_runtime(self):
-        """Return the lazily-created third-party agent runtime."""
-        if self._harness_runtime is None:
-            from ...harnesses import HarnessRuntime
+    def backend_runtime(self):
+        """Create plugin backend execution for an actual operation."""
+        if self._backend_runtime is None:
+            from ...runtime.backends.execution import BackendExecution
 
-            self._harness_runtime = HarnessRuntime(
+            self._backend_runtime = BackendExecution(
                 self.workspace_dir,
                 self.session,
                 self.agent_id,
                 self,
             )
-        return self._harness_runtime
+        return self._backend_runtime
 
     def bootstrap_plugins(  # pylint: disable=too-many-branches
         self,
@@ -444,7 +446,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
-        config = load_agent_config(self.agent_id)
+        wait_ready = getattr(self._manager, "wait_workspace_ready", None)
+        if wait_ready is not None:
+            await wait_ready(self)
+        from ...schemas import AgentRequest
+
+        if isinstance(request, dict):
+            request = AgentRequest(**request)
+
+        config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
             request_context = dict(
@@ -462,18 +472,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
             )
             if isinstance(backend_controls, dict):
                 settings.update(backend_controls)
-            settings["_request_context"] = {
-                **request_context,
-                "agent_id": self.agent_id,
-                "session_id": getattr(request, "session_id", None),
-                "user_id": getattr(request, "user_id", None),
-                "channel": getattr(request, "channel", None) or "console",
-            }
-            stream = self.harness_runtime.stream(
-                backend=backend,
-                request=request,
-                cwd=self.workspace_dir.resolve(),
-                settings=settings,
+            stream = self.backend_runtime.stream(
+                backend,
+                request,
+                settings,
+                cwd=self.workspace_dir,
             )
             try:
                 async for item in stream:
@@ -485,7 +488,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     await stream.aclose()
             return
 
-        from ...runtime import Runtime
+        from ...runtime.runtime import Runtime
         from ...token_usage.model_wrapper import has_isolated_turn_usage
 
         rt = Runtime(workspace=self, app_services=self._app_services)
@@ -574,12 +577,12 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ServiceDescriptor(
                 name="history_store",
                 create_service=create_history_service,
+                post_init=prepare_history_service,
                 stop_method="shutdown",
                 reusable=True,
                 reuse_compatibility=history_service_reuse_compatible,
                 require_clean_stop=True,
                 priority=15,
-                optional=True,
             ),
         )
 
@@ -612,6 +615,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 service_class=None,
                 post_init=create_driver_service,
                 stop_method="shutdown_all",
+                require_clean_stop=True,
                 priority=20,
                 concurrent_init=True,
                 optional=True,
@@ -697,19 +701,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ),
         )
 
-        # Priority 51: Driver Card Watcher (conditional)
-        sm.register(
-            ServiceDescriptor(
-                name="driver_config_watcher",
-                service_class=None,
-                post_init=create_driver_config_watcher,
-                start_method="start",
-                stop_method="stop",
-                priority=51,
-                concurrent_init=False,
-            ),
-        )
-
     async def set_reusable_components(self, components: dict) -> None:
         """Set components to reuse from previous instance.
 
@@ -741,6 +732,54 @@ class Workspace:  # pylint: disable=too-many-public-methods
         # Delegate to ServiceManager
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
+
+    async def sync_mcp_features(self, available: bool) -> None:
+        """Align Mail/ACP producers with protocol availability in this instance."""
+        async with self._mcp_feature_lock:
+            if not available:
+                if self.mail_monitor is not None:
+                    await self.mail_monitor.stop()
+                from ...agents.acp.service import get_acp_service
+                from ..mcp.feature_gate import is_mcp_ready
+
+                service = get_acp_service(self.agent_id)
+                if service is not None:
+                    # ACP is agent-scoped: retiring this instance alone must
+                    # not clear sessions used by its successor.
+                    await service.close_all_sessions(
+                        only_if=lambda: get_acp_service(self.agent_id)
+                        is service
+                        and not is_mcp_ready(workspace_id=self.agent_id),
+                    )
+            elif self._started:
+                from ...plugins.registry import PluginRegistry
+                from ...plugins._drivers import workspace_is_current
+
+                registry = PluginRegistry()
+                if not workspace_is_current(
+                    registry,
+                    self,
+                ) or not registry.projector.start_allowed(
+                    "driver_protocol",
+                    "mcp",
+                    "qwenpaw-mcp",
+                    self,
+                ):
+                    return
+                if self.mail_monitor is not None:
+                    await self.mail_monitor.start()
+                else:
+                    descriptor = self._service_manager.descriptors[
+                        "mail_monitor"
+                    ]
+                    await self._service_manager._start_service(descriptor)
+
+    async def start_history_retention(self) -> None:
+        """Apply maintenance only after this workspace owns the agent."""
+        if self.history_store is not None:
+            await self.history_store.start_retention(
+                self._history_retention_days,
+            )
 
     async def start(self):
         """Start workspace and initialize all components."""
@@ -775,6 +814,10 @@ class Workspace:  # pylint: disable=too-many-public-methods
         try:
             # 1. Load agent configuration
             self._config = load_agent_config(self.agent_id)
+            lcc = self._config.running.light_context_config
+            self._history_retention_days = (
+                lcc.scroll_config.history_retention_days
+            )
             logger.debug(
                 "Loaded config for agent: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -788,6 +831,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await self._service_manager.start_all()
 
             self._started = True
+            # Reload candidates activate maintenance after ownership commits.
+            if not self.cron_start_paused:
+                await self.start_history_retention()
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -959,13 +1005,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         except Exception as exc:
             errors.append(("services", exc))
 
-        if self._harness_runtime is not None:
+        if self._backend_runtime is not None:
             try:
-                await self._harness_runtime.stop()
+                await self._backend_runtime.close()
             except Exception as exc:
-                errors.append(("harness", exc))
+                errors.append(("plugin backends", exc))
             else:
-                self._harness_runtime = None
+                self._backend_runtime = None
 
         if len(errors) == 1:
             raise errors[0][1]

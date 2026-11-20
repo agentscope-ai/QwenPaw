@@ -3,6 +3,7 @@
  */
 
 export interface MCPClientOAuthStatus {
+  can_revoke?: boolean;
   /** Whether a valid access token is present */
   authorized: boolean;
   /** Unix timestamp when the access token expires (0 = unknown) */
@@ -81,6 +82,7 @@ export interface MCPOAuthStatusResponse {
   authorized: boolean;
   expires_at: number;
   scope: string;
+  attempt_status?: "pending" | "succeeded" | "failed" | "expired";
 }
 
 export interface MCPClientCreateRequest {

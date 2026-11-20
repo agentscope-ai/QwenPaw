@@ -15,13 +15,15 @@ import asyncio
 import logging
 import re
 import uuid
-from functools import partial
+from collections.abc import Awaitable, Callable
+from inspect import isasyncgen
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
+    ReplyEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -40,11 +42,14 @@ from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import (
     _is_media_block,
     mark_media_omitted_after_overflow,
+    omitted_media_marker,
 )
 from .utils.text_block_utils import (
     drop_empty_text_blocks,
+    has_answer_content,
     sanitize_empty_text_blocks,
 )
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
@@ -958,6 +963,11 @@ class QwenPawAgent(Agent):
             return True
 
         overflow_marker_groups = (
+            (
+                "the input (",
+                "tokens)",
+                "is longer than the model's context length",
+            ),
             ("tokens", "exceeds the available context size"),
             (
                 "input token count",
@@ -979,28 +989,69 @@ class QwenPawAgent(Agent):
         tools: list[dict],
         tool_choice: Any = None,
     ) -> Any:
-        """Call the model, recovering once from a provider input overflow.
+        """Call the model with at most two context recovery attempts.
 
         Body-size rejections omit media from request copies; token overflows
         delegate to the context manager. Rebuild and retry only when recovery
-        changed the model input. The retry calls AgentScope directly, so a
-        second overflow propagates instead of entering a recovery loop.
+        changed the model input. Invocation and streaming share the budget.
         """
         self._index_tool_schemas(tools)
-        return await call_with_overflow_recovery(
-            super()._call_model,
-            partial(self._recover_model_overflow, tool_choice=tool_choice),
+        remaining = 2
+        call_model = super()._call_model
+
+        async def recover(exc: Exception) -> Any:
+            nonlocal remaining
+            if remaining == 0:
+                raise exc
+            remaining -= 1
+            return await self._recover_model_overflow(
+                exc,
+                tool_choice=tool_choice,
+                retry=call,
+            )
+
+        async def call(**kwargs: Any) -> Any:
+            return await call_with_overflow_recovery(
+                call_model,
+                recover,
+                **kwargs,
+            )
+
+        result = await call(
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
         )
 
+        def capture_completion(response: Any) -> None:
+            metadata = getattr(response, f"metadata", None) or {}
+            completion = metadata.get(COMPLETION_METADATA_KEY)
+            self._model_completion = (
+                dict(completion) if isinstance(completion, dict) else None
+            )
+
+        if not isasyncgen(result):
+            capture_completion(result)
+            return result
+
+        async def capture_stream():
+            try:
+                async for chunk in result:
+                    if getattr(chunk, f"is_last", False):
+                        capture_completion(chunk)
+                    yield chunk
+            finally:
+                await result.aclose()
+
+        return capture_stream()
+
     async def _recover_model_overflow(
         self,
         exc: Exception,
         tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
     ) -> Any:
-        """Reduce rejected input and retry once through AgentScope."""
+        """Perform one recovery step within the caller's shared budget."""
         body_overflow = is_request_body_too_large(exc)
         if body_overflow and self._last_wire_request_had_media():
             omitted = mark_media_omitted_after_overflow(self.state.context)
@@ -1025,7 +1076,7 @@ class QwenPawAgent(Agent):
         before = len(getattr(self.state, "context", []) or [])
         logger.warning(
             "Model input exceeded a size limit; attempting "
-            "one context recovery.",
+            "a context recovery step.",
         )
         input_changed = await context_manager.recover_from_context_overflow(
             self,
@@ -1044,14 +1095,19 @@ class QwenPawAgent(Agent):
             before,
             after,
         )
-        return await self._retry_with_refreshed_input(tool_choice)
+        return await self._retry_with_refreshed_input(tool_choice, retry=retry)
 
-    async def _retry_with_refreshed_input(self, tool_choice: Any) -> Any:
-        """Rebuild from current state and bypass recursive recovery."""
+    async def _retry_with_refreshed_input(
+        self,
+        tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
+    ) -> Any:
+        """Rebuild input and use the caller's bounded retry when supplied."""
         refreshed = await self._prepare_model_input()
         refreshed_tools = refreshed.get("tools", [])
         self._index_tool_schemas(refreshed_tools)
-        return await super()._call_model(
+        call_model = retry or super()._call_model
+        return await call_model(
             messages=refreshed["messages"],
             tools=refreshed_tools,
             tool_choice=tool_choice,
@@ -1156,6 +1212,7 @@ class QwenPawAgent(Agent):
         # agentscope drops ChatResponse.metadata during event conversion;
         # collect model-fallback transparency data out-of-band instead.
         fallback_sink = install_fallback_notice_sink()
+        self._model_completion = None
 
         # ── Inject background-tool results before each reasoning step ──
         await self._inject_pending_hints()
@@ -1243,6 +1300,8 @@ class QwenPawAgent(Agent):
 
         def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
+            if isinstance(evt, ModelCallEndEvent):
+                self._attach_model_completion(evt)
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
@@ -1389,6 +1448,11 @@ class QwenPawAgent(Agent):
                 if should_strip_video:
                     self._set_formatter_video_strip(False)
 
+        stored_msg = self._get_last_msg()
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
+        self._attach_model_completion(final_msg)
+
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
 
@@ -1431,8 +1495,31 @@ class QwenPawAgent(Agent):
             return  # outer loop continues
 
         outgoing_msg = stop_result.final_message or final_msg
+        completion = (outgoing_msg.metadata or {}).get(COMPLETION_METADATA_KEY)
+        self._model_completion = (
+            dict(completion) if isinstance(completion, dict) else None
+        )
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
+        if not has_answer_content(outgoing_msg.content):
+            raise RuntimeError(
+                f"The model returned an empty answer. "
+                f"Please retry or switch models.",
+            )
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
         yield outgoing_msg
+
+    def _attach_model_completion(self, target: Any) -> None:
+        """Keep raw completion details in events and persisted messages."""
+        if target is None:
+            return
+        completion = getattr(self, f"_model_completion", None)
+        metadata = dict(target.metadata or {})
+        if completion:
+            metadata[COMPLETION_METADATA_KEY] = dict(completion)
+        else:
+            metadata.pop(COMPLETION_METADATA_KEY, None)
+        target.metadata = metadata
 
     @staticmethod
     def _attach_fallback_notices(
@@ -1632,6 +1719,10 @@ class QwenPawAgent(Agent):
                         return
                     finally:
                         await self._flush_context_save()
+                if isinstance(evt, ReplyEndEvent):
+                    self._attach_model_completion(evt)
+                    # None explicitly clears the last model call's marker.
+                    evt.metadata.setdefault(COMPLETION_METADATA_KEY, None)
                 yield evt
         finally:
             try:
@@ -1785,14 +1876,20 @@ class QwenPawAgent(Agent):
                         total_stripped += stripped_count
                         stripped_this_message += stripped_count
                         if stripped_count > 0:
+                            replacement: Any = (
+                                filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                            )
+                            if filtered:
+                                # Some content survived the strip, so the
+                                # removed media would otherwise vanish without
+                                # a trace ("Image loaded: x.png" with no image).
+                                replacement = filtered + [
+                                    omitted_media_marker(filtered),
+                                ]
                             if isinstance(block, dict):
-                                block["output"] = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block["output"] = replacement
                             else:
-                                block.output = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block.output = replacement
 
                 new_content.append(block)
 

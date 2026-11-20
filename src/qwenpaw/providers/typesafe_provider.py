@@ -29,18 +29,25 @@ class TypeSafeEvaluationError(RuntimeError):
 
 
 def resolve_decision_model(slot=None, *, default_model: str | None = None):
-    """Resolve an agent or global TypeSafe slot with a caller-owned default."""
+    """Resolve an agent/global native or local decision model."""
     from .provider_manager import ProviderManager
+    from .local_decision_model import LocalDecisionProviderMixin
 
     manager = ProviderManager.get_instance()
     slot = slot or manager.default_models.get("decision")
     if slot is None and default_model is None:
         raise TypeSafeEvaluationError("Configure a decision model")
-    if slot is not None and slot.provider_id != "typesafe":
+    provider_id = slot.provider_id if slot is not None else "typesafe"
+    if provider_id not in {"typesafe", "qwenpaw-local"}:
         raise TypeSafeEvaluationError("Decision model provider is unsupported")
-    provider = manager.get_provider("typesafe")
-    if not isinstance(provider, TypeSafeProvider) or not provider.enabled:
-        raise TypeSafeEvaluationError("TypeSafe provider is unavailable")
+    provider = manager.get_provider(provider_id)
+    expected = (
+        TypeSafeProvider
+        if provider_id == "typesafe"
+        else LocalDecisionProviderMixin
+    )
+    if not isinstance(provider, expected) or not provider.enabled:
+        raise TypeSafeEvaluationError("Decision model provider is unavailable")
     return provider, slot.model if slot is not None else default_model
 
 

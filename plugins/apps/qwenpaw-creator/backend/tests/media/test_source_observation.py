@@ -13,11 +13,15 @@ import pytest
 
 from domain.enums import TaskKind, TaskStatus
 from domain.errors import ValidationError
+from api.file_asset_routes import _AssetInput, _ingest_many_sync
 from services.media import source_observation
 from services.media.source_observation import (
     OBSERVE_MIN_WINDOW_MS,
     SourceObservationService,
 )
+from services.project_files.facade import CreatorFileServices
+from services.project_files.models import Project
+from services.runtime_files.execution_models import TaskAttemptStatus
 
 
 def _service(tmp_path: Path):
@@ -245,4 +249,166 @@ def test_startup_recovery_terminalizes_orphaned_tasks(tmp_path) -> None:
     assert all(
         "process restart" in failure["message"]
         for failure in executions.failures
+    )
+
+
+def _uploaded_source_service(tmp_path: Path):
+    """One real Project with one uploaded source and the real Task store."""
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    services.projects.create(Project.new(project_id="project-1", name="One"))
+    result, _replayed = _ingest_many_sync(
+        services,
+        project_id="project-1",
+        key="asset-1",
+        inputs=[
+            _AssetInput(
+                name="source.mp4",
+                content=b"verified-source-bytes",
+                media_type="video/mp4",
+            ),
+        ],
+        attach_source=True,
+        scope="source-observation-test",
+    )
+    item = result["items"][0]
+    return (
+        SourceObservationService(services),
+        str(item["assetId"]),
+        str(item["assetVersionId"]),
+    )
+
+
+def test_cancel_for_asset_stops_worker_and_cancelles_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Deleting the source must stop the VLM call, not only the record.
+
+    Only the clip encode and the provider round trip are faked: admission,
+    the durable Task and its CANCELLED transition run against the real file
+    store. A worker left alive would keep billing the VLM and publish a
+    SUCCEEDED observation of media that no longer exists.
+    """
+
+    service, logical_asset_id, version_id = _uploaded_source_service(tmp_path)
+    provider_entered = asyncio.Event()
+    provider_release = asyncio.Event()
+
+    def fake_clip(_local, out_path, _start, _end):
+        out_path.write_bytes(b"clip")
+        return out_path
+
+    async def hanging_chat(_content, **_kwargs):
+        provider_entered.set()
+        await provider_release.wait()
+        return "00:01.000 出现了目标画面。"
+
+    monkeypatch.setattr(
+        source_observation,
+        "clip_segment_for_transport_sync",
+        fake_clip,
+    )
+    monkeypatch.setattr(
+        source_observation.vlm_model,
+        "chat_completion",
+        hanging_chat,
+    )
+
+    async def scenario():
+        task = await service.schedule_observe_clip(
+            project_id="project-1",
+            logical_asset_id=logical_asset_id,
+            start_ms=0,
+            end_ms=5000,
+            question="出现了什么？",
+            idempotency_key="observe-cancel-1",
+        )
+        worker = service._jobs[task.task_id]
+        await asyncio.wait_for(provider_entered.wait(), timeout=30.0)
+        running = service.executions.get_task("project-1", task.task_id)
+        assert running.status is TaskStatus.RUNNING
+        # Another asset's deletion must not revoke this observation.
+        assert (
+            await service.cancel_for_asset(
+                "project-1",
+                logical_asset_id="asset-other",
+                version_id="version-other",
+            )
+            == 0
+        )
+        assert not worker.done()
+        revoked = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id=logical_asset_id,
+            version_id=version_id,
+        )
+        provider_release.set()
+        await asyncio.sleep(0.05)
+        return task.task_id, worker, revoked
+
+    task_id, worker, revoked = asyncio.run(scenario())
+
+    assert revoked == 1
+    assert worker.cancelled()
+    assert not service._jobs
+    assert not service._job_specs
+    settled = service.executions.get_task("project-1", task_id)
+    assert settled.status is TaskStatus.CANCELLED
+    assert settled.error == {
+        "code": "SOURCE_ASSET_DELETED",
+        "message": "Source asset was deleted",
+    }
+    attempts = service.executions.list_task_attempts("project-1", task_id)
+    assert [event.status for event in attempts] == [
+        TaskAttemptStatus.RUNNING,
+    ], "a revoked observation must never publish its answer"
+
+
+def test_cancel_for_asset_matches_by_version_id(tmp_path, monkeypatch) -> None:
+    # The Task carries the version it reads, so a version-level deletion
+    # reaches the observation even when the logical asset id differs (an
+    # older version of the same logical asset keeps its own worker alive).
+    service, logical_asset_id, version_id = _uploaded_source_service(tmp_path)
+    entered = asyncio.Event()
+
+    async def hanging_chat(_content, **_kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+        return "不应到达"
+
+    monkeypatch.setattr(
+        source_observation,
+        "clip_segment_for_transport_sync",
+        lambda _local, out, _start, _end: out.write_bytes(b"clip") or out,
+    )
+    monkeypatch.setattr(
+        source_observation.vlm_model,
+        "chat_completion",
+        hanging_chat,
+    )
+
+    async def scenario():
+        task = await service.schedule_observe_clip(
+            project_id="project-1",
+            logical_asset_id=logical_asset_id,
+            start_ms=0,
+            end_ms=5000,
+            question="出现了什么？",
+            idempotency_key="observe-cancel-version",
+        )
+        await asyncio.wait_for(entered.wait(), timeout=30.0)
+        revoked = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id="asset-other",
+            version_id=version_id,
+        )
+        return task.task_id, revoked
+
+    task_id, revoked = asyncio.run(scenario())
+
+    assert revoked == 1
+    assert (
+        service.executions.get_task("project-1", task_id).status
+        is TaskStatus.CANCELLED
     )

@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 
 import pytest
 import pytest_asyncio
@@ -24,6 +25,62 @@ from tests.channel_support.host import (
     saved_texts,
 )
 from tests.channel_support.process import alive, eventually
+
+
+def _runtime_identity():
+    from packaging.markers import default_environment
+    from packaging.tags import sys_tags
+
+    environment = default_environment()
+    return {
+        "version": list(sys.version_info[:2]),
+        "implementation": environment["implementation_name"],
+        "cache_tag": sys.implementation.cache_tag,
+        "sys_platform": environment["sys_platform"],
+        "system": environment["platform_system"],
+        "machine": environment["platform_machine"],
+        "supported_tags": [str(tag) for tag in sys_tags()],
+    }
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_retains_tracked_work_and_reports_stage(caplog):
+    from types import SimpleNamespace
+    from qwenpaw.app.channels.manager import ChannelManager
+    from qwenpaw.app.task_tracker import TaskTracker
+
+    tracker, release = TaskTracker(), asyncio.Event()
+    workspace = SimpleNamespace(task_tracker=tracker)
+    channel = SimpleNamespace(channel="wechat", set_enqueue=lambda _: None)
+    manager = ChannelManager([channel])
+    manager._workspace = workspace
+
+    async def stream(_):
+        await release.wait()
+        yield "data: done\n\n"
+
+    await tracker.attach_or_start(
+        "cron",
+        None,
+        stream,
+        owner=workspace,
+        channel_id="wechat",
+        channel_handoff_safe=True,
+    )
+    try:
+        # Transferability applies only to reload. An ordinary drain still
+        # waits without cancelling the producer or discarding its owner.
+        assert not await manager.quiesce(timeout=0.01)
+        assert await tracker.get_status("cron") == "running"
+        assert manager.channels == [channel]
+        assert any(
+            "stage=tracker" in r.getMessage() and "pending=1" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        release.set()
+        await tracker.wait_all_done(1)
+    assert await manager.quiesce(timeout=0.01)
 
 
 @pytest_asyncio.fixture
@@ -123,6 +180,18 @@ def test_official_discovery_and_descriptor_snapshot_are_static(
             json.loads((source / "plugin.json").read_text(encoding="utf-8")),
         ),
     )
+    from qwenpaw.channel_protocol.artifacts import code_root_digest
+    from qwenpaw.plugins.execution.bootstrap import _hash_code_root
+    from qwenpaw.plugins.install_receipts import write_install_commit
+
+    write_install_commit(source, KEY)
+    assert code_root_digest(source) == description.source_revision
+    assert _hash_code_root(source) == description.source_revision
+    hidden_source = source / ".plugin-owned.py"
+    hidden_source.write_text("value = 1\n", encoding="utf-8")
+    assert code_root_digest(source) != description.source_revision
+    assert _hash_code_root(source) == code_root_digest(source)
+    hidden_source.unlink()
     prepared = description.prepare_proxy_config({"enabled": False})
 
     def forbid_descriptor_load(*args, **kwargs):
@@ -162,6 +231,152 @@ def test_official_discovery_and_descriptor_snapshot_are_static(
                 ),
                 descriptor=description.descriptor,
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "version,identity,expected",
+    [
+        ("0.1.0.dev0", "feishu", True),
+        ("0.1.0", "feishu", False),
+        ("0.2.0", "feishu", False),
+        ("invalid", "feishu", False),
+        ("0.1.0.dev0", "other", False),
+        ("0.1.0.dev0", "bad-index", False),
+    ],
+)
+async def test_channel_update_catalog_is_passive(
+    host,
+    monkeypatch,
+    static_channel_guard,
+    version,
+    identity,
+    expected,
+):
+    from qwenpaw.app.channels.catalog import (
+        clean_channel_config,
+        get_configurable_channel_catalog_async,
+    )
+    from qwenpaw.plugins.settings import persist_plugin_settings
+
+    source = host.artifact(version)
+    shutil.copytree(source, host.installed)
+    manifest_path = host.installed / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    if identity == "other":
+        manifest["id"] = identity
+        manifest_path.write_text(json.dumps(manifest))
+    persist_plugin_settings(KEY, enabled=False, config={"untouched": 7})
+    before = host.config_path.read_bytes()
+
+    def versions():
+        if identity == "bad-index":
+            raise ValueError("Official index identity mismatch")
+        return {KEY: "0.1.0"}
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.official_channels.bundled_channel_versions",
+        versions,
+        raising=False,
+    )
+    loop_thread = threading.get_ident()
+    reads = []
+    read_text = Path.read_text
+
+    def observe_read(path, *args, **kwargs):
+        if path == manifest_path:
+            reads.append(threading.get_ident())
+            assert reads[-1] != loop_thread
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", observe_read)
+    catalog = await get_configurable_channel_catalog_async()
+    assert catalog[KEY].get("update") == (
+        {
+            "installed_version": "0.1.0.dev0",
+            "version": "0.1.0",
+            "source": "bundled:feishu",
+        }
+        if expected
+        else None
+    )
+    assert "update" not in catalog["console"]
+    assert "update" not in catalog["dingtalk"]
+    assert catalog[KEY]["global_enabled"] is False
+    assert host.config_path.read_bytes() == before
+    assert clean_channel_config({"enabled": False, "update": {}}) == {
+        "enabled": False,
+    }
+    if identity != "bad-index":
+        assert reads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["bundled", "https"])
+async def test_channel_update_keeps_disabled_intent(
+    host,
+    monkeypatch,
+    static_channel_guard,
+    transport,
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from qwenpaw.app.routers.plugins import install_plugin_source
+    from qwenpaw.config.utils import load_config
+    from qwenpaw.plugins.settings import persist_plugin_settings
+
+    shutil.copytree(host.artifact(), host.installed)
+    persist_plugin_settings(KEY, enabled=False, config={"custom": "keep"})
+    persist_plugin_settings(
+        "dingtalk",
+        enabled=True,
+        config={"custom": "other"},
+    )
+    await host.loader.load_all_plugins(types=["channel"], activate=False)
+    before = load_config().plugins.copy()
+    candidate = host.artifact("2.0.0")
+
+    @asynccontextmanager
+    async def bundled(plugin_id, **kwargs):
+        assert plugin_id == KEY
+        yield candidate
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.official_channels.async_bundled_channel_source",
+        bundled,
+    )
+    source = "bundled:" + KEY
+    if transport == "https":
+        import zipfile
+
+        source = "https://download.qwenpaw.agentscope.io/feishu-2.0.0.zip"
+
+        async def download(url, destination):
+            assert url == source
+            with zipfile.ZipFile(destination, "w") as archive:
+                for path in candidate.rglob("*"):
+                    if path.is_file():
+                        archive.write(
+                            path,
+                            KEY + "/" + path.relative_to(candidate).as_posix(),
+                        )
+
+        monkeypatch.setattr(
+            "qwenpaw.app.routers.plugins._async_download",
+            download,
+        )
+    record = await install_plugin_source(
+        source,
+        force=True,
+        app=SimpleNamespace(state=SimpleNamespace(plugin_loader=host.loader)),
+    )
+    assert record.manifest.version == "2.0.0"
+    assert not record.global_enabled and not record.enabled
+    assert load_config().plugins == before
+    assert (
+        json.loads((host.installed / "plugin.json").read_text())["version"]
+        == "2.0.0"
+    )
 
 
 @pytest.mark.asyncio
@@ -296,6 +511,22 @@ def test_runner_hello_requires_shared_identity():
         expected_requirements=(),
     )
     assert validate_shared_hello(shared, **expected).to_mapping() == shared
+    warning = {
+        **shared,
+        "dependencies": [
+            {
+                "requirement": "sample-sdk>=2",
+                "name": "sample-sdk",
+                "installed_version": "1.0",
+                "status": "incompatible",
+            },
+        ],
+    }
+    checked = validate_shared_hello(
+        warning,
+        **{**expected, "expected_requirements": ("sample-sdk>=2",)},
+    )
+    assert checked.dependencies[0].status == "incompatible"
     for field, value, reason in (
         ("channel_key", "other", "CHANNEL_KEY_MISMATCH"),
         ("instance_id", "old-worker", "INSTANCE_ID_MISMATCH"),
@@ -312,6 +543,152 @@ def test_runner_hello_requires_shared_identity():
             **{**expected, "expected_requirements": ("missing-sdk==1",)},
         )
     assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["run", "probe"])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-child",
+        "version-warning",
+        "missing-extra",
+        "unrelated-metadata",
+        "installed-url",
+        "invalid-metadata",
+    ],
+)
+async def test_channel_worker_checks_declared_dependency_closure(
+    host,
+    caplog,
+    mode,
+    scenario,
+):
+    import logging
+    from dataclasses import replace
+    from qwenpaw.__version__ import __version__
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.channel_adapter import describe_channel
+
+    source = host.artifact(sdk=True)
+    selected = "[feature]" if scenario == "missing-extra" else ""
+    minimum = "2" if scenario == "version-warning" else "1"
+    (source / "requirements.txt").write_text(
+        (
+            ""
+            if scenario == "unrelated-metadata"
+            else f"sample-shared-sdk{selected}>={minimum}\n"
+        ),
+    )
+    (host.site / "sample_shared_sdk.py").write_text(
+        "def __getattr__(name):\n"
+        "    if name != 'VALUE':\n"
+        "        raise AttributeError(name)\n"
+        "    import qwenpaw_closure_child\n"
+        "    return qwenpaw_closure_child.VALUE\n",
+    )
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info"
+    metadata.mkdir()
+    child = (
+        "qwenpaw-closure-child @ https://example.invalid/child.zip"
+        if scenario == "installed-url"
+        else f"qwenpaw-closure-child>={minimum}"
+    )
+    if scenario == "invalid-metadata":
+        child = "not a valid dependency declaration ???"
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: sample-shared-sdk\nVersion: 1.0\n"
+        f"Requires-Dist: {child}\n"
+        "Requires-Dist: qwenpaw-closure-extra; extra == 'feature'\n"
+        "Requires-Dist: qwenpaw-closure-inactive; python_version < '0'\n",
+    )
+    if scenario != "missing-child":
+        (host.site / "qwenpaw_closure_child.py").write_text(
+            "VALUE = 'offline-sdk'\n",
+        )
+        metadata = host.site / "qwenpaw_closure_child-1.0.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: qwenpaw-closure-child\n"
+            "Version: 1.0\n",
+        )
+    if scenario == "unrelated-metadata":
+        external = source.parent / "unrelated-1.0.dist-info"
+        external.mkdir()
+        (external / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: unrelated\nVersion: 1.0\n",
+        )
+        (host.site / external.name).symlink_to(
+            external,
+            target_is_directory=True,
+        )
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads((source / "plugin.json").read_text()),
+        ),
+    )
+    prepared = description.prepare_proxy_config(
+        {"enabled": True, "use_sdk": True},
+    )
+    proxy = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=Path(__file__).resolve().parents[3] / "src",
+        dependency_paths=(host.site,),
+        instance_id="closure",
+        generation=1,
+        qwenpaw_version=__version__,
+        prepared_config=prepared,
+    )
+    spec = replace(proxy._launch_spec, workspace_id="test-workspace")
+    process = ChannelProcess()
+    for operation in ("get", "put"):
+        process.register_method(
+            "host.state." + operation,
+            lambda params, _request: {"value": params.value},
+        )
+    caplog.set_level(logging.WARNING, logger="qwenpaw.plugins.worker")
+    start = process.start if mode == "run" else process.probe
+    try:
+        if scenario in {"missing-child", "missing-extra", "invalid-metadata"}:
+            with pytest.raises(process.error_type) as rejected:
+                await start(spec)
+            assert rejected.value.reason_code == (
+                "DEPENDENCY_METADATA_INVALID"
+                if scenario == "invalid-metadata"
+                else "DEPENDENCY_UNSATISFIED"
+            )
+            assert process.observed_hello is None
+            assert process.health_snapshot()["platform_state"] != "connected"
+            assert not rows(host.ledger, "connected")
+        else:
+            await start(spec)
+            assert process.observed_hello is not None
+            if mode == "run":
+                await eventually(lambda: bool(rows(host.ledger, "connected")))
+                value = await process.call("sample.identity", {})
+                assert value["sdk"] == "offline-sdk"
+            else:
+                assert not rows(host.ledger, "connected")
+            for name in (
+                ("sample-shared-sdk", "qwenpaw-closure-child")
+                if scenario == "version-warning"
+                else ()
+            ):
+                await eventually(
+                    lambda: any(
+                        "Dependency warning:" in record.message
+                        and name in record.message
+                        and "attempting load" in record.message
+                        for record in caplog.records
+                    ),
+                )
+    finally:
+        stopped = await process.stop()
+        assert stopped.exited and not stopped.residual
 
 
 @pytest.mark.asyncio
@@ -348,6 +725,7 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         ),
     )
     prepared = description.prepare_proxy_config({"enabled": True})
+    identity = _runtime_identity()
     proxy = description.create_proxy(
         None,
         prepared.config,
@@ -357,6 +735,7 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         generation=1,
         qwenpaw_version=__version__,
         prepared_config=prepared,
+        runtime_identity=identity,
     )
     spec = replace(proxy._launch_spec, workspace_id="test-workspace")
     process = ChannelProcess()
@@ -397,11 +776,15 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         release.set()
         await pending
         assert opened and process.dependency_snapshot is not None
+        snapshot = process.dependency_snapshot
+        assert snapshot.supported_tags == tuple(identity["supported_tags"])
+        assert type(snapshot).from_mapping(snapshot.to_mapping()) == snapshot
         if mode == "audit":
             assert (
                 process.observed_hello is None
             )  # Audit never imports the driver.
         else:
+            assert snapshot.to_mapping()["evidence_version"] == 2
             assert (
                 process.observed_hello["source_revision"]
                 == spec.source_revision
@@ -444,6 +827,47 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
     finally:
         release.set()
         await asyncio.gather(pending, return_exceptions=True)
+        stopped = await process.stop()
+        assert stopped.exited and not stopped.residual
+
+
+@pytest.mark.asyncio
+async def test_channel_probe_rejects_runtime_abi_mismatch(host):
+    from qwenpaw.__version__ import __version__
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.channel_adapter import describe_channel
+
+    source = host.artifact()
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads((source / "plugin.json").read_text()),
+        ),
+    )
+    prepared = description.prepare_proxy_config({"enabled": True})
+    identity = {**_runtime_identity(), "supported_tags": ["cp999-cp999-any"]}
+    proxy = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=Path(__file__).resolve().parents[3] / "src",
+        instance_id="abi-mismatch",
+        generation=1,
+        qwenpaw_version=__version__,
+        prepared_config=prepared,
+        runtime_identity=identity,
+    )
+    process = ChannelProcess()
+    try:
+        with pytest.raises(process.error_type) as rejected:
+            await process.probe(proxy._launch_spec)
+        assert (
+            rejected.value.reason_code == "CHANNEL_RUNTIME_IDENTITY_MISMATCH"
+        )
+        assert process.observed_hello is None
+        assert not rows(host.ledger, "connected")
+    finally:
         stopped = await process.stop()
         assert stopped.exited and not stopped.residual
 
@@ -538,12 +962,147 @@ async def test_preparation_cancellation_retains_custody_and_rejects_changed_sour
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    ["missing-child", "warning-order", "warning-content", "version"],
+)
+async def test_channel_preflight_rechecks_metadata_read_during_probe(
+    host,
+    monkeypatch,
+    change,
+):
+    import zipfile
+    from contextlib import nullcontext
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.dependency_gate import SharedDependencyError
+
+    source = host.artifact(sdk=True)
+    wheel = next(local_wheel(host.root / "wheels").glob("*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(host.site)
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
+    if change != "missing-child":
+        minimum = "1" if change == "version" else "2"
+        (source / "requirements.txt").write_text(
+            f"sample-warning-child>=2\nsample-shared-sdk>={minimum}\n",
+        )
+        child = host.site / "sample_warning_child-1.0.dist-info"
+        child.mkdir()
+        (child / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: sample-warning-child\n"
+            "Version: 1.0\n",
+        )
+        if change == "warning-content":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: sample-warning-child>=2\n")
+    manifest = host.loader.read_source_manifest(source)[1]
+    binding = host.loader.backend_resolver.resolve(source, manifest)
+    probe = ChannelProcess.probe
+
+    async def changed_after_read(process, spec):
+        result = await probe(process, spec)
+        if change == "missing-child":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: new-missing-child>=1\n")
+        elif change == "warning-content":
+            metadata.write_text(
+                metadata.read_text().replace(
+                    "sample-warning-child>=2",
+                    "sample-warning-child>=3",
+                ),
+            )
+        elif change == "version":
+            metadata.write_text(
+                metadata.read_text().replace("Version: 1.0", "Version: 1.1"),
+            )
+        return result
+
+    monkeypatch.setattr(ChannelProcess, "probe", changed_after_read)
+    if change == "warning-order":
+        expectation = nullcontext()
+    elif change == "missing-child":
+        expectation = pytest.raises(SharedDependencyError)
+    else:
+        expectation = pytest.raises(
+            RuntimeError,
+            match="^DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED$",
+        )
+    with expectation as rejected:
+        async with host.loader.plugin_lifecycle(KEY):
+            await host.loader.lifecycle.preflight_backend(
+                binding,
+                allow_install=False,
+                probe=True,
+            )
+    if change == "missing-child":
+        assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+        assert "new-missing-child" in str(rejected.value)
+    assert not host.loader._channel_backend._preparation_scopes
+
+
+@pytest.mark.asyncio
+async def test_channel_worker_preserves_canonical_runtime_context(
+    host,
+    monkeypatch,
+):
+    from qwenpaw.constant import WORKING_DIR
+
+    WORKING_DIR.mkdir(parents=True, exist_ok=True)
+    (WORKING_DIR / ".env").write_text(
+        "CHANNEL_CONTEXT_ENV_PROBE=unexpected\n",
+        encoding="utf-8",
+    )
+    home = host.root / "runtime home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", "./unresolved-runtime")
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "channel-context-runtime")
+    monkeypatch.delenv("CHANNEL_CONTEXT_ENV_PROBE", raising=False)
+    expected_home = str(home) if os.name != "nt" else None
+    expected_profile = str(Path.home().resolve()) if os.name == "nt" else None
+    media = host.root / "explicit-media"
+    ws = await host.workspace("context", media_dir=str(media))
+    source = host.artifact()
+    shutil.copytree(
+        Path(__file__).resolve().parents[3]
+        / "plugins/channel/wechat/qwenpaw_channel_wechat",
+        source / "qwenpaw_channel_wechat",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    driver = source / "sample.py"
+    driver.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "if os.name != 'nt':\n"
+        "    import pwd\n"
+        "    def missing_user(uid): raise KeyError(uid)\n"
+        "    pwd.getpwuid = missing_user\n"
+        "from qwenpaw_channel_wechat.platform import WeChatPlatform\n"
+        "from qwenpaw.constant import WORKING_DIR\n"
+        f"assert WORKING_DIR == Path({str(WORKING_DIR)!r})\n"
+        f"assert os.environ['QWENPAW_WORKING_DIR'] == {str(WORKING_DIR)!r}\n"
+        "assert os.environ['QWENPAW_RUNTIME_ID'] == 'channel-context-runtime'\n"
+        "assert 'CHANNEL_CONTEXT_ENV_PROBE' not in os.environ\n"
+        f"assert os.environ.get('HOME') == {expected_home!r}\n"
+        f"assert os.environ.get('USERPROFILE') == {expected_profile!r}\n"
+        + driver.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    record = await host.loader.load_plugin_from_path(source)
+    assert record.status == "active"
+    _, value = await host.identity(ws)
+    assert value["config"]["workspace_dir"] == str(ws.workspace_dir)
+    assert value["config"]["media_dir"] == str(media)
+    assert value["config"]["app_secret"] == "local-only"
+
+
+@pytest.mark.asyncio
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,
 ):
     from qwenpaw.config.utils import load_config
     from qwenpaw.plugins.settings import persist_plugin_settings
+    from qwenpaw.plugins.loader import PluginLoader
 
     ws = await host.workspace("first", use_sdk=True)
     source = host.artifact(sdk=True)
@@ -551,18 +1110,17 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     local_certifi_wheel(wheels)
     calls = []
 
-    def offline(command, *, timeout, plugin_id):
+    def offline(command, *, timeout, plugin_id, cancel=None):
         calls.append(command)
         assert (
             command[1:6] == ["-I", "-B", "-m", "pip", "wheel"]
             and plugin_id == KEY
         )
-        return subprocess.run(
+        return PluginLoader._run_subprocess_with_streaming_log(
             [*command, "--no-index", "--find-links", str(wheels)],
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
+            plugin_id=plugin_id,
+            cancel=cancel,
         )
 
     monkeypatch.setattr(
@@ -585,11 +1143,24 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
 
 
 @pytest.mark.asyncio
-async def test_real_agent_stream_final_reply_and_saved_session(host):
+async def test_real_agent_stream_final_reply_and_saved_session(
+    host,
+    monkeypatch,
+):
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+
+    real_probe, probes = ChannelProcess.probe, []
+
+    async def probe(process, *args, **kwargs):
+        probes.append(process)
+        return await real_probe(process, *args, **kwargs)
+
+    monkeypatch.setattr(ChannelProcess, "probe", probe)
     ws = await host.workspace("actual-agent", streaming_enabled=True)
     await host.real_agent(ws)
     record = await host.loader.load_plugin_from_path(host.artifact())
     assert record.status == "active"
+    assert len(probes) == 1
     channel, value = await host.identity(ws)
     assert value["pid"] != os.getpid()
     ack = await host.emit(ws, text="native input", room="conversation")
@@ -742,20 +1313,74 @@ async def test_config_read_save_restart_preserves_fields_and_exits_old_worker(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dependency_change", [False, True])
 async def test_update_replaces_worker_and_preserves_data(
     host,
+    monkeypatch,
+    dependency_change,
 ):
-    ws = await host.workspace("updating")
-    await host.loader.load_plugin_from_path(host.artifact())
+    ws = await host.workspace("updating", use_sdk=dependency_change)
+    first = host.artifact(sdk=dependency_change)
+    if dependency_change:
+        import zipfile
+
+        old_wheel = next(
+            local_wheel(
+                host.root / "old-wheel",
+                version="0.5",
+                value="old-sdk",
+            ).glob("*.whl"),
+        )
+        with zipfile.ZipFile(old_wheel) as archive:
+            archive.extractall(host.site)
+        (first / "requirements.txt").write_text("sample-shared-sdk==0.5\n")
+    await host.loader.load_plugin_from_path(first)
     await host.loader.lifecycle.update_config(KEY, {"custom": "keep"})
     old, before = await host.identity(ws)
     data = ws.workspace_dir / "business.json"
     data.write_text('{"retained":true}')
-    report = await host.loader.lifecycle.reload(
-        KEY,
-        new_source=host.artifact("2.0.0"),
-    )
-    assert report.ok, report.errors
+    candidate = host.artifact("2.0.0", sdk=dependency_change)
+    if dependency_change:
+        from qwenpaw.plugins.dependency_upgrade import (
+            DependencyUpgradeRequired,
+            dependency_upgrades,
+            install_with_upgrade,
+        )
+
+        wheels = local_wheel(host.root / "new-wheel")
+        local_certifi_wheel(wheels)
+        calls = []
+
+        def offline(command, **kwargs):
+            calls.append(command)
+            return subprocess.run(
+                [*command, "--no-index", "--find-links", str(wheels)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=kwargs["timeout"],
+            )
+
+        monkeypatch.setattr(
+            host.loader,
+            "_run_subprocess_with_streaming_log",
+            offline,
+        )
+        with pytest.raises(DependencyUpgradeRequired) as review:
+            await install_with_upgrade(host.loader, candidate, force=True)
+        manager = dependency_upgrades(host.loader)
+        operation = manager._read(review.value.operation["id"])
+        assert operation["force"] and not operation["requires_restart"]
+        assert (
+            len(calls) == 1
+        )  # The staged replacement retains the successful wheels.
+        assert alive(before["pid"])
+        assert (await host.identity(ws))[1]["sdk"] == "old-sdk"
+        result = await manager.apply(operation["id"])
+        assert result["status"] == "succeeded", result
+    else:
+        report = await host.loader.lifecycle.reload(KEY, new_source=candidate)
+        assert report.ok, report.errors
     fresh, after = await host.identity(ws)
     assert not alive(before["pid"]) and after["version"] == "2.0.0"
     assert fresh._launch_spec.generation > old._launch_spec.generation
@@ -784,6 +1409,9 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
     business.write_text("keep")
     user_config = ws.workspace_dir / "agent.json"
     config_before = user_config.read_bytes()
+    host.loader._recovery_blocked[
+        KEY
+    ] = "Recovery has runtime resources; unload first"
     await host.loader.lifecycle.set_enabled(KEY, False)
     assert (
         not alive(before["pid"])
@@ -827,6 +1455,77 @@ async def test_application_shutdown_reaps_workers_and_preserves_installed_code(
             for ws in workspaces
         ],
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    ["failed", "disconnected", "exited", "timeout"],
+)
+async def test_connection_failure_logs_actual_state_without_changing_refusal(
+    host,
+    caplog,
+    failure,
+):
+    import logging
+    from dataclasses import replace
+
+    caplog.set_level(logging.INFO, logger="qwenpaw.plugins.startup")
+    host.registry.channel_runtime = replace(
+        host.registry.channel_runtime,
+        connection_timeout=0.2 if failure == "timeout" else None,
+    )
+    await host.workspace("diagnostic")
+    source = host.artifact(fail_start=failure == "failed")
+    if failure != "failed":
+        code = source / "sample.py"
+        injected = {
+            "disconnected": 'await self._context.set_platform_state("disconnected")',
+            "exited": "os._exit(23)",
+            "timeout": "pass",
+        }[failure]
+        code.write_text(
+            code.read_text().replace(
+                "    async def start(self, config):\n",
+                "    async def start(self, config):\n"
+                f"        {injected}\n"
+                "        import asyncio\n"
+                "        await asyncio.sleep(2)\n",
+            ),
+        )
+    with pytest.raises(Exception) as refused:
+        await host.loader.load_plugin_from_path(source)
+    if failure != "timeout":
+        assert "CHANNEL_NOT_CONNECTED" in str(refused.value)
+
+    def observed():
+        return [
+            json.loads(record.getMessage().partition(" ")[2])
+            for record in caplog.records
+            if record.name == "qwenpaw.plugins.startup"
+        ]
+
+    await eventually(
+        lambda: any(row["event"] == "connection_failed" for row in observed()),
+    )
+    if failure == "exited":
+        await eventually(
+            lambda: any(row["event"] == "worker_exited" for row in observed()),
+        )
+    events = observed()
+    event = next(row for row in events if row["event"] == "connection_failed")
+    assert event["plugin_id"] == KEY and event["instance_id"]
+    assert event["generation"] >= 1 and event["elapsed_ms"] >= 0
+    if failure in {"failed", "disconnected"}:
+        assert event["health"]["platform_state"] == failure
+    elif failure == "timeout":
+        assert event["reason"] == "timeout"
+        assert event["health"]["platform_state"] == "connecting"
+    else:
+        assert any(
+            row["event"] == "worker_exited" and row["returncode"] == 23
+            for row in events
+        )
 
 
 @pytest.mark.asyncio
@@ -979,7 +1678,7 @@ def legacy_start(request, host, tmp_path, monkeypatch):
     from qwenpaw.app.channels.manager import ChannelManager
     from qwenpaw.plugins.architecture import PluginManifest
     from qwenpaw.plugins.channel_adapter import describe_channel
-    from qwenpaw.plugins import azure_legacy, matrix_legacy
+    from qwenpaw.plugins import azure_legacy
 
     key = request.param
     root = Path(__file__).resolve().parents[3]
@@ -1020,34 +1719,18 @@ def legacy_start(request, host, tmp_path, monkeypatch):
     }
     config_path = legacy / "config.json"
     config_path.write_text(json.dumps(config))
-    reader = azure_legacy if key == "azure_bot" else matrix_legacy
-    reader_name = "_snapshot" if key == "azure_bot" else "read_json_snapshot"
-    filename = (
-        "azure_bot_refs.json"
-        if key == "azure_bot"
-        else "matrix_auth_state.json"
-    )
-    state = (
-        {"room": {"service_url": "https://bot.test"}}
-        if key == "azure_bot"
-        else {"user_id": "@alice:matrix.test", "device_id": "DEVICE"}
-    )
+    reader = azure_legacy
+    reader_name = "_snapshot"
+    filename = "azure_bot_refs.json"
+    state = {"room": {"service_url": "https://bot.test"}}
     (legacy / filename).write_text(json.dumps(state))
-    capture_fn = (
-        azure_legacy.capture_azure_legacy
-        if key == "azure_bot"
-        else matrix_legacy.capture_matrix_legacy
-    )
+    capture_fn = azure_legacy.capture_azure_legacy
     capture = capture_fn(
         config_path=config_path,
         legacy_state_dir=legacy,
         working_dir=legacy,
     )
-    field = (
-        "legacy_reference_owner"
-        if key == "azure_bot"
-        else "legacy_state_owner"
-    )
+    field = "legacy_reference_owner"
     manager = ChannelManager([])
     manager._workspace_dir = workspace
     manager._workspace_config = SimpleNamespace(channels={key: values})
@@ -1075,7 +1758,7 @@ def legacy_start(request, host, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "legacy_start",
-    ["azure_bot", "matrix"],
+    ["azure_bot"],
     indirect=True,
 )
 async def test_legacy_start_preparation_yields_and_keeps_authorization(
@@ -1122,14 +1805,8 @@ async def test_legacy_start_preparation_yields_and_keeps_authorization(
         assert authorization["owner"]["workspace_dir"] == str(
             case.manager._workspace_dir,
         )
-        digest_key = (
-            "refs_sha256" if case.key == "azure_bot" else "auth_sha256"
-        )
-        captured = (
-            case.capture["entries"][0]
-            if case.key == "azure_bot"
-            else case.capture
-        )
+        digest_key = "refs_sha256"
+        captured = case.capture["entries"][0]
         assert authorization[digest_key] == captured[digest_key]
         assert calls and all(thread != loop_thread for thread in calls)
         assert len(calls) == 1
@@ -1149,8 +1826,6 @@ async def test_legacy_start_preparation_yields_and_keeps_authorization(
         ("azure_bot", "mutate"),
         ("azure_bot", "replace"),
         ("azure_bot", "publish"),
-        ("matrix", "cancel"),
-        ("matrix", "mutate"),
     ],
     indirect=["legacy_start"],
 )

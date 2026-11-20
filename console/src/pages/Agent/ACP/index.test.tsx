@@ -7,8 +7,18 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ACPAgentConfig, ACPConfig } from "../../../api/types";
+import { SettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
+
+// Recovery rendering/navigation is covered in the existing Mail form test.
+vi.mock("@/components/MCPFeatureStatus", () => ({
+  MCPFeatureStatus: (props: Record<string, unknown>) => {
+    mocks.mcpStatus(props);
+    return null;
+  },
+}));
 
 const mocks = vi.hoisted(() => ({
+  mcpStatus: vi.fn(),
   getACPConfig: vi.fn(),
   updateACPConfig: vi.fn(),
   updateACPAgentConfig: vi.fn(),
@@ -228,6 +238,32 @@ function deferred<T>() {
 }
 
 describe("ACP load guard", () => {
+  it("opens the Node path search target after loading without saving a path", async () => {
+    mocks.getACPConfig.mockReset().mockResolvedValue(loadedConfig);
+    mocks.getACPNodeRuntime.mockResolvedValue({
+      node_path: "/old/node",
+      effective_node_path: "/old/node",
+      candidates: [],
+    });
+    render(
+      <SettingsSearchRequest.Provider
+        value={{
+          page: "acp",
+          label: "Node path",
+          targetId: "acp.nodePath",
+          surface: "node",
+        }}
+      >
+        <ACPPage />
+      </SettingsSearchRequest.Provider>,
+    );
+    expect(
+      await screen.findByText("acp.nodePath", undefined, { timeout: 5000 }),
+    ).toBeVisible();
+    expect(mocks.getACPNodeRuntime).toHaveBeenCalled();
+    expect(mocks.updateACPNodeRuntime).not.toHaveBeenCalled();
+    expect(mocks.updateACPConfig).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     mocks.getACPConfig.mockReset();
     mocks.updateACPConfig.mockReset();
@@ -277,6 +313,7 @@ describe("ACP load guard", () => {
     fireEvent.click(retry);
 
     expect(await screen.findByText("existing-custom")).toBeInTheDocument();
+    const initialMCPCheck = mocks.mcpStatus.mock.lastCall?.[0].refreshKey;
     fireEvent.click(screen.getByRole("button", { name: "acp.create" }));
     fireEvent.click(screen.getByRole("button", { name: "save-new-agent" }));
 
@@ -293,6 +330,11 @@ describe("ACP load guard", () => {
         },
       },
       "default",
+    );
+    await waitFor(() =>
+      expect(mocks.mcpStatus.mock.lastCall?.[0].refreshKey).not.toBe(
+        initialMCPCheck,
+      ),
     );
   });
 

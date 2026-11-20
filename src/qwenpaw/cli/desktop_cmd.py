@@ -17,7 +17,7 @@ import webbrowser
 from collections.abc import Mapping
 from ipaddress import ip_address
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, url2pathname, urlopen
 
 import click
 
@@ -81,7 +81,25 @@ class WebViewAPI:
                 (".html", ".htm"),
             ):
                 return False
-            return webbrowser.open(uri)
+            if sys.platform != "win32":
+                # Only Windows ShellExecute percent-decodes file URLs with
+                # the ANSI code page (GBK on zh systems); every other
+                # platform's webbrowser.open expects a proper file URI —
+                # on macOS `open location` rejects a bare path.
+                return webbrowser.open(uri)
+            # Open the decoded local path, not the file:// URL: Windows
+            # ShellExecute percent-decodes file URLs with the ANSI code
+            # page (GBK on zh systems), so a UTF-8-percent-encoded URI for
+            # a Chinese workspace path fails with ERROR_FILE_NOT_FOUND.
+            # urlparse().path keeps the URI's forward slashes; url2pathname
+            # unquotes as UTF-8 and converts them to native separators.
+            # A UNC URI (file://server/share/...) carries the host in
+            # netloc, so re-add it as the leading // UNC hint before
+            # decoding — otherwise \\server\share collapses to \share.
+            path_for_decode = resolved.path
+            if resolved.netloc:
+                path_for_decode = f"//{resolved.netloc}{resolved.path}"
+            return webbrowser.open(url2pathname(path_for_decode))
         except Exception:
             logger.exception("open_workspace_html failed")
             return False
@@ -363,8 +381,7 @@ def desktop_cmd(
         # Using a flag is more reliable than checking specific exit codes
         if proc and proc.returncode != 0 and not manually_terminated:
             logger.error(
-                f"Backend process exited unexpectedly with code "
-                f"{proc.returncode}",
+                f"Backend process exited unexpectedly with code {proc.returncode}",
             )
             # Follow POSIX convention for exit codes:
             # - Negative (signal): 128 + signal_number

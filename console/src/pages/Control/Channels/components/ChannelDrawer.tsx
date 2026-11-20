@@ -33,6 +33,8 @@ import {
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { pluginErrorMessage } from "@/utils/pluginError";
+import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 import {
   captureChannelSaveJob,
   normalizeChannelSubmitValues,
@@ -194,12 +196,20 @@ export function ChannelDrawer({
   onRuntimeChange,
 }: ChannelDrawerProps) {
   const { t, i18n } = useTranslation();
+  const searchRequest = useSettingsSearchSurface("channels", open);
   const [repairing, setRepairing] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   useEffect(() => {
     if (open)
-      setExpandedSections(activeKey === "console" ? ["presentation"] : []);
-  }, [open, activeKey]);
+      setExpandedSections(
+        searchRequest?.surface === "channel"
+          ? ["advanced"]
+          : activeKey === "console"
+          ? ["presentation"]
+          : [],
+      );
+  }, [open, activeKey, searchRequest]);
   const disclosureProps = {
     activeKey: expandedSections,
     onChange: (keys: string | string[]) =>
@@ -295,6 +305,7 @@ export function ChannelDrawer({
     <>
       <Form.Item
         name="access_control_dm"
+        data-settings-target="channels.accessControlDm"
         label={t("channels.accessControlDm")}
         valuePropName="checked"
         tooltip={t("channels.accessControlDmTooltip")}
@@ -303,6 +314,7 @@ export function ChannelDrawer({
       </Form.Item>
       <Form.Item
         name="access_control_group"
+        data-settings-target="channels.accessControlGroup"
         label={t("channels.accessControlGroup")}
         valuePropName="checked"
         tooltip={t("channels.accessControlGroupTooltip")}
@@ -311,6 +323,7 @@ export function ChannelDrawer({
       </Form.Item>
       <Form.Item
         name="require_mention"
+        data-settings-target="channels.requireMention"
         label={t("channels.requireMention")}
         valuePropName="checked"
         tooltip={t("channels.requireMentionTooltip")}
@@ -1441,6 +1454,8 @@ export function ChannelDrawer({
               onError={(type) => {
                 if (type === "expired") {
                   message.warning(t("channels.wechatQrcodeExpired"));
+                } else if (type === "account-in-use") {
+                  message.error(t("channels.botConflictTitle"));
                 } else {
                   message.error(t("channels.wechatQrcodeFailed"));
                 }
@@ -1460,7 +1475,7 @@ export function ChannelDrawer({
               label={t("channels.wechatBotTokenFile")}
               tooltip={t("channels.wechatBotTokenFileTooltip")}
             >
-              <Input placeholder="~/.qwenpaw/wechat_bot_token" />
+              <Input placeholder="<workspace>/wechat/wechat_bot_token" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
@@ -2169,6 +2184,40 @@ export function ChannelDrawer({
       footer={null}
       key={activeKey} // Force remount when switching channels
     >
+      {channelSchema?.update && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("channels.update.available", {
+            version: channelSchema.update.version,
+          })}
+          action={
+            <Button
+              loading={updating}
+              disabled={repairing}
+              onClick={async () => {
+                setUpdating(true);
+                try {
+                  const result = await runPluginInstall(
+                    () => channelApi.updateChannelPlugin(channelSchema.update!),
+                    t,
+                  );
+                  if (result === null) return;
+                  await onRuntimeChange?.();
+                } catch (error) {
+                  message.error(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                } finally {
+                  setUpdating(false);
+                }
+              }}
+            >
+              {t("channels.update.action")}
+            </Button>
+          }
+        />
+      )}
       {channelSchema?.availability && (
         <Alert
           type="info"
@@ -2177,11 +2226,19 @@ export function ChannelDrawer({
             `channels.runtime.${channelSchema.availability}`,
             channelSchema.availability.replace(/_/g, " "),
           )}
-          description={channelSchema.diagnostic}
+          description={
+            channelSchema.diagnostic &&
+            pluginErrorMessage(
+              channelSchema.diagnostic,
+              t("pluginManager.installFailed"),
+              t,
+            )
+          }
           action={
             channelSchema.repair && (
               <Button
                 loading={repairing}
+                disabled={updating}
                 onClick={async () => {
                   setRepairing(true);
                   try {
@@ -2193,7 +2250,11 @@ export function ChannelDrawer({
                     await onRuntimeChange?.();
                   } catch (error) {
                     message.error(
-                      error instanceof Error ? error.message : String(error),
+                      pluginErrorMessage(
+                        error,
+                        t("pluginManager.installFailed"),
+                        t,
+                      ),
                     );
                   } finally {
                     setRepairing(false);
@@ -2212,6 +2273,7 @@ export function ChannelDrawer({
       {activeKey && (
         <Form
           form={form}
+          data-settings-target={activeKey ? `channel:${activeKey}` : undefined}
           layout="vertical"
           className={styles.channelForm}
           initialValues={formInitialValues}
@@ -2320,9 +2382,11 @@ export function ChannelDrawer({
                       activeKey === "telegram" ||
                       activeKey === "dingtalk" ||
                       activeKey === "feishu" ||
+                      activeKey === "qq" ||
                       activeKey === "discord" ||
                       activeKey === "slack" ||
-                      activeKey === "matrix") && (
+                      activeKey === "matrix" ||
+                      activeKey === "xiaoyi") && (
                       <>
                         <Form.Item
                           name="streaming_enabled"
@@ -2333,6 +2397,8 @@ export function ChannelDrawer({
                               ? t("channels.streamingEnabledDingtalkHint")
                               : activeKey === "feishu"
                               ? t("channels.streamingEnabledFeishuHint")
+                              : activeKey === "qq"
+                              ? t("channels.streamingEnabledQQHint")
                               : undefined
                           }
                         >
@@ -2356,6 +2422,19 @@ export function ChannelDrawer({
             ]}
           />
 
+          {searchRequest?.surface === "channel" &&
+            !searchRequest.channelKey &&
+            activeKey &&
+            !CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) && (
+              <Alert
+                type="info"
+                data-settings-target={searchRequest.targetId}
+                message={t(
+                  "settingsCenter.searchUnsupportedChannel",
+                  "This channel does not support these access control settings.",
+                )}
+              />
+            )}
           {activeKey !== "console" && (
             <Collapse
               {...disclosureProps}

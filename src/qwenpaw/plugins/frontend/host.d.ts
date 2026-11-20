@@ -107,6 +107,29 @@ export interface ChatSubmitInput {
   sessionId: string;
 }
 
+/**
+ * Theme roles a plugin may override: `styles/tokens.css` roles without the
+ * `--app-` prefix. The set is closed on purpose — the remaining `--app-*`
+ * roles stay host implementation details.
+ */
+export type ThemeTokenKey =
+  | "bg"
+  | "surface"
+  | "surface-raised"
+  | "border"
+  | "text"
+  | "text-secondary";
+
+/** Both schemes are required, so a theme can never leave one unreadable. */
+export interface ThemeTokenValue {
+  light: string;
+  dark: string;
+}
+
+export type ThemeTokenOverrides = Partial<
+  Record<ThemeTokenKey, ThemeTokenValue>
+>;
+
 export interface QwenPawChatNamespace {
   /** Last registration for a language wins; disposing it restores the previous one. */
   codeBlock(
@@ -135,6 +158,12 @@ export interface QwenPawChatNamespace {
       pluginId: string,
       partial: Partial<{ colorPrimary: string }>,
     ): Disposable;
+    /**
+     * Override semantic theme roles for light and dark schemes at once.
+     * Later registrations win per token; disposing falls back to the
+     * registration below it.
+     */
+    overrideTokens(pluginId: string, tokens: ThemeTokenOverrides): Disposable;
   };
   leftHeader: {
     set(
@@ -310,6 +339,23 @@ export interface QwenPawMemoryBackendsNamespace {
   register(pluginId: string, extension: MemoryBackendExtension): Disposable;
 }
 
+/** Harness frontend settings contributions, available since SDK 1.1.0. */
+export interface HarnessSettingsProps {
+  backendId: string;
+  value: Record<string, unknown>;
+  onChange(value: Record<string, unknown>): void;
+  open: boolean;
+}
+
+export interface HarnessFrontendExtension {
+  backendId: string;
+  SettingsComponent?: React.ComponentType<HarnessSettingsProps>;
+}
+
+export interface QwenPawHarnessesNamespace {
+  register(pluginId: string, extension: HarnessFrontendExtension): Disposable;
+}
+
 export interface PluginRouteDeclaration {
   path: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -322,11 +368,116 @@ export interface PluginRouteDeclaration {
   priority?: number;
 }
 
+export type MenuLocation =
+  | "primary.agentScoped"
+  | "primary.settings"
+  | "userMenu";
+export interface MenuItem {
+  id: string;
+  location?: MenuLocation;
+  parentId?: string;
+  before?: string;
+  after?: string;
+  order?: number;
+  label: string | (() => React.ReactNode);
+  icon?: React.ComponentType<any> | React.ReactNode;
+  route?: string;
+  href?: string;
+  visible?: () => boolean;
+  isGroup?: boolean;
+  divider?: boolean;
+}
+export type RouteDomain =
+  | "chat"
+  | "tasks"
+  | "workspace"
+  | "extensions"
+  | "settings";
+export type RouteScope = "global" | "agent" | "session" | "workspace";
+export type RouteLayout = "standard" | "workbench" | "immersive";
+export type RouteNavigation = "rail" | "context" | "settings" | "search-only";
+
+export interface RouteMeta {
+  domain: RouteDomain;
+  title: Localized<string>;
+  description?: Localized<string>;
+  scope: RouteScope;
+  layout: RouteLayout;
+  navigation: RouteNavigation;
+}
+
+export interface Route {
+  id: string;
+  path: string;
+  component: React.ComponentType<any>;
+  meta?: RouteMeta;
+}
+
+export type RouteWrapper = (
+  Inner: React.ComponentType<any>,
+) => React.ComponentType<any>;
+
+export type SlotName = string;
+export type SlotKind = "fill" | "replace";
+export interface SlotOpts {
+  id?: string;
+  order?: number;
+  visible?: () => boolean;
+  before?: string;
+  after?: string;
+}
+
+export type SlotRenderer = (
+  defaultContent?: React.ReactNode,
+) => React.ReactNode;
+export interface SlotInfo {
+  name: SlotName;
+  kind: SlotKind;
+  source: string;
+  id?: string;
+  order?: number;
+}
+export interface QwenPawMenuNamespace {
+  add(pluginId: string, item: MenuItem | MenuItem[]): Disposable;
+  replace(pluginId: string, targetId: string, item: MenuItem): Disposable;
+  remove(targetId: string): void;
+  snapshot(location?: MenuLocation): MenuItem[];
+}
+export interface QwenPawRouteNamespace {
+  add(pluginId: string, route: Route | Route[]): Disposable;
+  replace(
+    pluginId: string,
+    targetId: string,
+    component: React.ComponentType<any>,
+  ): Disposable;
+  wrap(pluginId: string, targetId: string, wrapper: RouteWrapper): Disposable;
+  remove(targetId: string): void;
+}
+export interface QwenPawSlotNamespace {
+  fill(
+    pluginId: string,
+    name: SlotName,
+    render: SlotRenderer,
+    opts?: SlotOpts,
+  ): Disposable;
+  replace(
+    pluginId: string,
+    name: SlotName,
+    render: SlotRenderer,
+    opts?: SlotOpts,
+  ): Disposable;
+  snapshot(): SlotInfo[];
+}
+
 export interface QwenPawWindowNamespace {
+  menu: QwenPawMenuNamespace;
+  route: QwenPawRouteNamespace;
+  slot: QwenPawSlotNamespace;
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   memoryBackends: QwenPawMemoryBackendsNamespace;
+  harnesses: QwenPawHarnessesNamespace;
   modules: Record<string, Record<string, unknown>>;
   paw?: {
     forApp(appId: string): import("./paw.js").PawSdk;

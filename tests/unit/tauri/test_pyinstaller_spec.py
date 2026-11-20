@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 from pathlib import Path
+import runpy
+import shutil
+from types import SimpleNamespace
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SPEC_PATH = REPO_ROOT / "scripts" / "pack-tauri" / "qwenpaw.spec"
+WHISPER_SOURCE = Path("plugins/transcription/local-whisper")
+WHISPER_BUNDLE = Path("qwenpaw/plugins/bundled/transcription/local-whisper")
 
 
 def _collected_submodule_packages() -> set[str]:
@@ -138,6 +143,13 @@ def test_desktop_spec_collects_provider_catalog_data():
     ) in _data_directories()
 
 
+def test_desktop_spec_collects_visual_compression_assets():
+    assert (
+        "agents/context/visual_compression/assets",
+        "qwenpaw/agents/context/visual_compression/assets",
+    ) in _data_directories()
+
+
 def test_desktop_spec_collects_reme_entry_point_plugins():
     plugin_modules = {"reme_auto_fin", "reme_daily_paper"}
     plugin_distributions = {"reme-auto-fin", "reme-daily-paper"}
@@ -145,6 +157,170 @@ def test_desktop_spec_collects_reme_entry_point_plugins():
     assert plugin_modules <= _collected_submodule_packages()
     assert plugin_modules <= _called_packages("collect_data_files")
     assert {"reme-ai", *plugin_distributions} <= _metadata_packages()
+
+
+def test_optional_runtimes_stay_out_of_full_and_desktop():
+    import tomllib
+    from packaging.requirements import Requirement
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+        "project"
+    ]
+    full = {
+        extra
+        for item in project["optional-dependencies"]["full"]
+        for extra in Requirement(item).extras
+    }
+    assert {"channels", "qwenpaw-data", "hub", "local"} <= full
+    assert not {"whisper", "codex", "qoder"} & full
+    assert (
+        not {
+            "openai-whisper",
+            "openai-codex",
+            "openai-codex-cli-bin",
+            "qoder-agent-sdk",
+        }
+        & _metadata_packages()
+    )
+    tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"))
+    analysis = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "Analysis"
+    )
+    excluded = {
+        item.value
+        for keyword in analysis.keywords
+        if keyword.arg == "excludes"
+        for item in keyword.value.elts
+        if isinstance(item, ast.Constant)
+    }
+    assert {
+        "whisper",
+        "torch",
+        "openai_codex",
+        "codex_cli_bin",
+        "qoder_agent_sdk",
+    } <= excluded
+
+
+def test_optional_audio_verifier_accepts_shipped_plugin(tmp_path, monkeypatch):
+    """Validate the real adapter files without building desktop executables."""
+    bundle = tmp_path / "bundle"
+    shutil.copytree(
+        REPO_ROOT / WHISPER_SOURCE,
+        bundle / "_internal" / WHISPER_BUNDLE,
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    archive = SimpleNamespace(
+        toc={"PYZ.pyz": None},
+        open_embedded_archive=lambda _name: SimpleNamespace(toc={}),
+    )
+    monkeypatch.setattr(
+        "PyInstaller.archive.readers.CArchiveReader",
+        lambda _path: archive,
+    )
+    verify = runpy.run_path(
+        str(SPEC_PATH.parent / "verify_optional_audio.py"),
+    )["verify"]
+
+    assert verify(bundle)["optional_audio_check"] == "passed"
+
+
+def test_desktop_spec_reaches_analysis_without_vendor_sdks(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Run real collectors with a bounded installed full dependency graph."""
+    assert importlib.util.find_spec("qoder_agent_sdk") is None
+    assert importlib.util.find_spec("codex_cli_bin") is None
+
+    # The core test environment does not install desktop's full extra. Its
+    # editable metadata may also predate a dependency move to a plugin.
+    # Keep the selected full graph explicit while collecting its installed
+    # transitive distributions through the production metadata collector.
+    metadata = tmp_path / "qwenpaw-0.0.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: qwenpaw\nVersion: 0.0.0\n"
+        "Provides-Extra: full\n"
+        "Requires-Dist: openai; extra == 'full'\n"
+        "Requires-Dist: pydantic; extra == 'full'\n"
+        "Requires-Dist: httpx; extra == 'full'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    # Stage the real spec and collectors with a controlled Console input so
+    # this backend unit test does not require a complete frontend build.
+    staged_root = tmp_path / "repo"
+    staged_pack = staged_root / "scripts" / "pack-tauri"
+    staged_pack.mkdir(parents=True)
+    for name in ("qwenpaw.spec", "collect_runtime_metadata.py"):
+        (staged_pack / name).symlink_to(SPEC_PATH.parent / name)
+    (staged_root / "pyproject.toml").symlink_to(REPO_ROOT / "pyproject.toml")
+    for name in ("src", "packages", "plugins"):
+        (staged_root / name).symlink_to(
+            REPO_ROOT / name,
+            target_is_directory=True,
+        )
+    console_dist = staged_root / "console" / "dist"
+    console_dist.mkdir(parents=True)
+    (console_dist / "index.html").write_text(
+        "<!doctype html>",
+        encoding="utf-8",
+    )
+
+    class ReachedAnalysis(Exception):
+        """Stop before the expensive onedir build."""
+
+    collected_data = []
+
+    def stop_at_analysis(*_args, **kwargs):
+        collected_data.extend(kwargs["datas"])
+        raise ReachedAnalysis
+
+    with pytest.raises(ReachedAnalysis):
+        runpy.run_path(
+            str(staged_pack / "qwenpaw.spec"),
+            init_globals={
+                "SPECPATH": str(staged_pack),
+                "Analysis": stop_at_analysis,
+            },
+        )
+
+    staged_files = {
+        (Path(source), Path(destination))
+        for source, destination in collected_data
+    }
+    assert {
+        (staged_root / WHISPER_SOURCE / name, WHISPER_BUNDLE)
+        for name in ("plugin.py", "plugin.json")
+    } <= staged_files
+    metadata_names = {
+        destination.partition("-")[0].replace("_", "-")
+        for _source, destination in collected_data
+        if destination.endswith(".dist-info")
+    }
+    host_transitives = {
+        "typing-extensions",
+        "typing-inspection",
+        "annotated-types",
+        "certifi",
+        "jiter",
+        "distro",
+    }
+    assert host_transitives <= metadata_names
+    assert (
+        not {
+            "openai-codex",
+            "codex-cli-bin",
+            "qoder-agent-sdk",
+        }
+        & metadata_names
+    )
 
 
 def test_executable_scripts_preserves_runtime_hooks_and_selected_entry(

@@ -577,16 +577,10 @@ class OpenAIProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
-        max_tokens = gen_kwargs.pop("max_tokens", None)
-        if _uses_max_completion_tokens(model_id):
-            if max_tokens is not None:
-                gen_kwargs.setdefault(
-                    "max_completion_tokens",
-                    max_tokens,
-                )
-            max_tokens = None
+        # AgentScope unconditionally turns Parameters.max_tokens into
+        # max_completion_tokens. Keep output caps in the compatibility layer
+        # so it can normalize defaults and per-call overrides together.
         parameters = OpenAIChatModel.Parameters(
-            max_tokens=max_tokens,
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
         )

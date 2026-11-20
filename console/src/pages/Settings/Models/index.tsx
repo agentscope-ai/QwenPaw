@@ -405,6 +405,7 @@ function ModelsPage() {
                   type="button"
                   role="tab"
                   aria-selected={activeTab === "cloud"}
+                  data-settings-tab="cloud"
                   className={[
                     styles.tabItem,
                     activeTab === "cloud" ? styles.tabItemActive : "",
@@ -427,6 +428,8 @@ function ModelsPage() {
                   type="button"
                   role="tab"
                   aria-selected={activeTab === "local"}
+                  data-settings-tab="local"
+                  data-settings-target="models.localCustomGroup"
                   className={[
                     styles.tabItem,
                     activeTab === "local" ? styles.tabItemActive : "",

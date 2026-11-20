@@ -7,7 +7,7 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-SDK_VERSION = "1.0.0"
+SDK_VERSION = "1.2.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",
@@ -24,10 +24,13 @@ SDK_CAPABILITIES = frozenset(
         "skills",
         "markets",
         "providers",
+        "transcription",
         "memory",
         "events",
         "apps",
         "channels",
+        "drivers",
+        "harnesses",
     },
 )
 
@@ -67,6 +70,10 @@ def validate_sdk(declaration, plugin_id=None):
         raise SDKCompatibilityError(
             f"Unsupported SDK capabilities: {sorted(missing)}",
         )
+    if "harnesses" in capabilities and requested < Version("1.1.0"):
+        raise SDKCompatibilityError("harnesses requires SDK version >= 1.1.0")
+    if "drivers" in capabilities and requested < Version("1.2.0"):
+        raise SDKCompatibilityError("drivers requires SDK version >= 1.2.0")
     secrets = declaration.get("secrets", [])
     if not isinstance(secrets, list) or not all(
         isinstance(name, str) and name for name in secrets

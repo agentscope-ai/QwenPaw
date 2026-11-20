@@ -9,11 +9,16 @@ from dataclasses import dataclass
 from email.parser import BytesParser
 import hashlib
 import io
+import logging
+import mmap
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import shutil
 import stat
+import tempfile
+import threading
 from typing import Mapping
 import zipfile
 
@@ -21,11 +26,33 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+from .dependency_process import check_cancelled, install_cancel
 from .execution.dependencies import (
     DependencySnapshot,
     dependency_error,
     valid_metadata_headers,
 )
+
+
+logger = logging.getLogger(__name__)
+# Native Torch/CUDA wheels exceed the budgets used by pure Python plugins.
+_MAX_WHEEL_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_WHEEL_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024
+_IN_MEMORY_BYTES = 1024 * 1024
+_MAX_PARSED_BYTES = 16 * 1024 * 1024
+
+
+def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
+    """Keep public errors unchanged; correlate fixed reasons with the caller."""
+    logger.info(
+        "Wheel validation rejected: thread=%s reason=%s",
+        threading.get_ident(),
+        reason,
+    )
+    error = dependency_error(code)
+    if detail is not None:
+        error.args = (f"{code}: {detail}",)
+    return error
 
 
 @dataclass(frozen=True)
@@ -36,108 +63,274 @@ class WheelAddition:
     sha256: str
 
 
-class WheelFiles(dict[str, bytes]):
-    """Validated target-relative files and their executable script paths."""
+class _PayloadStore:
+    """One transaction file and mapping shared by all large wheel members."""
 
     def __init__(self):
+        self.file = None
+        self.mapping = None
+        self.pending = []
+        self.views = []
+
+    def stage(self, source, info, members):
+        if self.file is None:
+            self.file = tempfile.TemporaryFile()
+        offset = self.file.seek(0, os.SEEK_END)
+        _copy_bounded(source, self.file, info.file_size)
+        self.pending.append((members, info.filename, offset, info.file_size))
+
+    def seal(self):
+        if self.file is None:
+            return
+        self.mapping = mmap.mmap(
+            self.file.fileno(),
+            0,
+            access=mmap.ACCESS_READ,
+        )
+        for members, name, offset, size in self.pending:
+            view = memoryview(self.mapping)[offset : offset + size]
+            self.views.append(view)
+            members[name] = view
+        self.pending.clear()
+
+    def close(self):
+        for view in self.views:
+            view.release()
+        self.views.clear()
+        self.pending.clear()
+        if self.mapping is not None:
+            self.mapping.close()
+            self.mapping = None
+        if self.file is not None:
+            self.file.close()
+            self.file = None
+
+
+class WheelFiles(dict[str, bytes | memoryview]):
+    """Validated files whose backing storage lives until the owner closes it.
+
+    Small files are bytes. Large files are read-only views of one private
+    transaction mapping. Callers must retain this owner through publication
+    and close it on success, failure or cancellation.
+    """
+
+    def __init__(self, store=None):
         super().__init__()
         self.executable_paths: set[str] = set()
+        self._store = store if store is not None else _PayloadStore()
+
+    def close(self):
+        self._store.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        from ..utils.io_utils import run_sync_io
+
+        await run_sync_io(self.close)
+
+
+def _copy_bounded(source, target, limit):
+    """Snapshot untrusted input with bounded reads and an actual byte limit."""
+    cancel = install_cancel.get()
+    size = 0
+    digest = hashlib.sha256()
+    while True:
+        check_cancelled(cancel)
+        chunk = source.read(_IN_MEMORY_BYTES)
+        if not chunk:
+            break
+        size += len(chunk)
+        if limit is not None and size > limit:
+            raise _reject("archive size limit exceeded")
+        digest.update(chunk)
+        if target is not None:
+            target.write(chunk)
+    check_cancelled(cancel)
+    if target is not None:
+        target.flush()
+        target.seek(0)
+    return digest.hexdigest()
+
+
+def hash_wheel(path: Path) -> str:
+    with path.open("rb") as source:
+        return _copy_bounded(source, None, None)
+
+
+def copy_wheel(path: Path, destination: Path) -> str:
+    with path.open("rb") as source, destination.open("wb") as target:
+        digest = _copy_bounded(source, target, None)
+    shutil.copystat(path, destination)
+    return digest
+
+
+def _member_content(archive, info, members):
+    """Stage large members; seal replaces their placeholders with views."""
+    if info.file_size <= _IN_MEMORY_BYTES:
+        return archive.read(info)
+    with archive.open(info) as source:
+        members._store.stage(source, info, members)
+    return b""
+
+
+def _parsed_bytes(content: bytes | memoryview) -> bytes:
+    """Bound whole-member allocations for text parsing and script rewriting."""
+    if len(content) > _MAX_PARSED_BYTES:
+        raise _reject("parsed member size limit exceeded")
+    return bytes(content)
+
+
+def decode_wheel_record(content: bytes | memoryview) -> str:
+    """Decode a bounded wheel RECORD from either payload representation."""
+    return _parsed_bytes(content).decode("utf-8")
 
 
 # lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
-# Retain expanded byte limits while allowing ordinary large SDK wheels.
-def _members(addition: WheelAddition) -> dict[str, bytes]:
+def _members(addition: WheelAddition, store=None) -> WheelFiles:
     path = Path(addition.path)
     if (
         path.is_symlink()
         or not path.is_file()
-        or path.stat().st_size > 128 * 1024 * 1024
+        or path.stat().st_size > _MAX_WHEEL_BYTES
     ):
-        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-    # Validate and publish these immutable bytes; never reopen the path.
-    content = path.read_bytes()
-    if hashlib.sha256(content).hexdigest() != addition.sha256:
-        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-    result = WheelFiles()
-    normalized = set()
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        if (
-            len(archive.infolist()) > 50000
-            or sum(info.file_size for info in archive.infolist())
-            > 256 * 1024 * 1024
+        raise _reject("wheel file invalid")
+    result = WheelFiles(store)
+    try:
+        normalized = set()
+        # Parse a private snapshot; never reopen the caller's path after hashing.
+        with tempfile.TemporaryFile() as content:
+            with path.open("rb") as source:
+                digest = _copy_bounded(source, content, _MAX_WHEEL_BYTES)
+            if digest != addition.sha256:
+                raise _reject("wheel hash mismatch")
+            with zipfile.ZipFile(content) as archive:
+                _read_members(archive, path, result, normalized)
+        if any(
+            str(parent) in result
+            for name in result
+            for parent in PurePosixPath(name).parents
+            if str(parent) != "."
         ):
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-        for info in archive.infolist():
-            name = info.filename
-            relative = PurePosixPath(name)
-            # Reject every unsafe archive path form before reading members.
-            # pylint: disable=too-many-boolean-expressions
-            if (
-                not name
-                or "\\" in name
-                or ":" in name
-                or relative.is_absolute()
-                or any(
-                    part in {"", ".", ".."}
-                    for part in name.rstrip("/").split("/")
-                )
-                or stat.S_ISLNK(info.external_attr >> 16)
-            ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-            if info.is_dir():
-                continue
-            key = os.path.normcase(name).casefold()
-            # Entry-point declarations remain metadata; no launchers are made.
-            if key in normalized or name.endswith(".pth"):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-            normalized.add(key)
-            result[name] = archive.read(info)
-            if info.external_attr >> 16 & 0o111:
-                result.executable_paths.add(name)
-    if any(
-        str(parent) in result
-        for name in result
-        for parent in PurePosixPath(name).parents
-        if str(parent) != "."
-    ):
-        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-    return result
+            raise _reject("archive paths overlap")
+        if store is None:
+            result._store.seal()
+        return result
+    except BaseException:
+        if store is None:
+            result.close()
+        raise
 
 
-def _validate_record(files: Mapping[str, bytes], record: str) -> None:
-    rows = list(csv.reader(io.StringIO(files[record].decode("utf-8"))))
+def _read_members(archive, path, result, normalized):
+    cancel = install_cancel.get()
+    expanded = sum(info.file_size for info in archive.infolist())
+    if len(archive.infolist()) > 50000 or expanded > _MAX_WHEEL_UNPACKED_BYTES:
+        logger.info(
+            "Wheel archive exceeds resource budget: artifact=%s "
+            "actual_bytes=%s limit_bytes=%s entries=%s",
+            ascii(path.name)[1:-1][:160],
+            expanded,
+            _MAX_WHEEL_UNPACKED_BYTES,
+            len(archive.infolist()),
+        )
+        raise _reject(
+            "archive size limit exceeded",
+            detail=(
+                f"wheel archive size {expanded} bytes (limit "
+                f"{_MAX_WHEEL_UNPACKED_BYTES}); entries "
+                f"{len(archive.infolist())} (limit 50000)"
+            ),
+        )
+    for info in archive.infolist():
+        check_cancelled(cancel)
+        name = info.filename
+        relative = PurePosixPath(name)
+        # Reject every unsafe archive path form before reading members.
+        # pylint: disable=too-many-boolean-expressions
+        if (
+            not name
+            or "\\" in name
+            or ":" in name
+            or relative.is_absolute()
+            or any(
+                part in {"", ".", ".."} for part in name.rstrip("/").split("/")
+            )
+            or stat.S_ISLNK(info.external_attr >> 16)
+        ):
+            raise _reject("unsafe archive path")
+        if info.is_dir():
+            continue
+        key = os.path.normcase(name).casefold()
+        # Entry-point declarations remain metadata; no launchers are made.
+        if key in normalized or name.endswith(".pth"):
+            raise _reject("duplicate archive path or pth payload")
+        normalized.add(key)
+        result[name] = _member_content(archive, info, result)
+        if info.external_attr >> 16 & 0o111:
+            result.executable_paths.add(name)
+
+
+def _record_digest(content: bytes | memoryview, cancel):
+    if cancel is None or len(content) <= _IN_MEMORY_BYTES:
+        return hashlib.sha256(content).digest()
+    digest = hashlib.sha256()
+    with memoryview(content) as view:
+        for offset in range(0, len(view), _IN_MEMORY_BYTES):
+            check_cancelled(cancel)
+            digest.update(view[offset : offset + _IN_MEMORY_BYTES])
+    return digest.digest()
+
+
+def _validate_record(
+    files: Mapping[str, bytes | memoryview],
+    record: str,
+) -> None:
+    cancel = install_cancel.get()
+    rows = csv.reader(io.StringIO(decode_wheel_record(files[record])))
     seen = set()
     for row in rows:
+        check_cancelled(cancel)
         if len(row) != 3 or row[0] in seen or row[0] not in files:
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+            raise _reject("RECORD rows invalid")
         name, digest, length = row
         seen.add(name)
         if name == record:
             if digest or length:
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("RECORD self entry invalid")
             continue
         expected = (
-            base64.urlsafe_b64encode(hashlib.sha256(files[name]).digest())
+            base64.urlsafe_b64encode(_record_digest(files[name], cancel))
             .decode()
             .rstrip("=")
         )
         if digest != "sha256=" + expected or length != str(len(files[name])):
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+            raise _reject("RECORD hash mismatch")
     if seen != set(files):
-        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+        raise _reject("RECORD files incomplete")
 
 
 def _script_bytes(content, executable, windows):
     """Bind wheel Python scripts to the audited interpreter without running."""
+    if content[:8] != b"#!python":
+        return content, False
+    content = _parsed_bytes(content)
     first, _, rest = content.partition(b"\n")
     if first.rstrip(b"\r") not in {b"#!python", b"#!pythonw"}:
         return content, False
     if any(character in executable for character in "\r\n\x00"):
-        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+        raise _reject("unsafe interpreter path")
     encoded = os.fsencode(executable)
     if windows:
         if '"' in executable:
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+            raise _reject("unsafe Windows interpreter path")
         if any(character.isspace() for character in executable):
             encoded = b'"' + encoded + b'"'
         header = b"#!" + encoded + b"\n"
@@ -145,7 +338,7 @@ def _script_bytes(content, executable, windows):
         len(encoded) + 3 > 127
     ):
         if "\\" in executable:
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+            raise _reject("unsafe shell interpreter path")
         cookie, _, body = rest.partition(b"\n")
         if re.match(rb"[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+", cookie):
             rest = body
@@ -164,10 +357,31 @@ def _script_bytes(content, executable, windows):
     return header + rest, True
 
 
-# Data schemes and Windows device names must be rejected before publication.
-def _install_scripts(members, info, snapshot):
-    """Relocate verified script payloads within the target installation."""
+def _unsafe_target_component(component, windows):
+    """Apply the same portable name restrictions to scripts and data."""
+    return (
+        component.endswith((".", " "))
+        or any(ord(character) < 32 for character in component)
+        or (
+            windows
+            and (
+                any(character in '<>"|?*' for character in component)
+                or component.split(".", 1)[0].upper()
+                in {"CON", "PRN", "AUX", "NUL"}
+                | {
+                    f"{prefix}{number}"
+                    for prefix in ("COM", "LPT")
+                    for number in range(1, 10)
+                }
+            )
+        )
+    )
+
+
+def _install_data(members, info, snapshot):
+    """Relocate verified wheel data areas within the target installation."""
     # pylint: disable=too-many-boolean-expressions
+    cancel = install_cancel.get()
     directory = (
         "Scripts"
         if snapshot.marker_environment.get("os_name") == "nt"
@@ -175,55 +389,79 @@ def _install_scripts(members, info, snapshot):
         else "bin"
     )
     data = info.removesuffix(".dist-info") + ".data"
-    installed = WheelFiles()
+    installed = WheelFiles(members._store)
     scripts = set()
     destinations = set()
+    relocated = False
     for path, content in members.items():
+        check_cancelled(cancel)
         parts = PurePosixPath(path).parts
         destination = path
-        if any(part.endswith(".data") for part in parts):
+        if parts[0].casefold().endswith(".data"):
             if (
-                len(parts) != 3
-                or parts[:2] != (data, "scripts")
-                or parts[2].endswith((".", " "))
-                or parts[2].split(".", 1)[0].casefold() == "__init__"
-                or any(ord(character) < 32 for character in parts[2])
-                or (
-                    directory == "Scripts"
-                    and parts[2].split(".", 1)[0].upper()
-                    in {"CON", "PRN", "AUX", "NUL"}
-                    | {
-                        f"{prefix}{number}"
-                        for prefix in ("COM", "LPT")
-                        for number in range(1, 10)
-                    }
+                len(parts) < 3
+                or parts[0] != data
+                or parts[1] not in {"scripts", "data"}
+                or any(
+                    _unsafe_target_component(part, directory == "Scripts")
+                    for part in parts[2:]
                 )
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-            destination = f"{directory}/{parts[2]}"
-            scripts.add(destination)
-            content, python_script = _script_bytes(
-                content,
-                snapshot.executable,
-                directory == "Scripts",
-            )
-            if (python_script and directory == "bin") or (
-                path in members.executable_paths
-            ):
-                installed.executable_paths.add(destination)
+                raise _reject("unsupported wheel data payload")
+            relocated = True
+            if parts[1] == "scripts":
+                if (
+                    len(parts) != 3
+                    or parts[2].split(".", 1)[0].casefold() == "__init__"
+                ):
+                    raise _reject("unsupported script payload")
+                destination = f"{directory}/{parts[2]}"
+                scripts.add(destination)
+                content, python_script = _script_bytes(
+                    content,
+                    snapshot.executable,
+                    directory == "Scripts",
+                )
+                if (python_script and directory == "bin") or (
+                    path in members.executable_paths
+                ):
+                    installed.executable_paths.add(destination)
+            else:
+                if (
+                    parts[2]
+                    .casefold()
+                    .endswith(
+                        (".dist-info", ".egg-info", ".data"),
+                    )
+                ):
+                    raise _reject("data payload introduces metadata or scheme")
+                destination = "/".join(parts[2:])
+                if path in members.executable_paths:
+                    installed.executable_paths.add(destination)
         if destination.casefold() in destinations:
-            raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+            raise _reject("wheel data paths overlap")
         destinations.add(destination.casefold())
         installed[destination] = content
-    if scripts:
+        if path in members.executable_paths:
+            installed.executable_paths.add(destination)
+    if relocated:
+        directories = {}
+        for parent in _directories(installed):
+            key = parent.casefold()
+            if key in destinations or (
+                key in directories and directories[key] != parent
+            ):
+                raise _reject("wheel data paths overlap")
+            directories[key] = parent
         record = f"{info}/RECORD"
         rows = io.StringIO(newline="")
         writer = csv.writer(rows, lineterminator="\n")
         for path, content in installed.items():
+            check_cancelled(cancel)
             if path != record:
                 digest = (
                     base64.urlsafe_b64encode(
-                        hashlib.sha256(content).digest(),
+                        _record_digest(content, cancel),
                     )
                     .decode()
                     .rstrip("=")
@@ -237,11 +475,8 @@ def _install_scripts(members, info, snapshot):
 def _check_script_paths(scripts, directory, snapshot, target):
     """Allow shared script directories without merging import providers."""
     key = directory.casefold()
-    if any(
-        key in {top.casefold() for top in row["top_level"]}
-        for row in snapshot.distributions.values()
-    ):
-        raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+    # top_level.txt may name a shared script directory (e.g. PyODPS's bin).
+    # Check actual modules, package markers and paths, not that claim alone.
     for site in snapshot.sites:
         root = Path(site)
         for child in root.iterdir() if root.is_dir() else ():
@@ -255,11 +490,17 @@ def _check_script_paths(scripts, directory, snapshot, target):
                     )
                     or (root == target and child.name != directory)
                 ):
-                    raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+                    raise _reject(
+                        "script directory is unsafe",
+                        "DEPENDENCY_RESTART_REQUIRED",
+                    )
             elif child.name.split(".", 1)[0].casefold() == key and (
                 child.suffix.lower() in {".py", ".pyc", ".so", ".pyd"}
             ):
-                raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+                raise _reject(
+                    "script directory conflicts with installed module",
+                    "DEPENDENCY_RESTART_REQUIRED",
+                )
     destination = target / directory
     existing = (
         {path.name.casefold() for path in destination.iterdir()}
@@ -269,7 +510,10 @@ def _check_script_paths(scripts, directory, snapshot, target):
     if any(
         PurePosixPath(path).name.casefold() in existing for path in scripts
     ):
-        raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+        raise _reject(
+            "script already installed",
+            "DEPENDENCY_RESTART_REQUIRED",
+        )
 
 
 def _directories(files):
@@ -316,7 +560,7 @@ def _check_overlap(left, left_dirs, right, right_dirs, reason):
         or left_modules & (right_modules | right_dirs)
         or right_modules & left_dirs
     ):
-        raise dependency_error(reason)
+        raise _reject("archive paths overlap", reason)
 
 
 def _check_installed_tree(
@@ -328,6 +572,7 @@ def _check_installed_tree(
     reason="DEPENDENCY_RESTART_REQUIRED",
 ):
     """Inspect only intersecting directories, retaining namespace siblings."""
+    cancel = install_cancel.get()
     replaced = {Path(path) for path in replaced}
     owned_dirs = {parent for path in replaced for parent in path.parents}
 
@@ -353,13 +598,15 @@ def _check_installed_tree(
         root = Path(site)
         existing, existing_dirs = set(), set()
         for relative in {".", *directories}:
+            check_cancelled(cancel)
             directory = root / relative
             if directory.is_symlink():
-                raise dependency_error(reason)
+                raise _reject("installed directory is linked", reason)
             if not directory.is_dir():
                 continue
             with os.scandir(directory) as entries:
                 for entry in entries:
+                    check_cancelled(cancel)
                     if not retained(Path(entry.path)):
                         continue
                     path = str(PurePosixPath(relative) / entry.name)
@@ -382,39 +629,63 @@ def validate_additions(
     additions: tuple[WheelAddition, ...],
     snapshot: DependencySnapshot,
     target: Path,
-) -> tuple[dict[str, bytes], DependencySnapshot]:
-    """Return verified bytes and proposed metadata for closure checks."""
-    files = WheelFiles()
+    *,
+    files: WheelFiles | None = None,
+) -> tuple[WheelFiles, DependencySnapshot]:
+    """Return verified buffers and proposed metadata for closure checks."""
+    cancel = install_cancel.get()
+    owns_files = files is None
+    if files is None:
+        files = WheelFiles()
+    validated = False
     distributions = dict(snapshot.distributions)
     occupied = set()
     script_directories = set()
     script_paths = set()
+    artifact, stage = "<unknown>", "wheel filename"
     try:
+        staged = []
+        names = set(distributions)
         for addition in additions:
-            name, version, _, tags = parse_wheel_filename(
-                Path(addition.path).name,
-            )
+            check_cancelled(cancel)
+            artifact, stage = "<unknown>", "wheel filename"
+            artifact = Path(addition.path).name
+            name, version, _, tags = parse_wheel_filename(artifact)
             name = str(name)
-            if name in distributions:
-                raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+            if name in names:
+                raise _reject(
+                    "distribution already installed",
+                    "DEPENDENCY_RESTART_REQUIRED",
+                )
+            names.add(name)
             if not {str(tag) for tag in tags}.intersection(
                 snapshot.supported_tags,
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
-            members = _members(addition)
+                raise _reject("wheel tags incompatible")
+            stage = "archive"
+            members = _members(addition, files._store)
+            staged.append((artifact, name, version, tags, members))
+        files._store.seal()
+        for artifact, name, version, tags, members in staged:
+            check_cancelled(cancel)
+            stage = "metadata"
             infos = {
                 path.split("/", 1)[0]
                 for path in members
                 if path.split("/", 1)[0].endswith(".dist-info")
             }
             if len(infos) != 1:
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("dist-info directory count invalid")
             info = infos.pop()
             info_name, _, info_version = info.removesuffix(
                 ".dist-info",
             ).rpartition("-")
-            metadata = BytesParser().parsebytes(members[f"{info}/METADATA"])
-            wheel = BytesParser().parsebytes(members[f"{info}/WHEEL"])
+            metadata = BytesParser().parsebytes(
+                _parsed_bytes(members[f"{info}/METADATA"]),
+            )
+            wheel = BytesParser().parsebytes(
+                _parsed_bytes(members[f"{info}/WHEEL"]),
+            )
             if not valid_metadata_headers(
                 metadata,
                 ("Name", "Version"),
@@ -424,7 +695,7 @@ def validate_additions(
                 ("Wheel-Version", "Root-Is-Purelib"),
                 ("Build",),
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("metadata headers invalid")
             if (
                 canonicalize_name(metadata["Name"]) != name
                 or Version(metadata["Version"]) != version
@@ -434,24 +705,55 @@ def validate_additions(
                 or wheel["Root-Is-Purelib"] not in {"true", "false"}
                 or set(wheel.get_all("Tag", [])) != {str(tag) for tag in tags}
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("distribution identity mismatch")
             requires_python = metadata.get("Requires-Python")
             if requires_python and not SpecifierSet(requires_python).contains(
                 snapshot.marker_environment["python_full_version"],
                 prereleases=True,
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("Requires-Python incompatible")
+            stage = "RECORD"
             _validate_record(members, f"{info}/RECORD")
             tops = {
                 path.split("/", 1)[0]
                 for path in members
                 if not path.split("/", 1)[0].endswith(".data")
             }
-            members, scripts, directory = _install_scripts(
+            has_data = any(
+                path.startswith(
+                    info.removesuffix(".dist-info") + ".data/data/",
+                )
+                for path in members
+            )
+            stage = "wheel data"
+            members, scripts, directory = _install_data(
                 members,
                 info,
                 snapshot,
             )
+            provider_tops = [
+                top.split(".", 1)[0] for top in tops if top != info
+            ]
+            if has_data:
+                # Match the unchanged fresh audit for newly accepted data
+                # wheels, including conservative namespace import roots.
+                provider_tops = set(
+                    _parsed_bytes(members.get(f"{info}/top_level.txt", b""))
+                    .decode("utf-8")
+                    .split(),
+                ) or {name.replace("-", "_")}
+                for path in members:
+                    parts = path.split("/")
+                    part = parts[0]
+                    if (
+                        len(parts) == 2
+                        and part in {"bin", "Scripts"}
+                        and not parts[1].casefold().startswith("__init__.")
+                    ):
+                        continue
+                    if not part.endswith((".dist-info", ".egg-info")):
+                        provider_tops.add(part.split(".", 1)[0])
+                tops = {*provider_tops, info}
             stems = {top.split(".", 1)[0] for top in tops}
             if (
                 {stem.casefold() for stem in stems} & script_directories
@@ -462,11 +764,12 @@ def validate_additions(
                 )
                 or {path.casefold() for path in scripts} & script_paths
             ):
-                raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED")
+                raise _reject("script paths overlap")
             if scripts:
                 _check_script_paths(scripts, directory, snapshot, target)
                 script_directories.add(directory.casefold())
                 script_paths.update(path.casefold() for path in scripts)
+            stage = "ownership"
             directories = _directories(members)
             _check_overlap(
                 members,
@@ -478,6 +781,7 @@ def validate_additions(
             _check_installed_tree(members, directories, snapshot.sites)
             for site in snapshot.sites:
                 for origin in Path(site).glob("*.dist-info"):
+                    check_cancelled(cancel)
                     text = origin / "METADATA"
                     installed = (
                         BytesParser().parsebytes(text.read_bytes())
@@ -490,7 +794,10 @@ def validate_additions(
                     ) or origin.name.lower().replace("_", "-").startswith(
                         name + "-",
                     ):
-                        raise dependency_error("DEPENDENCY_RESTART_REQUIRED")
+                        raise _reject(
+                            "installed distribution identity conflicts",
+                            "DEPENDENCY_RESTART_REQUIRED",
+                        )
             occupied.update(stems)
             files.update(members)
             files.executable_paths.update(members.executable_paths)
@@ -498,12 +805,10 @@ def validate_additions(
                 "version": str(version),
                 "metadata_path": str(target / info),
                 "requires_dist": tuple(metadata.get_all("Requires-Dist", [])),
-                "top_level": tuple(
-                    sorted(
-                        top.split(".", 1)[0] for top in tops if top != info
-                    ),
-                ),
+                "top_level": tuple(sorted(provider_tops)),
             }
+        check_cancelled(cancel)
+        validated = True
     except (
         KeyError,
         TypeError,
@@ -511,9 +816,21 @@ def validate_additions(
         OSError,
         zipfile.BadZipFile,
     ) as exc:
+        logger.info(
+            "Wheel validation failed: thread=%s artifact=%s stage=%s "
+            "exception=%s errno=%s",
+            threading.get_ident(),
+            ascii(artifact)[1:-1][:160],
+            stage,
+            type(exc).__name__,
+            exc.errno if isinstance(exc, OSError) else None,
+        )
         if hasattr(exc, "reason_code"):
             raise
         raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED") from None
+    finally:
+        if not validated and owns_files:
+            files.close()
     return files, DependencySnapshot(
         snapshot.executable,
         snapshot.prefix,

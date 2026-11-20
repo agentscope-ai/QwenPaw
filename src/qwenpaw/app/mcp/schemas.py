@@ -16,6 +16,7 @@ class MCPClientOAuthStatus(BaseModel):
     expires_at: float = 0.0
     scope: str = ""
     client_id: str = ""
+    can_revoke: bool = False
 
 
 class MCPAccessSummary(BaseModel):

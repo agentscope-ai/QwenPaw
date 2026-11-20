@@ -314,6 +314,7 @@ jobs:
           python -m pip install --upgrade "pip>=26.2.2"
           python -m pip install --upgrade "certifi>=2026.10.19"
 
+      # Prepare CloudPaw before workers share the Python environment.
       - name: Install dependencies
         shell: bash
         run: |
@@ -328,9 +329,9 @@ jobs:
           # beforehand gets upgraded away by this resolution again
           # (reproduced with pip 26.2.1; see CI run 31571533395).
           if [ "${{ runner.os }}" = "macOS" ]; then
-            pip install -e ".[dev,test,full]" "setuptools<82"
+            pip install -e ".[dev,test,full]" -r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"
           else
-            pip install -e ".[dev,test,full]"
+            pip install -e ".[dev,test,full]" -r plugins/bundle/cloudpaw/requirements.txt
           fi
 
       # tests/integration/browser carries the integration marker but no

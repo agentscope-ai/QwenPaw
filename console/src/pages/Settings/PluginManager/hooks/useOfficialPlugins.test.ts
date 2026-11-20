@@ -258,20 +258,29 @@ describe("useOfficialPlugins handleInstall", () => {
     expect(order).toEqual(["reload", "onInstalled"]);
   });
 
-  it("reports an Error message when the install fails and does not reload", async () => {
-    h.installPlugin.mockRejectedValue(new Error("install exploded"));
-    const onInstalled = vi.fn();
-    const { result } = renderHook(() => useOfficialPlugins({ onInstalled }));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    await act(async () => {
-      await result.current.handleInstall(ENTRY);
-    });
-    expect(h.message.error).toHaveBeenCalledWith("install exploded");
-    expect(h.message.success).not.toHaveBeenCalled();
-    expect(onInstalled).not.toHaveBeenCalled();
-    expect(h.fetchPluginCatalog).toHaveBeenCalledTimes(1);
-    expect(result.current.installingId).toBeNull();
-  });
+  it.each([
+    ["install exploded", "install exploded"],
+    [
+      "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+      "pluginManager.dependencyErrors.ambiguous",
+    ],
+  ])(
+    "reports the install failure and does not reload",
+    async (error, expected) => {
+      h.installPlugin.mockRejectedValue(new Error(error));
+      const onInstalled = vi.fn();
+      const { result } = renderHook(() => useOfficialPlugins({ onInstalled }));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await act(async () => {
+        await result.current.handleInstall(ENTRY);
+      });
+      expect(h.message.error).toHaveBeenCalledWith(expected);
+      expect(h.message.success).not.toHaveBeenCalled();
+      expect(onInstalled).not.toHaveBeenCalled();
+      expect(h.fetchPluginCatalog).toHaveBeenCalledTimes(1);
+      expect(result.current.installingId).toBeNull();
+    },
+  );
 
   it("falls back to the i18n key for a non-Error install failure", async () => {
     h.installPlugin.mockRejectedValue(42);

@@ -106,11 +106,49 @@ describe("ModelBadges", () => {
     expect(button.querySelector("[stroke-dasharray]")).toBeNull();
     fireEvent.click(button);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // The mount-time load and the click-time refresh overlap: the client
+    // shares one in-flight GET per (url + method) with no signal (this PR's
+    // change), so a failing /models/config becomes one request whose
+    // rejection fans out to both waiters. The count assertion tracks
+    // the shared request that both paths awaited on, not the two
+    // logical calls the component issued -- and the important
+    // behaviour this case guards is unchanged: the badge still shows
+    // 0/8 and the config dialog still opens off cached fallbacks
+    // rather than dead-ending on the 503.
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.endsWith("/models/config")),
+      ).toHaveLength(1),
+    );
+    expect(screen.getByLabelText("模型 0/8")).toBeVisible();
+  });
+
+  it("issues a fresh config request on retry after the shared failure settled", async () => {
+    // The dedupe only spans overlapping in-flight calls; a retry that
+    // starts after the first has resolved must not be swallowed by the
+    // shared-request path. This is the counterpart to the assertion
+    // above: dedupe when concurrent, sequential when not.
+    const { calls } = installMockFetch([
+      {
+        match: "/models/config",
+        response: { ok: false, status: 503, json: { message: "Unavailable" } },
+      },
+      { match: "/host-providers", response: { json: { providers: [] } } },
+    ]);
+    render(<ModelBadges />);
+    // Let the mount-time request settle before opening the dialog so
+    // the click's refresh is a sequential retry, not an overlap.
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.endsWith("/models/config")),
+      ).toHaveLength(1),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "模型配置" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await waitFor(() =>
       expect(
         calls.filter((call) => call.url.endsWith("/models/config")),
       ).toHaveLength(2),
     );
-    expect(screen.getByLabelText("模型 0/8")).toBeVisible();
   });
 });

@@ -3,14 +3,15 @@
 
 from __future__ import annotations
 
-import csv
 import importlib.util
 import logging
 import os
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from pathlib import Path, PurePosixPath
+from packaging.markers import default_environment
+
+from pathlib import Path
 from typing import Callable
 
 from .execution_backend import (
@@ -38,16 +39,10 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class _ReadAdmissionContext:
     description: PluginDescription
-    source_digest: str
-    paths: tuple[str, ...]
-    executable: str
-    runtime_identity: object = None
 
 
 def _read_source_identity(description):
-    """Fingerprint dependency declarations, without scanning plugin assets."""
-    import hashlib
-
+    """Validate current declarations without hashing unused admission evidence."""
     from .architecture import PluginManifest
     from .dependency_gate import parse_requirements_file, manifest_requirements
     from .execution.dependencies import dependency_error
@@ -75,15 +70,6 @@ def _read_source_identity(description):
         )
         if current != description.requirements:
             raise dependency_error("DEPENDENCY_ORIGIN_INVALID")
-    digest = hashlib.sha256()
-    digest.update(str(description.source_path.resolve()).encode())
-    for name in ("plugin.json", "requirements.txt"):
-        path = description.source_path / name
-        digest.update(name.encode())
-        content = path.read_bytes() if path.is_file() else b""
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
-    return digest.hexdigest()
 
 
 class _EntryPointNotFoundError(FileNotFoundError):
@@ -92,63 +78,6 @@ class _EntryPointNotFoundError(FileNotFoundError):
 
 def _norm_realpath(path):
     return os.path.normcase(os.path.realpath(str(path)))
-
-
-def _relative_module_origins(origins, root):
-    relative = set()
-    for path in origins:
-        try:
-            relative.add(os.path.normcase(os.path.relpath(path, root)))
-        except ValueError:
-            # A different drive cannot belong to this root.
-            continue
-    return relative
-
-
-def _files_for_loaded_origins(
-    distribution,
-    origins,
-    *,
-    metadata_path=None,
-    record_reads=None,
-):
-    """Validate fresh RECORD rows, then stat only loaded-origin candidates."""
-    from .execution.dependencies import _read_record
-
-    record = _read_record(distribution, metadata_path, record_reads)
-    if not record:
-        return distribution.files
-    key = ("host_paths", metadata_path)
-    if (
-        record_reads is None
-        or metadata_path is None
-        or key not in record_reads
-    ):
-        paths = []
-        for row in csv.reader(record.splitlines()):
-            if not 1 <= len(row) <= 3:
-                raise ValueError("Invalid RECORD row")
-            if len(row) == 3 and row[2]:
-                int(row[2])
-            path = row[0]
-            # Retain unusual anchor semantics without a Path per ordinary row.
-            if path.startswith("//") or "\\" in path or ":" in path:
-                path = str(PurePosixPath(path))
-            paths.append((os.path.normcase(os.path.normpath(path)), path))
-        if record_reads is not None and metadata_path is not None:
-            record_reads[key] = tuple(paths)
-    else:
-        paths = record_reads[key]
-    candidates = [
-        PurePosixPath(path) for name, path in paths if name in origins
-    ]
-    if sys.version_info < (3, 12):
-        return candidates
-    # Validate every row before checking candidates, and check all candidates
-    # so a later matching-origin error cannot be hidden by an earlier match.
-    return [
-        path for path in candidates if distribution.locate_file(path).exists()
-    ]
 
 
 def _host_paths(cwd):
@@ -183,6 +112,70 @@ def _host_dependency_state():
     return paths, tuple(loaded)
 
 
+def _host_file_witness(origin, locations=()):
+    values = []
+    for value in dict.fromkeys((origin, *locations)):
+        path = Path(value)
+        while not path.exists() and path.parent != path:
+            path = path.parent
+        stat = path.stat()
+        values.append(
+            (
+                str(path.resolve()),
+                stat.st_dev,
+                stat.st_ino,
+                stat.st_size,
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+            ),
+        )
+    return tuple(values)
+
+
+def _capture_host_module_facts(code_root, loaded, known):
+    from .dependency_usage import HostModuleFact
+
+    root = Path(code_root).resolve()
+    if len(loaded) > 16384:
+        raise ValueError("host module observation exceeds bound")
+    pending, facts = [], []
+    for name, identity, origin in loaded:
+        locations = tuple(map(str, identity[1]))
+        key = (name, id(identity[0]), origin, locations)
+        if key in known:
+            fact = known[key]
+            if fact is not None and not Path(
+                fact.file_witness[0][0],
+            ).is_relative_to(root):
+                facts.append(fact)
+        else:
+            pending.append((key, identity))
+    origins = tuple((key[0], key[2]) for key, _identity in pending)
+    resolved = {origin: Path(origin).resolve() for _name, origin in origins}
+    standard = _stdlib_modules(origins, resolved)
+    for key, identity in pending:
+        name, module_id, origin, locations = key
+        if name in standard:
+            known[key] = None
+            continue
+        if resolved[origin].is_relative_to(root):
+            continue
+        fact = HostModuleFact(
+            name,
+            module_id,
+            os.path.abspath(origin),
+            locations,
+            _host_file_witness(origin, locations),
+            namespace=not isinstance(
+                identity[0].__dict__.get("__file__"),
+                str,
+            ),
+        )
+        known[key] = fact
+        facts.append(fact)
+    return tuple(facts)
+
+
 def _stdlib_modules(loaded_origins, resolved):
     """Recognize interpreter-owned sources, never merely standard names."""
     from .execution.dependencies import _dependency_protection_roots
@@ -212,324 +205,6 @@ def _stdlib_modules(loaded_origins, resolved):
         ):
             trusted.add(name)
     return trusted
-
-
-def _observe_host_dependencies(
-    code_root,
-    paths,
-    loaded_origins,
-    *,
-    inventory=None,
-    _snapshot=None,
-    _embedded_owners=None,
-    _covered=None,
-    _resolved=None,
-    _module_owners=None,
-):
-    """Read metadata and RECORD ownership using only detached origins."""
-    from importlib.metadata import PathDistribution
-    from .execution.dependencies import (
-        _provides_loaded_modules,
-        observe_dependencies,
-    )
-
-    embedded_owners = dict(_embedded_owners or {})
-    record_reads = (
-        inventory.setdefault("records", {}) if inventory is not None else {}
-    )
-    snapshot = _snapshot or observe_dependencies(
-        {
-            "code_root": code_root,
-            "_audit_sites": paths,
-            "dependency_paths": (),
-        },
-        _embedded_owners=embedded_owners,
-        _record_reads=record_reads,
-        _inventory=inventory,
-    )
-    loaded = {name: Path(origin) for name, origin in loaded_origins}
-    resolved = (
-        _resolved
-        if _resolved is not None
-        else {
-            path: Path(path).resolve()
-            for path in dict.fromkeys(str(path) for path in loaded.values())
-        }
-    )
-    relative_modules = {}
-    imported = {}
-    if _module_owners is not None:
-        _module_owners.update(
-            (name, {}) for name in _stdlib_modules(loaded_origins, resolved)
-        )
-
-    def retain(modules, package, row):
-        if _module_owners is None:
-            return
-        for module in modules:
-            owned = dict(row)
-            embedded = owned.pop("loaded_modules", ())
-            if module in embedded:
-                owned["loaded_modules"] = (module,)
-            _module_owners.setdefault(module, {})[package] = owned
-
-    for name, row in snapshot.distributions.items():
-        root = Path(row["metadata_path"]).parent
-        distribution = PathDistribution(Path(row["metadata_path"]))
-        if root not in relative_modules:
-            indexed = relative_modules[root] = {}
-            for module_name, path in loaded.items():
-                for origin in _relative_module_origins(
-                    (path, resolved[str(path)]),
-                    root,
-                ):
-                    indexed.setdefault(origin, set()).add(module_name)
-        indexed = relative_modules[root]
-        files = _files_for_loaded_origins(
-            distribution,
-            indexed,
-            metadata_path=row["metadata_path"],
-            record_reads=record_reads,
-        )
-        if files is not None:
-            owned = {
-                os.path.normcase(os.path.normpath(item)) for item in files
-            }
-            matched_modules = {
-                module_name
-                for origin in owned.intersection(indexed)
-                for module_name in indexed[origin]
-            }
-            if matched_modules:
-                imported[name] = row
-                if _covered is not None:
-                    _covered.update(matched_modules)
-                embedded_roots = [
-                    Path(site).parent
-                    for site, owner in embedded_owners.items()
-                    if owner == row["metadata_path"]
-                ]
-                if embedded_roots:
-                    modules = {
-                        module_name
-                        for module_name in matched_modules
-                        if module_name.split(".", 1)[0] not in row["top_level"]
-                        and any(
-                            resolved[str(loaded[module_name])].is_relative_to(
-                                site,
-                            )
-                            for site in embedded_roots
-                        )
-                    }
-                    if modules:
-                        imported[name] = {
-                            **row,
-                            "loaded_modules": tuple(sorted(modules)),
-                        }
-                retain(matched_modules, name, imported[name])
-            continue
-        # Legacy metadata without a file inventory needs top-level origin
-        # evidence; RECORD ownership never uses this guess.
-        legacy_modules = {
-            module_name
-            for module_name, path in loaded.items()
-            if module_name.split(".", 1)[0] in row["top_level"]
-            and (
-                (
-                    resolved[str(path)].parent == root
-                    and resolved[str(path)].name.split(".", 1)[0]
-                    == module_name.split(".", 1)[0]
-                )
-                or resolved[str(path)].is_relative_to(
-                    root / module_name.split(".", 1)[0],
-                )
-            )
-        }
-        if legacy_modules:
-            imported[name] = row
-            retain(legacy_modules, name, row)
-            if _covered is not None:
-                _covered.update(legacy_modules)
-    embedded_modules = {
-        module
-        for row in imported.values()
-        for module in row.get("loaded_modules", ())
-    }
-    if embedded_modules:
-        # Preserve the public-provider baseline too: existing coexistence is
-        # stable, while later additions or replacement must require restart.
-        for name, row in snapshot.distributions.items():
-            if name not in imported and _provides_loaded_modules(
-                row,
-                embedded_modules,
-                record_reads=record_reads,
-            ):
-                imported[name] = row
-        if _module_owners is not None:
-            for module in embedded_modules:
-                for name, row in imported.items():
-                    if _provides_loaded_modules(
-                        row,
-                        {module},
-                        record_reads=record_reads,
-                    ):
-                        retain({module}, name, row)
-    return snapshot, imported
-
-
-def _check_read_history(view, uses):
-    from .dependency_gate import SharedDependencyError, GateDecision
-    from .execution.dependencies import _provides_loaded_modules
-
-    def refuse(code, detail):
-        raise SharedDependencyError(
-            GateDecision(
-                False,
-                False,
-                reason=f"{code}: {detail}",
-                reason_code=code,
-                require_restart=code == "DEPENDENCY_RESTART_REQUIRED",
-                unsupported=(
-                    [detail] if code == "DEPENDENCY_PLAN_UNVERIFIED" else []
-                ),
-            ),
-        )
-
-    for use in uses:
-        if use.origin != "host":
-            continue
-        if use.environment is None or use.snapshot is None:
-            refuse("DEPENDENCY_PLAN_UNVERIFIED", "host history unavailable")
-        if not set(use.environment.sites).intersection(view.dependency_sites):
-            continue
-        for name, old in use.snapshot.distributions.items():
-            fresh = view.distributions.get(name)
-            if (
-                name in view.invalid
-                or fresh is None
-                or old["version"] != fresh["version"]
-                or old["metadata_path"] != fresh["metadata_path"]
-            ):
-                refuse(
-                    "DEPENDENCY_RESTART_REQUIRED",
-                    "loaded dependency differs",
-                )
-            modules = old.get("loaded_modules", ())
-            if modules and any(
-                provider not in use.snapshot.distributions
-                and _provides_loaded_modules(row, set(modules))
-                for provider, row in view.distributions.items()
-            ):
-                refuse(
-                    "DEPENDENCY_RESTART_REQUIRED",
-                    "loaded embedded provider shadowed",
-                )
-
-
-def _observe_host_delta(
-    code_root,
-    paths,
-    loaded_origins,
-    baseline,
-    *,
-    inventory=None,
-    _module_owners=None,
-):
-    """Resolve only changed modules; uncertain providers use the old observer."""
-    from .execution.dependencies import read_dependency_inventory
-
-    root = Path(code_root).resolve()
-    resolved = {
-        path: Path(path).resolve()
-        for path in dict.fromkeys(
-            str(Path(origin)) for _name, origin in loaded_origins
-        )
-    }
-    loaded_origins = tuple(
-        (name, origin)
-        for name, origin in loaded_origins
-        if not resolved[str(Path(origin))].is_relative_to(root)
-    )
-    if not loaded_origins:
-        return replace(baseline, distributions={}), {}
-    standard_modules = _stdlib_modules(loaded_origins, resolved)
-    if _module_owners is not None:
-        _module_owners.update((name, {}) for name in standard_modules)
-    loaded_origins = tuple(
-        (name, origin)
-        for name, origin in loaded_origins
-        if name not in standard_modules
-    )
-    if not loaded_origins:
-        return replace(baseline, distributions={}), {}
-    view, _ = read_dependency_inventory(
-        code_root,
-        paths,
-        (),
-        inventory=inventory,
-    )
-    rows = {}
-    unresolved = set()
-    required = set()
-    by_root = {}
-    for package, row in view.distributions.items():
-        parent = Path(row["metadata_path"]).parent
-        index = by_root.setdefault(str(parent), (parent, {}))[1]
-        for top in row["top_level"]:
-            index.setdefault(top, {})[package] = row
-    dependency_roots = tuple(Path(site) for site in view.dependency_sites)
-    for name, origin in loaded_origins:
-        path = resolved[str(Path(origin))]
-        if any(path.is_relative_to(site) for site in dependency_roots):
-            required.add(name)
-        matched = False
-        for parent, index in by_root.values():
-            if not path.is_relative_to(parent):
-                continue
-            first = path.relative_to(parent).parts[0].split(".", 1)[0]
-            for top in {first, name.split(".", 1)[0]}:
-                candidates = index.get(top, {})
-                rows.update(candidates)
-                matched = matched or bool(candidates)
-        if not matched:
-            unresolved.add(name)
-    if unresolved:
-        return _observe_host_dependencies(
-            code_root,
-            paths,
-            loaded_origins,
-            inventory=inventory,
-            _resolved=resolved,
-            _module_owners=_module_owners,
-        )
-    snapshot = replace(
-        baseline,
-        sites=view.sites,
-        dependency_sites=view.dependency_sites,
-        distributions=rows,
-    )
-    covered = set()
-    observed, imported = _observe_host_dependencies(
-        code_root,
-        paths,
-        loaded_origins,
-        _snapshot=snapshot,
-        inventory=inventory,
-        _embedded_owners=view.embedded_owners,
-        _covered=covered,
-        _resolved=resolved,
-        _module_owners=_module_owners,
-    )
-    if required - covered:
-        return _observe_host_dependencies(
-            code_root,
-            paths,
-            loaded_origins,
-            inventory=inventory,
-            _resolved=resolved,
-            _module_owners=_module_owners,
-        )
-    return observed, imported
 
 
 async def _probe_incoming(
@@ -703,6 +378,19 @@ class PythonBackend:
 
                     raise SDKRestartRequiredError(decision.reason)
                 raise SharedDependencyError(decision)
+            for warning in decision.warnings:
+                logger.warning(
+                    "Plugin '%s': %s",
+                    description.manifest.id,
+                    warning,
+                )
+                instance = getattr(
+                    self.services,
+                    "get_instance",
+                    lambda _id: None,
+                )(description.manifest.id)
+                if instance is not None:
+                    instance.add_diagnostic(warning)
         if probe:
             entry = description.payload
             failed = await self.services.probe(
@@ -734,8 +422,6 @@ class PythonBackend:
         from .execution.dependencies import (
             read_dependency_inventory,
         )
-        from .execution.errors import ProtocolValidationError
-        from .install_lock import observation_inputs
 
         del snapshot
         if not usage.has_declaration(token, plugin_id=description.manifest.id):
@@ -747,85 +433,50 @@ class PythonBackend:
         context = await run_sync_io(factory) if factory is not None else None
         async with _shared_observation(prepared.targets):
             prepared.validate()
-            for attempt in range(2):
-                before = _host_dependency_state()
-                before_usage = usage.snapshot()
-                try:
-                    view, _ = await run_sync_io(
-                        read_dependency_inventory,
-                        description.source_path,
-                        paths,
-                        description.requirements,
-                        inventory=observation_inputs(),
-                    )
-                    digest = await run_sync_io(
-                        _read_source_identity,
-                        description,
-                    )
-                    await run_sync_io(
-                        _check_read_history,
-                        view,
-                        before_usage.uses,
-                    )
-                except Exception as exc:
-                    code = getattr(
-                        exc,
-                        "reason_code",
-                        "DEPENDENCY_PLAN_UNVERIFIED",
-                    )
-                    if isinstance(exc, SharedDependencyError):
-                        raise
-                    missing = (
-                        [str(exc)]
-                        if isinstance(exc, ProtocolValidationError)
-                        and code == "DEPENDENCY_UNSATISFIED"
-                        and str(exc) != code
-                        else []
-                    )
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            missing=missing,
-                            reason=(
-                                f"{code}: {description.manifest.id}"
-                                + (
-                                    f": {', '.join(missing)}"
-                                    if missing
-                                    else ""
-                                )
-                            ),
-                            reason_code=code,
-                            require_restart=code
-                            == "DEPENDENCY_REPAIR_REQUIRED",
+            try:
+                view, _ = await run_sync_io(
+                    read_dependency_inventory,
+                    description.source_path,
+                    paths,
+                    description.requirements,
+                )
+                await run_sync_io(_read_source_identity, description)
+            except Exception as exc:
+                code = getattr(
+                    exc,
+                    "reason_code",
+                    "DEPENDENCY_PLAN_UNVERIFIED",
+                )
+                if isinstance(exc, SharedDependencyError):
+                    raise
+                raise SharedDependencyError(
+                    GateDecision(
+                        False,
+                        False,
+                        missing=(
+                            [str(exc)]
+                            if code == "DEPENDENCY_UNSATISFIED"
+                            else []
                         ),
-                    ) from exc
-                prepared.validate()
-                if not set(view.dependency_sites) <= {
-                    str(path) for path in prepared.targets
-                }:
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            reason="DEPENDENCY_PLAN_UNVERIFIED: admission roots changed",
-                            reason_code="DEPENDENCY_PLAN_UNVERIFIED",
-                        ),
-                    )
-                if (
-                    before == _host_dependency_state()
-                    and usage.snapshot().revision == before_usage.revision
-                ):
-                    break
-                if attempt == 1:
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            reason="DEPENDENCY_PLAN_UNVERIFIED: imports changed",
-                            reason_code="DEPENDENCY_PLAN_UNVERIFIED",
-                        ),
-                    )
+                        reason=f"{code}: {description.manifest.id}: {exc}",
+                        reason_code=code,
+                    ),
+                ) from exc
+            prepared.validate()
+            for warning in view.warnings:
+                logger.warning(
+                    "Plugin '%s': %s",
+                    description.manifest.id,
+                    warning,
+                )
+                get_instance = getattr(self.services, "get_instance", None)
+                instance = (
+                    get_instance(description.manifest.id)
+                    if get_instance
+                    else None
+                )
+                if instance is not None:
+                    instance.add_diagnostic(warning)
             environment = DependencyEnvironment(
                 os.path.abspath(sys.executable),
                 view.dependency_sites,
@@ -851,10 +502,6 @@ class PythonBackend:
                 description=description,
                 context=_ReadAdmissionContext(
                     description,
-                    digest,
-                    paths,
-                    environment.executable,
-                    context.runtime_identity if context is not None else None,
                 ),
             )
         return None
@@ -894,6 +541,7 @@ class PythonBackend:
                         "_audit_sites": paths,
                         "dependency_paths": (),
                         "_requirements": description.requirements,
+                        "_reuse_ambiguous": True,
                     },
                     _inventory=observation_inputs(),
                 )
@@ -946,198 +594,121 @@ class PythonBackend:
         """Python activation has no additional execution gate."""
 
     @staticmethod
+    async def reconcile_host_observations(usage):
+        """Settle detached tails without replacing their first file witnesses."""
+        from .dependency_usage import DependencyEnvironment
+        from .install_lock import environment_observation
+
+        for token, progress in usage.pending_host_observations():
+            try:
+                async with environment_observation(progress.roots):
+                    valid = _host_paths(os.getcwd()) == progress.paths and all(
+                        _host_file_witness(fact.origin, fact.locations)
+                        == fact.file_witness
+                        for fact in progress.facts
+                    )
+                    usage.finish_host_module_observation(
+                        token,
+                        progress,
+                        (
+                            DependencyEnvironment(
+                                os.path.abspath(sys.executable),
+                                progress.roots,
+                                dict(default_environment()),
+                            )
+                            if valid
+                            else None
+                        ),
+                    )
+            except Exception:
+                usage.finish_host_module_observation(token, progress, None)
+
+    @staticmethod
     async def observe_host_dependencies(description, usage, token):
-        """Retain value-only import history; resolve changed sources only."""
-        import weakref
+        """Capture append-only module facts; ownership is a write-time concern."""
         from ..utils.io_utils import run_async_to_completion, run_sync_io
-        from .execution.dependencies import _inventory_sites, dependency_sites
-        from .install_lock import environment_observation, observation_inputs
+        from .dependency_usage import DependencyEnvironment, HostModuleProgress
+        from .execution.dependencies import dependency_sites
+        from .install_lock import environment_observation
 
-        plugin_id = description.manifest.id
-
-        def valid():
-            return usage.has_declaration(token, plugin_id=plugin_id)
-
-        def unknown():
-            if valid():
-                usage.observe_host(token, None)
-
-        def detached(loaded):
-            return {
-                name: (weakref.ref(identity[0]), identity[1], origin)
-                for name, identity, origin in loaded
-            }
+        declaration = usage.declaration(token)
+        publish_unknown = usage.host_observer(
+            token,
+            plugin_id=description.manifest.id,
+        )
+        if declaration is None or publish_unknown is None:
+            return
+        known = getattr(usage, "_host_module_facts", None)
+        if known is None:
+            known = usage._host_module_facts = {}
 
         async def observe():
-            if not valid():
-                return
+            await PythonBackend.reconcile_host_observations(usage)
+            captured = _host_dependency_state()
+            paths = captured[0]
+            roots = await run_sync_io(dependency_sites, paths)
+            environment = DependencyEnvironment(
+                os.path.abspath(sys.executable),
+                roots,
+                dict(default_environment()),
+            )
             try:
-                for attempt in range(2):
-                    paths, loaded = _host_dependency_state()
-                    code_root = os.path.join(
-                        os.getcwd(),
-                        description.source_path,
-                    )
-                    key = (
-                        await run_sync_io(
-                            lambda: str(Path(code_root).resolve()),
-                        ),
-                        paths,
-                    )
-                    baselines = getattr(
-                        usage,
-                        "_host_observer_baselines",
-                        None,
-                    )
-                    if baselines is None:
-                        baselines = usage._host_observer_baselines = {}
-                    previous = baselines.get(key)
-                    current = detached(loaded)
-                    roots = await run_sync_io(dependency_sites, paths)
-                    async with environment_observation(roots):
-                        if not valid():
-                            return
-                        sites = await run_sync_io(
-                            _inventory_sites,
-                            code_root,
-                            paths,
+                async with environment_observation(roots):
+                    for attempt in range(2):
+                        facts = await run_sync_io(
+                            _capture_host_module_facts,
+                            description.source_path,
+                            captured[1],
+                            known,
                         )
-                        # Changed roots invalidate current ownership while
-                        # previous remains the append-only pin history.
-                        baseline = (
-                            previous
-                            if previous is not None
-                            and previous[1].sites == sites
-                            else None
+                        usage.record_host_modules(
+                            token,
+                            facts,
+                            environment,
+                            declaration=declaration,
                         )
-                        changed = tuple(
-                            (name, origin)
-                            for name, identity, origin in loaded
-                            if baseline is None
-                            or name not in baseline[0]
-                            or baseline[0][name][0]() is not identity[0]
-                            or baseline[0][name][1:] != (identity[1], origin)
-                        )
-                        evidence_key = (
-                            os.path.abspath(sys.executable),
-                            paths,
-                            sites,
-                        )
-                        evidence = getattr(
-                            usage,
-                            "_host_module_evidence",
-                            None,
-                        )
-                        if evidence is None:
-                            evidence = usage._host_module_evidence = {}
-                        shared = (
-                            evidence.get(evidence_key)
-                            if previous is None or baseline is not None
-                            else None
-                        )
-                        reusable = shared[1] if shared is not None else {}
-                        owners = {
-                            name: rows
-                            for name, (state, rows) in reusable.items()
-                            if name in current
-                            and state[0]() is current[name][0]()
-                            and state[1:] == current[name][1:]
+                        after = _host_dependency_state()
+                        if after[0] != paths:
+                            raise ValueError(
+                                "host observation identity changed",
+                            )
+                        before = {
+                            (name, id(identity[0]), origin, tuple(identity[1]))
+                            for name, identity, origin in captured[1]
                         }
-                        pending = tuple(
-                            (name, origin)
-                            for name, origin in changed
-                            if name not in owners
+                        tail = tuple(
+                            row
+                            for row in after[1]
+                            if (
+                                row[0],
+                                id(row[1][0]),
+                                row[2],
+                                tuple(row[1][1]),
+                            )
+                            not in before
                         )
-                        if baseline is not None and not changed:
-                            snapshot = baseline[1]
-                            imported = snapshot.distributions
-                        elif not pending and shared is not None:
-                            snapshot = shared[0]
-                            imported = {}
-                        else:
-                            try:
-                                if baseline is None:
-                                    snapshot, imported = await run_sync_io(
-                                        _observe_host_dependencies,
-                                        code_root,
-                                        paths,
-                                        pending,
-                                        inventory=observation_inputs(),
-                                        _module_owners=owners,
-                                    )
-                                else:
-                                    snapshot, imported = await run_sync_io(
-                                        _observe_host_delta,
-                                        code_root,
-                                        paths,
-                                        pending,
-                                        baseline[1],
-                                        inventory=observation_inputs(),
-                                        _module_owners=owners,
-                                    )
-                            except Exception:
-                                logger.debug(
-                                    "Host dependency evidence unavailable",
-                                    exc_info=True,
-                                )
-                                unknown()
-                                return
-                        if (
-                            _host_dependency_state() == (paths, loaded)
-                            and snapshot.sites == sites
-                            and snapshot.dependency_sites is not None
-                            and set(snapshot.dependency_sites) <= set(roots)
-                        ):
-                            if not valid():
-                                return
-                            old = previous[1].distributions if previous else {}
-                            for name, _origin in changed:
-                                for package, row in owners.get(
-                                    name,
-                                    {},
-                                ).items():
-                                    existing = imported.get(package)
-                                    if existing is not None:
-                                        modules = set(
-                                            existing.get("loaded_modules", ()),
-                                        )
-                                        modules.update(
-                                            row.get("loaded_modules", ()),
-                                        )
-                                        if modules:
-                                            row = {
-                                                **row,
-                                                "loaded_modules": tuple(
-                                                    sorted(modules),
-                                                ),
-                                            }
-                                    imported[package] = row
-                            # Historical ownership is append-only, including
-                            # imports removed from sys.modules during teardown.
-                            history = replace(
-                                snapshot,
-                                distributions={**imported, **old},
-                            )
-                            baselines[key] = (current, history)
-                            evidence[evidence_key] = (
-                                replace(snapshot, distributions={}),
-                                {
-                                    name: (current[name], rows)
-                                    for name, rows in owners.items()
-                                    if name in current
-                                },
-                            )
-                            if history.distributions:
-                                usage.observe_host(token, history)
+                        if not tail:
                             return
-                        if attempt == 1:
-                            unknown()
-            except Exception:
-                logger.debug(
-                    "Host dependency evidence unavailable",
-                    exc_info=True,
+                        captured = (paths, tail)
+                    # The tail is detached before yielding. Its first file witness
+                    # survives cancellation, removal and a subsequent disk upgrade.
+                    facts = _capture_host_module_facts(
+                        description.source_path,
+                        tail,
+                        known,
+                    )
+                    if facts:
+                        usage.defer_host_observation(
+                            token,
+                            HostModuleProgress(paths, roots, facts),
+                        )
+            except Exception as error:
+                logger.info(
+                    "Host module observation plugin=%s reason=%s",
+                    description.manifest.id,
+                    error,
                 )
-                unknown()
+                publish_unknown(None)
 
         await run_async_to_completion(observe())
 

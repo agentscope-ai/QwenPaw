@@ -36,6 +36,8 @@ from .hooks import HookPhase, HookResult
 from .markets import SearchPage
 from .providers import ModelInfo, ModelToolChoice, ModelChunk
 from .memory import MemoryTask
+from .transcription import TranscriptionResult, TranscriptionStatus
+from .harnesses import HarnessRunRequest, HarnessStatus
 from .channels import ChannelMessage, ChannelHealth
 from .results import (
     InstallResult,
@@ -1063,6 +1065,33 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         )
         return TestModel(model, workspace.workspace_dir, workspace_id)
 
+    async def transcribe(
+        self,
+        backend_id: str,
+        file_path: str,
+        *,
+        workspace_id: str = "",
+        session_id: str = "",
+    ) -> TranscriptionResult:
+        """Invoke the lifecycle-owned production transcription adapter."""
+        backend = self._loader.registry.get_transcription_backend(backend_id)
+        if backend is None:
+            raise SDKError(f"Unknown transcription backend: {backend_id}")
+        return await backend.transcribe(
+            file_path=file_path,
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+
+    async def transcription_status(
+        self,
+        backend_id: str,
+    ) -> TranscriptionStatus:
+        backend = self._loader.registry.get_transcription_backend(backend_id)
+        if backend is None:
+            raise SDKError(f"Unknown transcription backend: {backend_id}")
+        return await backend.status()
+
     async def discover_models(self, provider_id: str) -> tuple[ModelInfo, ...]:
         from ..providers.provider_manager import ProviderManager
 
@@ -1081,6 +1110,127 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             )
             for item in await provider.fetch_models()
         )
+
+    async def _driver_manager(self, workspace_id):
+        from ..drivers.manager import DriverManager
+        from ..drivers.credentials.store import AsyncCredentialStore
+        from ..app.approvals.driver_gate import QwenPawDriverApprovalGate
+        from ._drivers import attach_driver_protocols
+
+        workspace = await self._workspace(workspace_id)
+        services = workspace._service_manager.services
+        manager = services.get("driver_manager")
+        if manager is None:
+            manager = DriverManager(
+                workspace.workspace_dir / "drivers",
+                AsyncCredentialStore(
+                    workspace.workspace_dir / "credentials.yaml",
+                ),
+                approval_gate=QwenPawDriverApprovalGate(),
+            )
+            services["driver_manager"] = manager
+        attach_driver_protocols(manager, self._loader.registry, workspace)
+        return manager
+
+    async def open_driver(
+        self,
+        source,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        from ..drivers.contracts import DriverCard
+        from .drivers import _freeze, _thaw
+
+        try:
+            card = DriverCard(**_thaw(_freeze(source)))
+            manager = await self._driver_manager(workspace_id)
+            if session_scope:
+                await manager.replace_transient_drivers(session_scope, [card])
+            else:
+                await manager.register_driver(card)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def list_driver_capabilities(
+        self,
+        source_id,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        from ..drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
+        from .drivers import _freeze
+        from dataclasses import asdict
+
+        try:
+            manager = await self._driver_manager(workspace_id)
+            capabilities = await manager.list_driver_capabilities(
+                source_id,
+                request_context={DRIVER_SCOPE_CONTEXT_KEY: session_scope},
+            )
+            return tuple(_freeze(asdict(value)) for value in capabilities)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def call_driver(
+        self,
+        source_id,
+        name,
+        arguments,
+        *,
+        workspace_id="test",
+        session_scope="",
+        session_id="test",
+        user_id="test",
+        channel="console",
+    ):
+        from ..drivers.capabilities import (
+            DriverInvocation,
+            format_capability_id,
+        )
+        from ..drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
+
+        manager = await self._driver_manager(workspace_id)
+        try:
+            handler = manager._get_handler(source_id)
+            result = await manager.invoke_capability(
+                DriverInvocation(
+                    format_capability_id(
+                        handler.card.protocol,
+                        source_id,
+                        "tool",
+                        "invoke",
+                        name,
+                    ),
+                    dict(arguments),
+                    {
+                        "agent_id": workspace_id,
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "channel": channel,
+                        DRIVER_SCOPE_CONTEXT_KEY: session_scope,
+                    },
+                ),
+            )
+            if not result.ok:
+                raise SDKError(result.message)
+            return result.value
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
+
+    async def close_driver(
+        self,
+        source_id,
+        *,
+        workspace_id="test",
+        session_scope="",
+    ):
+        try:
+            manager = await self._driver_manager(workspace_id)
+            await manager.close_driver(source_id, session_scope=session_scope)
+        except Exception as exc:
+            raise SDKError(str(exc)) from exc
 
     async def start_memory(
         self,
@@ -1200,6 +1350,64 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if service
             else ()
         )
+
+    def list_harnesses(self) -> tuple[dict[str, Any], ...]:
+        """List external backend metadata without constructing any backend."""
+        from ._harness_http import backend_catalog
+
+        return tuple(backend_catalog(self._loader.registry)[1:])
+
+    async def harness_status(
+        self,
+        backend_id: str,
+        *,
+        workspace_id: str,
+    ) -> HarnessStatus:
+        workspace = await self._workspace(workspace_id)
+        return await workspace.backend_runtime.call(backend_id, "status")
+
+    async def run_harness(
+        self,
+        backend_id: str,
+        request: HarnessRunRequest,
+        *,
+        workspace_id: str,
+        session_id: str,
+        user_id: str = "test",
+        channel: str = "console",
+    ) -> AsyncGenerator[ChatEvent, None]:
+        """Run public values through the production backend stream bridge."""
+        from ..schemas import AgentRequest
+        from ._events import chat_event
+
+        workspace = await self._workspace(workspace_id)
+        contents = [{"type": "text", "text": request.prompt}]
+        for attachment in request.attachments:
+            if attachment.kind == "image":
+                contents.append(
+                    {"type": "image", "image_url": str(attachment.path)},
+                )
+            else:
+                contents.append(
+                    {
+                        "type": "file",
+                        "file_url": str(attachment.path),
+                        "filename": attachment.name,
+                    },
+                )
+        trusted = AgentRequest(
+            input=[{"role": "user", "content": contents}],
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=workspace_id,
+        )
+        stream = workspace.backend_runtime.stream(backend_id, trusted)
+        try:
+            async for item in stream:
+                yield chat_event(item)
+        finally:
+            await stream.aclose()
 
     async def stream_chat(
         self,

@@ -46,6 +46,99 @@ class _FakeServerProcess:
         self.returncode = -9
 
 
+@pytest.mark.asyncio
+async def test_cannot_start_model_while_runtime_is_being_replaced(
+    monkeypatch,
+    tmp_path,
+):
+    backend = _build_downloader(monkeypatch)
+    monkeypatch.setattr(backend, "_is_download_active", lambda: True)
+    with pytest.raises(RuntimeError, match="engine update"):
+        await backend.setup_server(tmp_path, "AgentScope/Piccolo-4B-Q8_0")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["agentscope-ai", "AgentScope"])
+@pytest.mark.parametrize("size", ["4B", "9B", "27B"])
+@pytest.mark.parametrize("suffix", ["", "-BF16", "-Q8_0", "-Q4_K_M"])
+@pytest.mark.parametrize("requested,expected", [(4096, 4096), (65536, 8192)])
+async def test_piccolo_requires_whole_prompt_without_cache(
+    owner,
+    size,
+    suffix,
+    requested,
+    expected,
+    monkeypatch,
+    tmp_path,
+):
+    backend = _build_downloader(monkeypatch)
+    calls = []
+
+    async def start(command, **_kwargs):
+        calls.append(command)
+        return _FakeServerProcess()
+
+    monkeypatch.setattr(downloader_module, "start_command_async", start)
+    await backend._create_server_process(
+        tmp_path / "model.gguf",
+        None,
+        f"{owner}/Piccolo-{size}{suffix}",
+        9001,
+        requested,
+        {},
+    )
+    command = calls[0]
+    for option in ("--ctx-size", "--batch-size", "--ubatch-size"):
+        assert command[command.index(option) + 1] == str(expected)
+    assert command[command.index("--parallel") + 1] == "1"
+    assert "--no-cache-prompt" in command
+    assert "--no-context-shift" in command
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modalities", [["decisions"], ["text"], []])
+@pytest.mark.parametrize("suffix", ["-Q8_0", "-BF16"])
+async def test_piccolo_runtime_capability_gate(
+    modalities,
+    suffix,
+    monkeypatch,
+):
+    backend = _build_downloader(monkeypatch)
+    backend._server_model_name = f"agentscope-ai/Piccolo-4B{suffix}"
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        assert request.url.path == "/v1/models"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": backend._server_model_name,
+                        "architecture": {"output_modalities": modalities},
+                    },
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+    if modalities == ["decisions"]:
+        await backend._verify_decision_runtime(9001)
+    else:
+        with pytest.raises(
+            RuntimeError,
+            match="bidirectional prompt attention",
+        ):
+            await backend._verify_decision_runtime(9001)
+
+
 class _FakeHttpxResponse:
     def __init__(self, status_code: int) -> None:
         self.status_code = status_code
@@ -758,10 +851,10 @@ def test_finalize_download_result_returns_failed_result_on_fs_error(
     (staging_dir / "bin").mkdir()
     (staging_dir / "bin" / "server").write_text("tar-binary")
 
-    def _raise_move_error(src: str, dst: str) -> None:
+    def _raise_move_error(src: Path, dst: Path) -> None:
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(downloader_module.shutil, "move", _raise_move_error)
+    monkeypatch.setattr(Path, "rename", _raise_move_error)
 
     result, downloaded_bytes = downloader._finalize_download_result(
         DownloadTaskResult(

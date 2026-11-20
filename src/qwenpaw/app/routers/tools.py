@@ -105,7 +105,7 @@ _BUILTIN_TOOL_CONFIG_FIELDS: dict[str, list[dict]] = {
             "label": "Provider",
             "type": "select",
             "options": ["tavily", "anysearch", "firecrawl"],
-            "default": "tavily",
+            "default": "anysearch",
         },
         {
             "name": "api_key",
@@ -310,6 +310,11 @@ async def toggle_tool(
     # Save agent config
     save_agent_config(workspace.agent_id, agent_config)
 
+    if tool_name == "delegate_external_agent" and tool_config.enabled:
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, workspace.agent_id)
+
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, workspace.agent_id)
 
@@ -443,7 +448,11 @@ async def get_tool_config(
             None,
         )
         if pw_field:
-            ref_provider = (provider or "").strip() or result.get("provider")
+            ref_provider = (
+                (provider or "").strip()
+                or str(result.get("provider") or "").strip()
+                or ("anysearch" if tool_name == "web_search" else None)
+            )
             if ref_provider:
                 result["provider"] = ref_provider
                 ref = _builtin_credential_ref(

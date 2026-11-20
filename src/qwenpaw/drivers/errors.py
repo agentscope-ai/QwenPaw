@@ -3,13 +3,52 @@
 
 from __future__ import annotations
 
+from ssl import SSLCertVerificationError
 from typing import Any
+
+from httpx import HTTPStatusError
 
 from ..exceptions import (
     AgentRuntimeErrorException,
     AppBaseException,
     ConfigurationException,
 )
+
+
+def driver_error_diagnostic(error: BaseException) -> str:
+    """Summarize failure codes and locations without exception payloads."""
+    details = []
+    pending = [error]
+    seen = set()
+    while pending and len(seen) < 8:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        detail = type(current).__name__
+        if isinstance(current, HTTPStatusError):
+            detail += f" (HTTP {current.response.status_code})"
+        elif isinstance(current, SSLCertVerificationError):
+            code = getattr(current, "verify_code", None)
+            if isinstance(code, int):
+                detail += f" (verify_code={code})"
+        elif isinstance(current, OSError) and isinstance(current.errno, int):
+            detail += f" (errno={current.errno})"
+        tb = current.__traceback__
+        if tb is not None:
+            while tb.tb_next is not None:
+                tb = tb.tb_next
+            filename = tb.tb_frame.f_code.co_filename.replace("\\", "/")
+            detail += f" at {filename.rsplit('/', 1)[-1]!r}:{tb.tb_lineno}"
+        details.append(detail)
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(reversed(current.exceptions[:8]))
+        cause = current.__cause__
+        if cause is None and not current.__suppress_context__:
+            cause = current.__context__
+        if cause is not None:
+            pending.append(cause)
+    return " / ".join(details)
 
 
 class DriverError(AppBaseException):

@@ -19,9 +19,13 @@ from .._utils.history_sqlite import (
     archive_history_db_filename,
     configured_history_db_path,
     history_agent_config_bytes,
-    history_sidecar_paths,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...agents.context.scroll.history import (
+    backup_history_database,
+    validate_history_database,
+)
+from .sqlite_snapshot import stage_workspace_files
 
 logger = logging.getLogger(__name__)
 
@@ -67,63 +71,69 @@ def add_agent_workspaces(  # pylint: disable=too-many-branches
         if ws.is_dir():
             file_count = 0
             skipped = 0
-            history_db = configured_history_db_path(ws)
-            sidecars = history_sidecar_paths(history_db)
-            history_filename = archive_history_db_filename(ws, history_db)
             with tempfile.TemporaryDirectory(
                 prefix=f"qwenpaw-history-{aid}-",
             ) as snapshot_dir:
-                history_snapshot = Path(snapshot_dir) / "history.db"
-                if history_db.is_file():
-                    from ...agents.context.scroll.history import (
-                        backup_history_database,
-                    )
-
+                staging = Path(snapshot_dir)
+                entries = [
+                    entry for entry in sorted(ws.rglob("*")) if entry.is_file()
+                ]
+                staged = stage_workspace_files(entries, staging, stop_event)
+                if staged is None:
+                    return False
+                snapshots, sidecars = staged
+                config_path = Path(
+                    snapshots.get(str(ws / "agent.json"), staging / "absent"),
+                )
+                history_db = configured_history_db_path(
+                    ws,
+                    config_path=config_path,
+                )
+                history_filename = archive_history_db_filename(ws, history_db)
+                if history_db.is_relative_to(ws):
+                    history_snapshot = snapshots.get(str(history_db))
+                    if history_snapshot is not None:
+                        validate_history_database(
+                            history_snapshot,
+                            check_integrity=False,
+                        )
+                elif history_db.is_file():
+                    external_snapshot = staging / "history.db"
                     backup_history_database(
                         history_db,
-                        history_snapshot,
+                        external_snapshot,
                         check_cancelled=check_cancelled,
                     )
                     zf.write(
-                        history_snapshot,
+                        external_snapshot,
                         f"{PREFIX_WORKSPACES}{aid}/{history_filename}",
                     )
                     file_count += 1
-                for entry in sorted(ws.rglob("*")):
+                for entry in entries:
                     if stop_event and stop_event.is_set():
                         return False
-                    resolved_entry = entry.resolve()
-                    if (
-                        not entry.is_file()
-                        or resolved_entry in sidecars
-                        or resolved_entry == history_db
-                    ):
+                    if str(entry) in sidecars:
                         continue
-                    relative = entry.relative_to(ws)
-                    rel = relative.as_posix()
-                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
-                    try:
-                        if rel == "agent.json":
-                            zf.writestr(
-                                arcname,
-                                history_agent_config_bytes(
-                                    ws,
-                                    history_filename,
-                                ),
-                            )
-                        else:
-                            zf.write(entry, arcname)
-                    except (PermissionError, OSError) as exc:
-                        # A file that can't be added (e.g. an open Chromium
-                        # cache file the backend has locked) must not abort
-                        # the whole backup; skip it and continue (#4916).
+                    source = snapshots.get(str(entry))
+                    if source is None:
                         skipped += 1
                         logger.warning(
-                            "Skipping %s (could not be added to backup): %s",
+                            "Skipping inaccessible backup file: %s",
                             entry,
-                            exc,
                         )
                         continue
+                    rel = entry.relative_to(ws).as_posix()
+                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                    if rel == "agent.json":
+                        zf.writestr(
+                            arcname,
+                            history_agent_config_bytes(
+                                Path(source).read_bytes(),
+                                history_filename,
+                            ),
+                        )
+                    else:
+                        zf.write(source, arcname)
                     file_count += 1
             if skipped:
                 logger.warning(

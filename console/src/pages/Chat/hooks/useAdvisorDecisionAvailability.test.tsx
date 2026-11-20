@@ -9,8 +9,8 @@ vi.mock("@/features/thinking/sessionThinkingApi", () => ({
   sessionThinkingApi: { get: vi.fn() },
 }));
 
-const view = (enabled: boolean) =>
-  ({ decision: { enabled } }) as Awaited<
+const view = (configured: boolean) =>
+  ({ decision_model_configured: configured }) as Awaited<
     ReturnType<typeof sessionThinkingApi.get>
   >;
 

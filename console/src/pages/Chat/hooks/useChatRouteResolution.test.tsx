@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import api, { type ChatHistory, type ChatSpec } from "../../../api";
 import { ApiError } from "../../../api/request";
@@ -10,6 +10,7 @@ import {
 } from "../../../stores/sessionListStore";
 import sessionApi from "../sessionApi";
 import { useChatRouteResolution } from "./useChatRouteResolution";
+import { RouteDocumentTitle } from "../../../layouts/MainLayout/RouteDocumentTitle";
 
 const TARGET = "22222222-2222-4222-8222-222222222222";
 
@@ -57,6 +58,23 @@ afterEach(() => {
 });
 
 describe("chat route ownership resolution", () => {
+  it("resolves an approval deep link through its owning agent", async () => {
+    const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "b",
+      chat: chat(),
+    });
+    const { result } = renderHook(() =>
+      useChatRouteResolution(TARGET, "a", "b"),
+    );
+
+    await waitFor(() => expect(result.current.blocked).toBe(false));
+    expect(resolve).toHaveBeenCalledWith(TARGET, {
+      currentAgentId: "b",
+      signal: expect.any(AbortSignal),
+    });
+    expect(useAgentStore.getState().selectedAgent).toBe("b");
+  });
+
   it("activates a same-agent cold link before the session list arrives", async () => {
     const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
       agent_id: "a",
@@ -112,6 +130,43 @@ describe("chat route ownership resolution", () => {
     expect(sessionApi.getSessionIdentity(TARGET).sessionId).toBe(
       `runtime-${TARGET}`,
     );
+  });
+
+  it("publishes an archived Chat title without adding it to the sidebar", async () => {
+    vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "a",
+      chat: { ...chat(), archived: true },
+    });
+    vi.spyOn(api, "listChats").mockResolvedValue([]);
+    render(<RouteDocumentTitle title="Chat" sessionId={TARGET} />);
+    expect(document.title).toBe("Chat · QwenPaw");
+
+    const { result, unmount } = mount(TARGET);
+    await waitFor(() => expect(result.current.blocked).toBe(false));
+    expect(document.title).toBe("Target conversation · QwenPaw");
+
+    await act(async () => {
+      syncSessionsGlobal(await sessionApi.getSessionList());
+    });
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(document.title).toBe("Target conversation · QwenPaw");
+
+    act(() => {
+      sessionApi.registerResolvedChat(
+        { ...chat(), archived: true, name: "Renamed archived Chat" },
+        sessionApi.getActiveOwner(),
+      );
+    });
+    expect(document.title).toBe("Renamed archived Chat · QwenPaw");
+
+    const previousOwner = sessionApi.getActiveOwner();
+    unmount();
+    act(() => useAgentStore.setState({ selectedAgent: "b" }));
+    expect(document.title).toBe("Chat · QwenPaw");
+
+    act(() => sessionApi.registerResolvedChat(chat(), previousOwner));
+    expect(useSessionListStore.getState().resolvedRouteSession).toBeNull();
+    expect(document.title).toBe("Chat · QwenPaw");
   });
 
   it.each([undefined, "new"])(

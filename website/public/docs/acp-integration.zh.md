@@ -125,7 +125,7 @@ ACP as Tool 和 MCP 解决的问题并不相同：
 
 ## QwenPaw as ACP Server
 
-在这种模式下，QwenPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/nicholasgasior/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 QwenPaw，并以编程方式与之交互。
+在这种模式下，QwenPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/anomalyco/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 QwenPaw，并以编程方式与之交互。
 
 ### 快速开始
 

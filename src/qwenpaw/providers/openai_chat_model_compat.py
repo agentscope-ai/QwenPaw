@@ -22,6 +22,7 @@ from .adapters.usage import (
     cache_usage,
     capture_cache_headers,
 )
+from .completion_reason import CompletionReasonMixin
 
 from ..local_models.tag_parser import (
     parse_tool_calls_from_text,
@@ -256,6 +257,20 @@ _SINGLE_SCHEMA_KEYWORDS = frozenset(
 _ARRAY_SCHEMA_KEYWORDS = frozenset(
     {"allOf", "anyOf", "oneOf", "prefixItems"},
 )
+# Keywords whose ``false`` value is the keyword's own native spelling rather
+# than a standalone boolean schema.  ``false`` is the form OpenAI strict-mode
+# tool definitions require and that compatible servers accept, while
+# ``{"not": {}}`` is rejected or silently ignored by several of them.  Only
+# ``false`` is preserved: ``true`` keeps its previous treatment, so the wire
+# format changes no further than the compatibility bug requires.
+_PRESERVED_FALSE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "additionalProperties",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    },
+)
 # Keywords whose value is an object whose values are schemas.
 _MAP_SCHEMA_KEYWORDS = frozenset(
     {
@@ -273,11 +288,20 @@ def _walk_schema(
     transform: Callable[[Any], Any],
     *,
     dependency_schema_types: tuple[type, ...] = (dict,),
+    preserve_false_keywords: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
-    """Walk known JSON Schema child positions using *transform*."""
+    """Walk known JSON Schema child positions using *transform*.
+
+    *preserve_false_keywords* is opt-in so the traversal contract stays
+    unchanged for the other sanitizers that share this walker.
+    """
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        if key in _SINGLE_SCHEMA_KEYWORDS:
+        if key in preserve_false_keywords and value is False:
+            # Keep the keyword's native boolean spelling instead of
+            # expanding it into a nested ``not`` schema.
+            result[key] = False
+        elif key in _SINGLE_SCHEMA_KEYWORDS:
             if key == "items" and isinstance(value, list):
                 result[key] = [transform(item) for item in value]
             else:
@@ -348,6 +372,14 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
     Special-cases retained:
     - ``additionalProperties: true``  → removed (JSON Schema default;
       explicit form rejected by some strict validators).
+    - ``additionalProperties`` / ``additionalItems`` /
+      ``unevaluatedProperties`` / ``unevaluatedItems`` with value
+      ``false`` → kept as-is.  ``false`` is the native keyword spelling
+      used by OpenAI strict-mode tool schemas; compatible servers that do
+      not implement ``not`` treat ``{"not": {}}`` as an opaque schema and
+      drop the surrounding ``properties`` map, so the model sees a
+      zero-parameter function.  ``true`` keeps its previous treatment (an
+      empty schema, or removal for ``additionalProperties``).
     - ``required: <bool>`` inside a property definition → removed
       (malformed; real JSON Schema uses ``required: ["field"]`` on the
       parent object).
@@ -362,6 +394,7 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
         _strip_boolean_schema_special_cases(schema),
         _sanitize_boolean_schemas,
         dependency_schema_types=(dict, bool),
+        preserve_false_keywords=_PRESERVED_FALSE_SCHEMA_KEYWORDS,
     )
 
 
@@ -678,7 +711,7 @@ def _sanitize_tool_schemas(
     return _map_tool_parameters(tools, _apply_openai_compat_schema_passes)
 
 
-class OpenAIChatModelCompat(OpenAIChatModel):
+class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay.
 
@@ -819,14 +852,29 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     ) -> Any:
         if self._usage_guard is not None:
             self._usage_guard()
-        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        # Explicit max_completion_tokens is authoritative: deployment aliases
+        # may not reveal the model family. Normalize both sources to the same
+        # key so a per-call summary cap still overrides the configured cap.
+        output_token_param = self._output_token_param
+        if (
+            self._extra_generate_kwargs.get("max_completion_tokens")
+            is not None
+            or generate_kwargs.get("max_completion_tokens") is not None
+        ):
+            output_token_param = "max_completion_tokens"
+        merged = {
+            **self._normalize_output_token_kwargs(
+                self._extra_generate_kwargs,
+                output_token_param,
+            ),
+            **self._normalize_output_token_kwargs(
+                generate_kwargs,
+                output_token_param,
+            ),
+        }
         if self._request_policy is not None:
             merged = self._request_policy(model_name, f"chat", merged)
         self._consume_disable_thinking(merged)
-        if self._output_token_param != "max_tokens":
-            max_tokens = merged.pop("max_tokens", None)
-            if max_tokens is not None:
-                merged.setdefault(self._output_token_param, max_tokens)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
@@ -841,6 +889,23 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             )
         finally:
             CACHE_RESPONSE_HEADERS.reset(token)
+
+    @staticmethod
+    def _normalize_output_token_kwargs(
+        kwargs: dict,
+        output_token_param: str,
+    ) -> dict:
+        """Keep one output cap using the resolved request parameter."""
+        normalized = dict(kwargs)
+        alternate = (
+            "max_completion_tokens"
+            if output_token_param == "max_tokens"
+            else "max_tokens"
+        )
+        limit = normalized.pop(alternate, None)
+        if limit is not None:
+            normalized.setdefault(output_token_param, limit)
+        return normalized
 
     def _consume_disable_thinking(self, call_kwargs: dict) -> None:
         """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
