@@ -186,7 +186,8 @@ async def test_probe_tied_top_scores_count_as_incorrect(monkeypatch) -> None:
     """A service returning identical scores for every document has no ranking
     signal and must not pass with perfect precision."""
     _install(
-        monkeypatch, response=_FakeResponse(payload=_results(0.0, 0.0, 0.0))
+        monkeypatch,
+        response=_FakeResponse(payload=_results(0.0, 0.0, 0.0)),
     )
 
     result = await module.test_reranker_model(_config())
@@ -290,7 +291,7 @@ async def test_probe_refuses_blank_api_key_like_runtime(monkeypatch) -> None:
                 0.9,
                 0.1,
                 0.1,
-            )
+            ),
         ),
     )
 
@@ -479,7 +480,8 @@ async def test_probe_deadline_covers_url_validation(monkeypatch):
 @pytest.mark.asyncio
 async def test_probe_rejects_private_target_by_default(monkeypatch) -> None:
     posted = _install(
-        monkeypatch, response=_FakeResponse(payload=_results(*(0.9, 0.1, 0.1)))
+        monkeypatch,
+        response=_FakeResponse(payload=_results(*(0.9, 0.1, 0.1))),
     )
 
     result = await module.test_reranker_model(
@@ -522,7 +524,8 @@ async def test_probe_still_rejects_unusable_addresses_when_trusted(
     monkeypatch,
 ) -> None:
     _install(
-        monkeypatch, response=_FakeResponse(payload=_results(0.9, 0.1, 0.1))
+        monkeypatch,
+        response=_FakeResponse(payload=_results(0.9, 0.1, 0.1)),
     )
 
     result = await module.test_reranker_model(
@@ -674,7 +677,8 @@ async def test_probe_falls_back_to_next_validated_address(monkeypatch):
 @pytest.mark.asyncio
 async def test_probe_rejects_embedded_credentials(monkeypatch) -> None:
     _install(
-        monkeypatch, response=_FakeResponse(payload=_results(0.9, 0.1, 0.1))
+        monkeypatch,
+        response=_FakeResponse(payload=_results(0.9, 0.1, 0.1)),
     )
 
     result = await module.test_reranker_model(

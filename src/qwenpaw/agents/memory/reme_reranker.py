@@ -468,7 +468,8 @@ async def test_reranker_model(
                                 )
                             index = item.get("index")
                             if not isinstance(index, int) or isinstance(
-                                index, bool
+                                index,
+                                bool,
                             ):
                                 raise RuntimeError(
                                     "Reranker service returned invalid "
