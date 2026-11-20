@@ -19,6 +19,7 @@ import asyncio
 import inspect
 import os
 import sys
+from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -1526,8 +1527,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         Run the production Runtime, including registered command/hook routes.
         """
         from ..schemas import AgentRequest
-        from ._events import chat_event, _observing
-        from ._models import selection_override
+        from ._events import chat_event
 
         workspace = await self._workspace(workspace_id)
 
@@ -1548,25 +1548,10 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             channel="console",
             agent_id=workspace_id,
             request_id=public.request_id,
-            model_slot_override=selection_override(public.model),
         )
-        stream = workspace.stream_query(request)
-        try:
-            while True:
-                token = _observing.set(True)
-                try:
-                    result = await anext(stream)
-                except StopAsyncIteration:
-                    return
-                finally:
-                    _observing.reset(token)
+        async with aclosing(workspace.stream_query(request)) as stream:
+            async for result in stream:
                 yield chat_event(result)
-        finally:
-            token = _observing.set(True)
-            try:
-                await stream.aclose()
-            finally:
-                _observing.reset(token)
 
     def open_http(
         self,

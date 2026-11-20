@@ -6,7 +6,6 @@ Immutable observations; subscribers never participate in business decisions.
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Union, Awaitable
 from .tools import ToolContext
-from .runs import RunSnapshot
 
 JSONValue = Union[
     None,
@@ -105,7 +104,6 @@ class ApprovalSnapshot:
     source_type: str
     scope: str | None
     display: ApprovalDisplay
-    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,7 +118,6 @@ class RunEvent:
     timestamp: float
     event: ChatEvent | None = None
     reason: str = ""
-    snapshot: RunSnapshot | None = None
 
 
 @dataclass(frozen=True)

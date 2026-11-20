@@ -61,7 +61,6 @@ PUBLIC_API = MappingProxyType(
             "ChannelIngressBinding",
             "ChannelIngress",
         ),
-        "qwenpaw.plugins.runs": ("RunService", "RunSnapshot"),
         "qwenpaw.plugins.workspace": ("WorkspaceService",),
         "qwenpaw.plugins.conversations": (
             "ConversationService",
@@ -290,10 +289,7 @@ _MEMBER_VERSIONS = {
         ("route.max_body_bytes", "1.2.0"),
     ),
     "qwenpaw.plugins.apps.AppContext": (("conversations", "1.2.0"),),
-    "qwenpaw.plugins.apps.ChatRequest": (("model", "1.2.0"),),
     "qwenpaw.plugins.events.ChatEvent": (("to_dict", "1.2.0"),),
-    "qwenpaw.plugins.events.RunEvent": (("snapshot", "1.2.0"),),
-    "qwenpaw.plugins.events.ApprovalSnapshot": (("run_id", "1.2.0"),),
     "qwenpaw.plugins.storage.PluginStorage": (
         ("path", "1.2.0"),
         ("import_legacy", "1.2.0"),
@@ -309,7 +305,6 @@ _MEMBER_VERSIONS = {
     ),
     "qwenpaw.plugins.tools.ToolContext": (
         ("identity", "1.2.0"),
-        ("runs", "1.2.0"),
         ("workspace_ops", "1.2.0"),
         ("checkpoints", "1.2.0"),
         ("select_shell_backend", "1.2.0"),
@@ -408,8 +403,6 @@ _EXPORT_VERSIONS = {
     "qwenpaw.plugins.conversations.ConversationMessage": "1.2.0",
     "qwenpaw.plugins.workspace.WorkspaceService": "1.2.0",
     "qwenpaw.plugins.events.JSONData": "1.2.0",
-    "qwenpaw.plugins.runs.RunService": "1.2.0",
-    "qwenpaw.plugins.runs.RunSnapshot": "1.2.0",
     **{
         f"qwenpaw.plugins.stops.{name}": "1.2.0"
         for name in ("StopContext", "StopSpec", "StopResult")

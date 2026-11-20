@@ -385,11 +385,6 @@ async def sdk_1_1_services(call: ToolContext) -> None:
         tuple[Path, ...],
     )
     assert_type(await call.workspace_ops.resolve_path("file"), Path)
-    from qwenpaw.plugins.runs import RunService, RunSnapshot
-
-    assert_type(call.runs, RunService)
-    assert_type(await call.runs.current(), RunSnapshot | None)
-    assert_type(await call.runs.list(), tuple[RunSnapshot, ...])
     from qwenpaw.plugins.events import JSONData
 
     assert_type(ChatEvent("response").to_dict(), dict[str, JSONData])
@@ -401,10 +396,6 @@ async def sdk_1_1_services(call: ToolContext) -> None:
     )
     assert_type(await call.models.configured(), ModelSelection | None)
     assert_type(await call.models.catalog(), tuple[ModelDescription, ...])
-    assert_type(
-        ChatRequest("hello", model=ModelSelection("provider", "model")).model,
-        ModelSelection | None,
-    )
     async with call.resources.child() as child:
         assert_type(child, ResourceScope)
         assert_type(await child.run_sync(int, "42"), int)
@@ -574,5 +565,4 @@ async def rejected_author_usage(tool: ToolContext, app: AppContext) -> None:
     tool.identity.user_id = "other"  # type: ignore[misc]
     async with tool.resources.child() as child:
         child.nonexistent()  # type: ignore[attr-defined]
-    await tool.runs.list(user_id="other")  # type: ignore[call-arg]
     await app.conversations.history(session_id="other")  # type: ignore[call-arg]

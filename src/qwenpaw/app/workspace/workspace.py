@@ -446,17 +446,19 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+
+        from ...runtime.runtime import Runtime
+        from ...schemas import AgentRequest
+
+        if isinstance(request, (AgentRequest, dict)):
+            # pylint: disable-next=protected-access
+            request = Runtime._normalize(request)
         async with aclosing(self._stream_query(request)) as stream:
             async for event in stream:
                 yield event
 
     @_sdk_observe_stream
     async def _stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
-        from ...schemas import AgentRequest
-
-        if isinstance(request, dict):
-            request = AgentRequest(**request)
-
         config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -481,28 +483,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 settings,
                 cwd=self.workspace_dir,
             )
-            try:
-                async for item in stream:
-                    yield item
-            finally:
-                from ...plugins._events import observing
+        else:
+            from ...runtime.runtime import Runtime
 
-                if observing():
-                    await stream.aclose()
-            return
-
-        from ...runtime.runtime import Runtime
-
-        rt = Runtime(workspace=self, app_services=self._app_services)
-        stream = rt.run(request)
-        try:
+            rt = Runtime(workspace=self, app_services=self._app_services)
+            stream = rt.run(request)
+        async with aclosing(stream):
             async for item in stream:
                 yield item
-        finally:
-            from ...plugins._events import observing
-
-            if observing():
-                await stream.aclose()
 
     def _register_services(  # pylint: disable=too-many-statements
         self,

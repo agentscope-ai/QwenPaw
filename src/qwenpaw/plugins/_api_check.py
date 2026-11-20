@@ -39,7 +39,6 @@ _SERVICES = {
 _TOOL_SERVICES = {
     **_SERVICES,
     "models": "qwenpaw.plugins.models.ModelService",
-    "runs": "qwenpaw.plugins.runs.RunService",
     "workspace_ops": "qwenpaw.plugins.workspace.WorkspaceService",
     "checkpoints": "qwenpaw.plugins.checkpoints.CheckpointService",
     "identity": "qwenpaw.plugins.context.RequestContext",

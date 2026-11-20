@@ -96,7 +96,6 @@ class PendingApproval:
     # treated as EXACT by the governance consumer. Only meaningful when the
     # decision is APPROVED.
     scope: ApprovalScope | None = None
-    _sdk_run_id: str | None = field(default=None, repr=False)
 
 
 def _is_spawn_child_approval(pending: PendingApproval) -> bool:

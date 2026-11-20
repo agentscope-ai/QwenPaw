@@ -9,11 +9,13 @@ import functools
 import itertools
 import logging
 import time
+import uuid
 from collections import deque
 from collections.abc import Mapping
-from contextvars import ContextVar
+from contextlib import aclosing
 from types import MappingProxyType
 
+from ..app.task_tracker import response_outcome
 from .errors import SDKError
 from .events import (
     ApprovalDisplay,
@@ -30,11 +32,6 @@ from .events import (
 _log = logging.getLogger(__name__)
 _listeners = []
 _sequence = itertools.count(1)
-_observing = ContextVar("sdk_observing", default=False)
-
-
-def observing():
-    return _observing.get()
 
 
 def freeze(value: object) -> JSONValue:
@@ -140,7 +137,6 @@ def approval_snapshot(pending):
         str(pending.extra.get("source_type", "tool_guard")),
         pending.scope.value if pending.scope else None,
         ApprovalDisplay(**approval_display_fields(pending)),
-        getattr(pending, "_sdk_run_id", None),
     )
 
 
@@ -154,12 +150,9 @@ def emit(event):
 
 
 def approval_changed(pending):
+    if not _listeners:
+        return
     try:
-        from ._runs import bind_approval
-
-        bind_approval(pending)
-        if not _listeners:
-            return
         emit(
             ApprovalEvent(
                 f"approval.{pending.status}",
@@ -172,107 +165,86 @@ def approval_changed(pending):
         _log.exception("SDK approval snapshot failed")
 
 
+def _stream_outcome(item):
+    if isinstance(item, Mapping):
+        return response_outcome(
+            item.get("object"),
+            item.get("status"),
+            item.get("error"),
+        )
+    return response_outcome(
+        getattr(item, "object", None),
+        getattr(item, "status", None),
+        getattr(item, "error", None),
+    )
+
+
 def observe_stream(function):
     @functools.wraps(function)
-    def wrapped(workspace, request):
-        async def observed():
-            from ._runs import current_run, index
-            from ..app.task_tracker import response_outcome
-            from ..runtime.runtime import Runtime
+    async def observed(workspace, request):
+        identity = None
 
-            # Index the same identity that execution and approvals will use.
-            normalized = Runtime._normalize(request)
-            runs = index()
-            record = runs.start(workspace, normalized)
-            run_id = record.run_id
-            identity = {
-                # SDK 1.0 observers correlate with the request ID. Preserve
-                # that alias; snapshot.run_id is the new unique run identity.
-                "run_id": runs.aliases[run_id],
-                "workspace_id": workspace.agent_id,
-                "session_id": record.session_id,
-                "user_id": record.user_id,
-                "channel": record.channel,
-            }
-
-            def publish(kind, event=None, reason=""):
-                emit(
-                    RunEvent(
-                        kind,
-                        **identity,
-                        sequence=next(_sequence),
-                        timestamp=time.time(),
-                        event=event,
-                        reason=reason,
-                        snapshot=runs.snapshots[run_id],
+        def publish(kind, event=None, reason=""):
+            nonlocal identity
+            if identity is None:
+                identity = {
+                    "run_id": str(
+                        getattr(request, "request_id", None)
+                        or uuid.uuid4().hex,
                     ),
-                )
+                    "workspace_id": workspace.agent_id,
+                    "session_id": str(
+                        getattr(request, "session_id", "") or "",
+                    ),
+                    "user_id": str(getattr(request, "user_id", "") or ""),
+                    "channel": str(getattr(request, "channel", "") or ""),
+                }
+            emit(
+                RunEvent(
+                    kind,
+                    **identity,
+                    sequence=next(_sequence),
+                    timestamp=time.time(),
+                    event=event,
+                    reason=reason,
+                ),
+            )
 
+        if _listeners:
             publish("run.started")
-            stream = function(workspace, normalized)
-            outcome, reason = None, ""
-            try:
-                while True:
-                    token = _observing.set(True)
-                    owner = current_run.set(run_id)
-                    try:
-                        item = await anext(stream)
-                    except StopAsyncIteration:
-                        break
-                    finally:
-                        current_run.reset(owner)
-                        _observing.reset(token)
-                    fields = (
-                        item.get
-                        if isinstance(item, Mapping)
-                        else lambda name: getattr(item, name, None)
-                    )
-                    outcome = (
-                        response_outcome(
-                            fields("object"),
-                            fields("status"),
-                            fields("error"),
-                        )
-                        or outcome
-                    )
-                    try:
-                        publish("run.updated", chat_event(item))
-                    except Exception:
-                        _log.exception("SDK runtime snapshot failed")
+        item = None
+        outcome, reason = None, ""
+        try:
+            async with aclosing(function(workspace, request)) as stream:
+                async for item in stream:
+                    if _listeners:
+                        outcome = _stream_outcome(item) or outcome
+                        try:
+                            publish("run.updated", chat_event(item))
+                        except Exception:
+                            _log.exception(
+                                "SDK runtime event conversion failed",
+                            )
                     yield item
-            except (asyncio.CancelledError, GeneratorExit):
-                outcome, reason = "cancelled", "consumer cancelled or closed"
-                raise
-            except BaseException as exc:
-                outcome, reason = "failed", str(exc)
-                raise
-            finally:
-                token = _observing.set(True)
-                owner = current_run.set(run_id)
-                try:
-                    await stream.aclose()
-                except BaseException as exc:
-                    outcome = (
-                        "cancelled"
-                        if isinstance(exc, asyncio.CancelledError)
-                        else "failed"
+            # A listener may have joined after the final response was yielded.
+            if _listeners and outcome is None:
+                outcome = _stream_outcome(item)
+        except (asyncio.CancelledError, GeneratorExit):
+            outcome, reason = "cancelled", "consumer cancelled or closed"
+            raise
+        except BaseException as exc:
+            outcome, reason = "failed", str(exc)
+            raise
+        finally:
+            if _listeners:
+                if outcome is None:
+                    outcome, reason = (
+                        "failed",
+                        "Stream ended without a response terminal",
                     )
-                    reason = str(exc) or "stream cleanup interrupted"
-                    raise
-                finally:
-                    current_run.reset(owner)
-                    _observing.reset(token)
-                    if outcome is None:
-                        outcome, reason = (
-                            "failed",
-                            "Stream ended without a response terminal",
-                        )
-                    runs.finish(run_id, outcome, reason)
-                    publish(f"run.{outcome}", reason=reason)
+                publish(f"run.{outcome}", reason=reason)
 
-        return observed()
-
-    return wrapped
+    return observed
 
 
 def subscribe(plugin, spec):

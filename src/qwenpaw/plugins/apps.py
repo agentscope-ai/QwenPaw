@@ -13,12 +13,12 @@ from typing import (
     Mapping,
     Literal,
     TYPE_CHECKING,
+    TypeAlias,
     Union,
 )
 
 from .events import ChatEvent, StreamMessage, ApprovalSnapshot
 from .tools import ToolContext
-from .models import ModelSelection
 
 if TYPE_CHECKING:
     from .conversations import ConversationService
@@ -44,7 +44,6 @@ class ChatRequest:
     session_id: str | None = None
     skill: str | None = None
     request_id: str | None = None
-    model: ModelSelection | None = None
 
 
 @dataclass(frozen=True)
@@ -292,7 +291,7 @@ class AppContext(ToolContext):
         await self._services.notify(message, title, level)
 
 
-RouteResult = (
+RouteResult: TypeAlias = (
     JSONBody
     | HttpResponse
     | StreamingResponse

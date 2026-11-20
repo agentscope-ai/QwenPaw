@@ -606,7 +606,7 @@ class ChannelDriver:
         budget. This is a live notification, not a durable delivery receipt;
         no delivery transaction is bound here. Platform effects belong in
         send/on_stream/prepare_response/reaction. The run_id identifies this
-        channel cycle, not a Runtime RunSnapshot or a proactive send.
+        channel cycle and excludes proactive sends.
         """
 
     async def prepare_response(

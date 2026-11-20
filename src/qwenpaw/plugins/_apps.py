@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import weakref
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import fields, is_dataclass, replace
 from collections.abc import Mapping
@@ -27,29 +27,7 @@ from .apps import (
 )
 from .errors import SDKError, SDKAccessError, StaleContextError
 from .storage import PluginStorage, MediaStore
-from ._events import _message, approval_snapshot, chat_event, _observing
-
-
-def chat_model(value):
-    """Validate the HTTP boundary before a streaming response starts."""
-    from fastapi import HTTPException
-    from .models import ModelSelection
-
-    if value is None:
-        return None
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"provider_id", "model_id"}
-        or any(
-            not isinstance(item, str) or not item.strip()
-            for item in value.values()
-        )
-    ):
-        raise HTTPException(
-            422,
-            "model requires nonempty provider_id and model_id",
-        )
-    return ModelSelection(**value)
+from ._events import _message, approval_snapshot, chat_event
 
 
 def plain(value):
@@ -100,10 +78,9 @@ class CapabilityContext:  # pylint: disable=protected-access
         session_id=None,
         skill=None,
         request_id=None,
-        model=None,
     ):
         return await self.public.chat(
-            ChatRequest(message, session_id, skill, request_id, model),
+            ChatRequest(message, session_id, skill, request_id),
         )
 
     def chat_stream(
@@ -113,10 +90,9 @@ class CapabilityContext:  # pylint: disable=protected-access
         session_id=None,
         skill=None,
         request_id=None,
-        model=None,
     ):
         return self.public.chat_stream(
-            ChatRequest(message, session_id, skill, request_id, model),
+            ChatRequest(message, session_id, skill, request_id),
         )
 
     async def get_session_history(self, session_id):
@@ -429,7 +405,6 @@ class Services:  # pylint: disable=protected-access
 
     async def _produce_chat(self, request):
         from ..schemas import AgentRequest
-        from ._models import selection_override
         from ..config.context import current_workspace_dir, current_session_id
 
         workspace = await self.workspace()
@@ -451,7 +426,6 @@ class Services:  # pylint: disable=protected-access
             agent_id=self.legacy.agent_id,
             request_id=request.request_id,
             request_context={"app_id": self.legacy.app_id},
-            model_slot_override=selection_override(request.model),
         )
         async with self.plugin._invocation(
             workspace_id=self.legacy.agent_id,
@@ -461,18 +435,14 @@ class Services:  # pylint: disable=protected-access
                 workspace.workspace_dir,
             )
             session_token = current_session_id.set(sid)
-            observation_token = _observing.set(True)
-            stream = workspace.stream_query(envelope)
             try:
-                async for event in stream:
-                    yield chat_event(event)
+                stream = workspace.stream_query(envelope)
+                async with aclosing(stream):
+                    async for event in stream:
+                        yield chat_event(event)
             finally:
-                try:
-                    await stream.aclose()
-                finally:
-                    _observing.reset(observation_token)
-                    current_session_id.reset(session_token)
-                    current_workspace_dir.reset(workspace_token)
+                current_session_id.reset(session_token)
+                current_workspace_dir.reset(workspace_token)
 
     def chat_stream(self, request):
         self.guard()
@@ -1154,7 +1124,6 @@ def register(plugin, app):
                     payload.get("session_id"),
                     payload.get("skill"),
                     payload.get("request_id"),
-                    chat_model(payload.get("model")),
                 ),
             )
 

@@ -23,7 +23,6 @@ from .context import RequestContext
 if TYPE_CHECKING:
     from .logging import PluginLogger
     from .models import ModelService
-    from .runs import RunService
     from .workspace import WorkspaceService
     from .checkpoints import CheckpointService
     from .sdk import PluginContext
@@ -108,12 +107,6 @@ class ToolContext:
         from .models import ModelService
 
         return ModelService(self)
-
-    @property
-    def runs(self) -> RunService:
-        from .runs import RunService
-
-        return RunService(self)
 
     @property
     def workspace_ops(self) -> WorkspaceService:

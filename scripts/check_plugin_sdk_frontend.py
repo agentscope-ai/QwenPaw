@@ -98,8 +98,11 @@ host.chat.composer.read("other-session");
 host.chat.composer.replaceAll("text");
 // @ts-expect-error Workspace IDs are strings.
 void host.host.selectAgent(42);
-// @ts-expect-error Model selection requires both identifiers.
-void app.chat("hello", { model: { model_id: "model" } });
+const model = { provider_id: "provider", model_id: "model" };
+// @ts-expect-error PawApp chats use the Agent's configured model.
+void app.chat("hello", { model });
+// @ts-expect-error PawApp tasks use the Agent's configured model.
+void tasks("author-app").start({ message: "hello", model });
 // @ts-expect-error Restore requires an explicitly selected conversation.
 void checkpoints("author-app").restore("checkpoint", {});
 // @ts-expect-error Selected files are paths.
@@ -164,14 +167,12 @@ for mode, resolution in (("NodeNext", "NodeNext"), ("ESNext", "bundler")):
     }
 (root / "author.ts").write_text(
     """
-import {getHost, forApp, tasks, checkpoints} from "@qwenpaw/plugin-sdk";
+import {getHost, checkpoints} from "@qwenpaw/plugin-sdk";
 const host = getHost();
 const draft = host.chat.composer.read();
 if (draft) host.chat.composer.replace(draft, "Improved");
 void host.host.selectAgent("default");
-const options = {model: {provider_id: "provider", model_id: "model"}};
-void forApp("author-app").chat("Hello", options);
-void tasks("author-app").start({message: "Hello", ...options});
+void host.chat.composer.model();
 void checkpoints("author-app").timeline({chatId: "selected"});
 """,
 )

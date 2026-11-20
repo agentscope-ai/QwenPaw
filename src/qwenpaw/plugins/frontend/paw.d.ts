@@ -3,7 +3,6 @@
  */
 
 import type React from "react";
-import type { ModelSelection } from "./host.js";
 
 export interface PawDisposable {
   dispose(): void;
@@ -48,8 +47,6 @@ export interface PawSseEvent {
 }
 
 export interface PawChatOptions {
-  /** @since 1.2.0 Per-turn selection; does not change the workspace default. */
-  model?: ModelSelection;
   /** Defaults to the agent selected in the host UI. */
   agentId?: string;
   /** Defaults to the current host session, then pawapp:{appId}. */

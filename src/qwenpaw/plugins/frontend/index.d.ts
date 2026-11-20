@@ -1,6 +1,6 @@
 export * from "./host.js";
 export * from "./paw.js";
-import type { QwenPawWindowNamespace, ModelSelection } from "./host.js";
+import type { QwenPawWindowNamespace } from "./host.js";
 import type { PawSdk, PawRequestOptions } from "./paw.js";
 export declare const SDK_VERSION: "1.2.0";
 /** Harness settings types are available since SDK 1.1.0. */
@@ -20,8 +20,6 @@ export declare function capabilities(
 export declare function getHost(): QwenPawWindowNamespace;
 export declare function forApp(appId: string): PawSdk;
 export interface ChatRequest {
-  /** @since 1.2.0 Per-task selection; does not change the workspace default. */
-  model?: ModelSelection;
   message: string;
   session_id?: string;
   skill?: string;

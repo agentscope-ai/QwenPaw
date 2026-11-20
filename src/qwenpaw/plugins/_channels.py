@@ -123,7 +123,6 @@ def register(plugin, spec):
             # together.
             # pylint: disable-next=too-many-branches,too-many-statements
             async def produce(request):
-                from ._events import _observing
                 from ..agents.context.overflow_recovery import _stream_observer
                 from .sdk import _RunStreams, _stream_tasks
 
@@ -134,7 +133,6 @@ def register(plugin, spec):
                         session_id=request.session_id,
                     ),
                 ):
-                    token = _observing.set(True)
                     owned = _RunStreams()
                     owner_token = _stream_tasks.set(owned)
                     observer_token = _stream_observer.set(owned.retain)
@@ -174,7 +172,6 @@ def register(plugin, spec):
                             owned.closing = True
                             _stream_observer.reset(observer_token)
                             _stream_tasks.reset(owner_token)
-                            _observing.reset(token)
                             # Host model wrappers can finish before their SDK
                             # producer does. This channel run retains custody
                             # of

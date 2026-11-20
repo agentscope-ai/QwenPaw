@@ -56,22 +56,20 @@ async function check(version, source, files = ["author.ts"]) {
 }
 
 const additions = `
-import { getHost as host, forApp, tasks, checkpoints as timeline } from '@qwenpaw/plugin-sdk';
+import { getHost as host, checkpoints as timeline } from '@qwenpaw/plugin-sdk';
 import '@qwenpaw/plugin-sdk/globals';
 const composer = host().chat.composer;
 const {selectAgent: select} = host().host;
 void select('one');
 void window.QwenPaw.chat['composer'].read();
 void timeline('app').timeline({chatId:'selected'});
-const options = {model:{provider_id:'p',model_id:'m'}};
-void forApp('app').chat('hello', options);
-void tasks('app').start({message:'hello', ...options});
+void composer.model();
 void host().menu.add('app', {id:'menu',label:'Menu'});
 void host().route.add('app', {id:'route',path:'/plugin/app',component:()=>null});
 void host().harnesses.register('app', {backendId:'example'});
 `;
 
-test("SDK 1.0 rejects resolved new symbols, destructuring and model options", async () => {
+test("SDK 1.0 rejects resolved new symbols and destructuring", async () => {
   const result = await check("1.0.0", additions);
   assert.equal(result.ok, false);
   assert.equal(
@@ -103,7 +101,7 @@ test("SDK 1.1 rejects new APIs while retaining Harness support", async () => {
     [...new Set(result.findings.map((f) => f.message.split(" ")[0]))].sort(),
     [
       "add", "chatId", "checkpoints", "composer", "menu", "model",
-      "model_id", "provider_id", "read", "route", "selectAgent", "timeline",
+      "read", "route", "selectAgent", "timeline",
     ],
   );
   assert.ok(result.findings.every((f) => f.rule === "sdk-version"));

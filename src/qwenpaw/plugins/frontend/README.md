@@ -48,13 +48,6 @@ host's path-derived title.
 
 ## Added in 1.2.0
 
-`forApp(id).chat/chatStream(text, { model: { provider_id, model_id } })`
-and `tasks(id).start({ message, model })` select a model for this request only.
-They require SDK 1.2 standard app routes. The choice preserves app history and
-does not change workspace defaults; a configured default is not required when
-the request names an available model. Unsupported legacy app routes reject
-the selection instead of silently discarding it.
-
 `getHost().chat.composer.read()` returns an immutable `ComposerSnapshot` for
 the visible composer, or `null`. Keep that exact object and call
 `composer.replace(snapshot, text)` after showing the result to the user.

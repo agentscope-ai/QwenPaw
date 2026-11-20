@@ -22,24 +22,6 @@ from ._messages import to_host, _from_block, _take_previews
 model_deadline = ContextVar("sdk_model_deadline", default=None)
 
 
-def selection_override(selection):
-    from .models import ModelSelection
-
-    if selection is None:
-        return None
-    if (
-        not isinstance(selection, ModelSelection)
-        or not isinstance(selection.provider_id, str)
-        or not isinstance(selection.model_id, str)
-        or not selection.provider_id.strip()
-        or not selection.model_id.strip()
-    ):
-        raise SDKError(
-            "Chat model requires a nonempty provider_id and model_id",
-        )
-    return {"provider_id": selection.provider_id, "model": selection.model_id}
-
-
 def json_mapping(value: object) -> dict[str, JSONData]:
     def convert(item: object) -> JSONData:
         if item is None or isinstance(item, (str, bool, int)):

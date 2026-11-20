@@ -142,12 +142,6 @@ def test_harness_interfaces_keep_sdk_11_minimum(tmp_path, source):
             "    return call.identity\n"
         ),
         (
-            "from qwenpaw.plugins.providers import ProviderContext\n"
-            "async def f(call: ProviderContext):\n"
-            "    return await call.runs.current()\n"
-        ),
-        "from qwenpaw.plugins.apps import ChatRequest\nrequest = ChatRequest('hello', model=None)\n",
-        (
             "from qwenpaw.plugins.apps import PawApp\n"
             "app = PawApp(app_id='upload')\n"
             "app.route('/upload', body='form')\n"

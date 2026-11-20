@@ -39,7 +39,7 @@ def response_policy_for(self, target):
 
 `ResponsePolicy.continue_on_delivery_error`（1.2.0，默认 `False`）决定一次发送失败后是否继续消费模型事件，不代表重试或忽略失败。最终回复仍标记失败；结果未知时仍禁止同一回复继续产生副作用。平台格式、卡片内容和业务规则留在驱动。
 
-声明 `channel.run_events.v1` 后，`ChannelDriver.on_run(ch, event)`（1.2.0）接收已有的 `qwenpaw.plugins.channels.ChannelRunEvent`。`start/running` 在宿主接纳并准备处理后发出，`end` 提供 `completed/failed/cancelled`；主动发送与入队前拒绝不生成运行事件。`run_id` 是本渠道一次处理的编号，不等同于 Runtime 的运行查询编号；`target` 是公开回复目标的 `key`。群共享会话中，`user_id` 可以是共享身份，`sender_id/acl_sender_id` 仍表示平台操作者。
+声明 `channel.run_events.v1` 后，`ChannelDriver.on_run(ch, event)`（1.2.0）接收已有的 `qwenpaw.plugins.channels.ChannelRunEvent`。`start/running` 在宿主接纳并准备处理后发出，`end` 提供 `completed/failed/cancelled`；主动发送与入队前拒绝不生成运行事件。`run_id` 是本渠道一次处理的编号，`target` 是公开回复目标的 `key`。群共享会话中，`user_id` 可以是共享身份，`sender_id/acl_sender_id` 仍表示平台操作者。
 
 回调顺序由宿主管理，每次实际回调有五秒预算。开始回调未退出时，结束通知排在后面；结束通知未退出时，不能报告回复资源清理完成。停用等待超过宿主排空预算可以明确失败，不能把超时当作已清理。通知异常会记录诊断，不代替模型结果，也不会自动重放回调。这是当前 worker 的运行通知，不提供崩溃后的事件重放保证；`ch.delivery` 不在此回调中绑定投递事务。平台副作用使用 `send/on_stream/prepare_response/reaction`，回复资源由 `finish_response` 释放。
 
