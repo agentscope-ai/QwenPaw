@@ -47,7 +47,11 @@ def memory_job(monkeypatch):
         source="user",
     )
     # Include a different chat model to catch accidental global/session lookup.
-    provider = SimpleNamespace(models=[], extra_models=[metadata])
+    provider = SimpleNamespace(
+        resolve_model_info=lambda model_id: (
+            metadata if model_id == metadata.id else ModelInfo(id=model_id)
+        ),
+    )
     providers = SimpleNamespace(
         get_provider=lambda provider_id: (
             provider if provider_id == "custom" else None

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from agentscope.model._model_response import ChatResponse, StructuredResponse
+from agentscope.message import Msg
 
 from qwenpaw.agents import model_factory
 from qwenpaw.agents.memory import reme_light_memory_manager as memory_module
@@ -20,6 +21,116 @@ from qwenpaw.providers.ollama_provider import OllamaProvider
 from qwenpaw.providers.plugin_provider_registry import PluginProviderRegistry
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
+
+
+@pytest.mark.parametrize(
+    ("saved_image", "main_image", "fallback_image", "override", "expected"),
+    [
+        (True, False, False, False, ["global"]),
+        (True, True, False, False, ["global", "agent"]),
+        (False, True, False, False, ["global", "agent"]),
+        (False, True, True, False, ["global", "agent", "vision-fallback"]),
+        (True, False, False, True, ["global", "agent", "vision-fallback"]),
+    ],
+)
+async def test_image_memory_uses_resolved_capabilities(
+    monkeypatch,
+    local_models,
+    make_memory_model_manager,
+    saved_image,
+    main_image,
+    fallback_image,
+    override,
+    expected,
+):
+    from qwenpaw.providers.openai_chat_model_compat import (
+        OpenAIChatModelCompat,
+    )
+
+    provider = local_models.get_provider("ollama")
+    for card in provider.models:
+        if card.id in {"agent", "vision-fallback"}:
+            card.supports_image = saved_image
+            card.config_overrides = ["supports_image"] if override else []
+    provider.discovered_models = [
+        ModelInfo(
+            id=name,
+            name=name,
+            supports_image=images,
+            probe_source="api",
+        )
+        for name, images in (
+            ("agent", main_image),
+            ("vision-fallback", fallback_image),
+        )
+    ]
+
+    def slot(name):
+        return {"provider_id": "ollama", "model": name}
+
+    profile = AgentProfileConfig.model_validate(
+        {
+            "id": "image-metadata",
+            "name": "Image metadata",
+            "active_model": slot("agent"),
+            "fallback_models": [slot("vision-fallback")],
+            "fallback_policy": {"enabled": True, "target_scope": "configured"},
+            "running": {
+                "llm_retry_enabled": False,
+                "reme_light_memory_config": {"memory_model": slot("global")},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=profile),
+    )
+    calls = []
+
+    class TransientError(Exception):
+        status_code = 503
+
+    async def call(model, messages, **kwargs):
+        formatted = await model.formatter.format(messages)
+        assert "image_url" in str(formatted)
+        calls.append(model.model)
+        if model.model != "vision-fallback":
+            raise TransientError("unavailable")
+        return ChatResponse(
+            content=[{"type": "text", "text": "ok"}],
+            is_last=True,
+        )
+
+    monkeypatch.setattr(OpenAIChatModelCompat, "__call__", call)
+    model = await make_memory_model_manager(profile.id)._update_qwenpaw_model(
+        require_image_support=True,
+    )
+    messages = [
+        Msg(
+            name="user",
+            content=[
+                {
+                    "type": "data",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": (
+                            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC"
+                            "AAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="
+                        ),
+                    },
+                },
+            ],
+            role="user",
+        ),
+    ]
+    if expected[-1] == "vision-fallback":
+        await model(messages=messages)
+    else:
+        with pytest.raises(TransientError):
+            await model(messages=messages)
+    assert calls == expected
 
 
 @pytest.mark.parametrize("output", ["response", "stream", "structured"])

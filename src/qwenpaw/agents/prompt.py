@@ -490,16 +490,8 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                 provider_id,
             )
             if provider is not None:
-                model_info = next(
-                    (
-                        item
-                        for item in provider.models + provider.extra_models
-                        if item.id == model_name
-                    ),
-                    None,
-                )
-                if model_info is not None:
-                    return model_info.supports_image is True
+                model_info = provider.resolve_model_info(model_name)
+                return model_info.supports_image is True
     except Exception:
         pass
     return False
