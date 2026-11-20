@@ -9,9 +9,23 @@
 }
 
 .dropActive {
+  position: relative;
   border-radius: 8px;
   background: var(--app-accent-soft);
   box-shadow: inset 0 0 0 1px var(--app-accent-border);
+}
+
+/* Chromium 108 cannot resolve color-mix theme tokens for the inset border. */
+@supports not (color: color-mix(in srgb, red, transparent)) {
+  .dropActive::after {
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--app-accent);
+    border-radius: inherit;
+    opacity: 0.42;
+    pointer-events: none;
+    content: "";
+  }
 }
 
 .overlay {
