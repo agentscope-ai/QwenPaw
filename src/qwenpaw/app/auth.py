@@ -716,6 +716,49 @@ def is_loopback_ip(value: str) -> bool:
     return value == "localhost" or (_normalize_ip(value) in _LOOPBACK)
 
 
+def _client_matches_allow_no_auth_hosts(request: Request) -> bool:
+    """Whether the resolved client may skip authentication.
+
+    Checks ``security.allow_no_auth_hosts`` and, for a loopback entry, requires
+    the direct TCP peer to be loopback as well (so a spoofed forward header
+    cannot inherit the exemption).
+    """
+    cfg, _ = _get_config_cached()
+    allowed = cfg.security.allow_no_auth_hosts
+    client_ip = resolve_client_ip(request)
+    norm = _normalize_ip(client_ip) or client_ip
+    if norm not in allowed:
+        return False
+
+    if norm in _LOOPBACK:
+        peer = _normalize_ip(
+            request.client.host if request.client else "",
+        )
+        if peer not in _LOOPBACK:
+            logger.warning(
+                "Auth skip blocked: client_ip=%s but"
+                " direct peer %s is not loopback",
+                norm,
+                peer,
+            )
+            return False
+    return True
+
+
+def is_trusted_local_request(request: Request) -> bool:
+    """Whether this request comes from a client the deployment trusts.
+
+    Mirrors the auth middleware's no-auth rule: authentication disabled (or no
+    registered user yet), or the resolved client IP allowed by
+    ``security.allow_no_auth_hosts`` with the loopback peer check. Features
+    that need the existing trust boundary can reuse this instead of adding a
+    parallel switch.
+    """
+    if not is_auth_enabled() or not has_registered_users():
+        return True
+    return _client_matches_allow_no_auth_hosts(request)
+
+
 def is_trusted_proxy(request: HTTPConnection) -> bool:
     """Return whether the direct peer is an explicitly trusted proxy."""
     peer = request.client.host if request.client else ""
@@ -822,28 +865,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ):
             return True
 
-        cfg, _ = _get_config_cached()
-        allowed = cfg.security.allow_no_auth_hosts
-        client_ip = resolve_client_ip(request)
-        norm = _normalize_ip(client_ip) or client_ip
-        if norm not in allowed:
-            return False
-
-        # Defense-in-depth: loopback whitelist requires
-        # direct TCP peer also be loopback.
-        if norm in _LOOPBACK:
-            peer = _normalize_ip(
-                request.client.host if request.client else "",
-            )
-            if peer not in _LOOPBACK:
-                logger.warning(
-                    "Auth skip blocked: client_ip=%s but"
-                    " direct peer %s is not loopback",
-                    norm,
-                    peer,
-                )
-                return False
-        return True
+        return _client_matches_allow_no_auth_hosts(request)
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:

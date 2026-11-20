@@ -33,7 +33,7 @@ from fastapi import (
 )
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
@@ -44,6 +44,7 @@ from ...config.utils import mutate_config
 from ...config.config import (
     AgentProfileConfig,
     EmbeddingModelConfig,
+    RerankerConfig,
     load_agent_config,
     save_agent_config,
     update_agent_config_async,
@@ -51,6 +52,12 @@ from ...config.config import (
 from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
+)
+from ...agents.memory.reranker_auto_probe import probe_and_record
+from ...agents.memory.reme_reranker import load_reranker_config
+from ...agents.memory.reranker_history import (
+    get_history,
+    service_fingerprint,
 )
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
@@ -115,6 +122,68 @@ class EmbeddingTestResponse(BaseModel):
     actual_dimensions: int | None = None
     latency_ms: int
     message: str
+
+
+class RerankerHistoryRecord(BaseModel):
+    """One recorded verification run."""
+
+    ts: int
+    latency_ms: int = 0
+    precision: float | None = None
+    correct_count: int = 0
+    total: int = 0
+
+
+class RerankerCaseResponse(BaseModel):
+    """Result of one reranker probe case."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    query: str
+    scores: list[float] | None = None
+    correct: bool | None = None
+
+
+class RerankerTestResponse(BaseModel):
+    """Aggregated result of a reranker probe suite."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    success: bool
+    latency_ms: int
+    message: str
+    total: int = 0
+    correct_count: int = 0
+    incomplete_count: int = 0
+    precision: float | None = None
+    cases: list[RerankerCaseResponse] | None = None
+    history: list[RerankerHistoryRecord] | None = None
+
+    @classmethod
+    def from_result(
+        cls,
+        result: Any,
+        *,
+        api_key: str = "",
+        history: list[dict] | None = None,
+    ) -> "RerankerTestResponse":
+        """Convert a probe result in one step, masking the API key."""
+        response = cls.model_validate(result)
+        if api_key:
+            response.message = response.message.replace(api_key, "***")
+        response.history = (
+            [RerankerHistoryRecord.model_validate(item) for item in history]
+            if history is not None
+            else None
+        )
+        return response
+
+
+class RerankerHistoryResponse(BaseModel):
+    """History of reranker verification runs for one service fingerprint."""
+
+    fingerprint: str
+    history: list[RerankerHistoryRecord] = []
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -1662,6 +1731,91 @@ async def test_embedding_configuration(
         actual_dimensions=result.actual_dimensions,
         latency_ms=result.latency_ms,
         message=message,
+    )
+
+
+@router.post(
+    "/reranker/test",
+    response_model=RerankerTestResponse,
+    summary="Test reranker configuration",
+    description=(
+        "Send a real rerank request with sample documents and report "
+        "whether the service responded correctly"
+    ),
+)
+async def test_reranker_configuration(
+    reranker_config: RerankerConfig = Body(...),
+    request: Request = None,
+) -> RerankerTestResponse:
+    """Test unsaved reranker settings with a real API call."""
+    # The runtime reranker accepts whatever base URL the operator configured,
+    # including a reranker bound to localhost or a private network. The probe
+    # follows the same deployment policy, gated by the server's existing trust
+    # boundary instead of a new toggle: only a caller the console already
+    # treats as trusted (auth disabled, an allow_no_auth_hosts entry, or a
+    # trusted proxy peer) may direct the probe at a non-public address.
+    allow_private = _reranker_probe_allows_private_targets(request)
+
+    result, history = await probe_and_record(
+        reranker_config,
+        allow_private=allow_private,
+    )
+
+    return RerankerTestResponse.from_result(
+        result,
+        api_key=reranker_config.api_key,
+        history=history,
+    )
+
+
+def _reranker_probe_allows_private_targets(request: Request | None) -> bool:
+    """Whether this caller may probe a local/private reranker endpoint.
+
+    Reuses the console's existing trust boundary rather than adding a
+    configuration switch: a caller trusted to use the console without a token
+    (auth disabled, or an ``allow_no_auth_hosts`` match) is also trusted to
+    verify the same local reranker the runtime would call.
+    """
+    if request is None:
+        return False
+    from ..auth import is_trusted_local_request
+
+    try:
+        return is_trusted_local_request(request)
+    except Exception:
+        logger.warning(
+            "reranker probe: trust check failed, treating caller as untrusted",
+            exc_info=True,
+        )
+        return False
+
+
+@router.get(
+    "/reranker/history",
+    response_model=RerankerHistoryResponse,
+    summary="Get reranker verification history",
+    description=(
+        "Return recorded verification runs for the agent's saved reranker "
+        "configuration"
+    ),
+)
+async def get_reranker_history(
+    request: Request,
+) -> RerankerHistoryResponse:
+    """Return history for the saved reranker service of this agent.
+
+    The fingerprint is computed server-side from the saved configuration, so
+    the console never has to hash in the browser (``crypto.subtle`` is absent
+    on plain-HTTP origins).
+    """
+    workspace = await get_agent_for_request(request)
+    saved = await load_reranker_config(workspace.agent_id)
+    if saved is None:
+        return RerankerHistoryResponse(fingerprint="", history=[])
+    fingerprint = service_fingerprint(saved)
+    return RerankerHistoryResponse(
+        fingerprint=fingerprint,
+        history=get_history(fingerprint),
     )
 
 

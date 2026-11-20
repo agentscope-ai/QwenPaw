@@ -21,6 +21,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+import { RerankerModelCenter } from "./RerankerModelCenter";
 
 const AUTO_FIN_MAX_WINDOW_HOURS = 168;
 
@@ -921,6 +922,8 @@ export function ReMeLightMemoryCard() {
               <code>reranker-search</code>
             </div>
 
+            <RerankerModelCenter />
+
             <SettingsField
               label={t("agentConfig.rerankerEnabled")}
               name={["reme_light_memory_config", "reranker_config", "enabled"]}
@@ -1088,6 +1091,31 @@ export function ReMeLightMemoryCard() {
                 <InputNumber
                   style={{ width: "100%" }}
                   min={1}
+                  step={1}
+                  disabled={!rerankerEnabled}
+                />
+              </SettingsField>
+
+              <SettingsField
+                label={t("agentConfig.rerankerAutoVerifyInterval")}
+                name={[
+                  "reme_light_memory_config",
+                  "reranker_config",
+                  "auto_verify_interval_hours",
+                ]}
+                initialValue={0}
+                rules={[
+                  {
+                    type: "number",
+                    min: 0,
+                    message: t("agentConfig.rerankerAutoVerifyIntervalMin"),
+                  },
+                ]}
+                tooltip={t("agentConfig.rerankerAutoVerifyIntervalTooltip")}
+              >
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={0}
                   step={1}
                   disabled={!rerankerEnabled}
                 />
