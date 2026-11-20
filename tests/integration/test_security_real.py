@@ -317,6 +317,138 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
+@pytest.mark.integration
+@pytest.mark.p1
+def test_tool_guard_blocks_dangerous_shell_inside_batch(
+    app_server,
+    mock_llm,
+) -> None:
+    """Test purpose:
+    - Verify the tool guard ALSO intercepts a dangerous shell command
+      issued as a ``run_tool_batch`` inner action rather than as a
+      top-level tool call.
+
+    ``run_tool_batch._call_tool`` reaches the tool through
+    ``Toolkit.call_tool``, which does not run ``check_permissions`` —
+    that lives on the agent side in ``Agent._execute_tool_call``.  A
+    batch therefore used to execute its inner tools with no governance
+    at all.  This test pins the fixed behaviour: the inner ``rm -rf /``
+    must be evaluated and auto-denied by the governance layer.
+
+    Test flow:
+    1. Drive MockLLM to emit a single ``run_tool_batch`` tool_call whose
+       only action is ``execute_shell_command`` with ``rm -rf /``.
+    2. Trigger an agent-type cron run with ``runtime.tool_safety=True``
+       so governance evaluation is enabled.
+    3. Poll the logs for a governance DENY on the inner command.
+    """
+    srv, mock_url = mock_llm
+    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+    register_mock_provider(app_server, mock_url)
+    clean_inbox(app_server.working_dir)
+
+    srv.force_tool_call = True
+    srv.tool_call_name = "run_tool_batch"
+    srv.tool_call_arguments = json.dumps(
+        {
+            "actions": [
+                {
+                    "tool_name": "execute_shell_command",
+                    "arguments": {"command": "rm -rf /"},
+                },
+            ],
+            "stop_on_error": True,
+        },
+    )
+
+    spec = {
+        "name": "tool_guard_blocks_batch",
+        "enabled": True,
+        "schedule": {
+            "type": "cron",
+            "cron": _NEVER_FIRE_SCHEDULE,
+            "timezone": "UTC",
+        },
+        "task_type": "agent",
+        "request": {
+            "input": [
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": [
+                        {"type": "text", "text": "delete everything"},
+                    ],
+                },
+            ],
+        },
+        "dispatch": {
+            "type": "channel",
+            "channel": "console",
+            "target": {
+                "user_id": "tg-batch",
+                "session_id": "console:tg-batch-sess",
+            },
+            "mode": "stream",
+        },
+        "runtime": {
+            "tool_safety": True,
+        },
+        "save_result_to_inbox": False,
+    }
+    job_resp = app_server.api_request(
+        "POST",
+        "/api/cron/jobs",
+        json=spec,
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert job_resp.status_code == 200, app_server.logs_tail()
+    job_id = job_resp.json()["id"]
+
+    try:
+        run_resp = app_server.api_request(
+            "POST",
+            f"/api/cron/jobs/{job_id}/run",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert run_resp.status_code == 200, app_server.logs_tail()
+
+        deadline = time.time() + 30.0
+        guard_seen = False
+        while time.time() < deadline:
+            logs = app_server.logs_tail(20000)
+            # The inner call must reach the governance layer.  Without
+            # the fix the batch short-circuits to Toolkit.call_tool and
+            # this deny never happens.
+            governance_blocked = (
+                "governance decision" in logs
+                and "action=deny" in logs
+                and "rm -rf" in logs
+            )
+            legacy_blocked = (
+                "TOOL GUARD" in logs and "TOOL_CMD_DANGEROUS_RM" in logs
+            )
+            if governance_blocked or legacy_blocked:
+                guard_seen = True
+                break
+            time.sleep(1.0)
+        assert guard_seen, (
+            "tool guard did not intercept rm -rf issued inside a "
+            "run_tool_batch action:\n"
+            f"{app_server.logs_tail()[-3000:]}"
+        )
+    finally:
+        try:
+            app_server.api_request(
+                "DELETE",
+                f"/api/cron/jobs/{job_id}",
+                timeout=_HTTP_TIMEOUT,
+            )
+        except Exception:
+            pass
+        srv.force_tool_call = False
+        unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+
+
 # ------------------------------------------------------------------ #
 # B. File Guard
 # ------------------------------------------------------------------ #
