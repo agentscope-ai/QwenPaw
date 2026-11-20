@@ -201,6 +201,7 @@ async def resolve_turn_usage(
         return turn, None, None
 
     turn, ctx = await _resolve_usage_from_state(turn, agent_state, agent_id)
+    turn = add_session_cache_usage(turn, getattr(agent_state, "context", None))
     return turn, ctx, agent_state
 
 
@@ -216,13 +217,7 @@ async def _resolve_usage_from_state(
         preferred_max_input_length=context_size,
     )
     if not stats:
-        return (
-            add_session_cache_usage(
-                turn,
-                getattr(agent_state, "context", None),
-            ),
-            None,
-        )
+        return turn, None
 
     ctx = {
         "estimated_tokens": stats["estimated_tokens"],
@@ -233,10 +228,6 @@ async def _resolve_usage_from_state(
         turn = _turn_from_stats(stats)
     else:
         turn = reconcile_turn_completion_from_stats(turn, stats)
-    turn = add_session_cache_usage(
-        turn,
-        getattr(agent_state, "context", None),
-    )
     return turn, ctx
 
 
@@ -277,6 +268,7 @@ async def attach_turn_usage(
     session_id: str,
     agent_id: str,
     agent_state: Any,
+    archived_messages: list[Any],
 ) -> None:
     """Attach usage to the current turn before its state is saved."""
     turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
@@ -288,7 +280,9 @@ async def attach_turn_usage(
             agent_state,
             agent_id,
         )
-        msg = find_turn_closing_assistant_in_context(agent_state.context)
+        messages = agent_state.context
+        msg = find_turn_closing_assistant_in_context(messages)
+        turn = add_session_cache_usage(turn, [*archived_messages, *messages])
         _write_turn_usage_meta(msg, turn, ctx)
     except Exception:
         logger.warning("turn usage attachment skipped", exc_info=True)
