@@ -74,6 +74,19 @@ def test_context_overflow_does_not_fallback() -> None:
     assert decision.fallback_eligible is False
 
 
+def test_gateway_context_overflow_is_classified() -> None:
+    decision = classify_model_error(
+        HttpError(
+            400,
+            "prompt (83000 tokens) + max tokens (32768) exceeds the "
+            "context (131072); requests are never truncated",
+        ),
+    )
+
+    assert decision.kind == "context_overflow"
+    assert decision.fallback_eligible is False
+
+
 def test_response_status_is_rate_limited() -> None:
     decision = classify_model_error(ResponseStatusError(429))
 

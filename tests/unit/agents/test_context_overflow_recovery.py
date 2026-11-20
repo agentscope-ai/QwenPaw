@@ -300,6 +300,11 @@ async def test_context_overflow_with_other_manager_does_not_retry(monkeypatch):
         ("<400> input length should be between 1 and 983616", False),
         ("Error code: 400 - image_url is unsupported", False),
         ("Error code: 500 - context length exceeded", False),
+        (
+            "Error code: 400 - prompt (83000 tokens) + max tokens (32768) "
+            "exceeds the context (131072); requests are never truncated",
+            True,
+        ),
     ],
 )
 def test_context_overflow_classifier_requires_400_and_specific_marker(
