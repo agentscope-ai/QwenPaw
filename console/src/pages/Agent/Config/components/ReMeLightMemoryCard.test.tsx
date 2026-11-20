@@ -7,10 +7,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React, { useEffect, useState, type ReactNode } from "react";
 
 import { agentsApi, api } from "@/api";
+import { providerApi } from "@/api/modules/provider";
 import { useAgentStore } from "@/stores/agentStore";
 import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
 import { renderWithProviders } from "@/test/common_setup";
@@ -29,6 +30,20 @@ import {
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
 );
+
+// Keep the real ModelChoice/reset/form interaction. Stub only its lazy menu;
+// filtering and provider loading are covered by the shared selector suites.
+vi.mock("@/pages/Chat/ModelSelector", () => ({
+  default: ({
+    onPick,
+  }: {
+    onPick: (provider: string, model: string) => void;
+  }) => (
+    <button type="button" onClick={() => onPick("ollama", "qwen2.5:7b")}>
+      Pick test memory model
+    </button>
+  ),
+}));
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
@@ -230,6 +245,48 @@ function MemoryForm({
         <ReMeLightMemoryCard />
       </Form>
     </Provider>
+  );
+}
+
+function MemoryModelForm({
+  initialModel = null,
+  onSave,
+}: {
+  initialModel?: { provider_id: string; model: string } | null;
+  onSave?: (values: Record<string, unknown>) => void;
+}) {
+  const [form] = Form.useForm();
+  return (
+    <StaticMemoryProvider>
+      <Form
+        form={form}
+        onFinish={onSave}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            dream_cron_enabled: false,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            embedding_model_config: {},
+            memory_model: initialModel,
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+        <Form.Item noStyle shouldUpdate>
+          {() => (
+            <output data-testid="memory-model-value">
+              {JSON.stringify(
+                form.getFieldValue([
+                  "reme_light_memory_config",
+                  "memory_model",
+                ]) ?? null,
+              )}
+            </output>
+          )}
+        </Form.Item>
+        <button type="submit">Save memory settings</button>
+      </Form>
+    </StaticMemoryProvider>
   );
 }
 
@@ -439,10 +496,144 @@ function MemoryAndEmbeddingForm() {
   );
 }
 
+beforeEach(() => {
+  vi.spyOn(providerApi, "listProviders").mockResolvedValue([]);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   useAgentStore.setState({ selectedAgent: "default" });
   useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
+});
+
+describe("memory writing model selector", () => {
+  const providers = [
+    {
+      id: "ollama",
+      name: "Ollama",
+      require_api_key: false,
+      base_url: "http://localhost:11434",
+      models: [{ id: "qwen2.5:7b", name: "Qwen 2.5 7B" }],
+      extra_models: [],
+    },
+    {
+      id: "dashscope",
+      name: "DashScope",
+      api_key: "configured-key",
+      models: [{ id: "qwen-flash", name: "Qwen Flash" }],
+      extra_models: [],
+    },
+  ] as unknown as Awaited<ReturnType<typeof api.listProviders>>;
+
+  it.each([
+    ["main", null, "agentConfig.memoryModelUseMain", true],
+    [
+      "configured",
+      { provider_id: "dashscope", model: "qwen-flash" },
+      "DashScope / Qwen Flash",
+      true,
+    ],
+    [
+      "unconfigured",
+      { provider_id: "dashscope", model: "qwen-flash" },
+      "agentConfig.memoryModelUnavailable",
+      false,
+    ],
+    [
+      "removed",
+      { provider_id: "removed", model: "old-model" },
+      "agentConfig.memoryModelUnavailable",
+      true,
+    ],
+    [
+      "inherited",
+      { provider_id: "", model: "qwen2.5:7b" },
+      "agentConfig.memoryModelInheritedProvider",
+      true,
+    ],
+  ] as const)(
+    "displays and preserves the %s selection",
+    async (_name, slot, label, configured) => {
+      vi.mocked(providerApi.listProviders).mockResolvedValue(
+        configured
+          ? providers
+          : providers.map((provider) => ({
+              ...provider,
+              api_key: "",
+              require_api_key: true,
+            })),
+      );
+      const onSave = vi.fn();
+      renderWithProviders(
+        <MemoryModelForm initialModel={slot} onSave={onSave} />,
+      );
+      expect(await screen.findByText(label)).toBeInTheDocument();
+      expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+        JSON.stringify(slot),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Save memory settings" }),
+      );
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({
+            reme_light_memory_config: expect.objectContaining({
+              memory_model: slot,
+            }),
+          }),
+        ),
+      );
+    },
+  );
+
+  it("stores an explicit provider/model object and clears it to null", async () => {
+    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
+    const onSave = vi.fn();
+    renderWithProviders(<MemoryModelForm onSave={onSave} />);
+    const selector = await screen.findByRole("button", {
+      name: "agentConfig.memoryModelLabel",
+    });
+
+    fireEvent.click(selector);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pick test memory model" }),
+    );
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+      '{"provider_id":"ollama","model":"qwen2.5:7b"}',
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save memory settings" }),
+    );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          reme_light_memory_config: expect.objectContaining({
+            memory_model: { provider_id: "ollama", model: "qwen2.5:7b" },
+          }),
+        }),
+      ),
+    );
+    fireEvent.click(selector);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "agentConfig.memoryModelUseMain",
+      }),
+    );
+    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save memory settings" }),
+    );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          reme_light_memory_config: expect.objectContaining({
+            memory_model: null,
+          }),
+        }),
+      ),
+    );
+  });
 });
 
 describe("ReMe runtime status", () => {

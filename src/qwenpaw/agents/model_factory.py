@@ -2424,6 +2424,9 @@ def _apply_model_fallbacks(
         fallback_info = fallback_provider.get_model_info(fallback_slot.model)
         if fallback_info is None:
             continue
+        fallback_info = fallback_provider.resolve_model_info(
+            fallback_slot.model,
+        )
         if require_image_support and fallback_info.supports_image is not True:
             continue
         if fallback_free_only and not fallback_info.is_free:
@@ -2450,9 +2453,7 @@ def _apply_model_fallbacks(
             fallback_formatter = _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
-                model_info=fallback_provider.resolve_model_info(
-                    fallback_slot.model,
-                ),
+                model_info=fallback_info,
             )
             if resize_images_to_max_bytes and isinstance(
                 fallback_formatter,
