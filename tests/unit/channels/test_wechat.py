@@ -635,11 +635,15 @@ async def test_finish_log_distinguishes_failure_before_rpc(
         ]
 
 
-@pytest.mark.parametrize(f"unknown", [False, True])
+@pytest.mark.parametrize(
+    f"earlier_unknown,unknown",
+    [(False, False), (False, True), (True, False), (True, True)],
+)
 async def test_finish_diagnostic_reports_unknown_rpc_result(
     route_proxy,
     monkeypatch,
     caplog,
+    earlier_unknown,
     unknown,
 ):
     error = (
@@ -647,22 +651,39 @@ async def test_finish_diagnostic_reports_unknown_rpc_result(
         if unknown
         else RpcError(-32603, f"private-rpc-error")
     )
-    rpc = AsyncMock(side_effect=error)
+    method = f"channel.response.finish"
+    earlier = ChannelCallUnknown(f"channel-1-1", method, 1)
+    errors = [earlier, error] if earlier_unknown else [error]
+    rpc = AsyncMock(side_effect=errors)
     monkeypatch.setattr(route_proxy.channel_process, f"call", rpc)
-    async with route_proxy._response_scope(
-        {f"response_handle": f"private-handle"},
-    ):
+    handles = [f"private-attachment"] if earlier_unknown else []
+    meta = {
+        f"response_handle": f"private-handle",
+        f"_merged_response_handles": handles,
+    }
+    async with route_proxy._response_scope(meta):
         pass
 
-    rpc.assert_awaited_once()
+    attempted = [
+        call.args[1][f"response_handle"] for call in rpc.await_args_list
+    ]
+    assert attempted == [*handles, f"private-handle"]
     diagnostic = (
         f"RESPONSE_FINISH_UNKNOWN" if unknown else f"RESPONSE_FINISH_FAILED"
     )
     assert (await route_proxy.health_check())[f"last_diagnostic"] == diagnostic
-    assert [log for log in caplog.messages if f"RESPONSE_FINISH" in log] == [
+    expected = [
         f"Channel diagnostic: {diagnostic}"
         + (f" rpc_result=unknown request_id=channel-1-2" if unknown else f""),
     ]
+    if earlier_unknown:
+        expected.insert(
+            0,
+            f"Channel diagnostic: RESPONSE_FINISH_UNKNOWN rpc_result=unknown "
+            f"request_id=channel-1-1",
+        )
+    warnings = [log for log in caplog.messages if f"RESPONSE_FINISH" in log]
+    assert warnings == expected
 
 
 async def test_outbound_image_encrypts_and_sends_native_media(

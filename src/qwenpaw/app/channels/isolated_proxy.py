@@ -90,6 +90,13 @@ def _rpc_result_unknown(error):
     }
 
 
+def _finish_result_unknown(error):
+    return (
+        isinstance(error, ChannelCallUnknown)
+        and error.method == f"channel.response.finish"
+    )
+
+
 def _approval_card_params(metadata):
     """Adapt host severity values to the validated approval wire contract."""
     severity = metadata.get("severity", "medium")
@@ -635,16 +642,20 @@ class IsolatedChannelProxy(BaseChannel):
             flush=True,
         )
 
-    def _record_diagnostic(self, reason, *, error=None):
-        detail = f""
-        if (
-            isinstance(error, ChannelCallUnknown)
-            and error.method == f"channel.response.finish"
-        ):
-            reason = f"RESPONSE_FINISH_UNKNOWN"
-            detail = f" rpc_result=unknown request_id={error.request_id}"
+    def _record_diagnostic(self, reason, *, request_id=None):
+        detail = (
+            f" rpc_result=unknown request_id={request_id}"
+            if request_id is not None
+            else f""
+        )
         self._last_diagnostic = reason
         logger.warning(f"Channel diagnostic: {reason}{detail}")
+
+    def _record_finish_failure(self, error):
+        if _finish_result_unknown(error):
+            self._last_diagnostic = f"RESPONSE_FINISH_UNKNOWN"
+        else:
+            self._record_diagnostic(f"RESPONSE_FINISH_FAILED")
 
     async def _event_batch(self, params, request):
         # RPC cancellation cannot split queue commit from the dedup record.
@@ -1743,6 +1754,11 @@ class IsolatedChannelProxy(BaseChannel):
             except Exception as exc:
                 if checking_text_merge:
                     self._log_text_merge_finish_skipped(exc)
+                elif _finish_result_unknown(exc):
+                    self._record_diagnostic(
+                        f"RESPONSE_FINISH_UNKNOWN",
+                        request_id=exc.request_id,
+                    )
                 failure = exc
         if failure is not None:
             raise failure
@@ -2635,19 +2651,13 @@ class IsolatedChannelProxy(BaseChannel):
                             try:
                                 task.result()
                             except BaseException as cleanup_error:
-                                self._record_diagnostic(
-                                    f"RESPONSE_FINISH_FAILED",
-                                    error=cleanup_error,
-                                )
+                                self._record_finish_failure(cleanup_error)
                                 raise cancelled from cleanup_error
                         else:
                             task.add_done_callback(self._observe_cleanup)
                         raise
                     except Exception as cleanup_error:
-                        self._record_diagnostic(
-                            f"RESPONSE_FINISH_FAILED",
-                            error=cleanup_error,
-                        )
+                        self._record_finish_failure(cleanup_error)
                         if merge_owned:
                             raise
             finally:
@@ -2657,7 +2667,7 @@ class IsolatedChannelProxy(BaseChannel):
         cancelled = task.cancelled()
         error = None if cancelled else task.exception()
         if cancelled or error is not None:
-            self._record_diagnostic(f"RESPONSE_FINISH_FAILED", error=error)
+            self._record_finish_failure(error)
 
     async def _consume_request(self, request, payload):
         # Base calls this only after debounce and the host access gate.
