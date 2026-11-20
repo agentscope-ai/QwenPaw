@@ -38,7 +38,7 @@ def check_cancelled(cancel: threading.Event | None) -> None:
 def _stop_process_tree(proc: subprocess.Popen, tree=None) -> None:
     """Stop owned installer children before releasing the install lock."""
     if tree is not None:
-        tree.signal(force=True)
+        tree.terminate_and_wait()
         proc.wait()
         while tree.alive():
             time.sleep(0.01)
@@ -161,14 +161,16 @@ def run_install_command(
             failure = exc
             raise
         finally:
-            if failure is not None or tree is not None:
-                _stop_process_tree(proc, tree)
-            # Keep draining while stopping: closing a pipe from another
-            # thread can block behind readline's lock. Exit delivers EOF.
-            if reader is not None:
-                reader.join()
-            if tree is not None:
-                tree.close()
+            try:
+                if failure is not None or tree is not None:
+                    _stop_process_tree(proc, tree)
+                # Keep draining while stopping: closing a pipe from another
+                # thread can block behind readline's lock. Exit delivers EOF.
+                if reader is not None:
+                    reader.join()
+            finally:
+                if tree is not None:
+                    tree.close()
             if isinstance(failure, subprocess.TimeoutExpired):
                 failure.output = "\n".join(output)
 
