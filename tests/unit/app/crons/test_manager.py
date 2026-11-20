@@ -726,3 +726,80 @@ async def test_api_create_defaults_to_unshared_session(tmp_path):
     created = await create_job(CronJobSpec.model_validate(payload), manager)
     saved = await repo.get_job(created.id)
     assert saved.runtime.share_session is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "incoming",
+    ["no_runtime", "no_thinking", "high", "inherit"],
+)
+async def test_api_replace_preserves_omitted_thinking(tmp_path, incoming):
+    """Legacy replacements must not silently reset a job's thinking mode."""
+    from qwenpaw.app.crons.api import replace_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    path = tmp_path / "jobs.json"
+    repo = JsonJobRepository(path)
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    original = make_cron_job_spec(job_id="legacy-thinking")
+    original.runtime.thinking_level = "off"
+    await manager.create_or_replace_job(original)
+    payload = original.model_dump(mode="json")
+    payload["name"] = "renamed"
+    if incoming == "no_runtime":
+        payload.pop("runtime")
+    elif incoming == "no_thinking":
+        payload["runtime"].pop("thinking_level")
+        payload["runtime"].pop("thinking_budget")
+    else:
+        payload["runtime"]["thinking_level"] = incoming
+
+    response = await replace_job(
+        "legacy-thinking",
+        CronJobSpec.model_validate(payload),
+        manager,
+    )
+
+    expected = incoming if incoming in {"high", "inherit"} else "off"
+    reloaded = await JsonJobRepository(path).get_job("legacy-thinking")
+    assert reloaded.name == "renamed"
+    assert reloaded.runtime.thinking_level == expected
+    assert response.runtime.thinking_level == expected
+
+
+@pytest.mark.asyncio
+async def test_api_replace_preserves_omitted_thinking_budget(tmp_path):
+    """A legacy replacement keeps the stored budget pair intact."""
+    from qwenpaw.app.crons.api import replace_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    path = tmp_path / "jobs.json"
+    repo = JsonJobRepository(path)
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    original = make_cron_job_spec(job_id="legacy-budget")
+    original.runtime.thinking_level = "budget"
+    original.runtime.thinking_budget = 4096
+    await manager.create_or_replace_job(original)
+    payload = original.model_dump(mode="json")
+    payload["runtime"].pop("thinking_level")
+    payload["runtime"].pop("thinking_budget")
+
+    response = await replace_job(
+        "legacy-budget",
+        CronJobSpec.model_validate(payload),
+        manager,
+    )
+
+    reloaded = await JsonJobRepository(path).get_job("legacy-budget")
+    assert reloaded.runtime.thinking_level == "budget"
+    assert reloaded.runtime.thinking_budget == 4096
+    assert response.runtime.thinking_level == "budget"
+    assert response.runtime.thinking_budget == 4096
