@@ -3,8 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
 import { modelSelectorApi } from "./modelSelectorApi";
+import { providerApi } from "../../../api/modules/provider";
+import type { ProviderCatalog } from "./useEligibleProviders";
 
 interface UseModelSelectorDataOptions {
+  providerCatalog?: ProviderCatalog;
   agentId: string;
   session?: SessionModelScope;
   onActiveModels: (activeModels: ActiveModelsInfo) => void;
@@ -14,6 +17,7 @@ export function useModelSelectorData({
   agentId,
   session,
   onActiveModels,
+  providerCatalog,
 }: UseModelSelectorDataOptions) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
@@ -23,6 +27,7 @@ export function useModelSelectorData({
   const [loadError, setLoadError] = useState(false);
   const providersRequestRef = useRef(0);
   const activeRequestRef = useRef(0);
+  const loadProviders = providerCatalog?.load;
 
   const applyActiveModels = useCallback(
     (value: ActiveModelsInfo) => {
@@ -37,35 +42,49 @@ export function useModelSelectorData({
     setActiveModels(value);
   }, []);
 
-  const fetchData = useCallback(async () => {
-    const providersRequestId = ++providersRequestRef.current;
-    const activeRequestId = ++activeRequestRef.current;
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const result = await modelSelectorApi.loadModelSelectorData(
-        agentId,
-        undefined,
-        session,
-        (value) => {
-          if (providersRequestId !== providersRequestRef.current) return;
-          setProviders(value);
+  const fetchData = useCallback(
+    async (refresh = true) => {
+      const providersRequestId = ++providersRequestRef.current;
+      const activeRequestId = ++activeRequestRef.current;
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const result = await modelSelectorApi.loadModelSelectorData(
+          agentId,
+          loadProviders
+            ? {
+                listProviders: () => loadProviders(refresh),
+                getActiveModels: providerApi.getActiveModels,
+              }
+            : undefined,
+          session,
+          (value) => {
+            if (providersRequestId !== providersRequestRef.current) return;
+            setProviders(value);
+            setLoading(false);
+          },
+          (value) => {
+            if (activeRequestId !== activeRequestRef.current) return;
+            applyActiveModels(value);
+          },
+        );
+        if (providersRequestId !== providersRequestRef.current) return;
+        setLoadError(result.loadError);
+        return result;
+      } finally {
+        if (providersRequestId === providersRequestRef.current) {
           setLoading(false);
-        },
-        (value) => {
-          if (activeRequestId !== activeRequestRef.current) return;
-          applyActiveModels(value);
-        },
-      );
-      if (providersRequestId !== providersRequestRef.current) return;
-      setLoadError(result.loadError);
-      return result;
-    } finally {
-      if (providersRequestId === providersRequestRef.current) {
-        setLoading(false);
+        }
       }
-    }
-  }, [agentId, session?.sessionId, session?.chatId, applyActiveModels]);
+    },
+    [
+      agentId,
+      session?.sessionId,
+      session?.chatId,
+      applyActiveModels,
+      loadProviders,
+    ],
+  );
 
   const refreshActiveModels = useCallback(async () => {
     const requestId = ++activeRequestRef.current;
@@ -75,7 +94,7 @@ export function useModelSelectorData({
 
   useEffect(() => {
     setActiveModels(null);
-    void fetchData();
+    void fetchData(false);
     return () => {
       providersRequestRef.current += 1;
       activeRequestRef.current += 1;
@@ -87,9 +106,9 @@ export function useModelSelectorData({
     fetchData,
     loading,
     loadError,
-    providers,
+    providers: providerCatalog?.providers ?? providers,
     refreshActiveModels,
     setActiveModels: updateActiveModels,
-    setProviders,
+    setProviders: providerCatalog?.setProviders ?? setProviders,
   };
 }

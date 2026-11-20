@@ -55,6 +55,7 @@ import {
 } from "./modelSelectorModels";
 import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
+import type { ProviderCatalog } from "./useEligibleProviders";
 import styles from "./index.module.less";
 
 const ProviderCandidatePicker = lazy(() => import("./ProviderCandidatePicker"));
@@ -83,6 +84,7 @@ const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
+  providerCatalog?: ProviderCatalog;
   modelType?: ModelType;
   embedded?: boolean;
   onPick?: (providerId: string, modelId: string) => void;
@@ -105,6 +107,7 @@ function readStoredModelKeys(key: string): string[] {
 }
 
 export default function ModelSelector({
+  providerCatalog,
   embedded = false,
   modelType = "chat",
   onPick,
@@ -195,6 +198,7 @@ export default function ModelSelector({
     setActiveModels,
     setProviders,
   } = useModelSelectorData({
+    providerCatalog,
     agentId: selectedAgent,
     session: sessionId ? { sessionId, chatId } : undefined,
     onActiveModels: handleActiveModels,
@@ -1263,7 +1267,7 @@ export default function ModelSelector({
         {loadError && (
           <div className={styles.loadError} role="alert">
             <span>{t("modelSelector.partialLoadFailed")}</span>
-            <button type="button" onClick={fetchData}>
+            <button type="button" onClick={() => fetchData()}>
               {t("modelSelector.retry")}
             </button>
           </div>

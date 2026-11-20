@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import type { ModelSlotConfig } from "@/api/types/provider";
 import { ModelChoice } from "@/pages/Chat/ModelSelector/ModelChoice";
-import { useEligibleProviders } from "@/pages/Chat/ModelSelector/useEligibleProviders";
+import { useProviderCatalog } from "@/pages/Chat/ModelSelector/useEligibleProviders";
+import { buildEligibleProviders } from "@/pages/Chat/ModelSelector/modelSelectorModels";
 
 /** Adapt the shared model picker to the nullable memory-model form field. */
 export function MemoryModelChoice({
@@ -12,7 +13,8 @@ export function MemoryModelChoice({
   onChange?: (value: ModelSlotConfig | null) => void;
 }) {
   const { t } = useTranslation();
-  const providers = useEligibleProviders(true);
+  const providerCatalog = useProviderCatalog(true);
+  const providers = buildEligibleProviders(providerCatalog.providers ?? []);
   const provider = providers?.find((item) => item.id === value?.provider_id);
   const model = provider?.models.find((item) => item.id === value?.model);
   const label = !value
@@ -28,6 +30,7 @@ export function MemoryModelChoice({
 
   return (
     <ModelChoice
+      providerCatalog={providerCatalog}
       value={value}
       ariaLabel={t("agentConfig.memoryModelLabel")}
       label={label}
