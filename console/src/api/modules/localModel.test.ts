@@ -32,6 +32,20 @@ describe("localModelApi", () => {
     expect(await localModelApi.getLocalServerStatus()).toBe(status);
   });
 
+  it("getLocalEngines returns the engine list", async () => {
+    const engines = [{ id: "llamacpp" }, { id: "mlx" }] as unknown;
+    vi.mocked(request).mockResolvedValue(engines);
+    expect(await localModelApi.getLocalEngines()).toBe(engines);
+  });
+
+  it("getLocalServerStatus forwards the selected engine", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await localModelApi.getLocalServerStatus("mlx");
+    expect(vi.mocked(request).mock.calls[0][0]).toBe(
+      "/local-models/server?engine=mlx",
+    );
+  });
+
   it("getLocalServerUpdateStatus returns the update status object", async () => {
     const status = { update_available: false, latest_version: null } as unknown;
     vi.mocked(request).mockResolvedValue(status);
@@ -75,9 +89,13 @@ describe("localModelApi", () => {
     const r = await localModelApi.startLocalModelDownload(
       "qwen:1.5b",
       "huggingface",
+      "mlx",
     );
     expect(r).toBe(resp);
     expect(request).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(request).mock.calls[0][1]?.body).toContain(
+      '"engine":"mlx"',
+    );
   });
 
   it("getLocalModelDownloadProgress returns progress info", async () => {
