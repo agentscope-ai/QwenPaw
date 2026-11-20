@@ -74,6 +74,12 @@ class Backend:
     def check_installation(self):
         return True, ""
 
+    async def get_accelerator(self):
+        return {"accelerator": "cpu", "device_name": None}
+
+    async def get_version(self):
+        return None
+
     def is_server_transitioning(self):
         return False
 
@@ -704,7 +710,12 @@ async def test_local_dataclasses_preserve_management_http_responses(tmp_path):
         )
         config = await host.request("GET", "/api/local-models/config")
         assert config.status == 200
-        assert config.json() == {"max_context_length": 65536, "port": 43111}
+        assert config.json() == {
+            "max_context_length": 65536,
+            "port": 43111,
+            "gpu_acceleration": True,
+            "auto_update": True,
+        }
         models = await host.request("GET", "/api/local-models/models")
         assert models.status == 200
         assert models.json()[0]["source"] == "huggingface"

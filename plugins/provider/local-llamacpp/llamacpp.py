@@ -68,6 +68,8 @@ class LlamaCppBackend(BinaryDownloads):
         self._server_port: int | None = None
         self._server_model_name: str | None = None
         self._server_transitioning = False
+        self._accelerator_info: dict[str, str | None] | None = None
+        self._version: str | None = None
         self._progress = DownloadProgressTracker()
         self._download_controller = ProcessDownloadController(
             progress=self._progress,
@@ -124,6 +126,10 @@ class LlamaCppBackend(BinaryDownloads):
     def is_server_transitioning(self) -> bool:
         """Return whether the llama.cpp server is starting or stopping."""
         return self._server_transitioning
+
+    def is_download_active(self) -> bool:
+        """Return whether a llama.cpp runtime download is still running."""
+        return self._is_download_active()
 
     def cancel_download(self) -> None:
         """Request cancellation of the current llama.cpp download."""
@@ -190,6 +196,10 @@ class LlamaCppBackend(BinaryDownloads):
             raise RuntimeError(
                 "A llama.cpp download is already in progress.",
             )
+        # The installed runtime is about to be replaced, so cached probe
+        # results no longer describe what is on disk.
+        self._accelerator_info = None
+        self._version = None
 
         staging_dir = dest_dir.parent / f".llamacpp-{uuid.uuid4().hex}"
         filename = self._build_filename(tag)
@@ -227,6 +237,7 @@ class LlamaCppBackend(BinaryDownloads):
         max_context_length: int | None = None,
         port: int | None = None,
         before_restart: Callable[[int], None] | None = None,
+        gpu_acceleration: bool | None = None,
     ) -> LlamaCppServerSetupResult:
         """Setup llama.cpp server and return the runtime port and model info.
 
@@ -236,6 +247,7 @@ class LlamaCppBackend(BinaryDownloads):
             max_context_length: Optional context window passed to llama.cpp
             port: Optional fixed server port. None means auto select.
             before_restart: Check whether the running process can be replaced.
+            gpu_acceleration: Whether llama.cpp may offload layers to the GPU.
         """
         resolved_model_path, resolved_mmproj_path = await run_io(
             self._prepare_model_files,
@@ -284,6 +296,7 @@ class LlamaCppBackend(BinaryDownloads):
                 model_name=model_name,
                 port=port,
                 max_context_length=max_context_length,
+                gpu_acceleration=gpu_acceleration,
             )
 
             self._server_process = process
@@ -335,14 +348,66 @@ class LlamaCppBackend(BinaryDownloads):
                 else {}
             ),
         )
-        return [
-            line.strip()
-            for line in (result.stdout + result.stderr).splitlines()
-            if line.strip() and not line.startswith("ggml")
-        ][1:]
+        devices = []
+        for raw_line in (result.stdout + result.stderr).splitlines():
+            line = raw_line.strip()
+            if (
+                not line
+                or line.startswith("ggml")
+                or line.startswith("Available devices")
+                or ":" not in line
+            ):
+                continue
+            devices.append(line)
+        return devices
+
+    async def get_accelerator_info(self) -> dict[str, str | None]:
+        """Return the active GPU backend and device name, when available."""
+        if self._accelerator_info is not None:
+            return dict(self._accelerator_info)
+
+        info: dict[str, str | None] = {
+            "accelerator": "cpu",
+            "device_name": None,
+        }
+        if not self.check_llamacpp_installation()[0]:
+            self._accelerator_info = info
+            return dict(info)
+
+        try:
+            devices = await self.list_devices()
+        except (RuntimeError, subprocess.SubprocessError, OSError) as exc:
+            logger.debug("Failed to list llama.cpp devices: %s", exc)
+            devices = []
+
+        for line in devices:
+            name, _, detail = line.partition(":")
+            device_name = detail.split("(", maxsplit=1)[0].strip()
+            name = name.strip().upper()
+            if name.startswith("MTL"):
+                info = {
+                    "accelerator": "metal",
+                    "device_name": device_name or None,
+                }
+                break
+            if name.startswith("CUDA"):
+                # The managed runtime ships Metal and CUDA builds. Unknown
+                # backends (for example a custom Vulkan build) are reported
+                # as CPU rather than claiming an accelerator the API cannot
+                # represent.
+                info = {
+                    "accelerator": "cuda",
+                    "device_name": device_name or None,
+                }
+                break
+
+        self._accelerator_info = info
+        return dict(info)
 
     async def get_version(self) -> str:
         """get llama.cpp server version using `llama-server --version`."""
+        if self._version is not None:
+            return self._version
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
@@ -372,7 +437,8 @@ class LlamaCppBackend(BinaryDownloads):
                 # slice, which breaks once the build number is not 4 digits.
                 tokens = line.removeprefix(prefix).split()
                 if tokens:
-                    return tokens[0]
+                    self._version = tokens[0]
+                    return self._version
         raise RuntimeError(
             "Unexpected version output from llama.cpp server: "
             f"{(result.stdout + result.stderr)}",
@@ -389,6 +455,7 @@ class LlamaCppBackend(BinaryDownloads):
         model_name: str,
         port: int,
         max_context_length: int | None,
+        gpu_acceleration: bool | None = None,
     ) -> subprocess.Popen:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         command = [
@@ -404,7 +471,7 @@ class LlamaCppBackend(BinaryDownloads):
             "--log-file",
             str(self.log_dir / "llama-server.log"),
             "--gpu-layers",
-            "auto",
+            "auto" if gpu_acceleration is not False else "0",
         ]
         logger.info(
             "Start llama.cpp server with command:\n  > %s",
@@ -656,6 +723,8 @@ class LlamaCppBackend(BinaryDownloads):
             )
 
         # A successful swap is complete even if old-file cleanup is delayed.
+        self._accelerator_info = None
+        self._version = None
         shutil.rmtree(backup_dir, ignore_errors=True)
 
         return (
