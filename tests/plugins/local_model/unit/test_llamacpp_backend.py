@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 import io
 import socket
 import tarfile
@@ -22,6 +23,7 @@ from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
+from llamacpp.io_helpers import create_server_job, process_options
 from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_types import LocalModelInfo as ModelInfo
 
@@ -1578,3 +1580,211 @@ def test_force_shutdown_server_uses_plugin_shutdown_helper(
     downloader.shutdown_server_sync()
 
     assert calls == [(process, 5.0, 1.0)]
+
+
+# ---------------------------------------------------------------------------
+# The server must not outlive a crashed provider (#8830)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_setup_server_binds_the_process_to_its_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Every launch hands the server to the job that outlives nothing."""
+    downloader = _build_downloader(monkeypatch)
+    model_path = tmp_path / "demo.gguf"
+    model_path.write_text("gguf")
+    assigned: list[int] = []
+
+    class _FakeStdout:
+        def close(self):
+            pass
+
+        def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        pid = 4321
+
+        def __init__(self) -> None:
+            self.stdout = _FakeStdout()
+            self.returncode: int | None = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    downloader.os_name = "windows"
+    monkeypatch.setattr(downloader_module, "process_options", lambda: {})
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module.subprocess,
+        "Popen",
+        lambda command, **kwargs: _FakeStartedProcess(),
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+    monkeypatch.setattr(
+        downloader._server_job,
+        "assign",
+        lambda process: assigned.append(process.pid),
+    )
+
+    await downloader.setup_server(model_path, "demo-model")
+    await asyncio.sleep(0)
+
+    assert assigned == [4321]
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="job objects are Windows-only",
+)
+def test_closing_the_job_terminates_the_server(tmp_path: Path) -> None:
+    """A crash closes our handles, and closing them kills the server.
+
+    This is the property the fix relies on: nothing has to run at exit, the
+    kernel ends the member as soon as the last handle goes away.
+    """
+    job = create_server_job()
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    try:
+        job.assign(process)
+        time.sleep(0.5)
+        assert process.poll() is None
+
+        job.close()
+        process.wait(timeout=10)
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        job.close()
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="job objects are Windows-only",
+)
+def test_a_job_without_a_handle_is_harmless() -> None:
+    """Test doubles and exotic launchers must not break a server start."""
+    job = create_server_job()
+
+    class _NoHandle:
+        pid = 1
+
+    job.assign(_NoHandle())
+
+
+# ---------------------------------------------------------------------------
+# On Linux the server must die with a SIGKILLed provider (#8830)
+# ---------------------------------------------------------------------------
+
+_HELPER = """
+import os
+import sys
+import time
+
+sys.path.insert(0, {plugin_dir!r})
+import io_helpers
+
+proc = io_helpers.subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(300)"],
+    **io_helpers.process_options(),
+)
+print(proc.pid, flush=True)
+time.sleep(300)
+"""
+
+
+def _alive(pid: int) -> bool:
+    """True while the process exists and is not a zombie."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            return fh.read().split()[2].decode() != "Z"
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_process_options_arms_pdeathsig(tmp_path: Path) -> None:
+    """Linux children get the hook; other platforms must not."""
+    options = process_options()
+    assert options.get("start_new_session") is True
+    assert callable(options.get("preexec_fn"))
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_the_server_dies_with_a_sigkilled_provider(tmp_path: Path) -> None:
+    """One SIGKILL of the provider, no cleanup code runs, server is gone.
+
+    This is the Linux half of #8830: stop_server() never runs on a crash, so
+    the kernel has to do it. The helper stands in for the provider.
+    """
+    plugin_dir = (
+        Path(__file__).resolve().parents[4]
+        / "plugins"
+        / "provider"
+        / "local-llamacpp"
+    )
+    helper = tmp_path / "provider.py"
+    helper.write_text(
+        _HELPER.format(plugin_dir=str(plugin_dir)),
+        encoding="utf-8",
+    )
+
+    parent = subprocess.Popen(
+        [sys.executable, str(helper)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        first_line = parent.stdout.readline().strip()
+        assert first_line, "the stand-in provider printed no pid:\n" + (
+            parent.stderr.read() or "<no stderr>"
+        )
+        child_pid = int(first_line)
+        time.sleep(0.5)
+        assert _alive(child_pid), "the stand-in server did not start"
+
+        parent.kill()
+        parent.wait()
+        time.sleep(1.5)
+
+        assert not _alive(
+            child_pid,
+        ), "the server outlived a SIGKILLed provider"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait()
