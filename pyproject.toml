@@ -21,7 +21,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.2.0",
+    "reme-ai==0.4.2.3",
     "reme-auto-fin==0.1.3",
     "reme-daily-paper==0.1.3",
     "transformers>=4.30.0",
