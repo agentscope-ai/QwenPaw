@@ -7,7 +7,34 @@ import ctypes
 import os
 import signal
 import threading
+from contextlib import ExitStack
+from ctypes import wintypes as w
 from typing import Any
+
+
+class _JobBasicLimits(ctypes.Structure):
+    _fields_ = [
+        ("process_time", ctypes.c_int64),
+        ("job_time", ctypes.c_int64),
+        ("flags", w.DWORD),
+        ("min_ws", ctypes.c_size_t),
+        ("max_ws", ctypes.c_size_t),
+        ("active_limit", w.DWORD),
+        ("affinity", ctypes.c_size_t),
+        ("priority", w.DWORD),
+        ("scheduling", w.DWORD),
+    ]
+
+
+class _JobExtendedLimits(ctypes.Structure):
+    _fields_ = [
+        ("basic", _JobBasicLimits),
+        ("io", ctypes.c_uint64 * 6),
+        ("process_memory", ctypes.c_size_t),
+        ("job_memory", ctypes.c_size_t),
+        ("peak_process", ctypes.c_size_t),
+        ("peak_job", ctypes.c_size_t),
+    ]
 
 
 class ProcessTree:
@@ -21,33 +48,6 @@ class ProcessTree:
             self._create_job()
 
     def _create_job(self) -> None:
-        from ctypes import (
-            wintypes as w,
-        )  # pylint: disable=import-outside-toplevel
-
-        class BasicLimits(ctypes.Structure):
-            _fields_ = [
-                ("process_time", ctypes.c_int64),
-                ("job_time", ctypes.c_int64),
-                ("flags", w.DWORD),
-                ("min_ws", ctypes.c_size_t),
-                ("max_ws", ctypes.c_size_t),
-                ("active_limit", w.DWORD),
-                ("affinity", ctypes.c_size_t),
-                ("priority", w.DWORD),
-                ("scheduling", w.DWORD),
-            ]
-
-        class ExtendedLimits(ctypes.Structure):
-            _fields_ = [
-                ("basic", BasicLimits),
-                ("io", ctypes.c_uint64 * 6),
-                ("process_memory", ctypes.c_size_t),
-                ("job_memory", ctypes.c_size_t),
-                ("peak_process", ctypes.c_size_t),
-                ("peak_job", ctypes.c_size_t),
-            ]
-
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         for name, args, result in (
             ("CreateJobObjectW", [w.LPVOID, w.LPCWSTR], w.HANDLE),
@@ -58,12 +58,18 @@ class ProcessTree:
                 w.BOOL,
             ),
             ("AssignProcessToJobObject", [w.HANDLE, w.HANDLE], w.BOOL),
+            (
+                "IsProcessInJob",
+                [w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL)],
+                w.BOOL,
+            ),
             ("TerminateJobObject", [w.HANDLE, w.UINT], w.BOOL),
             (
                 "QueryInformationJobObject",
                 [w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD, w.LPVOID],
                 w.BOOL,
             ),
+            ("WaitForSingleObject", [w.HANDLE, w.DWORD], w.DWORD),
             ("CloseHandle", [w.HANDLE], w.BOOL),
         ):
             function = getattr(kernel, name)
@@ -71,18 +77,11 @@ class ProcessTree:
             function.restype = result
         job = kernel.CreateJobObjectW(None, None)
         process = kernel.OpenProcess(0x0101, False, self.pid)
-        limits = ExtendedLimits()
-        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         try:
             if (
                 not job
                 or not process
-                or not kernel.SetInformationJobObject(
-                    job,
-                    9,
-                    ctypes.byref(limits),
-                    ctypes.sizeof(limits),
-                )
+                or not self._set_job_limits(kernel, job)
                 or not kernel.AssignProcessToJobObject(job, process)
             ):
                 raise OSError("PROCESS_TREE_UNAVAILABLE")
@@ -94,6 +93,79 @@ class ProcessTree:
             if process:
                 kernel.CloseHandle(process)
         self._kernel, self._job = kernel, job
+
+    @staticmethod
+    def _set_job_limits(kernel, job, *, stop_admission: bool = False) -> bool:
+        limits = _JobExtendedLimits()
+        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if stop_admission:
+            limits.basic.flags |= 0x0008  # JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+            limits.basic.active_limit = 0
+        return bool(
+            kernel.SetInformationJobObject(
+                job,
+                9,  # JobObjectExtendedLimitInformation
+                ctypes.byref(limits),
+                ctypes.sizeof(limits),
+            ),
+        )
+
+    def _job_process_ids(self) -> list[int]:
+        # JOBOBJECT_BASIC_PROCESS_ID_LIST: two DWORDs, then ULONG_PTR IDs.
+        header_size = ctypes.sizeof(ctypes.c_uint32 * 2)
+        capacity = 16
+        while True:
+            data = ctypes.create_string_buffer(
+                header_size + capacity * ctypes.sizeof(ctypes.c_size_t),
+            )
+            if self._kernel.QueryInformationJobObject(
+                self._job,
+                3,  # JobObjectBasicProcessIdList
+                data,
+                ctypes.sizeof(data),
+                None,
+            ):
+                assigned, count = (ctypes.c_uint32 * 2).from_buffer(data)
+                if count >= assigned:
+                    pid_array = ctypes.c_size_t * count
+                    return list(pid_array.from_buffer(data, header_size))
+            elif (error := ctypes.get_last_error()) != 234:  # ERROR_MORE_DATA
+                raise ctypes.WinError(error)
+            capacity *= 2
+
+    def terminate_and_wait(self) -> None:
+        """Stop a Windows job and confirm the exit of its processes."""
+        kernel, job = self._kernel, self._job
+        with ExitStack() as handles:
+            owned = []
+            try:
+                # Block new members before taking the snapshot. Termination
+                # can remove PIDs from the job before their handles signal.
+                if not self._set_job_limits(kernel, job, stop_admission=True):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                for pid in self._job_process_ids():
+                    # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+                    process = kernel.OpenProcess(0x00101000, False, pid)
+                    if not process:
+                        error = ctypes.get_last_error()
+                        if error == 87:  # ERROR_INVALID_PARAMETER: PID gone
+                            continue
+                        raise ctypes.WinError(error)
+                    handles.callback(kernel.CloseHandle, process)
+                    in_job = w.BOOL()
+                    if not kernel.IsProcessInJob(
+                        process,
+                        job,
+                        ctypes.byref(in_job),
+                    ):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    if in_job.value:
+                        owned.append(process)
+            finally:
+                self.signal(force=True)
+            for process in owned:
+                if kernel.WaitForSingleObject(process, 0xFFFFFFFF) != 0:
+                    raise ctypes.WinError(ctypes.get_last_error())
 
     def signal(self, *, force: bool) -> None:
         """Signal all owned members, including after the leader exits."""
@@ -162,8 +234,6 @@ def watch_parent(parent_pid: int) -> None:
 
 def _watch_windows_parent(parent_pid: int) -> None:
     """Watch the host process, which may sit above a venv redirector."""
-    from ctypes import wintypes as w  # pylint: disable=import-outside-toplevel
-
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     for name, args, result in (
         ("OpenProcess", [w.DWORD, w.BOOL, w.DWORD], w.HANDLE),

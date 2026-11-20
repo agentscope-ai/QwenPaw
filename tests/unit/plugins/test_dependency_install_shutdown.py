@@ -93,8 +93,7 @@ def test_windows_installer_owns_job_before_resuming(monkeypatch, outcome):
             if outcome == "cancel":
                 cancel.set()
 
-        def signal(self, *, force):
-            assert force
+        def terminate_and_wait(self):
             events.append("stop_job")
             self.running = False
 
