@@ -178,7 +178,7 @@ class MattermostPlatform:
                                 authenticated = self.connected = True
                                 await self.on_state("connected")
                                 logger.info(
-                                    f"Mattermost WebSocket authenticated"
+                                    f"Mattermost WebSocket authenticated",
                                 )
                                 delay = 1
                             continue
@@ -435,7 +435,7 @@ class MattermostPlatform:
             ) from exc
         if response.status_code != 201:
             logger.warning(
-                f"Mattermost post rejected: HTTP {response.status_code}"
+                f"Mattermost post rejected: HTTP {response.status_code}",
             )
             raise MattermostDeliveryError(
                 "MATTERMOST_POST_REJECTED",

@@ -186,7 +186,8 @@ async def test_stream_failure_log_preserves_operation_and_status(caplog):
 
     with pytest.raises(native.DiscordDeliveryError, match=f"DISCORD_REJECTED"):
         await native.DiscordPlatform._request(
-            reject(), operation=f"stream end",
+            reject(),
+            operation=f"stream end",
         )
     assert f"Discord stream end failed: HTTP 403, code=50013" in caplog.text
     assert f"private-response" not in caplog.text

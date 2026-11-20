@@ -260,7 +260,7 @@ class IMessagePlatform:
             raise
         except OSError as exc:
             logger.warning(
-                f"iMessage command start failed ({type(exc).__name__})"
+                f"iMessage command start failed ({type(exc).__name__})",
             )
             raise IMessageDeliveryError(
                 "IMESSAGE_COMMAND_START_FAILED",

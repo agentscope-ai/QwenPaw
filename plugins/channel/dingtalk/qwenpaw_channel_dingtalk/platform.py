@@ -443,7 +443,8 @@ class DingTalkPlatform:
                 if resp.status >= 400:
                     code = (
                         result.get(f"errcode")
-                        if isinstance(result, dict) else None
+                        if isinstance(result, dict)
+                        else None
                     )
                     safe_code = code if type(code) is int else None
                     logger.warning(

@@ -32,7 +32,9 @@ class StartupDiagnostics:
         self._clean = clean
         self._write = write or (
             lambda text, _event, _critical: print(
-                text, file=sys.stderr, flush=True,
+                text,
+                file=sys.stderr,
+                flush=True,
             )
         )
         self._secrets = []
@@ -165,7 +167,9 @@ class StartupDiagnostics:
             }
             prefix = ERROR_PREFIX if critical else "startup_diagnostic "
             self._write(
-                prefix + json.dumps(row, ensure_ascii=True), event, critical,
+                prefix + json.dumps(row, ensure_ascii=True),
+                event,
+                critical,
             )
         except Exception:
             # Diagnostics cannot replace the original error or stop cleanup.

@@ -205,7 +205,7 @@ class DiscordPlatform:
             group = message.guild is not None
             is_thread = isinstance(message.channel, discord.Thread)
             logger.debug(
-                f"Discord message received: group={group} thread={is_thread}"
+                f"Discord message received: group={group} thread={is_thread}",
             )
             thread = (
                 getattr(message, "thread", None) if not is_thread else None
@@ -486,7 +486,8 @@ class DiscordPlatform:
             return self._receipt(
                 target,
                 await self._request(
-                    target.send(text), operation=f"stream start",
+                    target.send(text),
+                    operation=f"stream start",
                 ),
             )
 
@@ -496,7 +497,8 @@ class DiscordPlatform:
             message = target.get_partial_message(int(resource["message_id"]))
             if final and len(text) > 2000:
                 await self._request(
-                    message.delete(), operation=f"stream final replace",
+                    message.delete(),
+                    operation=f"stream final replace",
                 )
                 try:
                     replacement = (

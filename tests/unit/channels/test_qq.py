@@ -96,7 +96,9 @@ def test_gateway_lookup_reports_platform_rejection(
     for code in codes:
         assert code in caplog.text
     for sensitive in (
-        f"local-token", f"local-secret", f"invalid gateway content",
+        f"local-token",
+        f"local-secret",
+        f"invalid gateway content",
     ):
         assert sensitive not in caplog.text
 

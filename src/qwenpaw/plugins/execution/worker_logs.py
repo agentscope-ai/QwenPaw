@@ -447,7 +447,8 @@ class WorkerLogs:
             )
             level = logging.ERROR if fatal else logging.WARNING
             self.last_delivery = _submit(
-                message.decode(f"utf-8", f"ignore"), level=level,
+                message.decode(f"utf-8", f"ignore"),
+                level=level,
             )
             return
         level, offset, source = logging.WARNING, 0, b""

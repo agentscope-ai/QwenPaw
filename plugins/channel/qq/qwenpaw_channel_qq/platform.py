@@ -103,11 +103,7 @@ def _log_api_failure(operation, status, data):
     ip_rejected = bool(_IP_WHITELIST_ERROR_CODES & {code, err_code})
     if isinstance(message, str):
         ip_rejected |= f"接口访问源IP不在白名单" in f"".join(message.split()).upper()
-    hint = (
-        f" 接口访问源 IP 不在 QQ 开放平台白名单，请检查公网出口 IP。"
-        if ip_rejected
-        else f""
-    )
+    hint = f" 接口访问源 IP 不在 QQ 开放平台白名单，请检查公网出口 IP。" if ip_rejected else f""
     trace = fields.get(f"trace_id")
     trace_hint = f""
     if (
@@ -475,7 +471,9 @@ class QQPlatform:
                 except ValueError:
                     data = {}
                 _log_api_failure(
-                    f"access token request", response.status_code, data,
+                    f"access token request",
+                    response.status_code,
+                    data,
                 )
                 raise QQDeliveryError("QQ_TOKEN_REJECTED")
             data = {}
@@ -484,12 +482,16 @@ class QQPlatform:
                 return self._save_token(data)
             except QQDeliveryError:
                 _log_api_failure(
-                    f"access token result", response.status_code, data,
+                    f"access token result",
+                    response.status_code,
+                    data,
                 )
                 raise
             except (ValueError, TypeError, AttributeError) as exc:
                 _log_api_failure(
-                    f"access token result", response.status_code, data,
+                    f"access token result",
+                    response.status_code,
+                    data,
                 )
                 raise QQDeliveryError("QQ_TOKEN_INVALID") from exc
         finally:
@@ -1305,7 +1307,7 @@ class QQPlatform:
             self._check_epoch(epoch)
             if not accepted:
                 logger.warning(
-                    f"QQ gateway event admission failed; reconnecting"
+                    f"QQ gateway event admission failed; reconnecting",
                 )
                 return "break"
             if seq is not None:
@@ -1334,7 +1336,7 @@ class QQPlatform:
             state.quick_disconnect_count += 1
             if state.quick_disconnect_count >= MAX_QUICK_DISCONNECT_COUNT:
                 logger.warning(
-                    f"QQ gateway disconnected repeatedly; backing off"
+                    f"QQ gateway disconnected repeatedly; backing off",
                 )
                 state.session_id = state.last_seq = None
                 state.should_refresh_token = True
@@ -1360,7 +1362,7 @@ class QQPlatform:
             logger.error(f"QQ max reconnect attempts reached ({maximum})")
             return False
         logger.info(
-            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}"
+            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}",
         )
         return not self._stop_event.wait(delay)
 
@@ -1388,7 +1390,9 @@ class QQPlatform:
             url = data.get(f"url")
             if not response.is_success or not url:
                 raise QQApiError(
-                    path=f"/gateway", status=response.status_code, data=data,
+                    path=f"/gateway",
+                    status=response.status_code,
+                    data=data,
                 )
             logger.info(f"QQ connecting to gateway")
             ws = websocket.create_connection(
@@ -1399,14 +1403,15 @@ class QQPlatform:
             ws.settimeout(1)
         except QQApiError as exc:
             operation = (
-                f"gateway lookup" if exc.path == f"/gateway"
+                f"gateway lookup"
+                if exc.path == f"/gateway"
                 else f"access token request"
             )
             _log_api_failure(operation, exc.status, exc.data)
             return self._wait_and_check_reconnect(state)
         except Exception as exc:
             logger.warning(
-                f"QQ gateway connection failed ({type(exc).__name__})"
+                f"QQ gateway connection failed ({type(exc).__name__})",
             )
             return self._wait_and_check_reconnect(state)
         self._epoch += 1
@@ -1444,7 +1449,7 @@ class QQPlatform:
                 raise
             if not self._stop_event.is_set():
                 logger.warning(
-                    f"QQ gateway connection lost ({type(exc).__name__})"
+                    f"QQ gateway connection lost ({type(exc).__name__})",
                 )
         except Exception as exc:
             # Admission failure fences the rest of this connection. Resume from
@@ -1477,7 +1482,7 @@ class QQPlatform:
             logger.error(f"QQ max reconnect attempts reached ({maximum})")
             return False
         logger.info(
-            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}"
+            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}",
         )
         return not self._stop_event.wait(delay)
 

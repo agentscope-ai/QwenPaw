@@ -45,11 +45,13 @@ _MAX_ROUTES = 128
 
 class _SdkLoggerAdapter:
     def debug(self, message, *args):
-        if isinstance(message, str) and message.startswith((
-            f"Received push message:",
-            f"Received event callback:",
-            f"Received event callback without eventtype:",
-        )):
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Received push message:",
+                f"Received event callback:",
+                f"Received event callback without eventtype:",
+            ),
+        ):
             logger.debug(f"WeCom SDK {message.split(':', 1)[0]}")
             return
         logger.debug(message, *args)
@@ -63,16 +65,20 @@ class _SdkLoggerAdapter:
         ):
             logger.warning(f"WeCom SDK received invalid message format")
             return
-        if isinstance(message, str) and message.startswith((
-            f"Received unknown frame:",
-            f"WebSocket connection closed:",
-        )):
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Received unknown frame:",
+                f"WebSocket connection closed:",
+            ),
+        ):
             logger.warning(f"WeCom SDK {message.split(':', 1)[0]}")
             return
-        if isinstance(message, str) and message.startswith((
-            f"Heartbeat ack error:",
-            f"Reply ack error:",
-        )):
+        if isinstance(message, str) and message.startswith(
+            (
+                f"Heartbeat ack error:",
+                f"Reply ack error:",
+            ),
+        ):
             match = _SDK_ERRCODE.search(message)
             code = match[1] if match else None
             logger.warning(
@@ -89,12 +95,14 @@ class _SdkLoggerAdapter:
             code = match[1] if match else None
             logger.error(f"WeCom SDK authentication failed: errcode={code}")
             return
-        if isinstance(message, str) and message.startswith((
-            f"File download",
-            f"WebSocket error:",
-            f"Failed to parse WebSocket message:",
-            f"Failed to handle message:",
-        )):
+        if isinstance(message, str) and message.startswith(
+            (
+                f"File download",
+                f"WebSocket error:",
+                f"Failed to parse WebSocket message:",
+                f"Failed to handle message:",
+            ),
+        ):
             logger.error(f"WeCom SDK {message.split(':', 1)[0]}")
             return
         logger.error(message, *args)
@@ -615,7 +623,7 @@ class WeComPlatform(InboundDecoder):
                 )
                 safe_code = code if type(code) is int else None
                 logger.warning(
-                    f"WeCom {method} ACK failed: errcode={safe_code}"
+                    f"WeCom {method} ACK failed: errcode={safe_code}",
                 )
                 raise WeComDeliveryError(
                     "PLATFORM_RESULT_UNKNOWN",

@@ -184,7 +184,7 @@ class QQMedia:
             return str(target)
         except Exception as exc:
             logger.warning(
-                f"QQ attachment download failed ({type(exc).__name__})"
+                f"QQ attachment download failed ({type(exc).__name__})",
             )
             return None
 

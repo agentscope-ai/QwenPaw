@@ -195,7 +195,7 @@ class MQTTPlatform:
                     raise
                 except Exception as exc:
                     logger.warning(
-                        f"MQTT reconnect failed ({type(exc).__name__})"
+                        f"MQTT reconnect failed ({type(exc).__name__})",
                     )
                     if self.client is not None:
                         failed = self.client

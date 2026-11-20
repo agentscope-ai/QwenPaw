@@ -599,7 +599,9 @@ class PluginProcess:
             level = logging.INFO
             if critical:
                 fatal = channel_key and event in {
-                    f"launch_failed", f"spawn_failed", f"connection_failed",
+                    f"launch_failed",
+                    f"spawn_failed",
+                    f"connection_failed",
                 }
                 level = logging.ERROR if fatal else logging.WARNING
             elif channel_key and (

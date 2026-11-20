@@ -533,13 +533,19 @@ class AzureBotPlatform:
                 )
                 raise AzureBotDeliveryError("AZURE_TOKEN_UNAVAILABLE") from exc
             if not isinstance(result, dict) or not result.get("access_token"):
-                codes = result.get(f"error_codes") if isinstance(
-                    result, dict,
-                ) else None
+                codes = (
+                    result.get(f"error_codes")
+                    if isinstance(
+                        result,
+                        dict,
+                    )
+                    else None
+                )
                 code = (
                     codes[0]
                     if isinstance(codes, list)
-                    and codes and type(codes[0]) is int
+                    and codes
+                    and type(codes[0]) is int
                     else None
                 )
                 logger.warning(

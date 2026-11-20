@@ -273,7 +273,7 @@ class WeChatPlatform:
             self._save_contexts()
         session = f"wechat:group:{group}" if group else f"wechat:{sender}"
         logger.debug(
-            f"WeChat inbound message: group={bool(group)} parts={len(parts)}"
+            f"WeChat inbound message: group={bool(group)} parts={len(parts)}",
         )
         await self._on_message(
             {
@@ -323,9 +323,7 @@ class WeChatPlatform:
                 data = await self._client.getconfig(user, context)
                 ticket = (data.get("typing_ticket") or "").strip()
                 ret, errcode = response_codes(data)
-                rejected = (
-                    ret not in (None, 0) or errcode not in (None, 0)
-                )
+                rejected = ret not in (None, 0) or errcode not in (None, 0)
                 level = (
                     logging.WARNING if rejected or not ticket else logging.INFO
                 )
@@ -346,7 +344,7 @@ class WeChatPlatform:
             raise
         except Exception as exc:
             logger.warning(
-                f"WeChat typing indicator failed ({type(exc).__name__})"
+                f"WeChat typing indicator failed ({type(exc).__name__})",
             )
 
     async def finish_response(self, handle):

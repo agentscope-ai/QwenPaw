@@ -248,7 +248,8 @@ async def runtime(tmp_path, monkeypatch):
             value = {"ret": 0}
         endpoint = path.rsplit(f"/", 1)[-1]
         return httpx.Response(
-            200, json=response_overrides.get(endpoint, value)
+            200,
+            json=response_overrides.get(endpoint, value),
         )
 
     def external_client(**kwargs):
@@ -526,7 +527,8 @@ async def test_admission_log_identifies_retained_routes(
     if outcome == f"timeout":
         for index in range(2):
             with pytest.raises(
-                RuntimeError, match=f"HOST_ADMISSION_EXHAUSTED"
+                RuntimeError,
+                match=f"HOST_ADMISSION_EXHAUSTED",
             ):
                 await rt.driver._platform._message(
                     message(index, text=f"private-message-{index}"),

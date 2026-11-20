@@ -1448,14 +1448,12 @@ class MatrixPlatform:
             )
         except LocalProtocolError as exc:
             logger.warning(
-                f"Matrix could not confirm SAS: "
-                f"({type(exc).__name__})",
+                f"Matrix could not confirm SAS: " f"({type(exc).__name__})",
             )
             return
         if isinstance(resp, ToDeviceError):
             logger.warning(
-                f"Matrix could not confirm SAS: "
-                f"{_response_summary(resp)}",
+                f"Matrix could not confirm SAS: " f"{_response_summary(resp)}",
             )
             return
         logger.info(
@@ -1534,8 +1532,7 @@ class MatrixPlatform:
                     )
             except Exception as exc:
                 logger.warning(
-                    f"Matrix catch-up sync failed "
-                    f"({type(exc).__name__})",
+                    f"Matrix catch-up sync failed " f"({type(exc).__name__})",
                 )
         else:
             logger.info(

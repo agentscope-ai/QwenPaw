@@ -343,6 +343,7 @@ class LiveKitBackend:
             logger.debug(f"LiveKit SIP playback skipped for closed call")
             raise SIPPlatformError("CALL_CLOSED")
         from livekit import rtc
+
         await binding["source"].capture_frame(
             rtc.AudioFrame(
                 data=audio,

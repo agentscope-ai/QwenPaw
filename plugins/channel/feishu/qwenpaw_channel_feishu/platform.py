@@ -476,9 +476,8 @@ class LarkOapiPlatform:
     ) -> None:
         """Fast-ACK SDK callback that schedules Runner-owned work."""
         generation = self._generation if generation is None else generation
-        if (
-            self._closed
-            or (generation is not None and generation != self._generation)
+        if self._closed or (
+            generation is not None and generation != self._generation
         ):
             return
         if not self._event_matches_instance(value):
@@ -609,7 +608,8 @@ class LarkOapiPlatform:
             self._ws_error = exc
             self._ws_started.set()
             if not self._closing and not isinstance(
-                exc, asyncio.CancelledError,
+                exc,
+                asyncio.CancelledError,
             ):
                 logger.warning(
                     f"Feishu WebSocket thread failed ({type(exc).__name__})",
@@ -1709,7 +1709,7 @@ class LarkOapiPlatform:
         if not final_response.success():
             code = getattr(final_response, f"code", None)
             logger.warning(
-                f"Feishu streaming card finalize failed: code={code}"
+                f"Feishu streaming card finalize failed: code={code}",
             )
             raise FeishuDeliveryError(
                 "STREAM_FINALIZE_PARTIAL",

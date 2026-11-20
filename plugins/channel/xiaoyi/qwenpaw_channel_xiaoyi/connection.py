@@ -92,7 +92,8 @@ class XiaoYiConnection:
             raise
         except Exception as exc:
             status = (
-                exc.status if isinstance(exc, aiohttp.ClientResponseError)
+                exc.status
+                if isinstance(exc, aiohttp.ClientResponseError)
                 else None
             )
             logger.warning(

@@ -131,7 +131,10 @@ async def manage(request):
             reason_code="PLATFORM_RESULT_UNKNOWN",
         ) from None
     except (
-        httpx.RequestError, ValueError, TypeError, AttributeError,
+        httpx.RequestError,
+        ValueError,
+        TypeError,
+        AttributeError,
     ) as error:
         logger.warning(
             f"DingTalk {request.operation} result unavailable "

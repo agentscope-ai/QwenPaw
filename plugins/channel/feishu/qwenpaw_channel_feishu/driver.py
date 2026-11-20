@@ -147,7 +147,7 @@ class FeishuDriver(SharedResponseDriver):
                         break
         except Exception as exc:
             logger.error(
-                f"Feishu connection supervisor failed ({type(exc).__name__})"
+                f"Feishu connection supervisor failed ({type(exc).__name__})",
             )
             self._connected = False
             await self._context.set_platform_state("failed")

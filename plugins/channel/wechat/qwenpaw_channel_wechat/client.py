@@ -556,7 +556,7 @@ class ILinkClient:
 
         ret, errcode = response_codes(upload_resp)
         logger.debug(
-            f"WeChat getuploadurl response: ret={ret} errcode={errcode}"
+            f"WeChat getuploadurl response: ret={ret} errcode={errcode}",
         )
         upload_url = upload_resp.get("upload_full_url", "")
         if not upload_url:
@@ -603,7 +603,7 @@ class ILinkClient:
         logger.debug(f"WeChat CDN upload response: HTTP {resp.status_code}")
         if resp.is_error:
             logger.warning(
-                f"WeChat CDN upload failed: HTTP {resp.status_code}"
+                f"WeChat CDN upload failed: HTTP {resp.status_code}",
             )
         resp.raise_for_status()
 
