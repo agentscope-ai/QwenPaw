@@ -1,0 +1,9 @@
+{
+  "schema": "qwenpaw.current-frozen-version.v1",
+  "alias": "Pcurrent",
+  "target_version": "P3",
+  "source_manifest": "P3.json",
+  "source_manifest_sha256": "8ca4c54d2dc81847165249ea4f8a9a586e839f1681da41d907c9db99b5f84dac",
+  "definition": "Pcurrent 代表当前冻结的最新方案。",
+  "update_policy": "新方案正式冻结后更新此指针；实验记录固定解析后的具体版本和哈希。"
+}
