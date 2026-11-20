@@ -525,14 +525,66 @@ describe("memory writing model selector", () => {
     },
   ] as unknown as Awaited<ReturnType<typeof api.listProviders>>;
 
-  it("defaults to the agent main model", async () => {
-    renderWithProviders(<MemoryModelForm />);
-
-    expect(
-      await screen.findByText("agentConfig.memoryModelUseMain"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("memory-model-value")).toHaveTextContent("null");
-  });
+  it.each([
+    ["main", null, "agentConfig.memoryModelUseMain", true],
+    [
+      "configured",
+      { provider_id: "dashscope", model: "qwen-flash" },
+      "DashScope / Qwen Flash",
+      true,
+    ],
+    [
+      "unconfigured",
+      { provider_id: "dashscope", model: "qwen-flash" },
+      "agentConfig.memoryModelUnavailable",
+      false,
+    ],
+    [
+      "removed",
+      { provider_id: "removed", model: "old-model" },
+      "agentConfig.memoryModelUnavailable",
+      true,
+    ],
+    [
+      "inherited",
+      { provider_id: "", model: "qwen2.5:7b" },
+      "agentConfig.memoryModelInheritedProvider",
+      true,
+    ],
+  ] as const)(
+    "displays and preserves the %s selection",
+    async (_name, slot, label, configured) => {
+      vi.mocked(providerApi.listProviders).mockResolvedValue(
+        configured
+          ? providers
+          : providers.map((provider) => ({
+              ...provider,
+              api_key: "",
+              require_api_key: true,
+            })),
+      );
+      const onSave = vi.fn();
+      renderWithProviders(
+        <MemoryModelForm initialModel={slot} onSave={onSave} />,
+      );
+      expect(await screen.findByText(label)).toBeInTheDocument();
+      expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
+        JSON.stringify(slot),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Save memory settings" }),
+      );
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({
+            reme_light_memory_config: expect.objectContaining({
+              memory_model: slot,
+            }),
+          }),
+        ),
+      );
+    },
+  );
 
   it("stores an explicit provider/model object and clears it to null", async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
@@ -577,90 +629,6 @@ describe("memory writing model selector", () => {
         expect.objectContaining({
           reme_light_memory_config: expect.objectContaining({
             memory_model: null,
-          }),
-        }),
-      ),
-    );
-  });
-
-  it("preserves a saved selection from an unconfigured provider", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue(
-      providers.map((provider) => ({
-        ...provider,
-        api_key: "",
-        require_api_key: true,
-      })),
-    );
-    renderWithProviders(
-      <MemoryModelForm
-        initialModel={{
-          provider_id: "dashscope",
-          model: "qwen-flash",
-        }}
-      />,
-    );
-
-    expect(
-      await screen.findByText("agentConfig.memoryModelUnavailable"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
-      '{"provider_id":"dashscope","model":"qwen-flash"}',
-    );
-  });
-
-  it("round-trips an existing selection", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
-    renderWithProviders(
-      <MemoryModelForm
-        initialModel={{ provider_id: "dashscope", model: "qwen-flash" }}
-      />,
-    );
-
-    expect(
-      await screen.findByText("DashScope / Qwen Flash"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
-      '{"provider_id":"dashscope","model":"qwen-flash"}',
-    );
-  });
-
-  it("preserves and displays a stale selection", async () => {
-    renderWithProviders(
-      <MemoryModelForm
-        initialModel={{ provider_id: "removed", model: "old-model" }}
-      />,
-    );
-
-    expect(
-      await screen.findByText("agentConfig.memoryModelUnavailable"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("memory-model-value")).toHaveTextContent(
-      '{"provider_id":"removed","model":"old-model"}',
-    );
-  });
-
-  it("displays inherited-provider models and preserves them when saving", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue(providers);
-    const onSave = vi.fn();
-    const slot = { provider_id: "", model: "qwen2.5:7b" };
-    renderWithProviders(
-      <MemoryModelForm initialModel={slot} onSave={onSave} />,
-    );
-
-    expect(
-      await screen.findByText("agentConfig.memoryModelInheritedProvider"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText("agentConfig.memoryModelUnavailable"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Save memory settings" }),
-    );
-    await waitFor(() =>
-      expect(onSave).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reme_light_memory_config: expect.objectContaining({
-            memory_model: slot,
           }),
         }),
       ),

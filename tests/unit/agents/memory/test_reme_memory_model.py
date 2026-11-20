@@ -9,38 +9,20 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.agents.memory import reme_light_memory_manager
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.exceptions import ProviderError
-
-
-def _agent_config(
-    memory_model: ModelSlotConfig | None = None,
-    active_model: ModelSlotConfig | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        active_model=active_model,
-        running=SimpleNamespace(
-            reme_light_memory_config=SimpleNamespace(
-                memory_model=memory_model,
-            ),
-        ),
-    )
+from qwenpaw.providers.provider_manager import ProviderManager
 
 
 @pytest.fixture(name="model_setup")
 def fixture_model_setup(monkeypatch, make_memory_model_manager):
     """Wire mocked dependencies while retaining the real fallback wrapper."""
 
-    def setup(
-        *,
-        factory,
-        memory_model=None,
-        active_model=None,
-        global_model=None,
-        agent_config=None,
-    ):
-        if agent_config is None:
-            agent_config = _agent_config(memory_model, active_model)
+    def setup(*, factory, memory_model):
+        agent_config = AgentProfileConfig(id="default", name="Default")
+        agent_config.running.reme_light_memory_config.memory_model = (
+            memory_model
+        )
         monkeypatch.setattr(
             reme_light_memory_manager,
             "load_agent_config_async",
@@ -50,14 +32,6 @@ def fixture_model_setup(monkeypatch, make_memory_model_manager):
             reme_light_memory_manager,
             "create_model_and_formatter_async",
             factory,
-        )
-        provider_manager = SimpleNamespace(
-            active_model=global_model,
-        )
-        monkeypatch.setattr(
-            reme_light_memory_manager,
-            "ProviderManager",
-            SimpleNamespace(get_instance=lambda: provider_manager),
         )
         return make_memory_model_manager()
 
@@ -145,34 +119,40 @@ async def test_main_construction_cancellation_does_not_try_memory(model_setup):
     ],
 )
 def test_memory_slot_resolution(
-    model_setup,
+    monkeypatch,
+    make_memory_model_manager,
     provider,
     model,
     agent_provider,
     global_provider,
     expected,
 ):
-    config = _agent_config(
-        memory_model=(
-            ModelSlotConfig(provider_id=provider, model=model)
-            if model is not None
-            else None
-        ),
+    config = AgentProfileConfig(
+        id="default",
+        name="Default",
         active_model=(
             ModelSlotConfig(provider_id=agent_provider, model="chat")
             if agent_provider
             else None
         ),
     )
-    manager = model_setup(
-        agent_config=config,
-        factory=AsyncMock(),
-        global_model=(
-            ModelSlotConfig(provider_id=global_provider, model="chat")
-            if global_provider
-            else None
+    config.running.reme_light_memory_config.memory_model = (
+        ModelSlotConfig(provider_id=provider, model=model)
+        if model is not None
+        else None
+    )
+    monkeypatch.setattr(
+        ProviderManager,
+        "_instance",
+        SimpleNamespace(
+            active_model=(
+                ModelSlotConfig(provider_id=global_provider, model="chat")
+                if global_provider
+                else None
+            ),
         ),
     )
+    manager = make_memory_model_manager()
 
     assert manager._memory_model_slot(config) == (
         ModelSlotConfig(provider_id=expected, model=model)

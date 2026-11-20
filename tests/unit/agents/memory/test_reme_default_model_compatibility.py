@@ -23,6 +23,36 @@ from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 
 
+def _slot(name, provider_id="ollama"):
+    return {"provider_id": provider_id, "model": name}
+
+
+@pytest.fixture
+def make_memory_profile(monkeypatch):
+    """Share route configuration while leaving the real factory in use."""
+
+    def make(memory_model, fallback_names):
+        profile = AgentProfileConfig(
+            id="compatibility",
+            name="Compatibility",
+            active_model=_slot("agent"),
+            fallback_models=[_slot(name) for name in fallback_names],
+            fallback_policy={"enabled": True, "target_scope": "configured"},
+            running={
+                "llm_retry_enabled": False,
+                "reme_light_memory_config": {"memory_model": memory_model},
+            },
+        )
+        monkeypatch.setattr(
+            memory_module,
+            "load_agent_config_async",
+            AsyncMock(return_value=profile),
+        )
+        return profile
+
+    return make
+
+
 @pytest.mark.parametrize(
     ("saved_image", "main_image", "fallback_image", "override", "expected"),
     [
@@ -37,6 +67,7 @@ async def test_image_memory_uses_resolved_capabilities(
     monkeypatch,
     local_models,
     make_memory_model_manager,
+    make_memory_profile,
     saved_image,
     main_image,
     fallback_image,
@@ -65,27 +96,7 @@ async def test_image_memory_uses_resolved_capabilities(
         )
     ]
 
-    def slot(name):
-        return {"provider_id": "ollama", "model": name}
-
-    profile = AgentProfileConfig.model_validate(
-        {
-            "id": "image-metadata",
-            "name": "Image metadata",
-            "active_model": slot("agent"),
-            "fallback_models": [slot("vision-fallback")],
-            "fallback_policy": {"enabled": True, "target_scope": "configured"},
-            "running": {
-                "llm_retry_enabled": False,
-                "reme_light_memory_config": {"memory_model": slot("global")},
-            },
-        },
-    )
-    monkeypatch.setattr(
-        memory_module,
-        "load_agent_config_async",
-        AsyncMock(return_value=profile),
-    )
+    profile = make_memory_profile(_slot("global"), ["vision-fallback"])
     calls = []
 
     class TransientError(Exception):
@@ -167,6 +178,7 @@ async def test_memory_routing_preserves_policy_and_metadata(
     monkeypatch,
     local_models,
     make_memory_model_manager,
+    make_memory_profile,
     output,
     provider_id,
     memory_name,
@@ -215,31 +227,9 @@ async def test_memory_routing_preserves_policy_and_metadata(
         call,
     )
 
-    def slot(name):
-        return {"provider_id": "ollama", "model": name}
-
-    profile = AgentProfileConfig.model_validate(
-        {
-            "id": "combined-chain",
-            "name": "Combined chain",
-            "active_model": slot("agent"),
-            "fallback_policy": {"enabled": True, "target_scope": "configured"},
-            "fallback_models": [slot(name) for name in fallback_names],
-            "running": {
-                "llm_retry_enabled": False,
-                "reme_light_memory_config": {
-                    "memory_model": {
-                        "provider_id": provider_id,
-                        "model": memory_name,
-                    },
-                },
-            },
-        },
-    )
-    monkeypatch.setattr(
-        memory_module,
-        "load_agent_config_async",
-        AsyncMock(return_value=profile),
+    profile = make_memory_profile(
+        _slot(memory_name, provider_id),
+        fallback_names,
     )
     manager = make_memory_model_manager(profile.id)
     model = await manager._update_qwenpaw_model()

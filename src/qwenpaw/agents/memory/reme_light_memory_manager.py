@@ -592,7 +592,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             "resize_images_to_max_bytes": True,
         }
         try:
-            main_model, _formatter = await create_model_and_formatter_async(
+            main_model, _ = await create_model_and_formatter_async(
                 self.agent_id,
                 **model_kwargs,
             )
@@ -616,10 +616,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             )
         ):
             try:
-                (
-                    memory_model,
-                    _formatter,
-                ) = await create_model_and_formatter_async(
+                memory_model, _ = await create_model_and_formatter_async(
                     self.agent_id,
                     model_slot_override=memory_slot,
                     **model_kwargs,
@@ -639,31 +636,34 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             else:
                 from ..prompt import get_model_supports_image
 
-                if main_model is not None and get_model_identity(
-                    memory_model,
-                ) == get_model_identity(main_model):
+                memory_identity = get_model_identity(memory_model)
+                if (
+                    main_model is not None
+                    and memory_identity == get_model_identity(main_model)
+                ):
                     # Provider aliases/case can resolve to the same primary.
                     # Reuse its original chain and fallback-trigger policy.
                     model = main_model
-                elif main_model is None or (
-                    require_image_support
-                    and await run_sync_io(
-                        get_model_supports_image,
-                        memory_model,
-                    )
-                    and not await run_sync_io(
-                        get_model_supports_image,
-                        main_model,
-                    )
-                ):
-                    # Never send memory images to a text-only main model.
-                    model = memory_model
                 else:
                     fallback = main_model
-                    if isinstance(fallback, FallbackChatModel):
-                        fallback = fallback.without_models(
-                            {get_model_identity(memory_model)},
+                    if (
+                        fallback is not None
+                        and require_image_support
+                        and (
+                            await run_sync_io(
+                                get_model_supports_image,
+                                memory_model,
+                            )
+                            and not await run_sync_io(
+                                get_model_supports_image,
+                                fallback,
+                            )
                         )
+                    ):
+                        # Never send memory images to a text-only main model.
+                        fallback = None
+                    if isinstance(fallback, FallbackChatModel):
+                        fallback = fallback.without_models({memory_identity})
                     model = (
                         FallbackChatModel(
                             [memory_model, fallback],

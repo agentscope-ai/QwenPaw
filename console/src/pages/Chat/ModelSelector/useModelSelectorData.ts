@@ -1,10 +1,13 @@
 import type { SessionModelScope } from "../../../features/session-settings/sessionModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
+import type { ActiveModelsInfo } from "../../../api/types";
 import { modelSelectorApi } from "./modelSelectorApi";
 import { providerApi } from "../../../api/modules/provider";
-import type { ProviderCatalog } from "./useEligibleProviders";
+import {
+  useProviderCatalog,
+  type ProviderCatalog,
+} from "./useEligibleProviders";
 
 interface UseModelSelectorDataOptions {
   providerCatalog?: ProviderCatalog;
@@ -19,7 +22,10 @@ export function useModelSelectorData({
   onActiveModels,
   providerCatalog,
 }: UseModelSelectorDataOptions) {
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const localCatalog = useProviderCatalog(false);
+  const catalog = providerCatalog ?? localCatalog;
+  const hasSharedCatalog = providerCatalog !== undefined;
+  const { load: loadProviders, setProviders } = catalog;
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
     null,
   );
@@ -27,7 +33,6 @@ export function useModelSelectorData({
   const [loadError, setLoadError] = useState(false);
   const providersRequestRef = useRef(0);
   const activeRequestRef = useRef(0);
-  const loadProviders = providerCatalog?.load;
 
   const applyActiveModels = useCallback(
     (value: ActiveModelsInfo) => {
@@ -51,12 +56,10 @@ export function useModelSelectorData({
       try {
         const result = await modelSelectorApi.loadModelSelectorData(
           agentId,
-          loadProviders
-            ? {
-                listProviders: () => loadProviders(refresh),
-                getActiveModels: providerApi.getActiveModels,
-              }
-            : undefined,
+          {
+            listProviders: () => loadProviders(refresh),
+            getActiveModels: providerApi.getActiveModels,
+          },
           session,
           (value) => {
             if (providersRequestId !== providersRequestRef.current) return;
@@ -83,6 +86,7 @@ export function useModelSelectorData({
       session?.chatId,
       applyActiveModels,
       loadProviders,
+      setProviders,
     ],
   );
 
@@ -94,21 +98,21 @@ export function useModelSelectorData({
 
   useEffect(() => {
     setActiveModels(null);
-    void fetchData(false);
+    void fetchData(!hasSharedCatalog);
     return () => {
       providersRequestRef.current += 1;
       activeRequestRef.current += 1;
     };
-  }, [fetchData]);
+  }, [fetchData, hasSharedCatalog]);
 
   return {
     activeModels,
     fetchData,
     loading,
     loadError,
-    providers: providerCatalog?.providers ?? providers,
+    providers: catalog.providers ?? [],
     refreshActiveModels,
     setActiveModels: updateActiveModels,
-    setProviders: providerCatalog?.setProviders ?? setProviders,
+    setProviders,
   };
 }
