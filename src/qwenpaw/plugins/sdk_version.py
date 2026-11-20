@@ -7,7 +7,7 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-SDK_VERSION = "1.1.0"
+SDK_VERSION = "1.2.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",
@@ -30,6 +30,7 @@ SDK_CAPABILITIES = frozenset(
         "apps",
         "channels",
         "harnesses",
+        "themeTokens",
     },
 )
 
@@ -71,6 +72,10 @@ def validate_sdk(declaration, plugin_id=None):
         )
     if "harnesses" in capabilities and requested < Version("1.1.0"):
         raise SDKCompatibilityError("harnesses requires SDK version >= 1.1.0")
+    if "themeTokens" in capabilities and requested < Version("1.2.0"):
+        raise SDKCompatibilityError(
+            "themeTokens requires SDK version >= 1.2.0",
+        )
     secrets = declaration.get("secrets", [])
     if not isinstance(secrets, list) or not all(
         isinstance(name, str) and name for name in secrets

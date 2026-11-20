@@ -14,7 +14,9 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ...plugins.errors import SDKCompatibilityError
 from ...plugins.lifecycle import PluginState
+from ...plugins.sdk_version import validate_sdk
 from ...utils.io_utils import run_sync_io
 
 from .plugins import (
@@ -29,6 +31,34 @@ router = APIRouter(prefix="/frontend_plugin", tags=["frontend-plugin"])
 
 def _is_harness(manifest):
     return "harnesses" in (manifest.sdk or {}).get("capabilities", [])
+
+
+def _sdk_declaration(manifest):
+    """The SDK declaration, downgraded to "not declared" when it is invalid.
+
+    The loader rejects an incompatible declaration before a plugin loads, so
+    the loaded path only ever sees valid ones. The disk fallback has no loader
+    and used to forward whatever the manifest said, which made the console the
+    only judge: a pre-release spelling such as ``1.2.0rc1`` is below 1.2.0
+    under PEP 440 and may not carry ``themeTokens``, yet the console's numeric
+    comparison read it as 1.2.0 and accepted the extended roles. Asking the
+    same question on both paths keeps one decision in one place.
+    """
+    sdk = manifest.sdk or {}
+    try:
+        validate_sdk(sdk)
+    except SDKCompatibilityError:
+        return None, []
+    version = sdk.get("version")
+    capabilities = sdk.get("capabilities") or []
+    return (
+        version if isinstance(version, str) else None,
+        (
+            [item for item in capabilities if isinstance(item, str)]
+            if isinstance(capabilities, list)
+            else []
+        ),
+    )
 
 
 def _executable(loader, record):
@@ -47,11 +77,33 @@ def _executable(loader, record):
 
 def _disk_frontends():
     # A disk copy cannot prove an SDK Harness's live activation.
-    return [
+    rows = [
         row
         for row in _list_plugins_from_disk()
         if row["enabled"] and not row.get("sdk_harnesses")
     ]
+    # This listing is shared with the management endpoint, whose response
+    # shape is already fixed; fill the SDK declaration in here instead.
+    from ...config.utils import get_plugins_dir
+    from ...plugins.architecture import PluginManifest
+
+    plugins_dir = get_plugins_dir()
+    for row in rows:
+        try:
+            manifest = PluginManifest.from_dict(
+                json.loads(
+                    (plugins_dir / row["id"] / "plugin.json").read_text(
+                        encoding="utf-8",
+                    ),
+                ),
+            )
+        except (OSError, ValueError):
+            continue
+        # Same compatibility question as the loaded path.
+        row["sdk_version"], row["sdk_capabilities"] = _sdk_declaration(
+            manifest,
+        )
+    return rows
 
 
 def _disk_frontend_source(plugin_id):
@@ -100,6 +152,7 @@ async def list_frontend_plugins(request: Request):
         if not _executable(loader, record):
             continue
         manifest = record.manifest
+        sdk_version, sdk_capabilities = _sdk_declaration(manifest)
         result.append(
             {
                 "id": manifest.id,
@@ -112,6 +165,8 @@ async def list_frontend_plugins(request: Request):
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
                 "status": getattr(record, "status", "active"),
+                "sdk_version": sdk_version,
+                "sdk_capabilities": sdk_capabilities,
                 "harnesses": [
                     item["id"]
                     for item in (manifest.meta or {}).get("harnesses", [])

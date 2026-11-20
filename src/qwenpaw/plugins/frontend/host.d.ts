@@ -111,6 +111,9 @@ export interface ChatSubmitInput {
  * Theme roles a plugin may override: `styles/tokens.css` roles without the
  * `--app-` prefix. The set is closed on purpose — the remaining `--app-*`
  * roles stay host implementation details.
+ *
+ * The first six shipped with the original slice. The semantic colour roles
+ * below them require `sdk.version >= 1.2.0` and the `themeTokens` capability.
  */
 export type ThemeTokenKey =
   | "bg"
@@ -118,7 +121,39 @@ export type ThemeTokenKey =
   | "surface-raised"
   | "border"
   | "text"
-  | "text-secondary";
+  | "text-secondary"
+  // Semantic colour surface — requires sdk.version >= 1.2.0.
+  | "surface-subtle"
+  | "surface-sunken"
+  | "shell-bg"
+  | "text-tertiary"
+  | "text-quaternary"
+  | "border-subtle"
+  | "border-strong"
+  | "accent"
+  | "accent-hover"
+  | "accent-active"
+  | "accent-soft"
+  | "accent-soft-hover"
+  | "accent-faint"
+  | "accent-ring"
+  | "accent-border"
+  | "accent-text"
+  | "success"
+  | "success-bg"
+  | "success-border"
+  | "success-text"
+  | "warning"
+  | "warning-bg"
+  | "warning-border"
+  | "warning-text"
+  | "error"
+  | "error-bg"
+  | "error-border"
+  | "error-text"
+  | "info-bg"
+  | "info-border"
+  | "info-text";
 
 /** Both schemes are required, so a theme can never leave one unreadable. */
 export interface ThemeTokenValue {

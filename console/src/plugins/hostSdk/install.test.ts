@@ -11,6 +11,11 @@ import { installHostExternals } from "../hostExternals";
 import { chatExtensions } from "../registry/chatExtensions";
 import { auditStore } from "../registry/audit";
 import type { ThemeTokenOverrides } from "../registry/types";
+import { EXTENDED_THEME_TOKENS } from "../registry/slotKeys";
+import {
+  clearPluginSdkDeclarations,
+  setPluginSdkDeclaration,
+} from "../registry/pluginSdk";
 
 beforeEach(() => {
   // Reset the window.QwenPaw namespace before each test so installHostSdk
@@ -20,6 +25,7 @@ beforeEach(() => {
   installHostExternals();
   installHostSdk();
   chatExtensions.__resetForTests();
+  clearPluginSdkDeclarations();
   auditStore.clear();
 });
 
@@ -150,11 +156,130 @@ describe("window.QwenPaw.chat.theme / sender", () => {
 
   it("theme.overrideTokens rejects unknown token names", () => {
     const unknown = {
-      accent: { light: "#fff", dark: "#000" },
+      "not-a-role": { light: "#fff", dark: "#000" },
     } as unknown as ThemeTokenOverrides;
     expect(() =>
       window.QwenPaw.chat!.theme.overrideTokens("p1", unknown),
-    ).toThrow(/unknown token "accent"/);
+    ).toThrow(/unknown token "not-a-role"/);
+  });
+
+  it("theme.overrideTokens accepts the semantic colour roles", () => {
+    setPluginSdkDeclaration("p1", {
+      version: "1.2.0",
+      capabilities: ["themeTokens"],
+    });
+    const d = window.QwenPaw.chat!.theme.overrideTokens("p1", {
+      "surface-subtle": { light: "#fafafa", dark: "#1a1a1a" },
+      accent: { light: "#ff6600", dark: "#ffaa00" },
+      "success-bg": { light: "#e8f5e9", dark: "#134e1f" },
+    });
+    const snap = chatExtensions.getThemeTokenSnapshot();
+    expect(snap["surface-subtle"]?.value.dark).toBe("#1a1a1a");
+    expect(snap.accent?.value.light).toBe("#ff6600");
+    expect(snap["success-bg"]?.value.dark).toBe("#134e1f");
+    d.dispose();
+    expect(chatExtensions.getThemeTokenSnapshot().accent).toBeUndefined();
+  });
+
+  it("accepts every extended role in one call", () => {
+    setPluginSdkDeclaration("p1", {
+      version: "1.2.0",
+      capabilities: ["themeTokens"],
+    });
+    const all = Object.fromEntries(
+      Object.values(EXTENDED_THEME_TOKENS).map((role) => [
+        role,
+        { light: "#123456", dark: "#654321" },
+      ]),
+    ) as ThemeTokenOverrides;
+    window.QwenPaw.chat!.theme.overrideTokens("p1", all);
+    const snap = chatExtensions.getThemeTokenSnapshot();
+    expect(Object.keys(snap)).toHaveLength(
+      Object.values(EXTENDED_THEME_TOKENS).length,
+    );
+    for (const role of Object.values(EXTENDED_THEME_TOKENS)) {
+      expect(snap[role]?.value.light).toBe("#123456");
+    }
+  });
+
+  it("rejects a role whose case does not match", () => {
+    const wrong = {
+      Accent: { light: "#fff", dark: "#000" },
+    } as unknown as ThemeTokenOverrides;
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p1", wrong),
+    ).toThrow(/unknown token "Accent"/);
+  });
+
+  it("rejects a role written with the --app- prefix", () => {
+    const prefixed = {
+      "app-accent": { light: "#fff", dark: "#000" },
+    } as unknown as ThemeTokenOverrides;
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p1", prefixed),
+    ).toThrow(/unknown token "app-accent"/);
+  });
+
+  it("rejects an extended role when the plugin declares no SDK at all", () => {
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p-undeclared", {
+        accent: { light: "#ffffff", dark: "#000000" },
+      }),
+    ).toThrow(/requires sdk\.version/);
+  });
+
+  it("rejects an extended role when the plugin declares an older SDK", () => {
+    setPluginSdkDeclaration("p-old", {
+      version: "1.1.0",
+      capabilities: ["themeTokens"],
+    });
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p-old", {
+        accent: { light: "#ffffff", dark: "#000000" },
+      }),
+    ).toThrow(/requires sdk\.version/);
+  });
+
+  it("rejects an extended role when the SDK is new enough but undeclared", () => {
+    setPluginSdkDeclaration("p-nocap", { version: "1.2.0", capabilities: [] });
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p-nocap", {
+        accent: { light: "#ffffff", dark: "#000000" },
+      }),
+    ).toThrow(/themeTokens/);
+  });
+
+  it("accepts an extended role when both the version and capability match", () => {
+    setPluginSdkDeclaration("p-ok", {
+      version: "1.2.0",
+      capabilities: ["themeTokens"],
+    });
+    const d = window.QwenPaw.chat!.theme.overrideTokens("p-ok", {
+      accent: { light: "#ffffff", dark: "#000000" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot().accent?.value.light).toBe(
+      "#ffffff",
+    );
+    d.dispose();
+  });
+
+  it("keeps the original six roles usable without any declaration", () => {
+    const d = window.QwenPaw.chat!.theme.overrideTokens("p-legacy", {
+      surface: { light: "#ffffff", dark: "#111111" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot().surface?.value.dark).toBe(
+      "#111111",
+    );
+    d.dispose();
+  });
+
+  it("rejects an empty scheme value on an extended role", () => {
+    const empty = {
+      accent: { light: "", dark: "#000" },
+    } as unknown as ThemeTokenOverrides;
+    expect(() =>
+      window.QwenPaw.chat!.theme.overrideTokens("p1", empty),
+    ).toThrow(/must provide both "light" and "dark"/);
   });
 
   it("disposeAll(pluginId) clears theme tokens too", () => {
