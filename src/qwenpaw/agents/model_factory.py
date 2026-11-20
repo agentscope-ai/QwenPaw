@@ -2166,6 +2166,7 @@ def _create_file_block_support_formatter(
                             out_msg.setdefault("reasoning_content", " ")
 
             wire_messages = _strip_top_level_message_name(messages)
+            _sanitize_malformed_file_parts(wire_messages)
             self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
                 wire_messages,
             )
@@ -2259,6 +2260,106 @@ def _strip_top_level_message_name(
         if "role" in message:
             message.pop("name", None)
     return messages
+
+
+def _sanitize_malformed_file_parts(messages: list[dict]) -> None:
+    """Strip file content parts that lack required fields before API send.
+
+    The OpenAI-compatible Chat Completions API requires every
+    ``{"type": "file"}`` content part to carry either a top-level
+    ``file_id`` or a ``file_data`` value (either directly or nested
+    inside a ``file`` sub-object). When a file block in conversation
+    history has lost its data, the API rejects the entire request.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        cleaned: list[dict] = []
+        changed = False
+        for part in content:
+            if not isinstance(part, dict):
+                cleaned.append(part)
+                continue
+            if part.get("type") == "file":
+                if part.get("file_id"):
+                    cleaned.append(part)
+                    continue
+                file_obj = part.get("file")
+                if isinstance(file_obj, dict) and file_obj.get("file_data"):
+                    cleaned.append(part)
+                    continue
+                if part.get("file_data"):
+                    cleaned.append(part)
+                    continue
+                filename = (
+                    (file_obj.get("filename") or "")
+                    if isinstance(file_obj, dict)
+                    else ""
+                )
+                logger.warning(
+                    "Dropping malformed file content part "
+                    "(missing file_id/file_data): %r",
+                    filename,
+                )
+                changed = True
+                cleaned.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[File '{filename}' unavailable — "
+                            "data lost from conversation history]"
+                            if filename
+                            else (
+                                "[File unavailable — "
+                                "data lost from conversation history]"
+                            )
+                        ),
+                    },
+                )
+            else:
+                cleaned.append(part)
+        if changed:
+            msg["content"] = cleaned
+
+
+def _resolve_model_slot_override(model_slot_override: Any):
+    """Parse an optional per-request model override into a model slot."""
+    from ..config.config import ModelSlotConfig
+
+    slot = None
+    if isinstance(model_slot_override, ModelSlotConfig):
+        slot = model_slot_override
+    if isinstance(model_slot_override, dict):
+        try:
+            slot = ModelSlotConfig.model_validate(model_slot_override)
+        except Exception:
+            logger.warning(
+                "Ignoring invalid model_slot_override dict: %r",
+                model_slot_override,
+            )
+    if isinstance(model_slot_override, str):
+        # Use partition so version-tagged model names can contain ':'.
+        provider_id, sep, model_name = model_slot_override.partition(":")
+        if sep and provider_id.strip() and model_name.strip():
+            slot = ModelSlotConfig(
+                provider_id=provider_id.strip(),
+                model=model_name.strip(),
+            )
+        else:
+            logger.warning(
+                "Ignoring invalid model_slot_override string: %r",
+                model_slot_override,
+            )
+    if model_slot_override is not None and not isinstance(
+        model_slot_override,
+        (ModelSlotConfig, dict, str),
+    ):
+        logger.warning(
+            "Unsupported model_slot_override type: %s",
+            type(model_slot_override).__name__,
+        )
+    return slot
 
 
 def _bind_provider_id_to_model(
