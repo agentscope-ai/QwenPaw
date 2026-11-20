@@ -1,7 +1,7 @@
 {
   "id": "yuanbao",
   "name": "Yuanbao",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "channel",
   "description": "Tencent Yuanbao protobuf gateway and COS media transport.",
   "author": "QwenPaw Team",
