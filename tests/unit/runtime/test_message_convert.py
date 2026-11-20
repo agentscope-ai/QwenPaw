@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """Tests for request-to-AgentScope message conversion."""
 
+from pathlib import Path
+from urllib.parse import urlparse
+
+import pytest
+
+from qwenpaw.app.channels.utils import file_url_to_local_path
 from qwenpaw.constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_CLIENT_MESSAGE_ID_KEY,
@@ -74,6 +80,33 @@ def test_audio_content_data_becomes_audio_data_block(tmp_path):
     assert block.source.type == "url"
     assert str(block.source.url) == audio_path.resolve().as_uri()
     assert block.source.media_type.startswith("audio/")
+
+
+@pytest.mark.parametrize("content_type", ["image", "file"])
+@pytest.mark.parametrize("encoded", [False, True])
+def test_local_attachment_hash_round_trips(tmp_path, content_type, encoded):
+    path = tmp_path / "workspace#draft" / "media" / "sample.png"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"synthetic attachment")
+    value = path.as_uri() if encoded else str(path)
+    content = {"type": content_type}
+    if content_type == "image":
+        content["image_url"] = value
+    else:
+        content["file_url"] = value
+        content["file_name"] = path.name
+
+    [message] = _request_input_to_msgs(
+        [Message(role=Role.USER, content=[content])],
+    )
+    url = str(message.content[0].source.url)
+    resolved = file_url_to_local_path(url)
+
+    assert urlparse(url).fragment == ""
+    assert "%23" in url
+    assert "%2523" not in url
+    assert resolved == str(path)
+    assert Path(resolved).is_file()
 
 
 def test_file_input_preserves_independent_original_content():

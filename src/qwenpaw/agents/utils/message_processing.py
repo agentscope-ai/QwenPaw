@@ -236,7 +236,8 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
 
 def _local_file_url(path: str) -> str:
     """Build a ``file://`` URL without percent-encoding non-ASCII chars."""
-    return "file://" + str(Path(path).resolve())
+    resolved = str(Path(path).resolve()).replace("#", "%23")
+    return "file://" + resolved
 
 
 def _update_block_with_local_path(

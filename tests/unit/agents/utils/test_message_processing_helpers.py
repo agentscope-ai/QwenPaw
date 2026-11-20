@@ -190,6 +190,15 @@ class TestLocalFileUrl:
         assert url.startswith("file://")
         assert str(tmp_path / "rel.txt") in url
 
+    def test_hash_is_percent_encoded(self, tmp_path):
+        target = tmp_path / "workspace#draft" / "image#1.png"
+        url = mp._local_file_url(str(target))
+
+        normalized_url = url.replace("\\", "/")
+        assert normalized_url.endswith("/workspace%23draft/image%231.png")
+        assert "%2523" not in url
+        assert mp.file_url_to_local_path(url) == str(target)
+
 
 # ---------------------------------------------------------------------------
 # _update_block_with_local_path
