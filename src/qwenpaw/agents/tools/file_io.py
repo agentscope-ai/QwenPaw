@@ -12,7 +12,7 @@ from agentscope.tool import ToolChunk
 
 from .utils import (
     build_truncation_metadata,
-    read_file_native,
+    read_file_native_with_encoding,
     read_file_safe,
     replace_text_preserving_newlines,
     truncate_text_output,
@@ -400,11 +400,25 @@ async def edit_file(
 
     async with get_path_lock(resolved_path):
         try:
-            encoding = await run_sync_io(
-                _get_encoding_for_file,
+            original, encoding, lossy = await read_file_native_with_encoding(
                 resolved_path,
             )
-            original = await read_file_native(resolved_path)
+            if lossy:
+                return ToolChunk(
+                    is_last=True,
+                    state=ToolResultState.ERROR,
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "Error: Refusing to edit "
+                                f"{resolved_path} because it could not "
+                                "be decoded strictly. Writing the file "
+                                "back would replace unread bytes."
+                            ),
+                        ),
+                    ],
+                )
         except FileNotFoundError:
             return ToolChunk(
                 is_last=True,
