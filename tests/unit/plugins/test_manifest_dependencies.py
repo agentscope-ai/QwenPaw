@@ -1346,7 +1346,10 @@ def test_script_directory_claim_checks_actual_file_conflicts(
     from dataclasses import replace
 
     from packaging.markers import default_environment
-    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.execution.dependencies import (
+        canonical_environment_path,
+        observe_dependencies,
+    )
     from qwenpaw.plugins.execution.errors import ProtocolValidationError
     from qwenpaw.plugins.wheel_additions import (
         WheelAddition,
@@ -1364,6 +1367,7 @@ def test_script_directory_claim_checks_actual_file_conflicts(
     )
     with zipfile.ZipFile(owner) as archive:
         archive.extractall(site)
+    site = canonical_environment_path(site)
     kept = site / directory / "kept.py"
     if conflict == "module":
         (site / f"{directory}.py").write_text("# Import provider\n")
@@ -1397,6 +1401,8 @@ def test_script_directory_claim_checks_actual_file_conflicts(
     environment = default_environment()
     if directory == "Scripts":
         environment.update(os_name="nt", sys_platform="win32")
+    else:
+        environment.update(os_name="posix", sys_platform="linux")
     snapshot = replace(
         snapshot,
         marker_environment=environment,
