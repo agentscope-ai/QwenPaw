@@ -177,6 +177,82 @@ async def test_publish_confirmation_unknown_is_not_replayed(
             await driver.stop()
 
 
+async def test_stale_active_route_is_reclaimed_when_capacity_is_full(
+    mqtt,
+    monkeypatch,
+):
+    driver, peer, identity, _ = mqtt
+    monkeypatch.setattr(shared_response_driver, "_MAX_ROUTES", 1)
+    monkeypatch.setattr(
+        shared_response_driver,
+        "RESPONSE_ROUTE_STALE_TTL_MS",
+        1_000,
+    )
+    driver._routes.max_entries = 1
+    old_handle = await open_route(peer, identity, "device-A")
+    opened_at_ms = driver._routes.snapshot(old_handle).opened_at_ms
+    driver._routes._clock_ms = lambda: opened_at_ms + 1_000
+
+    new_handle = await open_route(peer, identity, "device-B")
+
+    assert new_handle != old_handle
+    assert driver._routes.snapshot(old_handle) is None
+    assert (
+        driver._routes.snapshot(new_handle).opened_at_ms
+        == opened_at_ms + 1_000
+    )
+    assert peer.state[driver._state_key] == [
+        driver._routes.snapshot(new_handle).to_mapping(),
+    ]
+
+
+async def test_fresh_active_route_is_preserved_when_capacity_is_full(
+    mqtt,
+    monkeypatch,
+):
+    driver, peer, identity, _ = mqtt
+    monkeypatch.setattr(shared_response_driver, "_MAX_ROUTES", 1)
+    monkeypatch.setattr(
+        shared_response_driver,
+        "RESPONSE_ROUTE_STALE_TTL_MS",
+        1_000,
+    )
+    driver._routes.max_entries = 1
+    old_handle = await open_route(peer, identity, "device-A")
+    opened_at_ms = driver._routes.snapshot(old_handle).opened_at_ms
+    driver._routes._clock_ms = lambda: opened_at_ms + 999
+
+    with pytest.raises(ResponseStateError) as error:
+        await open_route(peer, identity, "device-B")
+
+    assert error.value.reason_code == "RESPONSE_SCOPE_LIMIT"
+    assert driver._routes.snapshot(old_handle).opened_at_ms == opened_at_ms
+
+
+async def test_locked_stale_active_route_is_preserved(mqtt, monkeypatch):
+    driver, peer, identity, _ = mqtt
+    monkeypatch.setattr(shared_response_driver, "_MAX_ROUTES", 1)
+    monkeypatch.setattr(
+        shared_response_driver,
+        "RESPONSE_ROUTE_STALE_TTL_MS",
+        1_000,
+    )
+    driver._routes.max_entries = 1
+    old_handle = await open_route(peer, identity, "device-A")
+    opened_at_ms = driver._routes.snapshot(old_handle).opened_at_ms
+    driver._routes._clock_ms = lambda: opened_at_ms + 1_000
+    lock = driver._lock(old_handle)
+    await lock.acquire()
+    try:
+        with pytest.raises(ResponseStateError) as error:
+            await open_route(peer, identity, "device-B")
+    finally:
+        lock.release()
+
+    assert error.value.reason_code == "RESPONSE_SCOPE_LIMIT"
+    assert driver._routes.snapshot(old_handle) is not None
+
+
 async def test_malformed_payload_is_filtered_before_valid_barrier(mqtt):
     driver, peer, _, client = mqtt
     for payload in (b"[]", b"\xff", b'{"text":12}', b'{"text":""}'):

@@ -12,6 +12,7 @@ from typing import Any
 from .models import ResponseOutcome, validate_response_handle
 
 RESPONSE_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000
+RESPONSE_ROUTE_STALE_TTL_MS = 24 * 60 * 60 * 1000
 
 
 @dataclass
@@ -113,6 +114,7 @@ class ResponseRouteSnapshot:
     closed_at_ms: int | None = None
     cleanup_completed_at_ms: int | None = None
     expires_at_ms: int | None = None
+    opened_at_ms: int | None = None
 
     def __post_init__(self) -> None:
         validate_response_handle(self.response_handle)
@@ -124,6 +126,8 @@ class ResponseRouteSnapshot:
             raise ValueError(
                 "response resource refs must be sorted and unique",
             )
+        if self.opened_at_ms is not None and self.opened_at_ms < 0:
+            raise ValueError("response route opened time is invalid")
         if self.kind is ResponseRouteKind.ACTIVE:
             self._validate_active()
         elif self.kind is ResponseRouteKind.REVOKED:
@@ -188,6 +192,8 @@ class ResponseRouteSnapshot:
                 item.to_mapping() for item in self.resource_refs
             ],
         }
+        if self.opened_at_ms is not None:
+            value["opened_at_ms"] = self.opened_at_ms
         if self.kind is ResponseRouteKind.TERMINAL:
             if self.outcome is None or self.cleanup_state is None:
                 raise ValueError("terminal response receipt is incomplete")
@@ -228,12 +234,13 @@ class ResponseRouteSnapshot:
             "cleanup_completed_at_ms",
             "expires_at_ms",
         }
+        lifecycle = {"opened_at_ms"}
         expected = (
-            required | terminal
+            required | terminal | lifecycle
             if kind is ResponseRouteKind.TERMINAL
-            else required
+            else required | lifecycle
         )
-        if set(value) != expected:
+        if set(value) not in (expected, expected - lifecycle):
             raise ValueError("response route snapshot must be closed")
         handle = value.get("response_handle")
         version = value.get("version")
@@ -265,6 +272,7 @@ class ResponseRouteSnapshot:
             response_handle=handle,
             kind=kind,
             version=version,
+            opened_at_ms=_optional_int(value, "opened_at_ms"),
             route_refs=_normalize_refs(
                 ResponseResourceRef.from_mapping(item) for item in route_refs
             ),
@@ -336,6 +344,7 @@ class ResponseRouteAggregate:
             response_handle=handle,
             kind=ResponseRouteKind.ACTIVE,
             version=1,
+            opened_at_ms=self._clock_ms(),
             route_refs=normalized,
         )
         self._entries[handle] = snapshot
@@ -543,6 +552,27 @@ class ResponseRouteAggregate:
         """Return all aggregate snapshots in deterministic order."""
         return tuple(self._entries[key] for key in sorted(self._entries))
 
+    @property
+    def clock_ms(self) -> Callable[[], int]:
+        """Return the clock used for lifecycle timestamps."""
+        return self._clock_ms
+
+    def stale_active(
+        self,
+        max_age_ms: int,
+    ) -> tuple[ResponseRouteSnapshot, ...]:
+        """Return active routes older than the supplied age."""
+        if max_age_ms < 0:
+            raise ValueError("max_age_ms must be non-negative")
+        now = self._clock_ms()
+        return tuple(
+            snapshot
+            for snapshot in self.snapshots()
+            if snapshot.kind is ResponseRouteKind.ACTIVE
+            and snapshot.opened_at_ms is not None
+            and now >= snapshot.opened_at_ms + max_age_ms
+        )
+
     def pending_cleanups(self) -> tuple[ResponseRouteSnapshot, ...]:
         """Return cleanup-pending receipts in deterministic order."""
         return tuple(
@@ -660,6 +690,7 @@ def _optional_int(value: Mapping[str, Any], name: str) -> int | None:
 
 __all__ = [
     "RESPONSE_RECEIPT_TTL_MS",
+    "RESPONSE_ROUTE_STALE_TTL_MS",
     "ResponseCleanupState",
     "ResponseResourceRef",
     "ResponseRouteAggregate",
