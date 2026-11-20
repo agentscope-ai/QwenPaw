@@ -4,7 +4,7 @@ import React, {
   useDeferredValue,
   useRef,
 } from "react";
-import { Markdown } from "@agentscope-ai/chat";
+import { ChatMarkdown } from "../../components/ChatMarkdown/ChatMarkdown";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock/RenderableCodeBlock";
@@ -150,7 +150,7 @@ export function AssistantMarkdown({
   const extended = entries.length > 0;
   if (!extended) {
     return (
-      <Markdown
+      <ChatMarkdown
         baseFontSize={baseFontSize}
         components={renderableCodeComponents}
         content={deferredContent}
@@ -170,7 +170,7 @@ export function AssistantMarkdown({
       }}
     >
       <StableCodeBlocks key={messageId}>
-        <Markdown
+        <ChatMarkdown
           baseFontSize={baseFontSize}
           components={assistantCodeComponents}
           content={deferredContent}

@@ -105,7 +105,12 @@ export default defineConfig(({ command, mode }) => {
       // Chat resolves to the installed SDK; real integration is verified in
       // the browser against the configured backend and model.
       deps: {
-        inline: [/@agentscope-ai\/(?!icons|chat|design)/],
+        // Chat subpaths (`lib/...`) are imported directly by the console's CJK
+        // markdown wrapper, so they need Vite's transform instead of Node ESM.
+        inline: [
+          /@agentscope-ai\/(?!icons|chat|design)/,
+          /@agentscope-ai\/chat\/lib\//,
+        ],
       },
       alias: [
         // Shared optional-plugin sources resolve dependencies from this test
