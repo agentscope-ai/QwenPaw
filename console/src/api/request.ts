@@ -75,6 +75,8 @@ function buildHeaders(
 }
 
 export interface RequestOptions extends RequestInit {
+  /** Decode an authenticated response inside the same cancellation scope. */
+  readResponse?: (response: Response) => Promise<unknown>;
   /** Request timeout in milliseconds. Defaults to 30000 (30 seconds). */
   timeout?: number;
   /** Number of retry attempts on timeout. Defaults to 0 (no retry). */
@@ -107,6 +109,7 @@ export async function request<T = unknown>(
     retries = DEFAULT_RETRIES,
     retryDelay = DEFAULT_RETRY_DELAY_MS,
     signal: callerSignal,
+    readResponse,
     ...fetchOptions
   } = options;
 
@@ -224,6 +227,11 @@ export async function request<T = unknown>(
         throw new ApiRequestError(finalMessage, response.status);
       }
 
+      if (readResponse) {
+        const value = await readResponse(response);
+        assertAuthenticationCurrent();
+        return value as T;
+      }
       if (response.status === 204) {
         return undefined as T;
       }

@@ -175,9 +175,11 @@ def _init_a2a_manager() -> None:
     tools are invoked. The actual connections are created lazily.
     """
     try:
-        from .modules.a2a.client_manager import get_a2a_manager
+        from qwenpaw.identity.runtime import is_multi_user_enabled
+        from modules.a2a.client_manager import get_a2a_manager
 
-        get_a2a_manager()
+        if not is_multi_user_enabled():
+            get_a2a_manager()
         logger.info("A2A client manager initialized")
     except Exception as e:
         logger.warning("Failed to initialize A2A client manager: %s", e)
@@ -588,7 +590,7 @@ class CloudPawPlugin:
         """Cleanup on application shutdown."""
         logger.info("CloudPaw plugin shutting down...")
         try:
-            from .modules.a2a.client_manager import shutdown_a2a_manager
+            from modules.a2a.client_manager import shutdown_a2a_manager
 
             await shutdown_a2a_manager()
             logger.info("[CloudPaw] A2A client manager shut down")

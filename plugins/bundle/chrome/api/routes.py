@@ -119,6 +119,13 @@ async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
 
 
+@api_router.post("/self-test")
+async def bridge_self_test() -> dict[str, Any]:
+    from qwenpaw.browser.control_link.chrome.observe import run_self_test
+
+    return await run_self_test()
+
+
 @api_router.post("/setup")
 async def extension_setup(
     request: ExtensionSetupRequest,

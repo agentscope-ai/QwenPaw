@@ -11,6 +11,7 @@ import { resetLoadedPlugins } from "./usePluginLoader";
 vi.mock("./usePluginLoader", () => ({
   loadAllPlugins: vi.fn(),
   resetLoadedPlugins: vi.fn(),
+  watchPluginAccess: () => () => {},
 }));
 
 vi.mock("./pluginSystem", () => ({

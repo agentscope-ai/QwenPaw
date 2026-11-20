@@ -2549,6 +2549,16 @@ _registry_lock = threading.RLock()
 _registry: dict[Path, SourceMediaAnalysisService] = {}
 
 
+def release_idle_source_analysis(services) -> bool:
+    with _registry_lock:
+        key = services.root.resolve()
+        worker = _registry.get(key)
+        if worker and (any(not task.done() for task in worker._jobs.values())):
+            return False
+        _registry.pop(key, None)
+        return True
+
+
 def source_analysis_service(
     services: CreatorFileServices,
 ) -> SourceMediaAnalysisService:

@@ -31,16 +31,6 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
     def __init__(self, tool_registry: ToolRegistry, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._tool_registry = tool_registry
-        self._governor: Any = None
-
-    def set_governor(self, governor: Any) -> None:
-        """Inject the ResourceGovernor for policy-governed tool wrapping.
-
-        Called by :class:`AgentBuilder` after the governor is created.
-        Must be called before the first :meth:`list_tools` invocation
-        for the governor to take effect on workspace tools.
-        """
-        self._governor = governor
 
     async def list_tools(  # type: ignore[override]
         self,
@@ -48,6 +38,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         agent_config: Any = None,
         agent_id: str | None = None,  # pylint: disable=unused-argument
         request_context: dict[str, Any] | None = None,
+        governor: Any = None,
         active_modes: tuple[str, ...] | set[str] = (),
         active_skills: tuple[str, ...] | set[str] = (),
         enabled_features: tuple[str, ...] | set[str] = (),
@@ -73,10 +64,10 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         if isinstance(subagent_whitelist, list):
             # Empty list means deny-all workspace tools (unlike
             # ToolRegistry.filter, where empty allowed == unrestricted).
-            if not subagent_whitelist:
+            parent_allowed = allowed if allowed is not None else self._tool_registry.default_enabled_names()
+            allowed = parent_allowed.intersection(subagent_whitelist)
+            if not allowed:
                 return []
-            sa_set = set(subagent_whitelist)
-            allowed = (allowed & sa_set) if allowed is not None else sa_set
 
         descs = self._tool_registry.filter(
             active_modes=set(active_modes),
@@ -89,7 +80,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         return [
             PolicyGuardedTool(
                 d.func,
-                governor=self._governor,
+                governor=governor,
                 request_context=request_context,
             )
             for d in descs

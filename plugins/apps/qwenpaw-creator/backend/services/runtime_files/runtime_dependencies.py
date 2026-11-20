@@ -235,7 +235,7 @@ class CreatorBinaryManager:
             binary_dir = (
                 Path(configured).expanduser()
                 if configured
-                else require_creator_data_root() / "runtime-tools" / "bin"
+                else require_creator_data_root(installation=True) / "runtime-tools" / "bin"
             )
         if not binary_dir.is_absolute():
             raise CreatorBinaryDependencyError(

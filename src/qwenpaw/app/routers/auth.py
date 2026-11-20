@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
@@ -327,11 +329,20 @@ async def refresh_session(request: Request, response: Response):
 async def logout_session(request: Request, response: Response):
     if not is_multi_user_enabled():
         raise HTTPException(status_code=404, detail="Not found")
-    await get_identity_runtime().sessions.revoke_current(
-        request.cookies.get(REFRESH_COOKIE, "")
+    device = request.headers.get("X-Session-Id")
+    try:
+        expected_session_id = UUID(device) if device else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid_session_id") from exc
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    revoked, clear_cookie = await get_identity_runtime().sessions.logout_device(
+        token if scheme.lower() == "bearer" else "",
+        request.cookies.get(REFRESH_COOKIE, ""),
+        expected_session_id,
     )
-    _clear_refresh_cookie(response)
-    return {"revoked": True}
+    if clear_cookie:
+        _clear_refresh_cookie(response)
+    return {"revoked": revoked}
 
 
 @router.get("/sessions")

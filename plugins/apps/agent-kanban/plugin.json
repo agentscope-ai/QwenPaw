@@ -7,7 +7,8 @@
   "type": "app",
   "entry": {
     "backend": "backend/main.py",
-    "frontend": "ui/index.js"
+    "frontend": "worker.js",
+    "frontend_runtime": "worker-v1"
   },
   "qwenpaw_version": {
     "min": "2.0.1"

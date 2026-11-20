@@ -108,6 +108,8 @@ class ContextVarsSetupHook(LifecycleHook):
         if ctx.request.user_id:
             tool_request_context["user_id"] = str(ctx.request.user_id)
         if isinstance(request_context, dict):
+            if isinstance(request_context.get("subagent_skills"), list):
+                tool_request_context["subagent_skills"] = list(request_context["subagent_skills"])
             actor = request_context.get("actor_context")
             if isinstance(actor, dict):
                 tool_request_context["actor_context"] = dict(actor)

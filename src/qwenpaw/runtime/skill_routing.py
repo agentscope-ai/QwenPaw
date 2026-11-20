@@ -20,6 +20,7 @@ from ..agents.skill_runtime import (
     render_skill_list,
     render_skill_info,
 )
+from ..app.console_delegation import current_delegation
 from .message_convert import _get_last_user_text
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,14 @@ def skill_routing_response(ctx):
 
 def prepare_skill_request(ctx, effective_skills: list[str]):
     text, route = _skill_route(ctx, effective_skills)
-    required_types = requested_file_types(text)
+    delegation = current_delegation.get()
+    # A restricted worker returns intermediate output to its caller. The parent
+    # still needs actual file delivery before claiming the user's deck is ready.
+    require_delivery = not (
+        delegation and delegation.is_subtask and delegation.tools is not None
+        and "send_file_to_user" not in delegation.tools
+    )
+    required_types = requested_file_types(text) if require_delivery else set()
     guard = FileDeliveryGuard(required_types) if required_types else None
     ctx.skill_load_required = bool(route and route.kind in {"invoke", "clarify"})
     if route is None or route.kind not in {"invoke", "clarify"}:
@@ -129,7 +137,7 @@ def prepare_skill_request(ctx, effective_skills: list[str]):
         "task, then call load_skill before executing its workflow. "
         "Do not treat a remembered skill body as already loaded in this turn."
     )
-    if not required_types and creation_action(text) and re.search(r"画|绘|draw|paint", text, re.I):
+    if require_delivery and not required_types and creation_action(text) and re.search(r"画|绘|draw|paint", text, re.I):
         required_types = {"image/"}
         guard = FileDeliveryGuard(required_types)
     if guard is not None:

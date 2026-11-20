@@ -628,6 +628,13 @@ def creator_file_services(root: Path) -> CreatorFileServices:
         return services
 
 
+def release_creator_file_services(services: CreatorFileServices) -> None:
+    with _registry_lock:
+        if _registry.get(services.root.resolve()) is services:
+            _registry.pop(services.root.resolve())
+            services.poller.stop()
+
+
 def clear_creator_file_service_registry() -> None:
     """Test/process-shutdown hook; durable state remains on disk."""
 

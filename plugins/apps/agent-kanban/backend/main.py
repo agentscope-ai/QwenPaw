@@ -31,20 +31,20 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from qwenpaw.pawapp import PawApp, get_ctx
-from qwenpaw.pawapp.task import SSEChannel
+from qwenpaw.pawapp.task import SSEBroadcast
+from qwenpaw.identity.runtime import is_multi_user_enabled
+from qwenpaw.plugins.http_scope import current_plugin_scope
 
 logger = logging.getLogger(__name__)
 
 # ── Storage (shared by HTTP routes and agent tools) ──────────────────
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _DATA_FILE = _DATA_DIR / "issues.json"
-_LOCK_FILE = _DATA_DIR / ".issues.lock"
 _LOCK = asyncio.Lock()
 # issue_id -> the in-flight agent run task, so /stop can cancel it.
 _RUNNING: Dict[str, "asyncio.Task"] = {}
 
-# Per-issue realtime SSE channels for streaming agent output to the UI.
-_CHANNELS: Dict[str, "SSEChannel"] = {}
+_CHANNELS: Dict[str, SSEBroadcast] = {}
 
 # In-memory trace buffer for running issues.
 _LIVE_TRACE: Dict[str, List[Dict[str, str]]] = {}
@@ -72,18 +72,29 @@ STATUS_LABEL = {
 }
 
 
+def _board_file() -> Path:
+    scope = current_plugin_scope.get()
+    if scope is None:
+        if is_multi_user_enabled():
+            raise HTTPException(403, "Kanban requires a user workspace")
+        return _DATA_FILE
+    from qwenpaw.constant import WORKING_DIR
+    return Path(WORKING_DIR).joinpath("plugin-data", "agent-kanban", *scope.storage_parts, "issues.json")
+
+
 def _load_from_disk() -> List[Dict[str, Any]]:
     """Load issues from disk (only called on startup or cache miss).
 
     Returns ``[]`` only when the file genuinely does not exist. If the
     file exists but cannot be parsed, retry briefly and then raise.
     """
-    if not _DATA_FILE.exists():
+    path = _board_file()
+    if not path.exists():
         return []
     last_err: Optional[Exception] = None
     for _ in range(5):
         try:
-            text = _DATA_FILE.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
             if not text.strip():
                 return []
             return json.loads(text)
@@ -104,6 +115,8 @@ def _read_all() -> List[Dict[str, Any]]:
     by on_launch and kept in sync by _write_all.
     """
     global _ISSUES_CACHE
+    if is_multi_user_enabled():
+        return _load_from_disk()
     if _ISSUES_CACHE is None:
         # Cache not initialized yet, load from disk
         _ISSUES_CACHE = _load_from_disk()
@@ -117,10 +130,11 @@ def _persist_to_disk(issues: List[Dict[str, Any]]) -> None:
     complete file — never a truncated one — even when other backend
     processes read concurrently.
     """
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    path = _board_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(issues, ensure_ascii=False, indent=2)
     fd, tmp = tempfile.mkstemp(
-        dir=str(_DATA_DIR),
+        dir=str(path.parent),
         prefix=".issues.",
         suffix=".tmp",
     )
@@ -129,7 +143,7 @@ def _persist_to_disk(issues: List[Dict[str, Any]]) -> None:
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, _DATA_FILE)
+        os.replace(tmp, path)
     except Exception:
         try:
             os.unlink(tmp)
@@ -145,6 +159,9 @@ def _write_all(issues: List[Dict[str, Any]]) -> None:
     on shutdown by on_terminate.
     """
     global _ISSUES_CACHE, _CACHE_DIRTY, _CACHE_VERSION
+    if is_multi_user_enabled():
+        _persist_to_disk(issues)
+        return
     _ISSUES_CACHE = issues
     _CACHE_DIRTY = True
     _CACHE_VERSION += 1
@@ -167,9 +184,10 @@ class _Txn:
         if fcntl is None:
             return self
         try:
-            _DATA_DIR.mkdir(parents=True, exist_ok=True)
+            lock_path = _board_file().with_name(".issues.lock")
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
             self._fh = open(  # pylint: disable=consider-using-with
-                _LOCK_FILE,
+                lock_path,
                 "a+",
                 encoding="utf-8",
             )
@@ -232,6 +250,10 @@ def _agent_has_running(
             iss.get("assignee") == agent_id
             and iss.get("status") == "in_progress"
         ):
+            if is_multi_user_enabled():
+                # The durable claim may belong to another process, or may
+                # need an operator's decision after an interrupted run.
+                return True
             iid = iss.get("id", "")
             task = _RUNNING.get(iid)
             if task is not None and not task.done():
@@ -264,11 +286,12 @@ async def list_issues(ctx=Depends(get_ctx)) -> Dict[str, Any]:
     issues = await asyncio.to_thread(_read_all)
 
     # Cache ctx for agents (needed by background dispatcher)
-    for issue in issues:
-        if issue.get("assignee"):
-            _LAST_CTX.setdefault(issue["assignee"], ctx)
+    if not is_multi_user_enabled():
+        for issue in issues:
+            if issue.get("assignee"):
+                _LAST_CTX.setdefault(issue["assignee"], ctx)
 
-    return {"issues": issues}
+    return {"issues": issues, "agent_id": ctx.agent_id}
 
 
 @router.post("/issues")
@@ -283,6 +306,8 @@ async def create_issue(
     """
     status = body.status if body.status in VALID_STATUS else "backlog"
     assignee = body.assignee or ""
+    if is_multi_user_enabled() and assignee and assignee != ctx.agent_id:
+        raise HTTPException(403, "Select this board's agent")
 
     if status == "todo" and not assignee:
         raise HTTPException(
@@ -314,6 +339,8 @@ async def create_issue(
             trigger_agent = assignee
 
     if trigger_agent:
+        if is_multi_user_enabled():
+            return await run_issue(issue["id"], ctx)
         _LAST_CTX.setdefault(trigger_agent, ctx)
         # Background dispatcher will pick up this task automatically
 
@@ -334,6 +361,8 @@ async def patch_issue(
       it to ``todo``; if that agent is idle the issue is
       auto-dispatched to ``in_progress``.
     """
+    if is_multi_user_enabled() and body.assignee and body.assignee != ctx.agent_id:
+        raise HTTPException(403, "Select this board's agent")
     trigger_agent: Optional[str] = None
     async with _txn():
         issues = _read_all()
@@ -347,6 +376,9 @@ async def patch_issue(
             issue["title"] = body.title
         if body.description is not None:
             issue["description"] = body.description
+        if is_multi_user_enabled() and issue["status"] == "in_progress":
+            if body.status not in (None,"in_progress") or body.assignee not in (None, issue["assignee"]):
+                raise HTTPException(409, "Stop the running issue before changing its assignment or state")
 
         # Apply assignee first so the status check below sees it.
         old_assignee = issue.get("assignee") or ""
@@ -401,6 +433,8 @@ async def patch_issue(
         _write_all(issues)
 
     if trigger_agent:
+        if is_multi_user_enabled():
+            return await run_issue(issue_id, ctx)
         _LAST_CTX.setdefault(trigger_agent, ctx)
         # Background dispatcher will pick up this task automatically
 
@@ -534,31 +568,30 @@ async def _execute_run(
             msg_type = str(raw_type) if raw_type else ""
 
             # Tool call start
-            if any(
+            if "_output" not in msg_type and any(
                 k in msg_type
                 for k in ("plugin_call", "function_call", "mcp_tool_call")
             ):
-                if "_output" not in msg_type:
-                    name = ""
-                    content = getattr(ev, "content", None)
-                    if isinstance(content, list):
-                        for blk in content:
-                            data = getattr(blk, "data", None)
-                            if isinstance(data, dict):
-                                name = data.get("name", "")
-                            elif data:
-                                name = getattr(data, "name", "")
-                            if name:
-                                break
-                    if not name:
-                        name = getattr(ev, "name", "")
-                    # Skip internal tools like "assistant"
-                    if name and name != "assistant":
-                        ch = _ch()
-                        if ch is not None:
-                            await ch.send_event(
-                                {"type": "tool_start", "name": name},
-                            )
+                name = ""
+                content = getattr(ev, "content", None)
+                if isinstance(content, list):
+                    for blk in content:
+                        data = getattr(blk, "data", None)
+                        if isinstance(data, dict):
+                            name = data.get("name", "")
+                        elif data:
+                            name = getattr(data, "name", "")
+                        if name:
+                            break
+                if not name:
+                    name = getattr(ev, "name", "")
+                # Skip internal tools like "assistant"
+                if name and name != "assistant":
+                    ch = _ch()
+                    if ch is not None:
+                        await ch.send_event(
+                            {"type": "tool_start", "name": name},
+                        )
 
             # Tool call completion
             elif any(
@@ -590,8 +623,13 @@ async def _execute_run(
                             {"type": "tool_done", "name": name},
                         )
 
-            # Text messages (skip for now, only show tool calls)
-            # Final result will be fetched from session via /result API
+            elif msg_type in {"reasoning", "message"} and getattr(ev, "status", "") == "completed":
+                channel = _ch()
+                if channel is not None:
+                    for block in getattr(ev, "content", []):
+                        text = getattr(block, "text", None)
+                        if text:
+                            await channel.send_event({"type": "message", "text": text})
 
         logger.info(
             "[kanban] stream done for %s: %d trace entries",
@@ -638,6 +676,11 @@ async def _execute_run(
         ch.close()
 
     # Background dispatcher will pick up the next task automatically
+    if is_multi_user_enabled():
+        queued = next((item for item in issues if item["status"] == "todo"
+                       and not item.get("error") and item["assignee"] == assignee), None)
+        if queued:
+            await run_issue(queued["id"], ctx)
 
 
 def _launch_run(
@@ -650,7 +693,7 @@ def _launch_run(
     old_ch = _CHANNELS.pop(issue_id, None)
     if old_ch is not None:
         old_ch.close()
-    _CHANNELS[issue_id] = SSEChannel()
+    _CHANNELS[issue_id] = SSEBroadcast()
 
     old = _RUNNING.pop(issue_id, None)
     if old is not None and not old.done():
@@ -667,6 +710,13 @@ def _launch_run(
     ) -> None:
         if _RUNNING.get(_id) is t:
             _RUNNING.pop(_id, None)
+            channel = _CHANNELS.get(_id)
+            if channel:
+                channel.close()
+                def expire():
+                    if _CHANNELS.get(_id) is channel and not channel.subscribers:
+                        _CHANNELS.pop(_id, None)
+                asyncio.get_running_loop().call_later(60, expire)
 
     task.add_done_callback(_cleanup)
     return task
@@ -704,11 +754,14 @@ async def run_issue(
                 detail="Cannot run issue without assignee",
             )
 
+        if issue.get("status") == "in_progress" and is_multi_user_enabled():
+            return issue
         if _agent_has_running(assignee, issues):
             issue["status"] = "todo"
             issue["updated_at"] = _now()
             _write_all(issues)
-            _LAST_CTX.setdefault(assignee, ctx)
+            if not is_multi_user_enabled():
+                _LAST_CTX.setdefault(assignee, ctx)
             return issue
 
         issue["status"] = "in_progress"
@@ -726,7 +779,8 @@ async def run_issue(
         "请完成该任务，并用简洁的中文汇报你的处理结果。"
     )
 
-    _LAST_CTX[assignee] = ctx
+    if not is_multi_user_enabled():
+        _LAST_CTX[assignee] = ctx
     _launch_run(ctx, issue_id, prompt, assignee)
     return issue
 
@@ -738,64 +792,18 @@ async def stream_issue(issue_id: str) -> StreamingResponse:
     The channel is created by ``run_issue`` before the background task starts,
     so deltas emitted before the browser connects are buffered and replayed.
     """
-    # Replay in-memory trace
-    replay: List[Dict[str, Any]] = []
-    live = _LIVE_TRACE.get(issue_id)
-
-    if live:
-        for ev_dict in list(live):
-            # Only process completed message-level events
-            if ev_dict.get("object") != "message":
-                continue
-            if ev_dict.get("status") != "completed":
-                continue
-
-            msg_type = ev_dict.get("type", "")
-            content = ev_dict.get("content", [])
-
-            # Reasoning or regular message - extract text
-            if msg_type in ("reasoning", "message"):
-                for blk in content:
-                    if isinstance(blk, dict) and blk.get("type") == "text":
-                        text = blk.get("text", "")
-                        if text:
-                            replay.append({"type": "message", "text": text})
-
-            # Tool call - extract name
-            elif msg_type == "plugin_call":
-                if content and isinstance(content[0], dict):
-                    data = content[0].get("data", {})
-                    if isinstance(data, dict):
-                        name = data.get("name", "")
-                        if name and name != "assistant":
-                            replay.append(
-                                {"type": "tool_start", "name": name},
-                            )
-
-            # Tool output - extract name
-            elif msg_type == "plugin_call_output":
-                if content and isinstance(content[0], dict):
-                    data = content[0].get("data", {})
-                    if isinstance(data, dict):
-                        name = data.get("name", "")
-                        if name and name != "assistant":
-                            replay.append(
-                                {"type": "tool_done", "name": name},
-                            )
-
-    ch = _CHANNELS.get(issue_id)
-    if ch is None:
-        ch = SSEChannel()
-        _CHANNELS[issue_id] = ch
+    if is_multi_user_enabled() and _find(await asyncio.to_thread(_read_all), issue_id) is None:
+        raise HTTPException(404, "Issue not found")
+    channel = _CHANNELS.setdefault(issue_id, SSEBroadcast())
 
     async def _gen():
+        stream = channel.stream()
         try:
-            for evt in replay:
-                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
-            async for chunk in ch:
+            async for chunk in stream:
                 yield chunk
         finally:
-            if _CHANNELS.get(issue_id) is ch:
+            await stream.aclose()
+            if not channel.subscribers and issue_id not in _RUNNING and _CHANNELS.get(issue_id) is channel:
                 _CHANNELS.pop(issue_id, None)
 
     return StreamingResponse(
@@ -916,6 +924,8 @@ async def get_issue_result(
 @router.post("/issues/{issue_id:path}/stop")
 async def stop_issue(issue_id: str) -> Dict[str, Any]:
     """Stop a running issue: cancel its background task and reset status."""
+    if is_multi_user_enabled() and _find(await asyncio.to_thread(_read_all), issue_id) is None:
+        raise HTTPException(404, "Issue not found")
     task = _RUNNING.pop(issue_id, None)
     if task is not None and not task.done():
         task.cancel()
@@ -940,6 +950,17 @@ async def stop_issue(issue_id: str) -> Dict[str, Any]:
         # Background dispatcher will pick up next task automatically
 
     return issue
+
+
+def _approval_belongs_to_board(pending, issue_ids=None) -> bool:
+    if not is_multi_user_enabled():
+        return True
+    scope = current_plugin_scope.get()
+    if scope is None or pending.approval_user_id != str(scope.user_id) or pending.owner_agent_id != scope.agent_id:
+        return False
+    if issue_ids is None:
+        issue_ids = {i["id"] for i in _read_all() if i["status"] == "in_progress"}
+    return pending.session_id.rsplit(":", 1)[-1] in issue_ids
 
 
 @router.get("/approvals")
@@ -969,7 +990,7 @@ async def list_kanban_approvals() -> Dict[str, Any]:
     result: Dict[str, List[Dict[str, Any]]] = {}
     async with svc._lock:
         for p in svc._pending.values():
-            if p.status != "pending":
+            if p.status != "pending" or not _approval_belongs_to_board(p, running_ids):
                 continue
             sid = p.session_id or ""
             for iid in running_ids:
@@ -1010,7 +1031,7 @@ async def approve_kanban(request_id: str) -> Dict[str, Any]:
 
     svc = get_approval_service()
     pending = await svc.get_request(request_id)
-    if pending is None:
+    if pending is None or not _approval_belongs_to_board(pending):
         raise HTTPException(
             status_code=404,
             detail="Approval request not found",
@@ -1038,7 +1059,7 @@ async def deny_kanban(request_id: str) -> Dict[str, Any]:
 
     svc = get_approval_service()
     pending = await svc.get_request(request_id)
-    if pending is None:
+    if pending is None or not _approval_belongs_to_board(pending):
         raise HTTPException(
             status_code=404,
             detail="Approval request not found",
@@ -1247,6 +1268,8 @@ async def init_kanban():
     3. Start background persistence loop
     """
     global _ISSUES_CACHE, _DISPATCHER_TASK, _PERSIST_TASK
+    if is_multi_user_enabled():
+        return
 
     # Load cache from disk
     try:
@@ -1279,6 +1302,12 @@ async def shutdown_kanban():
     """
     global _DISPATCHER_RUNNING, _PERSIST_RUNNING
     global _DISPATCHER_TASK, _PERSIST_TASK
+    if is_multi_user_enabled():
+        tasks = list(_RUNNING.values())
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        return
 
     # Stop dispatcher
     _DISPATCHER_RUNNING = False

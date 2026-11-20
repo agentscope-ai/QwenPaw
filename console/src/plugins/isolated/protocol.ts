@@ -10,6 +10,9 @@ export type PluginNode =
       value?: string;
       placeholder?: string;
       disabled?: boolean;
+      path?: string;
+      mode?: "preview" | "download" | "upload" | "upload-files";
+      filename?: string;
     };
 
 export interface PluginRegistration {
@@ -44,7 +47,20 @@ const tags = new Set([
   "tr",
   "td",
   "th",
+  "file-action",
 ]);
+
+export function runtimePath(pluginId: string, value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^\/[a-zA-Z0-9_/?=&.%+-]*$/.test(value) ||
+    /\.\.|%2e|%2f|%5c|%25/i.test(value.split("?")[0]) ||
+    value.includes("//")
+  ) {
+    throw new Error("invalid_plugin_api_path");
+  }
+  return `/frontend_plugin/${encodeURIComponent(pluginId)}/runtime${value}`;
+}
 
 export function validateView(value: unknown): PluginNode {
   let count = 0,
@@ -63,6 +79,23 @@ export function validateView(value: unknown): PluginNode {
     if (typeof item.tag !== "string" || !tags.has(item.tag))
       throw new Error("invalid_plugin_tag");
     const result: Exclude<PluginNode, string | null> = { tag: item.tag };
+    if (item.tag === "file-action") {
+      if (
+        !["preview", "download", "upload", "upload-files"].includes(
+          String(item.mode),
+        ) ||
+        typeof item.path !== "string" ||
+        item.path.length > 2048
+      )
+        throw new Error("invalid_plugin_file");
+      runtimePath("validate", item.path);
+      result.mode = item.mode as typeof result.mode;
+      result.path = item.path;
+      if (typeof item.filename === "string")
+        result.filename = item.filename
+          .replace(/[^\p{L}\p{N}_. -]/gu, "_")
+          .slice(0, 120);
+    }
     for (const field of ["text", "value", "placeholder", "action"] as const) {
       if (item[field] !== undefined) {
         if (typeof item[field] !== "string")

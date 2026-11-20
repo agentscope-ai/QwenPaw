@@ -87,6 +87,11 @@ class SessionRepository(Protocol):
 
     async def revoke_all(self, user_id: UUID, revoked_at: datetime) -> int: ...
 
+    async def logout_device(
+        self, *, access_hash: str | None, refresh_hash: str | None,
+        expected_session_id: UUID | None, now: datetime,
+    ) -> tuple[bool, bool]: ...
+
     async def list_for_user(self, user_id: UUID) -> list[SessionRecord]: ...
 
 
@@ -201,6 +206,17 @@ class SessionService:
 
     async def revoke_all(self, user_id: UUID) -> int:
         return await self._repository.revoke_all(user_id, self._clock())
+
+    async def logout_device(
+        self, access_token: str, refresh_token: str, expected_session_id: UUID | None,
+    ) -> tuple[bool, bool]:
+        if not access_token and not refresh_token:
+            return False, False
+        return await self._repository.logout_device(
+            access_hash=self.hash_token(access_token) if access_token else None,
+            refresh_hash=self.hash_token(refresh_token) if refresh_token else None,
+            expected_session_id=expected_session_id, now=self._clock(),
+        )
 
     async def list_sessions(self, user_id: UUID) -> list[SessionRecord]:
         return await self._repository.list_for_user(user_id)

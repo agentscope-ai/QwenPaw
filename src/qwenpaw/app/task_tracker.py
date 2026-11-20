@@ -242,7 +242,7 @@ class TaskTracker:
             except ValueError:
                 pass
 
-    async def request_stop(self, run_key: str) -> bool:
+    async def request_stop(self, run_key: str, *, expected_run_id: str | None = None) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
@@ -253,7 +253,9 @@ class TaskTracker:
                 "found" if state else "not_found",
                 state.task.done() if state else "N/A",
             )
-            if state is None or state.task.done():
+            if state is None or state.task.done() or (
+                expected_run_id is not None and state.run_id != expected_run_id
+            ):
                 logger.debug(
                     "[STOP] Cannot stop run_key=%s (not running)",
                     run_key,

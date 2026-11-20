@@ -24,7 +24,6 @@ from ..constant import WORKING_DIR
 from ..services.workspace_files import (
     InvalidWorkspacePath,
     resolve_workspace_path,
-    save_text_file,
 )
 from ..workspaces.layout import ARTIFACTS_DIRECTORY, LEGACY_ARTIFACTS_DIRECTORY
 from ..workspaces.resolver import WorkspaceKind, WorkspaceResolver
@@ -34,6 +33,8 @@ from .content_extractor import SEARCHABLE_EXTENSIONS, extract_searchable_text
 from .search_index import INDEX_VERSION, PersonalLibrarySearchIndex, build_search_index
 
 logger = logging.getLogger(__name__)
+
+_MAX_SEARCH_QUERY_LENGTH = 256
 
 
 class PersonalLibraryNotFound(FileNotFoundError):
@@ -194,10 +195,8 @@ class PersonalLibraryService:
         if existing is not None and not overwrite:
             raise PersonalLibraryConflict("library_document_exists")
 
-        root = self._paths.ensure_root(owner_user_id, agent_id)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        save_text_file(root, relative_path, content, None)
         payload = content.encode("utf-8")
+        self._atomic_write(target, payload, create_only=existing is None)
         timestamp = datetime.now(UTC)
         document = PersonalLibraryDocument(
             id=existing.id if existing is not None else uuid4(),
@@ -242,7 +241,7 @@ class PersonalLibraryService:
         )
         if existing is not None or destination.exists():
             raise PersonalLibraryConflict("library_document_exists")
-        self._atomic_write(destination, content)
+        self._atomic_write(destination, content, create_only=True)
         timestamp = datetime.now(UTC)
         document = PersonalLibraryDocument(
             id=uuid4(),
@@ -381,7 +380,7 @@ class PersonalLibraryService:
             raise PersonalLibraryConflict("library_document_exists")
         previous_payload = destination.read_bytes() if destination.is_file() else None
         payload = source.read_bytes()
-        self._atomic_write(destination, payload)
+        self._atomic_write(destination, payload, create_only=previous_payload is None)
         timestamp = datetime.now(UTC)
         moved = PersonalLibraryDocument(
             id=document.id,
@@ -462,7 +461,7 @@ class PersonalLibraryService:
     async def search_text(
         self, *, owner_user_id: UUID, agent_key: str, query: str, max_results: int = 5
     ) -> list[PersonalLibrarySearchHit]:
-        if not 1 <= len(query.strip()) <= 256 or not 1 <= max_results <= 20:
+        if not 1 <= len(query.strip()) <= _MAX_SEARCH_QUERY_LENGTH or not 1 <= max_results <= 20:
             raise ValueError("invalid_library_search")
         needle = query.strip().casefold()
         terms = self._search_terms(needle)
@@ -643,15 +642,20 @@ class PersonalLibraryService:
         text: str,
     ) -> list[PersonalLibraryDocument]:
         """以隔离索引的相关性唯一命中资料，不对资料主题做白名单判断。"""
-        query_terms = {
-            term for term in self._search_terms(text) if len(term) >= 2
-        }
+        terms = self._search_terms(text)
+        query_terms = {term for term in terms if len(term) >= 2}
         if not query_terms:
             return []
+        query = text.strip()
+        if len(query) > _MAX_SEARCH_QUERY_LENGTH:
+            # 长指令可用去重后的完整关键词检索，不能靠截断路径或句子决定引用。
+            query = " ".join(terms)
+            if len(query) > _MAX_SEARCH_QUERY_LENGTH:
+                return []
         hits = await self.search_text(
             owner_user_id=owner_user_id,
             agent_key=agent_key,
-            query=text,
+            query=query,
             max_results=3,
         )
         if not hits:
@@ -941,7 +945,7 @@ class PersonalLibraryService:
         if (existing is not None or destination.exists()) and not overwrite:
             raise PersonalLibraryConflict("library_document_exists")
         payload = source.read_bytes()
-        self._atomic_write(destination, payload)
+        self._atomic_write(destination, payload, create_only=existing is None)
         timestamp = datetime.now(UTC)
         document = PersonalLibraryDocument(
             id=existing.id if existing is not None else uuid4(),
@@ -1007,17 +1011,22 @@ class PersonalLibraryService:
         return "application/octet-stream"
 
     @staticmethod
-    def _atomic_write(target: Path, payload: bytes) -> None:
+    def _atomic_write(target: Path, payload: bytes, *, create_only: bool = False) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         # 临时文件与目标处于同一目录即可保证 os.replace 的原子性；不要重复
         # 目标文件名，否则深层用户资料目录在 Windows 上容易超过路径长度限制。
         temporary = target.with_name(f".{secrets.token_hex(8)}.tmp")
         try:
             temporary.write_bytes(payload)
-            os.replace(temporary, target)
-        except BaseException:
+            if create_only:
+                try:
+                    os.link(temporary, target)
+                except FileExistsError as exc:
+                    raise PersonalLibraryConflict("library_document_exists") from exc
+            else:
+                os.replace(temporary, target)
+        finally:
             temporary.unlink(missing_ok=True)
-            raise
 
     def _resolve(self, owner_user_id: UUID, agent_id: UUID, relative_path: str) -> Path:
         try:

@@ -16,6 +16,7 @@ from agentscope.tool import ToolChunk
 
 from ..config.context import (
     get_current_channel_name,
+    get_current_request_context,
     get_current_workspace_dir,
 )
 from ..constant import WORKING_DIR
@@ -779,7 +780,8 @@ async def load_skill(skill: str, args: str | None = None) -> ToolChunk:
     workspace_dir = get_current_workspace_dir() or WORKING_DIR
     channel_name = get_current_channel_name() or "console"
     meta = resolve_enabled_skill(workspace_dir, channel_name, skill)
-    if meta is None:
+    allowed = (get_current_request_context() or {}).get("subagent_skills")
+    if meta is None or (isinstance(allowed, list) and meta.name not in allowed):
         return ToolChunk(
             is_last=True,
             state="error",

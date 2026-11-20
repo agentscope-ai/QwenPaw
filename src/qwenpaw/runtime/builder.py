@@ -14,6 +14,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
+from agentscope.tool import Toolkit
+
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
 
@@ -38,7 +40,7 @@ def _descriptor_for(tool: Any) -> Any | None:
     return None
 
 
-def _bound_skill_loader_dirs(tools: Iterable[Any]) -> list[str]:
+def _bound_skill_loader_dirs(tools: Iterable[Any], allowed_skills=None) -> list[str]:
     """Resolve descriptor-declared skill directories with language variants."""
     from ..agents.skill_system.registry import (
         get_builtin_skill_language_preference,
@@ -53,6 +55,8 @@ def _bound_skill_loader_dirs(tools: Iterable[Any]) -> list[str]:
         if not names or not root:
             continue
         for name in names:
+            if isinstance(allowed_skills, list) and name not in allowed_skills:
+                continue
             preferred = Path(root) / f"{name}-{language}"
             fallback = Path(root) / f"{name}-en"
             chosen = preferred if preferred.is_dir() else fallback
@@ -65,6 +69,19 @@ def _bound_skill_loader_dirs(tools: Iterable[Any]) -> list[str]:
                     root,
                 )
     return dirs
+
+
+class _RestrictedToolkit(Toolkit):
+    """Keep SDK-added viewers and dynamically registered tools within the delegation."""
+
+    def __init__(self, allowed_tools, **kwargs):
+        super().__init__(**kwargs)
+        self._allowed_names = frozenset(allowed_tools)
+
+    async def _get_available_tools(self, groups=None):
+        # AgentScope uses this lookup for schemas, availability and execution.
+        tools = await super()._get_available_tools(groups)
+        return {name: tool for name, tool in tools.items() if name in self._allowed_names}
 
 
 class AgentBuilder:
@@ -104,14 +121,13 @@ class AgentBuilder:
         workspace tools.
 
         """
-        from agentscope.tool import Toolkit
-
         local_ws = self._get_local_workspace(ctx) if ctx else None
         if local_ws is not None:
             tools: list[Any] = await local_ws.list_tools(
                 agent_config=agent_config,
                 agent_id=agent_id,
                 request_context=request_context,
+                governor=governor,
                 active_modes=active_modes or (),
                 active_skills=effective_skills or (),
                 enabled_features=enabled_features or (),
@@ -146,11 +162,12 @@ class AgentBuilder:
             effective_skills,
             workspace_dir,
         )
-        for extra in _bound_skill_loader_dirs(tools):
+        rc = request_context or {}
+        for extra in _bound_skill_loader_dirs(tools, rc.get("subagent_skills")):
             if extra not in skill_dirs:
                 skill_dirs.append(extra)
 
-        return Toolkit(
+        toolkit_options = dict(
             tools=tools,
             skills_or_loaders=skill_dirs,
             skill_instruction_template=(
@@ -162,6 +179,9 @@ class AgentBuilder:
                 "never claim execution based only on this metadata."
             ),
         )
+        if isinstance(rc.get("subagent_allowed_tools"), list):
+            return _RestrictedToolkit(rc["subagent_allowed_tools"], **toolkit_options)
+        return Toolkit(**toolkit_options)
 
     @staticmethod
     def _tool_name(tool: Any) -> str:
@@ -311,12 +331,6 @@ class AgentBuilder:
             workspace_dir,
             _project_dir,
         )
-
-        # Inject governor into local_workspace so list_tools() can
-        # wrap tools with PolicyGuardedTool.
-        local_ws = self._get_local_workspace(ctx) if ctx else None
-        if local_ws is not None:
-            local_ws.set_governor(governor)
 
         # Toolkit.
         from ..agents.context.visual_compression.runtime.recovery import (
@@ -809,9 +823,10 @@ class AgentBuilder:
                 conversation_id = str(UUID(str(request_context["conversation_id"])))
                 delegation = current_delegation.get()
                 if delegation is not None:
-                    if (owner, agent_id) != (delegation.user_id, delegation.agent_id):
+                    if (owner, agent_id) != (delegation.user_id, delegation.destination):
                         raise ValueError("subtask_scope_mismatch")
-                    conversation_id = delegation.conversation_id
+                    if delegation.target_agent_id is None:
+                        conversation_id = delegation.conversation_id
                 expected_task = resolve_private_task_directory(
                     actor_user_id=owner, agent_id=agent_id, conversation_id=conversation_id,
                 )

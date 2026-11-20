@@ -54,13 +54,10 @@ async def a2a_call(  # pylint: disable=too-many-branches,too-many-statements
     try:
         from modules.a2a.call_stream import (
             finish_stream,
-            get_stream,
             start_stream,
         )
 
-        stream_queue = get_stream()
-        if stream_queue is None:
-            stream_queue = start_stream()
+        stream_queue = start_stream()
         _has_call_stream = True
     except ImportError:
         stream_queue = None
@@ -73,7 +70,7 @@ async def a2a_call(  # pylint: disable=too-many-branches,too-many-statements
 
     def _error_response(error_msg: str) -> ToolChunk:
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             is_last=True,
             content=[
                 TextBlock(
@@ -200,7 +197,7 @@ async def a2a_call(  # pylint: disable=too-many-branches,too-many-statements
             finish_stream()
 
     yield ToolChunk(
-        state=ToolResultState.SUCCESS,
+        state=ToolResultState.ERROR if result.get("error") else ToolResultState.SUCCESS,
         is_last=True,
         content=[
             TextBlock(
@@ -214,7 +211,7 @@ async def a2a_call(  # pylint: disable=too-many-branches,too-many-statements
 def _push(queue, data: dict) -> None:
     """Push data to the stream queue (non-blocking)."""
     try:
-        queue.put_nowait(data)
+        queue.publish(data)
     except Exception:
         pass
 

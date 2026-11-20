@@ -267,7 +267,7 @@ async def _require_owned_chat_ids(
     ]
 
 
-async def _require_readable_chat(
+async def _require_readable_chat_access(
     request: Request,
     mgr: ChatManager,
     workspace,
@@ -305,6 +305,11 @@ async def _require_readable_chat(
         )
     except ChatAccessDeniedError as exc:
         raise HTTPException(status_code=404, detail="Chat not found") from exc
+    return access
+
+
+async def _require_readable_chat(request: Request, mgr: ChatManager, workspace, chat_id: str):
+    access = await _require_readable_chat_access(request, mgr, workspace, chat_id)
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -818,9 +823,12 @@ async def clear_chat_project_dir(
 @router.get("/{chat_id}/status", response_model=ChatStatusResponse)
 async def get_chat_status(
     chat_id: str,
+    request: Request,
     workspace=Depends(get_workspace),
 ) -> ChatStatusResponse:
     """Return run status without loading and projecting full chat history."""
+    if is_multi_user_enabled():
+        await _require_readable_chat_access(request, workspace.chat_manager, workspace, chat_id)
     status = await workspace.task_tracker.get_status(chat_id)
     return ChatStatusResponse(status=status)
 

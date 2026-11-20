@@ -11,7 +11,8 @@
   "author": "QwenPaw Creator Team",
   "entry": {
     "backend": "backend/main.py",
-    "frontend": "ui/dist/index.js"
+    "frontend": "worker.js",
+    "frontend_runtime": "worker-v1"
   },
   "dependencies": [
     "oss2",

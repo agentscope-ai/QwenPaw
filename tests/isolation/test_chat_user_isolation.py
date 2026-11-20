@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import json
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ import pytest
 from fastapi import FastAPI, Request
 
 from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.access.agent_repository import agent_database_id
 from qwenpaw.app.chats import api as chats_api
 from qwenpaw.app.chats.access import (
     ChatAccessDeniedError,
@@ -154,7 +156,7 @@ async def test_create_chat_overrides_forged_user_id(monkeypatch) -> None:
 async def test_list_chats_ignores_forged_user_filter(monkeypatch) -> None:
     actor = _actor()
     manager = SimpleNamespace(list_accessible_chats=AsyncMock(return_value=[]))
-    workspace = SimpleNamespace(task_tracker=SimpleNamespace(get_status=AsyncMock()))
+    workspace = SimpleNamespace(agent_id="public-agent", task_tracker=SimpleNamespace(get_status=AsyncMock()))
     monkeypatch.setattr(chats_api, "is_multi_user_enabled", lambda: True)
 
     await chats_api.list_chats(
@@ -168,6 +170,7 @@ async def test_list_chats_ignores_forged_user_filter(monkeypatch) -> None:
     )
 
     assert manager.list_accessible_chats.await_args.kwargs["user_id"] == actor.user_id
+    assert manager.list_accessible_chats.await_args.kwargs["agent_id"] == agent_database_id(workspace.agent_id)
 
 
 @pytest.mark.asyncio
@@ -216,6 +219,7 @@ async def test_admin_list_uses_only_postgres_authorized_chats(monkeypatch) -> No
         ),
     )
     workspace = SimpleNamespace(
+        agent_id="public-agent",
         task_tracker=SimpleNamespace(get_status=AsyncMock(return_value="idle")),
     )
     monkeypatch.setattr(chats_api, "is_multi_user_enabled", lambda: True)
@@ -230,9 +234,10 @@ async def test_admin_list_uses_only_postgres_authorized_chats(monkeypatch) -> No
         workspace=workspace,
     )
 
-    assert [chat.id for chat in chats] == [authorized_chat.id]
+    assert [chat["id"] for chat in json.loads(chats.body)] == [str(authorized_chat.id)]
     manager.list_accessible_chats.assert_awaited_once_with(
         user_id=actor.user_id,
+        agent_id=agent_database_id(workspace.agent_id),
         scope="all",
         channel=None,
         archived=None,
@@ -243,7 +248,7 @@ async def test_admin_list_uses_only_postgres_authorized_chats(monkeypatch) -> No
 async def test_member_list_does_not_fall_back_to_legacy_default_chats(monkeypatch) -> None:
     actor = _actor()
     manager = SimpleNamespace(list_accessible_chats=AsyncMock(return_value=[]))
-    workspace = SimpleNamespace(task_tracker=SimpleNamespace(get_status=AsyncMock()))
+    workspace = SimpleNamespace(agent_id="public-agent", task_tracker=SimpleNamespace(get_status=AsyncMock()))
     monkeypatch.setattr(chats_api, "is_multi_user_enabled", lambda: True)
 
     await chats_api.list_chats(
@@ -258,6 +263,7 @@ async def test_member_list_does_not_fall_back_to_legacy_default_chats(monkeypatc
 
     manager.list_accessible_chats.assert_awaited_once_with(
         user_id=actor.user_id,
+        agent_id=agent_database_id(workspace.agent_id),
         scope="all",
         channel=None,
         archived=None,

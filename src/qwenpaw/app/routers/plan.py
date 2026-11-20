@@ -23,6 +23,7 @@ from ...plan.schemas import (
     PlanStateResponse,
     plan_to_response,
 )
+from ...runtime_status.scope import request_user_id
 from ..agent_context import (
     get_running_config_workspace,
     require_running_config_editor,
@@ -42,16 +43,22 @@ async def _get_workspace(request: Request):
 async def _plan_from_session_state(
     workspace,
     session_id: str,
+    user_id: str | None = None,
 ) -> PlanStateResponse | None:
     """Try to load the plan from the persisted session state on disk."""
     try:
         session = workspace.runner.session
+        if user_id and not await workspace.chat_manager.get_chat_id_by_session(
+            session_id, "console", user_id=user_id,
+        ):
+            return None
         states = await session.get_session_state_dict(
             session_id=session_id,
-            user_id="default",
+            user_id=user_id or "default",
+            channel="console" if user_id else "",
             allow_not_exist=True,
         )
-        if not states:
+        if not states and user_id is None:
             states = await session.get_session_state_dict(
                 session_id=session_id,
                 allow_not_exist=True,
@@ -93,7 +100,8 @@ async def get_current_plan(
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id
 
-    found, live = get_live_plan(agent_id, session_id=session_id)
+    user_id = request_user_id(request)
+    found, live = get_live_plan(agent_id, session_id=session_id, user_id=user_id)
     logger.debug(
         "get_current_plan: agent=%s session_id=%r found=%s has_plan=%s",
         agent_id,
@@ -112,7 +120,7 @@ async def get_current_plan(
     if not session_id:
         return None
 
-    return await _plan_from_session_state(workspace, session_id)
+    return await _plan_from_session_state(workspace, session_id, user_id)
 
 
 @router.get(
@@ -179,9 +187,10 @@ async def plan_stream(request: Request) -> StreamingResponse:
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id
 
-    q = register_sse_client(agent_id)
+    user_id = request_user_id(request)
 
     async def event_generator():
+        q = register_sse_client(agent_id, user_id=user_id)
         try:
             yield 'data: {"type": "connected"}\n\n'
             while True:
@@ -196,7 +205,7 @@ async def plan_stream(request: Request) -> StreamingResponse:
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
-            unregister_sse_client(agent_id, q)
+            unregister_sse_client(agent_id, q, user_id=user_id)
 
     return StreamingResponse(
         event_generator(),

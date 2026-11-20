@@ -31,6 +31,21 @@ def _request(user_id) -> Request:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [[], ["read_file", "view_image"], ["personal_library_search"], ["personal_library_read"]])
+async def test_automatic_library_access_respects_subtask_tools(monkeypatch, allowed):
+    def unexpected_lookup():
+        pytest.fail("restricted subtask queried personal library")
+
+    monkeypatch.setattr(console, "_personal_library_service", unexpected_lookup)
+    payload = {
+        "meta": {"request_context": {"subagent_allowed_tools": allowed}},
+        "content_parts": [{"type": "text", "text": "参见样稿说明.md"}],
+    }
+    await console._resolve_personal_library_references(_request(uuid4()), SimpleNamespace(agent_id="ppt"), payload)
+    assert "personal_library_references" not in payload["meta"]["request_context"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("refs", [{}, "", None, False])
 async def test_rejects_malformed_unified_reference_values(monkeypatch, refs):
     payload = {"meta": {"request_context": {"file_references": refs}}}

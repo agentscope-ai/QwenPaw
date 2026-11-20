@@ -11,16 +11,35 @@ import {
 } from "../../stores/chatSessionScope";
 import { pluginInput, type PluginNode } from "./protocol";
 import type { PluginWorkerClient } from "./workerClient";
+import { PluginFileAction } from "./PluginFileAction";
+import i18n from "i18next";
+
+function onLocaleChange(listener: () => void) {
+  i18n.on("languageChanged", listener);
+  return () => {
+    i18n.off("languageChanged", listener);
+  };
+}
 
 function nodeView(
   node: PluginNode,
   act: (action: string, value?: string) => void,
+  pluginId: string,
   key = "root",
 ): React.ReactNode {
   if (node === null || typeof node === "string") return node;
   const children = node.children?.map((child, index) =>
-    nodeView(child, act, `${key}.${index}`),
+    nodeView(child, act, pluginId, `${key}.${index}`),
   );
+  if (node.tag === "file-action")
+    return (
+      <PluginFileAction
+        key={`${key}:${node.path}`}
+        node={node}
+        pluginId={pluginId}
+        afterUpload={() => act(node.action || "refresh")}
+      />
+    );
   if (node.tag === "input")
     return createElement("input", {
       key,
@@ -63,6 +82,14 @@ export function PluginView({
     subscribeChatSessionScope,
     getAgentAccessScopeKey,
   );
+  const stopped = useSyncExternalStore(
+    client.subscribeStopped,
+    client.getStopped,
+  );
+  const locale = useSyncExternalStore(
+    onLocaleChange,
+    () => i18n.language || navigator.language,
+  );
   const serialized = JSON.stringify(pluginInput(input));
   const [state, setState] = useState<{
     scope: string;
@@ -101,12 +128,15 @@ export function PluginView({
     };
     // The serialized props are intentionally the dependency; callback props are omitted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, target, serialized, scope]);
+  }, [client, target, serialized, scope, locale]);
+  if (stopped) return null;
   if (state.scope !== scope || !state.loaded)
     return <span role="status">正在加载插件…</span>;
   if (state.error)
     return <div role="alert">插件已停止响应，刷新页面可重新加载。</div>;
   return (
-    <section aria-label="插件内容">{nodeView(state.view, render)}</section>
+    <section aria-label="插件内容">
+      {nodeView(state.view, render, client.pluginId)}
+    </section>
   );
 }

@@ -14,6 +14,7 @@ from ..access.actor import ActorContext
 from ..access.agent_repository import AgentResourceRole, agent_database_id
 from ..access.capabilities import Capability
 from ..access.service import AuthorizationService
+from ..access.stream_revocation import revoke_streams
 from ..persistence.database import database_session
 
 
@@ -40,6 +41,13 @@ class AppAudience:
 
     mode: Literal["all_members", "selected_users"]
     selected_user_ids: tuple[UUID, ...] = ()
+
+
+def _revoke_excluded_plugin_streams(plugin_id: str, audience: AppAudience) -> None:
+    if audience.mode == "selected_users":
+        revoke_streams(
+            plugin_id=plugin_id, keep_user_ids=frozenset(audience.selected_user_ids)
+        )
 
 
 class PluginGovernanceRepository(Protocol):
@@ -157,6 +165,7 @@ class PluginGovernanceService:
         await self.repository.replace_audience(
             installation.id, normalized, actor.user_id
         )
+        _revoke_excluded_plugin_streams(plugin_id, normalized)
 
     async def register_installation(
         self,
@@ -183,7 +192,7 @@ class PluginGovernanceService:
             if audience is not None
             else None
         )
-        return await self.repository.register_installation(
+        saved = await self.repository.register_installation(
             candidate,
             source_type,
             source_ref,
@@ -191,24 +200,19 @@ class PluginGovernanceService:
             actor.user_id,
             normalized,
         )
+        if saved.status != "active":
+            revoke_streams(plugin_id=saved.plugin_id)
+        elif normalized is not None:
+            _revoke_excluded_plugin_streams(saved.plugin_id, normalized)
+        return saved
 
     async def set_status(
         self, actor: ActorContext, plugin_id: str, *, enabled: bool
     ) -> PluginInstallation:
-        self.require_manage(actor)
-        installation = await self.repository.get_installation(plugin_id)
-        if installation is None:
-            raise PluginAccessError("plugin_not_found")
-        if actor.user_id is None:
-            raise PluginAccessError("plugin_actor_missing")
-        return await self.repository.set_status(
-            installation.id,
-            "active" if enabled else "disabled",
-            actor.user_id,
-        )
+        return await self._set_status(actor, plugin_id, "active" if enabled else "disabled")
 
-    async def begin_uninstall(
-        self, actor: ActorContext, plugin_id: str
+    async def _set_status(
+        self, actor: ActorContext, plugin_id: str, status: str
     ) -> PluginInstallation:
         self.require_manage(actor)
         installation = await self.repository.get_installation(plugin_id)
@@ -216,9 +220,15 @@ class PluginGovernanceService:
             raise PluginAccessError("plugin_not_found")
         if actor.user_id is None:
             raise PluginAccessError("plugin_actor_missing")
-        return await self.repository.set_status(
-            installation.id, "uninstalling", actor.user_id
-        )
+        saved = await self.repository.set_status(installation.id, status, actor.user_id)
+        if status != "active":
+            revoke_streams(plugin_id=plugin_id)
+        return saved
+
+    async def begin_uninstall(
+        self, actor: ActorContext, plugin_id: str
+    ) -> PluginInstallation:
+        return await self._set_status(actor, plugin_id, "uninstalling")
 
     async def complete_uninstall(self, actor: ActorContext, plugin_id: str) -> None:
         self.require_manage(actor)
@@ -234,15 +244,7 @@ class PluginGovernanceService:
     async def fail_uninstall(
         self, actor: ActorContext, plugin_id: str
     ) -> PluginInstallation:
-        self.require_manage(actor)
-        installation = await self.repository.get_installation(plugin_id)
-        if installation is None:
-            raise PluginAccessError("plugin_not_found")
-        if actor.user_id is None:
-            raise PluginAccessError("plugin_actor_missing")
-        return await self.repository.set_status(
-            installation.id, "failed", actor.user_id
-        )
+        return await self._set_status(actor, plugin_id, "failed")
 
     async def save_agent_setting(
         self,

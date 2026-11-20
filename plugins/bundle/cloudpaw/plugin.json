@@ -10,7 +10,8 @@
   },
   "author": "CloudPaw Team",
   "entry": {
-    "frontend": "ui/dist/index.js",
+    "frontend": "worker.js",
+    "frontend_runtime": "worker-v1",
     "backend": "plugin.py"
   },
   "dependencies": [],

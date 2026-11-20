@@ -29,6 +29,22 @@ class ConsoleDelegation:
     skills: tuple[str, ...] | None = None
     model: dict | None = None
     dispatch_denied: asyncio.Event = field(default_factory=asyncio.Event, compare=False)
+    is_subtask: bool = False
+    target_agent_id: str | None = None
+    root_session_id: str | None = None
+    session_handle: str | None = None
+
+    @property
+    def destination(self) -> str:
+        return self.target_agent_id or self.agent_id
+
+    def for_target(self, target: str, *, session_handle: str) -> ConsoleDelegation:
+        """只允许父运行指定新的目标，子运行保持已核准的目标。"""
+        if target == self.destination:
+            return replace(self, session_handle=session_handle)
+        if self.is_subtask:
+            raise PermissionError("跨智能体子任务不能再次向其他智能体委托。")
+        return replace(self, target_agent_id=target, model=None, session_handle=session_handle)
 
     async def call(self, method, path, *, payload=None, timeout=30):
         if payload is not None:
@@ -47,10 +63,12 @@ class ConsoleDelegation:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=application),
             base_url="http://console.internal",
-            headers={"X-Agent-Id": self.agent_id},
+            headers={"X-Agent-Id": self.destination},
         ) as client, asyncio.timeout(timeout):
             response = await client.request(method, path, json=payload)
-            if payload is not None and response.status_code in {401, 403}:
+            if payload is not None and (response.status_code == 401 or (
+                response.status_code == 403 and self.target_agent_id is None
+            )):
                 self.dispatch_denied.set()
             response.raise_for_status()
             return response
@@ -65,9 +83,10 @@ def bind_console_stream(request, workspace, chat, stream):
     authenticated = getattr(getattr(request, "state", None), "authenticated_session", None)
     if not isinstance(authenticated, AuthenticatedSession):
         return stream
-    delegation = request.scope.get("qwenpaw.subtask") or ConsoleDelegation(
+    parent = request.scope.get("qwenpaw.subtask")
+    delegation = parent or ConsoleDelegation(
         request.app, authenticated.session.id, authenticated.user.id,
-        workspace.agent_id, str(chat.id),
+        workspace.agent_id, str(chat.id), root_session_id=getattr(chat, "session_id", None),
     )
 
     async def bound(payload):
@@ -77,7 +96,8 @@ def bind_console_stream(request, workspace, chat, stream):
             if isinstance(rc.get(key), list):
                 limits[field] = tuple(rc[key])
         token = current_delegation.set(replace(
-            delegation, model=payload.get("model_slot_override"), **limits,
+            delegation, model=payload.get("model_slot_override"), is_subtask=parent is not None,
+            session_handle=None, **limits,
         ))
         try:
             async for event in stream(payload):

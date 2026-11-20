@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -96,7 +97,8 @@ async def test_backup_sse_does_not_echo_internal_exception(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_project_clone_sse_redacts_subprocess_output(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("disconnect", [False, True])
+async def test_project_clone_sse_redacts_subprocess_output(monkeypatch, tmp_path, disconnect) -> None:
     class Output:
         async def read(self, _size):
             if getattr(self, "read_once", False):
@@ -106,15 +108,19 @@ async def test_project_clone_sse_redacts_subprocess_output(monkeypatch, tmp_path
 
     class Process:
         stdout = Output()
+        returncode = None
 
         async def wait(self):
-            return 1
+            self.returncode = 1
+            return self.returncode
 
     async def workspace(*_args, **_kwargs):
         return SimpleNamespace(workspace_dir=tmp_path, agent_id="agent-a")
 
     monkeypatch.setattr(project_directory, "get_running_config_workspace", workspace)
     monkeypatch.setattr(project_directory, "require_running_config_editor", lambda _r: None)
+    stop = AsyncMock()
+    monkeypatch.setattr(project_directory, "shutdown_process", stop)
     monkeypatch.setattr(
         project_directory,
         "start_command_async",
@@ -124,7 +130,13 @@ async def test_project_clone_sse_redacts_subprocess_output(monkeypatch, tmp_path
         project_directory.CloneProjectRequest(url="https://example.test/repo.git"),
         _request(),
     )
-    chunks = [chunk async for chunk in response.body_iterator]
+    if disconnect:
+        chunks = [await anext(response.body_iterator)]
+        await response.body_iterator.aclose()
+        stop.assert_awaited_once()
+    else:
+        chunks = [chunk async for chunk in response.body_iterator]
+        stop.assert_not_awaited()
     body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
 
     assert REDACTED in body
@@ -157,7 +169,8 @@ async def test_background_task_error_is_fixed_and_owner_scoped(monkeypatch, tmp_
         chat_manager=ChatManager(),
     )
     monkeypatch.setattr(console, "is_multi_user_enabled", lambda: True)
-    monkeypatch.setattr(console, "get_agent_for_request", lambda _request: _async(workspace))
+    monkeypatch.setattr(console, "get_agent_for_request", AsyncMock(return_value=workspace))
+    monkeypatch.setattr(console, "_require_console_conversation_write", AsyncMock())
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: SimpleNamespace(project_dir=None),

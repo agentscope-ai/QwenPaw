@@ -15,7 +15,20 @@ class CreatorDataRootError(RuntimeError):
     """Raised when the mandatory external Creator data root is unavailable."""
 
 
-def require_creator_data_root(*, create: bool = True) -> Path:
+def member_partition() -> tuple[str, str] | None:
+    try:
+        from qwenpaw.plugins.http_scope import runtime_plugin_scope
+    except ModuleNotFoundError as exc:
+        if exc.name != "qwenpaw":
+            raise
+        return None
+    scope = runtime_plugin_scope()
+    return scope.storage_parts if scope else None
+
+
+def require_creator_data_root(
+    *, create: bool = True, installation: bool = False
+) -> Path:
     raw = os.environ.get(CREATOR_DATA_ROOT_ENV, "").strip()
     if not raw:
         raise CreatorDataRootError(
@@ -27,6 +40,18 @@ def require_creator_data_root(*, create: bool = True) -> Path:
             "CREATOR_DATA_ROOT must be an absolute path",
         )
     root = root.resolve(strict=False)
+    partition = None if installation else member_partition()
+    if partition:
+        root = root.joinpath("members", *partition)
+    # Project transaction and staging filenames can exceed MAX_PATH even when
+    # a standalone application's configured root is moderately short.
+    if not installation and os.name == "nt" and not str(root).startswith("\\\\?\\"):
+        local = str(root)
+        root = Path(
+            "\\\\?\\UNC\\" + local[2:]
+            if local.startswith("\\\\")
+            else "\\\\?\\" + local
+        )
     if root.exists() and not root.is_dir():
         raise CreatorDataRootError(
             f"CREATOR_DATA_ROOT is not a directory: {root}",

@@ -6,7 +6,9 @@ from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from .http_scope import require_plugin_route
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +34,13 @@ def _mount_plugin_http_on_app(
     *,
     full_path_prefix: str,
     tags: Optional[List[Any]],
+    dependencies: list,
 ) -> List[Any]:
     """Include *router* on *app* so it matches before the console SPA route."""
     routes = app.router.routes
     spa_idx = _find_console_spa_route_index(app)
     n_before = len(routes)
-    app.include_router(router, prefix=full_path_prefix, tags=tags)
+    app.include_router(router, prefix=full_path_prefix, tags=tags, dependencies=dependencies)
     added = routes[n_before:]
     del routes[n_before:]
     if spa_idx is not None:
@@ -270,12 +273,22 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             effective_tags = [f"plugin:{plugin_id}"]
 
         full_prefix = f"/api{normalized}"
+        dependencies = [Depends(require_plugin_route(plugin_id, normalized))]
         added = _mount_plugin_http_on_app(
             http_app,
             router,
             full_path_prefix=full_prefix,
             tags=effective_tags,
+            dependencies=dependencies,
         )
+        # Worker APIs have a dedicated namespace. Only routes contributed by
+        # this installation are registered here, including multi-router plugins.
+        suffix = "" if normalized in {f"/{plugin_id}", f"/plugins/{plugin_id}"} else normalized
+        added.extend(_mount_plugin_http_on_app(
+            http_app, router,
+            full_path_prefix=f"/api/frontend_plugin/{plugin_id}/runtime{suffix}",
+            tags=effective_tags, dependencies=dependencies,
+        ))
 
         self._http_router_registrations.append(
             HttpRouterRegistration(

@@ -2784,6 +2784,18 @@ _image_registry_lock = threading.RLock()
 _image_registry: dict[Path, FileImageExecutionService] = {}
 
 
+def release_idle_image_executor(services) -> bool:
+    with _image_registry_lock:
+        key = services.root.resolve()
+        worker = _image_registry.get(key)
+        if worker and (
+            any(not task.done() for task in worker._resume_jobs.values())
+        ):
+            return False
+        _image_registry.pop(key, None)
+        return True
+
+
 def file_image_execution_service(
     services: CreatorFileServices,
     *,

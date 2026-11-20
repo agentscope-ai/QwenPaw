@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..persistence.database import database_session
+from ..access.stream_revocation import revoke_streams
 from .models import PlatformRole, UserRecord
 from .sessions import AuthenticatedSession, SessionRecord
 
@@ -165,7 +166,10 @@ class PostgresSessionRepository:
                     "revoked_at": revoked_at,
                 },
             )
-            return result.scalar_one_or_none() is not None
+            session_id = result.scalar_one_or_none()
+        if session_id is not None:
+            revoke_streams(session_id=session_id)
+        return session_id is not None
 
     async def revoke_all(self, user_id: UUID, revoked_at: datetime) -> int:
         async with self._session_factory() as session:
@@ -177,7 +181,35 @@ class PostgresSessionRepository:
                 ),
                 {"user_id": user_id, "revoked_at": revoked_at},
             )
-            return len(result.scalars().all())
+            count = len(result.scalars().all())
+        revoke_streams(user_id=user_id)
+        return count
+
+    async def logout_device(
+        self, *, access_hash: str | None, refresh_hash: str | None,
+        expected_session_id: UUID | None, now: datetime,
+    ) -> tuple[bool, bool]:
+        """Return (revoked, may_clear_cookie); a device ID only narrows a credential."""
+        async with self._session_factory() as session:
+            result = await session.execute(text(f"""
+                WITH target AS (
+                    SELECT id FROM {self._sessions}
+                    WHERE revoked_at IS NULL AND expires_at > :now
+                      AND (CAST(:sid AS uuid) IS NULL OR id = :sid)
+                      AND (refresh_token_hash = :refresh
+                           OR (access_token_hash = :access AND access_expires_at > :now))
+                    ORDER BY (access_token_hash = :access AND access_expires_at > :now) DESC NULLS LAST
+                    LIMIT 1 FOR UPDATE
+                )
+                UPDATE {self._sessions} s SET revoked_at = :now FROM target
+                WHERE s.id = target.id
+                RETURNING s.id, s.refresh_token_hash = :refresh AS owns_cookie
+            """), {"sid": expected_session_id, "access": access_hash, "refresh": refresh_hash, "now": now})
+            row = result.mappings().one_or_none()
+        if row is None:
+            return False, False
+        revoke_streams(session_id=row["id"])
+        return True, bool(row["owns_cookie"])
 
     async def list_for_user(self, user_id: UUID) -> list[SessionRecord]:
         async with self._session_factory() as session:

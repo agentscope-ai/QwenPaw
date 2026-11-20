@@ -56,6 +56,7 @@ class MultiAgentManager:
             CUSTOM_AGENT_STARTUP_CONCURRENCY,
         )
         self._cleanup_tasks: Set[asyncio.Task] = set()
+        self._console_operations: dict[int, set[asyncio.Future]] = {}
         logger.debug("MultiAgentManager initialized")
 
     def _create_workspace(
@@ -72,6 +73,30 @@ class MultiAgentManager:
     def get_loaded_agent(self, agent_id: str) -> Workspace | None:
         """Return an already loaded workspace without starting it."""
         return self.agents.get(agent_id)
+
+    def begin_console_operation(
+        self, workspace: Workspace
+    ) -> asyncio.Future | None:
+        """Reserve this generation before its services are used across awaits."""
+        if self.agents.get(workspace.agent_id) is not workspace:
+            return None
+        done = asyncio.get_running_loop().create_future()
+        self.track_console_operation(workspace, done)
+        return done
+
+    def track_console_operation(
+        self, workspace: Workspace, done: asyncio.Future
+    ) -> None:
+        key = id(workspace)
+        self._console_operations.setdefault(key, set()).add(done)
+
+        def release(_):
+            operations = self._console_operations[key]
+            operations.discard(done)
+            if not operations:
+                del self._console_operations[key]
+
+        done.add_done_callback(release)
 
     @admitted
     async def get_agent(self, agent_id: str) -> Workspace:
@@ -263,11 +288,12 @@ class MultiAgentManager:
                 )
             )
 
-        if active_tasks:
+        operations = list(self._console_operations.get(id(old_instance), ()))
+        if active_tasks or operations:
             # Active tasks - schedule delayed cleanup in background
             logger.info(
                 f"Old workspace instance has {len(active_tasks)} active "
-                f"task(s): {list(active_tasks)}. "
+                f"task(s) and {len(operations)} Console operation(s). "
                 f"Scheduling delayed cleanup for "
                 f"{agent_id}.",
             )
@@ -276,14 +302,30 @@ class MultiAgentManager:
                 """Wait for tasks to complete, then stop old instance."""
                 try:
                     completed = False
+                    pending = list(active_tasks.values()) + operations
+                    resnapshot = bool(operations)
                     for _ in range(_OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS):
                         completed = (
                             await old_instance.task_tracker.wait_tasks_done(
-                                list(active_tasks.values()),
+                                pending,
                                 timeout=_OLD_WORKSPACE_TASK_WAIT_SECONDS,
                             )
                         )
                         if completed:
+                            if resnapshot:
+                                # Dispatch can start a run after the swap snapshot.
+                                # Only jobs belonging to this generation extend its life.
+                                late = await old_instance.task_tracker.snapshot_active_tasks(
+                                    owner=old_instance,
+                                )
+                                pending = list(late.values()) + [
+                                    job for job in self._console_operations.get(id(old_instance), ())
+                                    if not job.done()
+                                ]
+                                resnapshot = False
+                                if pending:
+                                    completed = False
+                                    continue
                             break
                         logger.warning(
                             f"Tasks are still active for old instance "

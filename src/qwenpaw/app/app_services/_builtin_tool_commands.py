@@ -11,11 +11,23 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...runtime.slash_command_registry import CommandSpec
+from ...identity.runtime import is_multi_user_enabled
+from ...tool_calls._entry import tool_call_owned_by
 
 if TYPE_CHECKING:
     from agentscope.message import Msg
 
     from ...tool_calls import ToolCoordinator
+
+
+def _visible_in_chat(ctx, entry) -> bool:
+    if not is_multi_user_enabled():
+        return True
+    return bool(
+        entry is not None and ctx.session_id
+        and ctx.session_id == entry.ctx.session_id and ctx.agent_id == entry.ctx.agent_id
+        and tool_call_owned_by(entry, getattr(ctx.request, "user_id", None))
+    )
 
 
 async def _handle_tools(
@@ -28,7 +40,8 @@ async def _handle_tools(
     from agentscope.message._block import TextBlock
 
     root_sid = getattr(ctx, "root_session_id", None)
-    active = coordinator.list_entries(session_id=root_sid)
+    session_id = ctx.session_id if is_multi_user_enabled() else root_sid
+    active = [entry for entry in coordinator.list_entries(session_id=session_id) if _visible_in_chat(ctx, entry)]
     if not active:
         text = "No active tool calls."
     else:
@@ -58,7 +71,7 @@ async def _handle_tools(
 
 async def _handle_tool_bg(
     coordinator: "ToolCoordinator",
-    _ctx: Any,
+    ctx: Any,
     args: str,
 ) -> "Msg":
     """Move a running tool call to background."""
@@ -76,7 +89,8 @@ async def _handle_tool_bg(
         )
     from ...tool_calls import OffloadReason
 
-    ok = await coordinator.request_offload(
+    visible = not is_multi_user_enabled() or _visible_in_chat(ctx, coordinator.get(call_id))
+    ok = visible and await coordinator.request_offload(
         call_id,
         reason=OffloadReason.USER,
     )
@@ -94,7 +108,7 @@ async def _handle_tool_bg(
 
 async def _handle_tool_cancel(
     coordinator: "ToolCoordinator",
-    _ctx: Any,
+    ctx: Any,
     args: str,
 ) -> "Msg":
     """Cancel a running tool call."""
@@ -115,7 +129,8 @@ async def _handle_tool_cancel(
         )
     from ...tool_calls import CancelReason
 
-    ok = await coordinator.cancel(call_id, reason=CancelReason.USER)
+    visible = not is_multi_user_enabled() or _visible_in_chat(ctx, coordinator.get(call_id))
+    ok = visible and await coordinator.cancel(call_id, reason=CancelReason.USER)
     text = (
         f"Tool call `{call_id[:8]}` cancelled."
         if ok

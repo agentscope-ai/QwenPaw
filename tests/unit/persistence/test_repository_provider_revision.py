@@ -5,4 +5,4 @@ from qwenpaw.persistence.repository_provider import EXPECTED_SCHEMA_REVISION
 
 
 def test_expected_schema_revision_is_current_head():
-    assert EXPECTED_SCHEMA_REVISION == "0022_artifact_sample_answer"
+    assert EXPECTED_SCHEMA_REVISION == "0023_console_tasks"

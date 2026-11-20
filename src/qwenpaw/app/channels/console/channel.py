@@ -276,6 +276,8 @@ class ConsoleChannel(BaseChannel):
         rc = meta.get("request_context")
         if isinstance(rc, dict) and rc:
             request.request_context = rc
+        if payload.get("_delegation_root_session_id"):
+            request.root_session_id = payload["_delegation_root_session_id"]
         mso = payload.get("model_slot_override")
         if mso is not None:
             request.model_slot_override = mso

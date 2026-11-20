@@ -2180,6 +2180,15 @@ def memory_guidance_for_targets(
 _SERVICES: dict[str, SourceMemoryService] = {}
 
 
+def release_idle_source_memory(services) -> bool:
+    key = str(services.root)
+    worker = _SERVICES.get(key)
+    if worker and (any(not task.done() for task in worker._jobs.values())):
+        return False
+    _SERVICES.pop(key, None)
+    return True
+
+
 def source_memory_service(services: Any) -> SourceMemoryService:
     key = str(services.root)
     instance = _SERVICES.get(key)

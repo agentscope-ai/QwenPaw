@@ -131,11 +131,17 @@ export const authApi = {
     return res.json();
   },
 
-  logout: async (): Promise<{ revoked: boolean }> => {
+  logout: async (
+    token = getApiToken(),
+    deviceId = "",
+  ): Promise<{ revoked: boolean }> => {
     const res = await fetch(getApiUrl("/auth/logout"), {
       method: "POST",
       credentials: "include",
-      headers: bearerHeaders(),
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(deviceId ? { "X-Session-Id": deviceId } : {}),
+      },
       keepalive: true,
       signal: AbortSignal.timeout(10000),
     });

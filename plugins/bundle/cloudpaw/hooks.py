@@ -228,6 +228,9 @@ def setup_acp_auto_approve() -> None:
 
     Non-trusted runners keep the original suspend-and-wait flow intact.
     """
+    from qwenpaw.identity.runtime import is_multi_user_enabled
+    if is_multi_user_enabled():
+        return
     try:
         from qwenpaw.agents.acp.client import ACPHostedClient
     except ImportError as exc:
@@ -256,7 +259,7 @@ def setup_acp_auto_approve() -> None:
         **kwargs,
     ):
         runner = getattr(self, "agent_name", "") or ""
-        if runner not in _AUTO_APPROVE_RUNNERS:
+        if is_multi_user_enabled() or runner not in _AUTO_APPROVE_RUNNERS:
             return await _original_request_permission(
                 self,
                 options,

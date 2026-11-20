@@ -1194,7 +1194,6 @@ async def uninstall_plugin(plugin_id: str, request: Request):
 async def get_plugin_status(plugin_id: str, request: Request):
     """Return the runtime status of a plugin."""
     loader = getattr(request.app.state, "plugin_loader", None)
-
     if loader is not None:
         record = loader.get_loaded_plugin(plugin_id)
         if record is not None:
@@ -1237,6 +1236,10 @@ async def serve_plugin_ui_file(
     A path-traversal guard ensures the resolved path stays inside the
     plugin's source directory.
     """
+    return await _plugin_file(plugin_id, file_path, request)
+
+
+async def _plugin_file(plugin_id: str, file_path: str, request: Request, *, frontend_only=False):
     loader = getattr(request.app.state, "plugin_loader", None)
 
     if loader is not None:
@@ -1257,6 +1260,18 @@ async def serve_plugin_ui_file(
                 f"Plugin '{plugin_id}' not found",
             )
         source_path = candidate
+
+    if frontend_only:
+        if loader is not None:
+            entry = record.manifest.entry.frontend
+        else:
+            try:
+                manifest = json.loads((source_path / "plugin.json").read_text(encoding="utf-8"))
+                entry = manifest.get("entry", {}).get("frontend")
+            except (OSError, ValueError, AttributeError):
+                entry = None
+        if file_path != entry:
+            raise HTTPException(404, "plugin_file_not_found")
 
     full_path = (source_path / file_path).resolve()
 
@@ -1281,6 +1296,8 @@ async def serve_plugin_ui_file(
         "public, max-age=31536000, immutable" if hashed_asset else "no-cache"
     )
     headers = {"Cache-Control": cache_control}
+    if frontend_only:
+        headers = {"Cache-Control": "private, no-store", "Vary": "Authorization"}
 
     if content_type:
         return FileResponse(

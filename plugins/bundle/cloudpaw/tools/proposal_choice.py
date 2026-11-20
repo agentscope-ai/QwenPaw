@@ -263,7 +263,7 @@ async def proposal_choice(
         `ToolChunk`:
             When user confirms deployment: "用户确认部署"
             When user requests adjustment: "用户要求调整资源：{user input text}"
-            When timeout (1 hour): "用户确认部署"
+            When timeout (1 hour): returns an error with no deployment consent.
     """
     # Parse JSON data
     try:
@@ -346,7 +346,7 @@ async def proposal_choice(
         "[proposal_choice] Creating interaction for session: %s",
         session_id,
     )
-    interaction = InteractionManager.create(session_id)
+    interaction = InteractionManager.create(session_id, proposal_names, proposals)
     try:
         await asyncio.wait_for(
             interaction.event.wait(),
@@ -354,19 +354,19 @@ async def proposal_choice(
         )
     except asyncio.TimeoutError:
         return ToolChunk(
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
-                    text="用户确认部署",
+                    text="等待用户确认超时，未授权部署。",
                 ),
             ],
         )
     finally:
-        InteractionManager.cleanup(session_id)
+        InteractionManager.cleanup(session_id, interaction)
 
     result = interaction.result or "用户未做出选择"
     return ToolChunk(
-        state=ToolResultState.SUCCESS,
+        state=ToolResultState.SUCCESS if interaction.result else ToolResultState.ERROR,
         content=[TextBlock(type="text", text=result)],
     )

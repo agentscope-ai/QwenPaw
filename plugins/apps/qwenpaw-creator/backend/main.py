@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from qwenpaw.pawapp import PawApp
+from qwenpaw.identity.runtime import is_multi_user_enabled
 
 logger = logging.getLogger("qwenpaw").getChild("plugin.qwenpaw_creator")
 
@@ -158,7 +159,7 @@ async def _startup() -> None:
     global _file_services
     try:
         configure_creator_runtime_environment()
-        data_root = require_creator_data_root()
+        data_root = require_creator_data_root(installation=is_multi_user_enabled())
         log_path = configure_creator_file_logging(data_root)
         trace_event(
             "creator.runtime.starting",
@@ -172,6 +173,12 @@ async def _startup() -> None:
             ensure_creator_runtime_dependencies,
         )
         await asyncio.to_thread(ensure_vendor_libs)
+        if is_multi_user_enabled():
+            # Old installation-wide projects have no attributable owner.
+            # Each authorized member initializes only their own queues.
+            reset_remote_ingest_admission()
+            logger.info("Creator member runtimes will start on authorized access")
+            return
         services = creator_file_services(data_root)
         await asyncio.to_thread(
             recover_interrupted_source_analysis,

@@ -1,11 +1,14 @@
-import { request } from "../../api/request";
+import { ApiRequestError, request } from "../../api/request";
+import i18n from "i18next";
 import {
   getAgentAccessScopeKey,
+  getChatSessionScope,
   subscribeChatSessionScope,
 } from "../../stores/chatSessionScope";
 import { useAgentStore } from "../../stores/agentStore";
 import {
   pluginInput,
+  runtimePath,
   validateView,
   type PluginNode,
   type PluginRegistration,
@@ -16,6 +19,14 @@ export class PluginWorkerClient {
   private worker: Worker;
   private controller = new AbortController();
   private stopped = false;
+  private stoppedListeners = new Set<() => void>();
+  getStopped = () => this.stopped;
+  subscribeStopped = (listener: () => void) => {
+    this.stoppedListeners.add(listener);
+    return () => {
+      this.stoppedListeners.delete(listener);
+    };
+  };
   private sequence = 0;
   private renders = new Map<
     number,
@@ -47,12 +58,11 @@ export class PluginWorkerClient {
     });
     const abort = () => this.stop(new Error("plugin_identity_changed"));
     signal?.addEventListener("abort", abort, { once: true });
-    let scope = getAgentAccessScopeKey();
+    const scope = getAgentAccessScopeKey();
     const unsubscribe = subscribeChatSessionScope(() => {
       const next = getAgentAccessScopeKey();
       if (scope === next) return;
-      scope = next;
-      for (const pending of this.requests) pending.abort();
+      this.stop(new Error("plugin_identity_changed"));
     });
     this.stopListener = () => {
       signal?.removeEventListener("abort", abort);
@@ -70,7 +80,12 @@ export class PluginWorkerClient {
       this.stop(new Error("invalid_plugin_message"));
     this.worker.onmessage = (event) => this.receive(event.data);
     if (signal?.aborted) abort();
-    else this.worker.postMessage({ type: "init", code });
+    else
+      this.worker.postMessage({
+        type: "init",
+        code,
+        locale: i18n.language || navigator.language,
+      });
   }
 
   private receive(message: Record<string, unknown>) {
@@ -101,7 +116,11 @@ export class PluginWorkerClient {
             const prefix = `/plugin/${this.pluginId}`;
             if (
               typeof item.path !== "string" ||
-              !(item.path === prefix || item.path.startsWith(prefix + "/")) ||
+              !(
+                item.path === prefix ||
+                item.path.startsWith(prefix + "/") ||
+                item.path === `/apps/${this.pluginId}`
+              ) ||
               /[?#:*]|\.\./.test(item.path) ||
               typeof item.label !== "string" ||
               item.label.length > 100
@@ -155,38 +174,49 @@ export class PluginWorkerClient {
       if (this.requests.size >= 4) throw new Error("plugin_requests_busy");
       this.requests.add(controller);
       this.controller.signal.addEventListener("abort", abort, { once: true });
-      const path = message.path;
-      if (
-        typeof path !== "string" ||
-        !/^\/[a-zA-Z0-9_/?=&.%+-]*$/.test(path) ||
-        /\.\.|%2e|%2f|%5c/i.test(path)
-      )
-        throw new Error("invalid_plugin_api_path");
+      const path = runtimePath(this.pluginId, message.path);
       const options = message.options as
-        | { method?: string; body?: unknown }
+        | { method?: string; body?: unknown; idempotencyKey?: string }
         | undefined;
       const method = options?.method ?? "GET";
       if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method))
         throw new Error("invalid_plugin_method");
+      const key = options?.idempotencyKey;
+      if (
+        key !== undefined &&
+        (typeof key !== "string" || !/^[a-zA-Z0-9._-]{1,128}$/.test(key))
+      )
+        throw new Error("invalid_plugin_idempotency_key");
       const body =
         options?.body === undefined ? undefined : JSON.stringify(options.body);
       if (body && body.length > 128_000)
         throw new Error("plugin_request_too_large");
-      const value = await request(
-        `/plugins/${encodeURIComponent(this.pluginId)}${path}`,
-        {
-          method,
-          signal: controller.signal,
-          timeout: 8000,
-          headers: { "X-Agent-Id": useAgentStore.getState().selectedAgent },
-          ...(body !== undefined ? { body } : {}),
+      const value = await request(path, {
+        method,
+        signal: controller.signal,
+        timeout: method === "GET" ? 8000 : 60_000,
+        headers: {
+          "X-Agent-Id": useAgentStore.getState().selectedAgent,
+          ...(key ? { "Idempotency-Key": key } : {}),
+          ...(options?.body !== undefined
+            ? { "Content-Type": "application/json" }
+            : {}),
         },
-      );
+        ...(body !== undefined ? { body } : {}),
+      });
       if (this.stopped) return;
       if (scope !== getAgentAccessScopeKey())
         throw new Error("plugin_scope_changed");
       this.worker.postMessage({ type: "response", id: message.id, value });
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof ApiRequestError &&
+        error.status === 404 &&
+        /plugin_not_found|pawapp_not_found/.test(error.message)
+      ) {
+        this.stop(new Error("plugin_access_revoked"));
+        return;
+      }
       if (!this.stopped)
         this.worker.postMessage({
           type: "response",
@@ -209,10 +239,12 @@ export class PluginWorkerClient {
       return Promise.reject(new Error("plugin_render_busy"));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => this.stop(new Error("plugin_render_timed_out")),
-        5000,
-      );
+      // The heartbeat detects a blocked event loop. A render can legitimately
+      // await several sequential requests while the worker keeps answering pings.
+      const timer = setTimeout(() => {
+        this.renders.delete(id);
+        reject(new Error("plugin_render_timed_out"));
+      }, 180_000);
       this.renders.set(id, { resolve, reject, timer });
       try {
         this.worker.postMessage({
@@ -221,6 +253,11 @@ export class PluginWorkerClient {
           target,
           input: pluginInput(input),
           event,
+          context: {
+            locale: i18n.language || navigator.language,
+            agentId: useAgentStore.getState().selectedAgent,
+            sessionId: getChatSessionScope().sessionId,
+          },
         });
       } catch {
         this.stop(new Error("invalid_plugin_input"));
@@ -246,6 +283,8 @@ export class PluginWorkerClient {
       pending.reject(error);
     }
     this.renders.clear();
+    for (const listener of this.stoppedListeners) listener();
+    this.stoppedListeners.clear();
     this.onStopped?.(error);
   }
 }

@@ -10,13 +10,21 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./pluginSystem";
-import { loadAllPlugins, resetLoadedPlugins } from "./usePluginLoader";
+import {
+  loadAllPlugins,
+  resetLoadedPlugins,
+  watchPluginAccess,
+} from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./pluginSystem";
 import {
   routeRegistry,
   subscribe as registrySubscribe,
 } from "./registry/store";
 import { useAuthStore } from "@/stores/authStore";
+import {
+  getAgentAccessScopeKey,
+  subscribeChatSessionScope,
+} from "../stores/chatSessionScope";
 
 /** Derive the legacy PluginRouteDeclaration[] shape from routeRegistry. */
 function derivePluginRoutes(): PluginRouteDeclaration[] {
@@ -74,7 +82,10 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
   const [pluginRoutes, setPluginRoutes] = useState<PluginRouteDeclaration[]>(
     derivePluginRoutes(),
   );
-  const loadScope = JSON.stringify([authMode, authPhase, authenticatedUserId]);
+  const loadScope = React.useSyncExternalStore(
+    subscribeChatSessionScope,
+    getAgentAccessScopeKey,
+  );
   const mayLoad =
     authPhase !== "loading" &&
     (authMode === "legacy" ||
@@ -130,7 +141,11 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
         setError(String(error));
         setCompletedScope(loadScope);
       });
-    return () => controller.abort();
+    const stopWatching = watchPluginAccess(controller.signal);
+    return () => {
+      controller.abort();
+      stopWatching();
+    };
   }, [mayLoad, loadScope]);
 
   return (

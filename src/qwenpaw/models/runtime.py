@@ -177,7 +177,9 @@ async def persist_selection(service, actor, workspace, chat, selection):
         await workspace.chat_manager.set_legacy_model_override(chat.id, selection)
 
 
-async def prepare_console_model(request, workspace, chat, request_data, native_payload):
+async def prepare_console_model(
+    request, workspace, chat, request_data, native_payload, *, persist_choice=True,
+):
     from fastapi import HTTPException
     from sqlalchemy.exc import SQLAlchemyError
     from ..access.dependencies import get_actor
@@ -221,7 +223,7 @@ async def prepare_console_model(request, workspace, chat, request_data, native_p
             else await conversation_override(service, actor, workspace, chat)
         )
         delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
-        if delegation is not None and publication is None:
+        if delegation is not None and not getattr(delegation, "target_agent_id", None) and publication is None:
             # 已选模型仍走 require_model；继承父运行选择不写子会话覆盖项。
             override = delegation.model
         resolved = await resolve_selection(
@@ -233,7 +235,7 @@ async def prepare_console_model(request, workspace, chat, request_data, native_p
             override,
             publication=publication,
         )
-        if present and publication is None:
+        if present and publication is None and persist_choice:
             await persist_selection(service, actor, workspace, chat, selection)
     except (SQLAlchemyError, OSError) as exc:
         raise HTTPException(

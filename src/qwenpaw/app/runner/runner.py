@@ -1085,6 +1085,7 @@ class AgentRunner(Runner):
                             self.agent_id,
                             payload,
                             session_id=session_id,
+                            user_id=recipient_user_id,
                         )
 
                     plan_notebook.register_plan_change_hook(

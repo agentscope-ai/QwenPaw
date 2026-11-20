@@ -6,7 +6,7 @@ Streaming AI skill optimization API
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -15,19 +15,21 @@ from qwenpaw.exceptions import (
 )
 
 from ...agents.model_factory import create_model_and_formatter
+from ...identity.runtime import is_multi_user_enabled
+from ..agent_context import get_agent_for_request
 
 
 logger = logging.getLogger(__name__)
 
 
-def get_model():
+def get_model(agent_id: str | None = None):
     """Get the active chat model instance.
 
     Returns:
         Chat model instance or None if not configured
     """
     try:
-        model, _ = create_model_and_formatter()
+        model, _ = create_model_and_formatter(agent_id=agent_id)
         return model
     except (ValueError, AppBaseException) as e:
         logger.warning("Failed to get model: %s", e)
@@ -168,7 +170,7 @@ def _extract_text_from_response(response) -> str:
 
 
 @router.post("/skills/ai/optimize/stream")
-async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
+async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest, http_request: Request):
     """Use AI to optimize an existing skill with streaming response.
 
     Args:
@@ -178,9 +180,13 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
         StreamingResponse with optimized skill content (text deltas)
     """
 
+    agent_id = None
+    if is_multi_user_enabled():
+        agent_id = (await get_agent_for_request(http_request)).agent_id
+
     async def generate():
         try:
-            model = get_model()
+            model = get_model(agent_id)
             if not model:
                 error_msg = json.dumps(
                     {

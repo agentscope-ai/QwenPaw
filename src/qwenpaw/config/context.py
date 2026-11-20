@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agentscope.state import AgentState
@@ -129,18 +129,18 @@ def set_current_channel_name(channel_name: str | None) -> None:
 
 
 # Context variable to store the current agent request context.
-current_request_context: ContextVar[dict[str, str] | None] = ContextVar(
+current_request_context: ContextVar[dict[str, Any] | None] = ContextVar(
     "current_request_context",
     default=None,
 )
 
 
-def get_current_request_context() -> dict[str, str] | None:
+def get_current_request_context() -> dict[str, Any] | None:
     """Get the current request context for tool functions."""
     return current_request_context.get()
 
 
-def set_current_request_context(context: dict[str, str] | None) -> None:
+def set_current_request_context(context: dict[str, Any] | None) -> None:
     """Set the current request context for tool functions."""
     current_request_context.set(dict(context) if context is not None else None)
 

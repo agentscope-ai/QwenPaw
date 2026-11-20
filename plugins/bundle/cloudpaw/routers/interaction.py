@@ -22,11 +22,20 @@ router = APIRouter(prefix="", tags=["interaction"])
 class InteractionRequest(BaseModel):
     session_id: str
     result: str
+    pending_id: str
+
+
+@router.get("/pending")
+async def get_pending(session_id: str):
+    pending = InteractionManager.pending(session_id)
+    if pending is None or pending.event.is_set():
+        return None
+    return {"id": pending.id, "names": pending.names, "proposals": pending.proposals}
 
 
 @router.post("")
 async def resolve_interaction(body: InteractionRequest) -> dict:
-    success = InteractionManager.resolve(body.session_id, body.result)
+    success = InteractionManager.resolve(body.session_id, body.result, body.pending_id)
     if not success:
         raise HTTPException(
             status_code=404,

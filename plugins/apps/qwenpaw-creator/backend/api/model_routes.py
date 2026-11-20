@@ -205,9 +205,9 @@ def _config_paths() -> Path:
     config_path = (
         Path(configured).expanduser().resolve(strict=False)
         if configured
-        else require_creator_data_root() / "config" / "model_config.json"
+        else require_creator_data_root(installation=True) / "config" / "model_config.json"
     )
-    root = require_creator_data_root().resolve()
+    root = require_creator_data_root(installation=True).resolve()
     if not config_path.is_absolute() or not config_path.resolve(
         strict=False,
     ).is_relative_to(root):

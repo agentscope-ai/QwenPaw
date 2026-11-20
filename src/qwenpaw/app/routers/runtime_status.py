@@ -42,9 +42,8 @@ async def runtime_status_stream(request: Request) -> StreamingResponse:
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id
     user_id = request_user_id(request)
-    q = register_sse_client(agent_id, user_id=user_id)
-
     async def event_generator():
+        q = register_sse_client(agent_id, user_id=user_id)
         try:
             yield 'data: {"type": "connected"}\n\n'
             while True:

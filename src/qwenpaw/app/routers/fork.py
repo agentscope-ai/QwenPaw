@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ...config.config import load_agent_config
+from ...identity.runtime import is_multi_user_enabled
 from ..chats.session import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -289,6 +290,9 @@ async def fork_agent(
     4. If project_dir is a git repo, create worktree.
     5. If worktree created, copy ``.worktreeinclude`` files.
     """
+    if is_multi_user_enabled():
+        # Legacy session files and worktrees have no per-user ownership ledger.
+        raise HTTPException(status_code=403, detail="multi_user_fork_unavailable")
     _enforce_localhost(request)
 
     project_dir = _get_project_dir(req.agent_id)

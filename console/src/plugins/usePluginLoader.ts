@@ -68,6 +68,45 @@ export function resetLoadedPlugins(): void {
   workers.clear();
 }
 
+/** Drop removed installations and their in-flight actions on every open console. */
+export function watchPluginAccess(signal: AbortSignal): () => void {
+  let checking = false;
+  const check = async () => {
+    if (signal.aborted || document.hidden || !workers.size || checking) return;
+    checking = true;
+    try {
+      const plugins = await fetchPluginResource<PluginInfo[]>(
+        getApiUrl("/frontend_plugin"),
+        (response) => response.json(),
+        signal,
+      );
+      if (signal.aborted || !Array.isArray(plugins)) return;
+      const allowed = new Set(
+        plugins
+          .filter((item) => item.enabled !== false && item.frontend_entry)
+          .map((item) => item.id),
+      );
+      for (const worker of workers.values()) {
+        if (!allowed.has(worker.pluginId))
+          worker.stop(new Error("plugin_access_revoked"));
+      }
+    } catch {
+      // The server checks authorization for every operation. Retry discovery
+      // on the next focus/interval after a transient connectivity failure.
+    } finally {
+      checking = false;
+    }
+  };
+  const interval = setInterval(check, 30_000);
+  window.addEventListener("focus", check);
+  window.addEventListener("qwenpaw:plugin-access-changed", check);
+  return () => {
+    clearInterval(interval);
+    window.removeEventListener("focus", check);
+    window.removeEventListener("qwenpaw:plugin-access-changed", check);
+  };
+}
+
 function disposeSource(source: string) {
   menuRegistry.disposeSource(source);
   routeRegistry.disposeSource(source);
@@ -114,10 +153,17 @@ async function executePluginScript(
   const client = new PluginWorkerClient(plugin.id, jsText, signal);
   workers.set(source, client);
   let committed = false;
-  client.onStopped = () => {
+  client.onStopped = (error) => {
     disposeSource(source);
     if (workers.get(source) === client) workers.delete(source);
-    if (committed && !signal?.aborted && generation === epoch)
+    if (
+      committed &&
+      !signal?.aborted &&
+      generation === epoch &&
+      !["plugin_identity_changed", "plugin_access_revoked"].includes(
+        error.message,
+      )
+    )
       onFailure?.(`${plugin.name || plugin.id}：插件已停止响应，已隔离停止`);
   };
   try {
@@ -130,12 +176,21 @@ async function executePluginScript(
       if (item.kind === "route") {
         const id = `${source}:${item.id}`;
         routeRegistry.add(source, { id, path: item.path!, component });
-        menuRegistry.add(source, {
-          id,
-          location: "primary.settings",
-          label: item.label!,
-          route: id,
-        });
+        if (plugin.id === "cloudpaw" && item.path === "/plugin/cloudpaw/a2a") {
+          // Keep existing bookmarks inside the same authorized plugin lifecycle.
+          routeRegistry.add(source, {
+            id: `${id}:legacy-a2a`,
+            path: "/a2a",
+            component,
+          });
+        }
+        if (!item.path!.startsWith("/apps/"))
+          menuRegistry.add(source, {
+            id,
+            location: "primary.settings",
+            label: item.label!,
+            route: id,
+          });
         pluginSystem.addRoutes(source, [
           { path: item.path!, component, label: item.label! },
         ]);

@@ -441,7 +441,8 @@ class AuthorizedService:
 
 class FrontendLoader:
     def __init__(self) -> None:
-        entry = SimpleNamespace(frontend="dist/index.js")
+        from qwenpaw.plugins.architecture import PluginEntryPoints
+        entry = PluginEntryPoints(frontend="dist/index.js")
         self.records = {
             plugin_id: SimpleNamespace(
                 manifest=SimpleNamespace(

@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..persistence.database import database_session
+from .stream_revocation import revoke_streams
 
 _SAFE_SCHEMA = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _AGENT_ID_NAMESPACE = UUID("fe80bb92-fbd0-55be-b67c-4bbf27184d91")
@@ -495,6 +496,7 @@ class PostgresAgentRepository:
                 agent_id=agent_id,
                 detail={"user_id": str(user_id), "role": role.value},
             )
+        revoke_streams(user_id=user_id, agent_key=agent_key)
 
     async def revoke_member(
         self,
@@ -530,6 +532,8 @@ class PostgresAgentRepository:
                 agent_id=agent_id,
                 detail={"user_id": str(user_id)},
             )
+
+        revoke_streams(user_id=user_id, agent_key=agent_key)
 
     async def transfer_owner(
         self,
@@ -594,6 +598,7 @@ class PostgresAgentRepository:
                 agent_id=agent_id,
                 detail={"new_owner_user_id": str(new_owner_user_id)},
             )
+        revoke_streams(user_id=previous_owner_id, agent_key=agent_key)
 
     async def set_publication(
         self,
@@ -730,6 +735,8 @@ class PostgresAgentRepository:
                     "deleted_at": deleted_at,
                 },
             )
+        if status in {"disabled", "deleted"}:
+            revoke_streams(agent_key=agent_key)
 
     async def reference_counts(self, agent_key: str) -> AgentReferenceCounts:
         expressions = ", ".join(

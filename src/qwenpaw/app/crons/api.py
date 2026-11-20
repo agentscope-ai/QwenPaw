@@ -17,6 +17,7 @@ from .models import (
 from ...access.actor import ActorContext
 from ...access.dependencies import get_actor
 from ...automation.grants import AutomationAuthorizationError
+from ...identity.runtime import is_multi_user_enabled
 
 router = APIRouter(prefix="/cron", tags=["cron"])
 
@@ -28,8 +29,8 @@ class AutomationAuthorizeRequest(BaseModel):
 
 def _authorization_service(mgr: CronManager):
     service = mgr.authorization_service
-    if service is None:
-        return None
+    if service is None and is_multi_user_enabled():
+        raise HTTPException(503, "automation_authorization_unavailable")
     return service
 
 

@@ -13,6 +13,7 @@ import {
   adoptAccessSession,
   clearAccessSession,
   getAccessSessionGeneration,
+  getDeviceSessionId,
   restoreAccessSession,
   subscribeAccessSessionGeneration,
   subscribeAccessSessionUpdates,
@@ -276,7 +277,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     if (get().mode === "multi_user") {
       localStorage.setItem(EXPLICIT_LOGOUT_KEY, "1");
       // Keep cookie revocation ordered with refresh/login without blocking the UI.
-      void withSessionRefreshLock(() => authApi.logout()).catch(() => {});
+      const accessToken = getApiToken();
+      const deviceId = getDeviceSessionId();
+      void withSessionRefreshLock(() =>
+        authApi.logout(accessToken, deviceId),
+      ).catch(() => {});
     }
     clearAccessSession();
     resetUserScopedClientState();

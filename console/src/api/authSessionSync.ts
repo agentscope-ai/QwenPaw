@@ -2,7 +2,7 @@ import type { LoginResponse } from "./modules/auth";
 
 export type SessionEvent =
   | { type: "renewed"; session: LoginResponse }
-  | { type: "cleared" };
+  | { type: "cleared"; sessionId?: string };
 
 export function withSessionRefreshLock<T>(
   refresh: () => Promise<T>,

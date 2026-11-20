@@ -18,6 +18,7 @@ let refreshPromise: Promise<boolean> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let sessionGeneration = 0;
 let sessionUserId = "";
+let deviceSessionId = "";
 let refreshFailures = 0;
 let retryAfter = 0;
 let refreshError: unknown;
@@ -38,13 +39,16 @@ function getSessionChannel() {
   if (!sessionChannel)
     sessionChannel = createSessionChannel((event) => {
       if (getApiAuthMode() !== "multi_user") return;
-      if (event.type === "cleared") clearAccessSession(false);
-      else adoptAccessSession(event.session, false);
+      if (event.type === "cleared") {
+        if (!event.sessionId || event.sessionId === deviceSessionId)
+          clearAccessSession(false);
+      } else adoptAccessSession(event.session, false);
     });
   return sessionChannel;
 }
 
 export const getAccessSessionGeneration = () => sessionGeneration;
+export const getDeviceSessionId = () => deviceSessionId;
 export function subscribeAccessSessionGeneration(listener: () => void) {
   generationListeners.add(listener);
   return () => {
@@ -96,6 +100,7 @@ export function adoptAccessSession(
     clearAccessSession(false);
   }
   sessionUserId = response.user?.id ?? sessionUserId;
+  deviceSessionId = response.session?.id ?? "";
   setAuthToken(response.token);
   refreshFailures = 0;
   retryAfter = 0;
@@ -108,7 +113,9 @@ export function adoptAccessSession(
 }
 
 export function clearAccessSession(broadcast = true): void {
+  const clearedSession = deviceSessionId;
   sessionUserId = "";
+  deviceSessionId = "";
   sessionGeneration += 1;
   generationListeners.forEach((listener) => listener());
   accessExpiresAt = 0;
@@ -118,8 +125,8 @@ export function clearAccessSession(broadcast = true): void {
   refreshError = undefined;
   cancelRefreshTimer();
   clearAuthToken();
-  if (broadcast && getApiAuthMode() === "multi_user")
-    getSessionChannel().publish({ type: "cleared" });
+  if (broadcast && clearedSession && getApiAuthMode() === "multi_user")
+    getSessionChannel().publish({ type: "cleared", sessionId: clearedSession });
 }
 
 export async function refreshAccessSession(

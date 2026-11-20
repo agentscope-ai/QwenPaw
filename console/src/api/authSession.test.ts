@@ -28,6 +28,38 @@ describe("authSession", () => {
     clearAccessSession();
   });
 
+  it("ignores a delayed cross-tab logout for a different device", async () => {
+    vi.resetModules();
+    const session = await import("./authSession");
+    let receive!: (message: MessageEvent) => void;
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        set onmessage(handler: (message: MessageEvent) => void) {
+          receive = handler;
+        }
+        postMessage() {}
+      },
+    );
+    session.adoptAccessSession({
+      token: "bravo",
+      username: "bravo",
+      session: { id: "device-b", client_info: {} },
+    });
+    receive(
+      new MessageEvent("message", {
+        data: { type: "cleared", sessionId: "device-a" },
+      }),
+    );
+    expect(session.getDeviceSessionId()).toBe("device-b");
+    receive(
+      new MessageEvent("message", {
+        data: { type: "cleared", sessionId: "device-b" },
+      }),
+    );
+    expect(session.getDeviceSessionId()).toBe("");
+  });
+
   it("coalesces concurrent refresh requests", async () => {
     let resolveRefresh: (value: {
       token: string;

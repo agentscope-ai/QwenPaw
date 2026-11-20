@@ -758,6 +758,15 @@ class SourceObservationService:
 _SERVICES: dict[str, SourceObservationService] = {}
 
 
+def release_idle_source_observation(services) -> bool:
+    key = str(services.root)
+    worker = _SERVICES.get(key)
+    if worker and (any(not task.done() for task in worker._jobs.values())):
+        return False
+    _SERVICES.pop(key, None)
+    return True
+
+
 def source_observation_service(services: Any) -> SourceObservationService:
     key = str(services.root)
     instance = _SERVICES.get(key)

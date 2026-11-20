@@ -17,6 +17,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import anyio
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -31,7 +32,7 @@ from ..agent_context import (
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
 from ...platform_ops.log_redaction import redact_log_text
-from ...utils.command_runner import run_command_async, start_command_async
+from ...utils.command_runner import run_command_async, shutdown_process, start_command_async
 
 logger = logging.getLogger(__name__)
 
@@ -311,12 +312,14 @@ async def clone_project(
     agent_id = workspace.agent_id  # capture before entering generator
 
     async def event_stream():
+        proc = None
         try:
             base.mkdir(parents=True, exist_ok=True)
 
             proc = await start_command_async(
                 ["git", "clone", "--progress", url, str(target)],
                 stdout=asyncio.subprocess.PIPE,
+                start_new_session=sys.platform != "win32",
                 # git writes progress to stderr
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -376,7 +379,7 @@ async def clone_project(
             yield f"data: {payload}\n\n"
 
         except (asyncio.CancelledError, GeneratorExit):
-            pass
+            raise
         except Exception as exc:
             logger.error(
                 "Project clone failed (error_type=%s)",
@@ -386,6 +389,10 @@ async def clone_project(
                 {"type": "error", "detail": "project_clone_failed"}
             )
             yield f"data: {payload}\n\n"
+        finally:
+            if proc is not None and proc.returncode is None:
+                with anyio.CancelScope(shield=True):
+                    await shutdown_process(proc, graceful_timeout=1, kill_timeout=1)
 
     return StreamingResponse(
         event_stream(),

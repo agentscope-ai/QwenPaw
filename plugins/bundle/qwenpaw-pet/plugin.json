@@ -10,7 +10,8 @@
   "author": "QwenPaw Pet",
   "entry": {
     "backend": "plugin.py",
-    "frontend": "dist/index.js"
+    "frontend": "worker.js",
+    "frontend_runtime": "worker-v1"
   },
   "dependencies": [
     "httpx>=0.27.0",

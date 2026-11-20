@@ -274,12 +274,15 @@ async def authorize_agent_request(
         raise HTTPException(status_code=403, detail="forbidden") from exc
 
     request.state.agent_access = access
+    request.state.authorized_agent_id = agent_id
     return access
 
 
 async def get_agent_for_request(
     request: Request,
     agent_id: Optional[str] = None,
+    *,
+    recheck_access: bool = False,
 ) -> "Workspace":
     """Get agent workspace for current request.
 
@@ -335,7 +338,11 @@ async def get_agent_for_request(
             detail=f"Agent '{target_agent_id}' is disabled",
         )
 
-    if is_multi_user_enabled() and not hasattr(request.state, "agent_access"):
+    if is_multi_user_enabled() and (
+        recheck_access
+        or getattr(request.state, "authorized_agent_id", None) != target_agent_id
+        or not hasattr(request.state, "agent_access")
+    ):
         await authorize_agent_request(
             request,
             agent_id=target_agent_id,

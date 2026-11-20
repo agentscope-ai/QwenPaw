@@ -118,6 +118,28 @@ def test_default_agent_file_request_still_requires_actual_delivery(
     assert "send_file_to_user" in injections[0]
 
 
+@pytest.mark.parametrize(
+    "is_subtask,allowed,expected",
+    [(True, ("read_file", "view_image"), False), (True, ("send_file_to_user",), True),
+     (False, ("read_file",), True), (True, None, True)],
+)
+def test_delegated_worker_can_return_an_intermediate_path(tmp_path, monkeypatch, is_subtask, allowed, expected):
+    from qwenpaw.app.console_delegation import current_delegation
+
+    monkeypatch.setattr("qwenpaw.runtime.skill_routing.discover_enabled_skills", lambda *_: [])
+    ctx = SimpleNamespace(
+        workspace_dir=tmp_path,
+        input_msgs=[Msg(name="user", role="user", content=[TextBlock(text="Generate slide 1 using slide_07.png")])],
+        request=SimpleNamespace(channel="console", request_context={"_spawn_subagent": True}),
+        inject_context=lambda *_args, **_kwargs: None,
+    )
+    token = current_delegation.set(SimpleNamespace(is_subtask=is_subtask, tools=allowed))
+    try:
+        assert (prepare_skill_request(ctx, []) is not None) is expected
+    finally:
+        current_delegation.reset(token)
+
+
 def test_slash_skill_body_cannot_turn_information_request_into_generation(
     tmp_path, monkeypatch
 ):

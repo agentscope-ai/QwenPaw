@@ -164,6 +164,7 @@ export async function uninstallPlugin(pluginId: string): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
   }
+  window.dispatchEvent(new Event("qwenpaw:plugin-access-changed"));
 }
 
 export async function updatePluginAudience(
@@ -187,6 +188,7 @@ export async function updatePluginAudience(
       body.detail ?? `Audience update failed (${response.status})`,
     );
   }
+  window.dispatchEvent(new Event("qwenpaw:plugin-access-changed"));
 }
 
 export async function setPluginEnabled(
@@ -204,6 +206,7 @@ export async function setPluginEnabled(
       body.detail ?? `Plugin ${action} failed (${response.status})`,
     );
   }
+  window.dispatchEvent(new Event("qwenpaw:plugin-access-changed"));
 }
 
 /**

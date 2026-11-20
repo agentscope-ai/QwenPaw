@@ -16,6 +16,7 @@ app_services, plugin_registry, session).
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -94,6 +95,7 @@ async def get_ctx(request: Request) -> PawAppContext:
     session = _get_session(request)
 
     # 多用户身份只来自认证中间件和已校验的 Agent 上下文。
+    console_stream = None
     if is_multi_user_enabled():
         actor = get_actor(request)
         try:
@@ -101,8 +103,16 @@ async def get_ctx(request: Request) -> PawAppContext:
         except PluginAccessError as exc:
             raise HTTPException(status_code=404, detail="pawapp_not_found") from exc
         user_id = str(actor.user_id)
-        agent_access = getattr(request.state, "agent_access", None)
-        agent_id = getattr(agent_access, "agent_key", None) or "default"
+        from ..plugins.http_scope import current_plugin_scope
+
+        scope = current_plugin_scope.get()
+        agent_id = scope.agent_id if scope else getattr(request.state, "authorized_agent_id", "default")
+        from .console_stream import PawAppConsoleBinding
+
+        authenticated = getattr(request.state, "authenticated_session", None)
+        if authenticated is not None and authenticated.user.id == actor.user_id:
+            binding = PawAppConsoleBinding(authenticated.session.id, actor.user_id, agent_id, app_id)
+            console_stream = partial(binding.events, request.app)
     else:
         agent_id = request.query_params.get("agent_id", "default")
         user_id = (
@@ -126,4 +136,5 @@ async def get_ctx(request: Request) -> PawAppContext:
         _plugin_registry=plugin_registry,
         _session=session,
         _sse_channel=None,  # Set by TaskManager for long-running tasks
+        _console_stream=console_stream,
     )

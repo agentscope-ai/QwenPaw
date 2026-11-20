@@ -641,6 +641,15 @@ class SourceVideoReaderService:
 _SERVICES: dict[str, SourceVideoReaderService] = {}
 
 
+def release_idle_source_video_reader(services) -> bool:
+    key = str(services.root)
+    worker = _SERVICES.get(key)
+    if worker and (any(not task.done() for task in worker._jobs.values())):
+        return False
+    _SERVICES.pop(key, None)
+    return True
+
+
 def source_video_reader_service(services: Any) -> SourceVideoReaderService:
     key = str(services.root)
     instance = _SERVICES.get(key)

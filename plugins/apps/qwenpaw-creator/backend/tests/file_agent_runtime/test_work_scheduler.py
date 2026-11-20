@@ -258,6 +258,46 @@ def test_deterministic_failures_stay_locked(tmp_path, monkeypatch):
     assert len(dispatch.calls) == 1
 
 
+def test_idle_revisit_keeps_media_retry_budget_and_accepts_new_inputs(
+    tmp_path, monkeypatch,
+):
+    services = _services(tmp_path, monkeypatch, ready_variants=1)
+    _enable_yolo(monkeypatch)
+    dispatch = _RecordingDispatch(fail=True, error="provider timeout")
+
+    async def scenario():
+        first = WorkGraphScheduler(services, image_dispatch=dispatch)
+        assert not first.restore_idle_ledger("service-one")
+        for _ in range(4):
+            await first.tick(PROJECT_ID)
+            await _drain()
+        await first.shutdown()
+        await first.save_idle_ledger("service-one")
+        assert len(dispatch.calls) == 3
+        first.wake(PROJECT_ID)
+        assert not first._loops
+
+        warm = WorkGraphScheduler(services, image_dispatch=dispatch)
+        assert warm.restore_idle_ledger("service-one")
+        await warm.tick(PROJECT_ID)
+        await _drain()
+        assert len(dispatch.calls) == 3
+        snapshot = services.projects.read(PROJECT_ID)
+        project = snapshot.project.model_copy(deep=True)
+        project.visual.entities.items["char:a"].variants.items["var:0"].prompt = "new"
+        project.generation += 1
+        services.projects.replace(PROJECT_ID, project, expected_etag=snapshot.etag)
+        await warm.tick(PROJECT_ID)
+        await _drain()
+        assert len(dispatch.calls) > 3
+        await warm.shutdown()
+
+        cold = WorkGraphScheduler(services)
+        assert not cold.restore_idle_ledger("service-two")
+
+    asyncio.run(scenario())
+
+
 def test_quarantined_stale_result_reopens_dispatch(tmp_path, monkeypatch):
     """Field run 2026-08-07: the first commit of a four-wide storyboard
     wave staled the other three; their tasks went QUARANTINED (invisible

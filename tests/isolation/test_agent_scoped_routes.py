@@ -421,6 +421,21 @@ async def test_unscoped_header_stores_authorized_agent_access(monkeypatch) -> No
     assert workspace.agent_id == "allowed-agent"
     assert request.state.agent_access is access
 
+    # Reusing this request for a differently selected Agent requires another decision.
+    config = _config()
+    config.agents.profiles["other"] = SimpleNamespace(enabled=True)
+    monkeypatch.setattr(agent_context, "load_config", lambda: config)
+    class DeniedMembership:
+        async def require_role(self, **kwargs):
+            assert kwargs["agent"].key == "other"
+            raise AgentAccessDeniedError()
+
+    monkeypatch.setattr(agent_context, "_get_agent_membership_service", DeniedMembership)
+    with pytest.raises(HTTPException) as denied:
+        await get_agent_for_request(request, agent_id="other")
+    assert denied.value.status_code == 403
+    assert manager.requested_agent_ids == ["allowed-agent"]
+
 
 @pytest.mark.asyncio
 async def test_unscoped_chat_get_allows_historical_read_only(monkeypatch) -> None:

@@ -12,6 +12,31 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "tests" / "parity" / "baseline_manifest.json"
 
+# Separately reviewed routes added since the frozen 2.1.0 baseline.
+# Keep this list explicit so a new endpoint cannot silently enter the inventory.
+REVIEWED_ADDITIONS = {
+    "chats/api": [
+        ("GET", "/page"), ("GET", "/{chat_id}/messages/{message_id}/tool-output"),
+        ("GET", "/{chat_id}/spec"), ("GET", "/{chat_id}/status"), ("GET", "/{chat_id}/summary"),
+    ],
+    "routers/agent_members": [
+        ("GET", "/admin/agents/{agentId}/conversations"),
+        ("GET", "/admin/agents/{agentId}/conversations/{conversation_id}"),
+        ("GET", "/admin/agents/{agentId}/conversations/{conversation_id}/messages/{message_id}/tool-output"),
+    ],
+    "routers/personal_library": [
+        ("DELETE", "/documents/{document_id}"), ("PATCH", "/documents/{document_id}"),
+        ("GET", "/documents/page"), ("GET", "/documents/{document_id}/download"),
+    ],
+    "routers/skill_governance": [
+        ("GET", "/skill-governance/agent-grants"),
+        ("PATCH", "/skill-governance/items/{skill_id}/visibility"),
+        ("PUT", "/skill-governance/items/{skill_id}/agent-grants"),
+    ],
+    "routers/console": [("GET", "/attachments/{attachment_id}"), ("HEAD", "/attachments/{attachment_id}")],
+    "routers/files": [("GET", "/preview/{filepath:path}"), ("HEAD", "/preview/{filepath:path}")],
+}
+
 
 def _load_manifest() -> dict[str, Any]:
     assert MANIFEST_PATH.is_file(), (
@@ -66,21 +91,24 @@ def _api_methods() -> list[dict[str, str]]:
                 if not isinstance(decorator, ast.Call):
                     continue
                 func = decorator.func
-                if not isinstance(func, ast.Attribute) or func.attr not in http_methods:
+                if not isinstance(func, ast.Attribute) or func.attr not in http_methods | {"api_route"}:
                     continue
                 if not isinstance(func.value, ast.Name) or not decorator.args:
                     continue
                 route_path = _literal_string(decorator.args[0])
                 if route_path is None:
                     continue
-                methods.append(
-                    {
+                verbs = ["WS" if func.attr == "websocket" else func.attr.upper()]
+                if func.attr == "api_route":
+                    declared = next((kw.value for kw in decorator.keywords if kw.arg == "methods"), None)
+                    verbs = ast.literal_eval(declared) if declared is not None else ["GET"]
+                for verb in verbs:
+                    methods.append({
                         "source": path.relative_to(ROOT).as_posix(),
                         "router": func.value.id,
-                        "method": "WS" if func.attr == "websocket" else func.attr.upper(),
+                        "method": verb,
                         "path": route_path,
-                    }
-                )
+                    })
     return sorted(methods, key=lambda row: tuple(row.values()))
 
 
@@ -95,10 +123,17 @@ def test_agent_scoped_router_mounts_match_explicit_manifest() -> None:
     actual = _included_router_names(
         ROOT / "src/qwenpaw/app/routers/agent_scoped.py"
     )
-    assert actual == manifest["backend"]["agent_scoped_router_modules"]
+    assert actual == [*manifest["backend"]["agent_scoped_router_modules"], "personal_library_router"]
 
 
 def test_api_methods_match_explicit_manifest() -> None:
     manifest = _load_manifest()
-    assert _api_methods() == manifest["backend"]["api_methods"]
+    expected = list(manifest["backend"]["api_methods"])
+    for module, additions in REVIEWED_ADDITIONS.items():
+        for method, path in additions:
+            expected.append({
+                "source": f"src/qwenpaw/app/{module}.py", "router": "router",
+                "method": method, "path": path,
+            })
+    assert _api_methods() == sorted(expected, key=lambda row: tuple(row.values()))
 

@@ -34,6 +34,7 @@ EXPECTED_REVISIONS = (
     "0020_agent_personal_library",
     "0021_skill_public_admin_read",
     "0022_artifact_sample_answer",
+    "0023_console_tasks",
 )
 EXPECTED_TABLES = frozenset(
     {
@@ -59,6 +60,8 @@ EXPECTED_TABLES = frozenset(
         "channel_bindings",
         "channel_external_identities",
         "conversation_members",
+        "console_task_contents",
+        "console_task_queue",
         "conversations",
         "credential_bindings",
         "credential_records",

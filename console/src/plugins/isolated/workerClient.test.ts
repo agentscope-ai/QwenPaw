@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PluginWorkerClient } from "./workerClient";
 import { validateView } from "./protocol";
+import { request } from "../../api/request";
 
 vi.mock("../../api/request", () => ({ request: vi.fn() }));
 vi.mock("../../stores/chatSessionScope", () => ({
   getAgentAccessScopeKey: () => "user-agent",
+  getChatSessionScope: () => ({ sessionId: "session-a" }),
   subscribeChatSessionScope: () => () => {},
 }));
 vi.mock("../../stores/agentStore", () => ({
@@ -76,12 +78,50 @@ it("terminates a stuck render and rejects all pending views", async () => {
   FakeWorker.instances[0].send({ type: "ready", registrations: [] });
   await client.ready;
   const rejected = expect(client.render("view", {})).rejects.toThrow(
-    "render_timed_out",
+    "plugin_unresponsive",
   );
-  await vi.advanceTimersByTimeAsync(5001);
+  const now = performance.now();
+  const clock = vi.spyOn(performance, "now").mockReturnValue(now + 11_000);
+  await vi.advanceTimersByTimeAsync(2001);
+  clock.mockRestore();
   await rejected;
   expect(FakeWorker.instances[0].terminate).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps a healthy worker and its original write while a response is slow", async () => {
+  const client = new PluginWorkerClient("demo", "");
+  const worker = FakeWorker.instances[0];
+  worker.send({ type: "ready", registrations: [] });
+  await client.ready;
+  vi.mocked(request).mockImplementationOnce(
+    () =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ saved: true }), 6500),
+      ),
+  );
+  const rendered = client.render("edit", {});
+  worker.send({
+    type: "request",
+    id: 17,
+    path: "/projects",
+    options: {
+      method: "POST",
+      idempotencyKey: "one-write",
+      body: { name: "example" },
+    },
+  });
+  await vi.advanceTimersByTimeAsync(6500);
+  expect(worker.terminate).not.toHaveBeenCalled();
+  expect(worker.postMessage).toHaveBeenCalledWith({
+    type: "response",
+    id: 17,
+    value: { saved: true },
+  });
+  worker.send({ type: "view", id: 1, view: "saved" });
+  await expect(rendered).resolves.toBe("saved");
+  expect(request).toHaveBeenCalledTimes(1);
+  client.stop();
 });
 
 it("rejects executable HTML and oversized view trees", () => {

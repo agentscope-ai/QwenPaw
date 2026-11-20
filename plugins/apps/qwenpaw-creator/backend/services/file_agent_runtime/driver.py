@@ -1046,6 +1046,7 @@ class FileCreatorAgentRuntime:
         self._wake = asyncio.Event()
         self._stopping = False
         self._active: dict[str, _ProjectTask] = {}
+        self._reconciling = False
         self._blocked_heads: dict[str, int] = {}
         self._epochs: dict[str, int] = {}
         self._publication_lock = threading.RLock()
@@ -1107,7 +1108,38 @@ class FileCreatorAgentRuntime:
     def started(self) -> bool:
         return self._dispatcher is not None and not self._dispatcher.done()
 
-    async def start(self) -> None:
+    @property
+    def busy(self) -> bool:
+        return bool(
+            self._active
+            or self._reconciling
+            or self._wake.is_set()
+            or self.work_scheduler.busy
+        )
+
+    def has_queued_work(self) -> bool:
+        """Check durable work before retiring an otherwise idle member driver."""
+        for project_id in self.services.projects.discover_project_ids():
+            session = self.sessions.get_project_session_snapshot(project_id)
+            if session.active_run_id:
+                return True
+            if session.last_consumed_message_seq < session.last_message_seq:
+                pending = self.sessions.list_messages(
+                    project_id,
+                    session.session_id,
+                    after_seq=session.last_consumed_message_seq,
+                    limit=None,
+                )
+                if any(item.role == "user" for item in pending):
+                    return True
+            if any(
+                t.status in (TaskStatus.QUEUED, TaskStatus.RUNNING)
+                for t in self.executions.list_tasks(project_id)
+            ):
+                return True
+        return False
+
+    async def start(self, *, resume_unattended: bool = True) -> None:
         if self.started:
             return
         self._loop = asyncio.get_running_loop()
@@ -1132,6 +1164,8 @@ class FileCreatorAgentRuntime:
             summaries = []
         for summary in summaries:
             self.work_scheduler.wake(summary.project_id)
+            if not resume_unattended:
+                continue
             try:
                 await self._resume_interrupted_run(summary.project_id)
             except Exception:  # pylint: disable=broad-except
@@ -1213,6 +1247,7 @@ class FileCreatorAgentRuntime:
         if dispatcher is not None:
             await asyncio.gather(dispatcher, return_exceptions=True)
         self._active.clear()
+        await self.work_scheduler.shutdown()
         self._loop = None
 
     def notify(self, project_id: str) -> None:
@@ -1331,11 +1366,14 @@ class FileCreatorAgentRuntime:
                     if self._stopping:
                         return
                     try:
+                        self._reconciling = True
                         await self._reconcile_project(project_id)
                     except Exception:
                         # A per-Project failure is persisted by its run whenever
                         # possible and must not starve unrelated Projects.
                         continue
+                    finally:
+                        self._reconciling = False
                 logger.debug(
                     "dispatch loop tick: projects=%d",
                     len(project_ids),

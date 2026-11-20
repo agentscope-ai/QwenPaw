@@ -397,20 +397,21 @@ class A2AClientManager:
         }
 
 
-_manager_instance: A2AClientManager | None = None
+_managers: dict = {}
 
 
 def get_a2a_manager() -> A2AClientManager:
-    """Get or create the singleton A2AClientManager instance."""
-    global _manager_instance
-    if _manager_instance is None:
-        _manager_instance = A2AClientManager()
-    return _manager_instance
+    """Keep credential-bearing connections inside the authenticated workspace."""
+    from qwenpaw.plugins.http_scope import runtime_plugin_scope
+    scope = runtime_plugin_scope()
+    if scope not in _managers:
+        _managers[scope] = A2AClientManager()
+    return _managers[scope]
 
 
 async def shutdown_a2a_manager() -> None:
-    """Shutdown the singleton manager if it exists."""
-    global _manager_instance
-    if _manager_instance is not None:
-        await _manager_instance.close()
-        _manager_instance = None
+    """Close the process's per-workspace connections at shutdown."""
+    managers = tuple(_managers.values())
+    _managers.clear()
+    for manager in managers:
+        await manager.close()

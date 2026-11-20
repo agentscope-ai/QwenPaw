@@ -12,7 +12,7 @@ from ...plugins.governance import (
 )
 from .plugins import (
     _list_plugins_from_disk,
-    serve_plugin_ui_file,
+    _plugin_file,
 )
 
 router = APIRouter(prefix="/frontend_plugin", tags=["frontend-plugin"])
@@ -97,4 +97,4 @@ async def serve_frontend_plugin_file(
             )
         except PluginAccessError as exc:
             raise HTTPException(404, "plugin_not_found") from exc
-    return await serve_plugin_ui_file(plugin_id, file_path, request)
+    return await _plugin_file(plugin_id, file_path, request, frontend_only=is_multi_user_enabled())

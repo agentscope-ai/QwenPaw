@@ -639,11 +639,11 @@ async def direct_call(request: Request, body: A2ACallRequest) -> dict:
 
     result: dict = {}
     for block in final_chunk.content:
-        if block.get("type") == "text":
+        if block.type == "text":
             try:
-                result = json.loads(block["text"])
+                result = json.loads(block.text)
             except (json.JSONDecodeError, TypeError):
-                result = {"response_text": block["text"]}
+                result = {"response_text": block.text}
     logger.info("direct_call: response received")
     return result
 

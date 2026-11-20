@@ -13,6 +13,7 @@ import mimetypes
 import re
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,7 @@ from ..agent_context import (
 )
 from ..approvals.display import approval_display_fields
 from ..console_delegation import bind_console_stream, is_terminal_response
+from ..console_task_worker import task_timeout_seconds
 from ..chats.access import (
     ChatAccessDeniedError,
     require_conversation_access,
@@ -79,10 +81,12 @@ class _BackgroundTask:
     run_id: str = ""
     actor_context: Optional[Dict[str, Any]] = None
     parent_conversation_id: str = ""
+    parent_agent_id: str = ""
 
 
 _bg_tasks: Dict[str, _BackgroundTask] = {}
 _bg_lock = asyncio.Lock()
+_bg_prune_timer: asyncio.TimerHandle | None = None
 
 
 class MarkInboxReadRequest(BaseModel):
@@ -118,19 +122,69 @@ def _requested_conversation_id(request_data: Union[AgentRequest, dict]) -> str:
     return str(getattr(request_data, "conversation_id", "") or "").strip()
 
 
-async def _require_console_conversation_write(
-    request: Request,
-    workspace,
-    conversation_id: str,
-) -> None:
-    """现有会话的 Console 写操作必须由会话所有者发起。"""
-    if not is_multi_user_enabled():
-        return
-    delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
-    if delegation is not None:
-        if conversation_id and conversation_id != delegation.conversation_id:
-            raise HTTPException(status_code=403, detail="forbidden")
-        conversation_id = delegation.conversation_id
+def _workspace_manager(request):
+    from ..multi_agent_manager import MultiAgentManager
+
+    app = getattr(request, "scope", {}).get("app")
+    manager = getattr(getattr(app, "state", None), "multi_agent_manager", None)
+    return manager if isinstance(manager, MultiAgentManager) else None
+
+
+@asynccontextmanager
+async def _console_workspace(request, *, agent_id=None):
+    if agent_id is None:
+        workspace = await get_agent_for_request(request)
+    else:
+        workspace = await get_agent_for_request(request, agent_id=agent_id)
+    manager = _workspace_manager(request)
+    reservation = None
+    if manager is not None:
+        reservation = manager.begin_console_operation(workspace)
+        if reservation is None:
+            authenticated = getattr(request.state, "authenticated_session", None)
+            if authenticated is not None:
+                from ...identity.runtime import get_identity_runtime
+
+                fresh = await get_identity_runtime().sessions.active_parent_session(
+                    authenticated.session.id, authenticated.user.id,
+                )
+                if fresh is None:
+                    raise HTTPException(401, detail="device_session_revoked")
+                if fresh.user.platform_role != authenticated.user.platform_role:
+                    raise HTTPException(403, detail="forbidden")
+            workspace = await get_agent_for_request(
+                request, agent_id=workspace.agent_id, recheck_access=True,
+            )
+            reservation = manager.begin_console_operation(workspace)
+            if reservation is None:
+                raise HTTPException(
+                    503, detail="Agent workspace is reloading",
+                    headers={"Retry-After": "1"},
+                )
+    try:
+        yield workspace
+    finally:
+        if reservation is not None:
+            reservation.set_result(None)
+
+
+def _start_console_task(request, workspace, coroutine):
+    job = asyncio.create_task(coroutine)
+    manager = _workspace_manager(request)
+    if manager is not None:
+        manager.track_console_operation(workspace, job)
+    return job
+
+
+async def _console_channel(workspace):
+    manager = workspace.channel_manager
+    channel = await manager.get_channel("console") if manager is not None else None
+    if channel is None:
+        raise HTTPException(503, detail="Channel Console not found")
+    return channel
+
+
+async def _require_owned_chat(request, workspace, conversation_id, *, delegated):
     if not conversation_id:
         return
     actor = get_actor(request)
@@ -145,11 +199,36 @@ async def _require_console_conversation_write(
             expected_agent_id=agent_database_id(workspace.agent_id),
             write=True,
         )
-        if delegation and access.conversation.publication_id is not None:
+        if delegated and access.conversation.publication_id is not None:
             # 发布应用必须保持发布快照，不能派发到未绑定发布版本的私人会话。
             raise HTTPException(status_code=403, detail="publication_subtask_scope")
     except (ValueError, ChatAccessDeniedError) as exc:
         raise HTTPException(status_code=404, detail="Chat not found") from exc
+
+
+async def _require_source_chat(request, source_agent, conversation_id):
+    # 单独的请求状态防止来源智能体的资源角色覆盖目标角色。
+    source_request = Request({**request.scope, "state": dict(request.scope["state"])})
+    source = await get_agent_for_request(source_request, agent_id=source_agent, recheck_access=True)
+    await _require_owned_chat(source_request, source, conversation_id, delegated=True)
+    request.state.delegation_source_access = source_request.state.agent_access
+
+
+async def _require_console_conversation_write(request: Request, workspace, conversation_id: str) -> None:
+    """委托同时要求父会话写权、目标智能体使用权和显式目标会话写权。"""
+    if not is_multi_user_enabled():
+        return
+    delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+    if delegation is not None:
+        if not delegation.conversation_id or delegation.destination != workspace.agent_id:
+            raise HTTPException(403, detail="delegation_scope_mismatch")
+        if delegation.target_agent_id:
+            await _require_source_chat(request, delegation.agent_id, delegation.conversation_id)
+        else:
+            if conversation_id and conversation_id != delegation.conversation_id:
+                raise HTTPException(403, detail="forbidden")
+            conversation_id = delegation.conversation_id
+    await _require_owned_chat(request, workspace, conversation_id, delegated=delegation is not None)
 
 
 async def _resolve_console_runtime_project(
@@ -199,7 +278,7 @@ async def _resolve_console_runtime_project(
 
 def _output_conversation(request, chat_id):
     delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
-    return delegation.conversation_id if delegation else str(chat_id)
+    return delegation.conversation_id if delegation and not delegation.target_agent_id else str(chat_id)
 
 
 async def _bind_console_task_output(request, workspace, chat, request_context):
@@ -250,6 +329,7 @@ async def _resolve_console_upload_dir(
 async def _resolve_console_chat(
     workspace,
     *,
+    request: Request,
     requested_conversation_id: str,
     session_id: str,
     user_id: str,
@@ -262,12 +342,17 @@ async def _resolve_console_chat(
         if chat is None or str(getattr(chat, "id", "")) != requested_conversation_id:
             raise HTTPException(status_code=404, detail="Chat not found")
         return chat.model_copy(update={"user_id": user_id})
-    return await workspace.chat_manager.get_or_create_chat(
+    chat = await workspace.chat_manager.get_or_create_chat(
         session_id,
         user_id,
         channel_id,
         name=name,
     )
+    delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
+    if delegation and delegation.target_agent_id:
+        # 续聊通过内部 session 索引取得会话，也从数据库复核当前发布绑定。
+        await _require_owned_chat(request, workspace, chat.id, delegated=True)
+    return chat
 
 
 def _safe_filename(name: str) -> str:
@@ -507,6 +592,24 @@ def _apply_trusted_chat_identity(request: Request, native_payload: dict) -> None
     meta = native_payload.setdefault("meta", {})
     meta["user_id"] = user_id
     request_context = dict(meta.get("request_context") or {})
+    # Console 用户和调度器使用不同授权来源。旧版 fork 没有多用户归属记录。
+    for key in (
+        "automation_authorization", "automation_kind", "authorized_by_user_id", "cron_job_id",
+        "fork_project_dir", "fork_scope_id", "fork_worktree_branch",
+    ):
+        request_context.pop(key, None)
+    delegation = request.scope.get("qwenpaw.subtask")
+    if delegation is None:
+        for key in ("_spawn_subagent", "root_session_id", "root_agent_id"):
+            request_context.pop(key, None)
+    else:
+        request_context["_spawn_subagent"] = True
+        request_context["root_session_id"] = delegation.root_session_id or delegation.conversation_id
+        request_context["root_agent_id"] = delegation.agent_id
+        native_payload["_delegation_root_session_id"] = request_context["root_session_id"]
+    request_context["actor_type"] = actor.actor_type.value
+    if request_context.get("source") in ("cron", "heartbeat"):
+        request_context.pop("source")
     request_context["user_id"] = user_id
     request_context["approval_user_id"] = user_id
     request_context["actor_context"] = {
@@ -550,14 +653,14 @@ def _chat_file_resolver(request, workspace, conversation_id):
 async def list_chat_file_references(
     request: Request, conversation_id: UUID | None = None
 ):
-    workspace = await get_agent_for_request(request)
-    if conversation_id:
-        await _require_console_conversation_write(
-            request, workspace, str(conversation_id)
-        )
-    return await _chat_file_resolver(
-        request, workspace, str(conversation_id) if conversation_id else ""
-    ).catalog()
+    async with _console_workspace(request) as workspace:
+        if conversation_id:
+            await _require_console_conversation_write(
+                request, workspace, str(conversation_id)
+            )
+        return await _chat_file_resolver(
+            request, workspace, str(conversation_id) if conversation_id else ""
+        ).catalog()
 
 
 async def _resolve_personal_library_references(
@@ -589,6 +692,11 @@ async def _resolve_personal_library_references(
         return
     automatic_match = raw_ids in (None, [])
     if automatic_match:
+        allowed = request_context.get("subagent_allowed_tools")
+        if isinstance(allowed, list) and (
+            "personal_library_search" not in allowed or "personal_library_read" not in allowed
+        ):
+            return
         actor = get_actor(request)
         text = "\n".join(
             str(_part_value(part, "text") or "")
@@ -898,18 +1006,21 @@ async def post_console_chat(
             detail="conversation_id is required for reconnect",
         )
 
-    workspace = await get_agent_for_request(request)
+    async with _console_workspace(request) as workspace:
+        return await _post_console_chat(
+            request_data, request, workspace, requested_conversation_id, is_reconnect, edit,
+        )
+
+
+async def _post_console_chat(
+    request_data, request, workspace, requested_conversation_id, is_reconnect, edit,
+):
     await _require_console_conversation_write(
         request,
         workspace,
         requested_conversation_id,
     )
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _console_channel(workspace)
     try:
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
@@ -931,6 +1042,7 @@ async def post_console_chat(
     )
     chat = await _resolve_console_chat(
         workspace,
+        request=request,
         requested_conversation_id=requested_conversation_id,
         session_id=session_id,
         user_id=native_payload["sender_id"],
@@ -1027,7 +1139,8 @@ async def post_console_chat(
 
         # Title generation is only needed when starting a new run.
         if first_text and chat.name == name:
-            asyncio.create_task(
+            _start_console_task(
+                request, workspace,
                 generate_and_update_title(
                     workspace=workspace,
                     chat_id=chat.id,
@@ -1053,6 +1166,7 @@ async def post_console_chat(
                 config=agent_config,
                 editor=editor,
                 edit=edit,
+                pawapp_run=getattr(request, "scope", {}).get("qwenpaw.pawapp_run"),
             )
             if queue is None:
                 return StreamingResponse(
@@ -1111,6 +1225,7 @@ async def _admit_console_submission(
     config,
     editor=None,
     edit=None,
+    pawapp_run=None,
 ):
     """Keep stop/revision/start in one per-conversation admission transition."""
     from ..chats.repo import RepositoryConflictError
@@ -1147,13 +1262,23 @@ async def _admit_console_submission(
             persistence = getattr(workspace.chat_manager, "run_persistence", None)
             if persistence is not None and hasattr(persistence, "prepare_turn"):
                 await persistence.prepare_turn(chat=chat, payload=payload)
-        queue, _ = await tracker.attach_or_start(
+        queue, started = await tracker.attach_or_start(
             chat.id,
             payload,
             stream_source,
             owner=workspace,
             access_scope=access_scope,
         )
+        if started and pawapp_run is not None:
+            run_id = payload["_qwenpaw_run_id"]
+            user_id = pawapp_run.user_id
+            repository = getattr(workspace.chat_manager, "conversation_repository", None)
+
+            async def stop_pawapp_turn():
+                if await tracker.request_stop(chat.id, expected_run_id=run_id):
+                    await _finish_cancelled_console_run(repository, user_id, run_id)
+
+            pawapp_run.stop = stop_pawapp_turn
         return queue
 
 
@@ -1168,7 +1293,11 @@ async def post_console_chat_stop(
 ) -> dict:
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
-    workspace = await get_agent_for_request(request)
+    async with _console_workspace(request) as workspace:
+        return await _stop_console_chat(request, chat_id, workspace)
+
+
+async def _stop_console_chat(request, chat_id, workspace):
     resolved_chat_id = chat_id
     try:
         UUID(chat_id)
@@ -1212,28 +1341,25 @@ async def post_console_chat_stop(
     if stopped and run_id and is_multi_user_enabled():
         actor = get_actor(request)
         repository = workspace.chat_manager.conversation_repository
-        if repository is not None and actor.user_id is not None:
-            repository = repository.with_user(actor.user_id)
-            pending = await repository.get_run(UUID(run_id))
-            if pending is not None and pending.status in {
-                "queued",
-                "running",
-                "waiting_input",
-                "waiting_approval",
-            }:
-                from datetime import datetime, timezone
-
-                await repository.finish_run(
-                    UUID(run_id),
-                    status="cancelled",
-                    finished_at=datetime.now(timezone.utc),
-                )
+        await _finish_cancelled_console_run(repository, actor.user_id, run_id)
 
     logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
     )
     return {"stopped": stopped}
+
+
+async def _finish_cancelled_console_run(repository, user_id, run_id):
+    if repository is None or user_id is None:
+        return
+    repository = repository.with_user(user_id)
+    run_id = UUID(run_id)
+    pending = await repository.get_run(run_id)
+    if pending is not None and pending.status in {"queued", "running", "waiting_input", "waiting_approval"}:
+        from datetime import datetime, timezone
+
+        await repository.finish_run(run_id, status="cancelled", finished_at=datetime.now(timezone.utc))
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
@@ -1248,18 +1374,17 @@ async def post_console_upload(
 ) -> dict:
     """Save to console channel media_dir."""
 
-    workspace = await get_agent_for_request(request)
+    async with _console_workspace(request) as workspace:
+        return await _post_console_upload(request, file, conversation_id, workspace)
+
+
+async def _post_console_upload(request, file, conversation_id, workspace):
     await _require_console_conversation_write(
         request,
         workspace,
         conversation_id if isinstance(conversation_id, str) else "",
     )
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _console_channel(workspace)
     media_dir = await _resolve_console_upload_dir(
         request,
         workspace,
@@ -1652,20 +1777,33 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     Returns a ``task_id`` immediately. Poll status via
     ``GET /console/chat/task/{task_id}``.
     """
-    workspace = await get_agent_for_request(request)
+    return await _submit_console_chat_task(request_data, request)
+
+
+def _console_task_worker(request):
+    if request is None or not is_multi_user_enabled():
+        return None
+    app = request.scope.get("app")
+    worker = getattr(getattr(app, "state", None), "console_task_worker", None)
+    if worker is None and getattr(request.state, "authenticated_session", None) is not None:
+        raise HTTPException(503, detail="console_task_dispatch_unavailable")
+    return worker
+
+
+async def _submit_console_chat_task(request_data, request, *, claimed=None):
+    async with _console_workspace(request) as workspace:
+        return await _run_console_chat_task(request_data, request, workspace, claimed=claimed)
+
+
+async def _run_console_chat_task(request_data, request, workspace, *, claimed):
+    worker = _console_task_worker(request)
     await _require_console_conversation_write(
         request,
         workspace,
         _requested_conversation_id(request_data),
     )
-    console_channel = await workspace.channel_manager.get_channel("console")
-    if console_channel is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Channel Console not found",
-        )
+    console_channel = await _console_channel(workspace)
 
-    task_id = f"task-{uuid.uuid4().hex[:12]}"
     native_payload = _extract_session_and_payload(request_data)
     _apply_trusted_chat_identity(request, native_payload)
     native_payload["_reference_conversation_id"] = _requested_conversation_id(
@@ -1682,17 +1820,27 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     )
     name, _ = _extract_placeholder_name(native_payload["content_parts"])
     requested_conversation_id = _requested_conversation_id(request_data)
+    if claimed is not None:
+        # Bind the original target even if its session alias was subsequently reused.
+        requested_conversation_id = str(claimed["conversation_id"])
+        await _require_owned_chat(
+            request, workspace, requested_conversation_id,
+            delegated=request.scope.get("qwenpaw.subtask") is not None,
+        )
     chat = await _resolve_console_chat(
         workspace,
+        request=request,
         requested_conversation_id=requested_conversation_id,
         session_id=session_id,
         user_id=native_payload["sender_id"],
         channel_id=native_payload["channel_id"],
         name=name,
     )
+    run_id = str(claimed["run_id"]) if claimed is not None else str(uuid.uuid4())
     from ...models.runtime import prepare_console_model
 
-    await prepare_console_model(request, workspace, chat, request_data, native_payload)
+    model_options = {"persist_choice": False} if claimed is not None else {}
+    await prepare_console_model(request, workspace, chat, request_data, native_payload, **model_options)
     await _resolve_console_attachment_refs(
         request,
         workspace,
@@ -1701,43 +1849,20 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     )
     if requested_conversation_id:
         native_payload["meta"]["session_id"] = chat.session_id
-    chat = await _apply_session_project_dir(
-        workspace,
-        chat,
-        native_payload,
+    if claimed is None:
+        chat = await _apply_session_project_dir(workspace, chat, native_payload)
+    else:
+        # Admission applied the user's selection. Recovery checks the current workspace.
+        native_payload["meta"]["request_context"].pop("session_project_dir", None)
+
+    task_timeout = task_timeout_seconds(
+        request_data.get("timeout") if isinstance(request_data, dict)
+        else getattr(request_data, "timeout", None)
     )
-
-    task_timeout: Optional[float] = None
-    fork_project_dir = ""
-    fork_worktree_branch = ""
-    fork_scope_id = ""
-    if isinstance(request_data, dict):
-        task_timeout = request_data.get("timeout")
-        rc = request_data.get("request_context")
-        if isinstance(rc, dict):
-            fork_project_dir = str(rc.get("fork_project_dir") or "")
-            fork_worktree_branch = str(
-                rc.get("fork_worktree_branch") or "",
-            )
-            fork_scope_id = str(rc.get("fork_scope_id") or "")
-    elif hasattr(request_data, "timeout"):
-        task_timeout = getattr(request_data, "timeout", None)
-        rc = getattr(request_data, "request_context", None)
-        if isinstance(rc, dict):
-            fork_project_dir = str(rc.get("fork_project_dir") or "")
-            fork_worktree_branch = str(
-                rc.get("fork_worktree_branch") or "",
-            )
-            fork_scope_id = str(rc.get("fork_scope_id") or "")
-
-    if is_multi_user_enabled():
-        from ...access.agent_repository import AgentResourceRole
-
-        role, _ = get_agent_access_state(request)
-        if role is AgentResourceRole.USER:
-            fork_project_dir = ""
-            fork_worktree_branch = ""
-            fork_scope_id = ""
+    rc = native_payload["meta"].get("request_context") or {}
+    fork_project_dir = str(rc.get("fork_project_dir") or "")
+    fork_worktree_branch = str(rc.get("fork_worktree_branch") or "")
+    fork_scope_id = str(rc.get("fork_scope_id") or "")
 
     from ...config.config import load_agent_config
     from ...services.project_directory import (
@@ -1768,7 +1893,6 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             agent_config.project_dir or workspace.workspace_dir
         ),
     )
-    run_id = str(uuid.uuid4())
     request_context = _bind_run_context(
         native_payload,
         conversation_id=chat.id,
@@ -1779,6 +1903,8 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     await _bind_console_task_output(request, workspace, chat, request_context)
     native_payload["meta"]["request_context"] = request_context
 
+    parent = getattr(request, "scope", {}).get("qwenpaw.subtask")
+    result_session_id = parent.session_handle if parent and parent.session_handle else session_id
     bg = _BackgroundTask(
         status="running",
         started_at=time.time(),
@@ -1787,10 +1913,26 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         conversation_id=str(chat.id),
         run_id=run_id,
         actor_context=dict(request_context.get("actor_context") or {}),
-        parent_conversation_id=_output_conversation(request, chat.id),
+        parent_conversation_id=parent.conversation_id if parent else str(chat.id),
+        parent_agent_id=parent.agent_id if parent else str(workspace.agent_id),
     )
+    if worker is not None and claimed is None:
+        from ..console_task_worker import task_envelope
+
+        task_id = f"task-{uuid.uuid4().hex[:12]}"
+        data = request_data if isinstance(request_data, dict) else request_data.model_dump(mode="json", exclude_unset=True)
+        await worker.repo.enqueue(
+            task_id=task_id, owner_id=get_actor(request).user_id, agent_id=bg.agent_id,
+            parent_agent_id=bg.parent_agent_id, conversation_id=bg.conversation_id,
+            parent_conversation_id=bg.parent_conversation_id,
+            run_id=run_id, envelope=task_envelope(request, data),
+        )
+        worker.wake.set()
+        return {"task_id": task_id}
 
     async def _run() -> None:
+        if claimed is not None:
+            request.state.task_execution_started = True
         last_response: Optional[Dict[str, Any]] = None
         try:
             stream_source = _persisting_stream_source(
@@ -1884,13 +2026,13 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         bg.finished_at = time.time()
         if last_response is not None:
             bg.result = {
-                "session_id": session_id,
                 **last_response,
+                "session_id": result_session_id,
             }
         else:
             bg.result = {
                 "status": "failed",
-                "session_id": session_id,
+                "session_id": result_session_id,
                 "error": {"message": "子任务未返回最终结果。"},
             }
 
@@ -1914,22 +2056,51 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "error": {"message": "task_admission_failed"},
             }
 
-    atask = asyncio.create_task(_admitted_run())
+    if claimed is not None:
+        await _admitted_run()
+        return bg.result
+
+    task_id = f"task-{uuid.uuid4().hex[:12]}"
+    atask = _start_console_task(request, workspace, _admitted_run())
     bg.asyncio_task = atask
 
     if task_timeout is not None and task_timeout > 0:
-
-        async def _timeout_guard() -> None:
-            await asyncio.sleep(task_timeout)
-            if not atask.done():
-                atask.cancel()
-
-        asyncio.create_task(_timeout_guard())
+        timer = asyncio.get_running_loop().call_later(task_timeout, atask.cancel)
+        atask.add_done_callback(lambda _: timer.cancel())
 
     async with _bg_lock:
         _bg_tasks[task_id] = bg
 
+    def release_task(task):
+        if task.cancelled() and bg.finished_at is None:
+            bg.status = "finished"
+            bg.finished_at = time.time()
+            bg.result = {"status": "failed", "error": {"message": "Task cancelled before admission"}}
+        _prune_legacy_tasks()
+
+    atask.add_done_callback(release_task)
+
     return {"task_id": task_id}
+
+
+def _prune_legacy_tasks():
+    """Keep at most 256 terminal results for one hour, with one outstanding timer."""
+    global _bg_prune_timer
+    if _bg_prune_timer is not None:
+        _bg_prune_timer.cancel()
+        _bg_prune_timer = None
+    finished = sorted(
+        ((entry.finished_at, key) for key, entry in _bg_tasks.items() if entry.finished_at is not None),
+    )
+    now = time.time()
+    for index, (completed, key) in enumerate(finished):
+        if index < len(finished) - 256 or completed + 3600 <= now:
+            _bg_tasks.pop(key, None)
+        else:
+            _bg_prune_timer = asyncio.get_running_loop().call_later(
+                completed + 3600 - now, _prune_legacy_tasks,
+            )
+            break
 
 
 @router.get(
@@ -1942,28 +2113,63 @@ async def get_console_chat_task(
     request: Request = None,
 ) -> dict:
     """Return the current status of a background chat task."""
-    async with _bg_lock:
-        bg = _bg_tasks.get(task_id)
+    worker = _console_task_worker(request)
+    execution_state = None
+    if worker is None:
+        async with _bg_lock:
+            bg = _bg_tasks.get(task_id)
+    else:
+        from ..console_task_worker import INTERRUPTED
+
+        owner_id = get_actor(request).user_id
+        stored = await worker.repo.lookup(task_id, owner_id) if owner_id else None
+        bg = None
+        if stored:
+            execution_state = stored["state"]
+            bg = _BackgroundTask(
+                status="finished" if execution_state in {"finished", "interrupted"} else "running",
+                owner_user_id=str(owner_id), agent_id=stored["agent_id"],
+                conversation_id=str(stored["conversation_id"]), run_id=str(stored["run_id"]),
+                parent_agent_id=stored["parent_agent_id"], parent_conversation_id=str(stored["parent_conversation_id"]),
+                started_at=stored["started_at"].timestamp() if stored["started_at"] else None,
+                result=INTERRUPTED if execution_state == "interrupted" else stored["result"],
+            )
     if bg is None:
         raise HTTPException(
             status_code=404,
             detail=f"Task not found: {task_id}",
         )
-    if is_multi_user_enabled() and request is not None:
+    if is_multi_user_enabled():
+        if request is None:
+            raise HTTPException(status_code=404, detail="Task not found")
         actor = get_actor(request)
         if actor.user_id is None or str(actor.user_id) != bg.owner_user_id:
             raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
         delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
-        if delegation:
-            if (bg.agent_id, bg.parent_conversation_id) != (delegation.agent_id, delegation.conversation_id):
-                raise HTTPException(status_code=404, detail="Task not found")
-            workspace = await get_agent_for_request(request)
-            await _require_console_conversation_write(request, workspace, delegation.conversation_id)
+        selected_agent = getattr(request.state, "agent_id", None) or request.headers.get("X-Agent-Id")
+        source_agent_id = bg.parent_agent_id or bg.agent_id
+        if selected_agent and selected_agent not in {source_agent_id, bg.agent_id}:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if delegation and (
+            (source_agent_id, bg.parent_conversation_id) != (delegation.agent_id, delegation.conversation_id)
+            or (delegation.is_subtask and delegation.destination != bg.agent_id)
+        ):
+            raise HTTPException(status_code=404, detail="Task not found")
+        async with _console_workspace(request, agent_id=bg.agent_id) as workspace:
+            if source_agent_id != bg.agent_id:
+                await _require_source_chat(request, source_agent_id, bg.parent_conversation_id)
+                await _require_owned_chat(request, workspace, bg.conversation_id, delegated=True)
+            else:
+                await _require_console_conversation_write(
+                    request, workspace, bg.parent_conversation_id or bg.conversation_id,
+                )
     response: Dict[str, Any] = {
         "status": bg.status,
         "conversation_id": bg.conversation_id,
         "run_id": bg.run_id,
     }
+    if execution_state is not None:
+        response["execution_state"] = execution_state
     if bg.started_at is not None:
         response["started_at"] = bg.started_at
     if bg.status == "finished" and bg.result is not None:

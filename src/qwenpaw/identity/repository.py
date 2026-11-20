@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..persistence.database import database_session
+from ..access.stream_revocation import revoke_streams
 from .governance import LastActiveAdminError, UserNotFoundError
 from .models import (
     CredentialRecord,
@@ -401,7 +402,11 @@ class PostgresUserRepository:
                 ),
                 {"user_id": user_id, "value": value},
             )
-            return _user_from_row(result.mappings().one())
+            updated = _user_from_row(result.mappings().one())
+        if ((field == "status" and updated.status == "disabled")
+                or current.platform_role != updated.platform_role):
+            revoke_streams(user_id=user_id)
+        return updated
 
 
 def _credential_from_row(row) -> CredentialRecord:

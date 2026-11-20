@@ -18,7 +18,6 @@ from domain.errors import (
 )
 from services.project_files.facade import (
     CreatorFileServices,
-    creator_file_services,
 )
 from services.observability import (
     bind_trace_context,
@@ -28,10 +27,12 @@ from services.observability import (
 from services.storage_root import require_creator_data_root
 
 
-def project_file_services() -> CreatorFileServices:
-    """Return the process-shared filesystem Project authority and poll cache."""
+async def project_file_services() -> AsyncIterator[CreatorFileServices]:
+    """Lease the authenticated workspace for the entire request or event stream."""
+    from services.file_agent_runtime.registry import member_project_services
 
-    return creator_file_services(require_creator_data_root())
+    async with member_project_services(require_creator_data_root()) as services:
+        yield services
 
 
 ProjectFileServicesDep = Depends(project_file_services)

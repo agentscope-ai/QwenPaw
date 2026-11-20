@@ -7,6 +7,7 @@ import asyncio
 import json
 import stat
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -152,6 +153,17 @@ def _clear_background_tasks():
     console._bg_tasks.clear()
     yield
     console._bg_tasks.clear()
+
+
+@pytest.mark.asyncio
+async def test_terminal_result_retention_preserves_running_tasks():
+    now = time.time()
+    console._bg_tasks["active"] = console._BackgroundTask(status="running")
+    console._bg_tasks["old"] = console._BackgroundTask(finished_at=now - 3601)
+    for index in range(260):
+        console._bg_tasks[str(index)] = console._BackgroundTask(finished_at=now - 260 + index)
+    console._prune_legacy_tasks()
+    assert set(console._bg_tasks) == {"active", *(str(index) for index in range(4, 260))}
 
 
 async def _submit_forked_task(

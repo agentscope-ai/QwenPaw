@@ -101,6 +101,12 @@ class FakeSessions:
     async def revoke_current(self, token):
         return token == "refresh-one"
 
+    async def logout_device(self, access_token, refresh_token, expected_session_id):
+        if expected_session_id is not None and expected_session_id != SESSION.id:
+            return False, False
+        owns_cookie = refresh_token == "refresh-one"
+        return access_token == "access-one" or owns_cookie, owns_cookie
+
     async def revoke_all(self, user_id):
         return 2
 

@@ -15,6 +15,7 @@ Provides access to QwenPaw capabilities via thin delegation:
 from __future__ import annotations
 
 import logging
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -201,6 +202,7 @@ class PawAppContext:
     _plugin_registry: Any = field(default=None, repr=False)
     _session: Any = field(default=None, repr=False)
     _sse_channel: Any = field(default=None, repr=False)
+    _console_stream: Any = field(default=None, repr=False)
 
     # ─── Chat ───────────────────────────────────────────────────────
 
@@ -224,22 +226,10 @@ class PawAppContext:
             channel: Channel name (defaults to context's channel)
             user_id: User ID (defaults to context's user_id)
         """
-        workspace = await self._get_workspace()
-        if workspace is None:
-            raise RuntimeError("No workspace available for chat")
-
-        chunks: List[Any] = []
-        async for event in self._stream_query(
-            workspace,
-            message,
-            skill,
-            session_id=session_id,
-            channel=channel or self.channel,
-            user_id=user_id or self.user_id,
-        ):
-            chunks.append(event)
-
-        return ChatReply(chunks=chunks)
+        async with aclosing(self.chat_stream(
+            message, skill=skill, session_id=session_id, channel=channel, user_id=user_id,
+        )) as events:
+            return ChatReply(chunks=[event async for event in events])
 
     async def chat_stream(
         self,
@@ -259,21 +249,16 @@ class PawAppContext:
             channel: Channel name (defaults to context's channel)
             user_id: User ID (defaults to context's user_id)
         """
-        workspace = await self._get_workspace()
-        if workspace is None:
-            raise RuntimeError(
-                "No workspace available for chat_stream",
-            )
-
-        async for event in self._stream_query(
-            workspace,
+        events = self._stream_query(
             message,
             skill,
             session_id=session_id,
             channel=channel or self.channel,
             user_id=user_id or self.user_id,
-        ):
-            yield event
+        )
+        async with aclosing(events):
+            async for event in events:
+                yield event
 
     async def get_session_history(
         self,
@@ -373,7 +358,6 @@ class PawAppContext:
 
     async def _stream_query(
         self,
-        workspace: Any,
         message: str,
         skill: Optional[str],
         *,
@@ -388,6 +372,18 @@ class PawAppContext:
         (e.g. per-issue in Kanban).
         """
         # pylint: disable=unused-argument
+        from ..identity.runtime import is_multi_user_enabled
+
+        if is_multi_user_enabled():
+            if self._console_stream is None:
+                raise PermissionError("A PawApp chat requires an authenticated Console session")
+            async with aclosing(self._console_stream(self.agent_id, message, session_id)) as events:
+                async for event in events:
+                    yield event
+            return
+        workspace = await self._get_workspace()
+        if workspace is None:
+            raise RuntimeError("No workspace available for chat_stream")
         if hasattr(workspace, "stream_query"):
             from ..schemas import AgentRequest
 

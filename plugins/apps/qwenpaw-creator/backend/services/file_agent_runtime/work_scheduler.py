@@ -22,6 +22,7 @@ Safety posture:
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from domain.enums import CreatorCommandType
@@ -41,6 +42,7 @@ from services.file_agent_runtime.work_graph import (
     derive_work_graph,
 )
 from services.project_files.facade import CreatorFileServices
+from services.runtime_files.atomic_store import atomic_replace_bytes
 from services.runtime_files.execution_store import ProjectExecutionStore
 from utils.logger import setup_logger
 
@@ -130,16 +132,58 @@ class WorkGraphScheduler:
         self._on_tick = on_tick
         self._wakes: dict[str, asyncio.Event] = {}
         self._loops: dict[str, asyncio.Task[None]] = {}
+        self._dispatch_tasks: set[asyncio.Task] = set()
         # (project_id, node_id, fingerprint) -> already dispatched once.
         self._dispatched: set[tuple[str, str, str]] = set()
         self._transient_retries: dict[tuple[str, str, str], int] = {}
         self._inflight: dict[str, set[str]] = {}
+        self._ticking: set[str] = set()
+        self._closed = False
 
     # -- lifecycle -----------------------------------------------------
+
+    async def save_idle_ledger(self, generation: str) -> None:
+        """Keep the same dispatch fuses when a dormant member returns."""
+        entries = [
+            [*key, key in self._dispatched, self._transient_retries.get(key, 0)]
+            for key in sorted(self._dispatched | self._transient_retries.keys())
+        ]
+        await asyncio.to_thread(
+            atomic_replace_bytes,
+            self.services.root / ".member-scheduler.json",
+            json.dumps([generation, entries]).encode("utf-8"),
+        )
+
+    def restore_idle_ledger(self, generation: str) -> bool:
+        """Only a workspace evicted during this service lifetime is warm."""
+        try:
+            saved = (self.services.root / ".member-scheduler.json").read_bytes()
+        except FileNotFoundError:
+            return False
+        saved_generation, entries = json.loads(saved)
+        if saved_generation != generation:
+            return False
+        for project, node, fingerprint, dispatched, retries in entries:
+            key = (project, node, fingerprint)
+            if dispatched:
+                self._dispatched.add(key)
+            if retries:
+                self._transient_retries[key] = retries
+        return True
+
+    @property
+    def busy(self) -> bool:
+        return bool(
+            self._ticking
+            or any(self._inflight.values())
+            or any(event.is_set() for event in self._wakes.values())
+        )
 
     def wake(self, project_id: str) -> None:
         """Signal that durable state changed; start the loop if needed."""
 
+        if self._closed:
+            return
         event = self._wakes.setdefault(project_id, asyncio.Event())
         event.set()
         task = self._loops.get(project_id)
@@ -149,17 +193,13 @@ class WorkGraphScheduler:
             )
 
     async def shutdown(self) -> None:
-        for task in self._loops.values():
+        self._closed = True
+        tasks = (*self._loops.values(), *self._dispatch_tasks)
+        for task in tasks:
             task.cancel()
-        for task in list(self._loops.values()):
-            try:
-                await task
-            except (
-                asyncio.CancelledError,
-                Exception,
-            ):  # pylint: disable=broad-except
-                pass
+        await asyncio.gather(*tasks, return_exceptions=True)
         self._loops.clear()
+        self._dispatch_tasks.clear()
 
     # -- loop ----------------------------------------------------------
 
@@ -178,6 +218,7 @@ class WorkGraphScheduler:
                     return
                 continue
             event.clear()
+            self._ticking.add(project_id)
             try:
                 await self.tick(project_id)
             except Exception:  # pylint: disable=broad-except
@@ -185,6 +226,8 @@ class WorkGraphScheduler:
                     "work-graph tick failed for %s",
                     project_id,
                 )
+            finally:
+                self._ticking.discard(project_id)
 
     # -- core ----------------------------------------------------------
 
@@ -247,9 +290,11 @@ class WorkGraphScheduler:
             self._dispatched.add(ledger_key)
             inflight.add(node.node_id)
             capacity -= 1
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._dispatch(project_id, node, fingerprint),
             )
+            self._dispatch_tasks.add(task)
+            task.add_done_callback(self._dispatch_tasks.discard)
         if self._on_tick is not None:
             await self._on_tick(project_id, graph)
         return graph

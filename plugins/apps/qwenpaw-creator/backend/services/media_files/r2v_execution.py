@@ -4609,6 +4609,22 @@ _registry_lock = threading.RLock()
 _registry: dict[Path, FileR2VExecutionService] = {}
 
 
+def release_idle_video_executor(services) -> bool:
+    with _registry_lock:
+        key = services.root.resolve()
+        worker = _registry.get(key)
+        if worker and (
+            any(not task.done() for task in worker._jobs.values())
+            or any(
+                not task.done()
+                for task in worker._terminal_recovery_jobs.values()
+            )
+        ):
+            return False
+        _registry.pop(key, None)
+        return True
+
+
 def file_r2v_execution_service(
     services: CreatorFileServices,
 ) -> FileR2VExecutionService:

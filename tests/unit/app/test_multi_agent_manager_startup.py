@@ -267,6 +267,109 @@ async def test_cleanup_keeps_old_workspace_alive_after_wait_timeout() -> None:
 
 
 @pytest.mark.asyncio
+async def test_console_request_admitted_during_reload_keeps_old_services_until_its_run_finishes(monkeypatch):
+    from starlette.requests import Request
+    from qwenpaw.app.routers import console
+
+    manager = MultiAgentManager()
+    monkeypatch.setattr(multi_agent_manager_module, "load_config", lambda: _config("agent-1"))
+    old, new = _ReloadWorkspace("agent-1"), _ReloadWorkspace("agent-1")
+    manager.agents["agent-1"] = old
+    manager._create_workspace = MagicMock(return_value=new)
+    request = Request({"type": "http", "headers": [], "app": SimpleNamespace(
+        state=SimpleNamespace(multi_agent_manager=manager),
+    )})
+    authorize = AsyncMock(side_effect=lambda *_args, **_kwargs: manager.get_loaded_agent("agent-1"))
+    monkeypatch.setattr(console, "get_agent_for_request", authorize)
+    paused, resume, end_run = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    dispatches = []
+
+    async def submit(_data, _request, workspace, *_):
+        paused.set()
+        await resume.wait()
+        assert not workspace.stopped
+        async def producer(_payload):
+            dispatches.append(workspace)
+            yield "data: started\n\n"
+            await end_run.wait()
+        return await workspace.task_tracker.attach_or_start("chat-1", {}, producer, owner=workspace)
+
+    monkeypatch.setattr(console, "_post_console_chat", submit)
+    submitted = asyncio.create_task(console.post_console_chat({}, request))
+    await asyncio.wait_for(paused.wait(), 2)
+    assert await manager.reload_agent("agent-1")
+    assert not old.stopped
+    async with console._console_workspace(request) as current:
+        assert current is new
+    resume.set()
+    queue, _ = await asyncio.wait_for(submitted, 2)
+    assert await asyncio.wait_for(queue.get(), 2) == "data: started\n\n"
+    assert not old.stopped
+    end_run.set()
+    await asyncio.wait_for(asyncio.gather(*manager._cleanup_tasks), 2)
+    assert old.stopped and not new.stopped and dispatches == [old]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revoked", [False, True])
+async def test_console_checks_same_agent_again_before_dispatch_if_generation_changed(monkeypatch, revoked):
+    from fastapi import HTTPException, Request
+    from qwenpaw.app.routers import console
+
+    manager = MultiAgentManager()
+    old, new = _ReloadWorkspace("agent-1"), _ReloadWorkspace("agent-1")
+    manager.agents["agent-1"] = new
+    request = Request({"type": "http", "headers": [], "app": SimpleNamespace(
+        state=SimpleNamespace(multi_agent_manager=manager),
+    )})
+    authorize = AsyncMock(side_effect=[old, HTTPException(403) if revoked else new])
+    monkeypatch.setattr(console, "get_agent_for_request", authorize)
+    dispatch = AsyncMock(return_value={"task_id": "submitted"})
+    monkeypatch.setattr(console, "_run_console_chat_task", dispatch)
+    if revoked:
+        with pytest.raises(HTTPException) as denial:
+            await console.post_console_chat_task({}, request)
+        assert denial.value.status_code == 403
+        dispatch.assert_not_awaited()
+    else:
+        assert await console.post_console_chat_task({}, request) == {"task_id": "submitted"}
+        dispatch.assert_awaited_once_with({}, request, new, claimed=None)
+    assert authorize.await_count == 2
+    authorize.assert_awaited_with(request, agent_id="agent-1", recheck_access=True)
+
+
+@pytest.mark.asyncio
+async def test_console_denies_logged_out_device_during_generation_swap(monkeypatch):
+    from fastapi import HTTPException, Request
+    from qwenpaw.app.routers import console
+    from qwenpaw.identity import runtime
+
+    manager = MultiAgentManager()
+    old = _ReloadWorkspace("agent-1")
+    manager.agents["agent-1"] = _ReloadWorkspace("agent-1")
+    request = Request({"type": "http", "headers": [], "app": SimpleNamespace(
+        state=SimpleNamespace(multi_agent_manager=manager),
+    )})
+    request.state.authenticated_session = SimpleNamespace(
+        session=SimpleNamespace(id="signed-out-device"), user=SimpleNamespace(id="member"),
+    )
+    verify_session = AsyncMock(return_value=None)
+    monkeypatch.setattr(runtime, "get_identity_runtime", lambda: SimpleNamespace(
+        sessions=SimpleNamespace(active_parent_session=verify_session),
+    ))
+    monkeypatch.setattr(console, "get_agent_for_request", AsyncMock(return_value=old))
+    dispatch = AsyncMock()
+    monkeypatch.setattr(console, "_run_console_chat_task", dispatch)
+
+    with pytest.raises(HTTPException) as denied:
+        await console.post_console_chat_task({}, request)
+
+    assert denied.value.status_code == 401
+    verify_session.assert_awaited_once_with("signed-out-device", "member")
+    dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_cleanup_forces_stop_after_maximum_wait_rounds(
     monkeypatch,
 ) -> None:

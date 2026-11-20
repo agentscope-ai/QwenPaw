@@ -17,6 +17,8 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+from ..identity.runtime import is_multi_user_enabled
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -126,6 +128,10 @@ def register_http_routes(
 
     Returns the number of routes registered.
     """
+    # These adapters invoke a manager directly without an actor. Multi-user
+    # clients use the explicit routers with membership and object policies.
+    if is_multi_user_enabled():
+        return 0
     count = 0
     for mgr_cls, instance_getter in registry.iter_managers():
         prefix = getattr(mgr_cls, "endpoint_prefix", "") or ""
@@ -171,6 +177,8 @@ def collect_slash_specs_from_api_actions(
     """
     from ..runtime.slash_command_registry import CommandSpec
 
+    if is_multi_user_enabled():
+        return []
     specs: list[CommandSpec] = []
     for mgr_cls, instance_getter in registry.iter_managers():
         for action_spec in getattr(mgr_cls, "_api_actions", []):

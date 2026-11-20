@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.tool_calls import router as tool_calls_router
@@ -117,3 +117,20 @@ def test_get_call_rejects_other_background_task_owner(
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Tool call not found"
+
+
+def test_tool_result_rechecks_active_agent_and_owner(client, coordinator, monkeypatch):
+    owner = uuid4()
+    entry = _running_entry()
+    entry.ctx.extra["execution_context"] = {"user_id": str(owner)}
+    coordinator.get.return_value = entry
+    membership = AsyncMock(return_value=SimpleNamespace(agent_id="agent-1"))
+    monkeypatch.setattr(tool_calls_module, "get_agent_for_request", membership)
+    monkeypatch.setattr(tool_calls_module, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(tool_calls_module, "get_actor", lambda _: SimpleNamespace(user_id=owner))
+    path = "/api/tool-calls/session-a/tc-1/output"
+    assert client.get(path, headers={"X-Agent-Id": "agent-1"}).status_code == 200
+    assert client.get(path, headers={"X-Agent-Id": "other"}).status_code == 404
+    assert membership.await_count == 1
+    membership.side_effect = HTTPException(403, "forbidden")
+    assert client.get(path, headers={"X-Agent-Id": "agent-1"}).status_code == 403

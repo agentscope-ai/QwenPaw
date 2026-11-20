@@ -318,3 +318,25 @@ async def test_prompt_matching_uses_index_relevance_without_topic_whitelist(
 
     assert [item.id for item in matched] == [document.id]
     assert unrelated == []
+
+
+@pytest.mark.asyncio
+async def test_long_task_can_skip_index_lookup_but_named_files_still_resolve(tmp_path):
+    service = PersonalLibraryService(repository=GrantRepository(), working_dir=tmp_path)
+    scope = dict(owner_user_id=uuid4(), agent_key="ppt-creator")
+    document = await service.create_text(**scope, relative_path="样稿制作说明.md", content="样稿内容")
+    deck = f"/data/working/user_workspaces/{uuid4()}/ppt-creator/artifacts/{uuid4()}/" + "样例路径" * 28
+    task = f"Generate slide 1. Deck dir: {deck}. Job file: {deck}/prompts/slide_01.json. Load imagegen."
+    assert len(task) > 256
+    assert await service.match_prompt_documents(**scope, text=task) == []
+    assert await service.match_prompt_documents(**scope, text=task + " 参照样稿制作说明.md") == [document]
+    with pytest.raises(ValueError, match="invalid_library_search"):
+        await service.search_text(**scope, query=task)
+
+
+@pytest.mark.asyncio
+async def test_long_repetitive_query_can_match_by_complete_keywords(tmp_path):
+    service = PersonalLibraryService(repository=GrantRepository(), working_dir=tmp_path)
+    scope = dict(owner_user_id=uuid4(), agent_key="ppt-creator")
+    document = await service.create_text(**scope, relative_path="检测记录.md", content="耐候性能检测通过")
+    assert await service.match_prompt_documents(**scope, text="耐候性能 " * 80) == [document]

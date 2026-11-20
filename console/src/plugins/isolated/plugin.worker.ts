@@ -7,6 +7,7 @@ import {
 type Render = (
   input: unknown,
   event?: { action: string; value?: string },
+  context?: { agentId: string; sessionId: string },
 ) => PluginNode | Promise<PluginNode>;
 const port = self as unknown as {
   onmessage: ((event: MessageEvent) => void) | null;
@@ -21,6 +22,7 @@ const requests = new Map<
 let initialized = false;
 let sealed = false;
 let requestId = 0;
+let locale = "en";
 
 type Definition = Omit<PluginRegistration, "kind"> & { render: Render };
 const register = (kind: "route" | "tool", config: Definition) => {
@@ -45,9 +47,14 @@ const register = (kind: "route" | "tool", config: Definition) => {
 Object.defineProperty(globalThis, "QwenPawWorker", {
   value: Object.freeze({
     version: "worker-v1",
+    t: (zh: string, en: string) =>
+      locale.toLowerCase().startsWith("zh") ? zh : en,
     registerRoute: (config: Definition) => register("route", config),
     registerTool: (config: Definition) => register("tool", config),
-    request: (path: string, options?: { method?: string; body?: unknown }) =>
+    request: (
+      path: string,
+      options?: { method?: string; body?: unknown; idempotencyKey?: string },
+    ) =>
       new Promise((resolve, reject) => {
         if (requests.size >= 4) {
           reject(new Error("plugin_requests_busy"));
@@ -75,6 +82,7 @@ port.onmessage = (event) => {
   }
   if (message.type === "init" && !initialized) {
     initialized = true;
+    locale = message.locale || "en";
     const url = URL.createObjectURL(
       new Blob([message.code], { type: "application/javascript" }),
     );
@@ -90,11 +98,12 @@ port.onmessage = (event) => {
     return;
   }
   if (message.type === "render" && sealed) {
+    locale = message.context?.locale || locale;
     void Promise.resolve()
       .then(() => {
         const render = renderers.get(message.target);
         if (!render) throw new Error("plugin_view_not_found");
-        return render(message.input, message.event);
+        return render(message.input, message.event, message.context);
       })
       .then((view) =>
         port.postMessage({

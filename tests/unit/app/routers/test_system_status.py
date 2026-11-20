@@ -57,7 +57,7 @@ async def test_legacy_status_is_healthy_without_touching_migration_reader(
         "status": "legacy",
         "connected": False,
         "schema_version": None,
-        "expected_schema_version": "0022_artifact_sample_answer",
+        "expected_schema_version": "0023_console_tasks",
         "schema_ready": False,
         "storage_mode": "legacy",
         "active_repository": "legacy",

@@ -19,7 +19,7 @@ vi.mock("../api/modules/auth", () => ({
 
 import { authApi } from "../api/modules/auth";
 import { getApiToken } from "../api/config";
-import { clearAccessSession } from "../api/authSession";
+import { adoptAccessSession, clearAccessSession } from "../api/authSession";
 import { AuthResponseError } from "../api/authErrors";
 import { useAgentStore } from "./agentStore";
 import { useAuthStore } from "./authStore";
@@ -274,6 +274,39 @@ describe("authStore multi-user lifecycle", () => {
     await useAuthStore.getState().bootstrap();
     expect(authApi.refresh).not.toHaveBeenCalled();
     expect(useAuthStore.getState().phase).toBe("anonymous");
+  });
+
+  it("sends the departing device identity when logout waits for another tab", async () => {
+    let runLogout!: () => Promise<unknown>;
+    const request = vi.fn((_name, callback) => {
+      runLogout = callback;
+      return Promise.resolve();
+    });
+    vi.stubGlobal("navigator", { locks: { request } });
+    try {
+      vi.mocked(authApi.logout).mockResolvedValue({ revoked: true });
+      useAuthStore.setState({
+        mode: "multi_user",
+        phase: "authenticated",
+        user,
+      });
+      adoptAccessSession(loginResponse, false);
+      await useAuthStore.getState().logout();
+      adoptAccessSession(
+        {
+          ...loginResponse,
+          token: "bravo-access",
+          session: { id: "second-device", client_info: {} },
+          user: { ...user, id: "bravo" },
+        },
+        false,
+      );
+      await runLogout();
+      expect(authApi.logout).toHaveBeenCalledWith("memory-access", "session-1");
+      expect(getApiToken()).toBe("bravo-access");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("logs out the current device and clears in-memory identity", async () => {

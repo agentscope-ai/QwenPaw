@@ -55,6 +55,17 @@ def _is_computer_use_pending(pending) -> bool:
     return pending.extra.get("source_type") == "computer_use_app_access"
 
 
+def _belongs_to_operator(pending) -> bool:
+    from qwenpaw.identity.runtime import is_multi_user_enabled
+    from qwenpaw.plugins.http_scope import current_plugin_scope
+
+    if not is_multi_user_enabled():
+        return True
+    scope = current_plugin_scope.get()
+    return bool(scope and pending.approval_user_id == str(scope.user_id)
+                and pending.owner_agent_id == scope.agent_id)
+
+
 def _pending_app(pending) -> tuple[str, str] | None:
     details = pending.extra.get("computer_use_app")
     if not isinstance(details, dict):
@@ -133,8 +144,14 @@ def build_router() -> APIRouter:
     @router.get("/session")
     async def get_session_state(
         session_id: str = Query(min_length=1),
-    ) -> dict[str, bool]:
-        return {"automation_active": is_computer_use_active(session_id)}
+    ) -> dict:
+        approvals = []
+        for pending in await _pending_for_session(session_id):
+            if _belongs_to_operator(pending):
+                app = _pending_app(pending)
+                approvals.append({"request_id":pending.request_id,
+                                  "app":app[1] if app else pending.tool_name})
+        return {"automation_active": is_computer_use_active(session_id), "pending": approvals}
 
     @router.post("/session/stop")
     async def stop_automation(
@@ -169,6 +186,7 @@ def build_router() -> APIRouter:
             pending is None
             or pending.session_id != request.session_id
             or not _is_computer_use_pending(pending)
+            or not _belongs_to_operator(pending)
         ):
             raise HTTPException(
                 status_code=404,

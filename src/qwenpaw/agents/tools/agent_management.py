@@ -8,7 +8,7 @@ import math
 import re
 import time
 from typing import Any, Callable, Dict, Optional
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 import httpx
 from agentscope.message import TextBlock
@@ -556,6 +556,11 @@ async def chat_with_agent(
     if not text:
         return _tool_text_response("ERROR: 'text' is required for chat")
 
+    if is_multi_user_enabled():
+        return await _delegated_agent_chat(
+            normalized_to_agent, text, normalized_session_id, timeout, background=False,
+        )
+
     target_exists = await asyncio.to_thread(
         agent_exists,
         normalized_to_agent,
@@ -675,6 +680,11 @@ async def submit_to_agent(
             "ERROR: 'text' is required for submission",
         )
 
+    if is_multi_user_enabled():
+        return await _delegated_agent_chat(
+            normalized_to_agent, text, normalized_session_id, task_timeout, background=True,
+        )
+
     target_exists = await asyncio.to_thread(
         agent_exists,
         normalized_to_agent,
@@ -754,14 +764,17 @@ async def check_agent_task(
         delegation = current_delegation.get()
         if not delegation or not re.fullmatch(r"task-[0-9a-f]{12}", normalized_task_id):
             return _tool_text_response("ERROR: 缺少有效的会话或子任务标识。")
-        response = await delegation.call("GET", f"/api/console/chat/task/{normalized_task_id}")
+        try:
+            response = await delegation.call("GET", f"/api/console/chat/task/{normalized_task_id}")
+        except (httpx.HTTPError, PermissionError, TimeoutError) as exc:
+            return _tool_text_response(f"ERROR: {_delegation_error(exc)}")
         result = response.json()
     else:
         result = await asyncio.to_thread(
             get_agent_chat_task_status, None, normalized_task_id, to_agent=None, timeout=10,
         )
     # Background fork workers: commit on success, mark failed otherwise.
-    if isinstance(result, dict) and result.get("status") == "finished":
+    if not is_multi_user_enabled() and isinstance(result, dict) and result.get("status") == "finished":
         task_result = result.get("result")
         if isinstance(task_result, dict):
             try:
@@ -1021,6 +1034,24 @@ def _normalize_batch(
     return coerced  # type: ignore[return-value]
 
 
+def _delegation_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 401:
+            return "登录会话已失效（HTTP 401）。"
+        if status == 403:
+            try:
+                detail = exc.response.json().get("detail")
+            except (ValueError, AttributeError):
+                detail = None
+            if detail == "publication_subtask_scope":
+                return "该会话绑定了固定发布版本，不能委托到草稿智能体（HTTP 403）。"
+            return "当前用户缺少来源或目标智能体所需的权限（HTTP 403）。"
+        if status == 404:
+            return "当前会话无法访问该智能体、会话或任务（HTTP 404）。"
+    return _dispatch_error(exc)
+
+
 def _dispatch_error(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code in {401, 403, 404}:
@@ -1029,22 +1060,57 @@ def _dispatch_error(exc: Exception) -> str:
     return str(exc) or type(exc).__name__
 
 
+async def _delegated_agent_chat(target, text, session, timeout, *, background):
+    from ...tool_calls import cancellable_wait, get_call_context, COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+
+    parent = current_delegation.get()
+    if not parent:
+        return _tool_text_response("ERROR: 跨智能体委托缺少已认证的父会话。")
+    handle, payload, _ = build_agent_chat_request(target, text, session, from_agent=parent.destination)
+    try:
+        child = parent.for_target(target, session_handle=handle)
+        # 将可复用的句柄限制在当前父会话与目标智能体中。
+        key = uuid5(UUID(parent.conversation_id), json.dumps([target, handle]))
+        payload["session_id"] = f"delegated-{key}"
+        if background:
+            if timeout is not None:
+                payload["timeout"] = _coerce_timeout(timeout)
+            response = await child.call("POST", "/api/console/chat/task", payload=payload)
+            return _tool_text_response(format_background_submission_text(response.json(), handle))
+        seconds = _coerce_timeout(timeout)
+        ceiling = COORDINATOR_OWNED_EXEC_TIMEOUT_SECS if get_call_context() else seconds
+        response = await cancellable_wait(
+            child.call("POST", "/api/console/chat", payload=payload, timeout=ceiling),
+            fallback_secs=seconds, as_kill_deadline=True,
+        )
+        final = _terminal_sse_response(response)
+        if not final or final.get("status") != "completed" or final.get("error"):
+            return _tool_text_response("ERROR: 目标智能体未返回已完成的答复。")
+        return _tool_text_response(format_agent_chat_text(final, session_id=handle))
+    except (httpx.HTTPError, PermissionError, ValueError, TimeoutError) as exc:
+        return _tool_text_response(f"ERROR: {_delegation_error(exc)}")
+
+
+def _terminal_sse_response(response):
+    final = None
+    for line in response.iter_lines():
+        event = parse_agent_sse_line(line)
+        if is_terminal_response(event):
+            final = event
+    return final
+
+
 async def _dispatch_subtask(payload, agent_id, timeout, *, background):
     if is_multi_user_enabled():
         delegation = current_delegation.get()
-        if not delegation or delegation.agent_id != agent_id:
+        if not delegation or delegation.destination != agent_id:
             raise PermissionError("子任务缺少已认证的父会话。")
         if background:
             response = await delegation.call("POST", "/api/console/chat/task",
                                              payload={**payload, "timeout": timeout})
             return response.json()
         response = await delegation.call("POST", "/api/console/chat", payload=payload, timeout=timeout)
-        final = None
-        for line in response.iter_lines():
-            event = parse_agent_sse_line(line)
-            if is_terminal_response(event):
-                final = event
-        return final
+        return _terminal_sse_response(response)
     if background:
         return await asyncio.to_thread(
             submit_agent_chat_task, None, payload, agent_id,
@@ -1066,7 +1132,12 @@ def _build_subagent_request_context(
     if extra:
         rc.update(extra)
     if allowed_tools is not None:
-        rc["subagent_allowed_tools"] = list(allowed_tools)
+        # Models may qualify a Python tool as functions.<name>. Normalize before
+        # the parent/child scope intersection, leaving other namespaces intact.
+        rc["subagent_allowed_tools"] = [
+            name.removeprefix("functions.") if name.count(".") == 1 else name
+            for name in allowed_tools
+        ]
     if skills is not None:
         rc["subagent_skills"] = list(skills)
     return rc
@@ -1441,6 +1512,11 @@ async def _spawn_forked_subagent(
     skills: Optional[list[str]] = None,
 ) -> ToolChunk:
     """Fork path: call /api/fork/agent then dispatch subagent."""
+    if is_multi_user_enabled():
+        return _tool_text_response(
+            "ERROR: 多用户模式暂不支持复制会话和 Git 工作树。"
+            "独立的同智能体子任务可使用 fork=false。"
+        )
     # pylint: disable=too-many-branches,too-many-statements
     from ...app.agent_context import (
         get_current_session_id,

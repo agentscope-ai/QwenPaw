@@ -21,6 +21,7 @@ HTTP endpoints (registered by pawapps router):
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
 import time
@@ -43,6 +44,9 @@ class SSEChannel:
 
     async def send_event(self, data: Dict[str, Any]) -> None:
         """Send an event to the channel (non-blocking for producer)."""
+        self.send_nowait(data)
+
+    def send_nowait(self, data: Dict[str, Any]) -> None:
         if self._closed:
             return
         try:
@@ -85,6 +89,46 @@ class SSEChannel:
                 break
 
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+class SSEBroadcast:
+    """One bounded replay buffer and an independent queue per connected tab."""
+
+    def __init__(self):
+        self.history = deque(maxlen=1000)
+        self.subscribers = set()
+        self.closed = False
+
+    def publish(self, event):
+        if not self.closed:
+            self.history.append(event)
+            for subscriber in tuple(self.subscribers):
+                subscriber.send_nowait(event)
+
+    async def send_event(self, event):
+        self.publish(event)
+
+    def close(self):
+        self.closed = True
+        for subscriber in self.subscribers:
+            subscriber.close()
+
+    async def stream(self):
+        # Snapshot and subscription are synchronous within the same event loop.
+        replay = tuple(self.history)
+        finished_at_subscribe = self.closed
+        subscriber = SSEChannel()
+        self.subscribers.add(subscriber)
+        try:
+            for event in replay:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            if finished_at_subscribe:
+                return
+            async for chunk in subscriber:
+                yield chunk
+        finally:
+            self.subscribers.discard(subscriber)
+            subscriber.close()
 
 
 class TaskRecord:

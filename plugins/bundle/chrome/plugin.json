@@ -12,6 +12,6 @@
   "icon": "Chrome",
   "qwenpaw_version": {"min": "2.0.0"},
   "capabilities": [{"id": "chrome", "name": "Chrome", "description": "Use QwenPaw with this Chrome browser."}],
-  "entry": {"backend": "plugin.py", "frontend": "dist/index.js"},
+  "entry": {"backend": "plugin.py", "frontend": "worker.js", "frontend_runtime": "worker-v1"},
   "dependencies": []
 }

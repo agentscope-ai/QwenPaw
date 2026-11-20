@@ -713,7 +713,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         token = self._extract_token(request)
         delegation = request.scope.get("qwenpaw.subtask")
-        if not token and delegation is None:
+        pawapp = request.scope.get("qwenpaw.pawapp_console")
+        if not token and delegation is None and pawapp is None:
             return Response(
                 content='{"detail":"Not authenticated"}',
                 status_code=401,
@@ -722,7 +723,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         if is_multi_user_enabled():
             sessions = get_identity_runtime().sessions
-            if delegation is None:
+            if pawapp is not None:
+                from ..pawapp.console_stream import PawAppConsoleBinding
+
+                if not (isinstance(pawapp, PawAppConsoleBinding)
+                        and delegation is None
+                        and request.method == "POST" and request.url.path == "/api/console/chat"
+                        and request.headers.get("X-Agent-Id") == pawapp.agent_id):
+                    return Response(status_code=403)
+                authenticated = await sessions.active_parent_session(pawapp.session_id, pawapp.user_id)
+            elif delegation is None:
                 authenticated = await sessions.authenticate_access(token)
             else:
                 from .console_delegation import ConsoleDelegation
@@ -738,7 +748,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                          re.fullmatch(r"/api/console/chat/task/task-[0-9a-f]{12}", path))
                 )
                 if not (isinstance(delegation, ConsoleDelegation) and allowed
-                        and request.headers.get("X-Agent-Id") == delegation.agent_id):
+                        and request.headers.get("X-Agent-Id") == delegation.destination):
                     return Response(status_code=403)
                 authenticated = await sessions.active_parent_session(
                     delegation.session_id, delegation.user_id,
@@ -752,6 +762,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.authenticated_session = authenticated
             request.state.user = authenticated.user.username
             request.state.actor = actor_from_request(request, multi_user=True)
+            if pawapp is not None:
+                from ..plugins.governance import PluginAccessError
+                from .routers.frontend_plugin import get_plugin_governance_service
+
+                try:
+                    await get_plugin_governance_service().require_app_access(request.state.actor, pawapp.plugin_id)
+                except PluginAccessError:
+                    return Response(status_code=404)
+                request.state.authorized_plugin = (pawapp.plugin_id, request.state.actor)
             return await call_next(request)
 
         user = verify_token(token)

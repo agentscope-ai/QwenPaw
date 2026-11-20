@@ -16,7 +16,7 @@ from .database import database_session
 from .mode import StorageMode
 from .settings import DatabaseSettings, load_database_settings
 
-EXPECTED_SCHEMA_REVISION = "0022_artifact_sample_answer"
+EXPECTED_SCHEMA_REVISION = "0023_console_tasks"
 CUTOVER_VALIDATED_ENV = "QWENPAW_CUTOVER_VALIDATED_DOMAINS"
 CUTOVER_LEGACY_FROZEN_ENV = "QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS"
 CUTOVER_POSTGRES_WRITES_ENV = "QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS"

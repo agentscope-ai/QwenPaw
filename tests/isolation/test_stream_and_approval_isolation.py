@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -46,19 +47,28 @@ async def test_background_task_status_is_visible_only_to_its_owner(
     owner_id = uuid4()
     other_id = uuid4()
     task_id = "task-owner-only"
+    chat_id = str(uuid4())
     console_router._bg_tasks[task_id] = console_router._BackgroundTask(
         status="finished",
         result={"status": "completed", "output": ["private"]},
         owner_user_id=str(owner_id),
-        conversation_id=str(uuid4()),
+        agent_id="office",
+        conversation_id=chat_id,
     )
     monkeypatch.setattr(console_router, "is_multi_user_enabled", lambda: True)
+    workspace = SimpleNamespace(agent_id="office")
+    membership = AsyncMock(return_value=workspace)
+    conversation = AsyncMock()
+    monkeypatch.setattr(console_router, "get_agent_for_request", membership)
+    monkeypatch.setattr(console_router, "_require_console_conversation_write", conversation)
     try:
         owner_result = await console_router.get_console_chat_task(
             task_id,
             _request(owner_id),
         )
         assert owner_result["result"]["output"] == ["private"]
+        assert membership.await_args.kwargs == {"agent_id": "office"}
+        assert conversation.await_args.args[1:] == (workspace, chat_id)
 
         with pytest.raises(HTTPException) as exc_info:
             await console_router.get_console_chat_task(
@@ -66,6 +76,17 @@ async def test_background_task_status_is_visible_only_to_its_owner(
                 _request(other_id),
             )
         assert exc_info.value.status_code == 404
+        wrong_agent = _request(owner_id)
+        wrong_agent.state.agent_id = "support"
+        with pytest.raises(HTTPException) as wrong_scope:
+            await console_router.get_console_chat_task(task_id, wrong_agent)
+        assert wrong_scope.value.status_code == 404
+        assert membership.await_count == 1
+        membership.side_effect = HTTPException(403, "forbidden")
+        with pytest.raises(HTTPException) as revoked:
+            await console_router.get_console_chat_task(task_id, _request(owner_id))
+        assert revoked.value.status_code == 403
+        assert conversation.await_count == 1
     finally:
         console_router._bg_tasks.pop(task_id, None)
 
@@ -126,6 +147,11 @@ async def test_background_task_creation_binds_actor_conversation_and_run(
             "request_context": {
                 "user_id": "forged-user",
                 "approval_user_id": "forged-approver",
+                "source": "cron",
+                "actor_type": "automation",
+                "automation_authorization": {"grants": []},
+                "fork_scope_id": "old-fork",
+                "root_session_id": "old-session",
             },
         },
         _request(owner_id),
@@ -143,6 +169,8 @@ async def test_background_task_creation_binds_actor_conversation_and_run(
         assert context["conversation_id"] == str(conversation_id)
         assert context["approval_user_id"] == str(owner_id)
         assert context["actor_context"]["user_id"] == str(owner_id)
+        assert context["actor_type"] == "user"
+        assert not {"source", "automation_authorization", "fork_scope_id", "root_session_id"} & context.keys()
     finally:
         console_router._bg_tasks.pop(task_id, None)
 

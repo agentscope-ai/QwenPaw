@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
 from ..access.agent_repository import PostgresAgentRepository
+from ..access.dependencies import get_actor, require_platform_settings_manage
 from ..access.agent_history_backfill import backfill_agent_history_access
 from ..access.legacy_agent_registration import (
     synchronize_legacy_agent_governance,
@@ -430,7 +431,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         from ..access.channel_bindings import (
             PostgresChannelBindingRepository,
         )
-        from ..identity.runtime import get_identity_schema
         from .channels.user_bindings import (
             UserChannelBindingRuntimeRegistry,
         )
@@ -788,10 +788,26 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
 
     _bg_task = asyncio.create_task(_background_startup())
+    console_dispatch = None
+    if is_multi_user_enabled():
+        from functools import partial
+        from ..persistence.console_tasks import ConsoleTaskRepository
+        from .console_task_worker import ConsoleTaskWorker, execute_console_task
+
+        app.state.console_task_worker = ConsoleTaskWorker(
+            ConsoleTaskRepository(get_identity_schema()), partial(execute_console_task, app),
+        )
+        console_dispatch = asyncio.create_task(
+            app.state.console_task_worker.serve(app.state.startup_ready),
+        )
 
     try:
         yield
     finally:
+        if console_dispatch is not None:
+            console_dispatch.cancel()
+            with suppress(asyncio.CancelledError):
+                await console_dispatch
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()
@@ -927,6 +943,11 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
+from .stream_access import StreamAccessMiddleware
+
+# Install next to the route so revocation also releases its running iterator.
+app.add_middleware(StreamAccessMiddleware)
+
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)
 
@@ -1028,8 +1049,10 @@ def get_version():
 
 
 @app.get("/api/doctor/runtime")
-def get_doctor_runtime():
+def get_doctor_runtime(request: Request):
     """Return server runtime diagnostics for authenticated troubleshooting."""
+    if is_multi_user_enabled():
+        require_platform_settings_manage(get_actor(request))
     return {
         "python_executable": sys.executable,
         "python_environment": summarize_python_environment(),

@@ -1,8 +1,31 @@
 import httpx
 import pytest
+from types import SimpleNamespace
 
 from qwenpaw.agents.tools import agent_management as tools
 from qwenpaw.app import agent_context
+from qwenpaw.runtime.builder import AgentBuilder
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_subtask_qualified_tool_names_select_only_requested_tools(monkeypatch, batch):
+    names = ["load_skill", "read_file", "execute_shell_command", "view_image"]
+    requested = ["functions." + name for name in names] + ["other.write_file", "functions.extra.write_file"]
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "ppt")
+
+    async def dispatch(payload, agent_id, timeout, *, background):
+        rc = payload["request_context"]
+        assert rc["subagent_skills"] == ["imagegen"]
+        available = [SimpleNamespace(name=n) for n in [*names, "write_file"]]
+        assert [t.name for t in AgentBuilder.apply_subagent_tool_whitelist(available, rc)] == names
+        assert background is batch
+        return {"task_id": "task-test"} if background else {"status": "completed"}
+
+    monkeypatch.setattr(tools, "_dispatch_subtask", dispatch)
+    spec = {"task": "generate slide 1", "fork": False, "allowed_tools": requested, "skills": ["imagegen"]}
+    result = await tools.spawn_subagent(task="", batch=[spec]) if batch else await tools.spawn_subagent(**spec)
+    assert result.state.value == "success"
 
 
 @pytest.mark.asyncio
