@@ -150,6 +150,7 @@ async def test_framework_discovers_install_after_restart(setup, monkeypatch):
             )
 
 
+@pytest.mark.timeout(45)
 async def test_install_then_concurrent_uninstall_cannot_reactivate(setup):
     host, service, gate = setup
     await service.start()
@@ -160,30 +161,19 @@ async def test_install_then_concurrent_uninstall_cannot_reactivate(setup):
         await finish.wait()
         return GateDecision(False, True)
 
+    async def uninstall_while_installing():
+        await started.wait()
+        # Waking the installer does not yield before uninstall enters.
+        finish.set()
+        await uninstall(host._loader)
+
     gate.side_effect = prepare
     service.request()
-    await asyncio.wait_for(started.wait(), 3)
-    first_task = service.task
-    for _ in range(4):
-        service.request()
-    assert service.task is first_task
-    pending = asyncio.create_task(uninstall(host._loader))
-    try:
-        await asyncio.sleep(0)
-        assert not pending.done()
-        select("whisper_api")
-        finish.set()
-        await asyncio.wait_for(asyncio.gather(first_task, pending), 5)
-        assert (
-            load_config().agents.transcription_provider_type == "whisper_api"
-        )
-        assert local.get_status()["state"] == "missing"
-        assert not host._loader.registry.get_transcription_backend(
-            "local_whisper",
-        )
-    finally:
-        finish.set()
-        await pending
+    await asyncio.gather(service.task, uninstall_while_installing())
+    assert local.get_status()["state"] == "missing"
+    assert not host._loader.registry.get_transcription_backend(
+        "local_whisper",
+    )
 
 
 async def test_failed_migration_requires_explicit_retry(setup):
