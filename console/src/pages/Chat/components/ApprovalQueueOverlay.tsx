@@ -97,6 +97,8 @@ export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
         display: "flex",
         width: "calc(100vw - 48px)",
         maxWidth: 480,
+        maxHeight: "calc(100dvh - 112px)",
+        overflowY: "auto",
         flexDirection: "column",
         gap: 8,
       }}
@@ -147,22 +149,31 @@ export default function ApprovalQueueOverlay<T extends ApprovalQueueItem>({
           }
         />
       </div>
-      <div
-        ref={cardRef}
-        tabIndex={-1}
-        data-approval-id={activeItem.requestId}
-        style={
-          activeItem.requestId === focusedRequestId
-            ? {
-                outline: "2px solid var(--app-focus-ring)",
-                outlineOffset: 4,
-                borderRadius: 12,
-              }
-            : undefined
-        }
-      >
-        {renderItem(activeItem)}
-      </div>
+      {/* Keep every queued card mounted so switching cards preserves each
+          card's in-flight lock and submission outcome. */}
+      {items.map((item) => {
+        const isActive = item.requestId === activeItem.requestId;
+        return (
+          <div
+            key={item.requestId}
+            ref={isActive ? cardRef : undefined}
+            hidden={!isActive}
+            tabIndex={-1}
+            data-approval-id={item.requestId}
+            style={
+              item.requestId === focusedRequestId
+                ? {
+                    outline: "2px solid var(--app-focus-ring)",
+                    outlineOffset: 4,
+                    borderRadius: 12,
+                  }
+                : undefined
+            }
+          >
+            {renderItem(item)}
+          </div>
+        );
+      })}
     </section>
   );
 }

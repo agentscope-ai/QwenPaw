@@ -110,6 +110,7 @@
 
 .infoRow {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
 }
@@ -137,6 +138,8 @@
 }
 
 .value {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   color: var(--app-text);
   font-weight: 500;
@@ -453,6 +456,7 @@
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
   align-items: center;
@@ -461,11 +465,14 @@
 
   button {
     min-width: 88px;
-    height: 36px;
+    min-height: 40px;
+    height: auto;
+    max-width: 100%;
+    white-space: normal;
     font-size: 13px;
     font-weight: 500;
     border-radius: 8px;
-    padding: 0 20px;
+    padding: 8px 12px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -487,23 +494,20 @@
     box-shadow: none;
 
     &:hover:not(:disabled) {
-      border-color: var(--app-error-border);
-      background: var(--app-error-bg);
-      color: var(--app-error-text);
-      box-shadow: 0 2px 6px var(--app-error-ring);
+      border-color: var(--app-border-hover);
+      background: var(--app-fill-strong);
+      color: var(--app-text);
       transform: translateY(-0.5px);
     }
 
     &:focus:not(:disabled) {
-      border-color: var(--app-error-border);
-      background: var(--app-error-bg);
-      color: var(--app-error-text);
-      box-shadow: 0 2px 6px var(--app-error-ring);
+      border-color: var(--app-border-hover);
+      color: var(--app-text);
     }
 
     &:active:not(:disabled) {
       transform: translateY(0);
-      box-shadow: 0 1px 3px var(--app-error-ring);
+      box-shadow: none;
     }
   }
 
@@ -579,6 +583,30 @@
   font-weight: 500;
 }
 
+.scopeHint {
+  margin: 0 0 8px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.header .titleRow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.header .timer {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.paramsDetails summary:focus-visible,
+.detailsSection summary:focus-visible {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 3px;
+}
+
 .strictModeHintIcon {
   color: var(--app-error);
   margin-left: 8px;
@@ -618,20 +646,11 @@
     button {
       width: 100%;
       min-width: auto;
-      height: 44px;
+      min-height: 44px;
     }
 
     .denyButton {
       margin-right: 0;
-      order: 3;
-    }
-
-    .approveOnceButton {
-      order: 1;
-    }
-
-    .approveAlwaysButton {
-      order: 2;
     }
   }
 }

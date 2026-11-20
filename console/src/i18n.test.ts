@@ -191,6 +191,70 @@ const APPROVAL_NOTIFICATION_KEYS = [
   "permission.insecure",
 ] as const;
 
+const APPROVAL_CARD_KEYS = [
+  "applicationId",
+  "risk",
+  "warning",
+  "allowTarget",
+  "allowPattern",
+  "allowOnce",
+  "allowApp",
+  "denyApp",
+  "appDenied",
+  "sessionRuleHint",
+  "sessionAppHint",
+  "onceHint",
+  "strictHint",
+  "unknownHint",
+  "target",
+  "pattern",
+  "session",
+  "submitting",
+  "submitUnconfirmed",
+  "submitRejected",
+  "unavailable",
+  "expired",
+  "waiting",
+  "dismiss",
+  "title",
+  "agent",
+  "ownerAgent",
+  "executingAgent",
+  "tool",
+  "severity",
+  "findings",
+  "reason",
+  "parameters",
+  "approve",
+  "deny",
+  "source",
+  "builtinSource",
+  "subSession",
+  "approved",
+  "denied",
+  "details",
+] as const;
+
+describe("approval card translations", () => {
+  afterEach(() => vi.resetModules());
+  it.each(["en", "zh", "ja", "ru", "pt-BR", "id", "vi"])(
+    "provides every visible approval string in %s without fallback",
+    async (language) => {
+      const { loadLocale } = await freshI18nModule();
+      const resource = await loadLocale(language);
+      for (const key of APPROVAL_CARD_KEYS) {
+        const value = readLocaleValue(resource, `approval.${key}`);
+        expect(typeof value, `${language}: ${key}`).toBe("string");
+        expect((value as string).trim(), `${language}: ${key}`).not.toBe("");
+      }
+      expect(
+        readLocaleValue(resource, "approval.submitRejected"),
+        `${language}: submitRejected interpolation`,
+      ).toContain("{{reason}}");
+    },
+  );
+});
+
 function readLocaleValue(
   resource: Record<string, unknown>,
   path: string,

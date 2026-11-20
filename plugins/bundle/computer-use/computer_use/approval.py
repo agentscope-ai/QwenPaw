@@ -145,6 +145,7 @@ class ComputerUseApprovalCoordinator:
                     "tool_source": "app access",
                     "exact_target": f"{request.display_name} for this session",
                     "is_generalized": False,
+                    "approval_behavior": f"session_app",
                 },
                 "tool_call": {
                     "id": f"computer_use:{request.request_id}",

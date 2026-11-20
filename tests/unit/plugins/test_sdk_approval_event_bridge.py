@@ -9,6 +9,10 @@ import time
 
 import pytest
 
+from qwenpaw.app.approvals.service import PendingApproval
+from qwenpaw.plugins._events import approval_snapshot
+from qwenpaw.plugins.events import ApprovalDisplay
+
 from .sdk_author_fixture import make_plugin
 
 from .timing import WAIT_TIMEOUT
@@ -48,6 +52,39 @@ class Plugin:
 
 plugin = Plugin()
 """
+
+
+def test_approval_display_defaults_to_unknown():
+    """Keep existing SDK display constructors backwards compatible."""
+    assert ApprovalDisplay().approval_behavior == f"unknown"
+
+
+@pytest.mark.parametrize(
+    f"behavior",
+    [None, f"once", f"session_rule", f"strict", f"session_app", f"unknown"],
+)
+async def test_approval_snapshot_preserves_approval_behavior(behavior):
+    """Forward approval semantics without dropping SDK event snapshots."""
+    extra = {}
+    if behavior is not None:
+        extra = {f"display": {f"approval_behavior": behavior}}
+    pending = PendingApproval(
+        request_id=f"approval-1",
+        session_id=f"session-1",
+        root_session_id=f"session-1",
+        owner_agent_id=f"agent-1",
+        user_id=f"test-user",
+        channel=f"console",
+        agent_id=f"agent-1",
+        tool_name=f"shell",
+        created_at=time.time(),
+        future=asyncio.get_running_loop().create_future(),
+        extra=extra,
+    )
+
+    snapshot = approval_snapshot(pending)
+
+    assert snapshot.display.approval_behavior == (behavior or f"unknown")
 
 
 @pytest.mark.parametrize("observer_raises", [False, True])

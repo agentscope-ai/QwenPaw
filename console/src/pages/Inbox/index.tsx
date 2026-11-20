@@ -287,7 +287,14 @@ export default function InboxPage() {
     setApprovals((prev) =>
       prev.filter((item) => item.request_id !== requestId),
     );
-    message.success(t("approval.denied"));
+    message.success(
+      t(
+        pendingApprovals.find((item) => item.request_id === requestId)
+          ?.approval_behavior === "session_app"
+          ? "approval.appDenied"
+          : "approval.denied",
+      ),
+    );
   };
 
   const handleCancelTask = async (rootSessionId: string) => {
@@ -692,6 +699,7 @@ export default function InboxPage() {
                   isGeneralized={approval.is_generalized}
                   exactTarget={approval.exact_target}
                   similarTarget={approval.similar_target}
+                  approvalBehavior={approval.approval_behavior}
                   onApprove={(_reqId, scope) =>
                     handleApproveRequest(
                       approval.request_id,
@@ -709,18 +717,10 @@ export default function InboxPage() {
                     void handleCancelTask(approval.root_session_id);
                   }}
                   onAcknowledge={(requestId) => {
-                    return commandsApi
-                      .sendApprovalCommand(
-                        "deny",
-                        requestId,
-                        approval.root_session_id,
-                      )
-                      .catch(() => undefined)
-                      .then(() => {
-                        setApprovals((prev) =>
-                          prev.filter((item) => item.request_id !== requestId),
-                        );
-                      });
+                    setApprovals((prev) =>
+                      prev.filter((item) => item.request_id !== requestId),
+                    );
+                    return Promise.resolve();
                   }}
                 />
               ))}

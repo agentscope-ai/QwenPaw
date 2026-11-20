@@ -18,14 +18,7 @@ const {
   Typography,
   message,
 } = host.antd;
-const {
-  CheckOutlined,
-  CloseOutlined,
-  DeleteOutlined,
-  FolderOpenOutlined,
-  ReloadOutlined,
-  SafetyCertificateOutlined,
-} = host.antdIcons;
+const { DeleteOutlined, ReloadOutlined } = host.antdIcons;
 const { Text, Title } = Typography;
 
 type RuntimeStatus = { runtime_available: boolean; enabled: boolean };
@@ -38,6 +31,8 @@ type PersistentAccess = {
 type Approval = {
   requestId: string;
   sessionId: string;
+  createdAt?: number;
+  timeoutSeconds?: number;
   toolParams: Record<string, unknown>;
 };
 
@@ -80,8 +75,11 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
       payload && typeof payload === "object" && "detail" in payload
         ? (payload as { detail?: unknown }).detail
         : undefined;
-    throw new Error(
-      typeof detail === "string" ? detail : `HTTP ${response.status}`,
+    throw Object.assign(
+      new Error(
+        typeof detail === "string" ? detail : `HTTP ${response.status}`,
+      ),
+      { status: response.status },
     );
   }
   return payload;
@@ -117,9 +115,28 @@ function applicationPath(approval: Approval) {
   return appId;
 }
 
-function ComputerUseApprovalCard({ approval, onResolved }: ApprovalCardProps) {
+export function ComputerUseApprovalCard({
+  approval,
+  onResolved,
+}: ApprovalCardProps) {
   const selectedLocale = resolveLocale(host.useLocale?.());
   const [pending, setPending] = React.useState<ApprovalDecision | null>(null);
+  const submitting = React.useRef(false);
+  const [outcome, setOutcome] = React.useState<
+    "unavailable" | "rejected" | "failed" | ApprovalDecision | null
+  >(null);
+  const [rejectionReason, setRejectionReason] = React.useState("");
+  const [now, setNow] = React.useState(Date.now);
+  const deadline =
+    typeof approval.createdAt === "number" &&
+    typeof approval.timeoutSeconds === "number"
+      ? (approval.createdAt + approval.timeoutSeconds) * 1000
+      : Infinity;
+  const expired = now >= deadline;
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [approval.requestId]);
   const risk =
     typeof approval.toolParams.risk === "string"
       ? approval.toolParams.risk
@@ -132,24 +149,57 @@ function ComputerUseApprovalCard({ approval, onResolved }: ApprovalCardProps) {
   const appPath = applicationPath(approval);
 
   const decide = async (decision: ApprovalDecision) => {
+    if (submitting.current || outcome) return;
+    if (Date.now() >= deadline) {
+      setNow(Date.now());
+      return;
+    }
+    submitting.current = true;
     setPending(decision);
     try {
-      await requestJson("/computer-use/session/pending/decision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: approval.sessionId,
-          request_id: approval.requestId,
-          decision,
-        }),
-      });
+      const result = await requestJson(
+        "/computer-use/session/pending/decision",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: approval.sessionId,
+            request_id: approval.requestId,
+            decision,
+          }),
+        },
+      );
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !("resolved" in result) ||
+        result.resolved !== true
+      ) {
+        setOutcome("unavailable");
+        return;
+      }
+      setOutcome(decision);
       message.success(t(selectedLocale, `decision.${decision}`));
       onResolved();
     } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t(selectedLocale, "failed"),
-      );
+      const status =
+        error && typeof error === "object" && "status" in error
+          ? error.status
+          : undefined;
+      if (status === 404 || status === 409) {
+        setOutcome("unavailable");
+      } else if (typeof status === "number" && status < 500) {
+        // Other client errors are explicit refusals; requestJson already put
+        // the server detail (or the HTTP status) in the error message.
+        setRejectionReason(
+          error instanceof Error ? error.message : `HTTP ${status}`,
+        );
+        setOutcome("rejected");
+      } else {
+        setOutcome("failed");
+      }
     } finally {
+      submitting.current = false;
       setPending(null);
     }
   };
@@ -166,14 +216,27 @@ function ComputerUseApprovalCard({ approval, onResolved }: ApprovalCardProps) {
         React.createElement(
           Space,
           { size: 8 },
-          React.createElement(SafetyCertificateOutlined),
           React.createElement(
             Text,
             { strong: true },
             t(selectedLocale, "approvalTitle"),
           ),
         ),
-        React.createElement(Text, { strong: true }, appName),
+        React.createElement(
+          Text,
+          { strong: true, style: { overflowWrap: "anywhere" } },
+          appName,
+        ),
+        React.createElement(
+          Text,
+          { type: "secondary" },
+          t(selectedLocale, "approvalHint"),
+        ),
+        React.createElement(
+          Text,
+          { type: "secondary" },
+          t(selectedLocale, "persistentHint"),
+        ),
         appPath && appPath !== appName
           ? React.createElement(
               "div",
@@ -189,18 +252,16 @@ function ComputerUseApprovalCard({ approval, onResolved }: ApprovalCardProps) {
                   background: "rgba(140, 140, 140, 0.1)",
                 },
               },
-              React.createElement(FolderOpenOutlined, {
-                style: { color: "#8c8c8c", flexShrink: 0, fontSize: 12 },
-              }),
               React.createElement(
                 Text,
                 {
                   type: "secondary",
                   copyable: { text: appPath },
-                  ellipsis: { tooltip: appPath },
+
                   style: {
                     fontSize: 12,
                     minWidth: 0,
+                    overflowWrap: "anywhere",
                     fontFamily:
                       "'SFMono-Regular', Consolas, 'Liberation Mono', " +
                       "Menlo, monospace",
@@ -222,41 +283,62 @@ function ComputerUseApprovalCard({ approval, onResolved }: ApprovalCardProps) {
           : null,
       ),
       React.createElement(
-        Space,
-        { size: 8, wrap: true },
-        React.createElement(
-          Button,
-          {
-            danger: true,
-            icon: React.createElement(CloseOutlined),
-            loading: pending === "deny",
-            disabled: pending !== null,
-            onClick: () => void decide("deny"),
-          },
-          t(selectedLocale, "deny"),
-        ),
-        React.createElement(
-          Button,
-          {
-            icon: React.createElement(CheckOutlined),
-            loading: pending === "session",
-            disabled: pending !== null,
-            onClick: () => void decide("session"),
-          },
-          t(selectedLocale, "allowSession"),
-        ),
-        React.createElement(
-          Button,
-          {
-            type: "primary",
-            icon: React.createElement(CheckOutlined),
-            loading: pending === "always",
-            disabled: pending !== null,
-            onClick: () => void decide("always"),
-          },
-          t(selectedLocale, "allowAlways"),
-        ),
+        "p",
+        { role: "status", "aria-live": "polite", style: { margin: 0 } },
+        pending
+          ? t(selectedLocale, "submitting")
+          : outcome === "failed"
+          ? t(selectedLocale, "submitUnconfirmed")
+          : outcome === "rejected"
+          ? `${t(selectedLocale, "submitRejected")}: ${rejectionReason}`
+          : outcome === "unavailable"
+          ? t(selectedLocale, "unavailableRequest")
+          : outcome
+          ? t(selectedLocale, `decision.${outcome}`)
+          : expired
+          ? t(selectedLocale, "expired")
+          : t(selectedLocale, "waiting"),
       ),
+      !outcome && !expired
+        ? React.createElement(
+            "div",
+            {
+              "aria-busy": pending !== null,
+              style: {
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(min(100%, 160px), 1fr))",
+                gap: 8,
+              },
+            },
+            ...(["deny", "always", "session"] as const).map((decision) =>
+              React.createElement(
+                Button,
+                {
+                  key: decision,
+                  type: decision === "session" ? "primary" : "default",
+                  loading: pending === decision,
+                  disabled: pending !== null,
+                  style: {
+                    whiteSpace: "normal",
+                    height: "auto",
+                    minHeight: 44,
+                    padding: "8px 12px",
+                  },
+                  onClick: () => void decide(decision),
+                },
+                t(
+                  selectedLocale,
+                  decision === "deny"
+                    ? "deny"
+                    : decision === "always"
+                    ? "allowAlways"
+                    : "allowSession",
+                ),
+              ),
+            ),
+          )
+        : null,
     ),
   );
 }
@@ -356,6 +438,13 @@ function ComputerUsePage() {
           Popconfirm,
           {
             title: t(selectedLocale, "revokeConfirm"),
+            description: t(selectedLocale, "revokeHint"),
+            okText: t(selectedLocale, "revoke"),
+            cancelText: t(selectedLocale, "cancel"),
+            okButtonProps: { danger: true },
+            styles: {
+              root: { maxWidth: "min(360px, calc(100vw - 32px))" },
+            },
             onConfirm: () => void revoke(item),
           },
           React.createElement(
