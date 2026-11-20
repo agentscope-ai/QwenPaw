@@ -1,0 +1,56 @@
+# OpenSSL 预构建静态库（arm64-v8a / HarmonyOS）
+
+## 内容
+
+- `lib/libcrypto.a` / `lib/libssl.a`：OpenSSL 3.5.9，aarch64-unknown-linux-ohos 静态库
+- `include/openssl/`：头文件（安装树原样）
+- `NOTICE`：许可证与构建来源
+
+## 使用方
+
+`entry/src/main/cpp/atls_http.c`（自研 HTTP/TLS 传输层，NAPI 胶水 napi_init.cpp），
+由 CMakeLists.txt 以 IMPORTED 静态库方式链接（libssl 在前、libcrypto 在后）。
+
+## 为什么不用系统 http 的 TLS 栈
+
+系统 http 组件底层是 libcurl 8.8.0 + OpenSSL 3.0.9（ClientHello 带 h2 ALPN 与
+CBC/DHE 传统套件）。特定链路（按「SNI 属目标域族 × 客户端指纹」的中间设备规则）
+会 RST 该指纹；OpenSSL 3.5 代指纹在实测链路中被放行。本库即为此引入的自研栈。
+
+## 按 ABI 重建步骤
+
+1. 取源码（上游 release，未打补丁）：
+   `openssl-3.5.9.tar.gz`（SHA256 见同目录 .sha256 文件，工作区 SC/ 保留）。
+2. 用 HarmonyOS NDK 交叉编译（CLT 自带，无需另装工具链）。
+   当前库为**缩减构建**（2026-10-16 起，.a 合计 14.3MB→10.1MB）——
+   atls 只用 TLS1.2/1.3 HTTPS 客户端能力，legacy 提供者/QUIC/DTLS/
+   OCSP/SM 族等未使用面整体裁掉（NOTICE 有完整 flag 记录）：
+
+   ```sh
+   NDK=<command-line-tools>/sdk/default/openharmony/native
+   export CC=$NDK/llvm/bin/aarch64-unknown-linux-ohos-clang
+   export AR=$NDK/llvm/bin/llvm-ar RANLIB=$NDK/llvm/bin/llvm-ranlib
+   ./Configure aarch64-unknown-linux-ohos no-shared no-tests \
+     no-legacy no-quic no-dtls no-ocsp no-ct no-ts no-srp no-psk \
+     no-sm2 no-sm3 no-sm4 no-rc2 no-md4 no-tls1 no-tls1_1 \
+     no-engine no-async no-sock no-deprecated \
+     --prefix=$PWD/../openssl-ohos-aarch64
+   make -j"$(nproc)" && make install_sw
+   ```
+
+   驱动说明：NDK 的 `llvm/bin/aarch64-unknown-linux-ohos-clang` 为单 token 名，
+   sysroot 内置（musl），Configure 直接识别该 triple。
+   如需恢复全功能构建：去掉 no-legacy 等缩减 flag 即可（历史构建方式）。
+3. 校验产物：`llvm-readelf` 确认所有归档成员为 AArch64 ELF；
+   `strings lib/libcrypto.a | grep "OpenSSL 3"` 出现 3.5.9 版本行。
+4. 覆盖本目录 `lib/` 与 `include/`，同步更新 NOTICE 的构建日期。
+
+## 已知依赖面
+
+静态库的外部符号仅为 musl 标配（socket 族 / pthread_* / clock_gettime /
+nanosleep / mmap 等），无额外系统库依赖。
+
+## 证书信任
+
+CA 信任根不来自本目录，而是内置 Mozilla 根证书包（`../../cacert.h`，
+由 `../../gen_cacert.py` 从 Mozilla CA bundle 生成；轮换 = 重新生成该头文件）。

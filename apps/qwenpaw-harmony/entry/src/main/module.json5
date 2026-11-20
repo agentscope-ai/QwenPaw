@@ -1,0 +1,84 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "routerMap": "$profile:router_map",
+    // 权限口径（逐项按官方文档与 SDK d.ts 核对，只声明真正需要的）：
+    //   · INTERNET —— 唯一声明的权限（http 请求与 ArkWeb 都靠它；normal 级，安装即授予）。
+    //   · 相机 —— 不声明。扫码走 Scan Kit「默认界面扫码」startScanForResult，官方口径：
+    //       「Scan Kit 默认界面扫码对系统相机权限进行了预授权且调用期间处于安全访问状态，
+    //        无需开发者再次申请相机权限」（开发指南/Scan_Kit_统一扫码服务/默认界面扫码）。
+    //       仅「自定义界面扫码」(customScan，自绘取景) 才需要 CAMERA。
+    //   · 通知 —— 不声明。@ohos.notificationManager 的 publish / requestEnableNotification
+    //       在 SDK d.ts 中均无 @permission 标注；发布前用 requestEnableNotification 请求用户授权
+    //       （首次弹窗，之后直接返回；用户关掉系统开关时发布不生效）——见 services/NotifyService.ets。
+    //   · 文件 —— 用系统 picker（DocumentViewPicker，独立进程授予 URI），不需要 READ/WRITE_MEDIA。
+    //   · 剪贴板写入（复制消息）、分享（Share Kit）、打开外部链接（Want.viewData）均无需权限声明。
+    //   · 剪贴板读取 —— 不声明 READ_PASTEBOARD：受限 user_grant 权限，AGC 自动签名
+    //       profile 未含该权限时真机安装直接被拒（9568289 grant request permissions
+    //       failed，2026-10 平板实测）。API 12+ 剪贴板管控下输入框长按菜单的
+    //       「粘贴」项因此被系统隐藏，输入框当前只支持复制（无读权限即无读取）。
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET"
+      }
+    ],
+    "metadata": [
+      {
+        "name": "ohos.arkui.UIMaterial.state",
+        "value": "enable"
+      }
+    ],
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:layered_image",
+        // 名称与 app.json5 的 label 共用同一个字符串资源：两处引用同一资源 id 时，
+        // 系统（bms）解析 app 级 label 的 id 不会落到能力级的另一个资源上
+        "label": "$string:app_name",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        // 折叠屏旋转口径（官方 faqs-arkui-362）：声明 unspecified（不静态锁方向），
+        // 由 EntryAbility 按折叠态实时 setPreferredOrientation：窄态锁定竖屏、展开态自由旋转
+        "orientation": "unspecified",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "EntryBackupAbility",
+        "srcEntry": "./ets/entrybackupability/EntryBackupAbility.ets",
+        "type": "backup",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.backup",
+            "resource": "$profile:backup_config"
+          }
+        ],
+      }
+    ]
+  }
+}
