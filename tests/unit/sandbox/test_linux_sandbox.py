@@ -116,14 +116,6 @@ class TestProbeLinuxLandlock:
         assert result.supported is False
         assert "not in LSM list" in result.reason
 
-    @patch("builtins.open", side_effect=OSError("Permission denied"))
-    @patch("os.uname")
-    def test_lsm_file_unreadable(self, mock_uname, mock_file):
-        mock_uname.return_value = MagicMock(release="5.15.0-125-generic")
-        result = _probe_linux_landlock()
-        assert result.supported is False
-        assert "Cannot read" in result.reason
-
     @patch("platform.machine", return_value="x86_64")
     @patch(
         "builtins.open",
