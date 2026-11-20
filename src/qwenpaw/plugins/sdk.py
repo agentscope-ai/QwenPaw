@@ -31,6 +31,7 @@ from .apps import PawApp
 if TYPE_CHECKING:
     from .harnesses import HarnessSpec
     from .logging import PluginLogger
+    from .drivers import DriverProtocolSpec
 
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
@@ -462,13 +463,14 @@ class PluginContext:  # pylint: disable=protected-access
         deadline=None,
     ):
         import jsonschema
+        from ..utils.json_schema import schema_validator
 
         self._guard()
         spec, handle, _ = self._tools[name]
         if handle.closed:
             raise StaleContextError(f"Tool {name!r} has been released")
         try:
-            jsonschema.validate(arguments, spec.input_schema)
+            schema_validator(spec.input_schema).validate(arguments)
         except jsonschema.ValidationError as exc:
             raise ToolInputError(exc.message) from exc
         async with self._invocation(
@@ -1385,6 +1387,15 @@ class PluginContext:  # pylint: disable=protected-access
 
     def register_memory(self, spec: MemorySpec) -> Registration:
         from ._memory import register
+
+        return register(self, spec)
+
+    def register_driver_protocol(
+        self,
+        spec: DriverProtocolSpec,
+    ) -> Registration:
+        """Declare an owned protocol without opening or discovering sources."""
+        from ._drivers import register
 
         return register(self, spec)
 

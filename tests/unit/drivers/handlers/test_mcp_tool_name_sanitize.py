@@ -1,16 +1,41 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 
 import re
-from types import SimpleNamespace
 
 import pytest
 
 from qwenpaw.drivers.capabilities import parse_capability_id
-from qwenpaw.drivers.handlers.mcp import (
-    _mcp_tool_to_capability,
-    _sanitize_tool_name,
-    _tool_namespace_from_display_name,
+from qwenpaw.drivers.contracts import DriverCard
+from tests.integration.driver_mcp_fakes import (
+    FakeStdIOClient,
+    Tool,
+    mcp_runtime_host as _mcp_runtime_host,
+    patch_mcp_runtime_clients,
+    sdk_mcp_manager,
 )
+
+mcp_runtime_host = _mcp_runtime_host
+
+
+async def discover(host, tmp_path, monkeypatch, driver, names, display=""):
+    patch_mcp_runtime_clients(monkeypatch)
+
+    async def tools(_self):
+        return [Tool(name) for name in names]
+
+    monkeypatch.setattr(FakeStdIOClient, "list_tools", tools)
+    manager = await sdk_mcp_manager(host, tmp_path)
+    await manager.upsert_driver(
+        DriverCard(
+            name=driver,
+            protocol="mcp",
+            endpoint={"transport": "stdio", "command": "synthetic"},
+            config={"display_name": display},
+        ),
+    )
+    return await manager.list_capabilities()
 
 
 @pytest.mark.parametrize(
@@ -29,8 +54,23 @@ from qwenpaw.drivers.handlers.mcp import (
         ("", "tool"),
     ],
 )
-def test_sanitize_tool_name(name: str, expected: str) -> None:
-    assert _sanitize_tool_name(name) == expected
+async def test_sanitize_tool_name(
+    name: str,
+    expected: str,
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    capability = (
+        await discover(
+            mcp_runtime_host,
+            tmp_path,
+            monkeypatch,
+            "source",
+            [name],
+        )
+    )[0]
+    assert capability.exposure.tool_name == "source__" + expected
 
 
 @pytest.mark.parametrize(
@@ -47,30 +87,43 @@ def test_sanitize_tool_name(name: str, expected: str) -> None:
         ("...", "client.with.dot", "client_with_dot"),
     ],
 )
-def test_tool_namespace_starts_with_letter(
+async def test_tool_namespace_starts_with_letter(
     display_name: str,
     fallback: str,
     expected: str,
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
 ) -> None:
-    assert (
-        _tool_namespace_from_display_name(display_name, fallback=fallback)
-        == expected
-    )
+    capability = (
+        await discover(
+            mcp_runtime_host,
+            tmp_path,
+            monkeypatch,
+            fallback,
+            ["echo"],
+            display_name,
+        )
+    )[0]
+    assert capability.exposure.namespace == expected
 
 
-def test_mcp_capability_sanitizes_only_exposed_tool_name() -> None:
+async def test_mcp_capability_sanitizes_only_exposed_tool_name(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
     original_name = "-__bond_basic_info"
-    tool = SimpleNamespace(
-        name=original_name,
-        description="Bond details",
-        inputSchema={},
-    )
-
-    capability = _mcp_tool_to_capability(
-        "bond-driver",
-        tool,
-        display_name="-MCP",
-    )
+    capability = (
+        await discover(
+            mcp_runtime_host,
+            tmp_path,
+            monkeypatch,
+            "bond-driver",
+            [original_name],
+            "-MCP",
+        )
+    )[0]
 
     assert capability.name == original_name
     assert parse_capability_id(capability.capability_id)[-1] == original_name
@@ -82,20 +135,24 @@ def test_mcp_capability_sanitizes_only_exposed_tool_name() -> None:
     )
 
 
-def test_exposed_tool_names_remain_unique() -> None:
+async def test_exposed_tool_names_remain_unique(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
     original_names = ["foo", "-foo", "_foo", "123foo"]
-    capabilities = [
-        _mcp_tool_to_capability(
-            "test-driver",
-            SimpleNamespace(
-                name=name,
-                description="Test tool",
-                inputSchema={},
-            ),
-            display_name="-MCP",
-        )
-        for name in original_names
-    ]
+    discovered = await discover(
+        mcp_runtime_host,
+        tmp_path,
+        monkeypatch,
+        "test-driver",
+        original_names,
+        "-MCP",
+    )
+    capabilities = sorted(
+        discovered,
+        key=lambda cap: original_names.index(cap.name),
+    )
 
     exposed_names = [
         capability.exposure.tool_name for capability in capabilities
@@ -117,22 +174,26 @@ def test_exposed_tool_names_remain_unique() -> None:
     ] == original_names
 
 
-def test_exposed_tool_names_are_unique_across_driver_namespaces() -> None:
+async def test_exposed_tool_names_are_unique_across_driver_namespaces(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
     driver_names = ["mcp-driver", "dash-mcp-driver", "numeric-mcp-driver"]
     display_names = ["MCP", "-MCP", "123MCP"]
     original_name = "shared_tool"
-    capabilities = [
-        _mcp_tool_to_capability(
-            driver_name,
-            SimpleNamespace(
-                name=original_name,
-                description="Test tool",
-                inputSchema={},
+    capabilities = []
+    for driver_name, display_name in zip(driver_names, display_names):
+        capabilities.extend(
+            await discover(
+                mcp_runtime_host,
+                tmp_path,
+                monkeypatch,
+                driver_name,
+                [original_name],
+                display_name,
             ),
-            display_name=display_name,
         )
-        for driver_name, display_name in zip(driver_names, display_names)
-    ]
 
     assert [capability.exposure.namespace for capability in capabilities] == [
         "MCP",

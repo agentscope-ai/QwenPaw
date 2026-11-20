@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Integration tests for the MCP OAuth 2.1 router."""
+
 from __future__ import annotations
 
 import pytest
 from helpers import default_http_timeout
+
+pytestmark = pytest.mark.usefixtures("installed_mcp_plugin")
 
 _MCP_OAUTH_HTTP_TIMEOUT = default_http_timeout(15.0)
 
