@@ -24,10 +24,29 @@ from .runtime_release import RELEASE
 
 logger = logging.getLogger(__name__)
 
+# Runtime auto-update is a background convenience, not a startup dependency:
+# the first check waits for the application to settle and later checks are
+# infrequent so an idle installation costs almost nothing.
+AUTO_UPDATE_INITIAL_DELAY_SECONDS = 30.0
+AUTO_UPDATE_INTERVAL_SECONDS = 3600.0
+
 
 class _StoredConfig(BaseModel):
     max_context_length: int = Field(default=65536, ge=32768)
     port: int | None = Field(default=None, ge=1, le=65535)
+    gpu_acceleration: bool = Field(
+        default=True,
+        description=(
+            "Whether llama.cpp may offload layers to the GPU. Disable to "
+            "force CPU inference."
+        ),
+    )
+    auto_update: bool = Field(
+        default=True,
+        description=(
+            "Automatically install newer local engine runtimes when idle."
+        ),
+    )
 
 
 class LocalModelManager:  # pylint: disable=too-many-public-methods
@@ -159,6 +178,18 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             self._config.port = port
             await self._save_config()
 
+    async def set_gpu_acceleration(self, enabled: bool) -> None:
+        """Persist whether llama.cpp should offload layers to the GPU."""
+        async with self._server_lifecycle_lock:
+            self._config.gpu_acceleration = bool(enabled)
+            await self._save_config()
+
+    async def set_auto_update(self, enabled: bool) -> None:
+        """Persist whether local engine runtimes should update themselves."""
+        async with self._server_lifecycle_lock:
+            self._config.auto_update = bool(enabled)
+            await self._save_config()
+
     def check_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
@@ -191,6 +222,56 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         return await self._llamacpp_backend.has_update(
             self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
         )
+
+    async def auto_update_llamacpp(self) -> str:
+        """Start a llama.cpp update only when it is safe to do so.
+
+        Returns one of ``disabled``, ``not-installed``, ``unsupported``,
+        ``deferred``, ``downloading``, ``up-to-date`` or ``started``.
+        """
+        if not self._config.auto_update:
+            return "disabled"
+        if not self.check_installation()[0]:
+            # A missing runtime is installed explicitly by the user; an
+            # automatic download of several hundred megabytes on first run
+            # would be surprising.
+            return "not-installed"
+        if not self.check_installability()[0]:
+            return "unsupported"
+        if self._llamacpp_backend.get_server_status().get("running"):
+            return "deferred"
+        if self._llamacpp_backend.is_server_transitioning():
+            return "deferred"
+        if self._llamacpp_backend.is_download_active():
+            return "downloading"
+        if not await self.has_update():
+            return "up-to-date"
+        # Installing stops a running server, so this re-checks the idle state
+        # under the lifecycle lock before it claims the download slot.
+        await self.start_runtime_download()
+        return "started"
+
+    async def run_auto_update_once(self) -> dict[str, str]:
+        """Check every installed engine once and install safe updates."""
+        return {"llamacpp": await self.auto_update_llamacpp()}
+
+    async def get_accelerator(self) -> dict[str, str | None]:
+        """Return the accelerator backing the installed llama.cpp runtime."""
+        try:
+            return await self._llamacpp_backend.get_accelerator_info()
+        except (RuntimeError, ValueError, OSError) as exc:
+            logger.debug("Failed to read llama.cpp accelerator: %s", exc)
+            return {"accelerator": None, "device_name": None}
+
+    async def get_version(self) -> str | None:
+        """Return the installed llama.cpp runtime version, when available."""
+        if not self.check_installation()[0]:
+            return None
+        try:
+            return await self._llamacpp_backend.get_version()
+        except (RuntimeError, ValueError, OSError) as exc:
+            logger.debug("Failed to read llama.cpp version: %s", exc)
+            return None
 
     async def server_ready(
         self,
@@ -268,6 +349,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 max_context_length=self._config.max_context_length,
                 port=self._config.port,
                 before_restart=before_restart,
+                gpu_acceleration=self._config.gpu_acceleration,
             )
 
     async def stop_server(self) -> None:

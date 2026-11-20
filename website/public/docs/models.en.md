@@ -22,8 +22,6 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 ## QwenPaw Local (llama.cpp) Configuration
 
-> QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
-
 Open **Settings → Models**. If QwenPaw Local is missing, open **Plugin Manager**. Install **QwenPaw Local** (`local-llamacpp`) from **Official Plugins**, or enable it under **Installed Plugins** if already installed. Return to Models.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
@@ -42,9 +40,13 @@ Click **Start** next to the model. Starting Flash sets it as the default chat mo
 
 Click **Stop** to shut down the local server. Downloaded models stay on disk.
 
+QwenPaw Local runs on Metal on Apple Silicon, on CUDA when the installed runtime includes a CUDA backend, and on the CPU otherwise. The engine panel shows the detected accelerator, for example `Metal · Apple M5 Max`. To force CPU inference, open **Advanced Local Settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
+
 ![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
 When QwenPaw restarts, it tries to restore a previously started local model selected by an enabled agent. If you use only cloud models, llama.cpp stays stopped.
+
+Runtime auto-update is on by default. QwenPaw checks periodically and installs a newer llama.cpp runtime when no local server is running; a running server is left untouched and the update is deferred to the next idle check. Turn off **Automatically update engine runtimes** in **Advanced Local Settings** to disable it.
 
 ## Ollama Configuration
 

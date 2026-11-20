@@ -16,6 +16,8 @@ class DownloadSource(str, Enum):
 class LocalModelConfig:
     max_context_length: int = 65536
     port: int | None = None
+    gpu_acceleration: bool = True
+    auto_update: bool = True
 
 
 @dataclass(frozen=True)

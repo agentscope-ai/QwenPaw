@@ -2,12 +2,15 @@
 """Local inference endpoint and management operations owned by one plugin."""
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from qwenpaw.plugins import PluginBusyError, SDKError
 from qwenpaw.plugins.providers import ModelInfo
 from .io_helpers import PROVIDER_CLOSE_SECONDS, finish, run_io
+
+logger = logging.getLogger(__name__)
 
 
 class LocalProvider:
@@ -21,6 +24,7 @@ class LocalProvider:
         self._failed = False
         self._started = False
         self._manually_stopped = False
+        self._auto_update_task: asyncio.Task[None] | None = None
         self.closed = False
 
     def activate(self, context):
@@ -31,6 +35,39 @@ class LocalProvider:
             "local-model-provider",
             PROVIDER_CLOSE_SECONDS,
         )
+        self._auto_update_task = asyncio.create_task(
+            self._auto_update_loop(),
+            name="qwenpaw-local-runtime-auto-update",
+        )
+
+    async def _auto_update_loop(self) -> None:
+        """Install newer local engine runtimes while nothing is running.
+
+        The manager is initialised on the first check rather than at
+        activation, so loading the plugin stays cheap and a user who never
+        opens the local-model page still gets runtime updates.
+        """
+        from .manager import (
+            AUTO_UPDATE_INITIAL_DELAY_SECONDS,
+            AUTO_UPDATE_INTERVAL_SECONDS,
+        )
+
+        await asyncio.sleep(AUTO_UPDATE_INITIAL_DELAY_SECONDS)
+        while True:
+            try:
+                manager = await self.manager()
+                await manager.run_auto_update_once()
+            except asyncio.CancelledError:
+                raise
+            except SDKError:
+                # The plugin is closing or failed to load; stop checking.
+                return
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Local runtime auto-update check failed: %s",
+                    exc,
+                )
+            await asyncio.sleep(AUTO_UPDATE_INTERVAL_SECONDS)
 
     def _guard(self):
         if self.closed or self._failed:
@@ -232,7 +269,17 @@ class LocalProvider:
         finally:
             self._users.pop(key, None)
 
+    async def _stop_auto_update(self) -> None:
+        """Cancel the background loop and wait for it to finish."""
+        task = self._auto_update_task
+        self._auto_update_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     async def close(self):
+        await self._stop_auto_update()
         async with self._lock:
             if self.closed:
                 return
