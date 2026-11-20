@@ -843,6 +843,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     peer,
                 )
                 return False
+            # A same-host reverse proxy is also a loopback peer. When it
+            # is not a configured trusted proxy, its forwarding headers
+            # mean the request came from elsewhere, not a local client.
+            if not is_trusted_proxy(request) and any(
+                request.headers.get(h)
+                for h in ("x-forwarded-for", "x-real-ip", "forwarded")
+            ):
+                logger.warning(
+                    "Auth skip blocked: loopback peer %s forwarded a"
+                    " request with proxy headers but is not in"
+                    " security.trusted_proxies",
+                    peer,
+                )
+                return False
         return True
 
     @staticmethod
