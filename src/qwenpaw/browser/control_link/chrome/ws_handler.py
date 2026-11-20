@@ -13,6 +13,7 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.responses import JSONResponse
@@ -33,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 def resolve_default_ws_url() -> str:
     """Resolve the WebSocket endpoint of the current core API instance."""
-    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    base_path = quote(
+        normalize_base_path(os.environ.get("QWENPAW_BASE_PATH")),
+        safe="/",
+    )
     try:
         from qwenpaw.config.utils import read_last_api
 

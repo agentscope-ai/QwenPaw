@@ -13,15 +13,23 @@ from qwenpaw.browser.control_link.chrome import ws_handler
 from qwenpaw.browser.control_link.chrome.bridge import NMBridge
 
 
-def test_default_ws_url_includes_runtime_base_path(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("base_path", "expected_path"),
+    [("/app", "/app"), ("/my console", "/my%20console")],
+)
+def test_default_ws_url_includes_runtime_base_path(
+    monkeypatch,
+    base_path: str,
+    expected_path: str,
+) -> None:
     monkeypatch.setattr(
         "qwenpaw.config.utils.read_last_api",
         lambda: ("127.0.0.1", 8088),
     )
-    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
 
     assert ws_handler.resolve_default_ws_url() == (
-        "ws://127.0.0.1:8088/app/api/ws/chrome"
+        f"ws://127.0.0.1:8088{expected_path}/api/ws/chrome"
     )
 
 
@@ -57,10 +65,19 @@ def test_nm_bridge_accepts_correct_token(websocket_client: TestClient) -> None:
 
 
 @pytest.mark.p1
-def test_nm_bridge_accepts_correct_token_below_base_path(monkeypatch) -> None:
+@pytest.mark.parametrize("base_path", ["/app", "/my console"])
+def test_nm_bridge_accepts_correct_token_below_base_path(
+    monkeypatch,
+    base_path: str,
+) -> None:
     app = FastAPI()
-    app.add_middleware(BasePathMiddleware, base_path="/app")
+    app.add_middleware(BasePathMiddleware, base_path=base_path)
     app.include_router(ws_handler.ws_router, prefix="/api")
+    monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
+    monkeypatch.setattr(
+        "qwenpaw.config.utils.read_last_api",
+        lambda: ("127.0.0.1", 8088),
+    )
     monkeypatch.setattr(
         ws_handler,
         "_expected_token",
@@ -69,7 +86,8 @@ def test_nm_bridge_accepts_correct_token_below_base_path(monkeypatch) -> None:
     monkeypatch.setattr(ws_handler, "_default_bridge", lambda: None)
     monkeypatch.setattr(ws_handler, "get_nm_bridge", NMBridge)
 
+    ws_url = ws_handler.resolve_default_ws_url()
     with TestClient(app).websocket_connect(
-        "/app/api/ws/chrome?token=expected-token",
+        f"{ws_url}?token=expected-token",
     ):
         pass

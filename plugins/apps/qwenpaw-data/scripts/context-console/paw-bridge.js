@@ -40,7 +40,7 @@
         mounted = new URL(host.getApiUrl(resolved.pathname.slice(4)), window.location.origin);
       } else {
         var marker = "/api/frontend_plugin/";
-        var markerIndex = window.location.pathname.indexOf(marker);
+        var markerIndex = window.location.pathname.lastIndexOf(marker);
         var basePath = markerIndex < 0 ? "" : window.location.pathname.slice(0, markerIndex);
         mounted = new URL(basePath + resolved.pathname, window.location.origin);
       }

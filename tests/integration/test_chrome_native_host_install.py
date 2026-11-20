@@ -16,16 +16,24 @@ from plugins.bundle.chrome import extension_setup
 # pylint: disable=protected-access,unused-argument
 
 
-def test_bridge_endpoint_includes_runtime_base_path(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("base_path", "expected_path"),
+    [("/app", "/app"), ("/my console", "/my%20console")],
+)
+def test_bridge_endpoint_includes_runtime_base_path(
+    monkeypatch,
+    base_path: str,
+    expected_path: str,
+) -> None:
     monkeypatch.setattr(
         extension_setup,
         "read_last_api",
         lambda: ("127.0.0.1", 8088),
     )
-    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
 
     assert extension_setup.require_bridge_endpoint() == (
-        "ws://127.0.0.1:8088/app/api/ws/chrome"
+        f"ws://127.0.0.1:8088{expected_path}/api/ws/chrome"
     )
 
 

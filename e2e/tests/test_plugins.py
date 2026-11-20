@@ -9,13 +9,16 @@ Cases:
 - PLUGIN-001 P0  test_plugin_manager_page_loads
 - COMPAT-001 P1  test_market_compat_tags_render
 - COMPAT-002 P1  test_incompatible_install_warning_modal
+- DATA-BASE-PATH-001 P1  test_data_context_console_preserves_nested_base_path
 """
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import pytest
-from playwright.sync_api import expect
+from playwright.sync_api import Page, expect
 
 from pages.plugin_page import PluginPage
 from mocks import plugin_market
@@ -23,6 +26,81 @@ from utils.helpers import log_test_step, log_test_result
 
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.mark.ui_smoke
+@pytest.mark.p1
+@pytest.mark.plugins
+@pytest.mark.test_id("DATA-BASE-PATH-001")
+def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
+    prefix = "/api/frontend_plugin/tenant"
+    origin = "https://qwenpaw.test"
+    plugin_path = "/api/frontend_plugin/qwenpaw-data/files/ui/dist"
+    main_path = f"{prefix}{plugin_path}/data-console/index.html"
+    context_path = f"{prefix}{plugin_path}/context-console/index.html"
+    app_dir = (
+        Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
+    )
+    static_root = app_dir / "ui/public/data-console"
+    static_path = f"{prefix}{plugin_path}/data-console/"
+    bridge = (app_dir / "scripts/context-console/paw-bridge.js").read_text(
+        encoding="utf-8",
+    )
+    api_requests = []
+
+    def serve(route) -> None:
+        url = route.request.url
+        path = urlparse(url).path
+        if path == context_path:
+            route.fulfill(
+                status=200,
+                content_type="text/html",
+                body=(
+                    f"<script>{bridge}</script>"
+                    "<script>"
+                    "window.apiCallsCompleted = 0;"
+                    "fetch('/api/qwenpaw-data/context/status').then(() => {"
+                    "window.apiCallsCompleted += 1;});"
+                    "const xhr = new XMLHttpRequest();"
+                    "xhr.open('GET', '/api/qwenpaw-data/context/config');"
+                    "xhr.onload = () => {window.apiCallsCompleted += 1;};"
+                    "xhr.send();"
+                    "</script>"
+                ),
+            )
+        elif path.startswith(static_path):
+            relative = unquote(path.removeprefix(static_path))
+            target = (static_root / relative).resolve()
+            if static_root.resolve() not in target.parents or not target.is_file():
+                route.abort()
+            else:
+                route.fulfill(status=200, path=target)
+        elif path.startswith(f"{prefix}/api/"):
+            if path.startswith(f"{prefix}/api/qwenpaw-data/context/"):
+                api_requests.append(url)
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body="{}",
+            )
+        else:
+            route.abort()
+
+    page.context.route("**/*", serve)
+    page.goto(f"{origin}{main_path}", wait_until="domcontentloaded")
+    entry = page.locator('[aria-label="数据语义配置中心"]')
+    entry.wait_for(state="visible")
+    with page.expect_popup() as popup_info:
+        entry.click()
+    context_page = popup_info.value
+    context_page.wait_for_load_state("domcontentloaded")
+    context_page.wait_for_function("window.apiCallsCompleted === 2")
+
+    assert context_page.url == f"{origin}{context_path}#/data-source"
+    assert api_requests == [
+        f"{origin}{prefix}/api/qwenpaw-data/context/status",
+        f"{origin}{prefix}/api/qwenpaw-data/context/config",
+    ]
 
 
 # ============================================================================
