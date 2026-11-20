@@ -213,11 +213,24 @@ class UnifiedQueueManager:
                         # asyncio.Queue.put cannot suspend when space exists.
                         await queue.put(payload)
                         state.last_activity = time.time()
+                        logger.debug(
+                            f"Channel queue accepted: channel={channel_id} "
+                            f"priority={priority_level} qsize={queue.qsize()}",
+                        )
                         return EnqueueResult(True)
                     queue.changed.clear()
                     await queue.changed.wait()
         except TimeoutError:
-            return rejected() or EnqueueResult(
+            rejection = rejected()
+            if rejection is not None:
+                return rejection
+            depth = state.queue.qsize() if state is not None else 0
+            logger.warning(
+                f"Channel queue admission timed out: channel={channel_id} "
+                f"priority={priority_level} timeout={timeout:g}s "
+                f"qsize={depth}",
+            )
+            return EnqueueResult(
                 False,
                 "QUEUE_CAPACITY_TIMEOUT",
                 True,
@@ -276,7 +289,6 @@ class UnifiedQueueManager:
 
             logger.info(
                 f"Created queue: channel={channel_id} "
-                f"session={session_id[:30]} "
                 f"priority={priority_level}",
             )
 
@@ -304,7 +316,6 @@ class UnifiedQueueManager:
 
         logger.info(
             f"Consumer started: channel={channel_id} "
-            f"session={session_id[:30]} "
             f"priority={priority_level}",
         )
 
@@ -320,16 +331,14 @@ class UnifiedQueueManager:
             logger.debug(
                 f"Consumer cancelled: "
                 f"channel={channel_id} "
-                f"session={session_id[:30]} "
                 f"priority={priority_level}",
             )
             raise
-        except Exception:
-            logger.exception(
+        except Exception as exc:
+            logger.error(
                 f"Consumer failed: "
                 f"channel={channel_id} "
-                f"session={session_id[:30]} "
-                f"priority={priority_level}",
+                f"priority={priority_level} ({type(exc).__name__})",
             )
         finally:
             # Remove from queues dict when consumer exits
@@ -347,7 +356,6 @@ class UnifiedQueueManager:
 
             logger.info(
                 f"Consumer stopped: channel={channel_id} "
-                f"session={session_id[:30]} "
                 f"priority={priority_level}",
             )
 
@@ -401,7 +409,7 @@ class UnifiedQueueManager:
         if cleared_count > 0:
             logger.info(
                 f"Cleared {cleared_count} messages from queue: "
-                f"channel={channel_id} session={session_id[:30]} "
+                f"channel={channel_id} "
                 f"priority={priority_level}",
             )
 
@@ -549,11 +557,10 @@ class UnifiedQueueManager:
                         except asyncio.CancelledError:
                             pass
 
-                        channel_id, session_id, priority_level = key
+                        channel_id, _, priority_level = key
                         logger.info(
                             f"Cleaned up idle queue: "
                             f"channel={channel_id} "
-                            f"session={session_id[:30]} "
                             f"priority={priority_level} "
                             f"processed={cleanup_state.processed_count}",
                         )

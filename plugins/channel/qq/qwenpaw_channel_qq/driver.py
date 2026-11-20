@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import logging
 import re
 import uuid
 
@@ -26,6 +27,8 @@ from .formatting import (
     _route_meta_from_handle,
     resolve_session_id,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class QQDriver(SharedResponseDriver):
@@ -306,6 +309,7 @@ class QQDriver(SharedResponseDriver):
                 if exc.side_effect_possible:
                     raise
                 raise QQDeliveryError(f"STREAM_OPEN_REJECTED") from exc
+            logger.debug(f"QQ stream opened type={stream_type}")
             resource.update(created)
             if not final:
                 resource["sequence"] = str(sequence)
@@ -352,6 +356,8 @@ class QQDriver(SharedResponseDriver):
                     resource,
                 )
             raise
+        if final:
+            logger.debug(f"QQ stream ended type={stream_type} index={index}")
         # Only an acknowledged slice advances these, so a lost ``stream.end``
         # is archived as unknown evidence instead of a confirmed close.
         resource.update(
@@ -385,19 +391,29 @@ class QQDriver(SharedResponseDriver):
     async def _perform_stream_cleanup(self, ref, resource, sequence):
         # The host sequence is not the QQ slice index; the closing slice must
         # continue the native index, not the response-level sequence.
-        await self._require_connected().update_stream(
-            {},
-            resource,
-            resource.get("text") or "...",
-            index=int(resource.get("index", "0")) + 1,
-            markdown=_as_bool(
-                resource.get(
-                    "markdown",
-                    self._config.get("markdown_enabled", True),
+        try:
+            platform = self._require_connected()
+            index = int(resource.get(f"index", f"0")) + 1
+            await platform.update_stream(
+                {},
+                resource,
+                resource.get(f"text") or f"...",
+                index=index,
+                markdown=_as_bool(
+                    resource.get(
+                        f"markdown",
+                        self._config.get(f"markdown_enabled", True),
+                    ),
                 ),
-            ),
-            final=True,
-        )
+                final=True,
+            )
+        except QQDeliveryError as exc:
+            logger.warning(
+                f"QQ stream cleanup not confirmed reason={exc.reason_code} "
+                f"side_effect_possible={exc.side_effect_possible}",
+            )
+            raise
+        logger.debug(f"QQ stream closed by cleanup index={index}")
 
     async def _perform_send(self, params):
         platform = self._require_connected()

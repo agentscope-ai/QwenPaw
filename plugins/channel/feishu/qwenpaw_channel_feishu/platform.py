@@ -239,7 +239,13 @@ class LarkOapiPlatform:
     async def _discard_prepared_resources(self) -> None:
         """Release partially prepared clients after authentication failure."""
         if self._http_client is not None:
-            await self._http_client.aclose()
+            try:
+                await self._http_client.aclose()
+            except Exception as exc:
+                logger.warning(
+                    f"Feishu HTTP client close failed ({type(exc).__name__})",
+                )
+                raise
         self._http_client = None
         self._client = None
         self._secret.clear()
@@ -258,8 +264,10 @@ class LarkOapiPlatform:
             )
         try:
             self._bot_open_id = await self._fetch_bot_open_id()
-        except Exception:
-            logger.warning("Feishu bot identity lookup failed", exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                f"Feishu bot identity lookup failed ({type(exc).__name__})",
+            )
         self._closed = False
         self._generation += 1
         generation = self._generation
@@ -351,6 +359,10 @@ class LarkOapiPlatform:
                 timeout=max(0, deadline - asyncio.get_running_loop().time()),
             )
             if pending:
+                logger.warning(
+                    f"Feishu work still active at shutdown: "
+                    f"pending={len(pending)}",
+                )
                 raise RuntimeError("Feishu callbacks or sends did not finish")
 
     async def _run_blocking(self, function, *args):
@@ -391,6 +403,9 @@ class LarkOapiPlatform:
                 # Thread finalization can cancel this proxy after closing the
                 # socket. Join and inspect the actual resources below.
             except Exception as exc:
+                logger.warning(
+                    f"Feishu SDK disconnect failed ({type(exc).__name__})",
+                )
                 raise RuntimeError(
                     "Feishu SDK disconnect did not finish",
                 ) from exc
@@ -405,8 +420,10 @@ class LarkOapiPlatform:
                 ),
             )
             if thread.is_alive():
+                logger.warning(f"Feishu WebSocket thread did not stop in time")
                 raise RuntimeError("Feishu WebSocket thread did not stop")
         if self._ws_loop is not None and not self._ws_loop.is_closed():
+            logger.warning(f"Feishu WebSocket loop cleanup incomplete")
             raise RuntimeError("Feishu WebSocket loop cleanup is incomplete")
         if getattr(self._ws_client, "_conn", None) is not None:
             raise RuntimeError("Feishu WebSocket socket cleanup is incomplete")
@@ -414,6 +431,8 @@ class LarkOapiPlatform:
         self._ws_client = None
         self._ws_loop = None
         self._disconnected.set()
+        if thread is not None:
+            logger.debug(f"Feishu WebSocket disconnected and joined")
 
     async def _disconnect_ws_client(self) -> None:
         """Share the actual close task across thread-finally and host stop."""
@@ -457,14 +476,17 @@ class LarkOapiPlatform:
     ) -> None:
         """Fast-ACK SDK callback that schedules Runner-owned work."""
         generation = self._generation if generation is None else generation
-        if (
-            self._closed
-            or (generation is not None and generation != self._generation)
-            or not self._event_matches_instance(value)
+        if self._closed or (
+            generation is not None and generation != self._generation
         ):
             return
-        if self._event_is_stale(value):
+        if not self._event_matches_instance(value):
+            logger.warning(f"Feishu ignored event for a different app")
             return
+        if self._event_is_stale(value):
+            logger.debug(f"Feishu ignored stale message event")
+            return
+        logger.debug(f"Feishu SDK event im.message.receive_v1")
         self._schedule_callback(
             self._dispatch_native_message(value, callback),
             "message",
@@ -489,6 +511,7 @@ class LarkOapiPlatform:
         parsed = parse_tool_guard_action_value(native.get("action_value"))
         if parsed is None:
             return P2CardActionTriggerResponse({})
+        logger.info(f"Feishu SDK event card.action.trigger")
         native.update(parsed)
         self._schedule_callback(callback(native), "card", generation)
         # Host ACL and approval policy have not run yet; acknowledge only.
@@ -522,11 +545,11 @@ class LarkOapiPlatform:
 
         def finished(task):
             self._callbacks.discard(task)
-            if not task.cancelled() and task.exception() is not None:
+            error = task.exception() if not task.cancelled() else None
+            if error is not None:
                 logger.error(
-                    "Feishu %s callback failed",
-                    event_kind,
-                    exc_info=task.exception(),
+                    f"Feishu {event_kind} callback failed "
+                    f"({type(error).__name__})",
                 )
 
         if loop is not None and loop.is_running():
@@ -535,6 +558,7 @@ class LarkOapiPlatform:
                 return
             except RuntimeError:
                 pass
+        logger.debug(f"Feishu {event_kind} callback has no active event loop")
         coroutine.close()
 
     def _run_ws(self, handler: Any) -> None:
@@ -583,16 +607,23 @@ class LarkOapiPlatform:
         except BaseException as exc:
             self._ws_error = exc
             self._ws_started.set()
+            if not self._closing and not isinstance(
+                exc,
+                asyncio.CancelledError,
+            ):
+                logger.warning(
+                    f"Feishu WebSocket thread failed ({type(exc).__name__})",
+                )
         finally:
             self._closed = True
             while True:
                 try:
                     loop.run_until_complete(self._disconnect_ws_client())
                     break
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Feishu socket cleanup needs retry",
-                        exc_info=True,
+                        f"Feishu socket cleanup needs retry "
+                        f"({type(exc).__name__})",
                     )
                     # Retain a running loop/thread so a later stop can retry.
                     loop.run_forever()
@@ -602,6 +633,7 @@ class LarkOapiPlatform:
             for task in pending:
                 task.cancel()
             if pending:
+                logger.debug(f"Feishu cancelling {len(pending)} SDK tasks")
                 with suppress(Exception):
                     loop.run_until_complete(
                         asyncio.wait(
@@ -619,7 +651,14 @@ class LarkOapiPlatform:
                         return_exceptions=True,
                     ),
                 )
-            loop.close()
+            try:
+                loop.close()
+            except RuntimeError as exc:
+                logger.error(
+                    f"Feishu WebSocket loop close failed "
+                    f"({type(exc).__name__})",
+                )
+                raise
             with suppress(RuntimeError):
                 runner_loop.call_soon_threadsafe(self._disconnected.set)
 
@@ -692,7 +731,10 @@ class LarkOapiPlatform:
     async def _dispatch_native_message_serial(self, value, callback) -> None:
         native = self._native_message(value)
         message_id = str(native.get("message_id") or "")
-        if not message_id or message_id in self._processed_ids:
+        if not message_id:
+            return
+        if message_id in self._processed_ids:
+            logger.debug(f"Feishu duplicate message has been processed")
             return
         sender_id = str(native.get("sender_open_id") or "")
         if not sender_id or sender_id == self._bot_open_id:
@@ -733,6 +775,7 @@ class LarkOapiPlatform:
             )
         native["content_parts"] = content_parts
         await callback(native)
+        logger.info(f"Feishu message received: type={message_type}")
         self._processed_ids[message_id] = None
         while len(self._processed_ids) > FEISHU_PROCESSED_IDS_MAX:
             self._processed_ids.popitem(last=False)
@@ -759,10 +802,9 @@ class LarkOapiPlatform:
                         "image.jpg",
                     )
                     parts.append({"type": "image", "image_url": locator})
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Feishu image download failed",
-                        exc_info=True,
+                        f"Feishu image download failed ({type(exc).__name__})",
                     )
                     hints.append("[image: download failed]")
             for file_key in extract_post_media_file_keys(content):
@@ -774,10 +816,9 @@ class LarkOapiPlatform:
                         "file.bin",
                     )
                     parts.append({"type": "file", "file_url": locator})
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Feishu file download failed",
-                        exc_info=True,
+                        f"Feishu file download failed ({type(exc).__name__})",
                     )
                     hints.append("[media: download failed]")
         elif message_type == "interactive":
@@ -809,11 +850,10 @@ class LarkOapiPlatform:
                     resource_type,
                     filename,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "Feishu %s download failed",
-                    message_type,
-                    exc_info=True,
+                    f"Feishu {message_type} download failed "
+                    f"({type(exc).__name__})",
                 )
                 label = "video" if message_type == "media" else message_type
                 return None, [f"[{label}: download failed]"], []
@@ -847,6 +887,7 @@ class LarkOapiPlatform:
         if result is None:
             return
         message_type, content = result
+        logger.debug(f"Feishu quoted message found: type={message_type}")
         text, hints, parts = await self._parse_message_content(
             message_type,
             content,
@@ -878,9 +919,14 @@ class LarkOapiPlatform:
             request.add_query("card_msg_content_type", "user_card_content")
             response = await self._client.im.v1.message.aget(request)
             if not response.success():
+                code = getattr(response, f"code", None)
+                logger.debug(
+                    f"Feishu quoted message lookup rejected: code={code}",
+                )
                 return None
             items = response.data.items if response.data else []
             if not items:
+                logger.debug(f"Feishu quoted message lookup returned no items")
                 return None
             message = items[0]
             body = getattr(message, "body", None)
@@ -888,8 +934,10 @@ class LarkOapiPlatform:
                 str(getattr(message, "msg_type", "") or ""),
                 str(getattr(body, "content", "") or ""),
             )
-        except Exception:
-            logger.debug("Feishu quoted message fetch failed", exc_info=True)
+        except Exception as exc:
+            logger.debug(
+                f"Feishu quoted message fetch failed ({type(exc).__name__})",
+            )
             return None
 
     async def _fetch_sender_name(self, open_id: str) -> str:
@@ -910,7 +958,11 @@ class LarkOapiPlatform:
                 self._client.contact.v3.user.get,
                 request,
             )
-            user = response.data.user if response.success() else None
+            if not response.success():
+                code = getattr(response, f"code", None)
+                logger.debug(f"Feishu contact lookup rejected: code={code}")
+                return ""
+            user = response.data.user
             for field in ("name", "en_name", "nickname"):
                 value = getattr(user, field, "") if user is not None else ""
                 if isinstance(value, str) and value.strip():
@@ -921,21 +973,30 @@ class LarkOapiPlatform:
                     ):
                         self._nickname_cache.popitem(last=False)
                     return name
-        except Exception:
-            logger.debug("Feishu sender name lookup failed", exc_info=True)
+            logger.debug(f"Feishu contact lookup returned no usable name")
+        except Exception as exc:
+            logger.debug(
+                f"Feishu contact lookup failed ({type(exc).__name__})",
+            )
         return ""
 
     async def _fetch_bot_open_id(self) -> str:
         """Fetch bot identity and update the server clock offset."""
         if self._client is None or self._http_client is None:
+            logger.debug(f"Feishu bot info client unavailable")
             return ""
+        phase = f"token"
         try:
             token = await self._run_blocking(
                 TokenManager.get_self_tenant_token,
                 self._client._config,
             )
             if not token:
+                logger.warning(
+                    f"Feishu bot identity lookup lacks tenant token",
+                )
                 return ""
+            phase = f"http"
             response = await self._http_client.get(
                 f"{self._sdk_domain()}/open-apis/bot/v3/info",
                 headers={
@@ -946,16 +1007,32 @@ class LarkOapiPlatform:
             )
             date_value = response.headers.get("Date")
             if date_value:
+                phase = f"clock"
                 server_ms = int(
                     parsedate_to_datetime(date_value).timestamp() * 1000,
                 )
                 self._clock_offset = server_ms - int(time.time() * 1000)
+                logger.debug(
+                    f"Feishu server clock offset_ms={self._clock_offset}",
+                )
+            phase = f"response"
             data = response.json()
             if data.get("code", -1) != 0:
+                code = data.get(f"code")
+                safe_code = code if type(code) is int else None
+                logger.warning(
+                    f"Feishu bot identity lookup rejected: "
+                    f"HTTP {response.status_code}, code={safe_code}",
+                )
                 return ""
-            return str((data.get("bot") or {}).get("open_id") or "")
-        except Exception:
-            logger.debug("Feishu bot identity lookup failed", exc_info=True)
+            bot_open_id = str((data.get("bot") or {}).get("open_id") or "")
+            logger.debug(f"Feishu bot identity available={bool(bot_open_id)}")
+            return bot_open_id
+        except Exception as exc:
+            logger.debug(
+                f"Feishu bot info lookup failed: phase={phase} "
+                f"error={type(exc).__name__}",
+            )
             return ""
 
     async def _download_resource(
@@ -979,9 +1056,14 @@ class LarkOapiPlatform:
         )
         response = await self._client.im.v1.message_resource.aget(request)
         if not response.success() or response.file is None:
+            code = getattr(response, f"code", None)
+            logger.warning(
+                f"Feishu {resource_type} download rejected: code={code}",
+            )
             raise RuntimeError("Feishu media download failed")
         data = response.file.read()
         if not data:
+            logger.warning(f"Feishu empty {resource_type} download")
             raise RuntimeError("Feishu media download was empty")
         if resource_type == "image":
             safe_key = (
@@ -1001,6 +1083,7 @@ class LarkOapiPlatform:
                 safe_name = f"file.{extension}"
             path = media_dir / f"{message_id}_{safe_name}"
         await self._run_blocking(path.write_bytes, data)
+        logger.debug(f"Feishu {resource_type} downloaded: bytes={len(data)}")
         return str(path)
 
     @_owned_operation
@@ -1079,31 +1162,39 @@ class LarkOapiPlatform:
         *,
         session_ctx: Mapping[str, Any] | None = None,
     ) -> str:
-        content = build_tool_guard_approval_card(
-            request_id=str(approval.get("request_id") or ""),
-            tool_name=str(approval.get("tool_name") or "tool"),
-            severity=str(approval.get("severity") or "medium"),
-            body_text=fallback_text,
-            session_ctx=dict(session_ctx)
-            if session_ctx is not None
-            else {
-                "chat_id": (
-                    receive_id if receive_id_type == "chat_id" else ""
-                ),
-                "chat_type": (
-                    "group" if receive_id_type == "chat_id" else "p2p"
-                ),
-                "receive_id": receive_id,
-                "receive_id_type": receive_id_type,
-                "is_group": receive_id_type == "chat_id",
-            },
-        )
-        return await self._create_message(
+        try:
+            content = build_tool_guard_approval_card(
+                request_id=str(approval.get("request_id") or ""),
+                tool_name=str(approval.get("tool_name") or "tool"),
+                severity=str(approval.get("severity") or "medium"),
+                body_text=fallback_text,
+                session_ctx=dict(session_ctx)
+                if session_ctx is not None
+                else {
+                    "chat_id": (
+                        receive_id if receive_id_type == "chat_id" else ""
+                    ),
+                    "chat_type": (
+                        "group" if receive_id_type == "chat_id" else "p2p"
+                    ),
+                    "receive_id": receive_id,
+                    "receive_id_type": receive_id_type,
+                    "is_group": receive_id_type == "chat_id",
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Feishu approval card render failed ({type(exc).__name__})",
+            )
+            raise
+        message_id = await self._create_message(
             receive_id_type,
             receive_id,
             "interactive",
             content,
         )
+        logger.info(f"Feishu approval card accepted by platform")
+        return message_id
 
     async def _send_text(
         self,
@@ -1169,6 +1260,7 @@ class LarkOapiPlatform:
                 side_effect_possible=False,
             )
         data = await self._read_locator(str(part.get("image_url") or ""))
+        logger.debug(f"Feishu uploading image: bytes={len(data)}")
         request = (
             CreateImageRequest.builder()
             .request_body(
@@ -1182,6 +1274,9 @@ class LarkOapiPlatform:
         try:
             response = await self._client.im.v1.image.acreate(request)
         except Exception as exc:
+            logger.warning(
+                f"Feishu image upload result unknown ({type(exc).__name__})",
+            )
             raise FeishuDeliveryError(
                 "IMAGE_UPLOAD_UNKNOWN",
                 side_effect_possible=True,
@@ -1192,10 +1287,13 @@ class LarkOapiPlatform:
             else ""
         )
         if not image_key:
+            code = getattr(response, f"code", None)
+            logger.warning(f"Feishu image upload failed: code={code}")
             raise FeishuDeliveryError(
                 "IMAGE_UPLOAD_FAILED",
                 side_effect_possible=False,
             )
+        logger.debug(f"Feishu image upload acknowledged")
         try:
             return await self._create_message(
                 receive_id_type,
@@ -1256,6 +1354,9 @@ class LarkOapiPlatform:
         )
         data = await self._read_locator(locator)
         if len(data) > FEISHU_FILE_MAX_BYTES:
+            logger.warning(
+                f"Feishu file too large for upload: bytes={len(data)}",
+            )
             raise FeishuDeliveryError(
                 "FILE_TOO_LARGE",
                 side_effect_possible=False,
@@ -1292,6 +1393,9 @@ class LarkOapiPlatform:
         try:
             response = await self._client.im.v1.file.acreate(request)
         except Exception as exc:
+            logger.warning(
+                f"Feishu file upload result unknown ({type(exc).__name__})",
+            )
             raise FeishuDeliveryError(
                 "FILE_UPLOAD_UNKNOWN",
                 side_effect_possible=True,
@@ -1302,10 +1406,13 @@ class LarkOapiPlatform:
             else ""
         )
         if not file_key:
+            code = getattr(response, f"code", None)
+            logger.warning(f"Feishu file upload failed: code={code}")
             raise FeishuDeliveryError(
                 "FILE_UPLOAD_FAILED",
                 side_effect_possible=False,
             )
+        logger.debug(f"Feishu file upload acknowledged")
         try:
             return await self._create_message(
                 receive_id_type,
@@ -1326,6 +1433,10 @@ class LarkOapiPlatform:
             try:
                 return base64.b64decode(locator.split("base64,", 1)[1])
             except Exception as exc:
+                logger.warning(
+                    f"Feishu media base64 decode failed "
+                    f"({type(exc).__name__})",
+                )
                 raise FeishuDeliveryError(
                     "INVALID_DATA_LOCATOR",
                     side_effect_possible=False,
@@ -1334,6 +1445,7 @@ class LarkOapiPlatform:
         if local_path is not None:
             path = Path(local_path)
             if not path.is_file():
+                logger.warning(f"Feishu local media file unavailable")
                 raise FeishuDeliveryError(
                     "LOCAL_FILE_UNAVAILABLE",
                     side_effect_possible=False,
@@ -1341,17 +1453,32 @@ class LarkOapiPlatform:
             return await self._run_blocking(path.read_bytes)
         if locator.startswith(("http://", "https://")):
             if self._http_client is None:
+                logger.warning(f"Feishu media HTTP client unavailable")
                 raise FeishuDeliveryError(
                     "HTTP_CLIENT_UNAVAILABLE",
                     side_effect_possible=False,
                 )
-            response = await self._http_client.get(locator)
+            try:
+                response = await self._http_client.get(locator)
+            except httpx.RequestError as exc:
+                logger.warning(
+                    f"Feishu remote media request failed "
+                    f"({type(exc).__name__})",
+                )
+                raise
             if response.status_code >= 400:
+                logger.warning(
+                    f"Feishu remote media read failed: "
+                    f"HTTP {response.status_code}",
+                )
                 raise FeishuDeliveryError(
                     "REMOTE_MEDIA_UNAVAILABLE",
                     side_effect_possible=False,
                 )
             return response.content
+        logger.warning(
+            f"Feishu media locator unavailable: present={bool(locator)}",
+        )
         raise FeishuDeliveryError(
             "UNSUPPORTED_MEDIA_LOCATOR",
             side_effect_possible=False,
@@ -1366,6 +1493,11 @@ class LarkOapiPlatform:
         *,
         reply_message_id: str = "",
     ) -> str:
+        thread = bool(reply_message_id)
+        logger.debug(
+            f"Feishu {message_type} send: "
+            f"thread={thread} chars={len(content)}",
+        )
         if reply_message_id:
             request = (
                 ReplyMessageRequest.builder()
@@ -1398,11 +1530,20 @@ class LarkOapiPlatform:
             else:
                 response = await self._client.im.v1.message.acreate(request)
         except Exception as exc:
+            logger.warning(
+                f"Feishu {message_type} send failed: thread={thread} "
+                f"error={type(exc).__name__}",
+            )
             raise FeishuDeliveryError(
                 "MESSAGE_RESULT_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
         if not response.success():
+            code = getattr(response, f"code", None)
+            logger.warning(
+                f"Feishu {message_type} send rejected: "
+                f"thread={thread} code={code}",
+            )
             raise FeishuDeliveryError(
                 "MESSAGE_REJECTED",
                 side_effect_possible=False,
@@ -1410,10 +1551,14 @@ class LarkOapiPlatform:
             )
         message_id = getattr(response.data, "message_id", "")
         if not message_id:
+            logger.warning(f"Feishu {message_type} send returned no receipt")
             raise FeishuDeliveryError(
                 "MESSAGE_RESULT_UNKNOWN",
                 side_effect_possible=True,
             )
+        logger.debug(
+            f"Feishu {message_type} send acknowledged: thread={thread}",
+        )
         return str(message_id)
 
     @_owned_operation
@@ -1439,6 +1584,10 @@ class LarkOapiPlatform:
         try:
             response = await self._client.cardkit.v1.card.acreate(request)
         except Exception as exc:
+            logger.warning(
+                f"Feishu streaming card create result unknown "
+                f"({type(exc).__name__})",
+            )
             raise FeishuDeliveryError(
                 "STREAM_CREATE_UNKNOWN",
                 side_effect_possible=True,
@@ -1449,6 +1598,11 @@ class LarkOapiPlatform:
             else ""
         )
         if not card_id:
+            code = getattr(response, f"code", None)
+            logger.warning(
+                f"Feishu streaming card creation failed: code={code} "
+                f"has_card_id=False",
+            )
             raise FeishuDeliveryError(
                 "STREAM_CREATE_FAILED",
                 side_effect_possible=False,
@@ -1464,6 +1618,9 @@ class LarkOapiPlatform:
                 ),
             )
         except FeishuDeliveryError as exc:
+            logger.warning(
+                f"Feishu streaming card send failed: reason={exc.reason_code}",
+            )
             raise FeishuDeliveryError(
                 exc.reason_code,
                 side_effect_possible=True,
@@ -1498,12 +1655,20 @@ class LarkOapiPlatform:
                 request,
             )
         except Exception as exc:
+            logger.warning(
+                f"Feishu streaming card update result unknown "
+                f"({type(exc).__name__})",
+            )
             raise FeishuDeliveryError(
                 "STREAM_UPDATE_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
-        if not response.success() or not final:
-            return bool(response.success())
+        succeeded = bool(response.success())
+        if not succeeded:
+            code = getattr(response, f"code", None)
+            logger.warning(f"Feishu streaming card update failed: code={code}")
+        if not succeeded or not final:
+            return succeeded
         preview = text.strip()
         if len(preview) > 80:
             preview = f"{preview[:77]}..."
@@ -1533,11 +1698,19 @@ class LarkOapiPlatform:
                 finalize,
             )
         except Exception as exc:
+            logger.warning(
+                f"Feishu streaming card finalize result unknown "
+                f"({type(exc).__name__})",
+            )
             raise FeishuDeliveryError(
                 "STREAM_FINALIZE_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
         if not final_response.success():
+            code = getattr(final_response, f"code", None)
+            logger.warning(
+                f"Feishu streaming card finalize failed: code={code}",
+            )
             raise FeishuDeliveryError(
                 "STREAM_FINALIZE_PARTIAL",
                 side_effect_possible=True,
@@ -1583,17 +1756,16 @@ class LarkOapiPlatform:
             )
             resp = await self._client.cardkit.v1.card_element.apatch(req)
             if not resp.success():
+                code = resp.code if type(resp.code) is int else None
                 logger.warning(
-                    "feishu collapse reasoning panel failed: code=%s msg=%s",
-                    resp.code,
-                    resp.msg,
+                    f"Feishu collapse reasoning panel failed: code={code}",
                 )
                 return False
             return True
-        except Exception:
+        except Exception as error:
             logger.warning(
-                "feishu collapse reasoning panel exception",
-                exc_info=True,
+                f"Feishu collapse reasoning panel failed "
+                f"({type(error).__name__})",
             )
             return False
 
@@ -1628,7 +1800,11 @@ class LarkOapiPlatform:
             response = await self._client.im.v1.message_reaction.acreate(
                 request,
             )
-            return bool(response.success())
+            succeeded = bool(response.success())
+            if not succeeded:
+                code = getattr(response, f"code", None)
+                logger.warning(f"Feishu reaction rejected: code={code}")
+            return succeeded
         except Exception:
             logger.debug("Feishu reaction failed", exc_info=True)
             return False

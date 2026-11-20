@@ -127,7 +127,10 @@ class XiaoYiPlatform:
         def done(finished):
             self._tasks.discard(finished)
             if not finished.cancelled() and finished.exception() is not None:
-                logger.error("xiaoyi: background operation failed")
+                logger.error(
+                    f"XiaoYi background operation failed "
+                    f"({type(finished.exception()).__name__})",
+                )
 
         task.add_done_callback(done)
         return task
@@ -164,6 +167,7 @@ class XiaoYiPlatform:
             ("agent_id", "Agent ID"),
         ):
             if not getattr(self, name):
+                logger.error(f"XiaoYi required configuration missing: {name}")
                 raise ValueError(f"XiaoYi {label} is required")
         async with self._effect():
             await make_dirs_async(self._media_dir)
@@ -179,6 +183,11 @@ class XiaoYiPlatform:
                     self.agent_id,
                     self._handle_incoming_message,
                 )
+            backup_configured = f"backup" in self._connections
+            logger.info(
+                f"XiaoYi connecting: backup_configured="
+                f"{backup_configured}",
+            )
             await self._publish_state()
             started = []
             for conn in self._connections.values():
@@ -209,14 +218,13 @@ class XiaoYiPlatform:
                         min(attempt - 1, len(RECONNECT_DELAYS) - 1)
                     ]
                     logger.info(
-                        f"xiaoyi [%s]: reconnecting in %ss (attempt %s)",
-                        name,
-                        delay,
-                        attempt,
+                        f"XiaoYi {name} reconnecting in {delay}s: "
+                        f"attempt={attempt}",
                     )
                     await asyncio.sleep(delay)
                 try:
                     if await conn.connect():
+                        logger.info(f"XiaoYi {name} ready")
                         await self._publish_state()
                         first_attempt.set()
                         if not await conn.wait_disconnected(
@@ -224,6 +232,7 @@ class XiaoYiPlatform:
                         ):
                             attempt = 0
                             await conn.wait_disconnected()
+                        logger.warning(f"XiaoYi {name} connection lost")
                         for session, server in tuple(
                             self._session_server_map.items(),
                         ):
@@ -233,9 +242,8 @@ class XiaoYiPlatform:
                         await conn.disconnect()
                 except Exception as exc:
                     logger.warning(
-                        f"xiaoyi [%s]: connection supervisor failed (%s)",
-                        name,
-                        type(exc).__name__,
+                        f"XiaoYi {name} connection supervisor failed "
+                        f"({type(exc).__name__})",
                     )
                 finally:
                     first_attempt.set()
@@ -243,9 +251,12 @@ class XiaoYiPlatform:
         finally:
             first_attempt.set()
         self._exhausted.add(name)
+        if not self._stopping:
+            logger.error(f"XiaoYi {name} reconnect attempts exhausted")
         await self._publish_state()
 
     async def stop(self):
+        logger.debug(f"XiaoYi stopping channel")
         self._stopping = True
         current = asyncio.current_task()
         tasks = (self._tasks | self._operations) - {current}
@@ -270,13 +281,21 @@ class XiaoYiPlatform:
             else:
                 self._media_session = None
         if failures:
+            logger.warning(
+                f"XiaoYi channel stop incomplete: failures={len(failures)}",
+            )
             raise RuntimeError("XIAOYI_STOP_INCOMPLETE") from failures[0]
         await self._publish_state()
+        logger.info(f"XiaoYi channel stopped")
 
     def resolve_target(self, session, meta):
         session = native_session_id(str(meta.get("session_id") or session))
         task_id = meta.get("task_id") or self._session_task_map.get(session)
         if not session or not task_id:
+            logger.warning(
+                f"XiaoYi outbound route incomplete: "
+                f"has_session={bool(session)} has_task={bool(task_id)}",
+            )
             raise XiaoYiDeliveryError("XIAOYI_TASK_UNKNOWN")
         message_id = meta.get("message_id") or str(uuid.uuid4())
         return {
@@ -303,6 +322,11 @@ class XiaoYiPlatform:
                 continue
             try:
                 if await conn.send_json(message):
+                    if name != servers[0]:
+                        logger.debug(
+                            f"XiaoYi wrote outbound frame via "
+                            f"{name} fallback",
+                        )
                     return
             except XiaoYiDeliveryError:
                 raise
@@ -313,12 +337,14 @@ class XiaoYiPlatform:
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
                 ) from exc
+        logger.warning(f"XiaoYi outbound frame could not find a connection")
         raise XiaoYiDeliveryError("NOT_CONNECTED", retryable=True)
 
     async def _handle_incoming_message(self, message, server_name):
         if self._stopping or not isinstance(message, dict):
             return
         if message.get("agentId") and message["agentId"] != self.agent_id:
+            logger.warning(f"XiaoYi {server_name} ignored agent ID mismatch")
             return
         params = message.get(f"params")
         params = params if isinstance(params, dict) else {}
@@ -328,15 +354,24 @@ class XiaoYiPlatform:
         method, action = message.get(f"method"), message.get(f"action")
         event_id = control_state = None
         if method == f"clearContext" or action == f"clear":
+            logger.info(f"XiaoYi {server_name} received clear-context")
             control_state = f"cleared"
         elif method == f"tasks/cancel" or action == f"tasks/cancel":
+            logger.info(f"XiaoYi {server_name} received task cancel")
             control_state = f"canceled"
         elif method == f"message/stream" and session:
+            logger.debug(f"XiaoYi {server_name} received A2A message")
             native = params.get(f"message")
             if not isinstance(native, dict):
                 return
             event_id = self._event_id(message, native, session)
         else:
+            if method == f"message/stream" and not session:
+                logger.warning(
+                    f"XiaoYi {server_name} A2A message missing session ID",
+                )
+            else:
+                logger.debug(f"XiaoYi {server_name} ignored unknown event")
             return
         job = _Inbound(message, server_name, event_id, control_state)
         await self._enqueue_inbound(session, job)
@@ -413,11 +448,14 @@ class XiaoYiPlatform:
                     state,
                 ),
             )
-        except XiaoYiDeliveryError:
+        except XiaoYiDeliveryError as exc:
             # Legacy control acknowledgements are best effort. Clear still
             # removes its mapping after the acknowledgement attempt; cancel
             # never removes it. An uncertain write does not select a fallback.
-            logger.warning("xiaoyi: control acknowledgement failed")
+            logger.warning(
+                f"XiaoYi control acknowledgement failed: "
+                f"state={state} reason={exc.reason_code}",
+            )
 
     @staticmethod
     def _event_id(message, native_message, session):
@@ -464,6 +502,8 @@ class XiaoYiPlatform:
             )
         if await self.on_event(value):
             _bounded_map_put(self._seen_events, event_id, {f"accepted": True})
+        else:
+            logger.warning(f"XiaoYi {job.server} host rejected A2A message")
 
     async def _prepare_message(self, session, job):
         params = job.message[f"params"]
@@ -483,6 +523,7 @@ class XiaoYiPlatform:
         if text:
             parts.insert(0, {f"type": f"text", f"text": text})
         if not parts:
+            logger.debug(f"XiaoYi {job.server} A2A message has no parts")
             return None
         message_id = (
             request_id if request_id is not None else str(uuid.uuid4())
@@ -703,6 +744,7 @@ class XiaoYiPlatform:
         media_final=True,
     ):
         if not route.get("task_id"):
+            logger.warning(f"XiaoYi outbound parts missing task ID")
             raise XiaoYiDeliveryError("XIAOYI_TASK_UNKNOWN")
         async with self._effect():
             frames = self._outbound_frames(
@@ -712,12 +754,18 @@ class XiaoYiPlatform:
                 replace_event_text=replace_event_text,
                 media_final=media_final,
             )
+            if not frames:
+                logger.debug(f"XiaoYi no outbound frames for content parts")
             sent = 0
             try:
                 for message in frames:
                     await self._send_to_route(route, message)
                     sent += 1
             except XiaoYiDeliveryError as exc:
+                logger.warning(
+                    f"XiaoYi outbound parts failed: reason={exc.reason_code} "
+                    f"frames_written={sent}",
+                )
                 if sent and not exc.side_effect_possible:
                     raise XiaoYiDeliveryError(
                         "PARTIAL_DELIVERY",
@@ -761,10 +809,12 @@ class XiaoYiPlatform:
 
     async def send_finish_step(self, route, step, state):
         if not route.get("task_id"):
+            logger.warning(f"XiaoYi completion frame missing task ID")
             raise XiaoYiDeliveryError("XIAOYI_TASK_UNKNOWN")
         if step == f"completed":
             text = f"Done" if state == f"completed" else f""
             await self.send_status(route, state, text)
+            logger.info(f"XiaoYi completion frame written: step={step}")
             return
         async with self._effect():
             await self._send_to_route(
@@ -776,3 +826,4 @@ class XiaoYiPlatform:
                     final=True,
                 ),
             )
+            logger.info(f"XiaoYi completion frame written: step={step}")
