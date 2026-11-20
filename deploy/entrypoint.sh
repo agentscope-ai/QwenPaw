@@ -37,11 +37,15 @@ Recommended:
 EOF
 }
 
+# Check the managed identity even when initialization is skipped. This sets
+# up the application account without importing QwenPaw as container root.
+qwenpaw-runtime-user /bin/true
+
 # Auto-initialize if config.json is missing (bind mount with empty directory).
 if [ ! -f "${QWENPAW_WORKING_DIR}/config.json" ]; then
   echo "⚠️  No config.json found in ${QWENPAW_WORKING_DIR}"
   echo "📦 Running initialization..."
-  qwenpaw init --defaults --accept-security
+  qwenpaw-runtime-user qwenpaw init --defaults --accept-security
   echo "✅ Initialization complete!"
 else
   echo "✓ Config found in ${QWENPAW_WORKING_DIR}, skipping initialization."

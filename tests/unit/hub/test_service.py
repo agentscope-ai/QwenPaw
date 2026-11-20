@@ -591,3 +591,42 @@ def test_user_profile_updates_owned_workspace_paths_on_restart(tmp_path):
         assert config["project_dir"] == "/home/user/projects/demo"
     finally:
         service.close()
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    ["config.json", "workspaces/default/agent.json"],
+)
+def test_docker_permission_error_explains_stopped_data_repair(
+    tmp_path,
+    monkeypatch,
+    config_name,
+):
+    service, _, docker = _backend_service(
+        tmp_path,
+        config=_docker_config("custom:test"),
+    )
+    record = service.create(_spec("private-config"))
+    config_path = record.working_dir / config_name
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("{}")
+    original_read = Path.read_text
+
+    def read(path, *args, **kwargs):
+        if path == config_path:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    try:
+        with pytest.raises(
+            PermissionError,
+            match="repair shared data ownership",
+        ):
+            service.start(record.runtime_id)
+        assert docker.start_calls == 0
+        failed = service.get(record.runtime_id)
+        assert failed.state is RuntimeState.FAILED
+        assert str(config_path) in failed.last_error
+    finally:
+        service.close()

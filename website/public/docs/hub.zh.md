@@ -232,6 +232,27 @@ runtimes/
 
 填写 `docker image ls` 中存在的完整 `Repository:Tag`，并将拉取策略设为 `never`。
 
+### Docker 环境访问 config.json 时提示权限不足
+
+受管镜像会使用挂载工作目录的所有者身份执行初始化、应用和桌面会话，Supervisor 与系统服务保留启动所需权限。身份从容器内部读取，使 Rootless Docker 使用映射后的身份，无需写死宿主机 UID。配置和密钥继续保留私有权限。自定义运行镜像也需要相同的行为。使用 `userns-remap` 时，必须将 Hub 数据所有者映射到容器内；检测到溢出 UID/GID 时会明确报错。
+
+旧镜像可能已生成属于 root 的私有配置或目录。更新镜像不会修复旧数据，Hub 也可能在启动容器之前读取配置失败。先在 Hub 中停止受影响的环境，并确认对应容器已停止，再用更新后的镜像对该环境的三个数据目录执行一次修复：
+
+```bash
+runtime_dir="/data/qwenpaw/hub/runtimes/<runtime-id>"
+runtime_image="agentscope/qwenpaw:<fixed-tag>"
+docker run --rm --network none --user 0:0 \
+  --security-opt no-new-privileges:true \
+  --entrypoint qwenpaw-runtime-user \
+  --mount "type=bind,src=$runtime_dir/working,dst=/app/working" \
+  --mount "type=bind,src=$runtime_dir/secrets,dst=/app/working.secret" \
+  --mount "type=bind,src=$runtime_dir/backups,dst=/app/working.backups" \
+  -e QWENPAW_RUNTIME_MODE=hub \
+  "$runtime_image" --repair-data
+```
+
+请将示例路径和镜像标签替换为实际值。修复以挂载工作目录的所有者为目标，只调整属于 root 的文件和目录，保留普通权限位，跳过符号链接及嵌套挂载点，并拒绝修改属于 root 的硬链接普通文件。遇到硬链接错误时，先人工处理后再重试。只对已停止、可信的运行环境数据执行此命令；Docker 用户命名空间需要预先正确映射数据所有者。修复后在 Hub 中选择新镜像并执行「Docker 重建」，替换环境固定使用的旧镜像，再检查配置保存和重启。Hub 继续使用原来的普通账号运行。
+
 ### 登录成功，但个人 QwenPaw 无法打开
 
 在「运行环境」中查看该用户的状态和最近错误。确认所选的 Local 或 Docker 环境可用，并尝试重启。

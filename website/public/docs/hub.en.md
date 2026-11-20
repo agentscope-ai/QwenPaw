@@ -232,6 +232,27 @@ Changing the global setting does not interrupt running runtimes. Restart the rel
 
 Enter the complete `Repository:Tag` shown by `docker image ls` and set the pull policy to `never`.
 
+### Docker runtime reports permission denied on config.json
+
+The managed image runs initialization, the application, and its desktop session as the owner of the mounted working directory. Supervisor and system services retain their bootstrap privileges. The identity is read inside the container so rootless Docker can keep its mapped identity; no host UID is hard-coded. Configuration and secrets retain their private permissions. Custom runtime images need the same behavior. With `userns-remap`, the Hub's data owner must be mapped into the container; an overflow UID/GID is rejected with a mapping error.
+
+Older images may have created root-owned private configuration or directories. Updating the image does not repair existing data, and the Hub may fail before starting the container. Stop the affected runtime in Hub first and ensure its container is no longer running. Then use an updated image for a one-time repair of only that runtime's three data directories:
+
+```bash
+runtime_dir="/data/qwenpaw/hub/runtimes/<runtime-id>"
+runtime_image="agentscope/qwenpaw:<fixed-tag>"
+docker run --rm --network none --user 0:0 \
+  --security-opt no-new-privileges:true \
+  --entrypoint qwenpaw-runtime-user \
+  --mount "type=bind,src=$runtime_dir/working,dst=/app/working" \
+  --mount "type=bind,src=$runtime_dir/secrets,dst=/app/working.secret" \
+  --mount "type=bind,src=$runtime_dir/backups,dst=/app/working.backups" \
+  -e QWENPAW_RUNTIME_MODE=hub \
+  "$runtime_image" --repair-data
+```
+
+Replace the example path and image tag with your actual values. The repair uses the mounted working directory's owner, changes only root-owned files/directories, preserves normal permission bits, skips symbolic links and nested mounts, and refuses root-owned hard-linked regular files. Resolve any rejected hard links before retrying. Run it only against stopped, trusted runtime data. Docker user namespaces must already provide the intended ownership mapping. After repair, select the updated image in Hub and use **Rebuild** to replace the runtime's pinned old image, then verify configuration saves and restarts. Keep the Hub running as its regular user.
+
 ### Sign-in succeeds, but the personal QwenPaw does not open
 
 Open **Runtimes** and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.

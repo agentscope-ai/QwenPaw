@@ -22,7 +22,7 @@ stderr_logfile=/var/log/dbus.err.log
 stdout_logfile=/var/log/dbus.out.log
 
 [program:app]
-command=qwenpaw app --host 0.0.0.0 --port ${QWENPAW_PORT}
+command=qwenpaw-runtime-user qwenpaw app --host 0.0.0.0 --port ${QWENPAW_PORT}
 autostart=true
 autorestart=unexpected
 startretries=5
@@ -43,7 +43,7 @@ stdout_logfile=/var/log/xvfb.out.log
 environment=DISPLAY=":1"
 
 [program:xfce4]
-command=/bin/sh -c 'export DISPLAY=:1; for i in $(seq 1 200); do [ -S /tmp/.X11-unix/X1 ] && break; sleep 0.1; done; exec dbus-run-session startxfce4'
+command=qwenpaw-runtime-user /bin/sh -c 'export DISPLAY=:1; for i in $(seq 1 200); do [ -S /tmp/.X11-unix/X1 ] && break; sleep 0.1; done; exec dbus-run-session startxfce4'
 autostart=true
 autorestart=true
 priority=20
