@@ -182,6 +182,7 @@ export function WebSearchConfigModal({
               <Select.Option value="tavily">tavily</Select.Option>
               <Select.Option value="anysearch">anysearch</Select.Option>
               <Select.Option value="firecrawl">firecrawl</Select.Option>
+              <Select.Option value="olostep">olostep</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item name="api_key" label={t("tools.webSearchApiKeyLabel")}>

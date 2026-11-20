@@ -10,6 +10,7 @@ from ....config.config import load_agent_config
 from .anysearch import AnySearchProvider
 from .base import SearchProvider
 from .firecrawl import FirecrawlProvider
+from .olostep import OlostepProvider
 from .tavily import TavilyProvider
 
 
@@ -41,9 +42,11 @@ def get_search_provider() -> SearchProvider:
         return AnySearchProvider()
     if choice == "firecrawl":
         return FirecrawlProvider()
+    if choice == "olostep":
+        return OlostepProvider()
     raise ValueError(
         f"Unknown web_search provider: {choice!r} "
-        "(expected 'tavily', 'anysearch' or 'firecrawl')",
+        "(expected 'tavily', 'anysearch', 'firecrawl' or 'olostep')",
     )
 
 
