@@ -386,3 +386,123 @@ jobs:
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
             dist/tauri-darwin-*-updater.json
             dist/tauri-darwin-*-updater.json.sha256
+
+  build-tauri-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             build-essential curl file patchelf libfuse2 pkgconf             libgtk-3-dev libsoup-3.0-dev librsvg2-dev             libayatana-appindicator3-dev libwebkit2gtk-4.1-dev             xvfb
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        env:
+          PIP_NO_CACHE_DIR: "1"
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/src-tauri
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri Linux package
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: |
+          chmod +x scripts/pack-tauri/build_linux_pyinstaller.sh
+          bash scripts/pack-tauri/build_linux_pyinstaller.sh
+
+      - name: Verify desktop (Tauri Linux)
+        timeout-minutes: 15
+        uses: ./.github/actions/verify-tauri-linux
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+
+      - name: Stop desktop server (Tauri Linux)
+        if: always()
+        run: |
+          pkill -f "qwenpaw-desktop" 2>/dev/null || true
+          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          sleep 2
+          pkill -9 -f "qwenpaw-desktop" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+          if [ -n "${BASE_URL:-}" ]; then
+            PORT="${BASE_URL##*:}"
+            fuser -k "${PORT}/tcp" 2>/dev/null || true
+          fi
+          rm -rf dist/verify-tauri
+
+      - name: Checksum desktop artifacts (Tauri Linux)
+        run: |
+          shopt -s nullglob
+          deb_artifacts=(dist/QwenPaw-Tauri-*-linux-*.deb)
+          appimage_artifacts=(dist/QwenPaw-Tauri-*-linux-*.AppImage)
+          if [ ${#deb_artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux deb, found ${#deb_artifacts[@]}"
+            exit 1
+          fi
+          if [ ${#appimage_artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux AppImage, found ${#appimage_artifacts[@]}"
+            exit 1
+          fi
+          for artifact in "${deb_artifacts[0]}" "${appimage_artifacts[0]}"; do
+            sha256sum "${artifact}" > "${artifact}.sha256"
+          done
+          dpkg-deb -I "${deb_artifacts[0]}" | sed -n '/Depends/p'
+
+      - name: Upload desktop artifacts (Tauri Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-linux
+          path: |
+            dist/QwenPaw-Tauri-*-linux-*.deb
+            dist/QwenPaw-Tauri-*-linux-*.deb.sha256
+            dist/QwenPaw-Tauri-*-linux-*.AppImage
+            dist/QwenPaw-Tauri-*-linux-*.AppImage.sha256
+            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
+            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
+
+      - name: Upload desktop verify logs (Tauri Linux)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-logs-tauri-linux-${{ steps.version.outputs.version }}
+          path: |
+            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
+            ${{ runner.temp }}/qwenpaw-desktop-stderr.log

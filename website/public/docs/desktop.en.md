@@ -14,7 +14,7 @@
 
 **Download**: [GitHub Releases][releases]
 
-This guide explains how to install and use the QwenPaw Desktop application on Windows and macOS.
+This guide explains how to install and use the QwenPaw Desktop application on Windows, macOS, and Linux.
 
 [releases]: https://qwenpaw.agentscope.io/downloads
 
@@ -26,6 +26,7 @@ This guide explains how to install and use the QwenPaw Desktop application on Wi
 
 - [Windows Guide](#windows-guide)
 - [macOS Guide](#macos-guide)
+- [Linux Guide](#linux-guide)
 - [Technical Support](#technical-support)
 
 ---
@@ -233,6 +234,59 @@ A: Currently using:
 - ✅ **One-time trust**: Permanently effective after manual trust
 
 ---
+
+## Linux Guide
+
+### System Requirements
+
+- **Operating System**: Ubuntu 24.04 LTS or newer, Debian 13 or newer (glibc 2.39+), x86_64
+- **Runtime dependencies**: `libwebkit2gtk-4.1-0`, `libgtk-3-0t64`, `libayatana-appindicator3-1`
+- **Session**: Wayland or X11 (both work; GNOME 50 on Ubuntu 26.04 is Wayland-only)
+- **Disk space**: about 3.5 GB after installation
+
+### Installation Steps
+
+**Option 1 — Debian package (recommended)**
+
+1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [Release page][releases]
+2. Install it with apt so dependencies resolve automatically:
+
+   ```bash
+   sudo apt install ./QwenPaw-Tauri-<version>-linux-x86_64.deb
+   ```
+
+3. Launch **QwenPaw Desktop** from the application grid, or run `qwenpaw-desktop`
+
+**Option 2 — AppImage (no installation)**
+
+1. Download `QwenPaw-Tauri-<version>-linux-x86_64.AppImage`
+2. Make it executable and run it:
+
+   ```bash
+   chmod +x QwenPaw-Tauri-<version>-linux-x86_64.AppImage
+   ./QwenPaw-Tauri-<version>-linux-x86_64.AppImage
+   ```
+
+An AppImage carries no dependency metadata: install `libwebkit2gtk-4.1-0` and `libfuse2` first if the system does not have them.
+
+### First Run
+
+The app creates `~/.qwenpaw` on first launch and initializes a default workspace automatically. Conversations, configuration, and agent data live there:
+
+- `~/.qwenpaw/workspaces/` — agent workspaces
+- `~/.qwenpaw/config.json` — configuration
+- `~/.qwenpaw.secret/` — credentials
+- `~/.qwenpaw.log` / `~/.qwenpaw/desktop.log` — logs
+
+### Known Limitations (Linux)
+
+- **Blurry UI under fractional display scaling.** The desktop window is a GTK 3 webview, and GTK 3 has no fractional scaling: at 125% or 150% the compositor renders the window at 1x and scales it up, so text looks soft. Other GTK 3 applications on the same desktop show the same effect. Set the display to an integer scale (100% or 200%) when sharp text matters.
+- **Scrolling and window resizing can feel slower than in a browser.** The same Console UI rendered in a browser uses a different engine; WebKitGTK's compositing path is slower on some GPU/Wayland combinations. This is a rendering-path limitation, not a packaging one.
+
+### Updates and Uninstall
+
+- **Updates**: download and install the newer package, or replace the AppImage file
+- **Uninstall**: `sudo apt remove qwen-paw-desktop` — this keeps `~/.qwenpaw`, remove it manually for a clean wipe
 
 ## Technical Support
 

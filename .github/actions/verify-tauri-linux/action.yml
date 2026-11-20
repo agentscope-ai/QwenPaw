@@ -1,0 +1,57 @@
+name: Verify Desktop (Tauri Linux)
+description: |
+  Launch the built AppImage under Xvfb and drive the embedded WebKit through
+  the shared Playwright UI verifier. Stop / cleanup / log upload steps live in
+  the caller workflow because composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install verify deps (Playwright + WebKit + X11 tools)
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y xvfb xdotool imagemagick
+        python -m pip install --upgrade pip
+        python -m pip install -r scripts/verify/requirements-verify.txt
+        python -m playwright install webkit --with-deps
+
+    - name: Verify desktop (Tauri Linux)
+      shell: bash
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        set -euo pipefail
+        # Shared Xvfb session: the AppImage and the headed Playwright verifier
+        # must see the same display. launch_tauri_linux.sh detects DISPLAY and
+        # skips its own xvfb-run in that case.
+        Xvfb :99 -screen 0 1600x1000x24 > /dev/null 2>&1 &
+        XVFB_PID=$!
+        trap 'kill "${XVFB_PID}" 2>/dev/null || true' EXIT
+        for _ in $(seq 1 30); do
+          [ -e /tmp/.X11-unix/X99 ] && break
+          sleep 0.5
+        done
+        export DISPLAY=:99
+        source scripts/verify/launch_tauri_linux.sh
+        extra_flags=()
+        if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
+          extra_flags+=("--allow-flaky-llm")
+        fi
+        python scripts/verify/desktop_verify.py \
+          --base-url "$BASE_URL" \
+          --ui-mode tauri-linux \
+          --headed \
+          ${extra_flags[@]+"${extra_flags[@]}"}

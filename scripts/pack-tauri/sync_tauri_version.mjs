@@ -90,8 +90,18 @@ function writeTauriVersionConfig(file, version) {
   const pubkey = process.env.TAURI_UPDATER_PUBKEY?.trim() || baseUpdater.pubkey;
   const endpoints = readUpdaterEndpoints(baseUpdater);
   const createUpdaterArtifacts = shouldCreateUpdaterArtifacts();
+  // linuxdeploy shells out to `ldd` for every ELF file it finds, and the
+  // AppDir itself is named after the product. A product name containing a
+  // space makes those paths split into separate arguments, so ldd fails and
+  // the AppImage bundling aborts. Linux therefore uses a space-free product
+  // name; the window title still comes from app.windows[0].title, and data
+  // paths are unaffected.
+  const productNameOverride =
+    process.platform === "linux" ? { productName: "QwenPawDesktop" } : {};
+
   const config = {
     version,
+    ...productNameOverride,
     ...(createUpdaterArtifacts
       ? {
           bundle: {
