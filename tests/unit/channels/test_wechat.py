@@ -26,8 +26,10 @@ from qwenpaw.app.channels.management import (
     ManagementError,
 )
 from qwenpaw.app.channels.manager import ChannelManager
+from qwenpaw.app.channels.process_supervisor import ChannelCallUnknown
 from qwenpaw.app.channels.wechat_auth_custody import reserve_wechat_auth
 from qwenpaw.app.routers import config as config_router
+from qwenpaw.channel_protocol.errors import RpcError, RpcTimeoutError
 from qwenpaw.channel_protocol.models import (
     DeliveryState,
     OutboundResult,
@@ -490,6 +492,63 @@ async def test_native_dm_and_group_routes_send_with_context(
     ]
 
 
+@pytest.mark.parametrize(f"outcome", [f"timeout", f"recovered", f"rejected"])
+async def test_admission_log_identifies_retained_routes(
+    runtime,
+    monkeypatch,
+    caplog,
+    outcome,
+):
+    rt = await runtime.start()
+    host_call = rt.peer.call
+    timed_out = False
+
+    async def call(method, params):
+        nonlocal timed_out
+        if method == f"event.batch":
+            if outcome == f"rejected":
+                return {
+                    f"batch_id": params[f"batch_id"],
+                    f"rejected_events": [
+                        {
+                            f"event_id": params[f"events"][0][f"event_id"],
+                            f"reason_code": f"CAPABILITY_REQUIRED",
+                            f"retryable": False,
+                        },
+                    ],
+                }
+            if outcome == f"timeout" or not timed_out:
+                timed_out = True
+                raise RpcTimeoutError(f"private-detail")
+        return await host_call(method, params)
+
+    monkeypatch.setattr(rt.peer, f"call", call)
+    if outcome == f"timeout":
+        for index in range(2):
+            with pytest.raises(
+                RuntimeError, match=f"HOST_ADMISSION_EXHAUSTED"
+            ):
+                await rt.driver._platform._message(
+                    message(index, text=f"private-message-{index}"),
+                )
+    else:
+        await rt.driver._platform._message(message(1))
+
+    assert len(rt.peer.batches) == (1 if outcome == f"recovered" else 0)
+    retained = [log for log in caplog.messages if f"route_retained=" in log]
+    assert retained == (
+        [f"wechat event.batch route_retained=true reason=HOST_ACK_UNKNOWN"]
+        if outcome == f"timeout"
+        else []
+    )
+    rows = rt.peer.state[rt.driver._state_key]
+    assert [row[f"kind"] for row in rows] == {
+        f"timeout": [f"active", f"active"],
+        f"recovered": [f"active"],
+        f"rejected": [],
+    }[outcome]
+
+
 @pytest.fixture
 def route_proxy():
     root = Path(__file__).resolve().parents[3]
@@ -572,6 +631,33 @@ async def test_finish_log_distinguishes_failure_before_rpc(
             f"wechat RESPONSE_FINISH_SKIPPED: "
             f"stage=text_merge finish_sent=false reason={reason}",
         ]
+
+
+@pytest.mark.parametrize(f"unknown", [False, True])
+async def test_finish_diagnostic_reports_unknown_rpc_result(
+    route_proxy,
+    monkeypatch,
+    caplog,
+    unknown,
+):
+    error = (
+        ChannelCallUnknown(f"channel-1-2", f"channel.response.finish", 1)
+        if unknown
+        else RpcError(-32603, f"private-rpc-error")
+    )
+    rpc = AsyncMock(side_effect=error)
+    monkeypatch.setattr(route_proxy.channel_process, f"call", rpc)
+    async with route_proxy._response_scope(
+        {f"response_handle": f"private-handle"},
+    ):
+        pass
+
+    rpc.assert_awaited_once()
+    assert route_proxy._last_diagnostic == f"RESPONSE_FINISH_FAILED"
+    assert [log for log in caplog.messages if f"RESPONSE_FINISH" in log] == [
+        f"Channel diagnostic: RESPONSE_FINISH_FAILED"
+        + (f" rpc_result=unknown request_id=channel-1-2" if unknown else f""),
+    ]
 
 
 async def test_outbound_image_encrypts_and_sends_native_media(

@@ -51,7 +51,7 @@ from qwenpaw.channel_protocol.response_lifecycle import (
 )
 
 _MAX_ROUTES = 128
-_ROUTE_LIMIT_LOG_INTERVAL = 60.0
+_ROUTE_LOG_INTERVAL = 60.0
 _STREAM_RECEIPTS = 4
 _CHECKPOINT_BYTES = 768 * 1024
 logger = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ class SharedResponseDriver:
         self._config = {}
         self._routes = ResponseRouteAggregate(max_entries=_MAX_ROUTES)
         self._next_route_limit_log = monotonic()
+        self._next_retained_route_log = self._next_route_limit_log
         self._locks = {}
         self._checkpoint_lock = asyncio.Lock()
         self._inflight_admissions = {}
@@ -189,7 +190,7 @@ class SharedResponseDriver:
         now = monotonic()
         if now < self._next_route_limit_log:
             return
-        self._next_route_limit_log = now + _ROUTE_LIMIT_LOG_INTERVAL
+        self._next_route_limit_log = now + _ROUTE_LOG_INTERVAL
         rows = self._routes.snapshots()
         attempt_kind = f"{self._kind}.attempt"
         active = unknown_attempt = no_attempt = 0
@@ -208,6 +209,19 @@ class SharedResponseDriver:
             f"routes={len(rows)} limit={self._routes.max_entries} "
             f"active={active} unknown_attempt={unknown_attempt} "
             f"no_attempt={no_attempt}",
+        )
+
+    def _log_retained_route(self, handle):
+        now = monotonic()
+        if now < self._next_retained_route_log:
+            return
+        snapshot = self._routes.snapshot(handle)
+        if snapshot is None or snapshot.kind is not ResponseRouteKind.ACTIVE:
+            return
+        self._next_retained_route_log = now + _ROUTE_LOG_INTERVAL
+        logger.warning(
+            f"{self._kind} event.batch route_retained=true "
+            f"reason=HOST_ACK_UNKNOWN",
         )
 
     async def _receipt(self, operation, handle, snapshot=None):
@@ -725,6 +739,8 @@ class SharedResponseDriver:
                     else None
                 )
                 exhausted = not rejected or rejected.retryable
+                if created and uncertain:
+                    self._log_retained_route(event.response_handle)
                 if exhausted:
                     await self._diagnostic("HOST_ADMISSION_EXHAUSTED")
                 if created and not uncertain:

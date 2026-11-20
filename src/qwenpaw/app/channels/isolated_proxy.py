@@ -635,9 +635,18 @@ class IsolatedChannelProxy(BaseChannel):
             flush=True,
         )
 
-    def _record_diagnostic(self, reason):
+    def _record_diagnostic(self, reason, *, error=None):
         self._last_diagnostic = reason
-        logger.warning("Channel diagnostic: %s", reason)
+        if (
+            isinstance(error, ChannelCallUnknown)
+            and error.method == f"channel.response.finish"
+        ):
+            logger.warning(
+                f"Channel diagnostic: {reason} rpc_result=unknown "
+                f"request_id={error.request_id}",
+            )
+        else:
+            logger.warning(f"Channel diagnostic: {reason}")
 
     async def _event_batch(self, params, request):
         # RPC cancellation cannot split queue commit from the dedup record.
@@ -2629,22 +2638,28 @@ class IsolatedChannelProxy(BaseChannel):
                                 task.result()
                             except BaseException as cleanup_error:
                                 self._record_diagnostic(
-                                    "RESPONSE_FINISH_FAILED",
+                                    f"RESPONSE_FINISH_FAILED",
+                                    error=cleanup_error,
                                 )
                                 raise cancelled from cleanup_error
                         else:
                             task.add_done_callback(self._observe_cleanup)
                         raise
-                    except Exception:
-                        self._record_diagnostic("RESPONSE_FINISH_FAILED")
+                    except Exception as cleanup_error:
+                        self._record_diagnostic(
+                            f"RESPONSE_FINISH_FAILED",
+                            error=cleanup_error,
+                        )
                         if merge_owned:
                             raise
             finally:
                 self._response_context.reset(token)
 
     def _observe_cleanup(self, task):
-        if task.cancelled() or task.exception() is not None:
-            self._record_diagnostic("RESPONSE_FINISH_FAILED")
+        cancelled = task.cancelled()
+        error = None if cancelled else task.exception()
+        if cancelled or error is not None:
+            self._record_diagnostic(f"RESPONSE_FINISH_FAILED", error=error)
 
     async def _consume_request(self, request, payload):
         # Base calls this only after debounce and the host access gate.
