@@ -20,13 +20,20 @@ PLUGIN_ID = "local-llamacpp"
 def test_local_plugin_requires_new_sdk_before_import(monkeypatch):
     from qwenpaw.plugins import sdk_version
     from qwenpaw.plugins.errors import SDKCompatibilityError
+    from qwenpaw.plugins.loader import PluginLoader
     from qwenpaw.plugins.local_model_legacy import bundled_local_source
 
-    manifest = json.loads((bundled_local_source() / "plugin.json").read_text())
-    sdk_version.validate_sdk(manifest["sdk"], PLUGIN_ID)
-    monkeypatch.setattr(sdk_version, "SDK_VERSION", "1.0.0")
-    with pytest.raises(SDKCompatibilityError, match="Unsupported SDK version"):
-        sdk_version.validate_sdk(manifest["sdk"], PLUGIN_ID)
+    source = bundled_local_source()
+    loader = PluginLoader([])
+    _, manifest = loader.read_source_manifest(source)
+    assert manifest.sdk["version"] == "1.2.0"
+
+    monkeypatch.setattr(sdk_version, "SDK_VERSION", "1.1.0")
+    with pytest.raises(
+        SDKCompatibilityError,
+        match="Unsupported SDK version: 1.2.0",
+    ):
+        loader.read_source_manifest(source)
 
 
 async def test_new_user_stays_uninstalled(tmp_path):
