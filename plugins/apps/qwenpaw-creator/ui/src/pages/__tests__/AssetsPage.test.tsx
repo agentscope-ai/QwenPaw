@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Modal, message } from "antd";
 import AssetsPage, {
   GenerationPromptEditor,
+  characterVariantCardName,
   visualEntityPromptTarget,
   VoiceGenerationModal,
 } from "@/pages/AssetsPage";
@@ -321,6 +322,20 @@ describe("AssetsPage Project projection", () => {
       screen.queryByRole("heading", { name: /淋湿后的造型/ }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Wet")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the bare character name when a variant is absent from order", () => {
+    // Regression: the old fallback produced "小周 · 小周" when a variant
+    // existed in ``items`` but not ``order`` (reachable via artifact cards).
+    const entity = cloneProject().visual.entities.items.cat;
+    entity.variants.order.push("variant:cat:wet");
+    const ghost = {
+      ...entity.variants.items["variant:cat:default"],
+      variant_id: "variant:cat:ghost",
+    };
+    entity.variants.items["variant:cat:ghost"] = ghost;
+
+    expect(characterVariantCardName(entity, ghost)).toBe(entity.name);
   });
 
   it("filters locally without requiring a separate backend asset projection", () => {

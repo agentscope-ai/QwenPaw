@@ -444,10 +444,13 @@ function visualVariantForVersion(
  * several looks get a short non-duplicating tag (默认造型 / 造型N) so the
  * cards stay distinguishable without echoing the description.
  */
-function characterVariantCardName(
+export function characterVariantCardName(
   entity: VisualEntityDocument,
   variant: VisualVariantDocument,
 ): string {
+  // "默认造型 / 造型N" is character wording; scenes and props just carry
+  // their entity name (the description line distinguishes them).
+  if (entity.kind !== "character") return entity.name;
   const looks = entity.variants?.order ?? [];
   if (looks.length <= 1) return entity.name;
   const slug = variant.variant_id

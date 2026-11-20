@@ -23,10 +23,11 @@ const WINDOWS_RESERVED = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i;
 
 function safeFileName(value: string): string {
   const cleaned = value
+    .normalize("NFKC")
     .replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
-    .replace(/^\.+|\.+$/g, "");
+    .replace(/^[ ._]+|[ ._]+$/g, "");
   const clipped = Array.from(cleaned).slice(0, 80).join("");
   return WINDOWS_RESERVED.test(clipped) ? `_${clipped}` : clipped;
 }
