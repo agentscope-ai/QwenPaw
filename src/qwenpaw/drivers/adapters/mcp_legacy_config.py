@@ -189,7 +189,14 @@ async def _migrate_one_client(
             await driver_manager.credential_store.get(credential.ref)
         except Exception:
             await driver_manager.credential_store.put(credential)
-    await driver_manager.card_store.save(card)
+    if not await driver_manager.save_driver_if_absent(card):
+        report.skipped.append(
+            LegacyMCPMigrationSkippedClient(
+                client_key=client_key,
+                reason="driver_card_exists",
+            ),
+        )
+        return
     report.migrated.append(
         LegacyMCPMigratedClient(
             client_key=client_key,
@@ -468,7 +475,7 @@ async def _upgrade_one_card(
     if not changed:
         return
     await _clear_upgraded_secrets(driver_manager, card, to_clear)
-    await driver_manager.card_store.save(card)
+    await driver_manager.save_driver_config(card)
 
 
 def _credential_source_ref(

@@ -110,13 +110,21 @@ class DriverConfigService:
         *,
         reload_driver: bool = True,
     ) -> Path:
-        path = await self.card_store.save(card)
+        manager = getattr(self._workspace, "driver_manager", None)
+        path = (
+            await manager.save_driver_config(card)
+            if manager is not None
+            else await self.card_store.save_config(card)
+        )
         if reload_driver:
             await self.reload_driver_best_effort(card.name)
         return path
 
     async def save_card_if_absent(self, card: DriverCard) -> bool:
         """Persist an imported card without replacing an existing one."""
+        manager = getattr(self._workspace, "driver_manager", None)
+        if manager is not None:
+            return await manager.save_driver_if_absent(card)
         return await self.card_store.save_if_absent(card)
 
     async def save_policy(self, card: DriverCard) -> Path:
@@ -125,7 +133,7 @@ class DriverConfigService:
         if manager is not None:
             await manager.sync_driver_policy(card)
         else:
-            await self.card_store.save(card)
+            await self.card_store.save_policy(card)
         return self.card_path(card.name, protocol=card.protocol)
 
     async def reload_driver_best_effort(self, name: str) -> None:
@@ -163,6 +171,7 @@ class DriverConfigService:
                     name,
                     exc,
                 )
+                raise
         await self.card_store.delete(name)
 
     async def ensure_driver_active(self, name: str, *, protocol: str) -> None:
