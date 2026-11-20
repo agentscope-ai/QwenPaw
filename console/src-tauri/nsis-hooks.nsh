@@ -3,6 +3,7 @@
 
 Var QwenPawCliPathCheckbox
 Var QwenPawCliPathState
+Var QwenPawCliPreparedDir
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
 
@@ -106,19 +107,45 @@ Function QWENPAW_CLI_PATH_PAGE_LEAVE
   ${NSD_GetState} $QwenPawCliPathCheckbox $QwenPawCliPathState
 FunctionEnd
 
-!macro QWENPAW_DEFINE_INSTALL_FUNCTIONS PREFIX
-Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
-  Push $0
-  Push $1
-  IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
-  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action Restore`
+Function .onInstFailed
+  Call QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+Function .onGUIEnd
+  Call QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+Function un.onUninstFailed
+  Call un.QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+Function un.onGUIEnd
+  Call un.QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+!macro QWENPAW_INSTALL_ACTION ACTION PREFIX
+  qwenpaw_${ACTION}_retry:
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action ${ACTION}`
   ${If} $0 != 0
-    DetailPrint "$(qwenpawRestoreInstallStateFailed)"
-    DetailPrint "$1"
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawPrepareInstallFailed)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_${ACTION}_retry
+    Call ${PREFIX}QWENPAW_ABORT_INSTALL
+    SetErrorLevel 1
+    Quit
   ${EndIf}
-  qwenpaw_restore_done:
-  Pop $1
-  Pop $0
+!macroend
+
+!macro QWENPAW_DEFINE_INSTALL_FUNCTIONS PREFIX
+Function ${PREFIX}QWENPAW_ABORT_INSTALL
+  ${If} $QwenPawCliPreparedDir == ""
+    Return
+  ${EndIf}
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$QwenPawCliPreparedDir" -Action AbortInstall`
+  StrCpy $QwenPawCliPreparedDir ""
+  ${If} $0 != 0
+    DetailPrint "$(qwenpawInstallIncomplete)"
+    DetailPrint "$1"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(qwenpawInstallIncomplete)$\n$\n$1" /SD IDOK
+  ${EndIf}
 FunctionEnd
 
 Function ${PREFIX}QWENPAW_PREPARE_INSTALL
@@ -130,7 +157,7 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   System::Call 'kernel32::GetCurrentProcessId() i .r2'
 
   qwenpaw_prepare_retry:
-  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2 -GateCli`
   ${If} $0 == 0
     Goto qwenpaw_prepare_done
   ${Else}
@@ -141,7 +168,8 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   ${EndIf}
 
   qwenpaw_prepare_cancel:
-  Call ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
+  Call ${PREFIX}QWENPAW_ABORT_INSTALL
+  SetErrorLevel 1
   Quit
 
   qwenpaw_prepare_done:
@@ -155,21 +183,55 @@ FunctionEnd
 !insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un."
 
 !macro NSIS_HOOK_PREINSTALL
+  ${If} $QwenPawCliPreparedDir != ""
+  ${AndIf} $QwenPawCliPreparedDir != $INSTDIR
+    Call QWENPAW_ABORT_INSTALL
+  ${EndIf}
+  StrCpy $QwenPawCliPreparedDir $INSTDIR
   Call QWENPAW_PREPARE_INSTALL
 !macroend
 
+; The maintenance page runs the installed (possibly older) uninstaller
+; before Section Install. Gate its CLI with the new installer helper first.
+; $4 is the registered old directory; $R1 is the old uninstall command.
+!macro QWENPAW_UNINSTALL_PREVIOUS
+  Push $INSTDIR
+  StrCpy $INSTDIR $4
+  !insertmacro NSIS_HOOK_PREINSTALL
+  ; Once the old uninstaller starts, it may already have removed resources.
+  !insertmacro QWENPAW_INSTALL_ACTION BeginInstall ""
+  ClearErrors
+  ExecWait '$R1' $0
+  ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|}
+  ${If} $0 == 0
+  ${AndIfNot} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro QWENPAW_INSTALL_ACTION CompleteUninstall ""
+    StrCpy $QwenPawCliPreparedDir ""
+    RMDir "$INSTDIR\binaries\qwenpaw-backend"
+    RMDir "$INSTDIR\binaries"
+    RMDir "$INSTDIR"
+  ${ElseIf} $0 == 0
+    StrCpy $0 2
+  ${EndIf}
+  ; Report ExecWait's result, not errors from removing nonempty directories.
+  ClearErrors
+  Pop $INSTDIR
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
-  Call QWENPAW_RESTORE_INSTALL_STATE
+  !insertmacro QWENPAW_INSTALL_ACTION CompleteInstall ""
+  StrCpy $QwenPawCliPreparedDir ""
   !insertmacro QWENPAW_ADD_CLI_PATH_IF_SELECTED
   !insertmacro QWENPAW_INSTALL_DEBUG_LAUNCHER
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  StrCpy $QwenPawCliPreparedDir $INSTDIR
   Call un.QWENPAW_PREPARE_INSTALL
-  !insertmacro QWENPAW_REMOVE_DEBUG_LAUNCHER
-  !insertmacro QWENPAW_REMOVE_CLI_PATH
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  Call un.QWENPAW_RESTORE_INSTALL_STATE
+  !insertmacro QWENPAW_INSTALL_ACTION CompleteUninstall "un."
+  StrCpy $QwenPawCliPreparedDir ""
+  RMDir "$INSTDIR"
 !macroend

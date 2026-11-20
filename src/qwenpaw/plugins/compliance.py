@@ -136,6 +136,12 @@ PUBLIC_API = MappingProxyType(
             "ConnectionResult",
             "ProviderSpec",
         ),
+        "qwenpaw.plugins.transcription": (
+            "TranscriptionSpec",
+            "TranscriptionContext",
+            "TranscriptionResult",
+            "TranscriptionStatus",
+        ),
         "qwenpaw.plugins.memory": (
             "MemorySpec",
             "MemoryBackend",
@@ -296,6 +302,7 @@ _MEMBER_VERSIONS = {
     "qwenpaw.plugins.modes.ModeContext": (("identity", "1.2.0"),),
     "qwenpaw.plugins.PluginContext": (
         ("register_harness", "1.1.0"),
+        ("register_transcription", "1.1.0"),
         ("register_stop", "1.2.0"),
         ("register_shell_backend", "1.2.0"),
         ("register_workflow", "1.2.0"),
@@ -331,6 +338,8 @@ _MEMBER_VERSIONS = {
         ("list_harnesses", "1.1.0"),
         ("harness_status", "1.1.0"),
         ("run_harness", "1.1.0"),
+        ("transcribe", "1.1.0"),
+        ("transcription_status", "1.1.0"),
         ("process_channels", "1.2.0"),
         # Existing 1.0 keyword forwarding is now explicit in the signature.
         ("call_tool.workspace_id", "1.0.0"),
@@ -360,8 +369,12 @@ _MEMBER_VERSIONS = {
 
 _EXPORT_VERSIONS = {
     **{
-        f"qwenpaw.plugins.harnesses.{name}": "1.1.0"
-        for name in PUBLIC_API["qwenpaw.plugins.harnesses"]
+        f"{module}.{name}": "1.1.0"
+        for module in (
+            "qwenpaw.plugins.harnesses",
+            "qwenpaw.plugins.transcription",
+        )
+        for name in PUBLIC_API[module]
     },
     **{
         f"qwenpaw.plugins.channel_ingress.{name}": "1.2.0"

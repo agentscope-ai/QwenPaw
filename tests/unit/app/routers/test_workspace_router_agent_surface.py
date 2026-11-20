@@ -908,7 +908,8 @@ async def test_get_transcription_model_reads_global_config(
 async def test_get_local_whisper_status_delegates_to_probe() -> None:
     probe = {"ffmpeg": True, "whisper": False}
     with patch(
-        f"{_AUDIO_MODULE}.check_local_whisper_available",
+        "qwenpaw.plugins.local_whisper.get_runtime_status",
+        new_callable=AsyncMock,
         return_value=probe,
     ):
         assert await ws.get_local_whisper_status() == probe

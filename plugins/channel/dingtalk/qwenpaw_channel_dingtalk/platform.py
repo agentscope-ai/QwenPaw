@@ -26,6 +26,7 @@ import certifi
 
 from qwenpaw.exceptions import ChannelError
 from qwenpaw.app.channels.utils import file_url_to_local_path
+from . import markdown as dingtalk_markdown
 from .ai_card import ActiveAICard, FAILED, FINISHED, PROCESSING, INPUTING
 from .constants import (
     AI_CARD_RECOVERY_FINAL_TEXT,
@@ -1111,7 +1112,7 @@ class DingTalkPlatform:
             out_track_id=card.card_instance_id,
             guid=str(uuid4()),
             key=self.card_template_key,
-            content=content,
+            content=dingtalk_markdown.ensure_table_spacing(content),
             is_full=True,
             is_finalize=finalize,
             is_error=False,

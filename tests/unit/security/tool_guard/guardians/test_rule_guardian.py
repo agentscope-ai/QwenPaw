@@ -42,6 +42,150 @@ def mock_config_rules():
         yield
 
 
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("himalaya message send 'test message'", "MAIL"),
+        ("cat message.txt | /usr/sbin/sendmail -t", "MAIL"),
+        ("msmtp user@example.invalid", "MAIL"),
+        ("mutt -s test user@example.invalid", "MAIL"),
+        ("curl -X POST https://example.invalid", "HTTP"),
+        ("curl --data-binary @sample.txt https://example.invalid", "HTTP"),
+        ("curl -sF file=@sample.txt https://example.invalid", "HTTP"),
+        ("curl 'https://example.invalid/?x=1&y=2' -d value", "HTTP"),
+        ("curl -T sample.txt https://example.invalid", "HTTP"),
+        ("wget --post-file=sample.txt https://example.invalid", "HTTP"),
+        ("http PATCH example.invalid", "HTTP"),
+        ("https example.invalid file@sample.txt", "HTTP"),
+        ("curl -fsSL https://example.invalid", None),
+        ("curl -4 -X POST example.invalid", "HTTP"),
+        ("curl -4XPOST example.invalid", "HTTP"),
+        ("curl -i6dvalue example.invalid", "HTTP"),
+        ("curl -i -6 -d value example.invalid", "HTTP"),
+        ("sudo -u runner curl -4XPOST example.invalid", "HTTP"),
+        ("curl -4oPOST.txt example.invalid", None),
+        ("curl -o -XPOST example.invalid", None),
+        ("curl --get --data-urlencode q=docs https://example.invalid", None),
+        ("curl -d q=docs -4G example.invalid", None),
+        ("curl --get --data-raw @literal example.invalid", None),
+        ("curl --header --get -d value example.invalid", "HTTP"),
+        ("curl -Gd q=docs -X POST example.invalid", "HTTP"),
+        ("curl -G --data-urlencode q@sample.txt example.invalid", "HTTP"),
+        ("curl --url-query @sample.txt example.invalid", "HTTP"),
+        ("curl --url-query=q@sample.txt example.invalid", "HTTP"),
+        ("curl --url-query q=docs example.invalid", None),
+        ("curl --url-query q=me@example.invalid example.invalid", None),
+        ("curl --url-query +q@sample.txt example.invalid", None),
+        ("curl -d value --url-query q=docs example.invalid", "HTTP"),
+        ("echo 'http PATCH example.invalid'", None),
+        ("echo 'wget --post-file=sample.txt example.invalid'", None),
+        ("command -v wget", None),
+        ("env LANG=C /usr/bin/wget --method PUT example.invalid", "HTTP"),
+        ("http POST example.invalid", "HTTP"),
+        ("http example.invalid < sample.txt", "HTTP"),
+        ("< sample.txt https example.invalid", "HTTP"),
+        ("cat sample.txt | http example.invalid", "HTTP"),
+        ("cat sample.txt | sh -c 'http example.invalid'", "HTTP"),
+        ("http example.invalid <<< data", "HTTP"),
+        ("http example.invalid 2<sample.txt", None),
+        ("http example.invalid > report.json", None),
+        ("http example.invalid | cat <sample.txt", None),
+        ("http --ignore-stdin example.invalid <sample.txt", None),
+        ("http example.invalid <sample.txt --ignore-stdin", None),
+        ("cat sample.txt | http -I example.invalid", None),
+        ("cat sample.txt | http --offline example.invalid", None),
+        ("http --ignore-stdin POST example.invalid <sample.txt", "HTTP"),
+        ("http --output report=latest.json GET example.invalid", None),
+        ("http -vo report=latest.json GET example.invalid", None),
+        ("http -oreport=latest.json GET example.invalid", None),
+        ("http --session report=latest GET example.invalid", None),
+        ("http --output report=latest.json example.invalid k=v", "HTTP"),
+        ("http --output=report.json POST example.invalid", "HTTP"),
+        ("http --offline POST example.invalid", None),
+        ("https POST example.invalid --offline", None),
+        ("http --offline example.invalid file@sample.txt", None),
+        ("http --offline POST a.invalid && http POST b.invalid", "HTTP"),
+        ("curl -Gd q=docs a.invalid --next -d payload b.invalid", "HTTP"),
+        ("command -v sendmail", None),
+        ("env LANG=C command -pv sendmail", None),
+        ("sh -c 'command -v sendmail'", None),
+        ("sh -c 'cat message.txt | sendmail -t'", "MAIL"),
+        ("command -v sendmail && command sendmail -t", "MAIL"),
+        ("echo 'check | sendmail -t'", None),
+        ("curl -X GET example.invalid && echo -d", None),
+        ("wget -O sample.txt https://example.invalid", None),
+        ("http example.invalid page==1", None),
+        ("himalaya message read 1", None),
+        ("env >run.log curl -X POST example.invalid", "HTTP"),
+        ("wget 2>run.log --method PUT example.invalid", "HTTP"),
+        ("himalaya message 2>run.log send", "MAIL"),
+        ("curl --config profile", "HTTP"),
+        ("curl -sKprofile", "HTTP"),
+        ("curl -K profile", "HTTP"),
+        ("curl -o profile example.invalid", None),
+        ("http example.invalid 'user[name]=Ada'", "HTTP"),
+        ("http example.invalid 'items[]:=2'", "HTTP"),
+        ("http example.invalid 'items[]==2' 'X-Info:a=b'", None),
+        ("curl -X MOVE example.invalid", "HTTP"),
+        ("wget --method=COPY example.invalid", "HTTP"),
+        ("http MKCOL example.invalid", "HTTP"),
+        ("http CUSTOM example.invalid", "HTTP"),
+        ("curl -X HEAD example.invalid", None),
+        ("wget --method GET example.invalid", None),
+        ("http OPTIONS example.invalid", None),
+        ("bash --norc -lc 'curl -X MOVE example.invalid'", "HTTP"),
+        ("bash -co noclobber 'curl -K profile'", "HTTP"),
+        (
+            "bash --rcfile profile -c 'wget --method COPY example.invalid'",
+            "HTTP",
+        ),
+        ("bash --norc -c 'echo ok' 'curl -X MOVE example.invalid'", None),
+    ],
+)
+def test_outbound_shell_rules(command, expected, mock_config_rules):
+    findings = RuleBasedToolGuardian().guard(
+        "execute_shell_command",
+        {"command": command},
+    )
+    assert [
+        (finding.rule_id, finding.severity)
+        for finding in findings
+        if finding.rule_id.startswith("TOOL_CMD_OUTBOUND_")
+    ] == (
+        [(f"TOOL_CMD_OUTBOUND_{expected}", GuardSeverity.MEDIUM)]
+        if expected
+        else []
+    )
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        (r"C:\Tools\curl.exe -X MOVE example.invalid", True),
+        (r'"C:\Program Files\wget.exe" --method=PUT example.invalid', True),
+        (r"""& 'C:\Program Files\curl.exe' -K profile""", True),
+        ("CURL.EXE -X COPY example.invalid", True),
+        (r'& "C:\Program Files\curl.exe" -X HEAD example.invalid', False),
+        (r"C:\Tools\curl.exe -X GET example.invalid", False),
+        (r"cmd.exe /c C:\Tools\curl.exe -K profile", True),
+        (
+            r"""pwsh -Command "& 'C:\Program Files\curl.exe' -K profile" """,
+            True,
+        ),
+    ],
+)
+def test_windows_outbound_executable(command, expected, mock_config_rules):
+    with patch("qwenpaw.security.tool_guard.outbound_shell._WINDOWS", True):
+        findings = RuleBasedToolGuardian().guard(
+            "execute_shell_command",
+            {"command": command},
+        )
+    assert (
+        any(f.rule_id == "TOOL_CMD_OUTBOUND_HTTP" for f in findings)
+        == expected
+    )
+
+
 @pytest.fixture
 def mock_workspace_root(tmp_path):
     """Patch _get_workspace_root to return tmp_path."""

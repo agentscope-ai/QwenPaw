@@ -64,6 +64,11 @@ _MESSAGE_EVENT_SPECS = {
         ("member_openid", "id"),
         ("group_openid",),
     ),
+    "GROUP_MESSAGE_CREATE": (
+        "group",
+        ("member_openid", "id"),
+        ("group_openid",),
+    ),
     "AT_MESSAGE_CREATE": (
         "guild",
         ("id", "username"),
@@ -494,6 +499,112 @@ class QQPlatform:
             raise exc
 
     @staticmethod
+    def _stream_path(route):
+        """Return the C2C ``stream_messages`` path, or ``None``.
+
+        The official stream API is documented for single chat only, so
+        group / guild / dm routes are never streamed.
+        """
+        if route.get("message_type") != "c2c":
+            return None
+        sender_id = str(route.get("sender_id") or "")
+        return f"/v2/users/{sender_id}/stream_messages" if sender_id else None
+
+    @staticmethod
+    def _stream_body(
+        text,
+        input_state,
+        index,
+        markdown,
+        msg_id="",
+        msg_seq=None,
+        stream_msg_id="",
+    ):
+        body = {
+            "input_mode": "replace",
+            "input_state": input_state,
+            "index": index,
+            "content_type": "markdown" if markdown else "text",
+            "content_raw": text,
+        }
+        if msg_id:
+            body["msg_id"] = msg_id
+        if msg_seq is not None:
+            body["msg_seq"] = msg_seq
+        if stream_msg_id:
+            body["stream_msg_id"] = stream_msg_id
+        return body
+
+    async def start_stream(self, route, text, markdown=True):
+        """Open a stream message; return the first-slice resource.
+
+        The response ``id`` of the first slice is the ``stream_msg_id``
+        every later slice must carry.
+        """
+        path = self._stream_path(route)
+        if path is None:
+            raise QQDeliveryError(
+                "STREAM_ROUTE_UNSUPPORTED",
+                side_effect_possible=False,
+            )
+        msg_id = str(route.get("message_id") or "")
+        msg_seq = self._next_seq(route, msg_id, path)
+        body = self._stream_body(
+            text,
+            1,
+            0,
+            markdown,
+            msg_id,
+            msg_seq,
+        )
+        data = await self._api_request_async("POST", path, body)
+        stream_msg_id = str(data.get("id") or "")
+        if not stream_msg_id:
+            raise QQDeliveryError(
+                "PLATFORM_RESULT_UNKNOWN",
+                side_effect_possible=True,
+            )
+        return {
+            "stream_msg_id": stream_msg_id,
+            "path": path,
+            "msg_id": msg_id,
+            "msg_seq": str(msg_seq),
+            "index": "0",
+            # Effective native content, so cleanup closes the stream with the
+            # text QQ is actually showing.
+            "text": text,
+        }
+
+    async def update_stream(
+        self,
+        route,
+        resource,
+        text,
+        *,
+        index,
+        markdown=True,
+        final=False,
+    ):
+        """Send one ``replace``-mode slice; ``final`` closes the stream."""
+        path = str(resource.get("path") or "") or self._stream_path(route)
+        stream_msg_id = str(resource.get("stream_msg_id") or "")
+        if not path or not stream_msg_id:
+            raise QQDeliveryError(
+                "OUTBOUND_TARGET_UNKNOWN",
+                side_effect_possible=False,
+            )
+        body = self._stream_body(
+            text,
+            10 if final else 1,
+            index,
+            markdown,
+            str(resource.get("msg_id") or ""),
+            int(resource.get("msg_seq") or 0) or None,
+            stream_msg_id,
+        )
+        await self._api_request_async("POST", path, body)
+
+    @staticmethod
     def _receipt(route, ids):
         return {
             "message_ids": json.dumps(ids),
@@ -831,16 +942,31 @@ class QQPlatform:
         )
         if event_id in self._seen_event_ids:
             return True
+        self_mentions = [
+            mention
+            for mention in data.get(f"mentions") or []
+            if event_type == f"GROUP_MESSAGE_CREATE"
+            and mention.get(f"is_you") is True
+        ]
         meta = {
             "message_type": kind,
             "message_id": msg_id,
             "sender_id": actor,
             "user_name": author.get("username", ""),
             "is_group": kind in {"group", "guild"},
+            f"bot_mentioned": (
+                event_type
+                in {f"GROUP_AT_MESSAGE_CREATE", f"AT_MESSAGE_CREATE"}
+                or bool(self_mentions)
+            ),
             "incoming_raw": data,
             "attachments": data.get("attachments") or [],
         }
         meta.update({k: str(data.get(k) or "") for k in extra_keys})
+        for mention in self_mentions:
+            openid = mention.get(f"member_openid") or mention.get(f"id")
+            if openid:
+                text = text.replace(f"<@{openid}>", f"").strip()
         parts, texts = [], []
         quoted = _find_quoted_element(data)
         if quoted is not None:
@@ -864,6 +990,8 @@ class QQPlatform:
         parts.extend(
             await self.media.parse_attachments(data.get("attachments")),
         )
+        if not parts:
+            return True
         self._check_epoch(epoch)
         session = resolve_session_id(actor, meta)
         accepted = await self.on_event(
@@ -1030,7 +1158,9 @@ class QQPlatform:
                     if accepted:
                         self._seen_event_ids.append(event_id)
             elif event_type in _MESSAGE_EVENT_SPECS:
-                accepted = self._bridge(
+                # Permanent Core rejections consume the sequence; retryable
+                # admission failures raise and retain the previous sequence.
+                self._bridge(
                     self._message(
                         event_type,
                         {**(data or {}), "_qq_seq": seq},

@@ -8,6 +8,8 @@ import logging
 
 from fastapi import APIRouter
 
+from .errors import SDKError
+
 if TYPE_CHECKING:
     from .channel_adapter import ChannelDescription
 
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
 # routes can be inserted *before* it (routes appended later would lose).
 _CONSOLE_SPA_CATCHALL_ROUTE_NAME = "qwenpaw_console_spa_catchall"
+_TRANSCRIPTION_BACKEND_OWNERS = {"local_whisper": "local-whisper"}
 
 
 def _find_console_spa_route_index(app: Any) -> Optional[int]:
@@ -163,6 +166,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self._transcription_backends: Dict[str, Any] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
@@ -375,6 +379,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             for r in self._http_router_registrations
             if r.plugin_id != plugin_id
         ]
+
+    def register_transcription_backend(self, backend_id: str, adapter) -> None:
+        """Reserve a backend ID until its owning plugin releases it."""
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if owner is not None and adapter.plugin_id != owner:
+            raise SDKError(
+                f"Transcription backend '{backend_id}' is reserved for '{owner}'",
+            )
+        if backend_id in self._transcription_backends:
+            raise ValueError(
+                f"Transcription backend '{backend_id}' already registered",
+            )
+        self._transcription_backends[backend_id] = adapter
+
+    def get_transcription_backend(self, backend_id: str):
+        backend = self._transcription_backends.get(backend_id)
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if (
+            backend is not None
+            and owner is not None
+            and backend.plugin_id != owner
+        ):
+            return None
+        return backend
+
+    def get_transcription_backends(self) -> Dict[str, Any]:
+        return self._transcription_backends.copy()
+
+    def drop_transcription_backend(self, backend_id: str, expected) -> None:
+        if self._transcription_backends.get(backend_id) is expected:
+            del self._transcription_backends[backend_id]
 
     def register_provider(
         self,
@@ -1207,7 +1242,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
     def leftover_registrations(self, plugin_id: str) -> List[str]:
         """Ledgered rows that are still present after teardown."""
-        leftovers: List[str] = []
+        leftovers: List[str] = [
+            f"transcription:{key}"
+            for key, item in self._transcription_backends.items()
+            if item.plugin_id == plugin_id
+        ]
         leftovers.extend(
             f"http:{reg.prefix}"
             for reg in self._http_router_registrations
@@ -1376,6 +1415,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 exc_info=True,
             )
 
+        for key, item in tuple(self._transcription_backends.items()):
+            if item.plugin_id == plugin_id:
+                item.closed = True
+                self.drop_transcription_backend(key, item)
         self.drop_plugin_manifest(plugin_id)
 
         providers_to_remove = [

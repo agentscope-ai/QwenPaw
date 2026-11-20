@@ -702,7 +702,7 @@ async def test_certifi_floor_refuses_old_immutable_provider_before_download(
         side_effect=RuntimeError("protected certifi needs desktop update"),
     )
     context = SimpleNamespace(
-        immutable_providers=lambda: {"certifi": certifi},
+        immutable_providers=lambda *_args, **_kwargs: {"certifi": certifi},
         refuse_immutable_provider=refuse,
     )
     resolver, guard = Mock(), Mock()
@@ -739,7 +739,7 @@ async def test_immutable_installer_without_pip_never_runs_ensurepip(
     resolver = Mock()
     guard = Mock(return_value=False)
     context = SimpleNamespace(
-        immutable_providers=lambda: {},
+        immutable_providers=lambda *_args, **_kwargs: {},
         runtime_identity={"protocol": 1},
     )
     monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", resolver)
@@ -1541,6 +1541,80 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
         for name in names:
             sys.modules.pop(name, None)
         importlib.invalidate_caches()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unrelated",
+        "required",
+        "transitive",
+        "also_installed",
+        "versionless_egg",
+        "ambiguous_name",
+    ],
+)
+@pytest.mark.parametrize("parser", ["stdlib", "backport"])
+def test_missing_metadata_preserves_audit_boundaries(
+    tmp_path,
+    monkeypatch,
+    case,
+    parser,
+):
+    from importlib import metadata
+    from qwenpaw.plugins.execution import dependencies as deps
+
+    site, source = tmp_path / "site", tmp_path / "plugin"
+    source.mkdir()
+    broken = site / {
+        "versionless_egg": "qoder_agent_sdk.egg-info",
+        "ambiguous_name": "qoder-agent-sdk-1.0.9.dist-info",
+    }.get(case, "qoder_agent_sdk-1.0.9.dist-info")
+    (broken / "licenses").mkdir(parents=True)
+    healthy = site / "torch-2.0.dist-info"
+    healthy.mkdir()
+    (healthy / "METADATA").write_text(
+        "Name: torch\nVersion: 2.0\n"
+        + ("Requires-Dist: qoder-agent-sdk\n" if case == "transitive" else ""),
+    )
+    distributions = [
+        metadata.PathDistribution(healthy),
+        metadata.PathDistribution(broken)
+        if parser == "stdlib"
+        else SimpleNamespace(_path=broken, metadata=None),
+    ]
+    if case == "also_installed":
+        installed = site / "qoder_agent_sdk-2.0.dist-info"
+        installed.mkdir()
+        (installed / "METADATA").write_text(
+            "Name: qoder-agent-sdk\nVersion: 2.0\n",
+        )
+        distributions.append(metadata.PathDistribution(installed))
+    monkeypatch.setattr(
+        deps.metadata,
+        "distributions",
+        lambda **kwargs: iter(distributions),
+    )
+    packet = {
+        "code_root": source,
+        "_audit_sites": (site,),
+        "_requirements": [
+            "torch"
+            if case in {"unrelated", "transitive", "ambiguous_name"}
+            else "qoder-agent-sdk",
+        ],
+    }
+    if case != "unrelated":
+        with pytest.raises(
+            deps.ProtocolValidationError,
+            match="DEPENDENCY_METADATA_INVALID",
+        ):
+            deps.observe_dependencies(packet)
+    else:
+        snapshot = deps.observe_dependencies(packet)
+        assert snapshot.distributions["torch"]["version"] == "2.0"
+        assert "qoder-agent-sdk" not in snapshot.distributions
+    assert (broken / "licenses").is_dir()
 
 
 @pytest.mark.asyncio
@@ -2438,3 +2512,265 @@ sys.stdout.buffer.flush()
         record = records["publication-probe"]
         assert record.status == "active", record.diagnostics
         await following.unload_plugin("publication-probe")
+
+
+@pytest.mark.parametrize(
+    ("shadows_loaded_module", "file_backed_record"),
+    [(False, False), (True, False), (False, True)],
+)
+async def test_additions_keep_dependency_inspection_scope_stable(
+    tmp_path,
+    monkeypatch,
+    shadows_loaded_module,
+    file_backed_record,
+):
+    """A newly reachable dependency is inspected equally before/after writes."""
+    import hashlib
+    import zipfile
+
+    from qwenpaw.plugins.dependency_gate import (
+        SharedDependencyError,
+        prepare_shared_dependencies,
+    )
+    from qwenpaw.plugins.dependency_usage import HostModuleFact
+    from qwenpaw.plugins.execution.dependencies import (
+        observe_dependencies,
+        repair_marker,
+    )
+    from qwenpaw.plugins.wheel_additions import WheelAddition
+    from .test_manifest_dependencies import write_wheel
+
+    if file_backed_record:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.wheel_additions._IN_MEMORY_BYTES",
+            128,
+        )
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "audit-owner",
+        payload={
+            "audit-owner-extra.pth": "# Existing file, discovered by a deeper audit\n",
+            "audit_owner/_vendor/loaded_external.py": "VALUE = 'embedded'\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    before = {
+        str(p.relative_to(site)): p.read_bytes()
+        for p in site.rglob("*")
+        if p.is_file()
+    }
+    wheel = write_wheel(
+        tmp_path,
+        "audit-request",
+        metadata_headers="Requires-Dist: audit-owner>=1\n",
+        payload={"loaded_external.py": "VALUE = 'public'\n"}
+        if shadows_loaded_module
+        else {},
+    )
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("audit-request==1.0\n")
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["audit-request==1.0"],
+    }
+    initial = observe_dependencies(packet)
+    assert initial.distributions["audit-owner"]["top_level"] == (
+        "audit_owner",
+    )
+    facts = tuple(
+        HostModuleFact(name, 1, str(site / path), (), ())
+        for name, path in (
+            ("audit_owner", "audit_owner/__init__.py"),
+            ("loaded_external", "audit_owner/_vendor/loaded_external.py"),
+        )
+    )
+    use = SimpleNamespace(
+        origin="host",
+        plugin_id="running-hub",
+        host_modules=facts,
+        snapshot=None,
+        read_admitted=False,
+        environment=SimpleNamespace(sites=(str(site),)),
+    )
+    usage = SimpleNamespace(
+        snapshot=lambda *args, **kwargs: SimpleNamespace(uses=(use,)),
+    )
+
+    async def audit(_spec):
+        return SimpleNamespace(snapshot=observe_dependencies(packet))
+
+    install = prepare_shared_dependencies(
+        SimpleNamespace(audit=audit),
+        SimpleNamespace(
+            python_executable=sys.executable,
+            support_root=Path(__file__).resolve().parents[3] / "src",
+        ),
+        plugin_id="incoming",
+        requirements_file=requirements,
+        usage_registry=usage,
+        install_target=site,
+        wheels=(
+            WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    if shadows_loaded_module:
+        with pytest.raises(
+            SharedDependencyError,
+            match="audit-request.*shadows",
+        ):
+            await install
+        assert not (site / "audit_request").exists()
+    else:
+        result = await install
+        assert result.distributions["audit-request"]["version"] == "1.0"
+        assert (
+            "audit-owner-extra"
+            in result.distributions["audit-owner"]["top_level"]
+        )
+        assert (site / "audit_request/__init__.py").is_file()
+    assert all(
+        (site / path).read_bytes() == content
+        for path, content in before.items()
+    )
+    assert not repair_marker(site).exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["validation_cancel", "audit_error", "audit_cancel"],
+)
+async def test_shared_install_closes_mapping_at_cancellation_boundaries(
+    tmp_path,
+    monkeypatch,
+    failure,
+):
+    import asyncio
+    import hashlib
+    import mmap
+    import threading
+
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.dependency_gate import prepare_shared_dependencies
+    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.install_lock import (
+        environment_install_lock_path,
+        plugin_install_lock,
+    )
+    from .test_manifest_dependencies import write_wheel
+
+    wheel = write_wheel(
+        tmp_path,
+        "close-probe",
+        payload={"close_probe/data.bin": b"x" * 8192},
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original_map = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original_map(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    site = tmp_path / "site"
+    site.mkdir()
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("close-probe==1.0\n")
+    ready, release = threading.Event(), threading.Event()
+    stopped_in_validation = threading.Event()
+    original_digest = wheels._record_digest
+
+    def digest(content, cancel):
+        if failure == "validation_cancel" and len(content) > 4096:
+            ready.set()
+            assert release.wait(5)
+        try:
+            return original_digest(content, cancel)
+        except asyncio.CancelledError:
+            stopped_in_validation.set()
+            raise
+
+    monkeypatch.setattr(wheels, "_record_digest", digest)
+
+    async def audit(_spec):
+        if (site / "close_probe/data.bin").exists():
+            ready.set()
+            if failure == "audit_error":
+                raise RuntimeError("audit failed")
+            await asyncio.Event().wait()
+        return SimpleNamespace(
+            snapshot=observe_dependencies(
+                {
+                    "code_root": str(tmp_path / "candidate"),
+                    "_audit_sites": [str(site)],
+                    "_requirements": ["close-probe==1.0"],
+                },
+            ),
+        )
+
+    loader = PluginLoader([tmp_path / "plugins"])
+
+    async def prepare():
+        async with loader._dependency_install_scope(tmp_path):
+            await prepare_shared_dependencies(
+                SimpleNamespace(audit=audit),
+                SimpleNamespace(
+                    python_executable=sys.executable,
+                    support_root=Path(__file__).resolve().parents[3] / "src",
+                ),
+                plugin_id="close-probe",
+                requirements_file=requirements,
+                usage_registry=SimpleNamespace(
+                    snapshot=lambda *a, **k: SimpleNamespace(uses=()),
+                ),
+                install_target=site,
+                wheels=(
+                    wheels.WheelAddition(
+                        wheel,
+                        hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                    ),
+                ),
+            )
+
+    task = asyncio.create_task(prepare())
+    shutdown = None
+    try:
+        assert await asyncio.to_thread(ready.wait, 5)
+        if failure == "validation_cancel":
+            shutdown = asyncio.create_task(loader.stop_dependency_installs())
+            await asyncio.sleep(0)
+            assert loader._dependency_installs[task].is_set()
+        elif failure == "audit_cancel":
+            task.cancel()
+        release.set()
+        expected = (
+            RuntimeError
+            if failure == "audit_error"
+            else asyncio.CancelledError
+        )
+        with pytest.raises(expected) as error:
+            await task
+        assert error.value.__traceback__ is not None
+        assert mappings and all(value.closed for value in mappings)
+        if failure == "validation_cancel":
+            assert stopped_in_validation.is_set()
+            assert not (site / "close_probe/data.bin").exists()
+            with plugin_install_lock(
+                environment_install_lock_path(site),
+                timeout=0,
+            ) as acquired:
+                assert acquired
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if shutdown is not None:
+            await shutdown
