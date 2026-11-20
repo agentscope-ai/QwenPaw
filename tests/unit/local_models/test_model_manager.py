@@ -196,6 +196,34 @@ def test_download_model_rejects_repo_without_gguf(
     assert controller.started_spec is None
 
 
+def test_mlx_download_rejects_modelscope_source() -> None:
+    downloader = ModelManager()
+
+    with pytest.raises(ValueError, match="Hugging Face"):
+        downloader.start_download(
+            "mlx-community/Qwen3-0.6B-4bit",
+            source=DownloadSource.MODELSCOPE,
+            engine="mlx",
+        )
+
+
+def test_mlx_auto_source_prefers_huggingface(monkeypatch) -> None:
+    downloader = ModelManager()
+    monkeypatch.setattr(
+        downloader,
+        "_resolve_download_source",
+        lambda: DownloadSource.MODELSCOPE,
+    )
+
+    assert (
+        downloader._resolve_download_source_for_engine(
+            DownloadSource.AUTO,
+            "mlx",
+        )
+        == DownloadSource.HUGGINGFACE
+    )
+
+
 def test_cancel_download_delegates_to_controller() -> None:
     downloader = ModelManager()
     controller = _FakeController()
