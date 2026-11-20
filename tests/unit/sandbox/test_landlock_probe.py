@@ -73,11 +73,11 @@ def _run_probe(
         return _probe_linux_landlock()
 
 
-def _lsm_unreadable():
-    """Make every attempt to read the LSM list raise OSError."""
+def _lsm_unreadable(error: OSError):
+    """Make every attempt to read the LSM list raise *error*."""
     return patch(
         "qwenpaw.sandbox.config.open",
-        side_effect=OSError(2, "No such file or directory"),
+        side_effect=error,
         create=True,
     )
 
@@ -91,30 +91,46 @@ def _lsm_contains(value: str):
     )
 
 
+# Both mean "the file told us nothing": securityfs is not mounted, or the
+# container hides it behind permissions. Neither disproves kernel support.
+_LSM_UNREADABLE_ERRORS = [
+    pytest.param(
+        FileNotFoundError(2, "No such file or directory"),
+        id="file-not-found",
+    ),
+    pytest.param(
+        PermissionError(13, "Permission denied"), id="permission-denied"
+    ),
+]
+
+
 class TestLandlockProbeWithoutSecurityfs:
     """Container case: the LSM file is absent, the kernel still supports it."""
 
-    def test_unreadable_lsm_falls_through_to_syscall(self):
+    @pytest.mark.parametrize("error", _LSM_UNREADABLE_ERRORS)
+    def test_unreadable_lsm_falls_through_to_syscall(self, error):
         """Regression: an absent securityfs must not mean 'unsupported'."""
-        with _lsm_unreadable():
+        with _lsm_unreadable(error):
             cap = _run_probe("6.18.58.1-microsoft-standard-WSL2", "x86_64", 7)
 
         assert cap.supported is True
         assert cap.mode == SandboxMode.LANDLOCK
         assert cap.landlock_abi_version == 7
 
-    def test_unreadable_lsm_logs_the_reason(self, caplog):
+    @pytest.mark.parametrize("error", _LSM_UNREADABLE_ERRORS)
+    def test_unreadable_lsm_logs_the_reason(self, caplog, error):
         """Operators need to see why the file was skipped."""
         with caplog.at_level("DEBUG", logger="qwenpaw.sandbox.config"):
-            with _lsm_unreadable():
+            with _lsm_unreadable(error):
                 _run_probe("6.5.0", "x86_64", 4)
 
         assert _LSM_PATH in caplog.text
         assert "syscall" in caplog.text
 
-    def test_unreadable_lsm_and_syscall_unsupported_still_fails(self):
+    @pytest.mark.parametrize("error", _LSM_UNREADABLE_ERRORS)
+    def test_unreadable_lsm_and_syscall_unsupported_still_fails(self, error):
         """ENOSYS still wins: we never report a sandbox we cannot create."""
-        with _lsm_unreadable():
+        with _lsm_unreadable(error):
             cap = _run_probe("6.5.0", "x86_64", -1, errno=38)
 
         assert cap.supported is False
@@ -172,7 +188,7 @@ class TestLandlockProbeEdgeCases:
 
     def test_unknown_arch_without_lsm_is_not_guessed(self):
         """No syscall number and no LSM proof means we cannot verify."""
-        with _lsm_unreadable():
+        with _lsm_unreadable(OSError(2, "No such file or directory")):
             cap = _run_probe("6.5.0", "riscv64", 4)
 
         assert cap.supported is False
