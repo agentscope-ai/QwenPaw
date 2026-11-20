@@ -44,7 +44,7 @@ from models.media_transport import (
     validate_reference_image_bytes,
 )
 from models.provider_tasks import note_provider_task
-from utils.exceptions import ModelError
+from utils.exceptions import ModelError, redact_urls
 from utils.logger import setup_logger
 from models.image.base import (
     BaseImageModel,
@@ -53,6 +53,7 @@ from models.image.base import (
     _image_api_key,
     download_remote_image,
     format_http_error_detail,
+    reference_download_model_error,
 )
 
 logger = setup_logger("model.image.dashscope")
@@ -364,12 +365,18 @@ class DashScopeImageModel(BaseImageModel):
         )
         from models.image.base import _mask_key
 
+        # The request body embeds the reference image URLs, and an OSS
+        # pre-signed URL is a usable grant (OSSAccessKeyId/Signature).
+        # Never log the body: keep only non-secret routing facts so a
+        # successful request cannot leak credentials into creator.log.
         logger.info(
-            "DashScope image request | model=%s, url=%s, api_key=%s, body=%s",
+            "DashScope image request | model=%s, url=%s, api_key=%s, "
+            "mode=%s, references=%d",
             self.model_name,
             self.generation_url,
             _mask_key(self.api_key),
-            body,
+            mode,
+            len(clean_reference_urls),
         )
         base_headers = {
             "Content-Type": "application/json",
@@ -497,9 +504,22 @@ class DashScopeImageModel(BaseImageModel):
                         message = str(
                             output.get("message") or output.get("code") or "",
                         )
+                    # The task payload echoes the reference URL, and an OSS
+                    # pre-signed URL is a usable grant: classify through the
+                    # same helper as the sync HTTP branch so a reference
+                    # download failure is scrubbed and stays permanent here
+                    # too, instead of surfacing the raw URL as retryable.
+                    reference_error = reference_download_model_error(
+                        message,
+                        self.model_name,
+                        prefix=f"Image task {task_id} ended {status}",
+                    )
+                    if reference_error is not None:
+                        raise reference_error
+                    detail = redact_urls(message)
                     raise ModelError(
                         f"Image task {task_id} ended {status}"
-                        + (f": {message}" if message else ""),
+                        + (f": {detail}" if detail else ""),
                         model_name=self.model_name,
                     )
             elif response is not None and (

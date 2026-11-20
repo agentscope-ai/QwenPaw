@@ -30,6 +30,10 @@ is not ported either: Creator plan context is supplied by the runtime.
 ffmpeg/ffprobe run with stdin detached — inside a background service process
 an ffmpeg reading the tty is suspended by SIGTTIN together with its whole
 process group (the upstream scripts only ever ran in a foreground shell).
+Binary resolution follows Creator's documented dependency contract
+(``CREATOR_FFMPEG_PATH`` / ``CREATOR_FFPROBE_PATH`` -> PATH -> bundled
+imageio-ffmpeg) instead of a bare PATH lookup, because hosts that rely on
+the declared plugin.json contract have no system ffmpeg (issue #8592).
 """
 
 from __future__ import annotations
@@ -95,6 +99,25 @@ class GateBlock:
 
 
 def _require_tool(name: str) -> str:
+    """Resolve ``ffmpeg``/``ffprobe`` through Creator's binary contract.
+
+    The env override and the bundled imageio-ffmpeg fallback win over PATH;
+    a bare ``shutil.which`` only sees hosts that installed ffmpeg globally.
+    The import stays lazy so this vendored module keeps working standalone.
+    """
+    try:
+        from services.runtime_files import runtime_dependencies
+    except ImportError:  # pragma: no cover - standalone vendored use
+        runtime_dependencies = None
+    if runtime_dependencies is not None:
+        resolver = (
+            runtime_dependencies.resolve_ffprobe
+            if name == "ffprobe"
+            else runtime_dependencies.resolve_ffmpeg
+        )
+        resolved = resolver()
+        if resolved:
+            return resolved
     path = shutil.which(name)
     if not path:
         raise ReviewGateError(f"{name} is required for review gates")

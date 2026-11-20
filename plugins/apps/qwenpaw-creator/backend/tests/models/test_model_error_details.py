@@ -15,7 +15,12 @@ import asyncio
 import pytest
 
 from models import text_model, vlm_model
-from utils.exceptions import ModelError, redact_url, upstream_status_hint
+from utils.exceptions import (
+    ModelError,
+    redact_url,
+    redact_urls,
+    upstream_status_hint,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -36,6 +41,51 @@ def test_redact_url_strips_credential_query_parameters() -> None:
         redact_url("https://gw.example.com/v1/chat/completions")
         == "https://gw.example.com/v1/chat/completions"
     )
+
+
+def test_redact_url_covers_object_storage_signatures() -> None:
+    """A pre-signed URL grants access without any header credential.
+
+    Issue #8592: provider errors echoed the reference URL and the full
+    ``OSSAccessKeyId``/``Signature`` pair reached the task error, trace and
+    logs, which is a usable grant for anyone who can read them.
+    """
+    assert redact_url(
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Expires=1700000000&Signature=SECRET",
+    ) == (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?Expires=1700000000"
+    )
+    assert redact_url(
+        "https://bucket.s3.amazonaws.com/a.png"
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AK%2Fdate"
+        "&X-Amz-Signature=SECRET&X-Amz-Expires=600",
+    ) == (
+        "https://bucket.s3.amazonaws.com/a.png"
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=600"
+    )
+    # Matching is case-insensitive and survives percent-encoding.
+    assert (
+        redact_url(
+            "https://bucket.example.com/a.png?ossaccesskeyid=AK&signature=S",
+        )
+        == "https://bucket.example.com/a.png"
+    )
+
+
+def test_redact_urls_scrubs_urls_embedded_in_provider_text() -> None:
+    text = (
+        "failed to download image: https://bucket.example.com/a.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET (status 400)"
+    )
+    scrubbed = redact_urls(text)
+
+    assert "AK123" not in scrubbed
+    assert "SECRET" not in scrubbed
+    assert "https://bucket.example.com/a.png" in scrubbed
+    assert "(status 400)" in scrubbed
+    assert redact_urls("") == ""
 
 
 def test_upstream_status_hint_covers_common_failures() -> None:

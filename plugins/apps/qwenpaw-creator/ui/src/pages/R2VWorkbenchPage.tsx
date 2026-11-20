@@ -33,7 +33,11 @@ import {
   getR2VReferenceOrder,
 } from "@/api/creator";
 import { dispatchWorkGraphNode } from "@/api/creator/workGraph";
-import { confirmCurrentPrompts, getPromptSync } from "@/api/creator/promptSync";
+import {
+  confirmCurrentPrompts,
+  getPromptSync,
+  type PromptSyncStatus,
+} from "@/api/creator/promptSync";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { taskProgressPercent } from "@/lib/taskPresentation";
@@ -72,6 +76,9 @@ import { useTranslation } from "react-i18next";
 import "./R2VWorkbenchPage.css";
 
 const { TextArea } = Input;
+
+// prompt-sync 门按生成阶段生效：分镜（storyboard）与视频（video）。
+type PromptSyncStage = "storyboard" | "video";
 
 // Mode-specific workbench copy: the page serves every video generation
 // mode, so its title, hints and reference surfaces must not read as
@@ -393,6 +400,92 @@ export function WorkbenchSurface({
       ? (element.creation as VideoCreationDocument)
       : null;
   const generationMode: VideoGenerationMode = creation?.type ?? "r2v";
+  // D2: prompt-sync 门是生成的硬前置，之前只在点「重新生成」时被后端
+  // 拦下，工作台里既看不到「待同步」也没有确认入口（问题 4 的死锁观感
+  // 就来自这里）。这里主动读取两段的门状态，并给出显式确认按钮，
+  // 直接复用后端已有的 confirmCurrentPrompts。
+  const [promptSyncGates, setPromptSyncGates] = useState<
+    Partial<Record<PromptSyncStage, PromptSyncStatus>>
+  >({});
+  const [gateConfirming, setGateConfirming] = useState<PromptSyncStage | null>(
+    null,
+  );
+  const promptSyncGateKey = `${projectId}:${
+    timeline?.timeline_id ?? "missing"
+  }:${elementId}:${creation?.type ?? "none"}`;
+  useEffect(() => {
+    setPromptSyncGates({});
+    if (!creation || creation.type !== "r2v" || !timeline?.timeline_id) return;
+    const scope = {
+      projectId,
+      timelineId: timeline.timeline_id,
+      elementId,
+    };
+    let disposed = false;
+    const apply = (stage: PromptSyncStage, status: PromptSyncStatus) => {
+      if (disposed) return;
+      setPromptSyncGates((current) => {
+        if (status !== "needs_update" && status !== "needs_confirmation") {
+          if (!(stage in current)) return current;
+          const next = { ...current };
+          delete next[stage];
+          return next;
+        }
+        if (current[stage] === status) return current;
+        return { ...current, [stage]: status };
+      });
+    };
+    const load = async (stage: PromptSyncStage) => {
+      try {
+        const sync = await getPromptSync(scope, undefined, stage);
+        apply(stage, sync.status);
+      } catch {
+        // 门状态只做提示，读取失败时保持静默，不阻断编辑。
+      }
+    };
+    void load("storyboard");
+    void load("video");
+    return () => {
+      disposed = true;
+    };
+  }, [promptSyncGateKey]);
+  const confirmPromptSyncGate = async (stageKind: PromptSyncStage) => {
+    if (gateConfirming || !timeline?.timeline_id) return;
+    const scope = {
+      projectId,
+      timelineId: timeline.timeline_id,
+      elementId,
+    };
+    setGateConfirming(stageKind);
+    try {
+      await confirmCurrentPrompts(scope, stageKind);
+      await pollOnce(projectId);
+      const sync = await getPromptSync(scope, undefined, stageKind);
+      setPromptSyncGates((current) => {
+        const next = { ...current };
+        if (
+          sync.status === "needs_update" ||
+          sync.status === "needs_confirmation"
+        ) {
+          next[stageKind] = sync.status;
+        } else {
+          delete next[stageKind];
+        }
+        return next;
+      });
+      if (sync.status === "current") {
+        message.success(t("r2v.sync.gateConfirmed"));
+      }
+    } catch (error) {
+      message.error(
+        t("r2v.sync.gateConfirmFailed", {
+          detail: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    } finally {
+      setGateConfirming(null);
+    }
+  };
   // 相关资产 rail (design 84:44397): the entity cards this element references.
   const elementEntities = useMemo(
     () => (project && element ? referencedEntities(project, [element]) : []),
@@ -1725,6 +1818,43 @@ export function WorkbenchSurface({
   const sbTokens = tokensForOrder(storyboardReferenceOrder);
   const vdTokens = tokensForOrder(referenceOrder);
 
+  const promptSyncGateBanner = (stageKind: PromptSyncStage) => {
+    const gate = promptSyncGates[stageKind];
+    if (!gate) return null;
+    const confirming = gateConfirming === stageKind;
+    return (
+      <div
+        role="status"
+        data-prompt-sync-gate={stageKind}
+        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-warning)] bg-[rgba(255,127,22,0.08)] px-3 py-2 text-xs text-[var(--color-text-primary)]"
+      >
+        <span className="min-w-0 flex-1 leading-5">
+          {gate === "needs_update"
+            ? t("r2v.sync.gateNeedsUpdate")
+            : t("r2v.sync.gateNeedsConfirmation")}
+        </span>
+        <button
+          type="button"
+          className="btn-secondary shrink-0"
+          disabled={confirming}
+          data-prompt-sync-confirm={stageKind}
+          onClick={() => void confirmPromptSyncGate(stageKind)}
+        >
+          {confirming ? (
+            <Loader2
+              size={13}
+              className="motion-safe:animate-spin"
+              aria-hidden
+            />
+          ) : null}
+          {confirming
+            ? t("r2v.sync.gateConfirming")
+            : t("r2v.sync.keepAndContinue")}
+        </button>
+      </div>
+    );
+  };
+
   const stageTabs = (
     <div className="flex shrink-0 flex-wrap gap-0.5 border-b border-[var(--color-border)] px-3">
       {[
@@ -1845,6 +1975,7 @@ export function WorkbenchSurface({
                   keep resolving regardless of the visible tab. */}
               <div hidden={stage !== "sb"} data-stage-panel="sb">
                 <div className="space-y-3">
+                  {promptSyncGateBanner("storyboard")}
                   {reviewMode &&
                     reviewField ===
                       elementPointer(
@@ -1953,6 +2084,7 @@ export function WorkbenchSurface({
               {/* Stage ②: video prompt with a compact storyboard context bar. */}
               <div hidden={stage !== "vd"} data-stage-panel="vd">
                 <div className="space-y-3">
+                  {promptSyncGateBanner("video")}
                   {reviewMode &&
                     reviewField ===
                       elementPointer(
