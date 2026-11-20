@@ -7,9 +7,11 @@ APIs again, so MAIL_TRIAGE.md / CONTACTS.md were missing while the wake
 prompt requires reading them.  The monitor factory must ensure both
 files exist before starting the monitor.
 """
+
 from __future__ import annotations
 
 import asyncio
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +31,14 @@ _SEED_ROOT = (
     / "agents"
     / "md_files"
 )
+
+
+@pytest.fixture(autouse=True)
+def _available_mcp(monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda **_kwargs: True,
+    )
 
 
 def _mail_config() -> AgentMailConfig:

@@ -197,6 +197,7 @@ beforeEach(() => {
     session_id: "s1",
   });
   h.api.getOAuthStatus.mockResolvedValue({
+    attempt_status: "succeeded",
     authorized: true,
     expires_at: NOW_S + 3600,
     scope: "openid",
@@ -843,7 +844,7 @@ describe("the waiting poll", () => {
     });
 
     expect(h.api.getOAuthStatus).toHaveBeenCalledTimes(1);
-    expect(h.api.getOAuthStatus).toHaveBeenCalledWith("k1");
+    expect(h.api.getOAuthStatus).toHaveBeenCalledWith("k1", "s1");
     expect(onAuthChanged).toHaveBeenCalledTimes(1);
     const badge = badgeOf(container);
     expect(badge.textContent).toContain("mcp.oauth.authorized");
@@ -863,6 +864,7 @@ describe("the waiting poll", () => {
 
   it("keeps waiting and keeps polling while the backend still says not authorized", async () => {
     h.api.getOAuthStatus.mockResolvedValue({
+      attempt_status: "pending",
       authorized: false,
       expires_at: 0,
       scope: "",
@@ -912,6 +914,7 @@ describe("the waiting poll", () => {
     h.api.getOAuthStatus
       .mockRejectedValueOnce(new Error("transient"))
       .mockResolvedValueOnce({
+        attempt_status: "succeeded",
         authorized: true,
         expires_at: NOW_S + 60,
         scope: "openid",
@@ -1009,6 +1012,7 @@ describe("the waiting poll", () => {
 
   it("re-installs the poll when a second attempt reaches waiting again", async () => {
     h.api.getOAuthStatus.mockResolvedValue({
+      attempt_status: "pending",
       authorized: false,
       expires_at: 0,
       scope: "",

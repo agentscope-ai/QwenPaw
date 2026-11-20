@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 from pathlib import Path
 
 import pytest
@@ -7,13 +9,15 @@ from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
 from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
-from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card
 from tests.integration.driver_mcp_fakes import (
+    mcp_runtime_host as _mcp_runtime_host,
+    sdk_mcp_manager,
     FakeHttpClient,
     patch_mcp_runtime_clients,
 )
+
+mcp_runtime_host = _mcp_runtime_host
 
 
 @pytest.mark.asyncio
@@ -22,6 +26,7 @@ from tests.integration.driver_mcp_fakes import (
 async def test_driver_mcp_http_header_secret_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
@@ -51,8 +56,7 @@ async def test_driver_mcp_http_header_secret_flow(
         ),
         card_path(tmp_path / "drivers", "http_echo", protocol="mcp"),
     )
-    manager = DriverManager(tmp_path / "drivers", store)
-    manager.register_handler_type("mcp", MCPDriverHandler)
+    manager = await sdk_mcp_manager(mcp_runtime_host, tmp_path, store)
 
     await manager.build_drivers()
     capability = next(
@@ -65,11 +69,17 @@ async def test_driver_mcp_http_header_secret_flow(
     )
 
     assert result.ok is True
-    assert result.value["headers"]["Authorization"] == "Bearer static-token"
-    assert result.value["headers"]["X-Client-Name"] == "qwenpaw-test"
+    assert (
+        result.value.structured_content["headers"]["Authorization"]
+        == "Bearer static-token"
+    )
+    assert (
+        result.value.structured_content["headers"]["X-Client-Name"]
+        == "qwenpaw-test"
+    )
     assert (
         FakeHttpClient.instances[0].kwargs["headers"]
-        == result.value["headers"]
+        == result.value.structured_content["headers"]
     )
 
 
@@ -79,6 +89,7 @@ async def test_driver_mcp_http_header_secret_flow(
 async def test_driver_mcp_anysearch_default_config_shape(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     """Test purpose:
     - Verify the default MCP config ships an anysearch streamable_http
@@ -125,8 +136,7 @@ async def test_driver_mcp_anysearch_default_config_shape(
         card,
         card_path(tmp_path / "drivers", "anysearch", protocol="mcp"),
     )
-    manager = DriverManager(tmp_path / "drivers", store)
-    manager.register_handler_type("mcp", MCPDriverHandler)
+    manager = await sdk_mcp_manager(mcp_runtime_host, tmp_path, store)
 
     await manager.build_drivers()
     names = sorted(
