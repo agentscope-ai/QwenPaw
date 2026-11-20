@@ -301,6 +301,27 @@ def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
     assert result.base_url == "http://127.0.0.1:9090"
 
 
+def test_detect_running_service_includes_runtime_base_path(
+    monkeypatch,
+) -> None:
+    from qwenpaw.cli import update_cmd as update_cmd_module
+
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_probe_service",
+        lambda base_url: RunningServiceInfo(
+            is_running=True,
+            base_url=base_url,
+        ),
+    )
+
+    result = _detect_running_service("127.0.0.1", 9090)
+
+    assert result.base_url == "http://127.0.0.1:9090/app"
+
+
 def test_detect_running_service_falls_back_to_process_ports(
     monkeypatch,
 ) -> None:

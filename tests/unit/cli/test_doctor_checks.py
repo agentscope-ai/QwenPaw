@@ -2043,6 +2043,16 @@ class TestApiTargetMismatchNote:
             is None
         )
 
+    def test_match_with_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+        assert (
+            dc.api_target_mismatch_note(
+                self._cfg("127.0.0.1", 8088),
+                "http://127.0.0.1:8088/app",
+            )
+            is None
+        )
+
     def test_mismatch(self):
         note = dc.api_target_mismatch_note(
             self._cfg("0.0.0.0", 9999),

@@ -5,4 +5,4 @@ source_lock_sha256=b18577d5757621bef22e2920864b39842548fc66bc6a597ae2816f00902c2
 patch_sha256=6ceff7f3f43787c2963789c90403ed3c3614db217d02f4aa98fb0f9d1a7a3ad6
 bridge_sha256=1b0c683dca6e8f9b43c1bb5ea71522825dd96571565a701ae623544a4afdb158
 gateway_base=/api/qwenpaw-data/engine
-context_console_url=/api/frontend_plugin/qwenpaw-data/files/ui/dist/context-console/index.html#
+context_console_url=../context-console/index.html#

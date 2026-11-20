@@ -4,10 +4,13 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
 import subprocess
 import sys
 from typing import Optional
+
+from ..app.base_path import normalize_base_path
 
 
 _PORT_ARG_PATTERN = re.compile(r"(?:^|\s)--port(?:=|\s+)(\d+)(?=\s|$)")
@@ -206,7 +209,8 @@ def _base_url(host: str, port: int) -> str:
     normalized_host = host.strip()
     if ":" in normalized_host and not normalized_host.startswith("["):
         normalized_host = f"[{normalized_host}]"
-    return f"http://{normalized_host}:{port}"
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    return f"http://{normalized_host}:{port}{base_path}"
 
 
 def _candidate_hosts(host: str | None) -> list[str]:

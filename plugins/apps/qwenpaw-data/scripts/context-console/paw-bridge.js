@@ -5,8 +5,8 @@
  * (/api/frontend_plugin/qwenpaw-data/files/...), so it can read the host auth
  * token from localStorage. QwenPaw authenticates /api/* requests with a
  * Bearer header, while the Context console issues plain axios/fetch calls,
- * so this shim attaches the host token to every same-origin request that
- * targets the qwenpaw-data PawApp backend (/api/qwenpaw-data/...).
+ * so this shim resolves backend URLs through the host and attaches the host
+ * token to every same-origin qwenpaw-data PawApp request.
  *
  * This file is copied verbatim by scripts/sync-context-ui.sh; it must stay
  * dependency-free, classic-script (non-module) JavaScript.
@@ -30,13 +30,23 @@
     }
   }
 
-  function needsHostAuth(url) {
+  function hostRequestUrl(url) {
     try {
       var resolved = new URL(url, window.location.href);
-      return (
-        resolved.origin === window.location.origin &&
-        resolved.pathname.indexOf(API_PREFIX) === 0
-      );
+      if (resolved.origin !== window.location.origin || !resolved.pathname.startsWith(API_PREFIX)) return null;
+      var host = window.parent.QwenPaw && window.parent.QwenPaw.host;
+      var mounted;
+      if (host && host.getApiUrl) {
+        mounted = new URL(host.getApiUrl(resolved.pathname.slice(4)), window.location.origin);
+      } else {
+        var marker = "/api/frontend_plugin/";
+        var markerIndex = window.location.pathname.indexOf(marker);
+        var basePath = markerIndex < 0 ? "" : window.location.pathname.slice(0, markerIndex);
+        mounted = new URL(basePath + resolved.pathname, window.location.origin);
+      }
+      if (mounted.origin !== resolved.origin) return null;
+      mounted.search = resolved.search;
+      return mounted.href;
     } catch (error) {
       return false;
     }
@@ -46,19 +56,16 @@
   var originalFetch = window.fetch;
   if (typeof originalFetch === "function") {
     window.fetch = function (input, init) {
-      var url =
-        typeof input === "string"
-          ? input
-          : input && typeof input.url === "string"
-            ? input.url
-            : "";
-      var token = hostToken();
-      if (token && needsHostAuth(url)) {
+      var url = input instanceof Request ? input.url : String(input);
+      var target = hostRequestUrl(url);
+      if (target) {
+        input = input instanceof Request ? new Request(target, input) : target;
+        var token = hostToken();
         var headers = new Headers(
           (init && init.headers) ||
             (input && typeof input.url === "string" ? input.headers : undefined),
         );
-        if (!headers.has("Authorization")) {
+        if (token && !headers.has("Authorization")) {
           headers.set("Authorization", "Bearer " + token);
         }
         init = Object.assign({}, init, { headers: headers });
@@ -75,7 +82,9 @@
     var originalSetHeader = xhrProto.setRequestHeader;
 
     xhrProto.open = function (method, url) {
-      this.__pawNeedsHostAuth = needsHostAuth(url);
+      var target = hostRequestUrl(url);
+      this.__pawNeedsHostAuth = Boolean(target);
+      if (target) arguments[1] = target;
       this.__pawHasAuthHeader = false;
       return originalOpen.apply(this, arguments);
     };

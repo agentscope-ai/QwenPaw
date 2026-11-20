@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 import click
 
-from .http import client, print_json
+from .http import client, print_json, resolve_base_url
 from ..app.channels.schema import DEFAULT_CHANNEL
 
 
@@ -18,11 +18,7 @@ def _base_url(ctx: click.Context, base_url: Optional[str]) -> str:
     2) global --host/--port
         (already resolved in main.py, may come from config.json)
     """
-    if base_url:
-        return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
+    return resolve_base_url(ctx, base_url)
 
 
 @click.group("cron")

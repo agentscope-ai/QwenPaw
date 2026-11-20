@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Optional
 
 import click
 import httpx
 
+from ..app.base_path import normalize_base_path
 from ..utils.runtime_api import api_client
 
 
@@ -42,4 +44,5 @@ def resolve_base_url(ctx: click.Context, base_url: Optional[str]) -> str:
         return base_url.rstrip("/")
     host = (ctx.obj or {}).get("host", "127.0.0.1")
     port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    return f"http://{host}:{port}{base_path}"

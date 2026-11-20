@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from ..app.base_path import normalize_base_path
 from ..utils.io_utils import run_sync_io
 from ..__version__ import __version__
 from ..agents.skill_system import (
@@ -1298,7 +1299,8 @@ def api_target_mismatch_note(cfg: Config, cli_base: str) -> str | None:
         return None
     eff_host = host or "127.0.0.1"
     eff_port = 8088 if port is None else port
-    expected = f"http://{eff_host}:{eff_port}".rstrip("/")
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    expected = f"http://{eff_host}:{eff_port}{base_path}".rstrip("/")
     got = cli_base.rstrip("/")
     if got == expected:
         return None

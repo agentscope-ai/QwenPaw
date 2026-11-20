@@ -108,6 +108,14 @@ class TestBaseUrl:
         ctx = click.Context(click.Command("x"), obj={})
         assert auto_mod._base_url(ctx, "http://a:9///") == "http://a:9"
 
+    def test_includes_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+        ctx = click.Context(
+            click.Command("x"),
+            obj={"host": "1.2.3.4", "port": 9999},
+        )
+        assert auto_mod._base_url(ctx, None) == "http://1.2.3.4:9999/app"
+
     def test_falls_back_to_ctx_host_and_port(self):
         ctx = click.Context(
             click.Command("x"),

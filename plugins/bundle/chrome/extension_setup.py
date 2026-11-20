@@ -15,6 +15,7 @@ import webbrowser
 from ipaddress import ip_address
 from pathlib import Path
 
+from qwenpaw.app.base_path import normalize_base_path
 from qwenpaw.config.utils import read_last_api
 from qwenpaw.utils.io_utils import write_json_atomic
 
@@ -335,13 +336,17 @@ class InstallModeError(ValueError):
 
 def require_bridge_endpoint() -> str:
     """Derive a loopback-only bridge endpoint from the running server bind."""
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
     try:
         api_info = read_last_api()
     except Exception:
         api_info = None
 
     if not api_info:
-        return DEFAULT_WS_URL
+        return (
+            f"{DEFAULT_WS_URL.removesuffix('/api/ws/chrome')}"
+            f"{base_path}/api/ws/chrome"
+        )
 
     host, port = api_info
     host = "127.0.0.1" if host in {"", "0.0.0.0"} else str(host)
@@ -360,7 +365,7 @@ def require_bridge_endpoint() -> str:
             )
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"ws://{host}:{port}/api/ws/chrome"
+    return f"ws://{host}:{port}{base_path}/api/ws/chrome"
 
 
 def _copy_extension(qwenpaw_home: Path) -> Path:

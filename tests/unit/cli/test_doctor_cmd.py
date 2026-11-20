@@ -333,6 +333,20 @@ class TestServerPythonMismatchNote:
 # ---------------------------------------------------------------------------
 
 
+def test_doctor_default_api_url_includes_runtime_base_path(monkeypatch):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+
+    assert dc.resolve_base_url(_ctx(), None) == "http://127.0.0.1:8088/app"
+
+
+def test_doctor_explicit_api_url_is_not_prefixed_again(monkeypatch):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+
+    assert dc.resolve_base_url(_ctx(), "http://example.test/custom/") == (
+        "http://example.test/custom"
+    )
+
+
 class TestCheckApiHealth:
     def test_request_error(self, monkeypatch, capsys):
         def boom(url, **kw):
@@ -777,6 +791,32 @@ class TestRunDoctorChecks:
         assert "=== Config ===" in out
         assert "=== Active LLM ===" in out
         assert "=== API ===" in out
+
+    def test_api_probes_include_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+        health_bases = []
+        urls = []
+
+        def health(base, timeout):
+            health_bases.append(base)
+            return True, _Resp(200)
+
+        def http_get(url, **kwargs):
+            urls.append(url)
+            return _Resp(200, headers={"content-type": "text/html"})
+
+        with _OkPatch(
+            monkeypatch,
+            _check_api_health=health,
+            _http_get=http_get,
+        ):
+            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+
+        assert health_bases == ["http://127.0.0.1:8088/app"]
+        assert urls == [
+            "http://127.0.0.1:8088/app/api/version",
+            "http://127.0.0.1:8088/app/",
+        ]
 
     def test_config_invalid_exits_and_skips_sections(
         self,
