@@ -15,6 +15,61 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _collect_default_hook_clses() -> list[type]:
+    """Import the default hook classes."""
+    from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
+    from ...hooks.cron.cron_hook import (
+        CronContextHook,
+        CronMemoryIsolateHook,
+        CronMemoryRestoreHook,
+    )
+    from ...hooks.error.error_hook import (
+        CancelCleanupHook,
+        ErrorNormalizeHook,
+    )
+    from ...hooks.request_setup.agent_context_hook import (
+        AgentContextVarsSetupHook,
+    )
+    from ...hooks.request_setup.contextvars_hook import (
+        ContextVarsSetupHook,
+        MailF1CleanupHook,
+    )
+    from ...hooks.request_setup.media_hook import MediaProcessHook
+    from ...hooks.session.session_hook import (
+        SessionLoadHook,
+        SessionSaveHook,
+    )
+    from ...hooks.skill_env.skill_env_hook import (
+        SkillEnvCleanupHook,
+        SkillEnvHook,
+    )
+    from ...checkpoints.hooks import (
+        CheckpointAutoSnapshotHook,
+        CheckpointQueryGateHook,
+    )
+    from ...steer.hook import SteerInjectionHook
+
+    return [
+        CronContextHook,
+        CronMemoryIsolateHook,
+        CronMemoryRestoreHook,
+        SessionLoadHook,
+        SessionSaveHook,
+        BootstrapHook,
+        SkillEnvHook,
+        SkillEnvCleanupHook,
+        ContextVarsSetupHook,
+        AgentContextVarsSetupHook,
+        MediaProcessHook,
+        ErrorNormalizeHook,
+        CancelCleanupHook,
+        CheckpointQueryGateHook,
+        CheckpointAutoSnapshotHook,
+        MailF1CleanupHook,
+        SteerInjectionHook,
+    ]
+
+
 class WorkspaceBootstrapFactory:
     """Build the kwargs dict consumed by ``Workspace.bootstrap_plugins()``.
 
@@ -60,55 +115,7 @@ class WorkspaceBootstrapFactory:
             )
 
         try:
-            from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
-            from ...hooks.cron.cron_hook import (
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-            )
-            from ...hooks.error.error_hook import (
-                CancelCleanupHook,
-                ErrorNormalizeHook,
-            )
-            from ...hooks.request_setup.agent_context_hook import (
-                AgentContextVarsSetupHook,
-            )
-            from ...hooks.request_setup.contextvars_hook import (
-                ContextVarsSetupHook,
-                MailF1CleanupHook,
-            )
-            from ...hooks.request_setup.media_hook import MediaProcessHook
-            from ...hooks.session.session_hook import (
-                SessionLoadHook,
-                SessionSaveHook,
-            )
-            from ...hooks.skill_env.skill_env_hook import (
-                SkillEnvCleanupHook,
-                SkillEnvHook,
-            )
-            from ...checkpoints.hooks import (
-                CheckpointAutoSnapshotHook,
-                CheckpointQueryGateHook,
-            )
-
-            hook_clses: list[type] = [
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-                SessionLoadHook,
-                SessionSaveHook,
-                BootstrapHook,
-                SkillEnvHook,
-                SkillEnvCleanupHook,
-                ContextVarsSetupHook,
-                AgentContextVarsSetupHook,
-                MediaProcessHook,
-                ErrorNormalizeHook,
-                CancelCleanupHook,
-                CheckpointQueryGateHook,
-                CheckpointAutoSnapshotHook,
-                MailF1CleanupHook,
-            ]
+            hook_clses = _collect_default_hook_clses()
             if extra_hook_clses:
                 hook_clses.extend(extra_hook_clses)
             kwargs["builtin_hook_clses"] = hook_clses
