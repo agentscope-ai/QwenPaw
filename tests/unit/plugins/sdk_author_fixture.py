@@ -13,7 +13,10 @@ def make_plugin(tmp_path, source, capabilities):
                 "id": "extension-contract",
                 "version": "1.0.0",
                 "entry": {"backend": "main.py"},
-                "sdk": {"version": "1.0", "capabilities": capabilities},
+                "sdk": {
+                    "version": "1.2" if "drivers" in capabilities else "1.0",
+                    "capabilities": capabilities,
+                },
             },
         ),
         encoding="utf-8",

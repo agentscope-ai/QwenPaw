@@ -201,16 +201,19 @@ class WorkspaceProjector:
         plugin_id: str,
         *,
         expected: WorkspaceIntent | None = None,
+        owned_start: bool = False,
     ) -> None:
         intent = self._find(kind, name, plugin_id)
         if intent is None or (expected is not None and intent is not expected):
             return
-        await self._project_one(intent, workspace)
+        await self._project_one(intent, workspace, owned_start=owned_start)
 
     async def _project_one(
         self,
         intent: WorkspaceIntent,
         workspace: Any,
+        *,
+        owned_start: bool = False,
     ) -> None:
         key = _workspace_key(workspace)
         retiring = intent.retiring.get(key)
@@ -243,6 +246,10 @@ class WorkspaceProjector:
             task = asyncio.create_task(apply())
             intent.pending[key] = task
             task.add_done_callback(finished)
+            if owned_start:
+                # An unpublished candidate's owner waits for rollback.
+                await task
+                return
         # A cancelled workspace hook must not abandon a starting resource.
         await asyncio.shield(task)
 
@@ -447,10 +454,15 @@ def default_live_workspaces() -> list[Any]:
     try:
         from .registry import PluginRegistry
 
-        manager = PluginRegistry().get_workspace_manager()
-        if manager is None:
-            return []
-        return list(getattr(manager, "agents", {}).values())
+        registry = PluginRegistry()
+        manager = registry.get_workspace_manager()
+        workspaces = [
+            *getattr(manager, "agents", {}).values(),
+            *registry._stop_workspaces.values(),
+        ]
+        return list(
+            {id(workspace): workspace for workspace in workspaces}.values(),
+        )
     except Exception:  # noqa: BLE001
         return []
 

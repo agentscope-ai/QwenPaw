@@ -959,6 +959,10 @@ async def put_acp_config(
     agent = await get_agent_for_request(request)
     agent.config.acp = acp_config
     save_agent_config(agent.agent_id, agent.config)
+    if any(runner.enabled for runner in acp_config.agents.values()):
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, agent.agent_id)
     schedule_agent_reload(request, agent.agent_id)
     return agent.config.acp
 
@@ -1079,6 +1083,10 @@ async def put_acp_agent_config(
 
     agent.config.acp.agents[agent_name] = acp_agent_config
     save_agent_config(agent.agent_id, agent.config)
+    if acp_agent_config.enabled:
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, agent.agent_id)
     schedule_agent_reload(request, agent.agent_id)
     return agent.config.acp.agents[agent_name]
 

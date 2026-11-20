@@ -1186,6 +1186,7 @@
     "custom": "Personalizado"
   },
   "mcp": {
+    "legacyArchived": "Algumas conexões antigas não foram migradas. Uma cópia de segurança da configuração original foi salva.",
     "title": "MCP Clients",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "A configuração compartilhada do painel é injetada nos Agents de terceiros compatíveis durante a execução.",
@@ -1322,7 +1323,14 @@
     },
     "local": "Local",
     "remote": "Remoto",
-    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP."
+    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP.",
+    "plugin": {
+      "version": "Versão do plugin MCP: {{version}}",
+      "updateAvailable": "O plugin MCP {{version}} está disponível",
+      "update": "Atualizar plugin",
+      "versionCheckUnavailable": "Não foi possível verificar a versão. O MCP pode continuar funcionando.",
+      "frontendRefreshFailed": "O plugin foi atualizado, mas a interface não foi recarregada. Recarregue a página."
+    }
   },
   "heartbeat": {
     "title": "Batimento",
@@ -4790,7 +4798,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Protocolo"
   },
   "approvalNotifications": {
     "settingTitle": "Notificações de aprovação na área de trabalho",

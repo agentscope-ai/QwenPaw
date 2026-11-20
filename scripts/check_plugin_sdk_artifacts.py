@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import zipfile
 
@@ -56,7 +57,11 @@ def prepare_author_tests(
     assert tests, "No public author tests found in build snapshot"
     if selected is not None:
         assert set(tests) == set(selected), "Unknown or internal author tests"
-    (root / "pytest.ini").write_text("[pytest]\nasyncio_mode = auto\n")
+    (root / "pytest.ini").write_text(
+        "[pytest]\nasyncio_mode = auto\n"
+        "markers =\n"
+        "    p1: supported feature contracts\n",
+    )
     return tests
 
 
@@ -115,6 +120,8 @@ def main():
         (root / (name + ".log")).write_text(result.stdout)
         report["steps"].append({"name": name, "returncode": result.returncode})
         (root / "report.json").write_text(json.dumps(report, indent=2))
+        if result.returncode != 0:
+            print("\n".join(result.stdout.splitlines()[-40:]), file=sys.stderr)
         assert (
             result.returncode == 0
         ), f"{name} failed; see {root / (name + '.log')}"
@@ -183,12 +190,45 @@ def main():
             "files": len(names),
         }
     import_check = f"""
-import importlib.metadata, json
+import hashlib, importlib.metadata, json, zipfile
+from email.parser import BytesParser
 from pathlib import Path
 import qwenpaw
 location = Path(qwenpaw.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not location.is_relative_to(Path({str(source)!r})), location
+package_root = location.parent.parent
+distributions = [
+    dist for dist in importlib.metadata.distributions(path=[str(package_root)])
+    if dist.metadata["Name"].lower().replace("_", "-") == "qwenpaw"
+]
+assert distributions, "Missing qwenpaw metadata in imported package directory"
+assert len(distributions) == 1, (
+    "Multiple qwenpaw metadata records in imported package directory"
+)
+selected = importlib.metadata.distribution("qwenpaw")
+assert Path(selected.locate_file("")).resolve() == package_root, (
+    "Selected qwenpaw metadata belongs to a different installation"
+)
+assert Path(selected.locate_file("qwenpaw/__init__.py")).resolve() == location, (
+    "Selected qwenpaw metadata does not match the imported package"
+)
+with zipfile.ZipFile({str(args.wheel.resolve())!r}) as archive:
+    metadata = next(
+        name for name in archive.namelist()
+        if name.endswith(".dist-info/METADATA")
+    )
+    expected = BytesParser().parsebytes(archive.read(metadata))["Version"]
+    assert selected.version == distributions[0].version == expected, (
+        "Installed wheel version mismatch"
+    )
+    for name in archive.namelist():
+        if name.startswith("qwenpaw/") and not name.endswith("/"):
+            installed = package_root / name
+            assert installed.is_file(), f"Missing installed wheel file: {{name}}"
+            assert hashlib.sha256(installed.read_bytes()).digest() == hashlib.sha256(
+                archive.read(name)
+            ).digest(), f"Installed wheel bytes mismatch: {{name}}"
 versions = {{
     name: importlib.metadata.version(name)
     for name in ("qwenpaw", "agentscope", "fastapi", "pytest")

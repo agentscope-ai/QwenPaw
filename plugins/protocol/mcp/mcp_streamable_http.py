@@ -12,18 +12,21 @@ import asyncio
 import base64
 import itertools
 import json
-import logging
 import re
 import time
 from datetime import timedelta
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import httpx
 from mcp import types as mcp_types
 
-from ...__version__ import __version__ as _QWENPAW_VERSION
+from .diagnostics import error_summary
 
-logger = logging.getLogger(__name__)
+try:
+    _QWENPAW_VERSION = version("qwenpaw")
+except PackageNotFoundError:
+    _QWENPAW_VERSION = "0.0.0"
 
 _MODERN_PROTOCOL_VERSION = "2026-07-28"
 # Streamable-HTTP handshake-era only; 2024-11-05 is HTTP+SSE, not fallback.
@@ -518,6 +521,8 @@ class _HttpClientBase:
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        *,
+        logger,
         **client_kwargs: Any,
     ) -> None:
         for label, value in (
@@ -535,6 +540,7 @@ class _HttpClientBase:
                 f"transport='streamable_http', got {transport!r}",
             )
         self.name = name
+        self._logger = logger
         self.transport = transport
         self.url = url
         self.headers = headers
@@ -544,7 +550,6 @@ class _HttpClientBase:
             self.timeout,
         )
         self.client_kwargs = dict(client_kwargs)
-        self.is_stateful = False
         self.is_connected = False
 
 
@@ -600,7 +605,7 @@ class HttpStatelessClient(_HttpClientBase):
             await self.close(ignore_errors=True)
             raise
         self.is_connected = True
-        logger.info(
+        self._logger.info(
             f"MCP stateless client connected: {self.name} "
             f"(protocol={_MODERN_PROTOCOL_VERSION})",
         )
@@ -618,17 +623,20 @@ class HttpStatelessClient(_HttpClientBase):
         except Exception as exc:
             if not ignore_errors:
                 raise
-            logger.warning(
-                f"Error closing MCP stateless client '{self.name}': {exc}",
+            self._logger.warning(
+                "Error closing MCP stateless client '%s': %s",
+                self.name,
+                error_summary(exc),
             )
-        except BaseException:
-            self._http = None
-            raise
+            return
         self._http = None
 
-    def _reject_tool(self, label: Any, reason: Any) -> None:
-        logger.warning(
-            f"Rejecting MCP tool {label!r} from '{self.name}': {reason}",
+    def _reject_tool(self, label: str, reason: str) -> None:
+        self._logger.warning(
+            "Rejecting MCP tool %r from '%s': %r",
+            label[:100],
+            self.name,
+            reason[:200],
         )
 
     # pylint: disable=too-many-branches
@@ -667,7 +675,7 @@ class HttpStatelessClient(_HttpClientBase):
                 )
             for raw in raw_tools:
                 if not isinstance(raw, dict):
-                    self._reject_tool(raw, "non-object tool entry")
+                    self._reject_tool("", "non-object tool entry")
                     continue
                 tool_name = str(raw.get("name") or "")
                 schema = raw.get("inputSchema")
@@ -675,12 +683,12 @@ class HttpStatelessClient(_HttpClientBase):
                     schema = raw.get("input_schema")
                 bindings, err = _collect_tool_header_bindings(schema)
                 if err is not None:
-                    self._reject_tool(tool_name or raw, err)
+                    self._reject_tool(tool_name, err)
                     continue
                 try:
                     tool = mcp_types.Tool.model_validate(raw)
                 except Exception as exc:
-                    self._reject_tool(tool_name or raw, exc)
+                    self._reject_tool(tool_name, error_summary(exc))
                     continue
                 accepted.append(tool)
                 header_index[tool.name] = bindings
@@ -908,8 +916,10 @@ class HttpStatelessClient(_HttpClientBase):
             try:
                 event = json.loads(raw)
             except json.JSONDecodeError:
-                logger.debug(
-                    f"Ignoring non-JSON SSE data for '{method}': {raw[:200]}",
+                self._logger.debug(
+                    "Ignoring non-JSON SSE data for '%s' (%d characters)",
+                    method,
+                    len(raw),
                 )
                 return None
             if not isinstance(event, dict):
@@ -968,6 +978,7 @@ class HttpAutoClient(_HttpClientBase):
             "headers": _headers_without_session_id(self.headers) or None,
             "timeout": self.timeout,
             "sse_read_timeout": self.sse_read_timeout,
+            "logger": self._logger,
             **kw,
         }
         deadline = time.monotonic() + float(timeout)
@@ -981,18 +992,32 @@ class HttpAutoClient(_HttpClientBase):
         try:
             await modern.connect(timeout=timeout)
         except _LegacyProtocolError as exc:
-            fallback_reason = str(exc)
-            logger.info(
-                f"MCP client '{self.name}' falling back to legacy: {exc}",
+            cause = exc.__cause__
+            if isinstance(cause, _JsonRpcError):
+                fallback_reason = (
+                    f"JSON-RPC {cause.code} (HTTP {cause.http_status})"
+                )
+            elif isinstance(cause, _OAuthRequiredError):
+                fallback_reason = "HTTP 401 from discover probe"
+            elif cause is not None:
+                fallback_reason = error_summary(cause)
+            else:
+                fallback_reason = "peer advertised a legacy protocol"
+            self._logger.info(
+                f"MCP client '{self.name}' falling back to legacy: "
+                f"{fallback_reason}",
             )
         else:
             self._impl = modern
-            self.is_stateful = False
             self.is_connected = True
             return
         finally:
             if self._impl is not modern:
-                await modern.close(ignore_errors=True)
+                try:
+                    await modern.close(ignore_errors=False)
+                except BaseException:
+                    self._impl = modern
+                    raise
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError(
@@ -1003,35 +1028,46 @@ class HttpAutoClient(_HttpClientBase):
         from .mcp_stateful_client import HttpStatefulClient
 
         legacy = HttpStatefulClient(**shared)
+        # Publish the cleanup owner before connect can fail or be cancelled.
+        self._impl = legacy
         try:
             await legacy.connect(timeout=remaining)
         except BaseException as exc:
-            await legacy.close(ignore_errors=True)
+            try:
+                await legacy.close_owned()
+            except Exception:
+                # Keep the partial implementation for the source close owner.
+                pass
+            else:
+                self._impl = None
             if fallback_reason:
                 # Keep the modern probe's verdict reachable: the legacy
                 # error alone can hide that the peer first answered 401.
-                logger.warning(
+                self._logger.warning(
                     f"MCP client '{self.name}' legacy fallback failed "
-                    f"({exc}); modern probe reported: {fallback_reason}",
+                    f"({error_summary(exc)}); modern probe reported: "
+                    f"{fallback_reason}",
                 )
             raise
-        self._impl = legacy
-        self.is_stateful = True
         self.is_connected = True
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Close the active modern or legacy implementation."""
         async with self._lifecycle_lock:
             self.is_connected = False
-            self.is_stateful = False
             impl = self._impl
             if impl is None:
                 return
             try:
-                await impl.close(ignore_errors=ignore_errors)
+                close_owned = getattr(impl, "close_owned", None)
+                if close_owned is not None:
+                    await close_owned()
+                else:
+                    await impl.close(ignore_errors=False)
             except Exception:
                 if not ignore_errors:
                     raise
+                return
             self._impl = None
 
     async def list_tools(self):

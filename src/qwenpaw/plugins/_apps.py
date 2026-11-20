@@ -185,6 +185,12 @@ class Services:  # pylint: disable=protected-access
                 "App call has ended; enter for_workspace() for a new call",
             )
 
+    def driver_source(self, protocol, source_id):
+        from ._drivers import management_source
+
+        self.guard()
+        return management_source(self, protocol, source_id)
+
     async def workspaces(self):
         self.guard()
         return await self._configured_workspaces()
@@ -855,6 +861,49 @@ class Services:  # pylint: disable=protected-access
         )
 
 
+class AppDispatcher:  # pylint: disable=protected-access
+    """Private owned bridge for host compatibility routes, never an SDK API."""
+
+    def __init__(self, plugin, app, admitted):
+        self.plugin = plugin
+        self.generation = plugin.generation
+        self.app_id = app.app_id
+        self.admitted = admitted
+        self.routes = {
+            (method, path): handler
+            for path, methods, handler in app._routes
+            for method in methods
+        }
+
+    @asynccontextmanager
+    async def scope(self, legacy):
+        self.plugin._guard()
+        if not self.admitted():
+            raise StaleContextError("App has been released")
+        if legacy.app_id != self.app_id:
+            raise SDKAccessError("App identity does not match")
+        async with self.plugin._invocation(
+            workspace_id=legacy.agent_id,
+            session_id="",
+        ) as base:
+            services = Services(self.plugin, legacy, self.admitted)
+            yield services.context(base)
+
+    async def dispatch(self, legacy, request):
+        handler = self.routes.get((request.method, request.path))
+        if handler is None:
+            raise SDKAccessError("App route is unavailable")
+        async with self.scope(legacy) as context:
+            result = await self.plugin._call(handler, context, request)
+            return (
+                result
+                if isinstance(result, HttpResponse)
+                else HttpResponse(
+                    result,
+                )
+            )
+
+
 # Keep related adapter declarations and lifecycle ordering together.
 # pylint: disable-next=too-many-statements
 def register(plugin, app):
@@ -882,6 +931,7 @@ def register(plugin, app):
     plugin._app_task_locks = weakref.WeakValueDictionary()
     admitted = True
     current = ContextVar(f"sdk_app:{plugin.plugin_id}:{app.app_id}")
+    dispatcher = AppDispatcher(plugin, app, lambda: admitted)
 
     @asynccontextmanager
     async def scope(connection):
@@ -894,12 +944,7 @@ def register(plugin, app):
             else Request({**connection.scope, "type": "http"})
         )
         legacy = await get_scoped_ctx(identity_request)
-        async with plugin._invocation(
-            workspace_id=legacy.agent_id,
-            session_id="",
-        ) as base:
-            services = Services(plugin, legacy, lambda: admitted)
-            public = services.context(base)
+        async with dispatcher.scope(legacy) as public:
             token = current.set(public)
             try:
                 yield public
@@ -1112,11 +1157,17 @@ def register(plugin, app):
     native_app._sdk_app_id_injector = inject_app_id
     native_app.include_router(router)
     handle = plugin._register_contribution(native_app.register, plugin._api)
+    registry = plugin._api._registry
+    if not hasattr(registry, "_app_dispatchers"):
+        registry._app_dispatchers = {}
+    registry._app_dispatchers[app.app_id] = dispatcher
     from .resources import Registration
 
     async def release():
         nonlocal admitted
         admitted = False
+        if registry._app_dispatchers.get(app.app_id) is dispatcher:
+            registry._app_dispatchers.pop(app.app_id, None)
         await handle.close()
 
     return Registration(
