@@ -96,6 +96,7 @@ class PendingApproval:
     # treated as EXACT by the governance consumer. Only meaningful when the
     # decision is APPROVED.
     scope: ApprovalScope | None = None
+    _sdk_run_id: str | None = field(default=None, repr=False)
 
 
 def _is_spawn_child_approval(pending: PendingApproval) -> bool:
@@ -670,9 +671,11 @@ class ApprovalService:
             logger.info(
                 "Cancelled %d pending approval(s) for root session %s",
                 cancelled,
-                root_session_id[:8]
-                if len(root_session_id) >= 8
-                else root_session_id,
+                (
+                    root_session_id[:8]
+                    if len(root_session_id) >= 8
+                    else root_session_id
+                ),
             )
         return cancelled
 

@@ -72,6 +72,7 @@ async def stop_thread(
 
 def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
     for stream in (
+        getattr(proc, "stdin", None),
         getattr(proc, "stdout", None),
         getattr(proc, "stderr", None),
     ):
@@ -102,6 +103,74 @@ def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
 async def stop_subprocess(proc: Any, desc: str) -> None:
     """Close pipes, terminate, wait, then kill if needed — off the loop."""
     await run_sync_io(_stop_subprocess_blocking, proc, desc)
+
+
+async def stop_async_process(
+    proc: asyncio.subprocess.Process,
+    desc: str,
+) -> None:
+    """Stop and reap a child without cancelling its exit waiter."""
+    # A paused/full stdout pipe can keep Process.wait() pending even after
+    # the OS child has exited. Teardown discards unread output and releases
+    # pipe transports rather than waiting for an absent terminal consumer.
+    for descriptor in (0, 1, 2):
+        transport = proc._transport.get_pipe_transport(
+            descriptor,
+        )  # pylint: disable=protected-access
+        if transport is not None:
+            transport.close()
+    if proc.returncode is None:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+    waiter = asyncio.create_task(proc.wait())
+    try:
+        _, pending = await asyncio.wait({waiter}, timeout=PROCESS_STOP_SECONDS)
+        if pending:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            _, pending = await asyncio.wait(
+                {waiter},
+                timeout=PROCESS_STOP_SECONDS,
+            )
+            if pending:
+                raise TimeoutError(f"subprocess {desc!r} did not exit")
+        waiter.result()
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+        if proc.stdin is not None:
+            proc.stdin.close()
+
+
+async def stop_process_tree(proc, tree, desc: str) -> None:
+    """Retain the process group/Job until all members have exited."""
+    loop = asyncio.get_running_loop()
+    for force in (False, True):
+        tree.signal(force=force)
+        deadline = loop.time() + PROCESS_STOP_SECONDS
+        while True:
+            # Reap the leader so it cannot keep the process group alive as a
+            # zombie. Asyncio's child watcher reaps asynchronous children.
+            exited = (
+                proc.returncode is not None
+                if isinstance(proc, asyncio.subprocess.Process)
+                else proc.poll() is not None
+            )
+            if exited and not tree.alive():
+                if isinstance(proc, asyncio.subprocess.Process):
+                    await stop_async_process(proc, desc)
+                else:
+                    await stop_subprocess(proc, desc)
+                tree.close()
+                return
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(0.02)
+    raise TimeoutError(f"process tree {desc!r} still has live members")
 
 
 class ConnectionCloser:

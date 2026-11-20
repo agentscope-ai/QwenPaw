@@ -59,6 +59,9 @@ class LaunchSpec:
     workspace_id: str | None = None
     private_env: Mapping[str, str] = field(default_factory=dict, repr=False)
     send_timeout: float = DEFAULT_SEND_TIMEOUT
+    sdk_storage_root: Path | None = None
+    sdk_media_root: Path | None = None
+    sdk_workspace_id: str | None = None
 
     def __post_init__(self):
         validate_send_timeout(self.send_timeout)
@@ -317,11 +320,14 @@ class ChannelProcess(PluginProcess):
         )
         packet["config"] = dict(spec.config)
         packet["private_env"] = spec.private_env
-        if self._mode == "manage":
-            packet.update(
-                plugin_id=spec.plugin_id,
-                workspace_id=spec.workspace_id,
-            )
+        packet.update(
+            plugin_id=spec.plugin_id,
+            workspace_id=spec.workspace_id,
+            sdk_workspace_id=spec.sdk_workspace_id,
+        )
+        for name in ("sdk_storage_root", "sdk_media_root"):
+            value = getattr(spec, name)
+            packet[name] = str(value) if value is not None else None
         return self._encode_packet(packet)
 
     def _worker_path(self, spec):

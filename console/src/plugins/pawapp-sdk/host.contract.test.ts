@@ -140,6 +140,22 @@ afterEach(() => {
 });
 
 describe("pawapp host chat()", () => {
+  it("forwards per-turn model selection through direct, scoped and stream calls", async () => {
+    const model = { provider_id: "fixture", model_id: "second" };
+    respondWith({ text: "selected" });
+    await chat("one", { model });
+    await createHostNamespace(() => APP_ID).chat("two", { model });
+    expect(callBody(0).model).toEqual(model);
+    expect(callBody(1).model).toEqual(model);
+    mockedFetch.mockImplementation(() =>
+      Promise.resolve(sseResponse(['data: {"text":"selected"}'])),
+    );
+    for await (const event of chatStream("three", { model })) {
+      expect(event.text).toBe("selected");
+    }
+    expect(callBody(2).model).toEqual(model);
+  });
+
   it("posts to the app-scoped chat route with the agent id in the query", async () => {
     respondWith({ text: "hello" });
 

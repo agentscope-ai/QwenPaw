@@ -9,7 +9,7 @@ import tempfile
 from contextlib import AbstractContextManager as ContextManager
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Mapping, TypeVar
 
 from .errors import SDKError
 from .messages import Attachment
@@ -24,10 +24,12 @@ class PluginStorage:
         guard: Callable,
         *,
         _admission: Callable[[], ContextManager] = nullcontext,
+        _legacy_sources: Mapping[str, Path] | None = None,
     ):
         self._root = root.resolve()
         self._guard = guard
         self._admission = _admission
+        self._legacy_sources = dict(_legacy_sources or {})
 
     async def _io(self, operation: Callable[[], _T]) -> _T:
         from ..utils.io_utils import run_sync_io
@@ -58,6 +60,59 @@ class PluginStorage:
                 "Storage path must remain inside this plugin's data directory",
             )
         return path
+
+    def path(self, name: str) -> Path:
+        """Resolve a private file path for libraries such as SQLite.
+
+        Creates parent directories, but not the file. The caller must keep
+        open connections in ResourceScope; a returned Path is not revocable.
+        """
+        self._guard()
+        path = self._path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def import_legacy(self, source: str, name: str) -> bool:
+        """Copy a declared legacy file only if the private target is absent."""
+        from ._storage_migration import copy_missing, declared_source
+
+        self._guard()
+        origin = declared_source(self._legacy_sources, source)
+        if not origin.exists():
+            return False
+        return copy_missing(origin, self.path(name), self._guard)
+
+    def import_legacy_tree(self, source: str, name: str) -> tuple[str, ...]:
+        """Copy missing regular files; retain sources and allow safe retries.
+
+        Returns copied paths relative to this storage. Symlinks and special
+        files are rejected. A partial failure leaves completed copies intact.
+        """
+        from ._storage_migration import copy_missing, declared_source
+
+        self._guard()
+        origin = declared_source(self._legacy_sources, source)
+        target = self._path(name)
+        if not origin.exists():
+            return ()
+        if not origin.is_dir():
+            raise SDKError("Legacy tree source must be a directory")
+        copied = []
+        for directory, dirs, files in os.walk(origin, followlinks=False):
+            for item in (*dirs, *files):
+                path = Path(directory) / item
+                if path.is_symlink():
+                    raise SDKError("Legacy storage cannot contain symlinks")
+            for filename in sorted(files):
+                path = Path(directory) / filename
+                relative = (
+                    (target / path.relative_to(origin))
+                    .relative_to(self._root)
+                    .as_posix()
+                )
+                if copy_missing(path, self.path(relative), self._guard):
+                    copied.append(relative)
+        return tuple(copied)
 
     def read_bytes(self, name: str) -> bytes:
         return self._path(name).read_bytes()

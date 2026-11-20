@@ -107,6 +107,21 @@ export interface ChatSubmitInput {
   sessionId: string;
 }
 
+/** @since 1.2.0 A model identity without provider credentials. */
+export interface ModelSelection {
+  readonly provider_id: string;
+  readonly model_id: string;
+}
+
+/** @since 1.2.0 Host-issued draft snapshot; pass the original object to replace. */
+export interface ComposerSnapshot {
+  readonly agentId: string;
+  readonly sessionId: string | null;
+  readonly chatId: string | null;
+  readonly text: string;
+  readonly revision: number;
+}
+
 /**
  * Theme roles a plugin may override: `styles/tokens.css` roles without the
  * `--app-` prefix. The set is closed on purpose — the remaining `--app-*`
@@ -131,6 +146,13 @@ export type ThemeTokenOverrides = Partial<
 >;
 
 export interface QwenPawChatNamespace {
+  /** @since 1.2.0 No active composer yields null; stale replacement returns false. */
+  composer: {
+    read(): ComposerSnapshot | null;
+    replace(snapshot: ComposerSnapshot, text: string): boolean;
+    /** Current draft's model, or null when unavailable/changed during lookup. */
+    model(): Promise<ModelSelection | null>;
+  };
   /** Last registration for a language wins; disposing it restores the previous one. */
   codeBlock(
     pluginId: string,
@@ -315,6 +337,8 @@ export interface QwenPawHostNamespace {
 
   // ── Imperative getters (safe outside React render) ────────────────────────
   getSelectedAgentId(): string;
+  /** @since 1.2.0 Validate availability and perform the normal host selection. */
+  selectAgent(agentId: string): Promise<void>;
   getCurrentSessionId(): string | null;
   openExternalLink(url: string): void;
 
@@ -339,7 +363,7 @@ export interface QwenPawMemoryBackendsNamespace {
   register(pluginId: string, extension: MemoryBackendExtension): Disposable;
 }
 
-/** Harness frontend settings contributions, available since SDK 1.1.0. */
+/** @since 1.1.0 Harness frontend settings contributions. */
 export interface HarnessSettingsProps {
   backendId: string;
   value: Record<string, unknown>;
@@ -347,11 +371,13 @@ export interface HarnessSettingsProps {
   open: boolean;
 }
 
+/** @since 1.1.0 */
 export interface HarnessFrontendExtension {
   backendId: string;
   SettingsComponent?: React.ComponentType<HarnessSettingsProps>;
 }
 
+/** @since 1.1.0 */
 export interface QwenPawHarnessesNamespace {
   register(pluginId: string, extension: HarnessFrontendExtension): Disposable;
 }
@@ -369,10 +395,19 @@ export interface PluginRouteDeclaration {
 }
 
 export interface QwenPawWindowNamespace {
+  /** @since 1.2.0 Typed, additive subset of the existing host registry. */
+  menu: {
+    add(pluginId: string, item: PluginMenuItem | PluginMenuItem[]): Disposable;
+  };
+  /** @since 1.2.0 Registration owns its route and can be disposed. */
+  route: {
+    add(pluginId: string, route: PluginRoute | PluginRoute[]): Disposable;
+  };
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   memoryBackends: QwenPawMemoryBackendsNamespace;
+  /** @since 1.1.0 */
   harnesses: QwenPawHarnessesNamespace;
   modules: Record<string, Record<string, unknown>>;
   paw?: {
@@ -383,4 +418,37 @@ export interface QwenPawWindowNamespace {
     pluginId: string,
     renderers: Record<string, React.FC<Record<string, unknown>>>,
   ): void;
+}
+
+/** @since 1.2.0 Stable menu registration; broader host internals are not exported. */
+export interface PluginMenuItem {
+  id: string;
+  label: string | (() => React.ReactNode);
+  location?: "primary.agentScoped" | "primary.settings" | "userMenu";
+  parentId?: string;
+  before?: string;
+  after?: string;
+  order?: number;
+  icon?: React.ElementType | React.ReactNode;
+  route?: string;
+  href?: string;
+  visible?: () => boolean;
+  isGroup?: boolean;
+  divider?: boolean;
+}
+
+/** @since 1.2.0 Page components receive no required host-private props. */
+export interface PluginRoute {
+  id: string;
+  path: string;
+  caseSensitive?: boolean;
+  component: React.ComponentType;
+  meta?: {
+    domain: "chat" | "tasks" | "workspace" | "extensions" | "settings";
+    title: Localized<string>;
+    description?: Localized<string>;
+    scope: "global" | "agent" | "session" | "workspace";
+    layout: "standard" | "workbench" | "immersive";
+    navigation: "rail" | "context" | "settings" | "search-only";
+  };
 }

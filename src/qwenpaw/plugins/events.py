@@ -6,6 +6,7 @@ Immutable observations; subscribers never participate in business decisions.
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Union, Awaitable
 from .tools import ToolContext
+from .runs import RunSnapshot
 
 JSONValue = Union[
     None,
@@ -15,6 +16,17 @@ JSONValue = Union[
     str,
     tuple["JSONValue", ...],
     Mapping[str, "JSONValue"],
+]
+
+# Mutable JSON output for transport; snapshots continue using frozen JSONValue.
+JSONData = Union[
+    None,
+    bool,
+    int,
+    float,
+    str,
+    list["JSONData"],
+    dict[str, "JSONData"],
 ]
 
 
@@ -53,6 +65,16 @@ class ChatEvent:
     data: JSONValue = None
     attributes: Mapping[str, JSONValue] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, JSONData]:
+        """Return independent JSON data in the host's stream message format.
+
+        Extension fields are flattened into their original locations. Uses
+        the same envelope and default fields as the existing PawApp bridge.
+        """
+        from ._event_json import event_dict
+
+        return event_dict(self)
+
 
 @dataclass(frozen=True)
 class ApprovalDisplay:
@@ -83,6 +105,7 @@ class ApprovalSnapshot:
     source_type: str
     scope: str | None
     display: ApprovalDisplay
+    run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +120,7 @@ class RunEvent:
     timestamp: float
     event: ChatEvent | None = None
     reason: str = ""
+    snapshot: RunSnapshot | None = None
 
 
 @dataclass(frozen=True)

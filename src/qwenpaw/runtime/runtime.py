@@ -148,6 +148,7 @@ class Runtime:
                 )
                 await record_agent_activity()
                 from ..providers.model_selection import runtime_model_context
+                from ..plugins._identity import from_runtime, request_identity
 
                 exhausted = object()
                 async with aclosing(executor.run(ctx.input_msgs)) as events:
@@ -157,7 +158,13 @@ class Runtime:
                         with runtime_model_context(
                             getattr(ctx.agent, "model", None),
                         ):
-                            ev = await anext(events, exhausted)
+                            identity_token = request_identity.set(
+                                from_runtime(ctx),
+                            )
+                            try:
+                                ev = await anext(events, exhausted)
+                            finally:
+                                request_identity.reset(identity_token)
                         if ev is exhausted:
                             break
                         yield ev

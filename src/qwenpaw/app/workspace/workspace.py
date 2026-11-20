@@ -13,6 +13,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 
 import asyncio
 import logging
+from contextlib import aclosing
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -434,7 +435,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
         """Inject the cross-workspace AppServiceManager reference."""
         self._app_services = app_services
 
-    @_sdk_observe_stream
     async def stream_query(
         self,
         request: Any,
@@ -446,6 +446,12 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        async with aclosing(self._stream_query(request)) as stream:
+            async for event in stream:
+                yield event
+
+    @_sdk_observe_stream
+    async def _stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
         from ...schemas import AgentRequest
 
         if isinstance(request, dict):

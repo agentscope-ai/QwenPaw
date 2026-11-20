@@ -1915,7 +1915,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance = self.lifecycle.ensure_instance(plugin_id)
         instance.refuse_unquiescent_reregister()
         api.bind_instance(instance, loader=self)
-        if manifest_dict.get("sdk") is not None:
+        from .channel_adapter import StaticChannelDefinition
+
+        if manifest_dict.get("sdk") is not None and not isinstance(
+            plugin_def,
+            StaticChannelDefinition,
+        ):
             from .sdk import PluginContext
 
             api = PluginContext(api)
@@ -5378,7 +5383,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance = self.lifecycle.ensure_instance(plugin_id)
         instance.refuse_unquiescent_reregister()
         api.bind_instance(instance, loader=self)
-        if manifest_dict.get("sdk") is not None:
+        from .channel_adapter import StaticChannelDefinition
+
+        if manifest_dict.get("sdk") is not None and not isinstance(
+            plugin_def,
+            StaticChannelDefinition,
+        ):
             from .sdk import PluginContext
 
             api = PluginContext(api)

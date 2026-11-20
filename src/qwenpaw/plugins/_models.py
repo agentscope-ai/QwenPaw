@@ -16,13 +16,32 @@ from ._workspace import workspace_id as model_workspace_id
 
 from .errors import SDKError
 from .providers import ModelChunk, ModelUsage
+from .events import JSONData
 from ._messages import to_host, _from_block, _take_previews
 
 model_deadline = ContextVar("sdk_model_deadline", default=None)
 
 
-def json_mapping(value):
-    def convert(item):
+def selection_override(selection):
+    from .models import ModelSelection
+
+    if selection is None:
+        return None
+    if (
+        not isinstance(selection, ModelSelection)
+        or not isinstance(selection.provider_id, str)
+        or not isinstance(selection.model_id, str)
+        or not selection.provider_id.strip()
+        or not selection.model_id.strip()
+    ):
+        raise SDKError(
+            "Chat model requires a nonempty provider_id and model_id",
+        )
+    return {"provider_id": selection.provider_id, "model": selection.model_id}
+
+
+def json_mapping(value: object) -> dict[str, JSONData]:
+    def convert(item: object) -> JSONData:
         if item is None or isinstance(item, (str, bool, int)):
             return item
         if isinstance(item, float) and math.isfinite(item):
@@ -39,7 +58,9 @@ def json_mapping(value):
 
     if not isinstance(value, Mapping):
         raise SDKError("Fields and model options must be mappings")
-    return convert(value)
+    if not all(isinstance(key, str) for key in value):
+        raise SDKError("Fields and model options must contain string keys")
+    return {key: convert(item) for key, item in value.items()}
 
 
 @contextmanager
@@ -135,9 +156,11 @@ class ModelAccumulator:
             _merge_refs(
                 self.previews,
                 {
-                    key: public.attachment.preview_url
-                    if public.attachment
-                    else "",
+                    key: (
+                        public.attachment.preview_url
+                        if public.attachment
+                        else ""
+                    ),
                 },
                 "preview URLs",
             )

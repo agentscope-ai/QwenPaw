@@ -85,9 +85,9 @@ export function buildEligibleProviders(
       return (
         provider.models.length > 0 &&
         Boolean(
-          provider.require_api_key === false || provider.is_custom
+          provider.is_custom
             ? provider.base_url
-            : provider.api_key,
+            : provider.require_api_key === false || provider.api_key,
         )
       );
     });

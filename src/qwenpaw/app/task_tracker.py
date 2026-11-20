@@ -20,6 +20,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
+    Literal,
     Optional,
 )
 
@@ -37,6 +38,23 @@ _create_task = asyncio.create_task
 REPLAY_END_SSE = f"data: {json.dumps({'type': 'replay_end'})}\n\n"
 
 
+def response_outcome(
+    object_type: object,
+    status: object,
+    error: object,
+) -> Literal["completed", "failed", "cancelled"] | None:
+    """Classify a response or stream error, ignoring individual messages."""
+    if error:
+        return "failed"
+    if object_type != "response":
+        return None
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    return "failed"
+
+
 def _has_successful_response(events: list[str]) -> bool:
     """Require a successful response terminal, not just message completion."""
     for sse in reversed(events):
@@ -49,16 +67,19 @@ def _has_successful_response(events: list[str]) -> bool:
                 continue
             if not isinstance(event, dict):
                 continue
-            if event.get(f"error"):
-                return False
-            if event.get(f"object") == f"response":
-                return event.get(f"status") == f"completed"
+            outcome = response_outcome(
+                event.get("object"),
+                event.get("status"),
+                event.get("error"),
+            )
+            if outcome is not None:
+                return outcome == "completed"
     return False
 
 
 @dataclass
 class _RunState:
-    """Per-run state (task, queues, buffer), guarded by tracker lock."""
+    """Per-run state (task, queues, buffer) on the owning event loop."""
 
     task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
@@ -73,7 +94,8 @@ class _RunState:
 class TaskTracker:
     """Per-agent tracker: run_key -> RunState.
 
-    All mutations to _runs under _lock. Producer broadcasts under lock.
+    Async operations use _lock; synchronous background admission and cleanup
+    cannot yield. Producer broadcasts under lock.
     Subscribers use unbounded per-connection queues; disconnect removes them
     via :meth:`detach_subscriber`. A workspace reload reuses the same tracker
     so active runs remain reconnectable.
@@ -88,6 +110,30 @@ class TaskTracker:
     @property
     def lock(self) -> asyncio.Lock:
         return self._lock
+
+    def track_background_task(
+        self,
+        run_key: str,
+        task: asyncio.Task,
+    ) -> None:
+        """Track an externally owned task on the current event loop.
+
+        Registration is synchronous so admission cannot race an idle check.
+        The caller must keep the task alive until its resources settle.
+        """
+        state = self._runs.get(run_key)
+        if state is not None and not state.task.done():
+            raise ValueError(f"Task is already tracked: {run_key}")
+        state = _RunState(task=task)
+        self._runs[run_key] = state
+
+        def finished(completed):
+            if self._runs.get(run_key) is state:
+                for queue in state.queues:
+                    queue.put_nowait(_SENTINEL)
+                self._runs.pop(run_key)
+
+        task.add_done_callback(finished)
 
     async def get_status(self, run_key: str) -> str:
         """Return ``'idle'`` or ``'running'``."""

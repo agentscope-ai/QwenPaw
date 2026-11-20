@@ -47,7 +47,11 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from qwenpaw.exceptions import ConfigurationException
+from qwenpaw.exceptions import (
+    ConfigurationException,
+    ModelNotFoundException,
+    ProviderError,
+)
 
 from .deps import get_ctx, get_scoped_ctx
 from .dependency import (
@@ -122,6 +126,12 @@ def _configuration_error_detail(exc: ConfigurationException) -> dict:
     return detail
 
 
+def _model_error_detail(
+    exc: ModelNotFoundException | ProviderError,
+) -> dict[str, str | None]:
+    return {"code": exc.error_code, "message": str(exc)}
+
+
 def _build_capability_router(  # pylint: disable=too-many-statements
     context_dependency=get_scoped_ctx,
     *,
@@ -138,12 +148,28 @@ def _build_capability_router(  # pylint: disable=too-many-statements
 
     router = APIRouter(**({"route_class": route_class} if route_class else {}))
 
+    def chat_options(payload):
+        if managed_stream:
+            from ..plugins._apps import chat_model
+
+            return {
+                "request_id": payload.get("request_id"),
+                "model": chat_model(payload.get("model")),
+            }
+        if payload.get("model") is not None:
+            raise HTTPException(
+                422,
+                "This app does not support model selection",
+            )
+        return {}
+
     @router.post("/chat")
     async def chat(request: Request, ctx=Depends(context_dependency)):
         payload = await request.json()
         message = str(payload.get("message") or "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="message is required")
+        options = chat_options(payload)
         session_id = _resolve_app_session_id(ctx, payload.get("session_id"))
         if hasattr(ctx, "ensure_chat_session"):
             await ctx.ensure_chat_session(session_id)
@@ -152,16 +178,17 @@ def _build_capability_router(  # pylint: disable=too-many-statements
                 message,
                 skill=payload.get("skill"),
                 session_id=session_id,
-                **(
-                    {"request_id": payload.get("request_id")}
-                    if managed_stream
-                    else {}
-                ),
+                **options,
             )
         except ConfigurationException as exc:
             raise HTTPException(
                 status_code=503,
                 detail=_configuration_error_detail(exc),
+            ) from exc
+        except (ModelNotFoundException, ProviderError) as exc:
+            raise HTTPException(
+                status_code=422 if options.get("model") is not None else 503,
+                detail=_model_error_detail(exc),
             ) from exc
         return {"text": reply.text}
 
@@ -171,6 +198,7 @@ def _build_capability_router(  # pylint: disable=too-many-statements
         message = str(payload.get("message") or "").strip()
         if not message:
             raise HTTPException(status_code=400, detail="message is required")
+        options = chat_options(payload)
         session_id = _resolve_app_session_id(ctx, payload.get("session_id"))
         if hasattr(ctx, "ensure_chat_session"):
             await ctx.ensure_chat_session(session_id)
@@ -180,25 +208,35 @@ def _build_capability_router(  # pylint: disable=too-many-statements
                 message,
                 skill=payload.get("skill"),
                 session_id=session_id,
-                **(
-                    {"request_id": payload.get("request_id")}
-                    if managed_stream
-                    else {}
-                ),
+                **options,
             )
+            failure_sent = False
             try:
                 async for event in source:
-                    encoded = json.dumps(
-                        encode(event),
-                        ensure_ascii=False,
-                    )
+                    data = encode(event)
+                    if (
+                        isinstance(data, dict)
+                        and data.get("object") == "response"
+                        and data.get("status") == "failed"
+                        and data.get("error")
+                    ):
+                        failure_sent = True
+                    encoded = json.dumps(data, ensure_ascii=False)
                     yield f"data: {encoded}\n\n"
-            except ConfigurationException as exc:
+            except (
+                ConfigurationException,
+                ModelNotFoundException,
+                ProviderError,
+            ) as exc:
+                if isinstance(exc, ConfigurationException):
+                    detail = _configuration_error_detail(exc)
+                elif failure_sent:
+                    # The host sent the reason in its terminal response.
+                    return
+                else:
+                    detail = _model_error_detail(exc)
                 encoded = json.dumps(
-                    {
-                        "type": "error",
-                        "error": _configuration_error_detail(exc),
-                    },
+                    {"type": "error", "error": detail},
                     ensure_ascii=False,
                 )
                 yield f"data: {encoded}\n\n"

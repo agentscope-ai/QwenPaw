@@ -375,6 +375,16 @@ def has_registered_users() -> bool:
     return bool(data.get("user"))
 
 
+def owns_default_console_chat(username: str) -> bool:
+    """Whether the authenticated principal owns legacy Console conversations."""
+    # QwenPaw has one registered account. The main Console has always stored
+    # its conversations under "default", regardless of that account's name.
+    if not is_auth_enabled():
+        return False
+    user = _load_auth_data().get("user")
+    return bool(user and user.get("username") == username)
+
+
 # ---------------------------------------------------------------------------
 # Registration (single-user)
 # ---------------------------------------------------------------------------

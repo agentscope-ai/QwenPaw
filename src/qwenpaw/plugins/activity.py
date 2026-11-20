@@ -3,6 +3,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
+from threading import RLock
 
 INTERRUPT_TIMEOUT_SECONDS = 5.0
 
@@ -37,6 +38,25 @@ class PluginActivity:
         self.cleanup_tasks = set()
         self.cleanup_retries = {}
         self._interrupted_tasks = set()
+        self._admission_lock = RLock()
+        self.sync_calls = 0
+
+    @contextmanager
+    def sync_invocation(self):
+        """Keep synchronous prompt callbacks owned even on worker threads."""
+        with self._admission_lock:
+            if self.blocked:
+                raise PluginBusyError(
+                    self.plugin_id,
+                    self.sync_calls,
+                    can_interrupt=False,
+                )
+            self.sync_calls += 1
+        try:
+            yield
+        finally:
+            with self._admission_lock:
+                self.sync_calls -= 1
 
     @contextmanager
     def invocation(self, *, cleanup=False):
@@ -86,8 +106,20 @@ class PluginActivity:
         if self.mutator is current:
             yield
             return
-        pending = self._pending()
+        # Threads cannot be safely interrupted. Refuse replacement until the
+        # callback exits, and atomically close admission before any await.
+        with self._admission_lock:
+            if self.sync_calls:
+                raise PluginBusyError(
+                    self.plugin_id,
+                    self.sync_calls,
+                    can_interrupt=False,
+                )
+            pending = self._pending()
+            previously_blocked = self.blocked
+            self.blocked = True
         if current in pending:
+            self.blocked = previously_blocked
             raise PluginBusyError(
                 self.plugin_id,
                 len(pending),
@@ -99,12 +131,12 @@ class PluginActivity:
             | self._interrupted_tasks
         )
         if pending and not interrupt_tasks and not drainable:
+            self.blocked = previously_blocked
             raise PluginBusyError(
                 self.plugin_id,
                 len(pending),
                 can_interrupt=not self.blocked,
             )
-        self.blocked = True
         self.mutator = current
         try:
             if pending:

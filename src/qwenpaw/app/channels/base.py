@@ -2212,6 +2212,7 @@ class BaseChannel(ABC):
         tool_name = data.get("name") or "tool"
         chunks: List[str] = []
         seen_chunks: set[str] = set()
+        used = 0
         for block in output:
             if not isinstance(block, dict):
                 continue
@@ -2219,15 +2220,27 @@ class BaseChannel(ABC):
             raw_text = ""
             if block_type == "text":
                 raw_text = str(block.get("text") or "")
-            elif block_type == "thinking":
+            elif (
+                block_type == "thinking" and self._display_config.show_thinking
+            ):
                 raw_text = str(block.get("thinking") or "")
             if not raw_text.strip():
                 continue
-            preview = self._truncate_stream_tool_chunk(raw_text)
+            if not self._display_config.show_tool_details:
+                return f"⌛️ **{tool_name}**:\n`...`"
+            configured_limit = self._display_config.tool_result_max_length
+            remaining = configured_limit - used
+            if configured_limit and remaining <= 0:
+                break
+            preview = self._truncate_stream_tool_chunk(
+                raw_text,
+                min(72, remaining) if configured_limit else 72,
+            )
             if not preview or preview in seen_chunks:
                 continue
             seen_chunks.add(preview)
             chunks.append(preview)
+            used += len(preview)
         if not chunks:
             return None
         return f"⌛️ **{tool_name}**:\n" + "\n".join(

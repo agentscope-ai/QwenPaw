@@ -12,6 +12,28 @@ import pytest
 pytestmark = pytest.mark.p1
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["test_sdk_harness.py", "test_sdk_harness_host.py"],
+)
+def test_selected_author_suite_keeps_host_tests_outside_wheel_check(
+    tmp_path,
+    name,
+):
+    source = Path(__file__).resolve().parents[3]
+    prepare = runpy.run_path(
+        str(source / "scripts/check_plugin_sdk_artifacts.py"),
+    )["prepare_author_tests"]
+    if name == "test_sdk_harness_host.py":
+        with pytest.raises(AssertionError):
+            prepare(source, tmp_path, [name])
+    else:
+        assert prepare(source, tmp_path, [name]) == [name]
+        assert not (
+            tmp_path / "author_tests/test_sdk_harness_host.py"
+        ).exists()
+
+
 def test_exported_author_suite_collects_outside_checkout(tmp_path):
     source = Path(__file__).resolve().parents[3]
     checker = runpy.run_path(

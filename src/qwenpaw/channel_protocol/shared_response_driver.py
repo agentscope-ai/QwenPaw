@@ -610,7 +610,7 @@ class SharedResponseDriver:
             self._locks[handle] = asyncio.Lock()
         return self._locks[handle]
 
-    async def _admit_event(self, event, created):
+    async def _admit_event(self, event, created, *, detailed=False):
         if getattr(
             event,
             "actor_unknown",
@@ -710,6 +710,8 @@ class SharedResponseDriver:
                         ):
                             self._evict(event.response_handle)
                             await self._checkpoint()
+                if detailed:
+                    return ack, uncertain
                 if not exhausted:
                     return None
                 raise RuntimeError("HOST_ADMISSION_EXHAUSTED")
@@ -1132,6 +1134,9 @@ class SharedResponseDriver:
             snapshot = await await_send(
                 self._before_cleanup_complete(snapshot),
             )
+        # Native uncertainty prevents retrying platform effects, not releasing
+        # local resources. A failed local close must keep the live owner.
+        snapshot = await await_send(self._before_local_retirement(snapshot))
         candidate = self._routes.cleanup_candidate(
             snapshot.response_handle,
             snapshot.outcome,
@@ -1151,6 +1156,10 @@ class SharedResponseDriver:
         raise NotImplementedError
 
     async def _before_cleanup_complete(self, snapshot):
+        return snapshot
+
+    async def _before_local_retirement(self, snapshot):
+        """Release local ownership even when native outcomes remain unknown."""
         return snapshot
 
     def _record_cleanup(self, snapshot, delivery_id, resource):

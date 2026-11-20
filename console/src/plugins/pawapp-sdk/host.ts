@@ -98,6 +98,7 @@ export async function chat(
       message,
       session_id: sessionId,
       skill: options.skill,
+      model: options.model,
     }),
   });
 
@@ -131,6 +132,7 @@ async function* streamChatWithApi(
       message,
       session_id: sessionId,
       skill: options.skill,
+      model: options.model,
     },
     query: { agent_id: agentId },
   })) {
@@ -382,7 +384,12 @@ export function createHostNamespace(
       const { agentId, sessionId } = chatRouteOptions(options);
       const data = await api.post<{ text?: string; reply?: string }>(
         "/chat",
-        { message, session_id: sessionId, skill: options.skill },
+        {
+          message,
+          session_id: sessionId,
+          skill: options.skill,
+          model: options.model,
+        },
         { query: { agent_id: agentId } },
       );
       return data.text ?? data.reply ?? "";

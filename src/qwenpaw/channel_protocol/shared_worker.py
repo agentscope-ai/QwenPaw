@@ -139,6 +139,21 @@ class ChannelRuntime:
             send_timeout=getattr(self, "_send_timeout", 120.0),
         )
 
+    def prepare_component(self, component_class, packet):
+        if not any(
+            base.__module__ == "qwenpaw.plugins.channel_workers"
+            and base.__name__ == "ChannelDriver"
+            for base in getattr(component_class, "__mro__", ())
+        ):
+            return component_class
+        from qwenpaw.plugins._channel_worker import prepare_driver
+
+        return prepare_driver(
+            component_class,
+            packet,
+            capabilities=self._capabilities,
+        )
+
     async def state(self, context, state):
         await context.set_platform_state(state)
 
