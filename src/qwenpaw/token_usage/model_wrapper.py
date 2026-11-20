@@ -9,6 +9,7 @@ from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
 from ..utils.model_response import safe_attr
+from . import calibration
 from .buffer import _UsageEvent
 from .counter import record_session_tokens
 from .manager import _usage_agent_id, get_token_usage_manager
@@ -110,7 +111,11 @@ class TokenRecordingModelWrapper(ChatModelBase):
         """Keep formatter updates synchronized with the wrapped model."""
         self._model.formatter = value
 
-    def _record_usage(self, usage: ChatUsage | None) -> None:
+    def _record_usage(
+        self,
+        usage: ChatUsage | None,
+        estimate: int = 0,
+    ) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
         if usage is None:
             return
@@ -144,6 +149,15 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if not cache_observed:
             cache_read = 0
             cache_write = 0
+        if estimate > 0:
+            # Anthropic reports cache reads/writes outside ``input_tokens``;
+            # its real prompt is their sum. Elsewhere ``cache_eligible`` is
+            # either the prompt itself or 0.
+            calibration.record(
+                self.model_key,
+                estimate,
+                max(pt, cache_eligible),
+            )
 
         event = _UsageEvent(
             provider_id=self._provider_id,
@@ -246,6 +260,29 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._record_usage(safe_attr(result, "usage"))
         return result
 
+    async def _estimate_prompt_tokens(
+        self,
+        messages: Any,
+        tools: list[dict] | None,
+    ) -> int:
+        """Estimate the prompt the provider is about to tokenize.
+
+        Calibration is best-effort: callers that hand over already-formatted
+        wire dictionaries cannot be estimated here, so recording is skipped
+        instead of failing the request.
+        """
+        if not isinstance(messages, list) or not messages:
+            return 0
+        try:
+            return int(
+                await self._model.count_tokens(
+                    messages=messages,
+                    tools=tools,
+                ),
+            )
+        except Exception:  # noqa: BLE001 - calibration must not break calls
+            return 0
+
     async def __call__(
         self,
         messages: list[dict],
@@ -267,6 +304,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if tool_choice == "auto":
             tool_choice = None
 
+        estimate = await self._estimate_prompt_tokens(messages, tools)
         result = await self._model(
             messages=messages,
             tools=tools,
@@ -275,13 +313,14 @@ class TokenRecordingModelWrapper(ChatModelBase):
         )
 
         if isinstance(result, AsyncGenerator):
-            return self._wrap_stream(result)
-        self._record_usage(safe_attr(result, "usage"))
+            return self._wrap_stream(result, estimate)
+        self._record_usage(safe_attr(result, "usage"), estimate)
         return result
 
     async def _wrap_stream(
         self,
         stream: AsyncGenerator[ChatResponse, None],
+        estimate: int = 0,
     ) -> AsyncGenerator[ChatResponse, None]:
         last_usage: ChatUsage | None = None
         try:
@@ -292,4 +331,4 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 yield chunk
         finally:
             await stream.aclose()
-            self._record_usage(last_usage)
+            self._record_usage(last_usage, estimate)
