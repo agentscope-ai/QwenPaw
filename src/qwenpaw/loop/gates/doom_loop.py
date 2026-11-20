@@ -29,6 +29,11 @@ class _ToolCallRecord:
 
     tool_name: str
     args_hash: str
+    # Filled in once the call's result is in the context. A poll whose output
+    # keeps moving is progress, not a loop, so the digest takes part in the
+    # repetition test; ``None`` means the result has not arrived yet and the
+    # comparison falls back to name and arguments.
+    result_hash: str | None = None
 
 
 @dataclass
@@ -38,7 +43,11 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
-    recorded_tool_call_ids: set[str] = field(default_factory=set)
+    # Call id -> record. The key doubles as the dedupe set: every message
+    # written during one reply carries the same message id, so position
+    # cannot tell two iterations apart. The record is kept so a result that
+    # arrives on a later check can be attached to the call it belongs to.
+    recorded_calls: dict[str, _ToolCallRecord] = field(default_factory=dict)
     history_dirty: bool = False
 
 
@@ -110,7 +119,7 @@ class DoomLoopGate(LoopGate):
             state.history.clear()
             state.consecutive_hits = 0
             state.prompt = ""
-            state.recorded_tool_call_ids.clear()
+            state.recorded_calls.clear()
             state.history_dirty = False
 
     async def check(
@@ -201,6 +210,9 @@ class DoomLoopGate(LoopGate):
         )
         if not context:
             return
+
+        self._attach_results(context, state)
+
         last_msg = context[-1]
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
@@ -229,9 +241,8 @@ class DoomLoopGate(LoopGate):
                 # Dict-shaped blocks may omit the id; fall back to the
                 # block object so re-checking a snapshot stays a no-op.
                 call_id = f"object:{id(block)}"
-            if call_id in state.recorded_tool_call_ids:
+            if call_id in state.recorded_calls:
                 continue
-            state.recorded_tool_call_ids.add(call_id)
             name = (
                 block.get("name", "")
                 if isinstance(block, dict)
@@ -243,7 +254,59 @@ class DoomLoopGate(LoopGate):
                 else getattr(block, "input", "")
             )
             args_hash = self._hash_args(raw_input)
-            self.record(name, args_hash)
+            self._record_call(state, name, args_hash, call_id)
+
+    @staticmethod
+    def _block_get(block: Any, key: str, default: Any = None) -> Any:
+        """Read a field from a block that may be an object or a dict."""
+        if isinstance(block, dict):
+            return block.get(key, default)
+        return getattr(block, key, default)
+
+    def _attach_results(
+        self,
+        context: list[Any],
+        state: _DoomState,
+    ) -> None:
+        """Fill in the result digest of calls already recorded.
+
+        A call is recorded before its result exists, so the digest is picked
+        up on a later check. Only calls still remembered by id matter, which
+        is why the lookup is by call id rather than by position.
+        """
+        for msg in context:
+            for block in getattr(msg, "content", None) or []:
+                if self._block_get(block, "type") not in (
+                    "tool_result",
+                    "tool_use_result",
+                ):
+                    continue
+                call_id = self._block_get(block, "id")
+                if not isinstance(call_id, str):
+                    continue
+                record = state.recorded_calls.get(call_id)
+                if record is None:
+                    continue
+                payload = self._block_get(block, "output", None)
+                if payload is None:
+                    payload = self._block_get(block, "content", "")
+                record.result_hash = self._hash_args(payload)
+
+    def _record_call(
+        self,
+        state: _DoomState,
+        tool_name: str,
+        args_hash: str,
+        call_id: str,
+    ) -> None:
+        """Append a record and remember it by call id for result pairing."""
+        record = _ToolCallRecord(
+            tool_name=tool_name,
+            args_hash=args_hash,
+        )
+        state.history.append(record)
+        state.history_dirty = True
+        state.recorded_calls[call_id] = record
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:
@@ -300,7 +363,7 @@ class DoomLoopGate(LoopGate):
         if not window or len(window) <= 1:
             return 0.0
 
-        sigs = [f"{r.tool_name}:{r.args_hash}" for r in window]
+        sigs = [(r.tool_name, r.args_hash, r.result_hash) for r in window]
         unique = len(set(sigs))
         total = len(sigs)
         return 1.0 - (unique - 1) / (total - 1)
