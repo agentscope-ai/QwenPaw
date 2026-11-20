@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   selectAllModels: vi.fn(),
   discoverModels: vi.fn(),
   addModel: vi.fn(),
+  removeModel: vi.fn(),
   testModelConnection: vi.fn(),
   probeMultimodal: vi.fn(),
   listModelTemplates: vi.fn(),
@@ -109,6 +110,7 @@ async function render(providerOverride: Partial<ProviderInfo> = {}) {
 let serverProvider = provider;
 beforeEach(() => {
   vi.clearAllMocks();
+  api.removeModel.mockReset();
   serverProvider = provider;
   api.getModelPool.mockImplementation((_id, query) => {
     const selected = new Set(
@@ -149,6 +151,112 @@ beforeEach(() => {
     models: [candidate],
     discovered_count: 1,
   });
+});
+describe("model deletion", () => {
+  it("shows row delete actions only in delete mode", async () => {
+    await render();
+    expect(
+      screen.queryByRole("button", { name: "models.removeModel Chosen model" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.pool.deleteModels" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "models.removeModel Chosen model" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "common.done" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "common.done" }));
+    expect(
+      screen.queryByRole("button", { name: "models.removeModel Chosen model" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes the selected model and refreshes the pool", async () => {
+    api.removeModel.mockImplementation(
+      async () => (serverProvider = { ...provider, extra_models: [] }),
+    );
+    const { onSaved } = await render();
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.pool.deleteModels" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.removeModel Chosen model" }),
+    );
+    expect(api.removeModel).toHaveBeenCalledWith(provider.id, chosen.id);
+    await waitFor(() =>
+      expect(screen.queryByText(chosen.name)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(candidate.name)).toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalledOnce();
+    expect(message.success).toHaveBeenCalledWith("models.modelRemoved");
+  });
+
+  it("keeps a model visible and reports a failed deletion", async () => {
+    api.removeModel.mockRejectedValue(new Error("Deletion failed"));
+    const { onSaved } = await render();
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.pool.deleteModels" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.removeModel Chosen model" }),
+    );
+    await waitFor(() =>
+      expect(message.error).toHaveBeenCalledWith("Deletion failed"),
+    );
+    expect(screen.getByText(chosen.name)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("returns to the previous page after deleting the last row", async () => {
+    let removed = false;
+    api.getModelPool.mockImplementation(async (_id, query) => ({
+      models: query.offset === 30 && !removed ? [chosen] : [candidate],
+      total: removed ? 30 : 31,
+      selected_count: removed ? 0 : 1,
+      candidate_count: 30,
+      families: [],
+      offset: query.offset,
+      limit: 30,
+    }));
+    api.removeModel.mockImplementation(async () => {
+      removed = true;
+      return { ...provider, extra_models: [] };
+    });
+    await render();
+    await userEvent.click(screen.getByTitle("2"));
+    await screen.findByText(chosen.name);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "models.pool.deleteModels" }),
+      ).toBeEnabled(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.pool.deleteModels" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "models.removeModel Chosen model" }),
+    );
+    await waitFor(() =>
+      expect(api.getModelPool).toHaveBeenLastCalledWith(
+        provider.id,
+        expect.objectContaining({ offset: 0 }),
+      ),
+    );
+    await screen.findByText(candidate.name);
+  });
+
+  it.each(["hub-managed", "openai-chatgpt"])(
+    "does not offer deletion for %s",
+    async (id) => {
+      await render({ id });
+      expect(
+        screen.queryByRole("button", { name: "models.pool.deleteModels" }),
+      ).not.toBeInTheDocument();
+    },
+  );
 });
 describe("model pool switches", () => {
   it("shows selected and unselected models together with their state", async () => {
