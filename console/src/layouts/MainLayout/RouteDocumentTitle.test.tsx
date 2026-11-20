@@ -39,6 +39,10 @@ vi.mock("../../pages/Chat/sessionApi", () => ({
   default: sessionListMocks,
 }));
 
+function getFaviconHref() {
+  return document.querySelector('link[rel="icon"]')?.getAttribute("href");
+}
+
 describe("RouteDocumentTitle", () => {
   beforeEach(() => {
     useSessionListStore.setState({ sessions: [], resolvedRouteSession: null });
@@ -105,26 +109,31 @@ describe("RouteDocumentTitle", () => {
       lastFinishedAt: null,
       messages: [],
     };
+    const completed = { ...initial, lastFinishedAt: "2026-11-09T10:00:00Z" };
+    const originalFavicon = getFaviconHref();
     useSessionListStore.setState({ sessions: [initial] });
     render(<RouteDocumentTitle title="Chat" sessionId="chat-a" />);
 
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
-      useSessionListStore.setState({
-        sessions: [{ ...initial, lastFinishedAt: "2026-11-09T10:00:00Z" }],
-      });
+      useSessionListStore.setState({ sessions: [completed] });
     });
     expect(document.title).toBe("Project plan · QwenPaw");
-    expect(
-      decodeURIComponent(
-        document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href,
-      ),
-    ).toContain("#52c41a");
+    const unreadFavicon = getFaviconHref();
+    expect(decodeURIComponent(unreadFavicon ?? "")).toContain("#52c41a");
+
+    act(() => {
+      useSessionListStore.setState({
+        sessions: [{ ...completed, status: "running" }],
+      });
+    });
+    expect(getFaviconHref()).toBe(unreadFavicon);
 
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(document.title).toBe("Project plan · QwenPaw");
+    expect(getFaviconHref()).toBe(originalFavicon);
     const agentId = useAgentStore.getState().selectedAgent;
     expect(
       useSessionAttentionStore.getState().seenFinishedAt[`${agentId}:chat-a`],
@@ -184,9 +193,9 @@ describe("RouteDocumentTitle", () => {
     expect(document.title).toBe("Project plan · QwenPaw");
   });
 
-  it.each(["idle", "running"])(
-    "does not infer a completion from status %s without a new timestamp",
-    (status) => {
+  it.each([{ status: "idle" }, { status: "running" }, { generating: true }])(
+    "keeps the favicon unchanged for %j without an unread completion",
+    (state) => {
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
       const initial = {
         id: "chat-a",
@@ -194,12 +203,14 @@ describe("RouteDocumentTitle", () => {
         lastFinishedAt: "2026-11-09T09:00:00Z",
         messages: [],
       };
+      const originalFavicon = getFaviconHref();
       useSessionListStore.setState({ sessions: [initial] });
       render(<RouteDocumentTitle title="Chat" sessionId="chat-a" />);
       act(() => {
-        useSessionListStore.setState({ sessions: [{ ...initial, status }] });
+        useSessionListStore.setState({ sessions: [{ ...initial, ...state }] });
       });
       expect(document.title).toBe("Project plan · QwenPaw");
+      expect(getFaviconHref()).toBe(originalFavicon);
     },
   );
 

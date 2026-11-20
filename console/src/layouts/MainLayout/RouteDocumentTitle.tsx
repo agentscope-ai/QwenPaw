@@ -28,8 +28,7 @@ export function RouteDocumentTitle({
   const unseenSessionIds = useSessionAttention(agentId, sessions, session?.id);
   const unread = !!session && unseenSessionIds.has(session.id);
   const sessionName = session?.name?.trim();
-  const running = session?.generating === true || session?.status === "running";
-  useSessionFavicon(running, unread);
+  useSessionFavicon(unread);
 
   useLayoutEffect(() => {
     const nextTitle = sessionName
