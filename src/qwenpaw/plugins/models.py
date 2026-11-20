@@ -191,8 +191,8 @@ class ModelService:
 
         async def produce():
             from ._models import ModelLease, model_deadline, model_workspace_id
-            from ..agents.context.overflow_recovery import _stream_observer
-            from .sdk import _RunStreams, _stream_tasks
+            from ..runtime.turn_context import current_run_streams
+            from .sdk import _RunStreams
 
             nonlocal lease
             self._guard()
@@ -204,8 +204,7 @@ class ModelService:
                 lease = ModelLease()
                 base.resources.defer(lease.close, "configured model transport")
                 owned = _RunStreams()
-                owner_token = _stream_tasks.set(owned)
-                observer_token = _stream_observer.set(owned.retain)
+                owner_token = current_run_streams.set(owned)
                 deadline_token = model_deadline.set(deadline)
                 workspace_token = model_workspace_id.set(context.workspace_id)
                 try:
@@ -236,8 +235,7 @@ class ModelService:
                     from ..utils.io_utils import run_async_to_completion
 
                     owned.closing = True
-                    _stream_observer.reset(observer_token)
-                    _stream_tasks.reset(owner_token)
+                    current_run_streams.reset(owner_token)
                     model_deadline.reset(deadline_token)
                     model_workspace_id.reset(workspace_token)
                     while pending := {

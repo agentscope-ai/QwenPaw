@@ -56,6 +56,66 @@ plugin = Plugin()
         host.assert_quiescent("resource-contract")
 
 
+async def test_connection_can_override_default_close_budget(monkeypatch):
+    from qwenpaw.plugins import custody
+    from qwenpaw.plugins.resources import ResourceOwner, ResourceScope
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class Connection:
+        async def close(self):
+            entered.set()
+            await release.wait()
+
+    monkeypatch.setattr(custody, "CONNECTION_STOP_SECONDS", 0)
+    scope = ResourceScope(ResourceOwner("test", 1), lambda: None)
+    scope.connection(Connection(), "custom close budget", 1)
+    closing = asyncio.create_task(scope.close())
+    await asyncio.wait_for(entered.wait(), timeout=WAIT_TIMEOUT)
+    release.set()
+    await closing
+    assert scope.closed
+
+
+@pytest.mark.parametrize("cancel_on_interrupt", [False, True])
+async def test_custom_close_deadline_retains_the_same_cleanup(
+    cancel_on_interrupt,
+):
+    from qwenpaw.plugins.custody import ConnectionCloser
+
+    release = asyncio.Event()
+    calls = []
+    cancelled = []
+
+    class Connection:
+        async def close(self):
+            calls.append(True)
+            while not release.is_set():
+                try:
+                    await release.wait()
+                except asyncio.CancelledError:
+                    cancelled.append(True)
+
+    closer = ConnectionCloser(
+        Connection(),
+        "retained cleanup",
+        0,
+        cancel_on_interrupt=cancel_on_interrupt,
+    )
+    try:
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                await closer()
+        assert calls == [True]
+    finally:
+        release.set()
+        await asyncio.wait_for(closer.task, timeout=WAIT_TIMEOUT)
+    await closer()
+    assert calls == [True]
+    assert cancelled == ([True] if cancel_on_interrupt else [])
+
+
 async def test_close_failure_blocks_replacement_and_remains_retryable(
     tmp_path,
 ):
