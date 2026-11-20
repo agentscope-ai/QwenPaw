@@ -124,6 +124,7 @@ COPY scripts/pack ./scripts/pack
 COPY plugins/channel ./plugins/channel
 COPY src ./src
 COPY plugins/hub ./plugins/hub
+COPY plugins/protocol/mcp ./plugins/protocol/mcp
 COPY plugins/provider ./plugins/provider
 COPY plugins/transcription ./plugins/transcription
 COPY packages/qwenpawmail-mcp/src/qwenpawmail_mcp ./packages/qwenpawmail-mcp/src/qwenpawmail_mcp
