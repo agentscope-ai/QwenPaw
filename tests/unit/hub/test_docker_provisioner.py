@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Tests for the Docker Hub runtime backend."""
 
+import ipaddress
+import socket
 import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from dataclasses import replace
 from email.message import Message
 from functools import partial
@@ -73,6 +76,23 @@ class _FakeContainers:
 
     def run(self, image: str, **kwargs: object) -> _FakeContainer:
         self.run_kwargs = {"image": image, **kwargs}
+        host_ip = "127.0.0.1"
+        ports = kwargs.get("ports")
+        if isinstance(ports, dict):
+            binding = ports.get("8088/tcp")
+            if isinstance(binding, tuple) and binding:
+                host_ip = str(binding[0])
+        current = self.container.attrs
+        self.container.attrs = {
+            **current,
+            "NetworkSettings": {
+                "Ports": {
+                    "8088/tcp": [
+                        {"HostIp": host_ip, "HostPort": "32123"},
+                    ],
+                },
+            },
+        }
         return self.container
 
     def list(self, **kwargs: object) -> list[_FakeContainer]:
@@ -186,6 +206,333 @@ def test_engine_model_access_rejects_unusable_gateway(
     provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
     with pytest.raises(RuntimeError, match="no private IPv4 gateway"):
         provisioner.model_network().url(43123)
+
+
+class _EndpointClient(_FakeClient):
+    """Engine whose OS string and bridge gateway are fixed."""
+
+    def __init__(
+        self,
+        operating_system: str,
+        gateway: str | None,
+    ) -> None:
+        super().__init__()
+        config: list[dict[str, str]] = []
+        if gateway is not None:
+            config = [{"Gateway": gateway}]
+        network = SimpleNamespace(
+            id="isolated-network",
+            attrs={
+                "IPAM": {"Config": config},
+                "Options": {
+                    "com.docker.network.bridge.enable_icc": "false",
+                },
+            },
+        )
+        self.networks = SimpleNamespace(get=lambda _name: network)
+        self._operating_system = operating_system
+
+    def info(self) -> dict[str, str]:
+        return {
+            "OSType": "linux",
+            "OperatingSystem": self._operating_system,
+        }
+
+
+def _record_readiness_urls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    """Capture readiness URLs and accept the token boundary."""
+    seen: list[str] = []
+
+    class _Response:
+        status = 200
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    def urlopen(
+        request: str | urllib.request.Request,
+        timeout: int,
+    ) -> _Response:
+        del timeout
+        if isinstance(request, str):
+            seen.append(request)
+            raise urllib.error.HTTPError(
+                request,
+                401,
+                "Unauthorized",
+                Message(),
+                None,
+            )
+        seen.append(request.full_url)
+        return _Response()
+
+    monkeypatch.setattr(docker_module, "_open_readiness", urlopen)
+    return seen
+
+
+def _route_table(gateway: str | None) -> str:
+    """Build a /proc/net/route table with one optional default gateway."""
+    header = (
+        "Iface Destination Gateway Flags RefCnt Use Metric "
+        "Mask MTU Window IRTT\n"
+    )
+    if gateway is None:
+        return header
+    packed = ipaddress.IPv4Address(gateway).packed[::-1].hex()
+    return header + (f"eth0 00000000 {packed} 0003 0 0 0 00000000 0 0 0\n")
+
+
+def _install_container_net(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    shares_netns: bool,
+    container_gateway: str | None,
+) -> None:
+    """Point route and netns reads at a fixture instead of this host."""
+    sys_net = tmp_path / "sys-class-net"
+    sys_net.mkdir()
+    interface = "docker0" if shares_netns else "eth0"
+    (sys_net / interface).mkdir()
+    route = tmp_path / "route"
+    route.write_text(
+        _route_table(container_gateway),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(docker_module, "_SYS_CLASS_NET", sys_net)
+    monkeypatch.setattr(docker_module, "_PROC_NET_ROUTE", route)
+
+
+def _start_for_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    in_container: bool,
+    platform: str,
+    operating_system: str,
+    gateway: str | None,
+    shares_netns: bool = False,
+    container_gateway: str | None = None,
+) -> tuple[str, list[str], DockerRuntimeProvisioner]:
+    """Launch one runtime and return its stored host and probe URLs."""
+    monkeypatch.setattr(
+        docker_module,
+        "is_running_in_container",
+        lambda: in_container,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        docker_module,
+        "sys",
+        SimpleNamespace(platform=platform),
+    )
+    _install_container_net(
+        tmp_path,
+        monkeypatch,
+        shares_netns=shares_netns,
+        container_gateway=container_gateway,
+    )
+    seen = _record_readiness_urls(monkeypatch)
+    client = _EndpointClient(operating_system, gateway)
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    _configure(provisioner)
+    running = provisioner.start(
+        _record(tmp_path),
+        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token"},
+    )
+    return running.host, seen, provisioner
+
+
+@pytest.mark.parametrize(
+    ("platform", "operating_system", "gateway"),
+    [
+        ("linux", "Docker Desktop", "172.17.0.1"),
+        ("linux", "Ubuntu", "172.17.0.1"),
+        ("win32", "Docker Desktop", None),
+    ],
+)
+def test_host_deployment_probes_published_loopback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    operating_system: str,
+    gateway: str | None,
+) -> None:
+    host, urls, provisioner = _start_for_endpoint(
+        tmp_path,
+        monkeypatch,
+        in_container=False,
+        platform=platform,
+        operating_system=operating_system,
+        gateway=gateway,
+        container_gateway="172.18.0.1",
+    )
+
+    assert host == "127.0.0.1"
+    assert urls == [
+        "http://127.0.0.1:32123/api/version",
+        "http://127.0.0.1:32123/api/version",
+    ]
+    # pylint: disable-next=protected-access
+    ports = provisioner._client.containers.run_kwargs["ports"]
+    assert ports == {"8088/tcp": ("127.0.0.1", None)}
+    assert provisioner.managed_endpoint_allowed("127.0.0.1")
+    assert not provisioner.managed_endpoint_allowed(
+        "host.docker.internal",
+    )
+    assert not provisioner.managed_endpoint_allowed("192.0.2.10")
+    assert not provisioner.managed_endpoint_allowed("172.18.0.1")
+    if gateway is not None:
+        assert not provisioner.managed_endpoint_allowed(gateway)
+
+
+@pytest.mark.parametrize(
+    (
+        "platform",
+        "operating_system",
+        "model_gateway",
+        "shares_netns",
+        "container_gateway",
+        "dial_host",
+        "publish_host",
+    ),
+    [
+        (
+            "linux",
+            "Docker Desktop",
+            "172.17.0.1",
+            False,
+            "172.18.0.1",
+            "host.docker.internal",
+            "127.0.0.1",
+        ),
+        (
+            "darwin",
+            "Docker Desktop",
+            None,
+            False,
+            None,
+            "host.docker.internal",
+            "127.0.0.1",
+        ),
+        (
+            "linux",
+            "Ubuntu",
+            "172.17.0.1",
+            True,
+            "192.168.1.1",
+            "127.0.0.1",
+            "127.0.0.1",
+        ),
+        (
+            "linux",
+            "Ubuntu",
+            "172.17.0.1",
+            False,
+            "172.18.0.1",
+            "172.18.0.1",
+            "172.18.0.1",
+        ),
+        (
+            "linux",
+            "Ubuntu",
+            "192.168.40.1",
+            False,
+            "10.1.2.1",
+            "10.1.2.1",
+            "10.1.2.1",
+        ),
+    ],
+)
+def test_container_deployment_probes_reachable_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    operating_system: str,
+    model_gateway: str | None,
+    shares_netns: bool,
+    container_gateway: str | None,
+    dial_host: str,
+    publish_host: str,
+) -> None:
+    resolved, urls, provisioner = _start_for_endpoint(
+        tmp_path,
+        monkeypatch,
+        in_container=True,
+        platform=platform,
+        operating_system=operating_system,
+        gateway=model_gateway,
+        shares_netns=shares_netns,
+        container_gateway=container_gateway,
+    )
+
+    assert resolved == dial_host
+    assert urls == [
+        f"http://{dial_host}:32123/api/version",
+        f"http://{dial_host}:32123/api/version",
+    ]
+    # pylint: disable-next=protected-access
+    ports = provisioner._client.containers.run_kwargs["ports"]
+    assert ports == {"8088/tcp": (publish_host, None)}
+    assert provisioner.managed_endpoint_allowed(dial_host)
+    assert provisioner.managed_endpoint_allowed("127.0.0.1")
+    assert not provisioner.managed_endpoint_allowed("192.0.2.10")
+    assert not provisioner.managed_endpoint_allowed("10.0.0.8")
+    if dial_host != "host.docker.internal":
+        assert not provisioner.managed_endpoint_allowed(
+            "host.docker.internal",
+        )
+    if model_gateway and model_gateway != dial_host:
+        assert not provisioner.managed_endpoint_allowed(model_gateway)
+    if container_gateway and container_gateway != dial_host:
+        assert not provisioner.managed_endpoint_allowed(container_gateway)
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    [None, "8.8.8.8", "169.254.1.1"],
+)
+def test_bridge_container_does_not_publish_an_unreachable_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gateway: str | None,
+) -> None:
+    monkeypatch.setattr(
+        docker_module,
+        "is_running_in_container",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        docker_module,
+        "sys",
+        SimpleNamespace(platform="linux"),
+    )
+    _install_container_net(
+        tmp_path,
+        monkeypatch,
+        shares_netns=False,
+        container_gateway=gateway,
+    )
+    client = _EndpointClient("Ubuntu", "172.17.0.1")
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    _configure(provisioner)
+
+    with pytest.raises(
+        RuntimeError,
+        match="private IPv4 default gateway",
+    ):
+        provisioner.start(
+            _record(tmp_path),
+            {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token"},
+        )
+
+    assert client.containers.run_kwargs == {}
 
 
 def _configure(provisioner: DockerRuntimeProvisioner) -> None:
@@ -369,7 +716,7 @@ def test_readiness_requires_anonymous_rejection_and_token_success(
             )
         return _Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    monkeypatch.setattr(docker_module, "_open_readiness", urlopen)
 
     result = provisioner._wait_until_ready(  # pylint: disable=protected-access
         _record(tmp_path),
@@ -406,7 +753,8 @@ def test_readiness_accepts_loopback_only_legacy_image(
             del args
 
     monkeypatch.setattr(
-        "urllib.request.urlopen",
+        docker_module,
+        "_open_readiness",
         lambda *_args, **_kwargs: _Response(),
     )
 
@@ -416,6 +764,197 @@ def test_readiness_accepts_loopback_only_legacy_image(
     )
 
     assert result == "loopback_only"
+
+
+def test_readiness_rejects_anonymous_success_on_gateway_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An open API on a gateway publish must not become ready."""
+    provisioner = DockerRuntimeProvisioner(
+        tmp_path,
+        start_timeout=0.1,
+        client=_FakeClient(),
+    )
+    provisioner._publish_host = (  # pylint: disable=protected-access
+        "172.18.0.1"
+    )
+    calls: list[str | urllib.request.Request] = []
+
+    class _Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    def urlopen(
+        request: str | urllib.request.Request,
+        timeout: int,
+    ) -> _Response:
+        del timeout
+        calls.append(request)
+        return _Response()
+
+    monkeypatch.setattr(docker_module, "_open_readiness", urlopen)
+    record = replace(_record(tmp_path), host="172.18.0.1", port=8088)
+
+    with pytest.raises(RuntimeError, match="non-loopback"):
+        provisioner._wait_until_ready(  # pylint: disable=protected-access
+            record,
+            "runtime-token",
+        )
+
+    assert calls
+    assert all(isinstance(call, str) for call in calls)
+
+
+def test_readiness_accepts_token_boundary_on_gateway_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gateway publish is allowed once anonymous access is rejected."""
+    provisioner = DockerRuntimeProvisioner(
+        tmp_path,
+        start_timeout=0.1,
+        client=_FakeClient(),
+    )
+    provisioner._publish_host = (  # pylint: disable=protected-access
+        "172.18.0.1"
+    )
+    calls: list[str | urllib.request.Request] = []
+
+    class _Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    def urlopen(
+        request: str | urllib.request.Request,
+        timeout: int,
+    ) -> _Response:
+        del timeout
+        calls.append(request)
+        if isinstance(request, str):
+            raise urllib.error.HTTPError(
+                request,
+                401,
+                "Unauthorized",
+                Message(),
+                None,
+            )
+        return _Response()
+
+    monkeypatch.setattr(docker_module, "_open_readiness", urlopen)
+    record = replace(_record(tmp_path), host="172.18.0.1", port=8088)
+
+    result = provisioner._wait_until_ready(  # pylint: disable=protected-access
+        record,
+        "runtime-token",
+    )
+
+    assert result == "token"
+    token_request = calls[1]
+    assert isinstance(token_request, urllib.request.Request)
+    assert token_request.get_header("X-qwenpaw-runtime-token") == (
+        "runtime-token"
+    )
+
+
+def test_readiness_accepts_legacy_image_when_publish_is_loopback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loopback publish still accepts a legacy image without a token."""
+    provisioner = DockerRuntimeProvisioner(
+        tmp_path,
+        start_timeout=0.1,
+        client=_FakeClient(),
+    )
+    provisioner._publish_host = "127.0.0.1"  # pylint: disable=protected-access
+
+    class _Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+    monkeypatch.setattr(
+        docker_module,
+        "_open_readiness",
+        lambda *_args, **_kwargs: _Response(),
+    )
+    record = replace(
+        _record(tmp_path),
+        host="host.docker.internal",
+        port=8088,
+    )
+
+    result = provisioner._wait_until_ready(  # pylint: disable=protected-access
+        record,
+        "runtime-token",
+    )
+
+    assert result == "loopback_only"
+
+
+def _closed_tcp_port() -> int:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = int(sock.getsockname()[1])
+    sock.close()
+    return port
+
+
+def test_open_readiness_ignores_env_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proxy = f"http://127.0.0.1:{_closed_tcp_port()}"
+    for name in (
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ):
+        monkeypatch.setenv(name, proxy)
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b"ready"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = int(server.server_address[1])
+        url = f"http://127.0.0.1:{port}/api/version"
+        # pylint: disable-next=protected-access
+        with docker_module._open_readiness(url, timeout=2) as response:
+            assert response.status == 200
+            assert response.read() == b"ready"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_published_port_rejects_non_loopback_binding() -> None:
@@ -435,6 +974,33 @@ def test_published_port_rejects_non_loopback_binding() -> None:
         # pylint: disable-next=protected-access
         DockerRuntimeProvisioner._published_port(
             container,
+        )
+
+
+def test_published_port_accepts_only_the_requested_gateway() -> None:
+    container = _FakeContainer()
+    container.attrs = {
+        **container.attrs,
+        "NetworkSettings": {
+            "Ports": {
+                "8088/tcp": [
+                    {"HostIp": "172.18.0.1", "HostPort": "32123"},
+                ],
+            },
+        },
+    }
+
+    # pylint: disable-next=protected-access
+    published = DockerRuntimeProvisioner._published_port(
+        container,
+        "172.18.0.1",
+    )
+    assert published == 32123
+    with pytest.raises(RuntimeError, match="outside 172.19.0.1"):
+        # pylint: disable-next=protected-access
+        DockerRuntimeProvisioner._published_port(
+            container,
+            "172.19.0.1",
         )
 
 

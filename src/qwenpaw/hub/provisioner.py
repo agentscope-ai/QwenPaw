@@ -11,6 +11,7 @@ import logging
 
 import httpx
 
+from ..utils.http import is_loopback_host
 from .models import RuntimeRecord
 
 
@@ -52,6 +53,14 @@ class RuntimeProvisioner(ABC):
             bind_host="127.0.0.1",
             runtime_host="127.0.0.1",
         )
+
+    def managed_endpoint_allowed(self, host: str) -> bool:
+        """Return whether Hub may connect to this managed runtime host.
+
+        The default boundary is loopback. Container backends may also
+        allow the single address they use to reach a published port.
+        """
+        return is_loopback_host(host.strip().strip("[]"))
 
     @staticmethod
     def verify_model_connection(
