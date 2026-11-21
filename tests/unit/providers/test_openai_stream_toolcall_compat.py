@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
@@ -23,6 +24,12 @@ class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
         stream = getattr(self, "_test_stream", None)
         if stream is not None:
             return self._parse_stream_response(datetime.now(), stream)
+        completion = getattr(self, "_test_completion", None)
+        if completion is not None:
+            return self._parse_completion_response(
+                datetime.now(),
+                completion,
+            )
         return await super()._call_api(*args, **kwargs)
 
     async def parse_stream_for_test(
@@ -79,13 +86,14 @@ def _make_chunk(
     *,
     content: str | None = None,
     reasoning_content: str | None = None,
+    finish_reason: str | None = None,
 ) -> Any:
     delta = SimpleNamespace(
         reasoning_content=reasoning_content,
         content=content,
         tool_calls=tool_calls,
     )
-    choice = SimpleNamespace(delta=delta, finish_reason=None)
+    choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
     return SimpleNamespace(usage=None, choices=[choice])
 
 
@@ -429,3 +437,115 @@ async def test_multiple_tagged_tool_calls_have_unique_ids() -> None:
     ]
     assert [block.name for block in tool_blocks] == ["first", "second"]
     assert len({block.id for block in tool_blocks}) == 2
+
+
+def _make_completion(finish_reason: str | None) -> Any:
+    message = SimpleNamespace(
+        reasoning_content=None,
+        content="partial answer",
+        tool_calls=None,
+        audio=None,
+    )
+    choice = SimpleNamespace(message=message, finish_reason=finish_reason)
+    usage = SimpleNamespace(
+        prompt_tokens=3,
+        completion_tokens=5,
+        prompt_tokens_details=None,
+    )
+    return SimpleNamespace(choices=[choice], usage=usage)
+
+
+def _completion_model(
+    stream: bool = False,
+) -> CompatHarnessOpenAIChatModel:
+    return CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=stream,
+    )
+
+
+async def _call_completion_model(
+    model: CompatHarnessOpenAIChatModel,
+    completion: Any,
+) -> ChatResponse:
+    object.__setattr__(model, "_test_completion", completion)
+    try:
+        return await model(messages=[])
+    finally:
+        object.__delattr__(model, "_test_completion")
+
+
+@pytest.mark.parametrize("finish_reason", ["stop", "tool_calls"])
+async def test_stream_non_length_finish_reason_keeps_metadata_clean(
+    finish_reason: str,
+) -> None:
+    """Normal provider stops must not grow truncation metadata."""
+    model = _completion_model(stream=True)
+
+    responses = await model.call_stream_for_test(
+        FakeAsyncStream(
+            [
+                _make_chunk(content="done"),
+                _make_chunk(finish_reason=finish_reason),
+            ],
+        ),
+    )
+
+    finals = [response for response in responses if response.is_last]
+    assert len(finals) == 1
+    assert "finish_reason" not in finals[0].metadata
+
+
+async def test_stream_length_finish_reason_surfaced_in_metadata(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A provider-reported cut-off is visible on the final response."""
+    model = _completion_model(stream=True)
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="qwenpaw.providers.openai_chat_model_compat",
+    ):
+        responses = await model.call_stream_for_test(
+            FakeAsyncStream(
+                [
+                    _make_chunk(content="partial an"),
+                    _make_chunk(finish_reason="length"),
+                ],
+            ),
+        )
+
+    finals = [response for response in responses if response.is_last]
+    assert len(finals) == 1
+    assert finals[0].metadata == {"finish_reason": "length"}
+    assert any(
+        "finish_reason=length" in record.message for record in caplog.records
+    )
+
+
+async def test_completion_length_finish_reason_surfaced_in_metadata() -> None:
+    """The non-streaming path reports truncation the same way."""
+    model = _completion_model()
+
+    parsed = await _call_completion_model(
+        model,
+        _make_completion("length"),
+    )
+
+    assert parsed.is_last
+    assert parsed.metadata == {"finish_reason": "length"}
+
+
+async def test_completion_stop_finish_reason_keeps_metadata_clean() -> None:
+    model = _completion_model()
+
+    parsed = await _call_completion_model(
+        model,
+        _make_completion("stop"),
+    )
+
+    assert "finish_reason" not in parsed.metadata
