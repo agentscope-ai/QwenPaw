@@ -30,7 +30,6 @@ from .services.volcengine import VolcengineProvider
 from .services.aliyun import AliyunPlanProvider
 from .services.minimax import MiniMaxProvider
 from .services.azure import AzureOpenAIProvider
-from .services.qwenpaw import QwenPawProvider
 from .services.mimo_plan import MiMoPlanProvider
 from .provider_discovery_policy import apply_discovery_policy
 
@@ -224,13 +223,6 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = ZhipuProvider(
     provider_group="zhipu",
     provider_group_name="Zhipu",
     provider_variant="coding_plan_intl",
-)
-
-PROVIDER_QWENPAW = QwenPawProvider(
-    id="qwenpaw-local",
-    name="QwenPaw Local",
-    is_local=True,
-    require_api_key=False,
 )
 
 PROVIDER_AGENTSCOPE_PLATFORM = AgentScopePlatformProvider(
@@ -545,7 +537,6 @@ PROVIDER_MIMO = MiMoProvider(
 
 BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_TYPESAFE,
-    PROVIDER_QWENPAW,
     PROVIDER_OLLAMA,
     PROVIDER_LMSTUDIO,
     PROVIDER_OPENROUTER,
@@ -638,7 +629,6 @@ __all__ = [
     "PROVIDER_AGENTSCOPE_PLATFORM",
     "PROVIDER_OPENAI_RESPONSE",
     "PROVIDER_OPENROUTER",
-    "PROVIDER_QWENPAW",
     "PROVIDER_SILICONFLOW_CN",
     "PROVIDER_SILICONFLOW_INTL",
     "PROVIDER_VOLCENGINE_CN",

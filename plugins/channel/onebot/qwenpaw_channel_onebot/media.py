@@ -428,11 +428,10 @@ class OneBotInboundMedia:
 
         try:
             result = await self._call_api(action, params)
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "onebot: failed to resolve %s media URL",
-                kind,
-                exc_info=True,
+                f"OneBot {kind} media locator lookup failed "
+                f"({type(exc).__name__})",
             )
             return None
 
@@ -511,10 +510,8 @@ class OneBotInboundMedia:
                         kind,
                     ):
                         logger.warning(
-                            "onebot: remote %s returned unexpected content "
-                            "type %s",
-                            kind,
-                            media_type,
+                            f"OneBot remote {kind} returned unexpected "
+                            f"content type",
                         )
                         return None
 
@@ -534,12 +531,10 @@ class OneBotInboundMedia:
                 asyncio.TimeoutError,
                 ValueError,
                 OSError,
-            ):
+            ) as exc:
                 logger.warning(
-                    "onebot: failed to download remote %s %s",
-                    kind,
-                    url,
-                    exc_info=True,
+                    f"OneBot remote {kind} download failed "
+                    f"({type(exc).__name__})",
                 )
                 return None
             finally:

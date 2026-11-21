@@ -251,7 +251,7 @@ async def main():
                 Path(sys.argv[1])
                 / "workspaces/test/sessions/console/test.json"
             )
-            saved = json.loads(history.read_text())
+            saved = json.loads(history.read_text(encoding="utf-8"))
             assert any(block.get("text") == "native-answer"
                        for message in saved["agent"]["state"]["context"]
                        for block in message["content"])
@@ -571,7 +571,7 @@ async def test_concurrent_approvals_and_capabilities_keep_identity(host):
             json.dumps({"skills": {"console-only": skill_config}}),
             encoding="utf-8",
         )
-        await DriverConfigService(workspace).save_card(
+        await DriverConfigService(workspace).card_store.save(
             DriverCard(
                 name="private",
                 protocol="mcp",
@@ -583,7 +583,6 @@ async def test_concurrent_approvals_and_capabilities_keep_identity(host):
                 config={"tools": ["read"]},
                 policy=DriverPolicy(default_effect="deny"),
             ),
-            reload_driver=False,
         )
     identities = [
         ("one", "alice", "console"),

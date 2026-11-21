@@ -466,6 +466,8 @@ export function creatorToolLabel(
     ground_image_objects: i18n.t("presentation.tools.ground_image_objects"),
     browser_use: i18n.t("presentation.tools.browser_use"),
     computer_use: i18n.t("presentation.tools.computer_use"),
+    recall_media: i18n.t("presentation.tools.recall_media"),
+    recall_history: i18n.t("presentation.tools.recall_history"),
   };
   return labels[name] ?? i18n.t("presentation.unknownTool");
 }
@@ -536,6 +538,8 @@ const TOOL_RUNNING_LABEL_KEYS: Record<string, string> = {
   ground_image_objects: "presentation.toolRunning.ground_image_objects",
   browser_use: "presentation.toolRunning.browser_use",
   computer_use: "presentation.toolRunning.computer_use",
+  recall_media: "presentation.toolRunning.recall_media",
+  recall_history: "presentation.toolRunning.recall_history",
 };
 
 export function getToolRunningLabel(

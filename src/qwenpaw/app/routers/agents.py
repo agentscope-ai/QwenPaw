@@ -58,7 +58,11 @@ from ...agents.utils import (
     ensure_workspace_md_file,
     normalize_agent_language,
 )
-from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ...agents.skill_system import (
+    SkillPoolService,
+    get_workspace_skills_dir,
+    is_installer_owned_skills_entry,
+)
 from ...plugins._harness_http import backend_catalog
 from ...plugins.registry import PluginRegistry
 from ..agent_startup import AgentStartupStatus
@@ -992,6 +996,10 @@ async def create_agent(
     )
 
     if http_request is not None:
+        if agent_config.mail is not None:
+            from ..mcp.feature_gate import prepare_mcp_for_request
+
+            await prepare_mcp_for_request(http_request, new_id)
         manager = _get_multi_agent_manager(http_request)
         manager.schedule_agent_startup(new_id)
 
@@ -1041,8 +1049,32 @@ def _copy_selected_workspace_files(
         src_skills = get_workspace_skills_dir(source_workspace)
         dst_skills = get_workspace_skills_dir(workspace_dir)
         if src_skills.is_dir():
+
+            def _skip_installer_owned(
+                dir_path: str,
+                names: list[str],
+            ) -> set[str]:
+                """Skip the installer's own directories, at the root only.
+
+                Only the skills root carries retired trees and rollback
+                backups; everything below a skill is ordinary content and is
+                copied verbatim, hidden files included.
+                """
+                if Path(dir_path) != src_skills:
+                    return set()
+                return {
+                    name
+                    for name in names
+                    if is_installer_owned_skills_entry(name)
+                }
+
             # Dest may already exist when create_skills_dir scaffolding ran.
-            shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
+            shutil.copytree(
+                src_skills,
+                dst_skills,
+                dirs_exist_ok=True,
+                ignore=_skip_installer_owned,
+            )
         src_manifest = source_workspace / "skill.json"
         if src_manifest.is_file():
             shutil.copy2(src_manifest, workspace_dir / "skill.json")
@@ -1194,6 +1226,10 @@ async def copy_agent(
     )
 
     if http_request is not None:
+        if agent_config.mail is not None:
+            from ..mcp.feature_gate import prepare_mcp_for_request
+
+            await prepare_mcp_for_request(http_request, new_id)
         manager = _get_multi_agent_manager(http_request)
         manager.schedule_agent_startup(new_id)
 
@@ -1410,6 +1446,10 @@ async def update_agent(  # pylint: disable=too-many-statements
             updated_config.language or config.agents.language or "en",
         )
 
+    if mail_was_set and updated_config.mail is not None:
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, agentId)
     schedule_agent_reload(request, agentId)
 
     return updated_config

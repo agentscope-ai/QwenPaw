@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import secrets
 import stat
+import sys
 import threading
+import time
 import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -41,6 +44,8 @@ import yaml
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+
+logger = logging.getLogger(__name__)
 
 _PATH_LOCKS: weakref.WeakValueDictionary[
     str,
@@ -277,12 +282,34 @@ def read_json(path: Path | str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _replace_with_windows_retry(source: Path, target: Path) -> None:
+    """Retry a briefly denied replacement off the event-loop thread."""
+    for delay in (0.05, 0.10, None):
+        try:
+            os.replace(source, target)
+        except OSError as exc:
+            # Access denied, sharing violation, or lock violation.
+            winerror = getattr(exc, "winerror", None)
+            if delay is None or winerror not in (5, 32, 33):
+                raise
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                raise
+            time.sleep(delay)
+        else:
+            return
+
+
 def write_text_atomic(
     path: Path | str,
     content: str,
     *,
     encoding: str = "utf-8",
     new_file_mode: int = 0o600,
+    retry_windows_replace: bool = False,
 ) -> None:
     """Synchronously replace a file with complete text content.
 
@@ -296,7 +323,8 @@ def write_text_atomic(
     mode is applied only after the complete content has been flushed and
     synced, immediately before atomic publication. Atomic replacement changes
     the destination directory entry, so hard links keep referring to the
-    previous inode.
+    previous inode. ``retry_windows_replace`` allows two short retries for
+    Windows file contention when no event loop is running in the thread.
 
     This guarantees complete-file visibility during normal operation. It
     does not promise power-loss durability because the parent directory is
@@ -317,7 +345,10 @@ def write_text_atomic(
             handle.flush()
             os.fsync(handle.fileno())
         temp_path.chmod(final_mode)
-        os.replace(temp_path, target)
+        if retry_windows_replace and sys.platform == "win32":
+            _replace_with_windows_retry(temp_path, target)
+        else:
+            os.replace(temp_path, target)
         temp_path = None
     finally:
         if temp_path is not None:
@@ -370,6 +401,7 @@ def write_json_atomic(
     indent: int | None = 2,
     sort_keys: bool = False,
     new_file_mode: int = 0o600,
+    retry_windows_replace: bool = False,
 ) -> None:
     """Synchronously serialize and atomically replace one JSON file.
 
@@ -377,7 +409,8 @@ def write_json_atomic(
     ``new_file_mode=0o644`` only for user workspace artifacts.
 
     Synchronous worker functions may use this directly. Async application
-    code should use :func:`write_json_atomic_async`.
+    code should use :func:`write_json_atomic_async`. See
+    :func:`write_text_atomic` for Windows replacement retry behavior.
     """
     write_text_atomic(
         path,
@@ -388,6 +421,7 @@ def write_json_atomic(
             sort_keys=sort_keys,
         ),
         new_file_mode=new_file_mode,
+        retry_windows_replace=retry_windows_replace,
     )
 
 
@@ -506,6 +540,32 @@ async def write_yaml_atomic_async(
     )
 
 
+def rename_or_copy_directory(
+    source: Path,
+    target: Path,
+    *,
+    copy_directory: Callable[[Path, Path], object],
+) -> None:
+    """Move *source* onto *target*, copying when the rename is refused.
+
+    A rename can be refused on the same volume, so the caller cannot check
+    support in advance; a refusal goes to *copy_directory*, which each call
+    site chooses (cancellable for an install, plain for recovery).
+
+    *target* must not exist and its parent must already be there.
+    """
+    try:
+        os.rename(source, target)
+    except OSError as exc:
+        logger.debug(
+            "Directory rename failed for %s (%s); copying instead",
+            target,
+            exc,
+            exc_info=True,
+        )
+        copy_directory(source, target)
+
+
 __all__ = [
     "append_text_async",
     "get_path_lock",
@@ -516,6 +576,7 @@ __all__ = [
     "read_json",
     "read_json_async",
     "read_text_async",
+    "rename_or_copy_directory",
     "run_async_to_completion",
     "run_sync_io",
     "unlink_async",

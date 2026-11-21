@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -17,6 +18,8 @@ from qwenpaw.channel_protocol.shared_response_driver import (
 )
 from qwenpaw.channel_protocol.targets import decode_reply_target
 from .platform import MattermostDeliveryError, MattermostPlatform
+
+logger = logging.getLogger(__name__)
 
 
 class MattermostDriver(SharedResponseDriver):
@@ -85,6 +88,7 @@ class MattermostDriver(SharedResponseDriver):
             params.get("meta") or {},
         )
         if not target:
+            logger.warning(f"Mattermost outbound channel is missing")
             raise ValueError("OUTBOUND_TARGET_UNKNOWN")
         handle = "mattermost:reply:" + uuid.uuid4().hex
         await self._persist_route(

@@ -62,6 +62,14 @@ const post = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks keeps implementations, so a test overriding the connection
+  // state would leak; re-establish the connected default for every test.
+  vi.mocked(communityConnectionApi.status).mockResolvedValue({
+    status: "connected",
+    account: { id: "account", display_name: "Alice" },
+    sync_enabled: true,
+    messages_enabled: true,
+  });
   vi.mocked(communityPostsApi.list).mockResolvedValue({
     items: [post],
     total: 1,
@@ -89,6 +97,98 @@ describe("Embedded community", () => {
     expect(await screen.findByText("Existing comment")).toBeInTheDocument();
     expect(communityPostsApi.comment).not.toHaveBeenCalled();
   });
+  it("shows the GitHub link beside the author row when attached", async () => {
+    vi.mocked(communityPostsApi.detail).mockResolvedValue({
+      ...post,
+      github_link: "https://github.com/owner/repo",
+    });
+    renderWithProviders(<CommunityPage />, {
+      initialEntries: ["/market?tab=community&post=p1"],
+    });
+    const link = await screen.findByRole("link", {
+      name: /communityPage\.fromGithub/,
+    });
+    expect(link).toHaveAttribute("href", "https://github.com/owner/repo");
+    fireEvent.click(link);
+    expect(openExternalLink).toHaveBeenCalledWith(
+      "https://github.com/owner/repo",
+    );
+  });
+  it("hides the GitHub link when the post has none", async () => {
+    renderWithProviders(<CommunityPage />, {
+      initialEntries: ["/market?tab=community&post=p1"],
+    });
+    await screen.findByText("Article body");
+    expect(
+      screen.queryByRole("link", { name: /communityPage\.fromGithub/ }),
+    ).toBeNull();
+  });
+  it("canonicalizes a scheme-less GitHub link from the server", async () => {
+    vi.mocked(communityPostsApi.detail).mockResolvedValue({
+      ...post,
+      github_link: "github.com/owner/repo",
+    });
+    renderWithProviders(<CommunityPage />, {
+      initialEntries: ["/market?tab=community&post=p1"],
+    });
+    const link = await screen.findByRole("link", {
+      name: /communityPage\.fromGithub/,
+    });
+    expect(link).toHaveAttribute("href", "https://github.com/owner/repo");
+  });
+  it("refuses to render a github_link that is not a GitHub repo URL", async () => {
+    vi.mocked(communityPostsApi.detail).mockResolvedValue({
+      ...post,
+      github_link: "https://evil.example.com/phish",
+    });
+    renderWithProviders(<CommunityPage />, {
+      initialEntries: ["/market?tab=community&post=p1"],
+    });
+    await screen.findByText("Article body");
+    expect(
+      screen.queryByRole("link", { name: /communityPage\.fromGithub/ }),
+    ).toBeNull();
+  });
+  it("scrolls to the connect hint when a logged-out visitor taps comments", async () => {
+    // jsdom has no scrollIntoView; capture calls to prove the bar button
+    // still reacts when there is no composer editor to focus.
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      vi.mocked(communityConnectionApi.status).mockResolvedValue({
+        status: "disconnected",
+      } as never);
+      renderWithProviders(<CommunityPage />, {
+        initialEntries: ["/market?tab=community&post=p1"],
+      });
+      await screen.findByText("Article body");
+      expect(screen.getByText("communityPage.connect")).toBeInTheDocument();
+      fireEvent.click(
+        screen.getByRole("button", { name: /communityPage\.comments/ }),
+      );
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" }),
+      );
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          descriptor,
+        );
+      } else {
+        delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+          .scrollIntoView;
+      }
+    }
+  });
   it("submits a reply with its parent and connected account", async () => {
     renderWithProviders(<CommunityPage />, {
       initialEntries: ["/market?tab=community&post=p1"],
@@ -96,8 +196,8 @@ describe("Embedded community", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "communityPage.reply" }),
     );
-    fireEvent.change(screen.getByLabelText(/communityPage\.replyTo/), {
-      target: { value: "Draft" },
+    fireEvent.input(screen.getByLabelText(/communityPage\.replyTo/), {
+      target: { textContent: "Draft" },
     });
     fireEvent.click(
       screen.getByRole("button", { name: "communityPage.sendReply" }),
@@ -123,17 +223,17 @@ describe("Embedded community", () => {
     renderWithProviders(<CommunityPage />, {
       initialEntries: ["/market?tab=community&post=p1"],
     });
-    fireEvent.change(
+    fireEvent.input(
       await screen.findByLabelText("communityPage.writeComment"),
-      { target: { value: "Keep this draft" } },
+      { target: { textContent: "Keep this draft" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "communityPage.send" }));
     expect(
       await screen.findByText("communityPage.sendError"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("communityPage.writeComment")).toHaveValue(
-      "Keep this draft",
-    );
+    expect(
+      screen.getByLabelText("communityPage.writeComment"),
+    ).toHaveTextContent("Keep this draft");
     expect(communityPostsApi.comment).toHaveBeenCalledTimes(1);
   });
   it("removes executable content from Platform HTML", () => {
@@ -180,6 +280,79 @@ it("renders custom emoji in nested comment replies", async () => {
   expect(emojis[0]).toHaveAttribute("src", CUSTOM_EMOJI_URLS[0]);
   expect(emojis[0].className).toContain("customEmoji");
   expect(screen.getByText("😎")).toBeInTheDocument();
+});
+
+it("renders animated snow leopard GIF stickers at the large size", async () => {
+  const { CUSTOM_ANIMATED_EMOJI_URLS } = await import("./customEmoji");
+  vi.mocked(communityPostsApi.comments).mockResolvedValue({
+    items: [
+      {
+        id: "c1",
+        author_name: "Alice",
+        content: `Hi [emoji:${CUSTOM_ANIMATED_EMOJI_URLS[0]}]!`,
+      },
+    ],
+    total: 1,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  const [sticker] = await screen.findAllByRole("img", { name: "emoji" });
+  expect(sticker).toHaveAttribute("src", CUSTOM_ANIMATED_EMOJI_URLS[0]);
+  expect(sticker.className).toContain("customAnimatedEmoji");
+});
+
+it("renders unlisted emoji tokens in comments as literal text", async () => {
+  vi.mocked(communityPostsApi.comments).mockResolvedValue({
+    items: [
+      {
+        id: "c1",
+        author_name: "Alice",
+        content:
+          "x [emoji:javascript:alert(1)] " +
+          "[emoji:https://evil.example.com/x.png] y",
+      },
+    ],
+    total: 1,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  // Off-allowlist tokens stay visible as plain text…
+  expect(
+    await screen.findByText("[emoji:javascript:alert(1)]"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText("[emoji:https://evil.example.com/x.png]"),
+  ).toBeInTheDocument();
+  // …and never materialize as image nodes.
+  expect(screen.queryAllByRole("img", { name: "emoji" })).toHaveLength(0);
+});
+
+it("inserts quick emojis beside the picker into the comment draft", async () => {
+  const { CUSTOM_ANIMATED_EMOJI_URLS } = await import("./customEmoji");
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  const composer = await screen.findByLabelText("communityPage.writeComment");
+  fireEvent.click(screen.getByRole("button", { name: "赞" }));
+  expect(composer).toHaveTextContent("👍");
+  fireEvent.click(screen.getByRole("button", { name: "动态表情 3" }));
+  // Sticker picks render as inline images inside the rich input…
+  const sticker = composer.querySelector("img[data-emoji-url]");
+  expect(sticker).toHaveAttribute("src", CUSTOM_ANIMATED_EMOJI_URLS[2]);
+  // …while submission keeps the [emoji:<url>] shortcode protocol.
+  fireEvent.click(screen.getByRole("button", { name: "communityPage.send" }));
+  await waitFor(() =>
+    expect(communityPostsApi.comment).toHaveBeenCalledWith(
+      "p1",
+      `👍[emoji:${CUSTOM_ANIMATED_EMOJI_URLS[2]}]`,
+      "account",
+      undefined,
+      "comment",
+      [],
+    ),
+  );
 });
 
 it("shows related skill cards and a contents sidebar for articles", async () => {
@@ -517,6 +690,39 @@ it("shows question answers and comments together and submits an answer", async (
   );
 });
 
+it("toggles favorite next to write-answer on question pages", async () => {
+  vi.mocked(communityPostsApi.detail).mockResolvedValue({
+    ...post,
+    article_type: "question",
+  });
+  // One-shot: a persistent implementation would leak into later tests,
+  // because beforeEach's clearAllMocks does not reset implementations.
+  vi.mocked(communityPostsApi.interact).mockResolvedValueOnce({
+    favorited: true,
+    favorite_count: 2,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "communityPage.favorite",
+      pressed: false,
+    }),
+  );
+  expect(
+    await screen.findByRole("button", {
+      name: "communityPage.favorited 2",
+      pressed: true,
+    }),
+  ).toBeInTheDocument();
+  expect(communityPostsApi.interact).toHaveBeenCalledWith(
+    "p1",
+    "favorite",
+    "account",
+  );
+});
+
 it("reflects Platform likes and saved state", async () => {
   vi.mocked(communityPostsApi.interact)
     .mockResolvedValueOnce({ liked: true, like_count: 6 })
@@ -555,4 +761,49 @@ it("reflects Platform likes and saved state", async () => {
     "favorite",
     "account",
   );
+});
+
+it("keeps only one reply composer open at a time", async () => {
+  vi.mocked(communityPostsApi.comments).mockResolvedValue({
+    items: [
+      { id: "c1", author_name: "Bob", content: "First comment" },
+      { id: "c2", author_name: "Bob", content: "Second comment" },
+    ],
+    total: 2,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  const replyButtons = await screen.findAllByRole("button", {
+    name: "communityPage.reply",
+  });
+  fireEvent.click(replyButtons[0]);
+  expect(screen.getAllByLabelText(/communityPage\.replyTo/)).toHaveLength(1);
+  fireEvent.click(replyButtons[1]);
+  expect(screen.getAllByLabelText(/communityPage\.replyTo/)).toHaveLength(1);
+});
+
+it("hides the main composer while a reply is open", async () => {
+  vi.mocked(communityPostsApi.comments).mockResolvedValue({
+    items: [{ id: "c1", author_name: "Bob", content: "First comment" }],
+    total: 1,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  expect(
+    await screen.findByLabelText("communityPage.writeComment"),
+  ).toBeInTheDocument();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "communityPage.reply" }),
+  );
+  // Only the reply composer remains; the always-on main box yields.
+  expect(screen.queryByLabelText("communityPage.writeComment")).toBeNull();
+  expect(screen.getAllByLabelText(/communityPage\.replyTo/)).toHaveLength(1);
+  fireEvent.click(
+    screen.getByRole("button", { name: "communityPage.cancelReply" }),
+  );
+  expect(
+    await screen.findByLabelText("communityPage.writeComment"),
+  ).toBeInTheDocument();
 });

@@ -80,7 +80,10 @@ def has_pending_uninstall(loader: Any) -> bool:
     """A normal registration marker is not an unfinished uninstall."""
     return has_pending_stops(loader) or (
         _marker().is_file()
-        and json.loads(_marker().read_text()).get("uninstall_started", False)
+        and json.loads(_marker().read_text(encoding="utf-8")).get(
+            "uninstall_started",
+            False,
+        )
     )
 
 
@@ -139,7 +142,7 @@ def remember(source: Path, before: dict[str, Any] | None = None) -> dict:
 
     path = _marker()
     data = (
-        json.loads(path.read_text())
+        json.loads(path.read_text(encoding="utf-8"))
         if path.is_file()
         else {
             "agents": {},
@@ -156,7 +159,7 @@ def remember(source: Path, before: dict[str, Any] | None = None) -> dict:
         identity = _identity(expected)
         if identity is None or not agent_file.is_file():
             continue
-        profile = json.loads(agent_file.read_text())
+        profile = json.loads(agent_file.read_text(encoding="utf-8"))
         if profile.get("id") != agent_id or profile.get("name") != name:
             continue
         row = data["agents"].setdefault(
@@ -179,7 +182,7 @@ def remember(source: Path, before: dict[str, Any] | None = None) -> dict:
     pool = get_skill_pool_dir()
     manifest = pool / "skill.json"
     skills = (
-        json.loads(manifest.read_text()).get("skills", {})
+        json.loads(manifest.read_text(encoding="utf-8")).get("skills", {})
         if manifest.is_file()
         else {}
     )
@@ -237,7 +240,11 @@ async def prepare_uninstall(loader: Any, source: Path | None) -> dict | None:
     data = (
         await run_sync_io(remember, source)
         if source is not None
-        else (await run_sync_io(lambda: json.loads(_marker().read_text())))
+        else (
+            await run_sync_io(
+                lambda: json.loads(_marker().read_text(encoding="utf-8")),
+            )
+        )
     )
     data["uninstall_started"] = True
     await run_sync_io(write_json_atomic, _marker(), data)
@@ -344,7 +351,7 @@ def _validate_agents(data: dict) -> Any:
             raise RuntimeError(
                 f"CloudPaw agent '{agent_id}' ownership changed",
             )
-        profile = json.loads(profile_path.read_text())
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
         if (
             profile.get("id") != agent_id
             or profile.get("name") != _AGENTS[agent_id]
@@ -361,7 +368,7 @@ def _cleanup_factory_files(data: dict) -> None:
     pool = get_skill_pool_dir()
     manifest_path = pool / "skill.json"
     manifest = (
-        json.loads(manifest_path.read_text())
+        json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest_path.is_file()
         else {"skills": {}}
     )

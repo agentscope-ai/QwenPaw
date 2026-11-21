@@ -276,6 +276,32 @@ a {
   border: 1px solid var(--color-border) !important;
 }
 
+/* Tooltips follow the app's surface language instead of antd's dark
+   bubble: an elevated card with a hairline border, primary-coloured copy
+   and the theme-aware arrow. Keeps hover hints visually at home next to
+   the timeline and detail panels that trigger them. */
+.ant-tooltip {
+  --antd-arrow-background-color: var(--color-bg-elevated);
+  max-width: 260px;
+}
+
+.ant-tooltip .ant-tooltip-inner {
+  background: var(--color-bg-elevated) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14) !important;
+  color: var(--color-text-primary) !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+  min-height: 0 !important;
+  padding: 6px 9px !important;
+}
+
+.ant-tooltip .ant-tooltip-arrow::before,
+.ant-tooltip .ant-tooltip-arrow::after {
+  background: var(--color-bg-elevated) !important;
+}
+
 .ant-modal-content {
   background: var(--color-bg-primary) !important;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;

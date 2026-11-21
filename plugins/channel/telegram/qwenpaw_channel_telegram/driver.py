@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -17,6 +18,8 @@ from qwenpaw.channel_protocol.shared_response_driver import (
 )
 from qwenpaw.channel_protocol.targets import decode_reply_target
 from .errors import TelegramDeliveryError
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramDriver(SharedResponseDriver):
@@ -86,6 +89,7 @@ class TelegramDriver(SharedResponseDriver):
             else user
         )
         if not str(chat).strip():
+            logger.warning(f"Telegram outbound chat is missing")
             raise ValueError("OUTBOUND_TARGET_UNKNOWN")
         return {
             "chat_id": str(chat),

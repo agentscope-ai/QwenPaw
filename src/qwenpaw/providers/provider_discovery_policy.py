@@ -48,12 +48,6 @@ _CATALOG_PLAN = ProviderDiscoveryPolicy(
 
 BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "typesafe": ProviderDiscoveryPolicy("provider_specific"),
-    "qwenpaw-local": ProviderDiscoveryPolicy(
-        "unsupported",
-        sync_mode="disabled",
-        requires_auth=False,
-        reason="Local model inventory is managed by the local model service.",
-    ),
     "ollama": ProviderDiscoveryPolicy(
         "provider_specific",
         sync_mode="startup",

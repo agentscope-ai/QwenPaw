@@ -226,6 +226,25 @@ async def test_stream_end_edits_placeholder_to_complete_text(telegram):
     )
 
 
+async def test_media_rejection_keeps_operation_without_response(
+    telegram,
+    caplog,
+):
+    driver, _, _, _ = telegram
+    native = module(f"telegram", f"platform")
+
+    async def reject():
+        raise native.BadRequest(f"private-telegram-response")
+
+    with pytest.raises(
+        native.TelegramDeliveryError,
+        match=f"PLATFORM_REJECTED",
+    ):
+        await driver._platform._effect(reject(), operation=f"send_document")
+    assert f"Telegram send_document rejected (BadRequest)" in caplog.text
+    assert f"private-telegram-response" not in caplog.text
+
+
 async def test_duplicate_update_is_not_repeated_and_stop_closes_polling(
     telegram,
 ):

@@ -33,6 +33,9 @@ class _TestACPAgent(QwenPawACPAgent):
         super().__init__(agent_id="default")
         self._fake_workspace = workspace
 
+    async def _require_mcp(self) -> None:
+        """These domain tests assume admission, without initializing plugins."""
+
     async def _ensure_workspace(self):
         return self._fake_workspace
 

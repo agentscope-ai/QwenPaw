@@ -2,6 +2,7 @@
 """DingTalk Device Flow through the fixed one-shot management hook."""
 
 import asyncio
+import logging
 
 import httpx
 
@@ -12,6 +13,8 @@ from qwenpaw.channel_protocol.management import (
 )
 
 _BASE = "https://oapi.dingtalk.com/app/registration"
+_PENDING_STATUSES = {f"WAITING", f"CREATING", f"PUBLISHING", f"APPROVING"}
+logger = logging.getLogger(__name__)
 
 
 def _text(value):
@@ -83,7 +86,10 @@ async def manage(request):
                 status = _text(value.get("status")).upper()
                 client_id = _text(value.get("client_id"))
                 secret = _text(value.get("client_secret"))
+                code = value.get(f"errcode")
+                safe_code = code if type(code) is int else None
                 if client_id and secret:
+                    logger.info(f"DingTalk registration credentials issued")
                     result = {
                         "status": "success",
                         "credentials": {
@@ -92,6 +98,9 @@ async def manage(request):
                         },
                     }
                 elif status in {"FAIL", "EXPIRED"}:
+                    logger.warning(
+                        f"DingTalk registration {status}: errcode={safe_code}",
+                    )
                     result = {
                         "status": "expired" if status == "EXPIRED" else "fail",
                         "credentials": {
@@ -99,18 +108,38 @@ async def manage(request):
                         },
                     }
                 else:
+                    if status in _PENDING_STATUSES:
+                        logger.debug(f"DingTalk registration {status}")
+                    else:
+                        logger.warning(
+                            f"DingTalk registration returned unknown status: "
+                            f"errcode={safe_code}",
+                        )
                     result = {"status": "waiting", "credentials": {}}
                 return management_result(request, result)
     except (asyncio.CancelledError, TimeoutError):
         raise
     except httpx.HTTPStatusError as error:
+        logger.warning(
+            f"DingTalk {request.operation} rejected: "
+            f"HTTP {error.response.status_code}",
+        )
         if error.response.status_code < 500:
             return management_result(request, reason="PLATFORM_REJECTED")
         raise ProtocolValidationError(
             "uncertain authorization operation",
             reason_code="PLATFORM_RESULT_UNKNOWN",
         ) from None
-    except (httpx.RequestError, ValueError, TypeError, AttributeError):
+    except (
+        httpx.RequestError,
+        ValueError,
+        TypeError,
+        AttributeError,
+    ) as error:
+        logger.warning(
+            f"DingTalk {request.operation} result unavailable "
+            f"({type(error).__name__})",
+        )
         raise ProtocolValidationError(
             "uncertain authorization operation",
             reason_code="PLATFORM_RESULT_UNKNOWN",

@@ -228,7 +228,7 @@ def test_persisted_single_bound_string_range_is_migrated_on_load():
         ("thinking_budget", 0),
         ("thinking_budget", -5),
         ("max_output_length", 0),
-        ("max_input_length_auto_detected", 500),
+        ("max_input_length_auto_detected", 0),
         ("input_token_limit", 0),
     ],
 )
@@ -236,10 +236,10 @@ def test_persisted_invalid_optional_scalar_is_reset_on_load(
     field,
     bad_value,
 ):
-    # ModelInfo bounds these optional scalars from below (ge=1 or
-    # ge=1000). A snapshot persisted before write-path validation could
-    # carry a value below the bound; without a load-time migration the
-    # whole provider fails validation and disappears after a restart.
+    # ModelInfo bounds these optional scalars from below (ge=1). A
+    # snapshot persisted before write-path validation could carry a
+    # value below the bound; without a load-time migration the whole
+    # provider fails validation and disappears after a restart.
     data = make_persisted_snapshot()
     data["models"][0][field] = bad_value
     with pytest.raises(ValidationError):
@@ -247,6 +247,17 @@ def test_persisted_invalid_optional_scalar_is_reset_on_load(
     assert migrate_provider_snapshot(data) is True
     loaded = OpenAIProvider.model_validate(data)
     assert getattr(loaded.models[0], field) is None
+
+
+def test_persisted_small_auto_detected_window_is_kept_on_load():
+    # Ollama may serve an explicit num_ctx below 1000 (e.g. 512).
+    # ModelInfo allows ge=1, so a persisted 512 must survive load and
+    # must not be wiped by the scalar migration.
+    data = make_persisted_snapshot()
+    data["models"][0]["max_input_length_auto_detected"] = 512
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].max_input_length_auto_detected == 512
 
 
 def test_persisted_invalid_max_input_length_restores_default_on_load():
@@ -376,7 +387,7 @@ def test_persisted_invalid_input_token_limit_clears_override_and_source():
     "field,bad_value",
     [
         ("thinking_budget", 0),
-        ("max_input_length_auto_detected", 500),
+        ("max_input_length_auto_detected", 0),
     ],
 )
 def test_persisted_invalid_scalar_without_source_clears_override_entry(

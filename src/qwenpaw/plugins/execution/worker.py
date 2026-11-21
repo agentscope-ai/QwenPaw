@@ -449,6 +449,7 @@ def main(
     protocol_input = None
     input_transferred = False
     diagnostics = None
+    log_writer = None
     try:
         _sibling("process_tree").watch_parent(int(sys.argv[1]))
         boot = _sibling("bootstrap")
@@ -464,16 +465,26 @@ def main(
         if len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
             return 70
         packet = json.loads(raw)
+        worker_logs = _sibling(f"worker_logs")
+        mode = packet.get(f"mode", f"run")
+        if mode in (f"run", f"manage") and f"channel_log_level" in packet:
+            log_writer = worker_logs.configure_channel_logging(
+                packet[f"channel_log_level"],
+            )
         diagnostics = _sibling("diagnostics").StartupDiagnostics(
             packet,
-            clean=_sibling("worker_logs")._clean,
+            clean=worker_logs._clean,
+            write=(
+                (lambda text, _event, _critical: log_writer.submit(text))
+                if log_writer is not None
+                else None
+            ),
         )
         diagnostics.mark(
             "bootstrap",
             executable=sys.executable,
             worker=__file__,
         )
-        mode = packet.get("mode", "run")
         if not isinstance(mode, str) or mode not in {
             "run",
             "manage",
@@ -547,12 +558,18 @@ def main(
                 if str(exc).startswith("DEPENDENCY_")
                 else type(exc).__name__
             )
-        sys.stderr.write(json.dumps({"error": reason}) + "\n")
-        sys.stderr.flush()
+        error = json.dumps({f"error": reason})
+        if log_writer is not None:
+            log_writer.submit(error)
+        else:
+            sys.stderr.write(f"{error}\n")
+            sys.stderr.flush()
         return 70
     finally:
         if diagnostics is not None:
             diagnostics.cancel_watch()
+        if log_writer is not None:
+            log_writer.close()
         # A Windows reader may hold the buffer lock in a blocking read.
         # Once transferred, it closes its stream or process exit reclaims it.
         if os.name == "nt" and protocol_input is not None:

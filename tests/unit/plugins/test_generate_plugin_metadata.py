@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import runpy
 import shutil
@@ -528,3 +529,25 @@ def test_immutable_release_distinguishes_legacy_hosts_from_broken_bundles(
             check_release(tmp_path, no_remote, dry_run=True)
     else:
         check_release(tmp_path, no_remote, dry_run=True)
+
+
+def test_official_mcp_protocol_archive_is_a_checked_release(tmp_path):
+    index, failed = discover_and_pack(
+        REPO_ROOT / "plugins",
+        tmp_path,
+        "/files/plugins",
+        only=["qwenpaw-mcp"],
+    )
+    assert not failed
+    row = index["files"]["qwenpaw-mcp-1.0.0"]
+    assert row["platform"] == "protocol"
+    checker = runpy.run_path(
+        str(REPO_ROOT / "scripts/pack/check_plugin_versions.py"),
+    )
+    candidates, _ = checker["_release_candidates"](tmp_path, None)
+    assert len(candidates) == 1
+    record, payload, _ = candidates[0]
+    assert record["kind"] == "protocol"
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        assert "qwenpaw-mcp/requirements.txt" in archive.namelist()
+        assert "qwenpaw-mcp/frontend/dist/index.js" in archive.namelist()

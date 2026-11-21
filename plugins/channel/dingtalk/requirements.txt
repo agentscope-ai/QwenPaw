@@ -2,6 +2,7 @@ aiohttp>=3.9.0
 httpx>=0.27.0
 certifi
 requests
+markdown-it-py>=3.0.0
 dingtalk-stream>=0.24.3
 alibabacloud-dingtalk>=2.2.42
 alibabacloud-tea-openapi>=0.4.4

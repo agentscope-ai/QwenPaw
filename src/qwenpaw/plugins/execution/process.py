@@ -23,7 +23,7 @@ from .bootstrap import (
     validate_private_environment,
 )
 from .dependencies import DependencyReadEvidence, DependencySnapshot
-from .diagnostics import ERROR_PREFIX, StartupDiagnostics
+from .diagnostics import StartupDiagnostics
 from .errors import FrameError, RpcClosedError, RpcTimeoutError
 from .framing import FramedTransport
 from .payloads import PayloadLimits, PayloadStore
@@ -592,10 +592,30 @@ class PluginProcess:
         self._cleanup_task = None
         self._ready = None
         self.observed_hello = None
+        channel_key = getattr(spec, f"channel_key", None)
+        startup_logger = logging.getLogger(f"qwenpaw.plugins.startup")
+
+        def write_diagnostic(text, event, critical):
+            level = logging.INFO
+            if critical:
+                fatal = channel_key and event in {
+                    f"launch_failed",
+                    f"spawn_failed",
+                    f"connection_failed",
+                }
+                level = logging.ERROR if fatal else logging.WARNING
+            elif channel_key and (
+                self._mode not in {f"run", f"manage"}
+                or event not in {f"process_ready", f"worker_exited"}
+            ):
+                level = logging.DEBUG
+            if startup_logger.isEnabledFor(level):
+                _submit(text, logger_name=startup_logger.name, level=level)
+
         self._diagnostics = StartupDiagnostics(
             {
                 "plugin_id": spec.plugin_id,
-                "channel_key": getattr(spec, "channel_key", None),
+                "channel_key": channel_key,
                 "workspace_id": getattr(spec, "workspace_id", None),
                 "instance_id": spec.instance_id,
                 "generation": spec.generation,
@@ -603,15 +623,7 @@ class PluginProcess:
                 "config": spec.config,
                 "private_env": getattr(spec, "private_env", {}),
             },
-            write=lambda text: _submit(
-                text,
-                logger_name="qwenpaw.plugins.startup",
-                level=(
-                    logging.WARNING
-                    if text.startswith(ERROR_PREFIX)
-                    else logging.INFO
-                ),
-            ),
+            write=write_diagnostic,
         )
         self.log_startup(
             "launch",
@@ -671,12 +683,24 @@ class PluginProcess:
                 "TMP",
                 "TMPDIR",
                 "SSL_CERT_FILE",
+                "SSL_CERT_DIR",
                 "QWENPAW_DEPENDENCY_MAINTENANCE",
             }
             or name in NETWORK_PROXY_ENVIRONMENT
         }
-        if ca_file := environment.get("SSL_CERT_FILE"):
-            environment["SSL_CERT_FILE"] = str(Path(ca_file).absolute())
+        for name in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            # Only freeze inherited relative paths before the worker changes
+            # cwd. Absolute strings and later private_env overrides retain
+            # their spelling and existing interpretation.
+            value = environment.get(name)
+            if value and not Path(value).is_absolute():
+                absolute = Path(value).absolute()
+                if not absolute.is_absolute():
+                    raise BootstrapError(
+                        "LAUNCH_ENVIRONMENT_INVALID",
+                        "Inherited CA path could not be made absolute",
+                    )
+                environment[name] = str(absolute)
         if os.name == "nt":
             environment["USERPROFILE"] = str(Path.home().resolve())
         from ..dependency_maintenance import (
@@ -705,7 +729,13 @@ class PluginProcess:
         options: dict[str, Any] = (
             {"start_new_session": True} if os.name != "nt" else {}
         )
-        logs = WorkerLogs(spec, self._mode)
+        channel_key = getattr(spec, f"channel_key", None)
+        channel_clean = (
+            self._diagnostics.clean_log
+            if self._diagnostics is not None and channel_key
+            else None
+        )
+        logs = WorkerLogs(spec, self._mode, channel_clean=channel_clean)
         spawn = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 spec.python_executable,

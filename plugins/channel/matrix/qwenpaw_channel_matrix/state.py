@@ -494,7 +494,9 @@ class MatrixStateStore:
                 else None
             )
         except OSError as exc:
-            logger.warning("Matrix sync token could not be read: %s", exc)
+            logger.warning(
+                f"Matrix sync token could not be read ({type(exc).__name__})",
+            )
             return None
 
     def save_sync(self, token):

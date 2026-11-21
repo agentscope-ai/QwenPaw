@@ -171,6 +171,50 @@ class TestBaseMemoryManagerSubmitAutoMemory:
 
         await manager._shutdown_auto_memory_worker()
 
+    async def test_worker_does_not_retain_the_submitting_turn(self, manager):
+        from contextvars import ContextVar
+        from qwenpaw.plugins.sdk import _RunStreams
+        from qwenpaw.runtime.provider_turn import ProviderTurn
+        from qwenpaw.runtime.turn_context import (
+            current_provider_turn,
+            current_run_streams,
+        )
+
+        workspace = ContextVar("test_workspace")
+        released = asyncio.Event()
+
+        async def auto_memory(**_kwargs):
+            await released.wait()
+            assert current_provider_turn.get() is None
+            assert current_run_streams.get() is None
+            return workspace.get()
+
+        manager.auto_memory = auto_memory
+        turn = ProviderTurn()
+        owned = _RunStreams()
+        owner_token = current_run_streams.set(owned)
+        token = workspace.set("agent")
+        try:
+            with turn.bind():
+                manager.submit_auto_memory([])
+        finally:
+            workspace.reset(token)
+            owned.closing = True
+            current_run_streams.reset(owner_token)
+
+        try:
+            await turn.close()
+            released.set()
+            await asyncio.wait_for(
+                manager._auto_memory_task_queue.join(),
+                timeout=1,
+            )
+            (result,) = manager.list_auto_memory_tasks()
+            assert result["status"] == "completed"
+            assert result["result"] == "agent"
+        finally:
+            await manager._shutdown_auto_memory_worker()
+
     async def test_keeps_only_latest_terminal_tasks(
         self,
         manager,

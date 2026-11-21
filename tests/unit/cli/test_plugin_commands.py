@@ -24,6 +24,33 @@ import qwenpaw.cli.plugin_commands as pc
 import qwenpaw.config.utils as config_utils
 
 
+@pytest.mark.parametrize("failed", [None, "channel", "local"])
+def test_prepare_upgrade_includes_saved_local_users(monkeypatch, failed):
+    from unittest.mock import AsyncMock
+
+    channel = AsyncMock(
+        return_value={"feishu": "missing"} if failed == "channel" else {},
+    )
+    local = AsyncMock(
+        return_value={"local-llamacpp": "missing"}
+        if failed == "local"
+        else {},
+    )
+    monkeypatch.setattr(
+        "qwenpaw.plugins.official_channels.prepare_channel_upgrade",
+        channel,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.plugins.local_model_legacy.prepare_local_model_upgrade",
+        local,
+    )
+    result = CliRunner().invoke(pc.plugin, ["prepare-upgrade"])
+    assert result.exit_code == (1 if failed else 0)
+    assert ("missing" if failed else "ready") in result.output
+    channel.assert_awaited_once()
+    local.assert_awaited_once()
+
+
 @pytest.fixture(autouse=True)
 def _isolated_plugin_registry():
     """Each CLI invocation test gets its own trusted runtime configuration."""

@@ -211,12 +211,18 @@ class CronManager(ManagerBase):
                 name="cron-keepalive",
             )
 
-    def handoff_from(self, old: CronManager | None) -> None:
+    def handoff_from(
+        self,
+        old: CronManager | None,
+        *,
+        resume: bool = True,
+    ) -> None:
         """Transfer scheduling without cancelling submitted work."""
         # Same-class handoff deliberately transfers private scheduler state.
         # pylint: disable=protected-access
         if old is None:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
             return
         for job in self._scheduler.get_jobs():
             previous = old._scheduler.get_job(job.id)
@@ -245,11 +251,16 @@ class CronManager(ManagerBase):
         )
         old._scheduler.pause()
         try:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
         except BaseException:
             old._scheduler.resume()
             raise
         old._successor = self
+
+    def resume_scheduling(self) -> None:
+        """Release a prepared scheduler once workspace services are ready."""
+        self._scheduler.resume()
 
     def snapshot_active_tasks(self) -> dict[str, asyncio.Future]:
         tasks = self._scheduler_executor.snapshot_active_tasks()
@@ -1196,8 +1207,11 @@ class CronManager(ManagerBase):
                     st.last_status = "success"
                     st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s "
+                    "execution_status=success delivery_status=%s",
                     job.id,
+                    st.last_status,
+                    execution_result.get("delivery_status", "success"),
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"

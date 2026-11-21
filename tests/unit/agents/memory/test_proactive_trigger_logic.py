@@ -17,6 +17,8 @@ import pytest
 
 from qwenpaw.agents.memory.proactive import proactive_trigger as pt
 from qwenpaw.agents.memory.proactive.proactive_types import ProactiveConfig
+from qwenpaw.runtime.provider_turn import ProviderTurn
+from qwenpaw.runtime.turn_context import current_provider_turn
 
 
 @pytest.fixture(autouse=True)
@@ -44,21 +46,26 @@ class TestEnableDisable:
         with pytest.raises(ValueError, match="workspace must be provided"):
             pt.enable_proactive_for_session("s1", workspace=None)
 
-    def test_enable_stores_config_and_workspace(self):
+    async def test_session_monitor_outlives_enabling_turn(self):
         workspace = SimpleNamespace()
-        fake_task = SimpleNamespace(done=lambda: False)
-        with patch.object(asyncio, "create_task", return_value=fake_task):
+        turn = ProviderTurn()
+
+        async def monitor(_session_id):
+            return current_provider_turn.get()
+
+        with patch.object(pt, "_run_trigger_loop", monitor), turn.bind():
             result = pt.enable_proactive_for_session(
                 "s1",
                 idle_minutes=15,
                 workspace=workspace,
             )
+        await turn.close()
+        assert await pt.proactive_tasks["s1"] is None
         assert "15 minute" in result
         config = pt.proactive_configs["s1"]
         assert config.enabled is True
         assert config.idle_minutes == 15
         assert pt.proactive_workspaces["s1"] is workspace
-        assert pt.proactive_tasks["s1"] is fake_task
 
     async def test_disable_cancels_task_and_cleans_up(self):
         workspace = SimpleNamespace()

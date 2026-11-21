@@ -1540,7 +1540,9 @@ async def test_provider_plugin_restores_marketplace_then_native_installs(
     await _import_from(ProviderImportService(workspace), "codex")
 
     assert not calls
-    registry = json.loads(workspace.marketplace_registry_path.read_text())
+    registry = json.loads(
+        workspace.marketplace_registry_path.read_text(encoding="utf-8"),
+    )
     assert registry["sources"]["codex:codex:local"]["source"] == str(
         plugin_source.parent.parent,
     )
@@ -1832,5 +1834,7 @@ async def test_codex_content_plugin_registers_skills_and_owned_mcp(
     backend = (installed_root / "creative-production/plugin.py").read_text()
     assert "register_skill_provider" in backend
     assert "enabled_by_default=False" in backend
-    card = (workspace.workspace_dir / "drivers/mcp/creative.yaml").read_text()
+    card = (workspace.workspace_dir / "drivers/mcp/creative.yaml").read_text(
+        encoding="utf-8",
+    )
     assert str(installed_root / "creative-production") in card

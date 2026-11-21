@@ -410,7 +410,7 @@ async def _load_plugin_with_optional_force_reinstall(
 
     from ...plugins.dependency_upgrade import install_with_upgrade
 
-    return await install_with_upgrade(
+    record = await install_with_upgrade(
         loader,
         source_path=source_path,
         install_dir=get_plugins_dir(),
@@ -421,6 +421,11 @@ async def _load_plugin_with_optional_force_reinstall(
         recover_incomplete=recover_incomplete,
         installation_source=installation_source,
     )
+
+    from ..mcp.feature_gate import reconcile_mcp_features
+
+    await reconcile_mcp_features(loader, record.manifest.id, record=record)
+    return record
 
 
 def _extract_plugin_zip_bytes(content: bytes, temp_dir: Path) -> Path:
@@ -528,6 +533,24 @@ async def install_plugin_source(
 
     normalized = str(source or "").strip()
     temp_dir: Optional[Path] = None
+    if normalized == "bundled:qwenpaw-mcp":
+        from ...plugins.optional_mcp import (
+            get_optional_mcp_plugin_dir,
+            read_mcp_manifest,
+        )
+
+        source_path = await run_sync_io(get_optional_mcp_plugin_dir)
+        await run_sync_io(read_mcp_manifest, source_path)
+        return await _load_plugin_with_optional_force_reinstall(
+            loader,
+            request,
+            source_path,
+            force=force,
+            **_interrupt_options(interrupt_tasks),
+            reload_agents=reload_agents,
+            pawport_owner=pawport_owner,
+            recover_incomplete=recover_incomplete,
+        )
     if normalized.startswith("bundled:"):
         from ...plugins.official_channels import async_bundled_channel_source
 
@@ -917,6 +940,9 @@ async def repair_plugin_dependencies(plugin_id: str, request: Request):
         )
     try:
         record = await loader.repair_dependencies(plugin_id)
+        from ..mcp.feature_gate import reconcile_mcp_features
+
+        await reconcile_mcp_features(loader, plugin_id, record=record)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (DependencyUpgradeRequired, SharedDependencyError) as exc:
@@ -1079,6 +1105,9 @@ async def update_plugin_config(
                 "quiescent": report.quiescent,
             },
         )
+    from ..mcp.feature_gate import reconcile_mcp_features
+
+    await reconcile_mcp_features(loader, plugin_id)
     return {
         "id": plugin_id,
         "ok": True,
@@ -1155,6 +1184,9 @@ async def set_plugin_enabled(
                 "message": f"Plugin '{plugin_id}' disabled.",
             }
         record = await loader.lifecycle.set_enabled(plugin_id, True)
+        from ..mcp.feature_gate import reconcile_mcp_features
+
+        await reconcile_mcp_features(loader, plugin_id, record=record)
         return {
             "id": plugin_id,
             "enabled": bool(getattr(record, "enabled", False))
