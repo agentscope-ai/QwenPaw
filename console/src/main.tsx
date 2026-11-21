@@ -2,8 +2,13 @@ import { createRoot } from "react-dom/client";
 import App from "./ConsoleApp";
 import { i18nReady } from "./i18n";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { installDomInsertTolerance } from "./utils/domInsertTolerance";
 
 const INITIAL_RENDER_TIMEOUT_MS = 3000;
+
+// Must run before React takes over the DOM so that a mutation performed
+// behind React's back cannot fail a commit (see utils/domInsertTolerance).
+installDomInsertTolerance();
 
 if (typeof window !== "undefined") {
   // Prevent the browser/WebView from navigating away (replacing the whole

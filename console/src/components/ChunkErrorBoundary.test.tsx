@@ -492,3 +492,103 @@ describe("reload allowance with an error view", () => {
     expect(sessionStorage.getItem(reloadKey)).toBeNull();
   });
 });
+
+/**
+ * A component that throws a DOM-mutation error while `shouldFail` is true,
+ * then renders successfully once the flag is cleared - the transient race
+ * this boundary must recover from.
+ */
+function FlakyPage(props: { shouldFail: { current: boolean } }): ReactElement {
+  if (props.shouldFail.current) {
+    const error = new Error(
+      "Failed to execute 'insertBefore' on 'Node': The node before which " +
+        "the new node is to be inserted is not a child of this node.",
+    );
+    error.name = "NotFoundError";
+    throw error;
+  }
+  return <div>recovered</div>;
+}
+
+describe("ChunkErrorBoundary retry for transient DOM errors", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.mocked(reloadAfterChunkError).mockImplementation((persist) => {
+      persist?.({ reason: "limit-reached", attempts: 2, maxAttempts: 2 });
+      return false;
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it("re-renders in place and recovers from a DOM mutation error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const shouldFail = { current: true };
+
+    render(
+      <ChunkErrorBoundary>
+        <FlakyPage shouldFail={shouldFail} />
+      </ChunkErrorBoundary>,
+    );
+
+    expect(screen.getByText("chunkError.genericTitle")).toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: "chunkError.retry" });
+
+    // The underlying race has passed by the time the user retries.
+    shouldFail.current = false;
+    fireEvent.click(retry);
+
+    await waitFor(() => {
+      expect(screen.getByText("recovered")).toBeInTheDocument();
+    });
+  });
+
+  it("drops the retry button once retries are exhausted", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const shouldFail = { current: true };
+
+    render(
+      <ChunkErrorBoundary>
+        <FlakyPage shouldFail={shouldFail} />
+      </ChunkErrorBoundary>,
+    );
+
+    for (let i = 0; i < 2; i += 1) {
+      const retry = screen.queryByRole("button", { name: "chunkError.retry" });
+      expect(retry).not.toBeNull();
+      fireEvent.click(retry as HTMLElement);
+    }
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "chunkError.retry" }),
+      ).toBeNull();
+    });
+    expect(
+      screen.getByRole("button", { name: "chunkError.reload" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no in-place retry for a chunk load error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    function BrokenChunk(): ReactElement {
+      throw new Error("Loading chunk 42 failed.");
+    }
+
+    render(
+      <ChunkErrorBoundary>
+        <BrokenChunk />
+      </ChunkErrorBoundary>,
+    );
+
+    await screen.findByText("chunkError.title", {}, { timeout: 6000 });
+    expect(
+      screen.queryByRole("button", { name: "chunkError.retry" }),
+    ).toBeNull();
+  });
+});
