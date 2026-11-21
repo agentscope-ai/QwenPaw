@@ -1,10 +1,12 @@
 ---
 name: docx
 description: "当用户需要创建、读取、编辑或处理 Word 文档（.docx 文件）或 Word 模板（.dotx 文件）时，使用此技能。触发场景包括提到“Word 文档”“word document”“.docx”“.dotx”，或要求生成带目录、标题、页码、信头等格式的专业文档；也包括从 .docx 或 .dotx 文件中提取或重组内容、在文档中插入或替换图片、在 Word 文件中查找替换、处理修订或批注，以及将内容转换为正式的 Word 文档。如果用户要求以 Word / .docx 文件形式交付“报告”“备忘录”“信函”“模板”等成果物，也应使用此技能。不要用于 PDF、电子表格、Google Docs，或与文档生成无关的一般编码任务。"
-license: Proprietary. LICENSE.txt has complete terms
+license: Complete terms in LICENSE.txt
 metadata:
   builtin_skill_version: "2.0"
 ---
+
+<!-- Modified by QwenPaw. -->
 
 > **重要说明:** 所有 `scripts/` 路径均相对于本技能目录。
 > 运行方式: `cd {this_skill_dir} && python scripts/...`

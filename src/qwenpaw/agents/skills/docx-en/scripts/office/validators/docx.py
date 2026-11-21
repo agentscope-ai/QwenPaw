@@ -1,3 +1,5 @@
+# Modified by QwenPaw.
+
 """
 Validator for Word document XML files against XSD schemas.
 """

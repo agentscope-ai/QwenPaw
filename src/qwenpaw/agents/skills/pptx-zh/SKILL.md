@@ -1,10 +1,12 @@
 ---
 name: pptx
 description: "当任何涉及 .pptx 或 .potx 文件的操作发生时使用此技能——无论是作为输入、输出还是两者兼有。包括：创建幻灯片、路演材料或演示文稿；从任何 .pptx 或 .potx 文件中读取、解析或提取文本（即使提取的内容将用于其他地方，如邮件或摘要）；编辑、修改或更新现有演示文稿；合并或拆分幻灯片文件；处理模板（.potx）、布局、演讲者备注或批注。当用户提到“演示文稿”“幻灯片”“PPT”或引用 .pptx / .potx 文件名时触发，无论他们之后打算如何使用内容。只要需要打开、创建或操作 .pptx / .potx 文件，就使用此技能。"
-license: Proprietary. LICENSE.txt has complete terms
+license: Complete terms in LICENSE.txt
 metadata:
   builtin_skill_version: "2.0"
 ---
+
+<!-- Modified by QwenPaw. -->
 
 > **重要说明:** 所有 `scripts/` 路径均相对于本技能目录。
 > 运行方式: `cd {this_skill_dir} && python scripts/...`

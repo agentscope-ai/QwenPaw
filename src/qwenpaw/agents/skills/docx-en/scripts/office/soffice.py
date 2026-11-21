@@ -1,3 +1,5 @@
+# Modified by QwenPaw.
+
 """
 Helper for running LibreOffice (soffice) in environments where AF_UNIX
 sockets may be blocked (e.g., sandboxed VMs).  Detects the restriction
