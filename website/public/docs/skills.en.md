@@ -88,7 +88,7 @@ Adding skills to the pool:
    | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                                                    | Built-in                                                   |
    | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.                                      | Built-in                                                   |
    | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                                        | Built-in                                                   |
-   | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.                                 | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **docx**                      | Create, read, and edit Word documents (.docx, .dotx), including TOC, headers/footers, tables, images, track changes, comments.                                 | https://github.com/anthropics/skills/tree/main/skills/docx |
    | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.                          | Built-in                                                   |
    | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                                                 | Built-in                                                   |
    | **mailbox**                   | Connect through qwenpawmail MCP to send, search, organize, safely automate new mail, and learn reusable workflows. See [Mailbox Management](./mailbox). | Built-in                                                   |
@@ -96,7 +96,7 @@ Adding skills to the pool:
    | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc.                         | Built-in                                                   |
    | **pdf**                       | PDF operations: read, extract text/tables, merge/split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR, etc.                               | https://github.com/anthropics/skills/tree/main/skills/pdf  |
    | **pptx**                      | Create, read, and edit PowerPoint (.pptx), including templates, layouts, notes, and comments.                                                           | https://github.com/anthropics/skills/tree/main/skills/pptx |
-   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.                                       | https://github.com/anthropics/skills/tree/main/skills/xlsx |
+   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .xltx, .csv, .tsv), clean up formatting, formulas, and data analysis.                                       | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
    **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
