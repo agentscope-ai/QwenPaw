@@ -31,6 +31,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
@@ -278,6 +279,7 @@ import {
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
 import BackendApprovalToggle from "./components/BackendApprovalToggle";
 import BackendModelSelector from "./components/BackendModelSelector";
+import ComposerToolsMenu from "./components/ComposerToolsMenu";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -298,6 +300,46 @@ import {
   supportsAgentAttachments,
   useBackendCapabilities,
 } from "../../utils/agentBackend";
+
+type ComposerControlId = "loop" | "model" | "project-directory" | "approval";
+
+const COMPOSER_ITEM_SELECTOR = "[data-composer-responsive-item]";
+
+function flexChildrenWidth(element: HTMLElement | null): number {
+  if (!element) return 0;
+  const children = Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child.getBoundingClientRect().width > 0 &&
+      getComputedStyle(child).display !== "none",
+  );
+  if (children.length === 0) return 0;
+  const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+  return (
+    children.reduce(
+      (total, child) => total + child.getBoundingClientRect().width,
+      0,
+    ) +
+    gap * (children.length - 1)
+  );
+}
+
+function ComposerResponsiveItem({
+  children,
+  id,
+}: {
+  children: ReactNode;
+  id: ComposerControlId;
+}) {
+  return (
+    <span
+      className={styles.composerResponsiveItem}
+      data-composer-responsive-item={id}
+    >
+      {children}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -788,6 +830,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -2069,6 +2112,132 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const activeRunSyncRef = useRef({
+    key: "",
+    sawRunning: false,
+    resumeAttempted: false,
+  });
+
+  useEffect(() => {
+    if (
+      !usesQwenPawBackend ||
+      !backendChatId ||
+      queueSessionId === "new" ||
+      isSessionTransition
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let inFlight = false;
+    const syncKey = `${selectedAgent}:${queueSessionId}`;
+    if (activeRunSyncRef.current.key !== syncKey) {
+      activeRunSyncRef.current = {
+        key: syncKey,
+        sawRunning: false,
+        resumeAttempted: false,
+      };
+    }
+    const syncState = activeRunSyncRef.current;
+    const refreshMessages = async ({
+      requireIdle,
+    }: { requireIdle?: boolean } = {}) => {
+      const session = await sessionApi.refreshSession(
+        queueSessionId,
+        controller.signal,
+      );
+      if (
+        !session ||
+        (requireIdle && (session.generating || chatLoadingRef.current)) ||
+        controller.signal.aborted ||
+        queueSessionIdRef.current !== queueSessionId ||
+        !isChatActiveRef.current
+      ) {
+        return false;
+      }
+      chatRef.current?.messages.setSessionMessages(
+        queueSessionId,
+        session.messages,
+      );
+      return true;
+    };
+    const syncRun = async () => {
+      if (inFlight || controller.signal.aborted || !isChatActiveRef.current)
+        return;
+      inFlight = true;
+      try {
+        const runStatus = await chatApi.getChatStatus(backendChatId, {
+          agentId: selectedAgent,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        if (runStatus.status === "running") {
+          const firstRunningObservation = !syncState.sawRunning;
+          const execution = chatRef.current?.execution;
+          const activeRun = await execution?.getActiveRun(queueSessionId);
+          if (controller.signal.aborted) return;
+          if (activeRun && activeRun.getState() !== "disconnected") {
+            syncState.resumeAttempted = false;
+            return;
+          }
+          if (syncState.resumeAttempted) return;
+          if (!execution) return;
+          if (firstRunningObservation || !activeRun) {
+            if (!(await refreshMessages())) return;
+          }
+          syncState.sawRunning = true;
+          syncState.resumeAttempted = true;
+          try {
+            await execution.resume({
+              sessionId: queueSessionId,
+              source: "direct",
+            });
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              syncState.resumeAttempted = false;
+            }
+            throw error;
+          }
+          return;
+        }
+
+        if (!syncState.sawRunning) return;
+        if (await refreshMessages({ requireIdle: true })) {
+          syncState.sawRunning = false;
+          syncState.resumeAttempted = false;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to synchronize active chat run", error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const retryWhenVisible = () => {
+      if (!document.hidden) void syncRun();
+    };
+    const retryTimer = window.setInterval(
+      retryWhenVisible,
+      ACTIVE_RUN_POLL_INTERVAL_MS,
+    );
+    window.addEventListener("online", retryWhenVisible);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(retryTimer);
+      window.removeEventListener("online", retryWhenVisible);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [
+    backendChatId,
+    isSessionTransition,
+    queueSessionId,
+    selectedAgent,
+    usesQwenPawBackend,
+  ]);
 
   useLayoutEffect(() => {
     sessionApi.invalidateSessionCreation();
@@ -3554,8 +3723,171 @@ export default function ChatPage() {
     [multimodalCaps, t, usesQwenPawBackend],
   );
 
-  const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root) return;
+
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      const prefix = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-prefix"]',
+      );
+      const actions = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-actions-list"]',
+      );
+      if (!bottom || !prefix || !actions) return;
+
+      // Measure a non-interactive DOM copy, never the visible toolbar.
+      const measurement = document.createElement("div");
+      measurement.className = styles.composerMeasurement;
+      measurement.setAttribute("aria-hidden", "true");
+      measurement.inert = true;
+      const measuredBottom = bottom.cloneNode(true) as HTMLElement;
+      measuredBottom.removeAttribute("data-composer-overflow");
+      measurement.append(measuredBottom);
+      measuredBottom
+        .querySelectorAll("[id]")
+        .forEach((node) => node.removeAttribute("id"));
+      measuredBottom
+        .querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR)
+        .forEach((element) => {
+          element.style.removeProperty("width");
+          element.dataset.composerResizing = "false";
+        });
+      root.append(measurement);
+      try {
+        const items = Array.from(
+          measuredBottom.querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR),
+        ).map((element, index) => {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = element.getBoundingClientRect().width;
+          return {
+            element,
+            id,
+            index,
+            left: element.getBoundingClientRect().left,
+            width,
+          };
+        });
+
+        const measuredPrefix = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-prefix"]',
+        );
+        const measuredActions = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-actions-list"]',
+        );
+        const prefixRow = measuredPrefix?.firstElementChild;
+        const prefixWidth = flexChildrenWidth(
+          prefixRow instanceof HTMLElement ? prefixRow : measuredPrefix,
+        );
+        const actionsWidth = flexChildrenWidth(measuredActions);
+        const bottomGap =
+          Number.parseFloat(getComputedStyle(bottom).columnGap) || 0;
+        const requiredWidth = prefixWidth + actionsWidth + bottomGap;
+
+        const nextWidths: Partial<Record<ComposerControlId, string>> = {};
+        const orderedItems = [...items].sort((left, right) => {
+          const horizontal = right.left - left.left;
+          return horizontal || right.index - left.index;
+        });
+
+        let reservedWidth = requiredWidth;
+        // Each control reserves full widths to its left and minimum widths
+        // to its right. CSS resolves the active control in the same layout
+        // pass as a container resize, without a frame of stale pixel widths.
+        for (const item of orderedItems) {
+          const compactWidth = Number.parseFloat(
+            getComputedStyle(item.element).getPropertyValue(
+              "--composer-compact-width",
+            ),
+          );
+          const resolvedCompactWidth = Number.isFinite(compactWidth)
+            ? compactWidth
+            : 32;
+          const minimum = Math.min(resolvedCompactWidth, item.width);
+          nextWidths[item.id] = `clamp(${minimum}px, calc(100cqw - ${
+            reservedWidth - item.width
+          }px), ${item.width}px)`;
+          reservedWidth -= item.width - minimum;
+        }
+
+        // Keep the threshold independent of whether the tool tray is open.
+        const availableWidth = bottom.clientWidth;
+        const overflow = String(availableWidth < Math.ceil(reservedWidth));
+        if (bottom.dataset.composerOverflow !== overflow) {
+          const focused = document.activeElement;
+          const toggle = bottom.querySelector<HTMLButtonElement>(
+            `.${styles.composerToolsToggle}`,
+          );
+          bottom.dataset.composerOverflow = overflow;
+          if (
+            overflow === "true" &&
+            focused instanceof HTMLElement &&
+            (prefix.contains(focused) ||
+              focused.closest(`.${styles.senderActionAffix}`))
+          ) {
+            toggle?.focus();
+          } else if (overflow === "false" && focused === toggle) {
+            prefix
+              .querySelector<HTMLButtonElement>("button:not(:disabled)")
+              ?.focus();
+          }
+        }
+
+        for (const element of bottom.querySelectorAll<HTMLElement>(
+          COMPOSER_ITEM_SELECTOR,
+        )) {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = nextWidths[id];
+          element.style.width = width ?? "";
+          element.dataset.composerResizing = String(width !== undefined);
+        }
+      } finally {
+        measurement.remove();
+      }
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    const mutationObserver = new MutationObserver(measure);
+    let observedBottom: HTMLElement | null = null;
+    const bindBottom = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      // Measurement copies and unrelated mutations do not change the target.
+      if (bottom === observedBottom) return;
+      if (observedBottom) observer.unobserve(observedBottom);
+      mutationObserver.disconnect();
+      observedBottom = bottom;
+      if (!bottom) return;
+      observer.observe(bottom);
+      mutationObserver.observe(bottom, {
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      measure();
+    };
+    const mountObserver = new MutationObserver(bindBottom);
+    mountObserver.observe(root, { childList: true, subtree: true });
+    bindBottom();
+
+    return () => {
+      active = false;
+      mountObserver.disconnect();
+      observer.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [i18n.language, isMobile]);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4127,92 +4459,92 @@ export default function ChatPage() {
               />
             ) : null}
             {usesQwenPawBackend && (
-              <LoopModeSelector
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                chatId={backendChatId}
-                agentId={selectedAgent}
-              />
+              <ComposerResponsiveItem id="loop">
+                <LoopModeSelector
+                  compact={false}
+                  chatId={backendChatId}
+                  agentId={selectedAgent}
+                />
+              </ComposerResponsiveItem>
             )}
             {usesQwenPawBackend && !isSessionTransition ? (
-              advisorConversation ? (
-                <AdvisorModelsPill />
-              ) : (
-                <SessionThinking
-                  agentId={selectedAgent}
-                  sessionId={queueSessionId}
-                  chatId={backendChatId}
-                  onDecisionConfiguredChange={handleDecisionConfiguredChange}
-                />
-              )
+              <ComposerResponsiveItem id="model">
+                {advisorConversation ? (
+                  <AdvisorModelsPill compact={false} />
+                ) : (
+                  <SessionThinking
+                    agentId={selectedAgent}
+                    sessionId={queueSessionId}
+                    chatId={backendChatId}
+                    compact={false}
+                    onDecisionConfiguredChange={handleDecisionConfiguredChange}
+                  />
+                )}
+              </ComposerResponsiveItem>
             ) : backendCapabilities?.model_selection ? (
-              <BackendModelSelector
-                backendId={selectedAgentBackend}
-                capabilities={backendCapabilities}
-              />
+              <ComposerResponsiveItem id="model">
+                <BackendModelSelector
+                  backendId={selectedAgentBackend}
+                  capabilities={backendCapabilities}
+                  compact={false}
+                />
+              </ComposerResponsiveItem>
             ) : null}
             {pluginSenderPrefix}
           </>
         ),
         actionAffix: (
-          <span
-            className={`${styles.senderActionAffix} ${
-              compactSender ? styles.compactSenderAffix : ""
-            }`}
-          >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
-                />
-              </span>
-            )}
-            {usesQwenPawBackend && !isSessionTransition && (
-              <SessionProjectDirectory
-                scope={sessionScope}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderProjectControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
-            )}
-            {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                decisionModelConfigured={decisionModelConfigured}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
-            ) : approvalPresets.length > 0 ? (
-              <BackendApprovalToggle
-                backend={selectedAgentBackend}
-                sessionId={queueKey}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
-            ) : null}
-          </span>
+          <>
+            <ComposerToolsMenu className={styles.composerToolsToggle} />
+            <span className={styles.senderActionAffix} data-composer-actions>
+              {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span
+                  className={styles.senderContextAffix}
+                  data-composer-context
+                >
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+              {usesQwenPawBackend && !isSessionTransition && (
+                <ComposerResponsiveItem id="project-directory">
+                  <SessionProjectDirectory
+                    scope={sessionScope}
+                    compact={false}
+                    className={styles.senderProjectControl}
+                  />
+                </ComposerResponsiveItem>
+              )}
+              {usesQwenPawBackend ? (
+                <ComposerResponsiveItem id="approval">
+                  <ApprovalLevelToggle
+                    sessionId={queueKey}
+                    runningConfigApprovalLevel={runningConfigApprovalLevel}
+                    decisionModelConfigured={decisionModelConfigured}
+                    compact={false}
+                    className={styles.senderApprovalControl}
+                    onChange={(sessionOverride) => {
+                      sessionApprovalLevelRef.current = sessionOverride;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : approvalPresets.length > 0 ? (
+                <ComposerResponsiveItem id="approval">
+                  <BackendApprovalToggle
+                    backend={selectedAgentBackend}
+                    sessionId={queueKey}
+                    presets={approvalPresets}
+                    compact={false}
+                    onChange={(settings) => {
+                      backendControlsRef.current = settings;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : null}
+            </span>
+          </>
         ),
         ...(supportsAttachments
           ? {
@@ -4240,6 +4572,7 @@ export default function ChatPage() {
                     <Tooltip title={tooltipTitle}>
                       <IconButton
                         aria-label={t("chat.composer.attach")}
+                        data-composer-tool="attach"
                         disabled={props?.disabled}
                         icon={<SparkAttachmentLine size="1em" />}
                         bordered={false}
@@ -4438,15 +4771,28 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity(
-            data.chatSessionId || data.session_id,
-          );
+          const reconnectSessionId = data.chatSessionId || data.session_id;
+          const reconnectIdentity =
+            sessionApi.getSessionIdentity(reconnectSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             reconnectIdentity,
             {},
             selectedAgent,
           );
+          const syncKey = `${snapshot.agentId}:${reconnectSessionId}`;
+          if (queueSessionIdRef.current === reconnectSessionId) {
+            if (activeRunSyncRef.current.key !== syncKey) {
+              activeRunSyncRef.current = {
+                key: syncKey,
+                sawRunning: true,
+                resumeAttempted: true,
+              };
+            } else {
+              activeRunSyncRef.current.sawRunning = true;
+              activeRunSyncRef.current.resumeAttempted = true;
+            }
+          }
           // Attaching to a live turn only invalidates this session's stop.
           clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
@@ -4454,17 +4800,25 @@ export default function ChatPage() {
             .getState()
             .beginTurn(snapshot.agentId, snapshot.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: snapshot.sessionId,
-              user_id: snapshot.userId,
-              channel: snapshot.channel,
-            }),
-            signal: data.signal,
-          });
+          let response: Response;
+          try {
+            response = await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: snapshot.sessionId,
+                user_id: snapshot.userId,
+                channel: snapshot.channel,
+              }),
+              signal: data.signal,
+            });
+          } catch (error) {
+            if (activeRunSyncRef.current.key === syncKey) {
+              activeRunSyncRef.current.resumeAttempted = false;
+            }
+            throw error;
+          }
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
@@ -4601,7 +4955,6 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     isMobile,
-    compactSender,
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,

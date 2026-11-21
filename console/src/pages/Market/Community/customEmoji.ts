@@ -25,12 +25,60 @@ export const CUSTOM_EMOJI_URLS = [
   "https://img.alicdn.com/imgextra/i4/O1CN01d6TatGsJYzI0IsjU_!!6000000002931-2-tps-150-150.png",
   "https://img.alicdn.com/imgextra/i3/O1CN01b9hFkFp46rF0IsjU_!!6000000002946-2-tps-150-150.png",
 ];
-const allowed = new Set(CUSTOM_EMOJI_URLS);
-export function isCustomEmoji(src: string | undefined): boolean {
-  return typeof src === "string" && allowed.has(src);
+
+/**
+ * Animated (GIF) stickers offered in the comment emoji picker's dedicated tab,
+ * kept in sync with agentscope-platform-front's `Custom_ANIMATED_EMOJI_URLS`.
+ * This list only feeds the picker UI; render-time validation stays host-based
+ * (see `customEmojiSrc`), so Platform GIFs not listed here still display.
+ */
+export const CUSTOM_ANIMATED_EMOJI_URLS = [
+  "https://img.alicdn.com/imgextra/i1/O1CN01ob6yLSyHg8D0PAye_!!6000000006992-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i4/O1CN01BBLZldhjx7H0PAye_!!6000000006979-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i1/O1CN01gPGdH0Cz4SJ0PAye_!!6000000001249-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i1/O1CN01X02BMzELcVE0PAye_!!6000000006973-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN01YSnkRi6KAbI0PAye_!!6000000001020-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i3/O1CN0124GiG1Aq6wE0PAye_!!6000000005131-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN0128lQNNCvOgB0PAye_!!6000000005046-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i1/O1CN010xvsPKNMaQJ0PAye_!!6000000002999-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i1/O1CN01MV7QSsm4UIB0PAye_!!6000000007077-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN01ur6S7GZMzYI0PAye_!!6000000002682-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i3/O1CN019msAUzo0byJ0PAye_!!6000000002411-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i1/O1CN01Cho34oqu6UK0PAye_!!6000000003155-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i4/O1CN01UM0uJJIZFKE0PAye_!!6000000000883-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN014xkjoMRtuFI0PAye_!!6000000005513-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN01b9CcDLW39wC0PAye_!!6000000002248-1-tps-200-200.gif",
+  "https://img.alicdn.com/imgextra/i2/O1CN01z2qmTSRcj7D0PAye_!!6000000005940-1-tps-200-200.gif",
+];
+
+/**
+ * Platform comment emoji are served from the alicdn CDN and referenced with the
+ * `[emoji:<url>]` token. Treat any alicdn image URL inside that token as a
+ * renderable emoji — static PNG stickers, animated GIFs, and any sticker
+ * Platform adds later — while rejecting every other host. The trailing slash
+ * anchors the host so lookalikes such as `img.alicdn.com.evil.com` or
+ * `img.alicdn.com@evil.com` do not match. The path charset excludes whitespace
+ * and markdown syntax characters so a token can never escape the
+ * `![emoji](<url>)` wrapper and inject arbitrary links or text.
+ */
+const ALICDN_EMOJI_PATTERN = /^https:\/\/img\.alicdn\.com\/[^\s<>"'()[\]]+$/;
+
+/** Return the URL when it is a renderable alicdn emoji; otherwise `null`. */
+export function customEmojiSrc(raw: string): string | null {
+  return ALICDN_EMOJI_PATTERN.test(raw) ? raw : null;
 }
+
+/** Whether a resolved emoji URL is animated (rendered at the larger size). */
+export function isAnimatedEmoji(src: string): boolean {
+  return src.endsWith(".gif");
+}
+
+export function isCustomEmoji(src: string | undefined): boolean {
+  return typeof src === "string" && customEmojiSrc(src) !== null;
+}
+
 export function markdownWithCustomEmoji(content: string): string {
   return content.replace(/\[emoji:([^\]\n]+)\]/g, (token, url: string) =>
-    allowed.has(url) ? `![emoji](<${url}>)` : token,
+    customEmojiSrc(url) ? `![emoji](<${url}>)` : token,
   );
 }

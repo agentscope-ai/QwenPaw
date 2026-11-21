@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Mapping,
     TYPE_CHECKING,
+    TypeAlias,
     Union,
 )
 
@@ -20,7 +21,7 @@ from .tools import ToolContext
 if TYPE_CHECKING:
     from .sdk import PluginContext
     from .resources import Registration
-
+    from .drivers import DriverContext
 
 JSONBody = Union[
     None,
@@ -150,6 +151,14 @@ class AppContext(ToolContext):
     channel: str = "console"
     _services: Any = field(default=None, repr=False, compare=False)
 
+    def driver_source(
+        self,
+        protocol: str,
+        source_id: str,
+    ) -> AbstractAsyncContextManager["DriverContext"]:
+        """Open an authenticated management scope for this plugin's source."""
+        return self._services.driver_source(protocol, source_id)
+
     async def workspaces(self) -> tuple[WorkspaceSummary, ...]:
         """Configured console workspaces, without host paths or credentials."""
         return await self._services.workspaces()
@@ -256,7 +265,7 @@ class AppContext(ToolContext):
         await self._services.notify(message, title, level)
 
 
-RouteResult = (
+RouteResult: TypeAlias = (
     JSONBody
     | HttpResponse
     | StreamingResponse

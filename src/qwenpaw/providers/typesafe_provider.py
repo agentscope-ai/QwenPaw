@@ -28,19 +28,12 @@ class TypeSafeEvaluationError(RuntimeError):
         self.status_code = status_code
 
 
-def resolve_decision_model(slot=None, *, default_model: str | None = None):
-    """Resolve an agent/global native or local decision model."""
-    from .provider_manager import ProviderManager
+def validate_decision_provider(provider_id: str, provider: Provider | None):
+    """Check whether the host can use this provider for decision models."""
     from .local_decision_model import LocalDecisionProviderMixin
 
-    manager = ProviderManager.get_instance()
-    slot = slot or manager.default_models.get("decision")
-    if slot is None and default_model is None:
-        raise TypeSafeEvaluationError("Configure a decision model")
-    provider_id = slot.provider_id if slot is not None else "typesafe"
     if provider_id not in {"typesafe", "qwenpaw-local"}:
         raise TypeSafeEvaluationError("Decision model provider is unsupported")
-    provider = manager.get_provider(provider_id)
     expected = (
         TypeSafeProvider
         if provider_id == "typesafe"
@@ -48,6 +41,19 @@ def resolve_decision_model(slot=None, *, default_model: str | None = None):
     )
     if not isinstance(provider, expected) or not provider.enabled:
         raise TypeSafeEvaluationError("Decision model provider is unavailable")
+
+
+def resolve_decision_model(slot=None, *, default_model: str | None = None):
+    """Resolve an agent/global native or local decision model."""
+    from .provider_manager import ProviderManager
+
+    manager = ProviderManager.get_instance()
+    slot = slot or manager.default_models.get("decision")
+    if slot is None and default_model is None:
+        raise TypeSafeEvaluationError("Configure a decision model")
+    provider_id = slot.provider_id if slot is not None else "typesafe"
+    provider = manager.get_provider(provider_id)
+    validate_decision_provider(provider_id, provider)
     return provider, slot.model if slot is not None else default_model
 
 

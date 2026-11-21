@@ -671,6 +671,7 @@ class SourceMemoryService:
         self.services = services
         self.executions = ProjectExecutionStore(services.root)
         self._jobs: dict[str, asyncio.Task[None]] = {}
+        self._job_specs: dict[str, SourceMemoryBuildJob] = {}
         self._toolkits: dict[str, tuple[float, MemoryToolkit]] = {}
         self._merged_toolkits: dict[
             str,
@@ -812,10 +813,12 @@ class SourceMemoryService:
             name=f"source-memory:{job.task_id}",
         )
         self._jobs[job.task_id] = worker
+        self._job_specs[job.task_id] = job
 
         def discard(done: asyncio.Task[None]) -> None:
             if self._jobs.get(job.task_id) is done:
                 self._jobs.pop(job.task_id, None)
+                self._job_specs.pop(job.task_id, None)
             if not done.cancelled():
                 try:
                     done.exception()
@@ -870,6 +873,79 @@ class SourceMemoryService:
             if task.status is not TaskStatus.QUEUED:
                 return False
             await asyncio.sleep(2.0)
+
+    async def cancel_for_asset(
+        self,
+        project_id: str,
+        *,
+        logical_asset_id: str | None = None,
+        version_id: str | None = None,
+    ) -> int:
+        """Cancel live memory builds that were fed one source asset.
+
+        Settling the durable Task alone would leave the build running: it goes
+        on paying for the next model stage and then persists a memory graph
+        derived from media that no longer exists. Revoking the worker is what
+        stops that -- ``_execute`` cancels its child subgraph tasks on
+        CancelledError, and no stage after the interrupted one is entered.
+
+        Returns how many live workers were revoked.
+        """
+
+        if logical_asset_id is None and version_id is None:
+            return 0
+        workers: dict[str, asyncio.Task[None]] = {}
+        specs: dict[str, SourceMemoryBuildJob] = {}
+        for task_id, job in list(self._job_specs.items()):
+            if job.project_id != project_id:
+                continue
+            if (
+                job.asset_id != logical_asset_id
+                and job.asset_version_id != version_id
+            ):
+                continue
+            worker = self._jobs.get(task_id)
+            if worker is None or worker.done():
+                continue
+            workers[task_id] = worker
+            specs[task_id] = job
+        if not workers:
+            return 0
+        for task_id in workers:
+            self._jobs.pop(task_id, None)
+            self._job_specs.pop(task_id, None)
+        for worker in workers.values():
+            worker.cancel()
+        await asyncio.gather(*workers.values(), return_exceptions=True)
+        for job in specs.values():
+            await asyncio.to_thread(self._cancel_asset_sync, job)
+        return len(specs)
+
+    def _cancel_asset_sync(self, job: SourceMemoryBuildJob) -> None:
+        """Settle one revoked memory build as CANCELLED (best effort).
+
+        The worker re-raises CancelledError without touching the record, so the
+        cancellation has to be persisted here or the Task would stay RUNNING
+        forever with nobody left to finish it.
+        """
+
+        try:
+            self.executions.transition_task(
+                job.project_id,
+                job.task_id,
+                expected_status={TaskStatus.QUEUED, TaskStatus.RUNNING},
+                status=TaskStatus.CANCELLED,
+                updates={
+                    "error": {
+                        "code": "SOURCE_ASSET_DELETED",
+                        "message": "Source asset was deleted",
+                    },
+                },
+            )
+        except (ExecutionStateConflict, RecordNotFoundError):
+            # Already terminal elsewhere, or its record left with the deleted
+            # Project: nothing remains to disarm.
+            pass
 
     def _cancel_sync(self, job: SourceMemoryBuildJob, reason: str) -> None:
         try:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 from .backend import SIPPlatformError
 from .runtime import ResourceClaim, cancel_tasks
 
 _AUDIO_QUEUE_MAX_FRAMES = 150
+logger = logging.getLogger(__name__)
 
 
 def _put_latest_audio(queue, frame):
@@ -68,6 +70,10 @@ class LiveKitBackend:
                 self._task_failure = completed.exception()
                 self._running = False
                 if first_failure:
+                    logger.error(
+                        f"LiveKit SIP background task failed "
+                        f"({type(self._task_failure).__name__})",
+                    )
                     self._spawn(self._state("failed"))
 
         task.add_done_callback(done)
@@ -104,10 +110,14 @@ class LiveKitBackend:
                 return
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as error:
+                logger.warning(
+                    f"LiveKit SIP connection failed ({type(error).__name__})",
+                )
                 await self._disconnect_room()
                 if not self._running:
                     return
+                logger.info(f"LiveKit SIP reconnecting in {delay}s")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30)
 
@@ -182,12 +192,14 @@ class LiveKitBackend:
         def disconnected(*args):
             if not self._current_room(room, epoch):
                 return
+            logger.warning(f"LiveKit SIP room disconnected")
             self._schedule_end(self._accepted, room, epoch)
 
         await room.connect(self._url, token)
         if not self._current_room(room, epoch):
             raise RuntimeError("SIP_ROOM_RETIRED")
         await room.local_participant.publish_track(track)
+        logger.info(f"LiveKit SIP room connected")
         await self._state("connected")
         for participant in room.remote_participants.values():
             await self._handle_sip_participant(
@@ -217,7 +229,10 @@ class LiveKitBackend:
 
         room = self._room if room is None else room
         epoch = self._room_epoch if epoch is None else epoch
-        if not self._current_room(room, epoch) or self._busy:
+        if not self._current_room(room, epoch):
+            return
+        if self._busy:
+            logger.debug(f"LiveKit SIP participant declined while busy")
             return
         if participant.kind not in (
             rtc.ParticipantKind.PARTICIPANT_KIND_SIP,
@@ -266,6 +281,7 @@ class LiveKitBackend:
                 self._accepted = None
             raise
         if self._matches(binding):
+            logger.debug(f"LiveKit SIP participant accepted")
             for publication in participant.track_publications.values():
                 remote_track = publication.track
                 if (
@@ -296,26 +312,38 @@ class LiveKitBackend:
         if binding is None or not self._matches(binding):
             return
         stream = rtc.AudioStream(track)
+        logger.debug(f"LiveKit SIP audio stream opened")
         self._streams[id(stream)] = stream
+        first_frame = True
         try:
             async for event in stream:
                 if not self._matches(binding):
                     break
-                _put_latest_audio(binding["queue"], bytes(event.frame.data))
+                frame = bytes(event.frame.data)
+                if first_frame:
+                    logger.debug(
+                        f"LiveKit SIP first audio frame: bytes={len(frame)}",
+                    )
+                    first_frame = False
+                _put_latest_audio(binding["queue"], frame)
         finally:
             await stream.aclose()
             self._streams.pop(id(stream), None)
+            logger.debug(f"LiveKit SIP audio stream closed")
             if self._matches(binding):
                 _put_latest_audio(binding["queue"], None)
 
     async def play_audio(self, call_id, audio):
         binding = self._accepted
-        if binding is None or binding["call_id"] != call_id:
+        if (
+            binding is None
+            or binding["call_id"] != call_id
+            or not self._matches(binding)
+        ):
+            logger.debug(f"LiveKit SIP playback skipped for closed call")
             raise SIPPlatformError("CALL_CLOSED")
         from livekit import rtc
 
-        if not self._matches(binding):
-            raise SIPPlatformError("CALL_CLOSED")
         await binding["source"].capture_frame(
             rtc.AudioFrame(
                 data=audio,
@@ -384,9 +412,17 @@ class LiveKitBackend:
         if self._lk_api is not None:
             from livekit import api as lk_api
 
-            await self._lk_api.room.delete_room(
-                lk_api.DeleteRoomRequest(room=self._room_name),
-            )
+            try:
+                await self._lk_api.room.delete_room(
+                    lk_api.DeleteRoomRequest(room=self._room_name),
+                )
+            except Exception as error:
+                logger.warning(
+                    f"LiveKit SIP room deletion failed "
+                    f"({type(error).__name__})",
+                )
+                raise
+            logger.debug(f"LiveKit SIP room deleted")
         if self._running:
             await asyncio.sleep(1)
             await self._connect_with_retry()

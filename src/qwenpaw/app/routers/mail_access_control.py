@@ -26,6 +26,17 @@ router = APIRouter(prefix="/mail-access-control", tags=["mail-access-control"])
 # ── Store helpers ───────────────────────────────────────────────────────────
 
 
+def _require_mail_mcp(request, *agent_ids: str) -> None:
+    """Check execution admission without loading a workspace or its mailbox."""
+    from ..mcp.feature_gate import is_mcp_ready
+    from ..mcp.plugin_service import unavailable
+
+    state = getattr(getattr(request, "app", None), "state", None)
+    loader = getattr(state, "plugin_loader", None)
+    if any(not is_mcp_ready(loader, agent_id) for agent_id in agent_ids):
+        raise unavailable()
+
+
 def _agent_mail_acl_enabled(agent_id: str) -> bool:
     """Return True if the agent has mailbox management
     with access control enabled."""
@@ -128,6 +139,7 @@ async def resume_processing(
     request: Request,
 ):
     """Resume only the displayed pause; never lazy-start another workspace."""
+    _require_mail_mcp(request, agent_id)
     manager = getattr(request.app.state, "multi_agent_manager", None)
     workspace = manager.get_loaded_agent(agent_id) if manager else None
     monitor = getattr(workspace, "mail_monitor", None)
@@ -327,6 +339,7 @@ async def get_pending_count():
 async def approve_pending(body: MailACLActionBody, request: Request):
     from ..inbox_store import mark_read_by_acl_sender
 
+    _require_mail_mcp(request, *(entry.agent_id for entry in body.entries))
     _require_valid_addresses(body.entries)
     # The store atomically removes the user-visible pending row and moves all
     # of its message UIDs into a separate durable replay outbox.

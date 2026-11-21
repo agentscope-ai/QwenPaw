@@ -1,0 +1,13 @@
+{
+  "id": "local-whisper",
+  "name": "Local Whisper",
+  "version": "1.0.0",
+  "description": "Transcribe audio locally with OpenAI Whisper.",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {"backend": "plugin.py"},
+  "qwenpaw_version": {"min": "2.3.1"},
+  "sdk": {"version": "1.1", "capabilities": ["transcription", "resources"]},
+  "dependencies": ["openai-whisper>=20231117", "torch"],
+  "meta": {"dependency_install_timeout": 1800}
+}

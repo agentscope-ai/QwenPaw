@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import { getApiUrl } from "@/api/config";
 import {
   fetchMarketPlugins,
@@ -269,11 +270,13 @@ export function useMarketPlugins({
         );
         await onInstalled(result);
       } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : tRef.current("pluginManager.installFailed");
-        message.error(msg);
+        message.error(
+          pluginErrorMessage(
+            err instanceof Error ? err : undefined,
+            tRef.current("pluginManager.installFailed"),
+            tRef.current,
+          ),
+        );
       } finally {
         setInstallingId(null);
       }
