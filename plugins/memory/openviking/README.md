@@ -4,8 +4,15 @@
 
 This plugin connects QwenPaw to a separately deployed
 [OpenViking](https://github.com/volcengine/OpenViking) server using its REST
-API. It stores completed user/assistant turns, recalls relevant history before
-model calls, and exposes a governed `memory_search` tool.
+API. When automatic recall is enabled, it retrieves relevant long-term memory
+before model calls. After each completed user/assistant turn, a background queue
+appends messages not already acknowledged by OpenViking to the remote session.
+With `every_turn`, the plugin requests a commit after each successfully appended
+turn; with `auto`, OpenViking executes the automatic commit policy supplied by
+the plugin.
+Commits archive messages and trigger background memory extraction, so a
+successful append or commit request does not mean extraction has finished.
+The plugin also exposes a governed `memory_search` tool.
 
 ## Security and trust boundary
 
@@ -82,10 +89,17 @@ complete its tab:
 - **Request Timeout**: 1–300 seconds.
 - **Automatic Recall Token Budget**: 64–32,000 estimated tokens. This bounds
   the complete synthetic recall message, including the safety notice.
-- **Commit Policy**: `auto` lets OpenViking apply its server-side policy;
+- **Commit Policy**: `auto` lets OpenViking execute the plugin's preset policy;
   `every_turn` requests a commit after every successfully appended turn.
 - **Auto Memory Search**: enable/disable automatic recall and choose 1–20
   result candidates.
+
+The `auto` preset uses a message-count threshold of 20 and retains the four most
+recent messages when that threshold triggers a commit. These are message counts,
+not conversation turns. The preset also supplies a 300-second idle timeout and a
+60-second minimum automatic commit interval; idle scheduling must be enabled on
+the server. Idle-timeout commits can use different retention behavior, as noted
+below for v0.5.2.1. These policy parameters are not configurable in the Console.
 
 Saving Agent configuration reloads its memory backend instance through
 QwenPaw's normal plugin lifecycle. Configuration is stored under
@@ -113,6 +127,42 @@ QwenPaw's normal plugin lifecycle. Configuration is stored under
 ```
 
 Do not commit a real API key. The example value is a placeholder only.
+
+### Enable session-based query expansion
+
+Query expansion uses recent conversation history to fill in missing context in
+a search query, such as the project referred to by "its device number". The
+plugin currently hardcodes `query_expansion="off"` in its requests. The Console's
+`auto` commit policy controls when messages are archived; it is not a query
+expansion switch. Query expansion cannot be enabled through the Console or Agent
+configuration; the instructions below require editing source code. Ordinary
+long-term-memory recall works with expansion disabled.
+
+To enable query expansion, edit the request JSON in
+`OpenVikingClient.search_context()` in [backend/client.py](backend/client.py):
+change `"query_expansion": "off"` to `"query_expansion": "auto"`. Keep the other
+request fields unchanged. Reinstall the changed plugin with `--force`
+and reload the Agent. For an image-based deployment, rebuild and recreate the
+QwenPaw container from the modified source; restarting an unchanged image is
+not sufficient. To disable query expansion, restore `"off"` and redeploy using
+the same steps.
+
+Query expansion was validated against OpenViking v0.5.2.1 with
+`commit_policy="auto"`. Follow-up queries used the session history to resolve
+project names, including after a project switch. Recall also remained functional
+after a message-count-triggered commit retained recent messages. A fresh session
+did not use the previous session's history for expansion; the user's long-term
+memory library remains shared across sessions.
+
+Expansion requires usable session messages or an archive overview. In the tested
+v0.5.2.1 behavior, message-count-triggered automatic commits retain four messages
+under the plugin's policy, but idle-timeout commits clear the current messages.
+The plugin's `every_turn` requests also retain no messages. Without an archive
+overview, expansion falls back to the original query after those messages are
+cleared. No live query-expansion validation is claimed here for other versions.
+For verification, inspect the response's `stats.query_expansion` and
+`stats.planned_queries`; `"used"` means analysis ran, not that extra queries were
+necessarily generated.
 
 ## Verify
 
@@ -148,6 +198,9 @@ Explicit search clips each formatted result to 2,048 UTF-8 bytes and the
 complete returned text to 8,192 UTF-8 bytes. The total includes the intact
 safety notice, separators, and truncation markers. These are text-output
 bounds, not HTTP response-size limits or exact token budgets.
+
+These limits are fixed constants in the plugin source and are not currently
+configurable through the Console or Agent configuration.
 
 The Manager caches at most 256 recently used prepared sessions and 10,000
 recently recorded completed message IDs. Evicting a session cache entry only
