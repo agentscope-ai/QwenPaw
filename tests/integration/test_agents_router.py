@@ -5,6 +5,7 @@ Tests cover:
 - GET /api/agents: list agents (returns {"agents": [...]})
 - GET /api/agents/{agent_id}: get agent details
 - POST /api/agents: create agent
+- PUT /api/agents/default: update the default agent
 """
 
 import pytest
@@ -108,3 +109,53 @@ def test_agents_get_default(app_server) -> None:
     assert resp.status_code == 200, app_server.logs_tail()
     data = resp.json()
     assert isinstance(data, dict)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_agents_update_default(app_server) -> None:
+    """Persist default-agent edits without changing its ID or workspace."""
+    original = app_server.api_request(
+        "GET",
+        "/api/agents/default",
+        timeout=_AGENTS_TIMEOUT,
+    )
+    assert original.status_code == 200, app_server.logs_tail()
+    profile = original.json()
+    changes = {
+        "id": "cannot-rename-default",
+        "name": "Updated Default Agent",
+        "description": "Updated through the agents API",
+        "workspace_dir": str(app_server.working_dir / "cannot-move-default"),
+    }
+    try:
+        updated = app_server.api_request(
+            "PUT",
+            "/api/agents/default",
+            json=changes,
+            timeout=_AGENTS_TIMEOUT,
+        )
+        assert updated.status_code == 200, app_server.logs_tail()
+        saved = app_server.api_request(
+            "GET",
+            "/api/agents/default",
+            timeout=_AGENTS_TIMEOUT,
+        )
+        assert saved.status_code == 200, app_server.logs_tail()
+        for result in (updated.json(), saved.json()):
+            assert result["name"] == changes["name"]
+            assert result["description"] == changes["description"]
+            assert result["id"] == "default"
+            assert result["workspace_dir"] == profile["workspace_dir"]
+    finally:
+        restored = app_server.api_request(
+            "PUT",
+            "/api/agents/default",
+            json={
+                "id": "default",
+                "name": profile["name"],
+                "description": profile["description"],
+            },
+            timeout=_AGENTS_TIMEOUT,
+        )
+        assert restored.status_code == 200, app_server.logs_tail()
