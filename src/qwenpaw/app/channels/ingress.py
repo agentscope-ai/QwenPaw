@@ -170,6 +170,7 @@ class ChannelIngressService:
         routes=None,
         trusted_proxy=None,
         limits=None,
+        base_path="",
     ):
         if host_port is not None and (
             type(host_port) is not int or not 1 <= host_port <= 65535
@@ -177,6 +178,7 @@ class ChannelIngressService:
             raise ValueError("HOST_INGRESS_PORT_INVALID")
         self.registry = registry
         self.host_port = host_port
+        self.base_path = base_path
         self.limits = limits or IngressLimits()
         self.trusted_proxy = trusted_proxy or (lambda request: False)
         self.routes = {}
@@ -209,6 +211,7 @@ class ChannelIngressService:
                         "host_port": 1,
                         "paths": [path],
                         "bridge_token": "validation",
+                        "base_path": self.base_path,
                     },
                 )
             if not values or len(set(values)) != len(values):
@@ -315,11 +318,12 @@ class ChannelIngressService:
                 reference,
                 routes,
                 HostForwardingBinding(
-                    "_qp_endpoint",
-                    secrets.token_urlsafe(24),
-                    self.host_port,
-                    paths,
-                    secrets.token_urlsafe(32),
+                    route_query_key="_qp_endpoint",
+                    route_selector=secrets.token_urlsafe(24),
+                    host_port=self.host_port,
+                    paths=paths,
+                    bridge_token=secrets.token_urlsafe(32),
+                    base_path=self.base_path,
                 ),
             )
             self._bindings[service] = binding

@@ -346,6 +346,7 @@ class HostForwardingBinding:
     host_port: int
     paths: tuple[str, ...]
     bridge_token: str = field(repr=False)
+    base_path: str = ""
 
     @classmethod
     def from_mapping(cls, value: object) -> "HostForwardingBinding":
@@ -358,6 +359,7 @@ class HostForwardingBinding:
                 "host_port",
                 "paths",
                 "bridge_token",
+                "base_path",
             },
         )
         key = _string(data.get("route_query_key"), "route_query_key")
@@ -380,22 +382,42 @@ class HostForwardingBinding:
             for path in paths
         ):
             raise _error("invalid forwarding path")
+        base_path = data.get("base_path", "")
+        if (
+            not isinstance(base_path, str)
+            or base_path
+            and (
+                not base_path.startswith("/")
+                or base_path.startswith("//")
+                or base_path.endswith("/")
+                or any(char in base_path for char in "?#\\%")
+                or any(
+                    segment in {"", ".", ".."}
+                    for segment in base_path.split("/")[1:]
+                )
+            )
+        ):
+            raise _error("invalid forwarding base path")
         return cls(
             key,
             selector,
             port,
             paths,
             _string(data.get("bridge_token"), "bridge_token"),
+            base_path,
         )
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        result = {
             "route_query_key": self.route_query_key,
             "route_selector": self.route_selector,
             "host_port": self.host_port,
             "paths": list(self.paths),
             "bridge_token": self.bridge_token,
         }
+        if self.base_path:
+            result["base_path"] = self.base_path
+        return result
 
 
 @dataclass(frozen=True)

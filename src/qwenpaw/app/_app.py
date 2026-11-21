@@ -570,6 +570,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_loader.registry,
                 host_port=server_port(app),
                 trusted_proxy=is_trusted_proxy,
+                base_path=_BASE_PATH,
             )
             plugin_loader.registry.channel_ingress_service = (
                 app.state.channel_ingress

@@ -18,6 +18,7 @@ from qwenpaw.app.base_path import (
     ConsoleIndexResponse,
     normalize_base_path,
 )
+from qwenpaw.channel_protocol.models import HostForwardingBinding
 
 
 @pytest.mark.parametrize(
@@ -52,6 +53,30 @@ def test_normalize_base_path(value, expected):
 def test_normalize_base_path_rejects_ambiguous_paths(value):
     with pytest.raises(ValueError):
         normalize_base_path(value)
+
+
+def test_forwarding_binding_preserves_optional_base_path():
+    fields = {
+        "route_query_key": "_qp_endpoint",
+        "route_selector": "voice/private:scope",
+        "host_port": 18433,
+        "paths": ["/voice/incoming"],
+        "bridge_token": "private-bridge-token",
+    }
+    root = HostForwardingBinding.from_mapping(fields)
+    assert root.base_path == ""
+    assert "base_path" not in root.to_mapping()
+
+    mounted = HostForwardingBinding.from_mapping(
+        {**fields, "base_path": "/my console"},
+    )
+    assert mounted.base_path == "/my console"
+    assert (
+        HostForwardingBinding.from_mapping(
+            mounted.to_mapping(),
+        )
+        == mounted
+    )
 
 
 def _mounted_app(base_path: str = "/app/qwenpaw/web") -> FastAPI:
