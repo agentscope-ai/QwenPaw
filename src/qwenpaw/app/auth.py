@@ -32,6 +32,7 @@ from urllib.parse import unquote
 
 from fastapi import Request, Response
 from starlette.requests import HTTPConnection
+from starlette.routing import get_route_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -811,7 +812,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not is_auth_enabled() or not has_registered_users():
             return True
 
-        path = request.url.path
+        path = get_route_path(request.scope)
         if path == "/api/config/theme" and request.method == "GET":
             return True
         if (

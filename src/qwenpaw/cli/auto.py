@@ -26,7 +26,7 @@ from typing import Any
 
 import click
 
-from .http import client, print_json
+from .http import client, print_json, resolve_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +51,7 @@ def _ensure_daemon_alive(base_url: str) -> None:
 
 
 def _base_url(ctx: click.Context, base_url: str | None) -> str:
-    if base_url:
-        return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
+    return resolve_base_url(ctx, base_url)
 
 
 def _add_command(

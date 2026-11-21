@@ -4,6 +4,7 @@
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Request, Response, WebSocket
+from starlette.routing import get_route_path
 
 from ..channels.ingress import route_is_unowned
 
@@ -32,7 +33,7 @@ def _legacy_unowned(request, service):
     return route_is_unowned(
         registry,
         request.method,
-        request.scope["path"],
+        get_route_path(request.scope),
         service=service,
     )
 

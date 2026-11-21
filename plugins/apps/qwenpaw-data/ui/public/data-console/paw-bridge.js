@@ -33,13 +33,16 @@
     }
   }
 
-  function needsHostAuth(url) {
+  function hostRequestUrl(url) {
     try {
       var resolved = new URL(url, window.location.href);
-      return (
-        resolved.origin === window.location.origin &&
-        resolved.pathname.indexOf(API_PREFIX) === 0
-      );
+      if (resolved.origin !== window.location.origin || !resolved.pathname.startsWith(API_PREFIX)) return null;
+      var host = window.parent.QwenPaw && window.parent.QwenPaw.host;
+      if (!host || !host.getApiUrl) return resolved.href;
+      var mounted = new URL(host.getApiUrl(resolved.pathname.slice(4)), window.location.origin);
+      if (mounted.origin !== resolved.origin) return null;
+      mounted.search = resolved.search;
+      return mounted.href;
     } catch (error) {
       return false;
     }
@@ -49,14 +52,11 @@
   var originalFetch = window.fetch;
   if (typeof originalFetch === "function") {
     window.fetch = function (input, init) {
-      var url =
-        typeof input === "string"
-          ? input
-          : input && typeof input.url === "string"
-            ? input.url
-            : "";
-      var token = hostToken();
-      if (needsHostAuth(url)) {
+      var url = input instanceof Request ? input.url : String(input);
+      var target = hostRequestUrl(url);
+      if (target) {
+        input = input instanceof Request ? new Request(target, input) : target;
+        var token = hostToken();
         var headers = new Headers(
           (init && init.headers) ||
             (input && typeof input.url === "string" ? input.headers : undefined),
@@ -79,7 +79,9 @@
     var originalSetHeader = xhrProto.setRequestHeader;
 
     xhrProto.open = function (method, url) {
-      this.__pawNeedsHostAuth = needsHostAuth(url);
+      var target = hostRequestUrl(url);
+      this.__pawNeedsHostAuth = Boolean(target);
+      if (target) arguments[1] = target;
       this.__pawHasAuthHeader = false;
       this.__pawHasAgentHeader = false;
       return originalOpen.apply(this, arguments);

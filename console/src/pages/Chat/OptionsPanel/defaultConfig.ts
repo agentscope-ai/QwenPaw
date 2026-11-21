@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { getConsoleAssetUrl } from "../../../utils/runtimeBasePath";
 
 const defaultConfig = {
   theme: {
@@ -27,7 +28,7 @@ const defaultConfig = {
     greeting: "Hello, how can I help you today?",
     description:
       "I am a helpful assistant that can help you with your questions.",
-    avatar: `${import.meta.env.BASE_URL}online.svg`,
+    avatar: getConsoleAssetUrl("online.svg"),
     prompts: [
       {
         value: "Let's start a new journey!",

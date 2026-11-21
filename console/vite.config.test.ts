@@ -20,9 +20,13 @@ function loadDeploymentConfig(basename: string | undefined) {
        const { config } = await loadConfigFromFile({
          command: "build", mode: "production",
        });
+       const renderBuiltUrl = config.experimental?.renderBuiltUrl;
        process.stdout.write(JSON.stringify({
          base: config.base ?? "/",
          apiBase: config.define.VITE_API_BASE_URL,
+         assetBase: config.define["import.meta.env.BASE_URL"],
+         jsAsset: renderBuiltUrl?.("logo-light.svg", { hostType: "js" }),
+         htmlEntry: renderBuiltUrl?.("assets/index.js", { hostType: "html" }),
        }));`,
     ],
     {
@@ -30,15 +34,24 @@ function loadDeploymentConfig(basename: string | undefined) {
       encoding: "utf8",
     },
   );
-  return JSON.parse(output) as { base: string; apiBase: string };
+  return JSON.parse(output) as {
+    base: string;
+    apiBase: string;
+    jsAsset?: { runtime: string };
+    htmlEntry?: { relative: boolean };
+    assetBase?: string;
+  };
 }
 
 describe("console deployment configuration", () => {
   it.each([undefined, "", " "])(
-    "keeps assets at the root when the basename is %j",
+    "uses relative entry assets when the basename is %j",
     (basename) => {
       const config = loadDeploymentConfig(basename);
-      expect(config.base).toBe("/");
+      expect(config.base).toBe("./");
+      expect(config.jsAsset?.runtime).toContain("__qpBase");
+      expect(config.assetBase).toContain("__qpBase");
+      expect(config.htmlEntry).toEqual({ relative: true });
     },
   );
 

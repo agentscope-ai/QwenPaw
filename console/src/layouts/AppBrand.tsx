@@ -23,6 +23,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { Slot } from "../plugins/registry/Slot";
 import { isDesktopApp } from "../tauri/backendRuntime";
 import { openExternalLink } from "../utils/openExternalLink";
+import { getConsoleAssetUrl } from "../utils/runtimeBasePath";
 import {
   compareVersions,
   getReleaseNotesUrl,
@@ -296,9 +297,9 @@ export default function AppBrand({
         <span className={styles.appBrandLogo} onClick={handleLogoClick}>
           <Slot name="header.logo" kind="replace">
             <img
-              src={`${import.meta.env.BASE_URL}${
-                isDark ? "logo-dark.svg" : "logo-light.svg"
-              }`}
+              src={getConsoleAssetUrl(
+                isDark ? "logo-dark.svg" : "logo-light.svg",
+              )}
               alt="QwenPaw"
               className={styles.logoImg}
             />

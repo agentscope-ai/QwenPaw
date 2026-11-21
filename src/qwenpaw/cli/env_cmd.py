@@ -8,6 +8,7 @@ from urllib.parse import quote
 import click
 import httpx
 
+from ..app.base_path import normalize_base_path
 from ..envs import delete_env_var, load_envs, set_env_var
 from ..envs.registry import (
     ENV_VAR_SPECS_BY_KEY,
@@ -29,6 +30,7 @@ def _managed_envs(
     if endpoint is None:
         raise click.ClickException("Managed runtime endpoint is unavailable")
     host, port = endpoint
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
     path = "/api/envs"
     if method == "DELETE":
         path = f"{path}/{quote(key or '', safe='')}"
@@ -36,7 +38,7 @@ def _managed_envs(
             method = "POST"
             path = f"{path}/reset"
     try:
-        with api_client(f"http://{host}:{port}") as client:
+        with api_client(f"http://{host}:{port}{base_path}") as client:
             response = client.request(
                 method,
                 path,

@@ -366,6 +366,7 @@
     "configSaved": "配置已保存",
     "configReloaded": "配置已重新加载",
     "reloadConfigError": "重新加载配置时发生错误",
+    "hostProvidersUnavailable": "未能从 QwenPaw 加载模型供应商，请重新加载后再试。",
     "reloadConfig": "重新加载配置",
     "saveConfig": "保存配置",
     "unknownError": "未知错误",

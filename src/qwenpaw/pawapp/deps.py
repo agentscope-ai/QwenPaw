@@ -20,6 +20,7 @@ import logging
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request
+from starlette.routing import get_route_path
 
 from .context import PawAppContext
 
@@ -51,7 +52,7 @@ def _extract_app_id_from_request(request: Request) -> str:
 
     # Priority 3: parse URL path /api/{app_id}/...
     # Real PawApp routes registered by PawApp.register() are /api/{app_id}/...
-    parts = request.url.path.split("/")
+    parts = get_route_path(request.scope).split("/")
     if len(parts) >= 3 and parts[1] == "api" and parts[2]:
         return parts[2]
 

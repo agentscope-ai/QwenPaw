@@ -1,7 +1,8 @@
 import { create } from "zustand";
+import { getConsoleAssetUrl } from "../utils/runtimeBasePath";
 import { avatarApi, type AvatarProfile } from "../api/modules/avatars";
 
-export const DEFAULT_AVATAR = `${import.meta.env.BASE_URL}qwenpaw-avatar.gif`;
+export const DEFAULT_AVATAR = getConsoleAssetUrl("qwenpaw-avatar.gif");
 let generation = 0;
 let revision = 0;
 interface AvatarState extends AvatarProfile {

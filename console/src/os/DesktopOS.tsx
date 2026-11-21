@@ -10,6 +10,7 @@
  * classic sidebar layout is untouched.
  */
 import { useMemo, useEffect, useState, useCallback } from "react";
+import { getConsoleAssetUrl } from "../utils/runtimeBasePath";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
 import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
@@ -444,7 +445,7 @@ export default function DesktopOS() {
           lowest layer and never intercepts pointer events, so it reads as a
           backdrop behind icons and app windows rather than a card. */}
       <div className={styles.emptyHint}>
-        <img src={`${import.meta.env.BASE_URL}qwenpaw.png`} alt="" />
+        <img src={getConsoleAssetUrl("qwenpaw.png")} alt="" />
         <div className={styles.emptyBrandName}>QwenPaw OS</div>
       </div>
 

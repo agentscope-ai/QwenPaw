@@ -1153,7 +1153,6 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   );
 
   useEffect(() => {
-    getHostProviders().then(setHostProviders);
     getTtsCapabilities()
       .then(setTtsCapabilities)
       .catch(() => setTtsCapabilities(null));
@@ -1243,9 +1242,14 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       // values and reset below.
       const [data, providers] = await Promise.all([
         getModelConfig(),
-        getHostProviders(),
+        getHostProviders().catch(() => {
+          message.error(t("modelConfig.hostProvidersUnavailable"));
+          return null;
+        }),
       ]);
-      const knownHostProtocols = new Set(providers.map((p) => p.name));
+      if (providers !== null) setHostProviders(providers);
+      const knownHostProtocols =
+        providers && new Set(providers.map((p) => p.name));
       const receivedGrounding = data.grounding as Partial<GroundingConfig>;
       const validationSource =
         receivedGrounding.validation_source ??
@@ -1282,6 +1286,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         },
       };
       if (
+        knownHostProtocols &&
         !VLM_PROTOCOLS.includes(merged.vlm.protocol) &&
         !knownHostProtocols.has(merged.vlm.protocol)
       )
@@ -1338,11 +1343,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       setConfig(merged);
       setTested(initialTested);
       snapshotRef.current = JSON.parse(JSON.stringify(merged));
+      return providers !== null;
     } catch {
       setConfig(DEFAULT_CONFIG);
       snapshotRef.current = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+      return false;
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (open) {
@@ -1356,8 +1363,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     if (reloading) return;
     setReloading(true);
     try {
-      await loadConfig();
-      message.success(t("modelConfig.configReloaded"));
+      if (await loadConfig()) message.success(t("modelConfig.configReloaded"));
     } catch (err) {
       message.error(
         (err as Error).message || t("modelConfig.reloadConfigError"),

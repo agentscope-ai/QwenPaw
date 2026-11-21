@@ -138,6 +138,16 @@ class TestGetApiBase:
         )
         assert pc._get_api_base() == "http://127.0.0.1:9001/api"
 
+    def test_includes_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+        monkeypatch.setattr(pc, "read_runtime_api", lambda: None)
+        monkeypatch.setattr(
+            config_utils,
+            "read_last_api",
+            lambda: ("127.0.0.1", 9001),
+        )
+        assert pc._get_api_base() == "http://127.0.0.1:9001/app/api"
+
 
 # ---------------------------------------------------------------------------
 # _api_install_plugin / _api_upload_plugin / _api_uninstall_plugin

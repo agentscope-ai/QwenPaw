@@ -96,10 +96,7 @@ def parse_build_info(path: Path) -> dict[str, str]:
             raise ValidationError(f"{key} must be a SHA-256 digest")
     if values["gateway_base"] != "/api/qwenpaw-data/engine":
         raise ValidationError("unexpected engine gateway base")
-    if values["context_console_url"] != (
-        "/api/frontend_plugin/qwenpaw-data/files/"
-        "ui/dist/context-console/index.html#"
-    ):
+    if values["context_console_url"] != "../context-console/index.html#":
         raise ValidationError("unexpected Context console URL")
     return values
 

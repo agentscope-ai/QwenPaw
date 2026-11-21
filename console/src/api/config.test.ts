@@ -16,7 +16,10 @@ const setToken = (v: string) => {
 };
 
 describe("getApiUrl", () => {
-  beforeEach(() => setViteBase(""));
+  beforeEach(() => {
+    setViteBase("");
+    delete window.__qpBase;
+  });
 
   it("prepends /api prefix when base is empty", () => {
     expect(getApiUrl("/models")).toBe("/api/models");
@@ -40,6 +43,13 @@ describe("getApiUrl", () => {
     expect(getApiUrl("/models/openai/config")).toBe(
       "/api/models/openai/config",
     );
+  });
+
+  it("uses the server-injected prefix for same-origin API requests", () => {
+    window.__qpBase = "/app/qwenpaw/web";
+    expect(getApiUrl("/models")).toBe("/app/qwenpaw/web/api/models");
+    setViteBase("http://localhost:8088");
+    expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
   });
 });
 

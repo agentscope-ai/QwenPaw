@@ -156,4 +156,39 @@ describe("configured console basename", () => {
     );
     expect(navigation.getOsRootHref("/login")).toBe("/os");
   });
+
+  it.each(["/控制台", "/my console"])(
+    "keeps browser navigation inside %s",
+    async (base) => {
+      window.__qpBase = base;
+      try {
+        const navigation = await loadNavigation(undefined);
+        const pathname = new URL(`${base}/login`, "https://example.org")
+          .pathname;
+        expect(navigation.stripRouterBasename(pathname)).toBe("/login");
+        expect(navigation.addRouterBasename(pathname, "/chat")).toBe(
+          pathname.replace(/login$/, "chat"),
+        );
+      } finally {
+        delete window.__qpBase;
+      }
+    },
+  );
+
+  it("prefers the server-injected runtime base path", async () => {
+    window.__qpBase = "/app/qwenpaw/web";
+    const navigation = await loadNavigation(undefined);
+    const location = {
+      pathname: "/app/qwenpaw/web/chat",
+      search: "?draft=one",
+    };
+    expect(navigation.getRouterBasename(location.pathname)).toBe(
+      "/app/qwenpaw/web",
+    );
+    expect(navigation.stripRouterBasename(location.pathname)).toBe("/chat");
+    expect(navigation.getLoginHref(location)).toBe(
+      "/app/qwenpaw/web/login?redirect=%2Fchat%3Fdraft%3Done",
+    );
+    delete window.__qpBase;
+  });
 });

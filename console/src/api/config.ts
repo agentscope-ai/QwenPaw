@@ -1,3 +1,5 @@
+import { getRuntimeBasePath } from "../utils/runtimeBasePath";
+
 declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
 
@@ -10,7 +12,7 @@ export function setRuntimeApiBaseUrl(url: string): void {
 }
 
 export function getApiBaseUrl(): string {
-  return runtimeApiBaseUrl ?? VITE_API_BASE_URL ?? "";
+  return runtimeApiBaseUrl ?? (VITE_API_BASE_URL || getRuntimeBasePath());
 }
 
 let authCleanup: Promise<unknown> = Promise.resolve();

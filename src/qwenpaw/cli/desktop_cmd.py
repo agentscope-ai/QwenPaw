@@ -253,6 +253,7 @@ def desktop_cmd(
     logger.info("Server subprocess starting...")
 
     env = os.environ.copy()
+    env.pop("QWENPAW_BASE_PATH", None)
     env[LOG_LEVEL_ENV] = log_level
 
     if "SSL_CERT_FILE" in env:

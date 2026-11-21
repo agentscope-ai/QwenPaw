@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Callable, Dict, Optional
@@ -14,6 +15,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
+from ...app.base_path import normalize_base_path
 from ...config.config import load_agent_config
 from ...config.utils import read_last_api
 from ...constant import (
@@ -54,9 +56,11 @@ def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
     last_api = read_runtime_api() or read_last_api()
     if last_api:
         host, port = last_api
-        return f"http://{host}:{port}"
+        base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+        return f"http://{host}:{port}{base_path}"
 
-    return DEFAULT_AGENT_API_BASE_URL
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    return f"{DEFAULT_AGENT_API_BASE_URL}{base_path}"
 
 
 def _normalize_api_base_url(base_url: Optional[str]) -> str:

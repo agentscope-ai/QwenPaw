@@ -17,6 +17,7 @@ from typing import Optional
 import click
 import httpx
 
+from ..app.base_path import normalize_base_path
 from ..config import utils as config_utils
 from ..utils.runtime_api import api_client, read_runtime_api
 
@@ -95,7 +96,8 @@ def _get_api_base() -> Optional[str]:
     if api_info is None:
         return None
     host, port = api_info
-    return f"http://{host}:{port}/api"
+    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+    return f"http://{host}:{port}{base_path}/api"
 
 
 def _api_install_plugin(source: str, force: bool = False) -> bool:
