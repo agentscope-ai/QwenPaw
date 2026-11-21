@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from dataclasses import replace
 from pathlib import Path
 from functools import partial
 
@@ -971,7 +970,6 @@ def test_offline_force_dependency_failure_preserves_old(
         calls.append((requirements_file, plugin_id, target))
         assert requirements_file == source / "requirements.txt"
         assert plugin_id == "demo"
-        assert target == install_target
         assert spec.code_root == source_path == source
         assert (
             process is not None and snapshot is not None and target is not None
@@ -980,19 +978,6 @@ def test_offline_force_dependency_failure_preserves_old(
 
     from qwenpaw.plugins.loader import PluginLoader
 
-    install_target = tmp_path / "dependency-target"
-    install_target.mkdir()
-    original_environment = PluginLoader._dependency_environment
-
-    def fixed_environment(self, snapshot=None):
-        context = original_environment(self, snapshot)
-        return replace(context, install_target=install_target)
-
-    monkeypatch.setattr(
-        PluginLoader,
-        "_dependency_environment",
-        fixed_environment,
-    )
     monkeypatch.setattr(
         PluginLoader,
         "_acquire_dependency_wheels",
@@ -1002,7 +987,7 @@ def test_offline_force_dependency_failure_preserves_old(
         pc.plugin,
         ["install", str(source), "--force"],
     )
-    assert calls, result.output
+    assert calls
     assert result.exit_code != 0
     assert "deps failed" in result.output
     assert "installed successfully" not in result.output

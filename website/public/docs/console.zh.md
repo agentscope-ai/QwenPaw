@@ -60,6 +60,12 @@ example.com {
 随后访问 `https://example.com/qwenpaw/`。QwenPaw 会把不带末尾斜杠的前缀
 重定向到此地址；配置前缀之外的请求返回 404。
 
+本机 CLI 命令和 Chrome Bridge 不会从已保存的服务地址中发现此前缀，运行时应
+设置与服务相同的 `QWENPAW_BASE_PATH`。支持 `--base-url` 的命令也可以显式传入
+带前缀的完整 URL，例如 `http://127.0.0.1:8088/qwenpaw`；没有此选项的命令
+（包括 `qwenpaw env` 和 `qwenpaw plugin`）以及 Chrome Bridge 仍需使用匹配的
+环境变量。
+
 ### 构建时自定义控制台
 
 单独构建控制台时，仍可在 `console/.env.production.local` 中使用

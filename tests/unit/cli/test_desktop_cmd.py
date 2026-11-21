@@ -15,6 +15,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 from qwenpaw.cli import desktop_cmd, shutdown_cmd
 from qwenpaw.cli.desktop_cmd import _shutdown_backend_process
@@ -30,6 +31,43 @@ class _Response(io.BytesIO):
 
 class _Process:
     pid = 17944
+
+
+def test_desktop_backend_does_not_inherit_runtime_base_path(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setenv("DESKTOP_TEST_SENTINEL", "preserved")
+    monkeypatch.setattr(desktop_cmd, "setup_logger", lambda _level: None)
+    monkeypatch.setattr(
+        desktop_cmd,
+        "get_stable_port",
+        lambda *_: (43123, None),
+    )
+    monkeypatch.setattr(desktop_cmd, "_wait_for_http", lambda *_: True)
+    monkeypatch.setattr(
+        desktop_cmd,
+        "webview",
+        types.SimpleNamespace(
+            create_window=lambda *_args, **_kwargs: None,
+            start=lambda **_kwargs: None,
+        ),
+    )
+    process = types.SimpleNamespace(pid=17944, returncode=0, poll=lambda: 0)
+    popen_environments = []
+
+    def fake_popen(_args, **kwargs):
+        popen_environments.append(kwargs["env"])
+        return process
+
+    monkeypatch.setattr(desktop_cmd.subprocess, "Popen", fake_popen)
+
+    result = CliRunner().invoke(desktop_cmd.desktop_cmd)
+
+    assert result.exit_code == 0, result.output
+    assert len(popen_environments) == 1
+    assert "QWENPAW_BASE_PATH" not in popen_environments[0]
+    assert popen_environments[0]["DESKTOP_TEST_SENTINEL"] == "preserved"
 
 
 def test_shutdown_backend_process_uses_shared_graceful_shutdown(

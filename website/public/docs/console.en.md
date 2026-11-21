@@ -61,6 +61,13 @@ example.com {
 Open `https://example.com/qwenpaw/`. QwenPaw redirects the prefix without a
 trailing slash to this URL. Requests outside the configured prefix return 404.
 
+Local CLI commands and Chrome Bridge do not discover this prefix from the saved
+server address. Run them with the same `QWENPAW_BASE_PATH` as the server.
+Commands that support `--base-url` can instead receive the full prefixed URL,
+such as `http://127.0.0.1:8088/qwenpaw`. Commands without that option, including
+`qwenpaw env` and `qwenpaw plugin`, and Chrome Bridge still require the matching
+environment variable.
+
 ### Build-time custom Console
 
 For a separately built Console, `VITE_CONSOLE_BASENAME` and
