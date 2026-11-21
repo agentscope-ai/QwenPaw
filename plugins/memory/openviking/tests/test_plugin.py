@@ -31,6 +31,7 @@ def test_manifest_matches_plugin_registration_and_frontend_entry():
 
     assert manifest["id"] == "memory-openviking"
     assert manifest["type"] == "memory"
+    assert manifest["qwenpaw_version"]["min"] == "2.3.0b3"
     assert manifest["meta"]["memory_backends"] == [
         {"id": "openviking", "label": "OpenViking"},
     ]

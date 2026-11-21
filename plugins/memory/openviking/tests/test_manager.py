@@ -312,33 +312,29 @@ async def test_search_methods_stay_bound_to_their_manager_instances(
     attach_client(first, first_client)
     attach_client(second, second_client)
 
-    try:
-        first_search = first.list_memory_tools()[0]
-        second_search = second.list_memory_tools()[0]
-        assert first_search.__self__ is first
-        assert second_search.__self__ is second
-        assert first_search.__func__ is second_search.__func__
+    first_search = first.list_memory_tools()[0]
+    second_search = second.list_memory_tools()[0]
+    assert first_search.__self__ is first
+    assert second_search.__self__ is second
+    assert first_search.__func__ is second_search.__func__
 
-        first_result, second_result = await asyncio.gather(
-            first_search("first query", max_results=3),
-            second_search("second query"),
-        )
+    first_result, second_result = await asyncio.gather(
+        first_search("first query", max_results=3),
+        second_search("second query"),
+    )
 
-        first_client.search_memories.assert_awaited_once_with(
-            query="first query",
-            max_results=3,
-        )
-        second_client.search_memories.assert_awaited_once_with(
-            query="second query",
-            max_results=5,
-        )
-        assert "first result" in first_result.content[0].text
-        assert "second result" not in first_result.content[0].text
-        assert "second result" in second_result.content[0].text
-        assert "first result" not in second_result.content[0].text
-    finally:
-        await first.close()
-        await second.close()
+    first_client.search_memories.assert_awaited_once_with(
+        query="first query",
+        max_results=3,
+    )
+    second_client.search_memories.assert_awaited_once_with(
+        query="second query",
+        max_results=5,
+    )
+    assert "first result" in first_result.content[0].text
+    assert "second result" not in first_result.content[0].text
+    assert "second result" in second_result.content[0].text
+    assert "first result" not in second_result.content[0].text
 
 
 @pytest.mark.asyncio

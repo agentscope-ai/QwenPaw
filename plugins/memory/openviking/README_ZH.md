@@ -67,8 +67,8 @@ cd ../../../../
 qwenpaw plugin install plugins/memory/openviking
 ```
 
-重新安装已修改的插件时使用 `--force`。宿主 QwenPaw 版本需满足
-`plugin.json` 所声明的插件 API 版本。
+重新安装已修改的插件时使用 `--force`。本插件要求 QwenPaw `2.3.0b3` 或更高
+版本，与 `plugin.json` 中声明的最低宿主版本一致。
 
 ## 配置 Agent
 
@@ -123,6 +123,18 @@ Agent 配置开启，下述步骤需要修改源码。关闭查询扩展时，�
 响应中的 `stats.query_expansion` 和 `stats.planned_queries`；`"used"` 只表示
 执行过分析，不保证一定新增查询。
 
+
+## 验证
+
+1. 为一个 Agent 配置 OpenViking 后端并开启自动召回，在一个会话中告诉它一条
+   独特、非敏感的信息。
+2. 等待后台记忆提取完成后，为同一 Agent 新建会话，询问该信息，确认自动召回
+   能够提供相关上下文，而不是仅凭原会话中的对话记录回答。
+3. 要求 Agent 调用 `memory_search`。在严格治理模式下，确认远程搜索被识别为
+   网络操作，并在批准后执行。可关闭自动召回并使用新会话，单独验证工具调用。
+
+插件单元测试使用 `httpx.MockTransport` 和 `AsyncMock`，无需启动真实
+OpenViking 服务，也不需要真实凭据。
 
 ## 提交失败后的重试
 
