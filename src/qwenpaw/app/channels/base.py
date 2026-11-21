@@ -1565,6 +1565,12 @@ class BaseChannel(ABC):
         Run _process and send events. Override to use channel-specific
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
+        # Chat channels never pass through ``_stream_with_tracker``, so this
+        # was the only path where ``request.channel_instance`` stayed unset.
+        # ApprovalService routes notifications through that instance (#6695,
+        # #6819): without it every approval raised from a chat turn was
+        # silently unreachable from the channel it came from.
+        request.channel_instance = self
         last_response = None
         session_id = getattr(request, "session_id", "") or ""
         self._clear_session_turn_usage(session_id)
@@ -2426,6 +2432,7 @@ class BaseChannel(ABC):
         severity: str,
         result_summary: str,
         channel_meta: Optional[Dict[str, Any]] = None,
+        message_type: str = "tool_guard_approval",
     ) -> None:
         """Push a tool-guard approval notification.
 
@@ -2442,6 +2449,11 @@ class BaseChannel(ABC):
         send_meta: Dict[str, Any] = dict(channel_meta or {})
         send_meta.setdefault("session_id", session_id)
         send_meta.setdefault("user_id", user_id)
+        # Approval notices are time-sensitive: never park them in a channel's
+        # message-merge window (WeChat merges for 30 s by default).
+        # ``IsolatedProxyChannel`` reads this flag and skips its text-merge
+        # buffer; card-capable channels ignore it and send immediately anyway.
+        send_meta["no_merge"] = True
         bot_prefix = getattr(self, "bot_prefix", None) or getattr(
             self,
             "_bot_prefix",
@@ -2455,7 +2467,7 @@ class BaseChannel(ABC):
             status=RunStatus.Completed,
             metadata={
                 "metadata": {
-                    "message_type": "tool_guard_approval",
+                    "message_type": message_type,
                     "approval_request_id": request_id,
                     "tool_name": tool_name,
                     "severity": severity,
