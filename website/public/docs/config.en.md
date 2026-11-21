@@ -822,7 +822,7 @@ manage them in three ways:
 
 - **`qwenpaw init`** — prompts "Configure environment variables?" during setup
 - **Console UI** — edit on the settings page
-- **API** — `GET/PUT/DELETE /envs`
+- **API** — `GET /envs` lists stored variables; `PATCH /envs` merges values and keeps omitted keys; `PUT /envs` replaces all stored variables (omitted keys are removed); `DELETE /envs/{key}` removes a custom variable (known settings return 400 and must be reset); `POST /envs/{key}/reset` restores a known setting to its inherited/default value; `GET /envs/catalog` lists known settings with their effective value, source, and editability
 
 Set variables are auto-loaded at app startup, so all tools and child processes
 can read them via `os.environ`.
