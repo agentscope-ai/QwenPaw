@@ -35,6 +35,16 @@ _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 10.0
 
 
+def _windows_bridge_token_argument(token: str) -> str:
+    """Return the token argv entry for the AppContainer bridge.
+
+    ``argparse`` treats a separate token value starting with ``-`` as an
+    option, and ``secrets.token_urlsafe`` can produce such a value. Keep the
+    value attached to the flag so every broker token is accepted.
+    """
+    return f"--token={token}"
+
+
 def allocate_loopback_port() -> int:
     """Ask the OS for an unused loopback TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -189,8 +199,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 "qwenpaw.hub.windows_runtime_bridge",
                 "--control-port",
                 str(tunnel.control_port),
-                "--token",
-                tunnel.token,
+                _windows_bridge_token_argument(tunnel.token),
                 "--target-port",
                 str(internal_port),
                 "--",
