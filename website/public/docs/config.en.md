@@ -136,6 +136,16 @@ When resizing is enabled, an image that requires resizing but cannot be processe
 
 The two streaming timeouts count only upstream wait time, excluding rate-limiter queueing and pauses caused by downstream consumer backpressure. A rate-limiter acquire still pending after about 10 seconds logs one warning with the model, elapsed wait, and limiter state. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
+**Runtime startup admission:**
+
+| Variable                             | Default | Description                                                                                                                                                                           |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_RUNTIME_READY_TIMEOUT`      | `180`   | Maximum seconds channels, cron jobs and sub-agents wait for background startup before building an agent; `0` checks the current state without waiting                               |
+| `QWENPAW_RUNTIME_READY_HTTP_TIMEOUT` | `5`     | Maximum seconds `/console/chat` and `/console/chat/task` wait for readiness before returning `503`; `0` checks immediately                                                              |
+| `QWENPAW_AGENT_PRE_MODEL_TIMEOUT`    | `180`   | Maximum seconds an agent may produce no non-heartbeat event after it was built; the run fails with `AGENT_PRE_MODEL_STALL` and dumps task stacks; `0` disables the watchdog              |
+
+Until background startup completes, chat submission endpoints return `503` with `Retry-After: 5`, so a request cannot build a half-initialised agent while tools, plugins or providers are still being populated. The `runtime_ready` field on `/healthz` distinguishes "core agents loaded" from "background startup fully complete".
+
 **Security & Authentication:**
 
 | Variable                     | Default | Description                                        |

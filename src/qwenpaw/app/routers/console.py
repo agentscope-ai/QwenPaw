@@ -41,6 +41,11 @@ from ...services.session_thinking import (
 from ...config.config import ModelSlotConfig, load_agent_config
 from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
+from ...utils.runtime_readiness import (
+    RuntimeNotReadyError,
+    http_wait_timeout,
+    wait_runtime_ready,
+)
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
@@ -442,6 +447,25 @@ def _tail_text_file(
         return ""
 
 
+async def _require_runtime_ready_for_chat() -> None:
+    """Admit a chat submission only once the runtime is fully ready.
+
+    ``startup_ready`` covers core agents only; plugin projections, tool
+    registries and provider state can still be populated afterwards.  A
+    short wait absorbs the normal tail of startup, while a long cold start
+    returns an explicit 503 instead of letting the request hang or build a
+    half-initialised agent.
+    """
+    try:
+        await wait_runtime_ready(timeout=http_wait_timeout())
+    except RuntimeNotReadyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": "5"},
+        ) from exc
+
+
 @router.post(
     "/chat",
     status_code=200,
@@ -456,6 +480,8 @@ async def post_console_chat(
     """Stream agent response. Run continues in background after disconnect.
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
+    if not _is_reconnect_request(request_data):
+        await _require_runtime_ready_for_chat()
     workspace = await get_agent_for_request(request)
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
@@ -1103,6 +1129,7 @@ async def post_console_chat_task(
     Returns a ``task_id`` immediately. Poll status via
     ``GET /console/chat/task/{task_id}``.
     """
+    await _require_runtime_ready_for_chat()
     workspace = await get_agent_for_request(request)
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
