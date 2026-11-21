@@ -282,8 +282,10 @@ async def test_attachment_download_returns_not_found_for_another_user(
 ) -> None:
     """按路径直接下载或忽略 owner_user_id 时，本测试必须失败。"""
     attachment_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-    target = tmp_path / "private.txt"
+    target = tmp_path / "user_workspaces" / str(USER_ID) / "shared-agent" / "media" / "private.txt"
+    target.parent.mkdir(parents=True)
     target.write_text("private", encoding="utf-8")
+    monkeypatch.setattr("qwenpaw.app.attachments.service.WORKING_DIR", tmp_path)
     now = datetime.now(UTC)
     record = AttachmentRecord(
         id=attachment_id,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from ..utils.path_safety import is_link_or_junction
 
 
 ARTIFACTS_DIRECTORY = "artifacts"
@@ -15,21 +16,21 @@ def ensure_artifacts_directory(workspace_root: Path) -> Path:
     """创建英文产物目录，并无损复制历史中文目录中的缺失文件。"""
     root = Path(workspace_root)
     artifacts = root / ARTIFACTS_DIRECTORY
-    if artifacts.is_symlink():
+    if is_link_or_junction(artifacts):
         raise ValueError("workspace_symlink_denied")
     artifacts.mkdir(parents=True, exist_ok=True)
 
     legacy = root / LEGACY_ARTIFACTS_DIRECTORY
-    if not legacy.is_dir() or legacy.is_symlink():
+    if not legacy.is_dir() or is_link_or_junction(legacy):
         return artifacts
 
     for source in legacy.rglob("*"):
-        if source.is_symlink():
+        if any(is_link_or_junction(parent) for parent in (source, *source.parents)):
             continue
         relative = source.relative_to(legacy)
         target = artifacts / relative
         if any(
-            parent.is_symlink()
+            is_link_or_junction(parent)
             for parent in (target, *target.parents)
             if parent != artifacts.parent
         ):

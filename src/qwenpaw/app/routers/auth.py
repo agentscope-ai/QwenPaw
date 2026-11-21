@@ -180,51 +180,73 @@ async def login(request: Request, req: LoginRequest, response: Response):
 
     # Get client IP for rate limiting
     client_ip = resolve_client_ip(request)
+    username = req.username.strip()
+
+    def login_error(code: str, message: str, status_code: int, retry: int = 0):
+        account = rate_limiter.user_status(username)
+        return HTTPException(
+            status_code=status_code,
+            detail={
+                "code": code,
+                "message": message,
+                "remaining_attempts": account.remaining_attempts,
+                "retry_after_seconds": retry,
+                "max_attempts": rate_limiter.user_max_failed_attempts,
+                "lock_duration_seconds": rate_limiter.user_lock_duration,
+            },
+            headers={"Retry-After": str(retry)} if retry else None,
+        )
 
     # Check if user account is locked
-    if rate_limiter.is_user_locked(req.username):
-        raise HTTPException(
-            status_code=423,
-            detail="Account temporarily locked. Please try again later",
+    account = rate_limiter.user_status(username)
+    if account.locked:
+        raise login_error(
+            "account_locked", "账户已临时锁定，请稍后重试或联系管理员解锁。",
+            423, account.retry_after_seconds,
         )
 
     # Check if IP is locked or rate-limited
     if rate_limiter.is_ip_locked(client_ip):
-        raise HTTPException(
-            status_code=423,
-            detail="Too many login attempts. Please try again later",
+        raise login_error(
+            "ip_locked", "当前网络登录尝试过于频繁，请稍后重试。",
+            423, rate_limiter.ip_retry_after_seconds(client_ip),
         )
 
     if rate_limiter.is_ip_rate_limited(client_ip):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please slow down",
+        raise login_error(
+            "login_rate_limited", "登录请求过于频繁，请稍后重试。",
+            429, rate_limiter.ip_retry_after_seconds(client_ip),
         )
 
     # Attempt authentication
     user = None
     if is_multi_user_enabled():
         user = await get_identity_runtime().users.authenticate(
-            req.username,
+            username,
             req.password,
         )
         token = "multi-user" if user is not None else None
     else:
-        token = authenticate(req.username, req.password, req.expires_in)
+        token = authenticate(username, req.password, req.expires_in)
     if token is None:
         # Record failed attempt
         rate_limiter.record_login_attempt(
             client_ip,
-            req.username,
+            username,
             success=False,
         )
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password",
+        account = rate_limiter.user_status(username)
+        if account.locked:
+            raise login_error(
+                "account_locked", "登录失败次数过多，账户已临时锁定，请稍后重试或联系管理员解锁。",
+                423, account.retry_after_seconds,
+            )
+        raise login_error(
+            "invalid_credentials", "用户名或密码不正确。", 401,
         )
 
     # Record successful attempt
-    rate_limiter.record_login_attempt(client_ip, req.username, success=True)
+    rate_limiter.record_login_attempt(client_ip, username, success=True)
 
     if user is not None:
         await _finish_admin_initialization(user)
@@ -234,7 +256,7 @@ async def login(request: Request, req: LoginRequest, response: Response):
         )
         _set_refresh_cookie(response, issued)
         return _login_response(issued)
-    return LoginResponse(token=token, username=req.username)
+    return LoginResponse(token=token, username=username)
 
 
 @router.post("/register")

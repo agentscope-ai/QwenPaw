@@ -109,12 +109,16 @@ class CronManager(ManagerBase):
         self._started = False
         self._keepalive_task: Optional[asyncio.Task] = None
 
-    async def _inbox_recipient_user_id(self) -> str | None:
-        """Resolve the Agent owner who should receive cron results."""
+    async def _inbox_recipient_user_id(
+        self, job: CronJobSpec | None = None
+    ) -> str | None:
+        """本人任务结果归任务所有者；无身份的旧任务才沿用 Agent 归属。"""
         from ...identity.runtime import get_identity_schema, is_multi_user_enabled
 
         if not is_multi_user_enabled() or not self._agent_id:
             return None
+        if job is not None and job.automation_owner_user_id is not None:
+            return str(job.automation_owner_user_id)
         from ...access.agent_repository import PostgresAgentRepository
 
         governance = await PostgresAgentRepository(
@@ -490,8 +494,15 @@ class CronManager(ManagerBase):
             if session_id:
                 error_text = f"❌ Cron job [{job.name}] failed: {exc}"
                 asyncio.ensure_future(
-                    push_store_append(session_id, error_text),
+                    self._push_job_error(job, session_id, error_text),
                 )
+
+    async def _push_job_error(
+        self, job: CronJobSpec, session_id: str, text: str
+    ) -> None:
+        recipient = await self._inbox_recipient_user_id(job)
+        scope = {"recipient_user_id": recipient} if recipient else {}
+        await push_store_append(session_id, text, **scope)
 
     # ----- internal -----
 
@@ -900,7 +911,7 @@ class CronManager(ManagerBase):
                                     "but channel delivery failed."
                                 ),
                                 recipient_user_id=(
-                                    await self._inbox_recipient_user_id()
+                                    await self._inbox_recipient_user_id(job)
                                 ),
                                 payload={
                                     "job_id": job.id,
@@ -933,7 +944,7 @@ class CronManager(ManagerBase):
                                 title=f"Cron result: {job.name}",
                                 body=body,
                                 recipient_user_id=(
-                                    await self._inbox_recipient_user_id()
+                                    await self._inbox_recipient_user_id(job)
                                 ),
                                 payload={
                                     "job_id": job.id,

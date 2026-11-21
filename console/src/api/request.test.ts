@@ -1,5 +1,32 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { request } from "./request";
+import i18n from "../i18n";
+import { parseErrorDetail } from "../utils/error";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
+
+it("keeps structured diagnostics available while showing a Chinese API error", async () => {
+  await i18n.changeLanguage("zh");
+  const detail = {
+    code: "config_version_conflict",
+    message: "conflicting internal version",
+    config_version: 7,
+  };
+  mockFetch(409, { detail });
+  const error = await request("/models").catch((error: unknown) => error);
+  expect(error).toMatchObject({
+    status: 409,
+    rawMessage: "conflicting internal version",
+    detail,
+  });
+  expect((error as Error).message).toBe(
+    "内容已发生变化或存在冲突，请刷新后重试",
+  );
+  expect(parseErrorDetail(error)).toEqual(detail);
+  expect((error as Error).message).not.toContain("config_version");
+});
 
 // mock config so URL is predictable and token is empty by default
 vi.mock("./config", () => ({

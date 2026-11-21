@@ -45,4 +45,16 @@ describe("personalLibraryApi", () => {
       "/api/console/personal-library/documents/doc%201/download",
     );
   });
+
+  it("scopes index operations and passes cancellation through", async () => {
+    const context = {agentId: "agent-b"};
+    const controller = new AbortController();
+    await personalLibraryApi.indexStatus(context);
+    await personalLibraryApi.rebuildIndex(["doc-b"], context, controller.signal);
+    expect(request).toHaveBeenNthCalledWith(1, "/console/personal-library/index", {headers: {"X-Agent-Id": "agent-b"}});
+    expect(request).toHaveBeenNthCalledWith(2, "/console/personal-library/index/rebuild", expect.objectContaining({
+      method: "POST", headers: {"X-Agent-Id": "agent-b"}, signal: controller.signal,
+      body: JSON.stringify({document_ids: ["doc-b"]}),
+    }));
+  });
 });

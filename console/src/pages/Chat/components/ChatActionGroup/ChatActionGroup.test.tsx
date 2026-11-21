@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
+import i18n from "../../../../i18n";
 
 // Mock react-window to avoid import errors in mocked ChatSessionDrawer
 const { MockVariableSizeList } = vi.hoisted(() => {
@@ -28,6 +29,9 @@ vi.mock("../../ChatSessionDrawer", () => ({ default: () => null }));
 import ChatActionGroup from "./index";
 
 describe("ChatActionGroup", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
   it("renders without crash", () => {
     expect(() => renderWithProviders(<ChatActionGroup />)).not.toThrow();
   });
@@ -60,7 +64,7 @@ describe("ChatActionGroup", () => {
     );
 
     const button = document.querySelector(
-      'button[aria-label="files.openWorkspace"]',
+      'button[aria-label="打开工作区"]',
     ) as HTMLButtonElement | null;
     expect(button).toBeInTheDocument();
     expect(button).toHaveStyle({

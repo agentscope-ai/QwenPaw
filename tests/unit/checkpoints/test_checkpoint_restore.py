@@ -103,6 +103,24 @@ async def _checkpoint(
     return engine.repository.run_git("rev-parse", ref)
 
 
+@pytest.mark.asyncio
+async def test_restoring_old_workspace_never_deletes_delivered_artifact_archives(tmp_path):
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "before report")
+    checkpoint = await _checkpoint(engine, "before report")
+    _write_session(tmp_path, "report delivered")
+    archive = tmp_path / "artifacts" / ".registered" / "owned-snapshot" / "简报.pdf"
+    archive.parent.mkdir(parents=True)
+    archive.write_bytes(b"%PDF-owned-delivered-report")
+    draft = tmp_path / "artifacts" / "draft.txt"
+    draft.write_text("temporary work", encoding="utf-8")
+    preview = await engine.restore_with_files(target=checkpoint[:12], session_id=SESSION_ID, user_id=USER_ID, channel=CHANNEL, dry_run=True)
+    await engine.restore_with_files(target=checkpoint[:12], session_id=SESSION_ID, user_id=USER_ID, channel=CHANNEL, selected_files=preview.file_paths)
+    assert archive.read_bytes() == b"%PDF-owned-delivered-report"
+    assert archive.relative_to(tmp_path).as_posix() not in preview.deleted_paths
+    assert not draft.exists()
+
+
 def test_snapshot_name_preserves_unicode_and_removes_ref_separators() -> None:
     assert sanitize_ref_component("涓枃 蹇収/name") == "涓枃-蹇収-name"
 

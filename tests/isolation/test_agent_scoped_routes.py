@@ -438,7 +438,7 @@ async def test_unscoped_header_stores_authorized_agent_access(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_unscoped_chat_get_allows_historical_read_only(monkeypatch) -> None:
+async def test_unscoped_chat_get_allows_historical_read_only(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 
     class HistoricalMembership:
@@ -457,7 +457,9 @@ async def test_unscoped_chat_get_allows_historical_read_only(monkeypatch) -> Non
     request.state.actor = _actor(PlatformRole.MEMBER)
 
     monkeypatch.setattr(agent_context, "is_multi_user_enabled", lambda: True)
-    monkeypatch.setattr(agent_context, "load_config", lambda: _config())
+    config = _config()
+    config.agents.profiles["allowed-agent"].workspace_dir = str(tmp_path)
+    monkeypatch.setattr(agent_context, "load_config", lambda: config)
     monkeypatch.setattr(
         agent_context,
         "_get_agent_membership_service",
@@ -468,7 +470,8 @@ async def test_unscoped_chat_get_allows_historical_read_only(monkeypatch) -> Non
 
     assert workspace.agent_id == "allowed-agent"
     assert captured["allow_historical_read_only"] is True
-    assert manager.requested_agent_ids == ["allowed-agent"]
+    assert manager.requested_agent_ids == []
+    assert workspace.workspace_dir == tmp_path
 
 
 @pytest.mark.asyncio

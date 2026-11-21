@@ -1,15 +1,49 @@
-import { useState, useEffect } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAuthStore } from "../../../stores/authStore";
+import {
+  getAgentAccessScopeKey,
+  subscribeChatSessionScope,
+} from "../../../stores/chatSessionScope";
 import { parseErrorDetail } from "../../../utils/error";
 
 type CronJob = CronJobSpecOutput;
 
+export function getCronAccessScopeKey() {
+  const state = useAgentStore.getState();
+  const agent = state.agents.find((item) => item.id === state.selectedAgent);
+  return JSON.stringify([
+    getAgentAccessScopeKey(),
+    useAuthStore.getState().user?.platform_role,
+    agent?.enabled,
+    agent?.access_role,
+  ]);
+}
+
 export function useCronJobs(scope: "mine" | "agent" = "mine") {
-  const { selectedAgent } = useAgentStore();
+  const accessKey = useSyncExternalStore(
+    subscribeChatSessionScope,
+    getCronAccessScopeKey,
+  );
+  const key = `${accessKey}:${scope}`;
+  const latestKey = useRef(key);
+  latestKey.current = key;
+  const control = useMemo(() => ({ key, active: true, revision: 0 }), [key]);
+  const current = () =>
+    control.active &&
+    latestKey.current === control.key &&
+    `${getCronAccessScopeKey()}:${scope}` === control.key;
+  const [dataKey, setDataKey] = useState(key);
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
   const { message } = useAppMessage();
@@ -96,90 +130,101 @@ export function useCronJobs(scope: "mine" | "agent" = "mine") {
   };
 
   const fetchJobs = async () => {
+    if (!current()) return;
+    const revision = control.revision;
     setLoading(true);
     try {
       const data = await api.listCronJobs(scope);
-      if (data) {
+      if (current() && revision === control.revision && data) {
         setJobs(data as CronJob[]);
       }
     } catch (error) {
+      if (!current()) return;
       console.error("Failed to load cron jobs", error);
-      message.error("Failed to load Cron Jobs");
+      message.error(t("cronJobs.loadFailed"));
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   };
 
   useEffect(() => {
-    let mounted = true;
-
-    const loadJobs = async () => {
-      await fetchJobs();
-    };
-
-    if (mounted) {
-      loadJobs();
-    }
-
+    control.active = true;
+    setDataKey(key);
+    setJobs([]);
+    void fetchJobs();
     return () => {
-      mounted = false;
+      control.active = false;
     };
-  }, [selectedAgent, scope]);
+  }, [control]);
 
   const createJob = async (values: CronJob) => {
+    if (!current()) return false;
+    control.revision++;
     try {
       const created = await api.createCronJob(values);
+      if (!current()) return false;
       setJobs((prev) => [created as CronJob, ...prev]);
-      message.success("Created successfully");
+      message.success(t("cronJobs.created"));
       return created as CronJob;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to create cron job", error);
-      message.error(getDisplayErrorMessage(error, "Failed to save"));
+      message.error(getDisplayErrorMessage(error, t("cronJobs.saveFailed")));
       return false;
     }
   };
 
   const updateJob = async (jobId: string, values: CronJob) => {
+    if (!current()) return false;
+    control.revision++;
     const original = jobs.find((j) => j.id === jobId);
     const optimisticUpdate = { ...original, ...values };
     setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
 
     try {
       const updated = await api.replaceCronJob(jobId, values);
+      if (!current()) return false;
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
-      message.success("Updated successfully");
+      message.success(t("cronJobs.updated"));
       return updated as CronJob;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to update cron job", error);
       if (original) {
         setJobs((prev) => prev.map((j) => (j.id === jobId ? original : j)));
       }
-      message.error(getDisplayErrorMessage(error, "Failed to save"));
+      message.error(getDisplayErrorMessage(error, t("cronJobs.saveFailed")));
       return false;
     }
   };
 
   const deleteJob = async (jobId: string) => {
+    if (!current()) return false;
+    control.revision++;
     const original = jobs.find((j) => j.id === jobId);
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
 
     try {
       await api.deleteCronJob(jobId);
-      message.success("Deleted successfully");
+      if (!current()) return false;
+      message.success(t("cronJobs.deleted"));
       return true;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to delete cron job", error);
       if (original) {
         setJobs((prev) => [...prev, original]);
       }
-      message.error("Failed to delete");
+      message.error(t("cronJobs.deleteFailed"));
       return false;
     }
   };
 
   const toggleEnabled = async (job: CronJob) => {
+    if (!current()) return false;
+    control.revision++;
     const enabling = !job.enabled;
     const updated = {
       ...job,
@@ -194,24 +239,35 @@ export function useCronJobs(scope: "mine" | "agent" = "mine") {
       } else {
         await api.pauseCronJob(job.id);
       }
-      message.success(`${updated.enabled ? "Enabled" : "Disabled"}`);
+      if (!current()) return false;
+      message.success(
+        t(
+          updated.enabled
+            ? "cronJobs.enabledFeedback"
+            : "cronJobs.disabledFeedback",
+        ),
+      );
       return true;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to toggle cron job", error);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
-      message.error("Operation failed");
+      message.error(t("cronJobs.operationFailed"));
       return false;
     }
   };
 
   const executeNow = async (jobId: string) => {
+    if (!current()) return false;
     try {
       await api.triggerCronJob(jobId);
-      message.success("Task triggered successfully");
+      if (!current()) return false;
+      message.success(t("cronJobs.triggered"));
       return true;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to execute cron job", error);
-      message.error("Failed to execute");
+      message.error(t("cronJobs.executeFailed"));
       return false;
     }
   };
@@ -223,19 +279,24 @@ export function useCronJobs(scope: "mine" | "agent" = "mine") {
       authorization_digest: string;
     },
   ) => {
+    if (!current()) return false;
+    control.revision++;
     try {
       const preview =
         confirmedPreview ?? (await api.getCronJobAuthorization(jobId));
+      if (!current()) return false;
       const authorized = await api.authorizeCronJob(jobId, {
         config_version: preview.config_version,
         authorization_digest: preview.authorization_digest,
       });
+      if (!current()) return false;
       setJobs((prev) =>
         prev.map((job) => (job.id === jobId ? authorized : job)),
       );
       message.success(t("cronJobs.authorizationSuccess"));
       return authorized;
     } catch (error) {
+      if (!current()) return false;
       console.error("Failed to authorize cron job", error);
       message.error(
         getDisplayErrorMessage(error, t("cronJobs.authorizationFailed")),
@@ -245,8 +306,8 @@ export function useCronJobs(scope: "mine" | "agent" = "mine") {
   };
 
   return {
-    jobs,
-    loading,
+    jobs: dataKey === key ? jobs : [],
+    loading: dataKey !== key || loading,
     createJob,
     updateJob,
     deleteJob,

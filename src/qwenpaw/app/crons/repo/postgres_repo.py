@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from ....access.agent_repository import agent_database_id
-from ....persistence.database import database_session
+from ....persistence.database import database_session, set_request_user
 from ..models import (
     AutomationAuthorization,
     AutomationGrant,
@@ -124,6 +124,105 @@ class PostgresJobRepository(BaseJobRepository):
                 .all()
             )
         return [self._job(row) for row in rows]
+
+    async def list_owned_jobs(self, owner_user_id: UUID) -> list[CronJobSpec]:
+        """当前导航 Agent 中的本人任务，不依赖调度器运行状态。"""
+        async with self.session_factory() as session:
+            await set_request_user(session, owner_user_id)
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            f"SELECT {self._select()} FROM {self.table('automation_schedules')} "
+                            "WHERE agent_id=:agent AND automation_owner_user_id=:owner ORDER BY created_at,id"
+                        ),
+                        {"agent": self.agent_id, "owner": owner_user_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [self._job(row) for row in rows]
+
+    async def get_owned_job(
+        self, job_id: str, owner_user_id: UUID, *, expected_agent_id: UUID | None = None
+    ) -> CronJobSpec | None:
+        """稳定任务 ID 由持久所有者限定，切换导航 Agent 不改变归属。"""
+        try:
+            job_id = str(UUID(str(job_id)))
+        except (ValueError, TypeError, AttributeError):
+            return None
+        async with self.session_factory() as session:
+            await set_request_user(session, owner_user_id)
+            agent_scope = " AND agent_id=:agent" if expected_agent_id else ""
+            row = (
+                (
+                    await session.execute(
+                        text(
+                            f"SELECT {self._select()} FROM {self.table('automation_schedules')} "
+                            f"WHERE id=:id AND automation_owner_user_id=:owner{agent_scope}"
+                        ),
+                        {
+                            "id": job_id,
+                            "owner": owner_user_id,
+                            **(
+                                {"agent": expected_agent_id}
+                                if expected_agent_id
+                                else {}
+                            ),
+                        },
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        return self._job(row) if row else None
+
+    async def get_owned_history(
+        self, job_id: str, owner_user_id: UUID, *, expected_agent_id: UUID | None = None
+    ) -> list[CronExecutionRecord] | None:
+        if (
+            await self.get_owned_job(
+                job_id, owner_user_id, expected_agent_id=expected_agent_id
+            )
+            is None
+        ):
+            return None
+        async with self.session_factory() as session:
+            await set_request_user(session, owner_user_id)
+            agent_scope = " AND s.agent_id=:agent" if expected_agent_id else ""
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT e.started_at,e.status,e.error_summary,e.trigger FROM "
+                            f"{self.table('automation_executions')} e JOIN {self.table('automation_schedules')} s "
+                            f"ON s.id=e.schedule_id WHERE s.id=:id AND s.automation_owner_user_id=:owner{agent_scope} "
+                            "ORDER BY e.started_at DESC,e.id DESC LIMIT 50"
+                        ),
+                        {
+                            "id": job_id,
+                            "owner": owner_user_id,
+                            **(
+                                {"agent": expected_agent_id}
+                                if expected_agent_id
+                                else {}
+                            ),
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            CronExecutionRecord(
+                run_at=row["started_at"],
+                status=row["status"],
+                error=row["error_summary"],
+                trigger=row["trigger"],
+            )
+            for row in rows
+        ]
 
     async def get_job(self, job_id: str) -> CronJobSpec | None:
         async with self.session_factory() as session:

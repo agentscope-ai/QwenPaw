@@ -131,6 +131,53 @@ function renderPage() {
     </ConfigProvider>,
   );
 }
+
+it("opens the member's own publication history from the existing read-only skills page", async () => {
+  useAgentStore.setState({
+    agents: [
+      {
+        id: "a",
+        enabled: false,
+        access_role: "user",
+        can_edit: false,
+        historical_read_only: true,
+      },
+    ] as never,
+  });
+  onRead = async (url) =>
+    url.endsWith("/requests?scope=mine")
+      ? {
+          requests: [
+            {
+              id: "mine-1",
+              skill_name: "my-submitted-skill",
+              submitted_by: "alice",
+              status: "approved",
+              review_version: 1,
+            },
+          ],
+        }
+      : { items: [], enabled: false, records: [], blocked: [] };
+  renderPage();
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: text("skillGovernance.myRequests"),
+    }),
+  );
+  expect(await screen.findByText("my-submitted-skill")).toBeInTheDocument();
+  expect(calls.some((call) => call.url.endsWith("/requests?scope=mine"))).toBe(
+    true,
+  );
+  expect(
+    calls.some(
+      (call) =>
+        call.url === "/api/skill-governance/requests" && call.method === "GET",
+    ),
+  ).toBe(false);
+  expect(
+    screen.queryByRole("button", { name: text("skillGovernance.approve") }),
+  ).not.toBeInTheDocument();
+});
 async function openCatalog() {
   fireEvent.mouseOver(
     await screen.findByRole("button", {
@@ -146,48 +193,128 @@ async function openCatalog() {
 }
 
 it("Legacy downloads from the original pool without PG governance", async () => {
-  useAuthStore.setState({ mode: "legacy", phase: "disabled", user: null } as never);
-  onRead = async (url) => url === "/api/skills/pool" ? [{ name: "legacy-skill", source: "custom" }] : [];
-  onWrite = async () => ({ downloaded: [{ workspace_id: "a", name: "legacy-skill" }] });
+  useAuthStore.setState({
+    mode: "legacy",
+    phase: "disabled",
+    user: null,
+  } as never);
+  onRead = async (url) =>
+    url === "/api/skills/pool"
+      ? [{ name: "legacy-skill", source: "custom" }]
+      : [];
+  onWrite = async () => ({
+    downloaded: [{ workspace_id: "a", name: "legacy-skill" }],
+  });
   renderPage();
   const dialog = await openCatalog();
   fireEvent.click(await within(dialog).findByText("legacy-skill"));
-  fireEvent.click(within(dialog).getByRole("button", { name: new RegExp(text("common.confirm")) }));
-  await waitFor(() => expect(calls.some(c => c.url === "/api/skills/pool/download" && (c.body as { preview_only?: boolean })?.preview_only !== true)).toBe(true));
-  expect(calls.some(c => /skill-catalog|agent-skills|skill-governance/.test(c.url))).toBe(false);
+  fireEvent.click(
+    within(dialog).getByRole("button", {
+      name: new RegExp(text("common.confirm")),
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (c) =>
+          c.url === "/api/skills/pool/download" &&
+          (c.body as { preview_only?: boolean })?.preview_only !== true,
+      ),
+    ).toBe(true),
+  );
+  expect(
+    calls.some((c) =>
+      /skill-catalog|agent-skills|skill-governance/.test(c.url),
+    ),
+  ).toBe(false);
 });
 
 it("Legacy uploads workspace skills with the original upload action", async () => {
-  useAuthStore.setState({ mode: "legacy", phase: "disabled", user: null } as never);
+  useAuthStore.setState({
+    mode: "legacy",
+    phase: "disabled",
+    user: null,
+  } as never);
   onWrite = async () => ({ success: true, name: "private-one" });
   renderPage();
-  fireEvent.click(await screen.findByRole("button", { name: new RegExp(text("skills.uploadToPool")) }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: new RegExp(text("skills.uploadToPool")),
+    }),
+  );
   const dialog = await screen.findByRole("dialog");
   fireEvent.click(await within(dialog).findByText("private-one"));
-  fireEvent.click(within(dialog).getByRole("button", { name: new RegExp(text("common.confirm")) }));
-  await waitFor(() => expect(calls.some(c => c.url === "/api/skills/pool/upload" && (c.body as { preview_only?: boolean })?.preview_only !== true)).toBe(true));
-  expect(calls.some(c => /skill-catalog|agent-skills|skill-governance/.test(c.url))).toBe(false);
+  fireEvent.click(
+    within(dialog).getByRole("button", {
+      name: new RegExp(text("common.confirm")),
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (c) =>
+          c.url === "/api/skills/pool/upload" &&
+          (c.body as { preview_only?: boolean })?.preview_only !== true,
+      ),
+    ).toBe(true),
+  );
+  expect(
+    calls.some((c) =>
+      /skill-catalog|agent-skills|skill-governance/.test(c.url),
+    ),
+  ).toBe(false);
 });
 
 it("rename confirmation sends the target directory hash once and leaves edits open on stale confirmation", async () => {
-  const detail = { name: "private-one", source: "custom", content: "---\nname: private-one\ndescription: fixture\n---\nA" };
+  const detail = {
+    name: "private-one",
+    source: "custom",
+    content: "---\nname: private-one\ndescription: fixture\n---\nA",
+  };
   onRead = async () => detail;
-  onWrite = async (_url, body) => new Response(JSON.stringify({ detail:
-    (body as { overwrite?: boolean }).overwrite ? "content_conflict" : { reason: "conflict", expected_content_hash: hash, suggested_name: "target-2" }
-  }), { status: 409, headers: { "Content-Type": "application/json" } });
-  const { result } = renderHook(() => useSkillsPage(), { wrapper: ({ children }) => <ConfigProvider theme={{ token: { motion: false } }}><App>{children}</App></ConfigProvider> });
+  onWrite = async (_url, body) =>
+    new Response(
+      JSON.stringify({
+        detail: (body as { overwrite?: boolean }).overwrite
+          ? "content_conflict"
+          : {
+              reason: "conflict",
+              expected_content_hash: hash,
+              suggested_name: "target-2",
+            },
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  const { result } = renderHook(() => useSkillsPage(), {
+    wrapper: ({ children }) => (
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <App>{children}</App>
+      </ConfigProvider>
+    ),
+  });
   await waitFor(() => expect(result.current.loading).toBe(false));
   await act(async () => result.current.handleEdit(detail));
   let pending!: Promise<void>;
-  act(() => { pending = result.current.handleSubmit({ ...detail, name: "target" }); });
+  act(() => {
+    pending = result.current.handleSubmit({ ...detail, name: "target" });
+  });
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText(hash)).toBeInTheDocument();
-  expect(calls.filter(c => c.url === "/api/skills/save")).toHaveLength(1);
-  fireEvent.click(within(dialog).getByRole("button", { name: new RegExp(text("common.confirm")) }));
+  expect(calls.filter((c) => c.url === "/api/skills/save")).toHaveLength(1);
+  fireEvent.click(
+    within(dialog).getByRole("button", {
+      name: new RegExp(text("common.confirm")),
+    }),
+  );
   await act(async () => pending);
-  const writes = calls.filter(c => c.url === "/api/skills/save");
+  const writes = calls.filter((c) => c.url === "/api/skills/save");
   expect(writes).toHaveLength(2);
-  expect(writes[1].body).toMatchObject({ source_name: "private-one", name: "target", overwrite: true, expected_content_hash: hash });
+  expect(writes[1].body).toMatchObject({
+    source_name: "private-one",
+    name: "target",
+    overwrite: true,
+    expected_content_hash: hash,
+  });
   expect(result.current.drawerOpen).toBe(true);
 });
 

@@ -14,6 +14,10 @@ export interface AdminUser {
   created_at?: string | null;
   updated_at?: string | null;
   last_login_at?: string | null;
+  login_locked?: boolean;
+  login_retry_after_seconds?: number;
+  login_failed_attempts?: number;
+  login_remaining_attempts?: number;
 }
 
 export type AdminUserProfileInput = Pick<
@@ -37,6 +41,8 @@ const userPath = (userId: string) =>
   `/admin/users/${encodeURIComponent(userId)}`;
 
 export const adminUsersApi = {
+  unlock: (userId: string) =>
+    request<AdminUser>(`${userPath(userId)}/unlock`, { method: "POST" }),
   list: () => request<AdminUser[]>("/admin/users"),
   create: (body: CreateAdminUserRequest) =>
     request<AdminUser>("/admin/users", {

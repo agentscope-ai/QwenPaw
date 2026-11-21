@@ -1,4 +1,4 @@
-"""当前用户、当前 Agent 的已登记产物 API。"""
+"""本人已登记产物的持久访问与当前 Agent 的产物收集 API。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,6 +12,8 @@ from ...access.dependencies import get_actor
 from ...artifacts.repository import PostgresArtifactRepository
 from ...artifacts.service import ArtifactNotFound, ArtifactService
 from ...identity.runtime import get_identity_schema
+from ...config import load_config
+from ...workspaces.resolver import WorkspaceKind, WorkspaceResolver
 from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/console/artifacts", tags=["artifacts"])
@@ -87,17 +89,43 @@ async def _scope(request: Request):
     return service, actor.user_id, workspace.agent_id
 
 
+def _owner_scope(request: Request):
+    """历史文件归属只由当前身份和持久登记决定，不赋予 Agent 运行权限。"""
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    service = ArtifactService(repository=PostgresArtifactRepository(schema=get_identity_schema()))
+    return service, actor.user_id
+
+
+def _owner_list_agent_key(request: Request, owner_user_id: UUID) -> str:
+    agent_key = getattr(request.state, "agent_id", None) or request.headers.get("X-Agent-Id")
+    if not agent_key:
+        agent_key = load_config().agents.active_agent or "default"
+    try:
+        WorkspaceResolver().resolve(
+            kind=WorkspaceKind.USER_RUNTIME, resource_id=agent_key,
+            actor_user_id=owner_user_id,
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid_agent_id") from exc
+    return agent_key
+
+
 @router.get("", response_model=list[ArtifactResponse])
 async def list_artifacts(request: Request) -> list[ArtifactResponse]:
-    service, user_id, agent_key = await _scope(request)
+    service, user_id = _owner_scope(request)
+    agent_key = _owner_list_agent_key(request, user_id)
     return [ArtifactResponse.from_record(item) for item in await service.list_active(owner_user_id=user_id, agent_key=agent_key)]
 
 
-@router.get("/{artifact_id}/download")
+@router.api_route("/{artifact_id}/download", methods=["GET", "HEAD"])
 async def download_artifact(request: Request, artifact_id: UUID):
-    service, user_id, agent_key = await _scope(request)
+    # 稳定 ID 指向用户已拥有的产物，不应再次要求使用生成它的 Agent。
+    # 当前 Agent 切换、停用或成员撤权不撤销用户对自己历史文件的所有权。
+    service, user_id = _owner_scope(request)
     try:
-        artifact, path = await service.download_path(owner_user_id=user_id, agent_key=agent_key, artifact_id=artifact_id)
+        artifact, path = await service.download_owned_path(owner_user_id=user_id, artifact_id=artifact_id)
     except ArtifactNotFound as exc:
         raise HTTPException(status_code=404, detail="artifact_not_found") from exc
     return FileResponse(path, filename=artifact.original_name, media_type=artifact.media_type)
@@ -105,9 +133,9 @@ async def download_artifact(request: Request, artifact_id: UUID):
 
 @router.delete("/{artifact_id}", response_model=ArtifactResponse)
 async def delete_artifact(request: Request, artifact_id: UUID) -> ArtifactResponse:
-    service, user_id, agent_key = await _scope(request)
+    service, user_id = _owner_scope(request)
     try:
-        artifact = await service.delete(owner_user_id=user_id, agent_key=agent_key, artifact_id=artifact_id)
+        artifact = await service.delete_owned(owner_user_id=user_id, artifact_id=artifact_id)
     except ArtifactNotFound as exc:
         raise HTTPException(status_code=404, detail="artifact_not_found") from exc
     return ArtifactResponse.from_record(artifact)

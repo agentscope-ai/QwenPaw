@@ -27,7 +27,10 @@ from qwenpaw.schemas import AudioContent
 @pytest.fixture
 def native_pipeline(monkeypatch, tmp_path):
     owner, conversation, attachment = uuid4(), uuid4(), uuid4()
-    original, derived = tmp_path / "original.webm", tmp_path / "derived.wav"
+    media = tmp_path / "user_workspaces" / str(owner) / "default" / "media"
+    media.mkdir(parents=True)
+    original, derived = media / "original.webm", media / "derived.wav"
+    monkeypatch.setattr("qwenpaw.app.attachments.service.WORKING_DIR", tmp_path)
     original.write_bytes(b"ORIGINAL_AUDIO")
     def convert(path):
         assert path == str(original)
@@ -50,7 +53,7 @@ def native_pipeline(monkeypatch, tmp_path):
     request.state.actor = ActorContext(user_id=owner, actor_type=ActorType.USER,
         platform_role=PlatformRole.MEMBER, admin_mode=False, request_id="native-history")
     channel = ConsoleChannel(process=AsyncMock(), enabled=True, bot_prefix="")
-    channel._media_dir = tmp_path
+    channel._media_dir = media
     return SimpleNamespace(record=record, workspace=workspace, request=request, channel=channel,
         original=original, derived=derived, repo=repo, url=f"/api/console/attachments/{attachment}")
 

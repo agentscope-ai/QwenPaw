@@ -1,5 +1,6 @@
 import { getApiToken, getApiUrl } from "../config";
 import { AuthResponseError } from "../authErrors";
+import { errorDetailMessage } from "../../utils/interactionText";
 
 export type AuthMode = "legacy" | "multi_user";
 
@@ -67,8 +68,9 @@ function bearerHeaders(): Record<string, string> {
 async function detailError(res: Response, fallback: string): Promise<Error> {
   const err = await res.json().catch(() => ({}));
   return new AuthResponseError(
-    typeof err.detail === "string" ? err.detail : fallback,
+    errorDetailMessage(err.detail, fallback),
     res.status,
+    err.detail,
   );
 }
 
@@ -81,8 +83,7 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Login failed");
+      throw await detailError(res, "Login failed");
     }
     return res.json();
   },
@@ -98,8 +99,7 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Registration failed");
+      throw await detailError(res, "Registration failed");
     }
     return res.json();
   },
@@ -214,8 +214,7 @@ export const authApi = {
       }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Update failed");
+      throw await detailError(res, "Update failed");
     }
     return res.json();
   },

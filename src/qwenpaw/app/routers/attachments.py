@@ -12,6 +12,9 @@ from ...access.agent_repository import agent_database_id
 from ...access.dependencies import get_actor
 from ..agent_context import get_agent_for_request
 from ..agent_context import get_files_workspace_access
+from ..chats.repo import PostgresConversationRepository
+from ..owned_content import owner_agent_key
+from ...identity.runtime import get_identity_schema
 from ..attachments.models import AttachmentListItem
 from ..attachments.service import AttachmentLifecycleError, AttachmentLifecycleService, resolve_attachment_runtime_root
 
@@ -27,20 +30,17 @@ async def list_console_attachments(
     actor = get_actor(request)
     if actor.user_id is None:
         raise HTTPException(status_code=401, detail="not_authenticated")
-    workspace = await get_agent_for_request(request)
-    repository = workspace.chat_manager.conversation_repository
-    if repository is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Attachment storage unavailable",
-        )
+    agent_key = owner_agent_key(request)
+    repository = PostgresConversationRepository(schema=get_identity_schema())
     records = await repository.with_user(actor.user_id).list_owned_attachments(
         owner_user_id=actor.user_id,
-        agent_id=agent_database_id(workspace.agent_id),
+        agent_id=agent_database_id(agent_key),
         lifecycle=lifecycle,
         conversation_id=conversation_id,
     )
-    return [AttachmentListItem.from_record(record) for record in records]
+    return [AttachmentListItem.from_record(record) for record in records
+            if record.owner_user_id == actor.user_id
+            and record.agent_id == agent_database_id(agent_key)]
 
 
 async def _lifecycle_service(request: Request):

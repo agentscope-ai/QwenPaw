@@ -20,6 +20,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from uuid import UUID
 
 from qwenpaw.schemas import (
     MessageType,
@@ -702,6 +703,21 @@ class ConsoleChannel(BaseChannel):
 
     # ── send (for proactive sends / cron) ───────────────────────────
 
+    async def _push_owned_message(
+        self, to_handle: str, session_id: str, text: str
+    ) -> None:
+        from ....identity.runtime import is_multi_user_enabled
+
+        if not is_multi_user_enabled():
+            await push_store_append(session_id, text)
+            return
+        # 接收人来自服务端派发目标，不能从用户可编辑 meta 或会话名推断。
+        try:
+            recipient = str(UUID(to_handle))
+        except (ValueError, TypeError, AttributeError):
+            return
+        await push_store_append(session_id, text, recipient_user_id=recipient)
+
     async def send(
         self,
         to_handle: str,
@@ -723,7 +739,7 @@ class ConsoleChannel(BaseChannel):
             and text.strip()
             and not (meta or {}).get("suppress_console_push")
         ):
-            await push_store_append(sid, text.strip())
+            await self._push_owned_message(to_handle, sid, text.strip())
 
     async def send_content_parts(
         self,
@@ -739,7 +755,7 @@ class ConsoleChannel(BaseChannel):
         if sid and not (meta or {}).get("suppress_console_push"):
             body = self._parts_to_text(parts, meta)
             if body.strip():
-                await push_store_append(sid, body.strip())
+                await self._push_owned_message(to_handle, sid, body.strip())
 
     # ── lifecycle ───────────────────────────────────────────────────
 

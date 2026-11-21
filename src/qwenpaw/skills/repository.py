@@ -501,15 +501,27 @@ class PostgresSkillRepository:
             "content_hash": snapshot.content_hash,
         }
 
-    async def get_request(self, request_id):
+    async def get_request(self, request_id, *, submitted_by=None):
         async with self.session_factory() as session:
             row = (
                 (
                     await session.execute(
                         text(
                             f"SELECT * FROM {self.table('skill_publish_requests')} WHERE id=:id"
+                            + (
+                                " AND submitted_by=:submitted_by"
+                                if submitted_by is not None
+                                else ""
+                            )
                         ),
-                        {"id": UUID(str(request_id))},
+                        {
+                            "id": UUID(str(request_id)),
+                            **(
+                                {"submitted_by": submitted_by}
+                                if submitted_by is not None
+                                else {}
+                            ),
+                        },
                     )
                 )
                 .mappings()
@@ -519,13 +531,12 @@ class PostgresSkillRepository:
                 raise ValueError("request_not_found")
             return dict(row)
 
-    async def list_requests(self):
+    async def list_requests(self, *, submitted_by=None):
         async with self.session_factory() as session:
             rows = (
                 (
                     await session.execute(
-                        text(
-                            f"""SELECT r.id,r.skill_name,r.submitted_by,
+                        text(f"""SELECT r.id,r.skill_name,r.submitted_by,
                             COALESCE(NULLIF(u.display_name,''),u.username) AS applicant_name,
                             a.id AS agent_id,a.name AS agent_name,
                             r.status,r.content_hash,r.review_version,
@@ -535,9 +546,14 @@ class PostgresSkillRepository:
                             LEFT JOIN {self.table('agent_skills')} s ON s.id=r.agent_skill_id
                             LEFT JOIN {self.table('agents')} a ON a.id=s.agent_id
                             LEFT JOIN {self.table('users')} u ON u.id=r.submitted_by
+                            {"WHERE r.submitted_by=:submitted_by" if submitted_by is not None else ""}
                             ORDER BY CASE WHEN r.status='pending' THEN 0 ELSE 1 END,
-                            r.created_at DESC"""
-                        )
+                            r.created_at DESC"""),
+                        (
+                            {"submitted_by": submitted_by}
+                            if submitted_by is not None
+                            else {}
+                        ),
                     )
                 )
                 .mappings()

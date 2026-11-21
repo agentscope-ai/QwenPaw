@@ -6,6 +6,10 @@ import {
   refreshAccessSession,
 } from "./authSession";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
+import {
+  errorDetailMessage,
+  interactionErrorText,
+} from "../utils/interactionText";
 
 function getErrorMessageFromBody(
   text: string,
@@ -91,9 +95,13 @@ const DEFAULT_RETRY_DELAY_MS = 1000;
 
 export class ApiRequestError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
-    super(message);
+  readonly rawMessage: string;
+  readonly detail: unknown;
+  constructor(message: string, status: number, detail?: unknown) {
+    super(interactionErrorText(message, status));
     this.status = status;
+    this.rawMessage = message;
+    this.detail = detail;
     this.name = "ApiRequestError";
   }
 }
@@ -219,12 +227,24 @@ export async function request<T = unknown>(
         const contentType = response.headers.get("content-type") || "";
         const errorMessage = getErrorMessageFromBody(text, contentType);
 
-        // Preserve raw body for parseErrorDetail() to extract structured fields
-        const finalMessage = errorMessage
-          ? `${errorMessage} - ${text}`
-          : `Request failed: ${response.status} ${response.statusText}`;
-
-        throw new ApiRequestError(finalMessage, response.status);
+        let detail: unknown;
+        try {
+          const payload = JSON.parse(text);
+          detail = payload.detail ?? payload;
+        } catch {
+          /* Non-JSON diagnostics stay in rawMessage. */
+        }
+        const finalMessage = errorDetailMessage(
+          detail,
+          errorMessage ||
+            `Request failed: ${response.status} ${response.statusText}`,
+        );
+        const error = new ApiRequestError(
+          finalMessage,
+          response.status,
+          detail,
+        );
+        throw error;
       }
 
       if (readResponse) {
@@ -265,6 +285,9 @@ export async function request<T = unknown>(
         }
       } else {
         // Non-timeout errors should not retry
+        if (error instanceof Error && !(error instanceof ApiRequestError)) {
+          throw new ApiRequestError(error.message, 0);
+        }
         throw error;
       }
     } finally {

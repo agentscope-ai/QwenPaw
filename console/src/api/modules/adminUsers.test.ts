@@ -20,6 +20,7 @@ describe("adminUsersApi", () => {
     await adminUsersApi.revokeSessions("user/id");
     await adminUsersApi.updateProfile("user/id", { username: "renamed" });
     await adminUsersApi.resetPassword("user/id", "new-password");
+    await adminUsersApi.unlock("user/id");
 
     expect(request).toHaveBeenNthCalledWith(1, "/admin/users");
     expect(request).toHaveBeenNthCalledWith(
@@ -46,6 +47,11 @@ describe("adminUsersApi", () => {
       6,
       "/admin/users/user%2Fid/profile",
       expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      8,
+      "/admin/users/user%2Fid/unlock",
+      { method: "POST" },
     );
     expect(request).toHaveBeenNthCalledWith(
       7,

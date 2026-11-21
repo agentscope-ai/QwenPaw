@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form, Modal, Select } from "@agentscope-ai/design";
+import { Button, Form, Input, Modal, Select } from "@agentscope-ai/design";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
@@ -122,9 +122,32 @@ function getSelectedNodeValue(
   return status.effective_node_path || undefined;
 }
 
+function NodePathInput({
+  initialValue,
+  label,
+  onChange,
+}: {
+  initialValue: string;
+  label: string;
+  onChange: (value: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <Input
+      aria-label={label}
+      value={value}
+      autoFocus
+      onChange={(event) => {
+        setValue(event.target.value);
+        onChange(event.target.value);
+      }}
+    />
+  );
+}
+
 function ACPPage() {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
+  const { message, modal } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const [agents, setAgents] = useState<Record<string, ACPAgentConfig>>({});
   const [loading, setLoading] = useState(true);
@@ -233,12 +256,35 @@ function ACPPage() {
       return selected || null;
     }
 
-    const value = window.prompt(
-      t("acp.nodePathPrompt"),
-      nodeRuntime?.effective_node_path || "",
-    );
-    return value?.trim() || null;
-  }, [nodeRuntime?.effective_node_path, t]);
+    return new Promise<string | null>((resolve) => {
+      let value = nodeRuntime?.effective_node_path || "";
+      modal.confirm({
+        title: t("acp.selectNodePath"),
+        content: (
+          <NodePathInput
+            initialValue={value}
+            label={t("acp.nodePathPrompt")}
+            onChange={(nextValue) => {
+              value = nextValue;
+            }}
+          />
+        ),
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        autoFocusButton: null,
+        onOk: (close) => {
+          const normalized = value.trim();
+          if (!normalized) {
+            message.error(t("acp.nodePathPrompt"));
+            return;
+          }
+          resolve(normalized);
+          close();
+        },
+        onCancel: () => resolve(null),
+      });
+    });
+  }, [nodeRuntime?.effective_node_path, t, message, modal]);
 
   const saveNodePath = useCallback(
     async (value: string) => {

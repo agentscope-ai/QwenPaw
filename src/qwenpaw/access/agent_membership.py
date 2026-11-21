@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 from uuid import UUID
 
@@ -112,13 +112,26 @@ class AgentMembershipService:
             raise AgentAccessDeniedError()
         return matches[0]
 
+    async def require_historical_read(
+        self, *, actor: ActorContext, agent: LegacyAgentRecord,
+    ) -> AccessibleAgent:
+        """停用 Agent 也仅允许已有本人会话的用户进入历史只读入口。"""
+        loader = getattr(self._repository, "list_historical_accessible", None)
+        if actor.user_id is None or loader is None:
+            raise AgentAccessDeniedError()
+        records = await loader(agent_keys=[agent.key], user_id=actor.user_id)
+        access = records.get(agent.key)
+        if access is None or not access.historical_read_only:
+            raise AgentAccessDeniedError()
+        return self._registered(agent, access)
+
     @staticmethod
     def _registered(
         agent: LegacyAgentRecord,
         access: AgentAccessRecord,
     ) -> AccessibleAgent:
         return AccessibleAgent(
-            agent=agent,
+            agent=replace(agent, status=access.status),
             owner_user_id=access.owner_user_id,
             role=access.role,
             registration_state="registered",

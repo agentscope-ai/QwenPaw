@@ -16,7 +16,14 @@ export function toDisplayUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("data:")) return url;
-  if (url.startsWith("file://")) url = url.replace("file://", "");
+  if (url.startsWith("/api/")) return url;
+  if (url.startsWith("file://")) {
+    try {
+      url = decodeURIComponent(new URL(url).pathname);
+    } catch {
+      url = url.replace("file://", "");
+    }
+  }
   return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
@@ -172,7 +179,12 @@ function extractUrlFromResultBlocks(
       if (typeof src.url === "string" && src.url) {
         return {
           url: src.url,
-          filename: typeof b.filename === "string" ? b.filename : undefined,
+          filename:
+            typeof b.name === "string"
+              ? b.name
+              : typeof b.filename === "string"
+              ? b.filename
+              : undefined,
         };
       }
     }
@@ -181,13 +193,23 @@ function extractUrlFromResultBlocks(
     if (typeof b.url === "string" && b.url) {
       return {
         url: b.url,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
+        filename:
+          typeof b.name === "string"
+            ? b.name
+            : typeof b.filename === "string"
+            ? b.filename
+            : undefined,
       };
     }
     if (typeof b.path === "string" && b.path) {
       return {
         url: b.path,
-        filename: typeof b.filename === "string" ? b.filename : undefined,
+        filename:
+          typeof b.name === "string"
+            ? b.name
+            : typeof b.filename === "string"
+            ? b.filename
+            : undefined,
       };
     }
   }
@@ -238,14 +260,45 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
   }
 
   const previewableParamPath = isPreviewablePath(paramPath) ? paramPath : "";
-  const rawUrl = fromResult?.url || previewableParamPath || textUrl || "";
+  // A delivered artifact has a stable, owner-scoped URL. Prefer that exact
+  // link over a historical absolute server path in the accompanying DataBlock.
+  let deliveryUrl = "";
+  try {
+    const blocks =
+      typeof tc.result === "string" && !hasLargeInlineBase64(tc.result)
+        ? JSON.parse(tc.result)
+        : tc.result;
+    if (Array.isArray(blocks)) {
+      const links = new Set<string>();
+      for (const block of blocks) {
+        if (block?.type !== "text" || typeof block.text !== "string") continue;
+        for (const match of block.text.matchAll(
+          /(?:^|[\s(])(\/api\/console\/artifacts\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/download)(?=$|[\s)\]])/gi,
+        ))
+          links.add(match[1]);
+      }
+      if (links.size === 1) deliveryUrl = [...links][0];
+    }
+  } catch {
+    /* Older non-JSON tool results retain their existing preview. */
+  }
+  const rawUrl =
+    deliveryUrl || fromResult?.url || previewableParamPath || textUrl || "";
   if (!rawUrl) return null;
 
-  const name =
+  let name =
     fromResult?.filename ||
     rawUrl.split("/").pop() ||
     paramPath.split("/").pop() ||
     "file";
+  if (!fromResult?.filename) {
+    try {
+      const decoded = decodeURIComponent(name);
+      if (!/[\\/\x00-\x1f]/.test(decoded)) name = decoded;
+    } catch {
+      /* A literal percent sign is a valid filename. */
+    }
+  }
   const ext = getFileExtFromPath(name);
   const mediaType = classifyMediaType(ext);
 

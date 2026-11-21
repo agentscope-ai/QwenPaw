@@ -170,8 +170,9 @@ class PostgresConversationRepository(ConversationRepository):
             return "", {}
         scope = (
             f" AND {conversation_alias}.status <> 'deleted' "
-            "AND a.status <> 'deleted' AND ("
+            "AND ("
             f"{conversation_alias}.owner_user_id = :request_user_id OR ("
+            "a.status = 'active' AND "
             f"EXISTS (SELECT 1 FROM {self._table('conversation_members')} cm "
             f"WHERE cm.conversation_id = {conversation_alias}.id "
             "AND cm.user_id = :request_user_id AND cm.role = 'viewer') "
@@ -283,12 +284,13 @@ class PostgresConversationRepository(ConversationRepository):
                     "AND am.revoked_at IS NULL "
                     f"LEFT JOIN {self._table('users')} granted "
                     "ON granted.id = cm.granted_by "
-                    f"WHERE c.status <> 'deleted' AND a.status <> 'deleted' "
+                    f"WHERE c.status <> 'deleted' "
                     f"{agent_clause}"
                     f"{ids_clause}"
                     f"AND {scope_clause} "
                     "AND (c.owner_user_id = :user_id OR ("
-                    "cm.user_id = :user_id AND (a.owner_user_id = :user_id "
+                    "a.status = 'active' AND cm.user_id = :user_id "
+                    "AND (a.owner_user_id = :user_id "
                     "OR a.visibility = 'public' OR am.user_id IS NOT NULL))) "
                     "ORDER BY c.updated_at DESC, c.id DESC"
                 )
@@ -397,8 +399,9 @@ class PostgresConversationRepository(ConversationRepository):
                     f"LEFT JOIN {self._table('users')} granted "
                     "ON granted.id = cm.granted_by "
                     "WHERE c.id = :conversation_id AND c.status <> 'deleted' "
-                    "AND a.status <> 'deleted' AND (c.owner_user_id = :user_id "
-                    "OR (cm.user_id = :user_id AND (a.owner_user_id = :user_id "
+                    "AND (c.owner_user_id = :user_id "
+                    "OR (a.status = 'active' AND cm.user_id = :user_id "
+                    "AND (a.owner_user_id = :user_id "
                     "OR a.visibility = 'public' OR am.user_id IS NOT NULL)))"
                 ),
                 {"conversation_id": conversation_id, "user_id": user_id},

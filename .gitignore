@@ -176,3 +176,6 @@ test-results/
 
 # Local account handover file (contains deployment-specific credentials)
 /docs/accoun.md
+
+# Rebuildable personal-library indexes contain private document content
+personal_library_indexes/

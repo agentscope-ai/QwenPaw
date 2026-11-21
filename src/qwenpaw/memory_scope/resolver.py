@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..access.actor import ActorContext
 from ..constant import WORKING_DIR
+from ..utils.path_safety import is_link_or_junction
 from .models import MemoryScope, MemoryScopeContext, MemoryScopeDenied
 
 _SAFE_AGENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -63,15 +64,18 @@ class MemoryScopeResolver:
         """仅从可信上下文生成受控绝对路径。"""
         self._validate_agent_id(context.agent_id)
         if context.scope is MemoryScope.PUBLIC:
-            root = (self._working_dir / "workspaces").resolve()
-            candidate = (root / context.agent_id).resolve()
+            root = self._working_dir / "workspaces"
         else:
             if context.actor_user_id is None:
                 raise MemoryScopeDenied("authenticated_user_required")
-            root = (
-                self._working_dir / "user_workspaces" / str(context.actor_user_id)
-            ).resolve()
-            candidate = (root / context.agent_id).resolve()
+            root = self._working_dir / "user_workspaces" / str(context.actor_user_id)
+        raw = root / context.agent_id
+        for part in (raw, *raw.parents):
+            if part == self._working_dir:
+                break
+            if is_link_or_junction(part):
+                raise MemoryScopeDenied("workspace_symlink_denied")
+        root, candidate = root.resolve(), raw.resolve()
         if not candidate.is_relative_to(root):
             raise MemoryScopeDenied("workspace_path_escape")
         return candidate
@@ -87,12 +91,16 @@ class MemoryScopeResolver:
         current = self._working_dir
         for part in candidate.relative_to(self._working_dir).parts:
             current /= part
-            if current.is_symlink():
+            if is_link_or_junction(current):
                 raise MemoryScopeDenied("workspace_symlink_denied")
             current.mkdir(exist_ok=True)
         if not candidate.is_relative_to(root.resolve()):
             raise MemoryScopeDenied("workspace_path_escape")
         return candidate
+
+    def existing_workspace(self, context: MemoryScopeContext) -> Path:
+        """只读解析既有目录；不创建目录，也不跟随链接到另一用户。"""
+        return self.workspace_path(context)
 
     def workspace_key(self, context: MemoryScopeContext) -> str:
         """返回可安全持久化的 POSIX 风格相对目录引用。"""

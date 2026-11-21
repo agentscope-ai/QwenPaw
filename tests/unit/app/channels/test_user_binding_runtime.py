@@ -399,6 +399,8 @@ def test_personal_connector_media_uses_existing_authenticated_preview_scope(
         "qwenpaw.access.dependencies.get_actor",
         lambda request: SimpleNamespace(user_id=uuid4() if foreign else owner),
     )
+    preview_agent = AsyncMock(return_value=SimpleNamespace(agent_id="shared-agent"))
+    monkeypatch.setattr("qwenpaw.app.agent_context.get_agent_for_request", preview_agent)
     app = FastAPI()
     app.include_router(files.router, prefix="/api")
     response = TestClient(app).get("/api/files/preview/" + target.as_posix())
@@ -406,5 +408,7 @@ def test_personal_connector_media_uses_existing_authenticated_preview_scope(
     assert response.status_code == (403 if foreign else 200)
     if not foreign:
         assert response.content == b"private-channel-image"
+        assert preview_agent.await_args.kwargs == {"agent_id": "shared-agent", "recheck_access": True}
     else:
         assert b"private-channel-image" not in response.content
+        preview_agent.assert_not_awaited()

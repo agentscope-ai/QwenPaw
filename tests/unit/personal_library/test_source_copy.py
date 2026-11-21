@@ -30,11 +30,11 @@ class AttachmentRepository:
 @pytest.mark.asyncio
 async def test_copy_attachment_preserves_source_and_sets_library_metadata(tmp_path: Path) -> None:
     owner_id = uuid4()
-    source = tmp_path / "uploads" / "source.pdf"
-    source.parent.mkdir()
+    source = tmp_path / "user_workspaces" / str(owner_id) / "default" / "media" / "source.pdf"
+    source.parent.mkdir(parents=True)
     source.write_bytes(b"original attachment")
     attachment = AttachmentRecord(
-        id=uuid4(), agent_id=uuid4(), owner_user_id=owner_id,
+        id=uuid4(), agent_id=agent_database_id("default"), owner_user_id=owner_id,
         storage_key=str(source), original_name="source.pdf", media_type="application/pdf",
         size=source.stat().st_size, content_hash="hash", created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
     )

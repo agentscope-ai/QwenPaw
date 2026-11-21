@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   agents: [{ id: "a" }, { id: "b" }],
   renderedAgents: [] as string[],
   listChats: vi.fn(),
+  getChatSpec: vi.fn(),
   navigate: vi.fn(),
   getLastChatId: vi.fn((): string | undefined => undefined),
   setSelectedAgent: vi.fn((id: string) => {
@@ -27,7 +28,7 @@ vi.mock("antd", () => ({ Spin: () => <div data-testid="resolving" /> }));
 vi.mock("../../stores/authStore", () => ({ useAuthStore: () => "multi_user" }));
 vi.mock("../../stores/agentStore", () => ({ useAgentStore: () => state }));
 vi.mock("../../api/modules/chat", () => ({
-  chatApi: { listChats: state.listChats },
+  chatApi: { listChats: state.listChats, getChatSpec: state.getChatSpec },
 }));
 vi.mock("./index", () => ({
   default: () => {
@@ -49,9 +50,16 @@ beforeEach(() => {
   state.pathname = "/chat/first";
   state.navigationState = null;
   state.selectedAgent = "a";
+  state.agents = [{ id: "a" }, { id: "b" }];
   state.renderedAgents = [];
   vi.clearAllMocks();
   state.getLastChatId.mockReset().mockReturnValue(undefined);
+  state.getChatSpec.mockReset().mockImplementation(async (id: string) => ({
+    id,
+    agent_id: id === "second" ? "b" : "a",
+    access_role: "owner",
+    read_only: false,
+  }));
   state.listChats.mockImplementation(
     async ({ requestContext }: { requestContext: { agentId: string } }) =>
       requestContext.agentId === "a" ? [{ id: "first" }] : [{ id: "second" }],
@@ -59,6 +67,38 @@ beforeEach(() => {
 });
 
 describe("ChatRoute", () => {
+  it("restores owned read-only history when no Agent remains available", async () => {
+    state.agents = [];
+    state.selectedAgent = "";
+    state.getChatSpec.mockResolvedValue({
+      id: "first",
+      agent_id: "retired",
+      access_role: "owner",
+      read_only: true,
+    });
+    render(<ChatRoute />);
+    await waitFor(() => expect(screen.queryByTestId("chat")).not.toBeNull());
+    expect(state.getChatSpec).toHaveBeenCalledWith("first", expect.anything());
+    expect(state.selectedAgent).toBe("retired");
+    expect(state.renderedAgents).toEqual(["retired"]);
+  });
+
+  it("resolves a retired Agent from owned chat identity instead of another Agent's list", async () => {
+    state.selectedAgent = "b";
+    state.agents = [{ id: "b" }];
+    state.listChats.mockResolvedValue([]);
+    state.getChatSpec.mockResolvedValue({
+      id: "first",
+      agent_id: "retired",
+      access_role: "owner",
+      read_only: true,
+    });
+    render(<ChatRoute />);
+    await waitFor(() => expect(screen.queryByTestId("chat")).not.toBeNull());
+    expect(state.selectedAgent).toBe("retired");
+    expect(state.renderedAgents).toEqual(["retired"]);
+  });
+
   it("blocks the old chat while switching to a different agent", async () => {
     const view = render(<ChatRoute />);
     await waitFor(() => expect(screen.queryByTestId("chat")).not.toBeNull());
@@ -165,20 +205,18 @@ describe("ChatRoute", () => {
     const view = render(<ChatRoute />);
     await waitFor(() => expect(screen.queryByTestId("chat")).not.toBeNull());
     state.renderedAgents = [];
-    let finish: (chats: { id: string }[]) => void = () => {};
-    state.listChats.mockImplementation(
-      ({ requestContext }: { requestContext: { agentId: string } }) =>
-        requestContext.agentId === "a"
-          ? Promise.resolve([])
-          : new Promise((resolve) => {
-              finish = resolve;
-            }),
+    let finish: (spec: { id: string; agent_id: string }) => void = () => {};
+    state.getChatSpec.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
     );
     state.pathname = "/chat/second";
     view.rerender(<ChatRoute />);
     expect(screen.queryByTestId("chat")).toBeNull();
     expect(state.renderedAgents).toEqual([]);
-    await act(async () => finish([{ id: "second" }]));
+    await act(async () => finish({ id: "second", agent_id: "b" }));
     await waitFor(() => expect(screen.queryByTestId("chat")).not.toBeNull());
     expect(state.renderedAgents).toEqual(["b"]);
   });

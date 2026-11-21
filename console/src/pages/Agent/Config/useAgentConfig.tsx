@@ -10,6 +10,7 @@ import type {
 } from "../../../api/modules/agent";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
+import { parseErrorDetail } from "../../../utils/error";
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
@@ -193,7 +194,16 @@ export function useAgentConfig(
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
       const errorText = err instanceof Error ? err.message : String(err);
-      if (/403|forbidden/i.test(errorText)) {
+      const errorDetail = parseErrorDetail(err);
+      const errorCode =
+        typeof errorDetail === "string" ? errorDetail : errorDetail?.code;
+      if (
+        (err &&
+          typeof err === "object" &&
+          "status" in err &&
+          err.status === 403) ||
+        /403|forbidden/i.test(errorText)
+      ) {
         // Membership or an administrator governance grant can be revoked
         // while this page is open. Re-read access instead of leaving stale
         // editing controls active after the server rejects the write.
@@ -202,7 +212,8 @@ export function useAgentConfig(
       }
       if (
         err instanceof Error &&
-        err.message.includes("config_version_conflict")
+        (err.message.includes("config_version_conflict") ||
+          errorCode === "config_version_conflict")
       ) {
         Modal.confirm({
           title: t("agentConfig.versionConflictTitle"),

@@ -151,8 +151,28 @@ async def test_catalog_and_fixed_publication_transactions(skill_database, tmp_pa
         assert await service.request_file(admin, request["id"], "SKILL.md") == {
             "content": content_a
         }
-        with pytest.raises(AuthorizationDeniedError):
-            await service.request_detail(owner, request["id"])
+        assert (await service.request_detail(owner, request["id"]))["files"] == ["SKILL.md"]
+        assert await service.request_file(owner, request["id"], "SKILL.md") == {"content": content_a}
+        assert [str(row["id"]) for row in await service.list_requests(owner, scope="mine")] == [request["id"]]
+        for foreign in (collaborator, user):
+            with pytest.raises(AuthorizationDeniedError):
+                await service.request_detail(foreign, request["id"])
+            assert await service.list_requests(foreign, scope="mine") == []
+        for agent_status in ("disabled", "deleted"):
+            async with sessions() as session:
+                await session.execute(
+                    text(f'UPDATE "{schema}".agents SET status=:status WHERE id=:id'),
+                    {"status": agent_status, "id": agent_database_id("agentA")},
+                )
+            assert await service.request_file(owner, request["id"], "SKILL.md") == {"content": content_a}
+            assert [str(row["id"]) for row in await service.list_requests(owner, scope="mine")] == [request["id"]]
+            with pytest.raises(AuthorizationDeniedError):
+                await service.submit_request(owner, "agentA", "sample", source)
+        async with sessions() as session:
+            await session.execute(
+                text(f'UPDATE "{schema}".agents SET status=\'active\' WHERE id=:id'),
+                {"id": agent_database_id("agentA")},
+            )
         with pytest.raises(ValueError, match="invalid_skill_file"):
             await service.request_file(admin, request["id"], "../config.json")
         approved = await service.review_request(

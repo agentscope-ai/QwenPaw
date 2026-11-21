@@ -15,6 +15,8 @@ export interface ChatSpec {
   archived?: boolean; // Computed: whether the chat is archived
   access_role?: "owner" | "viewer";
   read_only?: boolean;
+  /** Original Agent identity retained for owner history after use access ends. */
+  agent_id?: string;
   shared_by?: string | null;
 }
 

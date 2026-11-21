@@ -70,3 +70,4 @@ build/repository-artifact-audit.json
 *.log
 logs
 cookbook
+personal_library_indexes/

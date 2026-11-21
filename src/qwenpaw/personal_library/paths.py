@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from ..constant import WORKING_DIR
+from ..utils.path_safety import is_link_or_junction
 from ..services.workspace_files import InvalidWorkspacePath, resolve_workspace_path
 
 
@@ -26,7 +27,7 @@ class PersonalLibraryPathResolver:
         current = self._working_dir
         for part in root.relative_to(self._working_dir).parts:
             current /= part
-            if current.is_symlink():
+            if is_link_or_junction(current):
                 raise PersonalLibraryPathDenied("library_symlink_denied")
             current.mkdir(exist_ok=True)
         return root
@@ -53,7 +54,7 @@ class PersonalLibraryPathResolver:
             current = root
             for part in relative_path.split("/"):
                 current /= part
-                if current.is_symlink():
+                if is_link_or_junction(current):
                     raise PersonalLibraryPathDenied("library_symlink_denied")
             return resolved
         except InvalidWorkspacePath as exc:

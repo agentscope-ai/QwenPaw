@@ -263,8 +263,10 @@ async def grant(
 
 
 @router.get("/skill-governance/requests")
-async def requests(actor=Depends(require_manage)):
-    return {"requests": await get_skill_service().repository.list_requests()}
+async def requests(scope: Literal["all", "mine"] = "all", actor=Depends(get_actor)):
+    if scope == "all":
+        SkillGovernanceService.require_manage(actor)
+    return {"requests": await get_skill_service().list_requests(actor, scope=scope)}
 
 
 @router.post("/skill-governance/requests")
@@ -302,10 +304,10 @@ async def review(
 
 
 @router.get("/skill-governance/requests/{request_id}")
-async def request_detail(request_id: UUID, actor=Depends(require_manage)):
+async def request_detail(request_id: UUID, actor=Depends(get_actor)):
     return await get_skill_service().request_detail(actor, request_id)
 
 
 @router.get("/skill-governance/requests/{request_id}/files/{file_path:path}")
-async def request_file(request_id: UUID, file_path: str, actor=Depends(require_manage)):
+async def request_file(request_id: UUID, file_path: str, actor=Depends(get_actor)):
     return await get_skill_service().request_file(actor, request_id, file_path)

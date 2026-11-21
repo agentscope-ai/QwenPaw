@@ -40,7 +40,9 @@ export function pickAccessibleAgentId(
   selectedAgent: string,
 ): string {
   const current = agents.find(
-    (agent) => agent.id === selectedAgent && agent.enabled,
+    (agent) =>
+      agent.id === selectedAgent &&
+      (agent.enabled || agent.historical_read_only),
   );
   return current?.id ?? agents.find((agent) => agent.enabled)?.id ?? "";
 }
@@ -56,10 +58,15 @@ export function isAgentHistoricalReadOnly(
 
 interface AgentStore {
   selectedAgent: string;
+  /** Current login's server-confirmed owner history; never a runtime grant. */
+  historicalAgentId: string | null;
   agents: AgentSummary[];
   /** Per-agent last active chat ID for restoring on agent switch */
   lastChatIdByAgent: Record<string, string>;
-  setSelectedAgent: (agentId: string) => void;
+  setSelectedAgent: (
+    agentId: string,
+    options?: { ownedHistory?: boolean },
+  ) => void;
   setAgents: (agents: AgentSummary[]) => void;
   refreshAgents: () => Promise<void>;
   addAgent: (agent: AgentSummary) => void;
@@ -120,11 +127,15 @@ export const useAgentStore = create<AgentStore>()(
   persist(
     (set, get) => ({
       selectedAgent: getInitialSelectedAgent(),
+      historicalAgentId: null,
       agents: [],
       lastChatIdByAgent: {},
 
-      setSelectedAgent: (agentId) => {
-        set({ selectedAgent: agentId });
+      setSelectedAgent: (agentId, options) => {
+        set({
+          selectedAgent: agentId,
+          historicalAgentId: options?.ownedHistory ? agentId : null,
+        });
         menuRegistry.refresh();
         persistLastUsedAgent(agentId);
       },
@@ -138,10 +149,10 @@ export const useAgentStore = create<AgentStore>()(
 
         agentRefreshPromise = agentsApi.listAgents().then((response) => {
           const previousSelection = get().selectedAgent;
-          const selectedAgent = pickAccessibleAgentId(
-            response.agents,
-            previousSelection,
-          );
+          const selectedAgent =
+            get().historicalAgentId === previousSelection
+              ? previousSelection
+              : pickAccessibleAgentId(response.agents, previousSelection);
           set({ agents: response.agents, selectedAgent });
           if (selectedAgent !== previousSelection) {
             persistLastUsedAgent(selectedAgent);
@@ -215,6 +226,7 @@ export const useAgentStore = create<AgentStore>()(
       resetIdentityState: () => {
         set({
           selectedAgent: "default",
+          historicalAgentId: null,
           agents: [],
           lastChatIdByAgent: {},
         });
@@ -223,6 +235,12 @@ export const useAgentStore = create<AgentStore>()(
     }),
     {
       name: STORAGE_KEY,
+      // History access is revalidated from /spec after a reload or new login.
+      partialize: (state) => ({
+        selectedAgent: state.selectedAgent,
+        agents: state.agents,
+        lastChatIdByAgent: state.lastChatIdByAgent,
+      }),
       storage: {
         getItem: (name) => {
           const storageKey = getUserScopedStorageKey(name);

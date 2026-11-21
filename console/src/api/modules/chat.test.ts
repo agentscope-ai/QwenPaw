@@ -25,6 +25,20 @@ describe("chatApi.filePreviewUrl", () => {
     expect(chatApi.filePreviewUrl("")).toBe("");
   });
 
+  it("keeps artifact API URLs out of the filesystem preview endpoint", () => {
+    vi.mocked(getApiToken).mockReturnValue("");
+    const url =
+      "/api/console/artifacts/bd20d801-5fa2-4dd0-8d5e-691806601b5b/download";
+    expect(chatApi.filePreviewUrl(url)).toBe(url);
+  });
+
+  it("encodes literal percent signs and Chinese filenames exactly once", () => {
+    vi.mocked(getApiToken).mockReturnValue("");
+    expect(chatApi.filePreviewUrl("/data/防水%2F简报.pdf")).toBe(
+      "/api/files/preview/data/%E9%98%B2%E6%B0%B4%252F%E7%AE%80%E6%8A%A5.pdf",
+    );
+  });
+
   it("returns http URL as-is", () => {
     expect(chatApi.filePreviewUrl("http://cdn.com/img.png")).toBe(
       "http://cdn.com/img.png",
@@ -158,9 +172,7 @@ describe("chatApi.filePreviewUrl", () => {
       chatApi.filePreviewUrl(
         "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       ),
-    ).toBe(
-      "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    );
+    ).toBe("/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
   });
 
   it("appends the session token to protected attachment endpoints", () => {

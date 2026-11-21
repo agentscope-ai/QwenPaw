@@ -12,6 +12,7 @@ from .models import (
     CronDispatchTargetsResponse,
     CronExecutionRecord,
     CronJobSpec,
+    CronJobState,
     CronJobView,
 )
 from ...access.actor import ActorContext
@@ -56,6 +57,52 @@ async def get_cron_manager(
             detail="CronManager not initialized",
         )
     return workspace.cron_manager
+
+
+async def get_cron_read_manager(request: Request):
+    # 多用户本人读取直接走持久记录；写操作仍使用原来的运行管理器。
+    return None if is_multi_user_enabled() else await get_cron_manager(request)
+
+
+def _owned_job_repository(request: Request):
+    from ..owned_content import owner_agent_key
+    from ...identity.runtime import get_identity_schema
+    from .repo.postgres_repo import PostgresJobRepository
+
+    return PostgresJobRepository(
+        agent_key=owner_agent_key(request), schema=get_identity_schema()
+    )
+
+
+def _require_owner_identity(actor: ActorContext):
+    if actor.user_id is None:
+        raise HTTPException(401, "not_authenticated")
+    return actor.user_id
+
+
+def _explicit_owner_agent(request: Request):
+    from ...access.agent_repository import agent_database_id
+    from ..owned_content import owner_agent_key
+
+    return (
+        {"expected_agent_id": agent_database_id(owner_agent_key(request))}
+        if request.path_params.get("agentId")
+        else {}
+    )
+
+
+def _loaded_owned_job_state(request: Request, job_id: str) -> CronJobState:
+    """只读取已存在的进程状态，不因查看本人任务而启动 Agent。"""
+    from ..owned_content import owner_agent_key
+
+    manager = getattr(request.app.state, "multi_agent_manager", None)
+    workspace = (
+        manager.get_loaded_agent(owner_agent_key(request))
+        if manager is not None
+        else None
+    )
+    cron = getattr(workspace, "cron_manager", None)
+    return cron.get_state(job_id) if cron is not None else CronJobState()
 
 
 @router.get(
@@ -118,9 +165,20 @@ async def list_dispatch_targets(
 @router.get("/jobs", response_model=list[CronJobSpec])
 async def list_jobs(
     scope: str = Query(default="mine", pattern="^(mine|agent)$"),
-    mgr: CronManager = Depends(get_cron_manager),
+    mgr: CronManager = Depends(get_cron_read_manager),
     actor: ActorContext = Depends(get_actor),
+    request: Request = None,
 ):
+    if mgr is None and is_multi_user_enabled():
+        user_id = _require_owner_identity(actor)
+        if scope == "mine":
+            return [
+                job
+                for job in await _owned_job_repository(request).list_owned_jobs(user_id)
+                if job.automation_owner_user_id == user_id
+            ]
+        # 显式治理范围保留既有 Agent 角色和管理员检查。
+        mgr = await get_cron_manager(request)
     service = _authorization_service(mgr)
     if service is None:
         return await mgr.list_jobs()
@@ -133,9 +191,19 @@ async def list_jobs(
 @router.get("/jobs/{job_id}", response_model=CronJobView)
 async def get_job(
     job_id: str,
-    mgr: CronManager = Depends(get_cron_manager),
+    mgr: CronManager = Depends(get_cron_read_manager),
     actor: ActorContext = Depends(get_actor),
+    request: Request = None,
 ):
+    if mgr is None and is_multi_user_enabled():
+        user_id = _require_owner_identity(actor)
+        job = await _owned_job_repository(request).get_owned_job(
+            job_id, user_id, **_explicit_owner_agent(request)
+        )
+        if job is not None and job.automation_owner_user_id == user_id:
+            return CronJobView(spec=job, state=_loaded_owned_job_state(request, job_id))
+        # 只对配置详情维持显式代管入口；历史执行结果不走此分支。
+        mgr = await get_cron_manager(request)
     job = await mgr.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
@@ -302,9 +370,17 @@ async def get_job_state(
 @router.get("/jobs/{job_id}/history", response_model=list[CronExecutionRecord])
 async def get_job_history(
     job_id: str,
-    mgr: CronManager = Depends(get_cron_manager),
+    mgr: CronManager = Depends(get_cron_read_manager),
     actor: ActorContext = Depends(get_actor),
+    request: Request = None,
 ):
+    if mgr is None and is_multi_user_enabled():
+        result = await _owned_job_repository(request).get_owned_history(
+            job_id, _require_owner_identity(actor), **_explicit_owner_agent(request)
+        )
+        if result is None:
+            raise HTTPException(404, "job not found")
+        return result
     job = await mgr.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")

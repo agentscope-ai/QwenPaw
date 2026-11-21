@@ -29,6 +29,7 @@ def _request() -> Request:
         admin_mode=False,
         request_id="attachment-list-test",
     )
+    request.state.agent_id = AGENT_KEY
     return request
 
 
@@ -69,8 +70,8 @@ async def test_list_returns_only_owned_current_agent_attachments_without_path(
     )
     monkeypatch.setattr(
         router,
-        "get_agent_for_request",
-        lambda _request: _async_value(workspace),
+        "PostgresConversationRepository",
+        lambda **kwargs: workspace.chat_manager.conversation_repository,
     )
 
     response = await router.list_console_attachments(

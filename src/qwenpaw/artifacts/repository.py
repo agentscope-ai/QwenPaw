@@ -115,6 +115,17 @@ class PostgresArtifactRepository:
             row = (await session.execute(text(f"UPDATE {self._table} SET status='deleted', deleted_at=:deleted_at WHERE owner_user_id=:owner_user_id AND id=:id AND status='active' RETURNING *"), {"owner_user_id": owner_user_id, "id": artifact_id, "deleted_at": deleted_at})).mappings().one_or_none()
         return None if row is None else self._from_row(row)
 
+    async def restore_failed_delete(self, *, owner_user_id: UUID, artifact_id: UUID, deleted_at) -> AgentArtifact | None:
+        """仅补偿本次未完成的删除，不恢复其他删除操作或其他用户的记录。"""
+        async with self._sessions() as session:
+            await set_request_user(session, owner_user_id)
+            row = (await session.execute(text(
+                f"UPDATE {self._table} SET status='active', deleted_at=NULL "
+                "WHERE owner_user_id=:owner AND id=:id AND status='deleted' "
+                "AND deleted_at=:deleted_at RETURNING *"
+            ), {"owner": owner_user_id, "id": artifact_id, "deleted_at": deleted_at})).mappings().one_or_none()
+        return None if row is None else self._from_row(row)
+
     @staticmethod
     def _from_row(row) -> AgentArtifact:
         return AgentArtifact(**{field: row[field] for field in AgentArtifact.__dataclass_fields__})

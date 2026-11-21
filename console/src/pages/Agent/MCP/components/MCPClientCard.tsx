@@ -1,4 +1,11 @@
-import { Card, Button, Modal, Tooltip, Input, Select } from "@agentscope-ai/design";
+import {
+  Card,
+  Button,
+  Modal,
+  Tooltip,
+  Input,
+  Select,
+} from "@agentscope-ai/design";
 import type {
   MCPAccessPolicy,
   MCPClientInfo,
@@ -7,6 +14,7 @@ import type {
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useState } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
   EyeOutlined,
   EyeInvisibleOutlined,
@@ -27,8 +35,16 @@ interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: MCPClientUpdateRequest, expectedRevision?: number) => Promise<boolean>;
-  onUpdatePolicy: (key: string, policy: MCPAccessPolicy, expectedRevision?: number) => Promise<boolean>;
+  onUpdate: (
+    key: string,
+    updates: MCPClientUpdateRequest,
+    expectedRevision?: number,
+  ) => Promise<boolean>;
+  onUpdatePolicy: (
+    key: string,
+    policy: MCPAccessPolicy,
+    expectedRevision?: number,
+  ) => Promise<boolean>;
   onRefresh: () => Promise<void>;
   canEdit: boolean;
 }
@@ -43,6 +59,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   canEdit,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
@@ -155,7 +172,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         Object.prototype.hasOwnProperty.call(parsed, "headers") ||
         Object.prototype.hasOwnProperty.call(parsed, "env")
       ) {
-        alert(t("mcp.rawCredentialRejected"));
+        message.error(t("mcp.rawCredentialRejected"));
         return;
       }
       const { key: _key, ...updates } = parsed;
@@ -178,7 +195,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         setIsEditing(false);
       }
     } catch {
-      alert("Invalid JSON format");
+      message.error(t("interaction.invalidJson"));
     }
   };
 
@@ -270,13 +287,13 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         {client.enabled &&
           client.runtime_status &&
           client.runtime_status !== "active" && (
-          <div className={styles.maskedFieldHint}>
-            {t("mcp.runtimeInactive", {
-              status: client.runtime_status,
-              error: client.runtime_error || "",
-            })}
-          </div>
-        )}
+            <div className={styles.maskedFieldHint}>
+              {t("mcp.runtimeInactive", {
+                status: client.runtime_status,
+                error: client.runtime_error || "",
+              })}
+            </div>
+          )}
 
         <div className={styles.cardFooter}>
           <Button
@@ -350,26 +367,32 @@ export const MCPClientCard = React.memo(function MCPClientCard({
                 </span>
               </Button>
             )}
-            {canEdit && <Button
-              className={styles.toggleButton}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleClick(e);
-              }}
-              icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-            >
-              {client.enabled ? t("common.disable") : t("common.enable")}
-            </Button>}
-            {canEdit && <Button
-              className={styles.deleteButton}
-              danger
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteClick(e);
-              }}
-            >
-              {t("common.delete")}
-            </Button>}
+            {canEdit && (
+              <Button
+                className={styles.toggleButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleClick(e);
+                }}
+                icon={
+                  client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
+                }
+              >
+                {client.enabled ? t("common.disable") : t("common.enable")}
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                className={styles.deleteButton}
+                danger
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteClick(e);
+                }}
+              >
+                {t("common.delete")}
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -398,28 +421,50 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             >
               {t("common.cancel")}
             </Button>
-            {canEdit && (isEditing ? (
-              <Button data-testid={`mcp-client-save-${client.key}`} type="primary" onClick={handleSaveJson}>
-                {t("common.save")}
-              </Button>
-            ) : (
-              <Button data-testid={`mcp-client-edit-${client.key}`} type="primary" onClick={() => setIsEditing(true)}>
-                {t("common.edit")}
-              </Button>
-            ))}
+            {canEdit &&
+              (isEditing ? (
+                <Button
+                  data-testid={`mcp-client-save-${client.key}`}
+                  type="primary"
+                  onClick={handleSaveJson}
+                >
+                  {t("common.save")}
+                </Button>
+              ) : (
+                <Button
+                  data-testid={`mcp-client-edit-${client.key}`}
+                  type="primary"
+                  onClick={() => setIsEditing(true)}
+                >
+                  {t("common.edit")}
+                </Button>
+              ))}
           </div>
         }
         width={700}
       >
-        <div className={styles.maskedFieldHint}>{t("mcp.credentialFieldHint")}</div>
+        <div className={styles.maskedFieldHint}>
+          {t("mcp.credentialFieldHint")}
+        </div>
         {isEditing && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
             {(["headers", "env"] as const).flatMap((kind) =>
               Object.entries(credentialDraft[kind]).map(([name, field]) => (
                 <div
                   key={`${kind}:${name}`}
                   data-testid={`mcp-credential-row-${kind}-${name}`}
-                  style={{ display: "grid", gridTemplateColumns: "1fr 130px 2fr", gap: 8 }}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 130px 2fr",
+                    gap: 8,
+                  }}
                 >
                   <Input value={`${kind}:${name}`} disabled />
                   <Select
@@ -427,8 +472,14 @@ export const MCPClientCard = React.memo(function MCPClientCard({
                     value={field.action}
                     options={[
                       { label: t("mcp.credentialAction.keep"), value: "keep" },
-                      { label: t("mcp.credentialAction.replace"), value: "replace" },
-                      { label: t("mcp.credentialAction.delete"), value: "delete" },
+                      {
+                        label: t("mcp.credentialAction.replace"),
+                        value: "replace",
+                      },
+                      {
+                        label: t("mcp.credentialAction.delete"),
+                        value: "delete",
+                      },
                     ]}
                     onChange={(action) =>
                       setCredentialDraft((previous) => ({
@@ -447,13 +498,20 @@ export const MCPClientCard = React.memo(function MCPClientCard({
                     data-testid={`mcp-credential-value-${kind}-${name}`}
                     value={field.value}
                     disabled={field.action !== "replace"}
-                    placeholder={field.action === "replace" ? t("mcp.credentialReplacement") : ""}
+                    placeholder={
+                      field.action === "replace"
+                        ? t("mcp.credentialReplacement")
+                        : ""
+                    }
                     onChange={(event) =>
                       setCredentialDraft((previous) => ({
                         ...previous,
                         [kind]: {
                           ...previous[kind],
-                          [name]: { ...previous[kind][name], value: event.target.value },
+                          [name]: {
+                            ...previous[kind][name],
+                            value: event.target.value,
+                          },
                         },
                       }))
                     }
@@ -494,7 +552,9 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         client={client}
         open={accessModalOpen}
         onClose={() => setAccessModalOpen(false)}
-        onSave={(policy, revision) => onUpdatePolicy(client.key, policy, revision)}
+        onSave={(policy, revision) =>
+          onUpdatePolicy(client.key, policy, revision)
+        }
         canEdit={canEdit}
       />
 
@@ -523,26 +583,28 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         }
         width={560}
       >
-        {oauthModalOpen && <MCPOAuthSection
-          url={client.url}
-          clientKey={client.key}
-          oauthEnabled
-          currentOAuthStatus={oauthStatus}
-          revision={openedRevision ?? client.revision}
-          clientId={oauthClientId}
-          scope={oauthScope}
-          authEndpoint={oauthAuthEndpoint}
-          tokenEndpoint={oauthTokenEndpoint}
-          onClientIdChange={setOauthClientId}
-          onScopeChange={setOauthScope}
-          onAuthEndpointChange={setOauthAuthEndpoint}
-          onTokenEndpointChange={setOauthTokenEndpoint}
-          onAuthChanged={() => {
-            setOauthModalOpen(false);
-            setOauthRefreshRevision(openedRevision ?? client.revision);
-            void refreshAfterOAuthChange();
-          }}
-        />}
+        {oauthModalOpen && (
+          <MCPOAuthSection
+            url={client.url}
+            clientKey={client.key}
+            oauthEnabled
+            currentOAuthStatus={oauthStatus}
+            revision={openedRevision ?? client.revision}
+            clientId={oauthClientId}
+            scope={oauthScope}
+            authEndpoint={oauthAuthEndpoint}
+            tokenEndpoint={oauthTokenEndpoint}
+            onClientIdChange={setOauthClientId}
+            onScopeChange={setOauthScope}
+            onAuthEndpointChange={setOauthAuthEndpoint}
+            onTokenEndpointChange={setOauthTokenEndpoint}
+            onAuthChanged={() => {
+              setOauthModalOpen(false);
+              setOauthRefreshRevision(openedRevision ?? client.revision);
+              void refreshAfterOAuthChange();
+            }}
+          />
+        )}
       </Modal>
     </>
   );

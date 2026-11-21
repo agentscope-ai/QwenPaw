@@ -15,6 +15,8 @@ MANIFEST_PATH = ROOT / "tests" / "parity" / "baseline_manifest.json"
 # Separately reviewed routes added since the frozen 2.1.0 baseline.
 # Keep this list explicit so a new endpoint cannot silently enter the inventory.
 REVIEWED_ADDITIONS = {
+    "routers/admin_users": [("POST", "/{user_id}/unlock")],
+    "routers/artifacts": [("HEAD", "/{artifact_id}/download")],
     "chats/api": [
         ("GET", "/page"), ("GET", "/{chat_id}/messages/{message_id}/tool-output"),
         ("GET", "/{chat_id}/spec"), ("GET", "/{chat_id}/status"), ("GET", "/{chat_id}/summary"),
@@ -25,8 +27,10 @@ REVIEWED_ADDITIONS = {
         ("GET", "/admin/agents/{agentId}/conversations/{conversation_id}/messages/{message_id}/tool-output"),
     ],
     "routers/personal_library": [
+        ("GET", "/index"), ("POST", "/index/rebuild"),
         ("DELETE", "/documents/{document_id}"), ("PATCH", "/documents/{document_id}"),
         ("GET", "/documents/page"), ("GET", "/documents/{document_id}/download"),
+        ("HEAD", "/documents/{document_id}/download"),
     ],
     "routers/skill_governance": [
         ("GET", "/skill-governance/agent-grants"),

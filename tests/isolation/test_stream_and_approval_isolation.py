@@ -67,8 +67,8 @@ async def test_background_task_status_is_visible_only_to_its_owner(
             _request(owner_id),
         )
         assert owner_result["result"]["output"] == ["private"]
-        assert membership.await_args.kwargs == {"agent_id": "office"}
-        assert conversation.await_args.args[1:] == (workspace, chat_id)
+        membership.assert_not_awaited()
+        conversation.assert_not_awaited()
 
         with pytest.raises(HTTPException) as exc_info:
             await console_router.get_console_chat_task(
@@ -78,15 +78,22 @@ async def test_background_task_status_is_visible_only_to_its_owner(
         assert exc_info.value.status_code == 404
         wrong_agent = _request(owner_id)
         wrong_agent.state.agent_id = "support"
+        assert (await console_router.get_console_chat_task(task_id, wrong_agent))["result"]["output"] == ["private"]
+        scoped = _request(owner_id)
+        scoped.scope["path_params"] = {"agentId": "support"}
         with pytest.raises(HTTPException) as wrong_scope:
-            await console_router.get_console_chat_task(task_id, wrong_agent)
+            await console_router.get_console_chat_task(task_id, scoped)
         assert wrong_scope.value.status_code == 404
-        assert membership.await_count == 1
         membership.side_effect = HTTPException(403, "forbidden")
+        assert (await console_router.get_console_chat_task(task_id, _request(owner_id)))["result"]["output"] == ["private"]
+        membership.assert_not_awaited()
+        # 未结束任务仍须校验实时权限，历史读取不得扩大运行或控制权。
+        console_router._bg_tasks[task_id].status = "running"
         with pytest.raises(HTTPException) as revoked:
             await console_router.get_console_chat_task(task_id, _request(owner_id))
         assert revoked.value.status_code == 403
-        assert conversation.await_count == 1
+        membership.assert_awaited_once()
+        conversation.assert_not_awaited()
     finally:
         console_router._bg_tasks.pop(task_id, None)
 

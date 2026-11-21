@@ -35,6 +35,7 @@ EXPECTED_REVISIONS = (
     "0021_skill_public_admin_read",
     "0022_artifact_sample_answer",
     "0023_console_tasks",
+    "0024_owner_history_durability",
 )
 EXPECTED_TABLES = frozenset(
     {

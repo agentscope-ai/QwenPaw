@@ -30,15 +30,14 @@ export default function ChatRoute() {
   const resolutionKey = `${chatId}:${agents
     .map((agent) => agent.id)
     .join(",")}`;
-  const isLiveChat = Boolean(chatId) &&
+  const isLiveChat =
+    Boolean(chatId) &&
     sessionApi.hasResolvedSessionForAgent(chatId!, selectedAgent);
 
   useEffect(() => {
     if (mode !== "multi_user" || !chatId) {
       return;
     }
-    if (!agents.length) return;
-
     const key = resolutionKey;
     if (isLiveChat) {
       if (resolved?.key !== key || resolved.agentId !== selectedAgent) {
@@ -83,18 +82,38 @@ export default function ChatRoute() {
         cancelled = true;
       };
     }
-    void findChatAgent(
-      chatId,
-      agents.map((agent) => agent.id),
-      (agentId) => chatApi.listChats({ requestContext: { agentId } }),
-    ).then((agentId) => {
-      if (cancelled) return;
-      if (agentId && agentId !== selectedAgent) setSelectedAgent(agentId);
-      setResolved({ key, agentId: agentId ?? selectedAgent });
-    });
+    const controller = new AbortController();
+    // A conversation owner keeps history after its Agent is unavailable. The
+    // server resolves this stable identity before applying current Agent scope.
+    void chatApi
+      .getChatSpec(chatId, controller.signal)
+      .then(async (spec) => {
+        const agentId =
+          spec.agent_id ||
+          (await findChatAgent(
+            chatId,
+            agents.map((agent) => agent.id),
+            (id) => chatApi.listChats({ requestContext: { agentId: id } }),
+          ));
+        if (cancelled) return;
+        if (!agentId) {
+          setResolutionError(errorKey);
+          return;
+        }
+        if (spec.access_role === "owner" && spec.read_only) {
+          setSelectedAgent(agentId, { ownedHistory: true });
+        } else if (agentId !== selectedAgent) {
+          setSelectedAgent(agentId);
+        }
+        setResolved({ key, agentId });
+      })
+      .catch(() => {
+        if (!cancelled) setResolutionError(errorKey);
+      });
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     agents,

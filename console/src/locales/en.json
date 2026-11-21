@@ -1,5 +1,7 @@
 {
   "skillGovernance": {
+    "myRequests": "My publication requests",
+    "myRequestsDescription": "View your submitted requests, review results, and fixed snapshots. This view is read-only; administrators handle reviews.",
     "grantsTab": "Skill grants",
     "public": "Public skill",
     "restricted": "Explicit grants",
@@ -121,7 +123,9 @@
     "clear": "Clear",
     "paste": "Paste",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "error": "Operation failed",
+    "operationFailed": "The operation did not complete. Try again later."
   },
   "desktop": {
     "closeWindow": {
@@ -1755,7 +1759,18 @@
         "description": "Before each weekly meeting, summarize the last week's memory.",
         "frequency": "First run: 2026-01-02 08:30 | Every 7 days | Until 2026-03-01"
       }
-    }
+    },
+    "loadFailed": "Unable to load scheduled tasks. Refresh and retry.",
+    "created": "Scheduled task created",
+    "updated": "Scheduled task updated",
+    "deleted": "Scheduled task deleted",
+    "deleteFailed": "Unable to delete scheduled task",
+    "enabledFeedback": "Scheduled task enabled",
+    "disabledFeedback": "Scheduled task disabled",
+    "operationFailed": "The operation did not complete. Try again later.",
+    "triggered": "Scheduled task triggered",
+    "executeFailed": "Unable to trigger scheduled task",
+    "saveFailed": "Unable to save scheduled task"
   },
   "channels": {
     "title": "Channels",
@@ -2555,7 +2570,37 @@
       "operationSucceeded": "Library updated",
       "operationFailed": "The operation did not complete. Refresh the list to check the file before retrying.",
       "title": "Personal library",
-      "description": "Visible only to you, stored separately for the current agent.",
+      "description": "Your private documents for the current agent. Uploaded content is indexed automatically for read-only search.",
+      "index": {
+        "rebuild": "Rebuild index",
+        "progress": "Indexing {{done}}/{{total}}",
+        "rebuilt": "Document index rebuilt and available for search.",
+        "rebuildIncomplete": "Rebuild finished. Some files are not fully searchable; check their index status.",
+        "rebuildFailed": "Rebuild did not finish. Completed files are retained. Retry later; originals are unaffected.",
+        "loadFailed": "Index status is unavailable. You can still open your documents.",
+        "status": {
+          "ready": "Searchable",
+          "partial": "Partially searchable",
+          "pending": "Index pending",
+          "empty": "No text extracted",
+          "unsupported": "Unsupported text format",
+          "too_large": "Exceeds index size limit",
+          "failed": "Extraction failed",
+          "missing": "Original unavailable",
+          "unavailable": "Index unavailable"
+        },
+        "help": {
+          "ready": "Content is indexed for keyword and fuzzy matching.",
+          "partial": "The first 2 million characters are indexed. The original is still downloadable.",
+          "pending": "The first search builds or updates the index, or you can rebuild it now.",
+          "empty": "No text was extracted. Scanned PDFs require OCR first.",
+          "unsupported": "This file can be stored and downloaded but content search is not supported.",
+          "too_large": "Automatic indexing supports files up to 32 MiB. Split the file and upload again.",
+          "failed": "Check whether the file is corrupt or encrypted, then rebuild the index.",
+          "missing": "Confirm the original still exists in your personal library.",
+          "unavailable": "Try rebuilding the index. Original documents will not be removed or modified."
+        }
+      },
       "upload": "Upload file",
       "uploadSucceeded": "Uploaded to your personal library: {{name}}",
       "uploadFailed": "Failed to upload the personal library file",
@@ -3818,7 +3863,11 @@
     "logout": "Logout",
     "logoutSuccess": "Logged out successfully",
     "sessionExpired": "Session expired, please login again",
-    "unauthorized": "Unauthorized, please login"
+    "unauthorized": "Unauthorized, please login",
+    "remainingAttempts": "Incorrect username or password. {{count}} more failed attempts will lock login for 15 minutes.",
+    "lockedCountdown": "Login temporarily locked. Retry in {{time}}.",
+    "lockedHelp": "Wait for the countdown or contact an administrator to unlock login in User Management.",
+    "lockExpired": "The lock waiting time has ended. Check your username and password before trying again."
   },
   "account": {
     "title": "Account",
@@ -3872,7 +3921,8 @@
       "lastActiveAdmin": "At least one active administrator must remain",
       "usernameExists": "The username already exists",
       "userNotFound": "The user does not exist",
-      "unknown": "Operation failed"
+      "unknown": "Operation failed",
+      "userDisabled": "This account is disabled. Unlocking does not enable an account."
     },
     "title": "User Management",
     "description": "Create users, manage roles and status, and revoke login sessions.",
@@ -3898,7 +3948,16 @@
     "profileSaved": "User profile saved",
     "resetPassword": "Reset Password",
     "resetPasswordHint": "All active sessions for this user will be revoked.",
-    "passwordResetDone": "Password reset; {{count}} sessions revoked"
+    "passwordResetDone": "Password reset; {{count}} sessions revoked",
+    "unlock": "Unlock login",
+    "unlockTitle": "Unlock login",
+    "unlockConfirm": "Unlock login and clear failed attempts for {{username}}? This does not change the password or enable a disabled account.",
+    "unlocked": "Login lock and failed attempts cleared",
+    "loginStatus": "Login protection",
+    "loginLocked": "Locked for {{seconds}} seconds",
+    "loginUnlocked": "Not locked",
+    "failedAttempts": "{{count}} failures in the last minute",
+    "adminOnly": "Only administrators can manage users"
   },
   "approval": {
     "title": "Security Approval Required",
@@ -4341,5 +4400,28 @@
         "description": "Run a structured, persistent multi-step task."
       }
     }
+  },
+  "interaction": {
+    "devtoolsOpened": "Developer tools opened",
+    "devtoolsFailed": "Unable to open developer tools. Try again later.",
+    "invalidJson": "Invalid JSON format. Check the input and retry."
+  },
+  "gitInteraction": {
+    "switched": "Switched to {{branch}}",
+    "createdBranch": "Created and switched to {{branch}}",
+    "discarded": "Discarded changes in {{path}}",
+    "reverted": "Reverted commit {{hash}}",
+    "commitMessageRequired": "Enter a commit message",
+    "noStagedFiles": "No staged files. Stage changes before committing.",
+    "committed": "Committed successfully",
+    "nothingToCommit": "Nothing to commit",
+    "revertTitle": "Revert commit \"{{message}}\"?",
+    "revertDescription": "This creates a new commit that undoes these changes.",
+    "revert": "Revert",
+    "newBranch": "New branch",
+    "createAndSwitch": "Create and switch",
+    "discardTitle": "Discard changes?",
+    "discardDescription": "Discard all changes in {{path}}?",
+    "discard": "Discard"
   }
 }

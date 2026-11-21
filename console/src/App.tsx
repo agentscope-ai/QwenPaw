@@ -4,7 +4,11 @@ import {
   bailianDarkTheme,
   bailianTheme,
 } from "@agentscope-ai/design";
-import { Alert, App as AntdApp } from "antd";
+import {
+  Alert,
+  App as AntdApp,
+  ConfigProvider as AntdConfigProvider,
+} from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -127,9 +131,9 @@ function AppInner() {
     (state) => state.preferences?.language,
   );
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
-  const lang = i18n.resolvedLanguage || i18n.language || "en";
+  const lang = i18n.resolvedLanguage || i18n.language || "zh";
   const [antdLocale, setAntdLocale] = useState<Locale>(
-    antdLocaleMap[lang] ?? enUS,
+    antdLocaleMap[lang.split("-")[0]] ?? zhCN,
   );
 
   useEffect(() => {
@@ -165,18 +169,32 @@ function AppInner() {
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
       const shortLng = lng.split("-")[0];
-      setAntdLocale(antdLocaleMap[shortLng] ?? enUS);
-      dayjs.locale(dayjsLocaleMap[shortLng] ?? "en");
+      setAntdLocale(antdLocaleMap[shortLng] ?? zhCN);
+      dayjs.locale(dayjsLocaleMap[shortLng] ?? "zh-cn");
     };
 
     // Set initial dayjs locale
-    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "en");
+    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "zh-cn");
 
     i18n.on("languageChanged", handleLanguageChanged);
     return () => {
       i18n.off("languageChanged", handleLanguageChanged);
     };
   }, [i18n]);
+
+  // Static Modal/message calls mount outside App's tree. Supply the same
+  // locale and prefix so their buttons do not silently fall back to English.
+  useEffect(() => {
+    AntdConfigProvider.config({
+      prefixCls: "qwenpaw",
+      holderRender: (children) => (
+        <AntdConfigProvider locale={antdLocale} prefixCls="qwenpaw">
+          {children}
+        </AntdConfigProvider>
+      ),
+    });
+    return () => AntdConfigProvider.config({ holderRender: undefined });
+  }, [antdLocale]);
 
   // Disable the default browser context menu in the Tauri desktop build so
   // users cannot open DevTools via right-click. DevTools is still available
@@ -261,12 +279,29 @@ function AppInner() {
         }}
       >
         <AntdApp>
-          {pluginError && (authPhase === "authenticated" || authPhase === "disabled") && (
-            <Alert key={pluginError} type="warning" showIcon closable
-              message="部分前端插件未加载"
-              description={<details><summary>查看原因</summary>{pluginError}</details>}
-              style={{ position: "fixed", bottom: 16, right: 16, maxWidth: 520, zIndex: 2000 }} />
-          )}
+          {pluginError &&
+            (authPhase === "authenticated" || authPhase === "disabled") && (
+              <Alert
+                key={pluginError}
+                type="warning"
+                showIcon
+                closable
+                message="部分前端插件未加载"
+                description={
+                  <details>
+                    <summary>查看原因</summary>
+                    {pluginError}
+                  </details>
+                }
+                style={{
+                  position: "fixed",
+                  bottom: 16,
+                  right: 16,
+                  maxWidth: 520,
+                  zIndex: 2000,
+                }}
+              />
+            )}
           <CloseWindowPrompt />
           <DesktopUpdateProvider>
             <UpdateTakeoverGate>

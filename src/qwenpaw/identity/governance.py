@@ -79,6 +79,9 @@ class UserGovernanceService:
     async def list_users(self) -> list[UserRecord]:
         return await self._repository.list_users()
 
+    async def get_user(self, user_id: UUID) -> UserRecord:
+        return await self._repository.get_user(user_id)
+
     async def create_user(
         self,
         username: str,

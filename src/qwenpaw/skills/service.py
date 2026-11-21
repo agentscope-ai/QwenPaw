@@ -113,9 +113,35 @@ class SkillGovernanceService:
             agent_id, skill_name, snapshot, actor.user_id
         )
 
+    async def list_requests(self, actor, *, scope="all"):
+        AuthorizationService().require(actor, Capability.PLATFORM_USE)
+        if actor.user_id is None:
+            raise AuthorizationDeniedError()
+        if scope == "all":
+            self.require_manage(actor)
+            return await self.repository.list_requests()
+        if scope != "mine":
+            raise ValueError("invalid_request_scope")
+        rows = await self.repository.list_requests(submitted_by=actor.user_id)
+        return [
+            row for row in rows if str(row.get("submitted_by")) == str(actor.user_id)
+        ]
+
     async def _request_snapshot(self, actor, request_id):
-        self.require_manage(actor)
-        row = await self.repository.get_request(request_id)
+        AuthorizationService().require(actor, Capability.PLATFORM_USE)
+        if actor.user_id is None:
+            raise AuthorizationDeniedError()
+        manages = AuthorizationService().is_allowed(actor, Capability.SKILLS_MANAGE)
+        try:
+            row = await self.repository.get_request(
+                request_id, **({} if manages else {"submitted_by": actor.user_id})
+            )
+        except ValueError as exc:
+            if str(exc) == "request_not_found" and not manages:
+                raise AuthorizationDeniedError() from None
+            raise
+        if not manages and str(row.get("submitted_by")) != str(actor.user_id):
+            raise AuthorizationDeniedError()
         if not row["snapshot_key"] or not row["content_hash"]:
             raise ValueError("request_snapshot_required")
         root = self.snapshots.verify(row["snapshot_key"], row["content_hash"])

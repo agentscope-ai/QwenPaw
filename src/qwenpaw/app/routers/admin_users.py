@@ -24,6 +24,7 @@ from ...identity.models import PlatformRole, UserProfileUpdate, UserRecord
 from ...identity.audit import UserAuditRepository
 from ...identity.repository import DuplicateUsernameError
 from ...identity.runtime import get_identity_schema, get_user_governance_service
+from ..rate_limiter import rate_limiter
 
 router = APIRouter(
     prefix="/admin/users",
@@ -54,6 +55,10 @@ class UserResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     last_login_at: str | None = None
+    login_locked: bool = False
+    login_retry_after_seconds: int = 0
+    login_failed_attempts: int = 0
+    login_remaining_attempts: int = 5
 
 
 class CreateUserRequest(BaseModel):
@@ -98,6 +103,7 @@ class RevokeSessionsResponse(BaseModel):
 
 
 def _response(user: UserRecord) -> UserResponse:
+    login = rate_limiter.user_status(user.username)
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -112,6 +118,10 @@ def _response(user: UserRecord) -> UserResponse:
         created_at=user.created_at.isoformat() if user.created_at else None,
         updated_at=user.updated_at.isoformat() if user.updated_at else None,
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
+        login_locked=login.locked,
+        login_retry_after_seconds=login.retry_after_seconds,
+        login_failed_attempts=login.failed_attempts,
+        login_remaining_attempts=login.remaining_attempts,
     )
 
 
@@ -236,3 +246,28 @@ async def reset_password(
         changed_fields=["password"],
     )
     return RevokeSessionsResponse(revoked_sessions=revoked)
+
+
+@router.post("/{user_id}/unlock", response_model=UserResponse)
+async def unlock_user(
+    user_id: UUID = Path(...),
+    actor: ActorContext = Depends(require_users_manage),
+    service: UserGovernanceService = Depends(get_governance_service),
+    audit: UserAuditRepository = Depends(get_user_audit_repository),
+) -> UserResponse:
+    """仅清除目标账户的临时登录锁，保留账户停用状态和网络防护。"""
+    try:
+        user = await service.get_user(user_id)
+    except UserNotFoundError as exc:
+        raise _map_governance_error(exc) from exc
+    if user.status != "active":
+        raise HTTPException(status_code=409, detail="user_disabled")
+    # 审计失败时不执行解锁，避免出现无记录的权限操作。
+    await audit.record(
+        actor=actor,
+        target_user_id=user_id,
+        action="admin.user.login.unlock",
+        changed_fields=["login_lock"],
+    )
+    rate_limiter.clear_user_failed_attempts(user.username)
+    return _response(user)

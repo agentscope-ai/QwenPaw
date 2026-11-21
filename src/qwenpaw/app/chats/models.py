@@ -79,6 +79,10 @@ class ChatSpec(BaseModel):
 class ChatListItem(ChatSpec):
     """Request-scoped chat list projection; never persisted to chats.json."""
 
+    agent_id: str = Field(
+        description="Authorized Agent identity for this conversation",
+        json_schema_extra={"readOnly": True},
+    )
     access_role: Literal["owner", "viewer"] = "owner"
     read_only: bool = False
     shared_by: str | None = None

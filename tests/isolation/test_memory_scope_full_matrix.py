@@ -40,7 +40,11 @@ def _request(*, admin: bool, governance: bool = False):
         request_id="req-full-memory-matrix",
     )
     headers = {"X-Agent-Governance": "runtime-config"} if governance else {}
-    return SimpleNamespace(state=SimpleNamespace(actor=actor), headers=headers)
+    return SimpleNamespace(
+        state=SimpleNamespace(actor=actor, agent_id="agent-a"),
+        headers=headers,
+        path_params={"agentId": "agent-a"},
+    )
 
 
 def _access(role: AgentResourceRole) -> AccessibleAgent:
@@ -101,7 +105,8 @@ async def test_complete_role_matrix(
     expected: list[tuple[str, bool]],
 ) -> None:
     repository = SimpleNamespace(
-        ensure_private=AsyncMock(return_value=_private_record())
+        ensure_private=AsyncMock(),
+        get_private=AsyncMock(return_value=_private_record()),
     )
     with (
         patch("qwenpaw.app.routers.agents.is_multi_user_enabled", return_value=True),
@@ -124,14 +129,21 @@ async def test_complete_role_matrix(
         )
 
     assert [(item.scope.value, item.can_edit) for item in response.scopes] == expected
+    repository.ensure_private.assert_not_awaited()
     if governance:
-        repository.ensure_private.assert_not_awaited()
+        repository.get_private.assert_not_awaited()
     else:
-        repository.ensure_private.assert_awaited_once()
+        repository.get_private.assert_awaited_once_with(
+            user_id=USER_ID, agent_key="agent-a"
+        )
 
 
 @pytest.mark.asyncio
-async def test_unauthorized_user_creates_no_memory_workspace(tmp_path: Path) -> None:
+async def test_revoked_user_keeps_private_read_without_creating_workspace(
+    tmp_path: Path,
+) -> None:
+    from qwenpaw.memory_scope.resolver import MemoryScopeResolver
+
     with (
         patch("qwenpaw.app.routers.agents.is_multi_user_enabled", return_value=True),
         patch(
@@ -140,11 +152,20 @@ async def test_unauthorized_user_creates_no_memory_workspace(tmp_path: Path) -> 
                 side_effect=HTTPException(status_code=403, detail="forbidden")
             ),
         ),
+        patch(
+            "qwenpaw.app.routers.agents._get_memory_scope_resolver",
+            return_value=MemoryScopeResolver(working_dir=tmp_path),
+        ),
+        patch(
+            "qwenpaw.app.routers.agents._get_agent_user_workspace_repository",
+            return_value=SimpleNamespace(get_private=AsyncMock(return_value=None)),
+        ),
     ):
-        with pytest.raises(HTTPException) as exc:
-            await get_memory_scopes("agent-a", _request(admin=False))
+        response = await get_memory_scopes("agent-a", _request(admin=False))
 
-    assert exc.value.status_code == 403
+    assert [(item.scope.value, item.can_edit) for item in response.scopes] == [
+        ("private", False)
+    ]
     assert not (tmp_path / "workspaces").exists()
     assert not (tmp_path / "user_workspaces").exists()
 

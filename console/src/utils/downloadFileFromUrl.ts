@@ -10,6 +10,12 @@ import {
   resolveExternalUrl,
 } from "./openExternalLink";
 import { getPyWebViewApi, type PyWebViewSaveFile } from "./pywebview";
+import { protectedFileApiPath, readFileResponse } from "../api/fileAccess";
+import {
+  ensureAccessSessionFresh,
+  getAccessSessionGeneration,
+} from "../api/authSession";
+import { buildAuthHeaders } from "../api/authHeaders";
 
 export interface DownloadFileOptions {
   headers?: Record<string, string>;
@@ -115,8 +121,10 @@ async function downloadWithTauri(
   url: string,
   filename: string,
   options: DownloadFileOptions,
+  prepareOptions?: () => Promise<DownloadFileOptions>,
 ): Promise<void> {
   const savePath = await getTauriSavePath(filename);
+  if (prepareOptions) options = await prepareOptions();
   try {
     await invoke("download_backend_file", {
       request: {
@@ -143,6 +151,29 @@ async function downloadWithBrowser(
   filename: string,
   options: DownloadFileOptions,
 ): Promise<void> {
+  if (protectedFileApiPath(url)) {
+    const generation = getAccessSessionGeneration();
+    const result = await readFileResponse(
+      url,
+      { agentId: options.headers?.["X-Agent-Id"] },
+      async (response) => ({
+        blob: await response.blob(),
+        suggested: options.preferResponseFilename
+          ? filenameFromContentDisposition(
+              response.headers.get("Content-Disposition"),
+            )
+          : "",
+      }),
+      { headers: options.headers },
+    );
+    if (generation !== getAccessSessionGeneration())
+      throw new DOMException("Authentication context changed", "AbortError");
+    triggerBrowserDownload(
+      result.blob,
+      result.suggested ? sanitizeSaveFilename(result.suggested) : filename,
+    );
+    return;
+  }
   const res = await fetch(url, { headers: options.headers });
   if (!res.ok) {
     const error = new Error(
@@ -177,19 +208,41 @@ export async function downloadFileFromUrl(
   }
 
   const safeFilename = sanitizeSaveFilename(filename);
+  const generation = getAccessSessionGeneration();
+  const prepareOptions = async () => {
+    if (!protectedFileApiPath(requestUrl)) return options;
+    const assertCurrent = () => {
+      if (generation !== getAccessSessionGeneration())
+        throw new DOMException("Authentication context changed", "AbortError");
+    };
+    assertCurrent();
+    if (!(await ensureAccessSessionFresh()))
+      throw new Error("登录已失效，请重新登录");
+    assertCurrent();
+    return {
+      ...options,
+      headers: {
+        ...options.headers,
+        ...buildAuthHeaders(),
+        ...(options.headers?.["X-Agent-Id"]
+          ? { "X-Agent-Id": options.headers["X-Agent-Id"] }
+          : {}),
+      },
+    };
+  };
   const pywebviewSaveFile = getPyWebViewApi()?.save_file;
   if (pywebviewSaveFile) {
     await downloadWithPyWebView(
       pywebviewSaveFile,
       requestUrl,
       safeFilename,
-      options,
+      await prepareOptions(),
     );
     return;
   }
 
   if (isDesktopTauriRuntime()) {
-    await downloadWithTauri(requestUrl, safeFilename, options);
+    await downloadWithTauri(requestUrl, safeFilename, options, prepareOptions);
     return;
   }
 

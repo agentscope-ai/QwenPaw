@@ -111,6 +111,34 @@ describe("getMediaInfo", () => {
     ...overrides,
   });
 
+  it("uses the registered delivery URL and Unicode DataBlock name for a sent PDF", () => {
+    const name = "2026-09-17_防水行业新闻简报.pdf";
+    const url =
+      "/api/console/artifacts/bd20d801-5fa2-4dd0-8d5e-691806601b5b/download";
+    const media = getMediaInfo(
+      baseToolCall({
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "data",
+            name,
+            source: {
+              type: "url",
+              url: `file:///data/user_workspaces/user/agent/artifacts/${encodeURIComponent(
+                name,
+              )}`,
+            },
+          },
+          {
+            type: "text",
+            text: `File sent successfully. Download link: ${url}\nUse this exact relative URL in the reply.`,
+          },
+        ]),
+      }),
+    );
+    expect(media).toEqual({ url, name, type: "file" });
+  });
+
   it("does not fall back to a relative param path (backend cannot preview it)", () => {
     const media = getMediaInfo(
       baseToolCall({ params: { file_path: "file1.txt" } }),

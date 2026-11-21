@@ -16,13 +16,11 @@ vi.mock("../../../api", () => ({
     authorizeCronJob: vi.fn(),
   },
 }));
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({ selectedAgent: "agent-1" })),
-}));
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: vi.fn(() => ({ message: mockMessage })),
 }));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (original) => ({
+  ...(await original<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 vi.mock("../../../utils/error", () => ({
@@ -76,7 +74,7 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toEqual(newJob);
     expect(result.current.jobs[0]).toEqual(newJob);
-    expect(mockMessage.success).toHaveBeenCalledWith("Created successfully");
+    expect(mockMessage.success).toHaveBeenCalledWith("cronJobs.created");
   });
 
   // 3. createJob 失败：message.error 被调用，返回 false
@@ -119,7 +117,7 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toEqual(updatedJob);
     expect(result.current.jobs.find((j) => j.id === "j1")).toEqual(updatedJob);
-    expect(mockMessage.success).toHaveBeenCalledWith("Updated successfully");
+    expect(mockMessage.success).toHaveBeenCalledWith("cronJobs.updated");
   });
 
   // 5. updateJob 失败：回滚到 original，message.error，返回 false
@@ -163,7 +161,7 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toBe(true);
     expect(result.current.jobs.find((j) => j.id === "j1")).toBeUndefined();
-    expect(mockMessage.success).toHaveBeenCalledWith("Deleted successfully");
+    expect(mockMessage.success).toHaveBeenCalledWith("cronJobs.deleted");
   });
 
   // 7. deleteJob 失败：恢复 original，message.error，返回 false
@@ -182,7 +180,7 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toBe(false);
     expect(result.current.jobs.some((j) => j.id === "j1")).toBe(true);
-    expect(mockMessage.error).toHaveBeenCalledWith("Failed to delete");
+    expect(mockMessage.error).toHaveBeenCalledWith("cronJobs.deleteFailed");
   });
 
   // 8. toggleEnabled 成功：enabled 翻转，API 调用，message.success
@@ -205,7 +203,9 @@ describe("useCronJobs", () => {
     expect(result.current.jobs.find((j) => j.id === job.id)).toEqual(
       expect.objectContaining({ enabled: false, status: "paused" }),
     );
-    expect(mockMessage.success).toHaveBeenCalledWith("Disabled");
+    expect(mockMessage.success).toHaveBeenCalledWith(
+      "cronJobs.disabledFeedback",
+    );
   });
 
   // 9. executeNow 成功：triggerCronJob 调用，message.success
@@ -224,9 +224,7 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toBe(true);
     expect(api.triggerCronJob).toHaveBeenCalledWith("j1");
-    expect(mockMessage.success).toHaveBeenCalledWith(
-      "Task triggered successfully",
-    );
+    expect(mockMessage.success).toHaveBeenCalledWith("cronJobs.triggered");
   });
 
   // 10. executeNow 失败：message.error，返回 false
@@ -244,7 +242,7 @@ describe("useCronJobs", () => {
     });
 
     expect(returnValue).toBe(false);
-    expect(mockMessage.error).toHaveBeenCalledWith("Failed to execute");
+    expect(mockMessage.error).toHaveBeenCalledWith("cronJobs.executeFailed");
   });
 
   describe("错误信息归一化", () => {

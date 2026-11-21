@@ -60,14 +60,35 @@ async def require_agent_scoped_access(
     if header_agent_id and header_agent_id != agentId:
         raise HTTPException(status_code=403, detail="forbidden")
 
-    agent_ref = load_config().agents.profiles.get(agentId)
-    if agent_ref is None or not getattr(agent_ref, "enabled", True):
-        raise HTTPException(status_code=403, detail="forbidden")
+    from ..owned_content import owner_agent_key
+    from ..owned_content_routes import allows_owned_content_read
+
+    if allows_owned_content_read(request):
+        # 这些处理器只能返回当前 actor 的持久内容；不能缓存或伪造 Agent role。
+        # 活跃任务结果仍由处理器再次核验运行权，写入和共享资料沿用原门禁。
+        if owner_agent_key(request) != agentId:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return actor
 
     from ..agent_context import (
         allows_historical_chat_read,
         authorize_agent_request,
+        resolve_owned_history_agent_reference,
     )
+
+    historical_route = allows_historical_chat_read(request, agentId)
+    profiles = load_config().agents.profiles
+    agent_ref = profiles.get(agentId)
+    if agent_ref is None and historical_route:
+        recovered = await resolve_owned_history_agent_reference(
+            request, profiles, expected_agent_id=agentId,
+        )
+        if recovered is not None:
+            _, agent_ref = recovered
+    if agent_ref is None or (
+        not getattr(agent_ref, "enabled", True) and not historical_route
+    ):
+        raise HTTPException(status_code=403, detail="forbidden")
 
     await authorize_agent_request(
         request,
@@ -75,10 +96,7 @@ async def require_agent_scoped_access(
         agent_ref=agent_ref,
         membership_service=_get_agent_membership_service(),
         allowed_roles=_allowed_roles_for_request(request, agentId),
-        allow_historical_read_only=allows_historical_chat_read(
-            request,
-            agentId,
-        ),
+        allow_historical_read_only=historical_route,
     )
 
     return actor

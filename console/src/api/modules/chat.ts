@@ -134,10 +134,18 @@ export const chatApi = {
     if (!filename) return "";
     if (filename.startsWith("http://") || filename.startsWith("https://"))
       return filename;
-    if (filename.startsWith("/api/console/attachments/")) {
+    if (
+      /^\/api\/(?:console\/(?:attachments|artifacts|personal-library\/documents)\/|files\/preview\/)/.test(
+        filename,
+      )
+    ) {
       return withApiToken(getApiUrl(filename.slice("/api".length)));
     }
-    const cleaned = filename.replace(/^\/+/, "");
+    const cleaned = filename
+      .replace(/^\/+/, "")
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
     const path = `${FILES_PREVIEW}/${cleaned}`;
     return withApiToken(getApiUrl(path));
   },

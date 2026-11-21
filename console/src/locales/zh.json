@@ -1,5 +1,7 @@
 {
   "skillGovernance": {
+    "myRequests": "我的发布申请",
+    "myRequestsDescription": "查看自己提交的技能申请、审核结果和固定快照。此处仅供查看，审核由管理员处理。",
     "grantsTab": "技能授权列表",
     "public": "公用技能",
     "restricted": "定向授权",
@@ -134,7 +136,9 @@
     "clear": "清除",
     "paste": "粘贴",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "error": "操作失败，请稍后重试",
+    "operationFailed": "操作未完成，请稍后重试"
   },
   "desktop": {
     "closeWindow": {
@@ -1601,7 +1605,18 @@
         "description": "每次周会前基于最近一周 memory 生成工作总结。",
         "frequency": "首次执行：2026年1月2日 08:30｜每7天一次｜截止到2026年3月1日"
       }
-    }
+    },
+    "loadFailed": "定时任务加载失败，请刷新后重试",
+    "created": "定时任务已创建",
+    "updated": "定时任务已更新",
+    "deleted": "定时任务已删除",
+    "deleteFailed": "删除定时任务失败",
+    "enabledFeedback": "定时任务已启用",
+    "disabledFeedback": "定时任务已禁用",
+    "operationFailed": "操作未完成，请稍后重试",
+    "triggered": "定时任务已触发",
+    "executeFailed": "触发定时任务失败",
+    "saveFailed": "保存定时任务失败"
   },
   "channels": {
     "title": "频道",
@@ -2427,7 +2442,37 @@
       "operationSucceeded": "资料库已更新",
       "operationFailed": "操作未完成，请刷新列表确认文件状态后重试。",
       "title": "个人资料库",
-      "description": "仅自己可见，按当前智能体隔离保存。",
+      "description": "当前智能体下仅自己可见的资料。上传后自动建立内容索引，供当前智能体只读检索。",
+      "index": {
+        "rebuild": "重建索引",
+        "progress": "正在索引 {{done}}/{{total}}",
+        "rebuilt": "资料索引已重建，可用于内容检索。",
+        "rebuildIncomplete": "重建已完成，部分资料仍无法完整检索，请查看各文件的索引状态。",
+        "rebuildFailed": "索引重建未完成，已处理的文件会保留进度。请稍后重试，原文件不受影响。",
+        "loadFailed": "索引状态暂不可用，仍可打开资料文件。",
+        "status": {
+          "ready": "可检索",
+          "partial": "部分内容可检索",
+          "pending": "待建立索引",
+          "empty": "未提取到文字",
+          "unsupported": "暂不支持内容解析",
+          "too_large": "超出索引大小限制",
+          "failed": "解析失败",
+          "missing": "原文件不可访问",
+          "unavailable": "索引暂不可用"
+        },
+        "help": {
+          "ready": "正文索引已建立，支持关键词与模糊匹配。",
+          "partial": "已索引前 200 万字符，完整原文件仍可下载。",
+          "pending": "首次检索会自动建立或更新，也可点击重建索引。",
+          "empty": "文档没有可提取的文字；扫描 PDF 需先进行 OCR。",
+          "unsupported": "文件可保存和下载，但此格式暂不支持正文检索。",
+          "too_large": "自动索引支持不超过 32 MiB 的文件，请拆分后上传。",
+          "failed": "请检查文档是否损坏或加密，再尝试重建索引。",
+          "missing": "请确认原文件仍存在于个人资料库中。",
+          "unavailable": "可尝试重建索引；原文件不会被删除或改写。"
+        }
+      },
       "upload": "上传文件",
       "uploadSucceeded": "已上传到个人资料库：{{name}}",
       "uploadFailed": "上传个人资料库文件失败",
@@ -3689,7 +3734,11 @@
     "logout": "退出登录",
     "logoutSuccess": "已成功退出",
     "sessionExpired": "会话已过期，请重新登录",
-    "unauthorized": "未授权，请登录"
+    "unauthorized": "未授权，请登录",
+    "remainingAttempts": "用户名或密码不正确，再失败 {{count}} 次将锁定 15 分钟",
+    "lockedCountdown": "登录暂时锁定，请在 {{time}} 后重试",
+    "lockedHelp": "请等待倒计时结束，或联系管理员在用户管理中解锁。",
+    "lockExpired": "锁定等待时间已结束，可以重新登录；请先确认用户名和密码。"
   },
   "account": {
     "title": "账户管理",
@@ -3743,7 +3792,8 @@
       "lastActiveAdmin": "必须保留至少一个已启用的管理员",
       "usernameExists": "用户名已存在",
       "userNotFound": "用户不存在",
-      "unknown": "操作失败"
+      "unknown": "操作失败",
+      "userDisabled": "账号已禁用，请先处理账号状态；解锁不会启用账号"
     },
     "title": "用户管理",
     "description": "创建用户、管理角色和状态，并撤销登录会话。",
@@ -3769,7 +3819,16 @@
     "profileSaved": "用户资料已保存",
     "resetPassword": "重置密码",
     "resetPasswordHint": "该用户的所有活动会话都会被撤销。",
-    "passwordResetDone": "密码已重置，并撤销 {{count}} 个会话"
+    "passwordResetDone": "密码已重置，并撤销 {{count}} 个会话",
+    "unlock": "解锁登录",
+    "unlockTitle": "解除登录锁定",
+    "unlockConfirm": "确定解除用户“{{username}}”的登录锁定并清除失败次数？该操作不会修改密码或启用已禁用的账号。",
+    "unlocked": "登录锁定及失败次数已清除",
+    "loginStatus": "登录保护",
+    "loginLocked": "暂时锁定，剩余 {{seconds}} 秒",
+    "loginUnlocked": "未锁定",
+    "failedAttempts": "最近一分钟失败 {{count}} 次",
+    "adminOnly": "仅管理员可以管理用户"
   },
   "voiceTranscription": {
     "remoteModel": "远程转写模型",
@@ -4379,5 +4438,28 @@
         "description": "运行结构化、可持续的多步骤任务。"
       }
     }
+  },
+  "interaction": {
+    "devtoolsOpened": "开发者工具已打开",
+    "devtoolsFailed": "开发者工具打开失败，请稍后重试",
+    "invalidJson": "JSON 格式无效，请检查后重试"
+  },
+  "gitInteraction": {
+    "switched": "已切换至分支 {{branch}}",
+    "createdBranch": "已创建并切换至分支 {{branch}}",
+    "discarded": "已放弃文件 {{path}} 的改动",
+    "reverted": "已撤销提交 {{hash}}",
+    "commitMessageRequired": "请填写提交说明",
+    "noStagedFiles": "没有暂存的文件，请先暂存需要提交的改动",
+    "committed": "提交成功",
+    "nothingToCommit": "没有需要提交的改动",
+    "revertTitle": "确定撤销提交“{{message}}”？",
+    "revertDescription": "将创建一个新提交来撤销这些改动。",
+    "revert": "撤销提交",
+    "newBranch": "新建分支",
+    "createAndSwitch": "创建并切换",
+    "discardTitle": "确定放弃改动？",
+    "discardDescription": "将放弃文件 {{path}} 的全部未提交改动，确定继续？",
+    "discard": "放弃改动"
   }
 }

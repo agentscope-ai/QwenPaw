@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import json
 import logging
 import mimetypes
 import os
 import re
 import secrets
+import sqlite3
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,8 +31,10 @@ from ..workspaces.resolver import WorkspaceKind, WorkspaceResolver
 from .models import PersonalLibraryDocument, PersonalLibraryDocumentContent
 from .paths import PersonalLibraryPathDenied, PersonalLibraryPathResolver
 from .content_extractor import SEARCHABLE_EXTENSIONS, extract_searchable_text
-from .search_index import INDEX_VERSION, PersonalLibrarySearchIndex, build_search_index
+from .search_index import INDEX_VERSION, MAX_INDEXED_CHARACTERS, PersonalLibrarySearchIndex, build_search_index
+from .derived_index import LibraryIndexStore
 
+MAX_INDEX_FILE_BYTES = 32 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 _MAX_SEARCH_QUERY_LENGTH = 256
@@ -45,12 +48,20 @@ class PersonalLibraryConflict(RuntimeError):
     """资料目标路径已存在且用户未确认覆盖。"""
 
 
+class PersonalLibraryIndexUnavailable(ValueError):
+    """可重建索引故障，不表示原始资料丢失。"""
+
+
 class PersonalLibrarySourceDenied(ValueError):
     """资料库导入来源不属于当前用户，或不在允许根目录内。"""
 
 
 class PersonalLibraryRepository(Protocol):
     """文件服务所需的最小元数据仓储契约。"""
+
+    async def get_owned_document(
+        self, *, owner_user_id: UUID, document_id: UUID,
+    ) -> PersonalLibraryDocument | None: ...
 
     async def get_document(
         self,
@@ -212,7 +223,7 @@ class PersonalLibraryService:
         )
         try:
             saved = await self._repository.save_document(document)
-            self._refresh_search_index(saved, target)
+            await asyncio.to_thread(self._refresh_search_index, saved, target)
             return saved
         except Exception:
             if existing is None:
@@ -257,7 +268,7 @@ class PersonalLibraryService:
         )
         try:
             saved = await self._repository.save_document(document)
-            self._refresh_search_index(saved, destination)
+            await asyncio.to_thread(self._refresh_search_index, saved, destination)
             return saved
         except Exception:
             destination.unlink(missing_ok=True)
@@ -283,6 +294,41 @@ class PersonalLibraryService:
         )
         if document is None:
             raise PersonalLibraryNotFound("library_document_not_found")
+        return self._read_document_text(document, owner_user_id=owner_user_id,
+                                        offset=offset, limit=limit)
+
+    async def read_owned_text(
+        self, *, owner_user_id: UUID, document_id: UUID, offset: int = 0,
+        limit: int = 65_536, expected_agent_key: str | None = None,
+    ) -> PersonalLibraryDocumentContent:
+        """本人资料的稳定读取入口；显式 scoped URL 仍须匹配原 Agent。"""
+        if offset < 0 or not 1 <= limit <= 65_536:
+            raise ValueError("invalid_library_read_range")
+        document = await self._owned_document(owner_user_id, document_id, expected_agent_key)
+        try:
+            return self._read_document_text(document, owner_user_id=owner_user_id,
+                                            offset=offset, limit=limit)
+        except (PersonalLibraryPathDenied, OSError) as exc:
+            raise PersonalLibraryNotFound("library_document_not_found") from exc
+
+    async def _owned_document(
+        self, owner_user_id: UUID, document_id: UUID, expected_agent_key: str | None,
+    ) -> PersonalLibraryDocument:
+        document = await self._repository.get_owned_document(
+            owner_user_id=owner_user_id, document_id=document_id,
+        )
+        if (document is None or document.owner_user_id != owner_user_id
+                or document.id != document_id
+                or (expected_agent_key is not None
+                    and document.agent_id != agent_database_id(expected_agent_key))):
+            raise PersonalLibraryNotFound("library_document_not_found")
+        return document
+
+    def _read_document_text(
+        self, document: PersonalLibraryDocument, *, owner_user_id: UUID,
+        offset: int, limit: int,
+    ) -> PersonalLibraryDocumentContent:
+        agent_id = document.agent_id
         target = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
         if not target.is_file() or target.is_symlink():
             raise PersonalLibraryNotFound("library_document_not_found")
@@ -328,9 +374,25 @@ class PersonalLibraryService:
         )
         if document is None:
             raise PersonalLibraryNotFound("library_document_not_found")
+        return self._document_download(document, owner_user_id)
+
+    async def resolve_owned_download(
+        self, *, owner_user_id: UUID, document_id: UUID,
+        expected_agent_key: str | None = None,
+    ) -> tuple[PersonalLibraryDocument, Path, str]:
+        """已保存资料按持久归属下载，与当前 Agent 导航选择无关。"""
+        document = await self._owned_document(owner_user_id, document_id, expected_agent_key)
+        try:
+            return self._document_download(document, owner_user_id)
+        except (PersonalLibraryPathDenied, OSError) as exc:
+            raise PersonalLibraryNotFound("library_document_not_found") from exc
+
+    def _document_download(
+        self, document: PersonalLibraryDocument, owner_user_id: UUID,
+    ) -> tuple[PersonalLibraryDocument, Path, str]:
         target = self._resolve_existing(
             owner_user_id,
-            agent_id,
+            document.agent_id,
             document.relative_path,
         )
         if not target.is_file() or target.is_symlink():
@@ -404,7 +466,7 @@ class PersonalLibraryService:
             raise
         if source != destination:
             source.unlink(missing_ok=True)
-        self._refresh_search_index(saved, destination)
+        await asyncio.to_thread(self._refresh_search_index, saved, destination)
         return saved
 
     async def delete(
@@ -452,6 +514,7 @@ class PersonalLibraryService:
         except OSError:
             # 检索先按元数据过滤，遗留索引不会再次进入召回结果。
             logger.warning("Unable to remove deleted personal-library search index", exc_info=True)
+        await asyncio.to_thread(self._delete_index, document)
 
     @staticmethod
     def _check_revision(document: PersonalLibraryDocument, expected: datetime | None) -> None:
@@ -465,10 +528,29 @@ class PersonalLibraryService:
             raise ValueError("invalid_library_search")
         needle = query.strip().casefold()
         terms = self._search_terms(needle)
-        hits: list[PersonalLibrarySearchHit] = []
         agent_id = agent_database_id(agent_key)
-        for document in await self._repository.list_documents(owner_user_id=owner_user_id, agent_id=agent_id):
+        documents = await self._repository.list_documents(owner_user_id=owner_user_id, agent_id=agent_id)
+        try:
+            return await asyncio.to_thread(self._search_documents, documents, owner_user_id, agent_id, needle, terms, max_results)
+        except (OSError, sqlite3.Error) as exc:
+            raise PersonalLibraryIndexUnavailable("个人资料库索引暂不可用，请在文件中心的个人资料库重建索引。原文件仍可预览和下载。") from exc
+
+    def _search_documents(self, documents, owner_user_id, agent_id, needle, terms, max_results):
+        """先验证作用域内元数据，再从倒排候选读取正文，避免逐份读取全库正文。"""
+        store = self._index_store(owner_user_id, agent_id)
+        hits: list[PersonalLibrarySearchHit] = []
+        with store.lock:
+            metadata = store.metadata()
+            for document in documents:
+                path = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
+                if not self._index_is_current(document, path, metadata.get(str(document.id))):
+                    self._refresh_search_index(document, path)
+            candidates = store.candidates(terms)
+        for document in documents:
             if document.name.rsplit(".", 1)[-1].casefold() not in self._searchable_extensions():
+                continue
+            path = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
+            if not path.is_file() or path.is_symlink():
                 continue
             folded_path = document.relative_path.casefold()
             filename_score = self._filename_relevance(needle, document.name)
@@ -496,10 +578,9 @@ class PersonalLibraryService:
                     )
                 )
                 continue
-            path = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
-            if not path.is_file() or path.is_symlink():
+            if str(document.id) not in candidates:
                 continue
-            search_index = self._load_or_build_search_index(document, path)
+            search_index = store.load(str(document.id))
             if search_index is None:
                 continue
             text = search_index.content
@@ -652,12 +733,17 @@ class PersonalLibraryService:
             query = " ".join(terms)
             if len(query) > _MAX_SEARCH_QUERY_LENGTH:
                 return []
-        hits = await self.search_text(
-            owner_user_id=owner_user_id,
-            agent_key=agent_key,
-            query=query,
-            max_results=3,
-        )
+        try:
+            hits = await self.search_text(
+                owner_user_id=owner_user_id,
+                agent_key=agent_key,
+                query=query,
+                max_results=3,
+            )
+        except PersonalLibraryIndexUnavailable:
+            # 自动推荐不能让索引故障阻断整条聊天；显式搜索工具仍返回修复提示。
+            logger.warning("personal_library_automatic_index_unavailable")
+            return []
         if not hits:
             return []
         top = hits[0]
@@ -764,6 +850,8 @@ class PersonalLibraryService:
 
     @staticmethod
     def _matches_search_term(term: str, haystack: str) -> bool:
+        term = unicodedata.normalize("NFKC", term).casefold()
+        haystack = unicodedata.normalize("NFKC", haystack).casefold()
         if term in haystack:
             return True
         # 中文产品名常会省略一个修饰词，例如查询“外墙装饰一体化系统”
@@ -787,7 +875,78 @@ class PersonalLibraryService:
         document_id: UUID,
     ) -> Path:
         root = self._paths.ensure_root(owner_user_id, agent_id)
-        return root / ".qwenpaw-index" / f"{document_id}.json"
+        target = root / ".qwenpaw-index" / f"{document_id}.json"
+        if target.parent.is_symlink() or target.is_symlink():
+            raise PersonalLibraryPathDenied("library_index_symlink_denied")
+        return target
+
+    def _index_store(self, owner_id, agent_id):
+        return LibraryIndexStore(self._working_dir, owner_id, agent_id)
+
+    @staticmethod
+    def _index_is_current(document, path, metadata):
+        if not metadata or metadata["version"] != INDEX_VERSION:
+            return False
+        if metadata["sha256"] != document.sha256 or metadata["relative_path"] != document.relative_path:
+            return False
+        if not path.is_file() or path.is_symlink():
+            return metadata["status"] == "missing"
+        stat = path.stat()
+        return (metadata["size"], metadata["mtime_ns"]) == (stat.st_size, stat.st_mtime_ns)
+
+    def _delete_index(self, document):
+        try:
+            self._index_store(document.owner_user_id, document.agent_id).delete(str(document.id))
+        except (OSError, sqlite3.Error, ValueError):
+            # 权威元数据已删除，即使派生缓存不可写也不会再授权或返回此文件。
+            logger.warning("personal_library_index_delete_failed document_id=%s", document.id)
+
+    async def index_status(self, *, owner_user_id: UUID, agent_key: str):
+        agent_id = agent_database_id(agent_key)
+        documents = await self._repository.list_documents(owner_user_id=owner_user_id, agent_id=agent_id)
+        return await asyncio.to_thread(self._index_status, documents, owner_user_id, agent_id)
+
+    def _index_status(self, documents, owner_user_id, agent_id):
+        unavailable = False
+        try:
+            metadata = self._index_store(owner_user_id, agent_id).metadata()
+        except (OSError, sqlite3.Error, ValueError):
+            metadata, unavailable = {}, True
+        result = []
+        for document in documents:
+            item = metadata.get(str(document.id))
+            state = "unavailable" if unavailable else "pending"
+            try:
+                path = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
+                if not path.is_file() or path.is_symlink():
+                    state = "missing"
+                elif self._index_is_current(document, path, item):
+                    state = item["status"]
+            except (OSError, ValueError):
+                state = "missing"
+            result.append({
+                "document_id": str(document.id), "status": state,
+                "indexed_characters": item["indexed_characters"] if item and state == item["status"] else 0,
+                "updated_at": item["updated_at"] if item else None,
+            })
+        return result
+
+    async def rebuild_index(self, *, owner_user_id: UUID, agent_key: str, document_ids: list[UUID] | None = None):
+        """只重建当前身份可列出的资料，绝不扫描其他用户的文件目录。"""
+        agent_id = agent_database_id(agent_key)
+        documents = await self._repository.list_documents(owner_user_id=owner_user_id, agent_id=agent_id)
+        if document_ids is not None:
+            allowed = {document.id for document in documents}
+            if not set(document_ids) <= allowed:
+                raise PersonalLibraryNotFound("library_document_not_found")
+            documents = [document for document in documents if document.id in document_ids]
+        store = self._index_store(owner_user_id, agent_id)
+        await asyncio.to_thread(store.repair)
+        for document in documents:
+            # 每份文件单独执行并让出事件循环；协程取消后不再启动后续解析。
+            path = self._resolve_existing(owner_user_id, agent_id, document.relative_path)
+            await asyncio.to_thread(self._refresh_search_index, document, path)
+        return await self.index_status(owner_user_id=owner_user_id, agent_key=agent_key)
 
     def _refresh_search_index(
         self,
@@ -795,56 +954,35 @@ class PersonalLibraryService:
         path: Path,
     ) -> PersonalLibrarySearchIndex | None:
         """尽力更新索引；解析失败不能阻止用户保存原始资料。"""
-        if path.suffix.casefold().lstrip(".") not in self._searchable_extensions():
-            return None
         try:
-            content = extract_searchable_text(path)
-            search_index = build_search_index(
-                document_id=str(document.id),
-                sha256=document.sha256,
-                filename=document.name,
-                content=content,
-            )
-            target = self._search_index_path(
-                document.owner_user_id,
-                document.agent_id,
-                document.id,
-            )
-            self._atomic_write(
-                target,
-                json.dumps(
-                    search_index.to_json_dict(),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ).encode("utf-8"),
-            )
-            return search_index
-        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-            return None
-
-    def _load_or_build_search_index(
-        self,
-        document: PersonalLibraryDocument,
-        path: Path,
-    ) -> PersonalLibrarySearchIndex | None:
-        target = self._search_index_path(
-            document.owner_user_id,
-            document.agent_id,
-            document.id,
-        )
-        try:
-            search_index = PersonalLibrarySearchIndex.from_json_dict(
-                json.loads(target.read_text(encoding="utf-8"))
-            )
-            if (
-                search_index.version == INDEX_VERSION
-                and search_index.document_id == str(document.id)
-                and search_index.sha256 == document.sha256
-            ):
+            store = self._index_store(document.owner_user_id, document.agent_id)
+            with store.lock:
+                size, mtime_ns, search_index = -1, -1, None
+                if not path.is_file() or path.is_symlink():
+                    state = "missing"
+                else:
+                    stat = path.stat()
+                    size, mtime_ns = stat.st_size, stat.st_mtime_ns
+                    if path.suffix.casefold().lstrip(".") not in self._searchable_extensions():
+                        state = "unsupported"
+                    elif size > MAX_INDEX_FILE_BYTES:
+                        state = "too_large"
+                    else:
+                        try:
+                            content = extract_searchable_text(path)
+                            state = "partial" if len(content) > MAX_INDEXED_CHARACTERS else "ready" if content.strip() else "empty"
+                            if state != "empty":
+                                search_index = build_search_index(document_id=str(document.id), sha256=document.sha256, filename=document.name, content=content)
+                        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
+                            state = "failed"
+                        # 解析期间被替换的文件留待下一次重建，不能发布混合版本索引。
+                        if not path.is_file() or (path.stat().st_size, path.stat().st_mtime_ns) != (size, mtime_ns):
+                            return None
+                store.save(document, version=INDEX_VERSION, size=size, mtime_ns=mtime_ns, status=state, index=search_index)
                 return search_index
-        except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-            pass
-        return self._refresh_search_index(document, path)
+        except (OSError, sqlite3.Error, ValueError):
+            logger.warning("personal_library_index_update_failed document_id=%s", document.id)
+            return None
 
     async def copy_from_attachment(
         self,
@@ -864,7 +1002,8 @@ class PersonalLibraryService:
             attachment_id=attachment_id,
             owner_user_id=owner_user_id,
         )
-        if attachment is None or attachment.lifecycle == "deleted":
+        if (attachment is None or attachment.id != attachment_id
+                or attachment.owner_user_id != owner_user_id or attachment.lifecycle == "deleted"):
             raise PersonalLibraryNotFound("attachment_not_found")
         source = self._trusted_attachment_path(attachment)
         return await self._copy_from_source(
@@ -961,7 +1100,7 @@ class PersonalLibraryService:
         )
         try:
             saved = await self._repository.save_document(document)
-            self._refresh_search_index(saved, destination)
+            await asyncio.to_thread(self._refresh_search_index, saved, destination)
             return saved
         except Exception:
             if existing is None:
@@ -969,14 +1108,15 @@ class PersonalLibraryService:
             raise
 
     def _trusted_attachment_path(self, attachment: AttachmentRecord) -> Path:
-        """将服务端登记的附件位置收窄为一个常规文件。"""
+        """导入与下载使用相同的归属和受控路径校验。"""
+        from ..app.attachments.service import resolve_owned_attachment_path
         try:
-            source = Path(attachment.storage_key).resolve(strict=True)
-        except OSError as exc:
+            return resolve_owned_attachment_path(
+                attachment, owner_user_id=attachment.owner_user_id,
+                working_dir=self._working_dir,
+            )
+        except (OSError, ValueError) as exc:
             raise PersonalLibraryNotFound("attachment_not_found") from exc
-        if not source.is_file() or source.is_symlink():
-            raise PersonalLibraryNotFound("attachment_not_found")
-        return source
 
     def _runtime_root(self, *, owner_user_id: UUID, agent_id: str) -> Path:
         try:

@@ -1340,6 +1340,7 @@ export default function ChatPage() {
     read_only: currentSession?.readOnly,
   });
   const chatReadOnly = historicalReadOnly || conversationReadOnly;
+  const isSharedConversation = currentSession?.accessRole === "viewer";
   const publicationVersion = currentSession?.meta?.publication_version;
   const lockedPublicationModel = currentSession?.meta?.locked_model as
     | { provider_id?: string; model?: string }
@@ -3300,10 +3301,17 @@ export default function ChatPage() {
         frontendRunning: Boolean(chatLoadingRef.current),
       });
       if (resumeAction === "replace_history") {
-        const requestedActiveId = chatIdRef.current || window.currentSessionId || "";
-        const requestedActiveRealId = sessionApi.getRealIdForSession(requestedActiveId) ?? requestedActiveId;
-        if (!isChatActiveRef.current || requestedActiveRealId !== realId) return;
-        const canonicalSession = await sessionApi.refreshSessionFromHistory(realId, history);
+        const requestedActiveId =
+          chatIdRef.current || window.currentSessionId || "";
+        const requestedActiveRealId =
+          sessionApi.getRealIdForSession(requestedActiveId) ??
+          requestedActiveId;
+        if (!isChatActiveRef.current || requestedActiveRealId !== realId)
+          return;
+        const canonicalSession = await sessionApi.refreshSessionFromHistory(
+          realId,
+          history,
+        );
         const activeId = chatIdRef.current || window.currentSessionId || "";
         const activeRealId =
           sessionApi.getRealIdForSession(activeId) ?? activeId;
@@ -3675,7 +3683,7 @@ export default function ChatPage() {
           editAttempt?.rejected(new Error(t("chat.editFailed")));
           message.warning(
             t(
-              conversationReadOnly
+              isSharedConversation
                 ? "chat.sharedReadOnlyNotice"
                 : "chat.historicalReadOnlyNotice",
             ),
@@ -4000,7 +4008,7 @@ export default function ChatPage() {
     [
       extLists,
       chatReadOnly,
-      conversationReadOnly,
+      isSharedConversation,
       message,
       selectedAgent,
       runningConfigApprovalLevel,
@@ -4091,7 +4099,7 @@ export default function ChatPage() {
       if (chatReadOnly) {
         message.warning(
           t(
-            conversationReadOnly
+            isSharedConversation
               ? "chat.sharedReadOnlyNotice"
               : "chat.historicalReadOnlyNotice",
           ),
@@ -4419,7 +4427,7 @@ export default function ChatPage() {
                 showIcon
                 banner
                 message={t(
-                  conversationReadOnly
+                  isSharedConversation
                     ? "chat.sharedReadOnlyNotice"
                     : "chat.historicalReadOnlyNotice",
                   { owner: currentSession?.sharedBy || "-" },
@@ -4565,7 +4573,7 @@ export default function ChatPage() {
           : {}),
         placeholder: chatReadOnly
           ? t(
-              conversationReadOnly
+              isSharedConversation
                 ? "chat.sharedReadOnlyPlaceholder"
                 : "chat.historicalReadOnlyPlaceholder",
             )
@@ -4845,7 +4853,7 @@ export default function ChatPage() {
     bgBackendSessionId,
     queueSessionId,
     chatReadOnly,
-    conversationReadOnly,
+    isSharedConversation,
     currentSession?.sharedBy,
   ]);
 

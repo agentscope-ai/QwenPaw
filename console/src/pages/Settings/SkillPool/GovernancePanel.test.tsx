@@ -104,6 +104,54 @@ const renderPanel = (view: "published" | "requests" | "grants" = "published") =>
     </ConfigProvider>,
   );
 
+it("lets a member read only their request snapshots after Agent access is removed", async () => {
+  useAuthStore.setState({
+    user: { id: "owner-42", platform_role: "member" } as never,
+  });
+  useAgentStore.setState({ agents: [], selectedAgent: "unavailable-agent" });
+  const previous = respond;
+  respond = (url, init) =>
+    url.endsWith("/requests?scope=mine")
+      ? { requests: [publication] }
+      : previous(url, init);
+  renderWithProviders(<GovernancePanel view="requests" ownRequests />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: label("viewDetails") }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(
+    await within(dialog).findByRole("button", { name: "scripts/example.txt" }),
+  );
+  expect(
+    await within(dialog).findByText("fixed snapshot A"),
+  ).toBeInTheDocument();
+  expect(
+    within(dialog).queryByRole("button", { name: label("approve") }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(dialog).queryByRole("button", { name: label("reject") }),
+  ).not.toBeInTheDocument();
+  expect(
+    within(dialog).queryByRole("textbox", { name: label("note") }),
+  ).not.toBeInTheDocument();
+  const closeButtons = within(dialog).getAllByRole("button", {
+    name: i18n.t("common.close"),
+  });
+  fireEvent.click(closeButtons[closeButtons.length - 1]);
+  const reads = calls.filter((call) =>
+    call.url.endsWith("/requests?scope=mine"),
+  ).length;
+  fireEvent.click(
+    screen.getByRole("button", { name: i18n.t("common.refresh") }),
+  );
+  await waitFor(() =>
+    expect(
+      calls.filter((call) => call.url.endsWith("/requests?scope=mine")).length,
+    ).toBeGreaterThan(reads),
+  );
+  expect(calls.every((call) => call.method === "GET")).toBe(true);
+});
+
 it("separates published skills from publication requests", async () => {
   const { unmount } = renderPanel("published");
   expect(await screen.findByText("published")).toBeInTheDocument();

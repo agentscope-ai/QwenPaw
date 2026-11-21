@@ -17,7 +17,8 @@ import { agentsApi } from "../../api/modules/agents";
 import type { AgentSummary } from "../../api/types/agents";
 import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { getSessionIdFromPath } from "../../utils/sessionRoute";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
 import { useAgentLongPress } from "./useAgentLongPress";
@@ -32,6 +33,7 @@ export default function AgentSelector({
 }: AgentSelectorProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedAgent, agents, setSelectedAgent, setAgents, refreshAgents } =
     useAgentStore();
   const { message } = useAppMessage();
@@ -104,6 +106,10 @@ export default function AgentSelector({
     if (!agents.length) return;
 
     const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+    // Read-only conversation ownership is resolved by ChatRoute's /spec lookup.
+    // Agent refresh must not reinterpret that history as a new Agent selection.
+    if (currentAgent?.historical_read_only) return;
+    if (!currentAgent && getSessionIdFromPath(location.pathname)) return;
     if (!currentAgent) {
       setSelectedAgent(pickAccessibleAgentId(agents, ""));
       message.warning(t("agent.currentAgentDeleted"));
@@ -116,7 +122,7 @@ export default function AgentSelector({
       );
       message.warning(t("agent.currentAgentDisabled"));
     }
-  }, [agents, message, selectedAgent, setSelectedAgent, t]);
+  }, [agents, location.pathname, message, selectedAgent, setSelectedAgent, t]);
 
   const stopSelectorAction = (event: MouseEvent<HTMLElement>) => {
     event.preventDefault();

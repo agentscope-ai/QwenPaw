@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   toggleAgentEnabled: vi.fn(),
   setAgentPinned: vi.fn(),
   navigate: vi.fn(),
+  pathname: "/chat",
   storeState: {
     selectedAgent: "default",
     agents: [] as Array<Record<string, unknown>>,
@@ -46,7 +47,11 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router-dom")>();
-  return { ...actual, useNavigate: () => mocks.navigate };
+  return {
+    ...actual,
+    useNavigate: () => mocks.navigate,
+    useLocation: () => ({ pathname: mocks.pathname }),
+  };
 });
 
 const agents = [
@@ -81,6 +86,7 @@ const agents = [
 
 describe("AgentSelector", () => {
   beforeEach(() => {
+    mocks.pathname = "/chat";
     mocks.storeState.selectedAgent = "default";
     mocks.storeState.agents = agents;
     mocks.refreshAgents.mockResolvedValue(undefined);
@@ -101,6 +107,24 @@ describe("AgentSelector", () => {
   it("refreshes the shared agent store on mount", async () => {
     renderWithProviders(<AgentSelector />);
     await waitFor(() => expect(mocks.refreshAgents).toHaveBeenCalledOnce());
+  });
+
+  it("does not evict a selected historical Agent when it is disabled", async () => {
+    mocks.storeState.selectedAgent = "agent-2";
+    mocks.storeState.agents = agents.map((agent) =>
+      agent.id === "agent-2" ? { ...agent, historical_read_only: true } : agent,
+    );
+    renderWithProviders(<AgentSelector />);
+    await waitFor(() => expect(mocks.refreshAgents).toHaveBeenCalledOnce());
+    expect(mocks.setSelectedAgent).not.toHaveBeenCalled();
+  });
+
+  it("leaves an unavailable deep-linked Agent for the owned chat resolver", async () => {
+    mocks.pathname = "/chat/11111111-1111-4111-8111-111111111111";
+    mocks.storeState.selectedAgent = "retired";
+    renderWithProviders(<AgentSelector />);
+    await waitFor(() => expect(mocks.refreshAgents).toHaveBeenCalledOnce());
+    expect(mocks.setSelectedAgent).not.toHaveBeenCalled();
   });
 
   it("does not render Select in collapsed mode", async () => {

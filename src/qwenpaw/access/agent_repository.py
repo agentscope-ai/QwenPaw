@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ from uuid import UUID, uuid4, uuid5
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..persistence.database import database_session
+from ..persistence.database import database_session, set_request_user
 from .stream_revocation import revoke_streams
 
 _SAFE_SCHEMA = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -268,19 +269,18 @@ class PostgresAgentRepository:
             return {}
         key_by_id = {agent_database_id(key): key for key in agent_keys}
         async with self._session_factory() as session:
+            await set_request_user(session, user_id)
             result = await session.execute(
                 text(
                     "SELECT a.id, a.owner_user_id, a.status, a.visibility "
                     f"FROM {self._agents_table} a "
-                    f"JOIN {self._history_access_table} ah "
-                    "ON ah.agent_id = a.id AND ah.user_id = :user_id "
-                    f"LEFT JOIN {self._members_table} am "
-                    "ON am.agent_id = a.id AND am.user_id = :user_id "
-                    "AND am.revoked_at IS NULL "
                     "WHERE a.id = ANY(CAST(:agent_ids AS uuid[])) "
-                    "AND a.status <> 'deleted' "
-                    "AND a.owner_user_id <> :user_id "
-                    "AND am.user_id IS NULL AND a.visibility <> 'public'"
+                    # 历史关系只证明本人曾创建会话；不依赖当前 Agent 可用性。
+                    # 实际读取仍逐条检查 conversation.owner_user_id。
+                    "AND EXISTS (SELECT 1 FROM "
+                    f"{self._tables['conversations']} c "
+                    "WHERE c.agent_id = a.id AND c.owner_user_id = :user_id "
+                    "AND c.status <> 'deleted')"
                 ),
                 {"agent_ids": list(key_by_id), "user_id": user_id},
             )
@@ -297,6 +297,35 @@ class PostgresAgentRepository:
             for row in rows
             if row["id"] in key_by_id
         }
+
+    async def get_owned_history_agent(
+        self, *, conversation_id: UUID, user_id: UUID, agent_keys: list[str],
+    ) -> LegacyAgentRecord | None:
+        """从本人会话查可信旧目录，不依赖当前选中的 Agent 或仍存的 profile。"""
+        async with self._session_factory() as session:
+            await set_request_user(session, user_id)
+            result = await session.execute(text(
+                "SELECT a.id, a.owner_user_id, a.name, a.description, "
+                "a.status, a.draft_workspace_key "
+                f"FROM {self._agents_table} a "
+                f"JOIN {self._tables['conversations']} c ON c.agent_id = a.id "
+                f"JOIN {self._users_table} u ON u.id = c.owner_user_id "
+                "AND u.status = 'active' "
+                "WHERE c.id = :conversation_id AND c.owner_user_id = :user_id "
+                "AND c.status <> 'deleted'"
+            ), {"conversation_id": conversation_id, "user_id": user_id})
+            row = result.mappings().first()
+        if row is None:
+            return None
+        path = Path(row["draft_workspace_key"])
+        key_by_id = {agent_database_id(key): key for key in agent_keys}
+        key = key_by_id.get(row["id"], path.name)
+        if not key or agent_database_id(key) != row["id"]:
+            return None
+        return LegacyAgentRecord(
+            key=key, name=row["name"], description=row["description"] or "",
+            workspace_key=str(path), status=row["status"],
+        )
 
     async def record_chat_created(
         self,

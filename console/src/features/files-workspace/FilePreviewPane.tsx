@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { getAccessSessionGeneration, subscribeAccessSessionGeneration } from "../../api/authSession";
+import {
+  getAccessSessionGeneration,
+  subscribeAccessSessionGeneration,
+} from "../../api/authSession";
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
+import { readFileResponse } from "../../api/fileAccess";
 import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
 import { withAgentRequestContext } from "../../api/modules/agentRequestContext";
 import { personalLibraryApi } from "../../api/modules/personalLibrary";
@@ -42,14 +46,19 @@ export function fileLocatorDownloadUrl(locator: FileLocator): string | null {
 }
 
 export default function FilePreviewPane(props: FilePreviewPaneProps) {
-  const generation = useSyncExternalStore(subscribeAccessSessionGeneration, getAccessSessionGeneration);
-  return <ScopedFilePreview key={JSON.stringify([generation, props.requestContext, props.locator])} {...props} />;
+  const generation = useSyncExternalStore(
+    subscribeAccessSessionGeneration,
+    getAccessSessionGeneration,
+  );
+  return (
+    <ScopedFilePreview
+      key={JSON.stringify([generation, props.requestContext, props.locator])}
+      {...props}
+    />
+  );
 }
 
-function ScopedFilePreview({
-  locator,
-  requestContext,
-}: FilePreviewPaneProps) {
+function ScopedFilePreview({ locator, requestContext }: FilePreviewPaneProps) {
   const { t } = useTranslation();
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
@@ -93,17 +102,15 @@ function ScopedFilePreview({
         ).content;
       }
       if (!binaryUrl) throw new Error("missing_download_url");
-      const response = await fetch(binaryUrl, {
-        headers: authenticatedHeaders(requestContext),
+      return readFileResponse(binaryUrl, requestContext, async (response) => {
+        const contentType = response.headers.get("Content-Type") ?? "";
+        const textFile =
+          contentType.startsWith("text/") ||
+          /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+            locator.relativePath,
+          );
+        return textFile ? response.text() : "";
       });
-      if (!response.ok) throw new Error(`${response.status}`);
-      const contentType = response.headers.get("Content-Type") ?? "";
-      const textFile =
-        contentType.startsWith("text/") ||
-        /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
-          locator.relativePath,
-        );
-      return textFile ? response.text() : "";
     };
     void load()
       .then((value) => {

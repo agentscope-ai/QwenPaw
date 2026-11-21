@@ -3,10 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MCPClientInfo } from "../../../../api/types";
 import { MCPClientCard } from "./MCPClientCard";
 
+const { messageError } = vi.hoisted(() => ({ messageError: vi.fn() }));
+vi.mock("../../../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { error: messageError } }),
+}));
+
 vi.mock("@agentscope-ai/design", async () => {
   const React = await import("react");
-  const wrap = (tag: string) =>
-    ({ children, danger: _danger, autoSize: _autoSize, icon: _icon, loading: _loading, ...props }: any) =>
+  const wrap =
+    (tag: string) =>
+    ({
+      children,
+      danger: _danger,
+      autoSize: _autoSize,
+      icon: _icon,
+      loading: _loading,
+      ...props
+    }: any) =>
       React.createElement(tag, props, children);
   const Input = wrap("input") as any;
   Input.TextArea = wrap("textarea");
@@ -130,20 +143,23 @@ describe("MCPClientCard governance", () => {
     fireEvent.click(screen.getByTestId("mcp-client-save-remote"));
 
     await waitFor(() =>
-      expect(onUpdate).toHaveBeenCalledWith(
-        "remote",
-        expect.any(Object),
-        3,
-      ),
+      expect(onUpdate).toHaveBeenCalledWith("remote", expect.any(Object), 3),
     );
     expect(screen.getByTestId("mcp-client-save-remote")).toBeInTheDocument();
   });
 
   it("rejects raw secret maps added to JSON", async () => {
     const onUpdate = vi.fn();
-    vi.spyOn(window, "alert").mockImplementation(() => undefined);
     render(
-      <MCPClientCard client={client} canEdit onToggle={vi.fn()} onDelete={vi.fn()} onUpdate={onUpdate} onUpdatePolicy={vi.fn()} onRefresh={refresh} />,
+      <MCPClientCard
+        client={client}
+        canEdit
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={onUpdate}
+        onUpdatePolicy={vi.fn()}
+        onRefresh={refresh}
+      />,
     );
     fireEvent.click(screen.getByTestId("mcp-client-card-remote"));
     fireEvent.click(screen.getByTestId("mcp-client-edit-remote"));
@@ -152,6 +168,31 @@ describe("MCPClientCard governance", () => {
     });
     fireEvent.click(screen.getByTestId("mcp-client-save-remote"));
     expect(onUpdate).not.toHaveBeenCalled();
+    expect(messageError).toHaveBeenCalledWith("mcp.rawCredentialRejected");
+  });
+
+  it("reports malformed JSON through the localized application message", () => {
+    const onUpdate = vi.fn();
+    render(
+      <MCPClientCard
+        client={client}
+        canEdit
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+        onUpdate={onUpdate}
+        onUpdatePolicy={vi.fn()}
+        onRefresh={refresh}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("mcp-client-card-remote"));
+    fireEvent.click(screen.getByTestId("mcp-client-edit-remote"));
+    fireEvent.change(screen.getByTestId("mcp-client-json-remote"), {
+      target: { value: "{" },
+    });
+    fireEvent.click(screen.getByTestId("mcp-client-save-remote"));
+    expect(messageError).toHaveBeenCalledWith("interaction.invalidJson");
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("mcp-client-save-remote")).toBeInTheDocument();
   });
 
   it("drops an open draft when identity scope changes with the same client key", () => {
@@ -164,7 +205,9 @@ describe("MCPClientCard governance", () => {
       onUpdatePolicy: vi.fn(),
       onRefresh: refresh,
     };
-    const { rerender } = render(<MCPClientCard key="agent-a:remote" {...props} />);
+    const { rerender } = render(
+      <MCPClientCard key="agent-a:remote" {...props} />,
+    );
     fireEvent.click(screen.getByTestId("mcp-client-card-remote"));
     fireEvent.click(screen.getByTestId("mcp-client-edit-remote"));
     expect(screen.getByTestId("mcp-client-save-remote")).toBeInTheDocument();
@@ -175,9 +218,12 @@ describe("MCPClientCard governance", () => {
 
   it("blocks reopening OAuth until refresh supplies a new revision", async () => {
     let finishRefresh!: () => void;
-    const onRefresh = vi.fn(() => new Promise<void>((resolve) => {
-      finishRefresh = resolve;
-    }));
+    const onRefresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
     const { rerender } = render(
       <MCPClientCard
         client={client}

@@ -1,5 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { authApi } from "./auth";
+import i18n from "../../i18n";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
+
+it("preserves structured login feedback and localizes legacy errors in Chinese", async () => {
+  await i18n.changeLanguage("zh");
+  mockFetch(401, {
+    detail: {
+      code: "invalid_credentials",
+      message: "用户名或密码不正确",
+      remaining_attempts: 4,
+      retry_after_seconds: 0,
+    },
+  });
+  await expect(authApi.login("alice", "wrong")).rejects.toMatchObject({
+    message: "用户名或密码不正确",
+    status: 401,
+    detail: { code: "invalid_credentials", remaining_attempts: 4 },
+  });
+  mockFetch(423, {
+    detail: "Account temporarily locked. Please try again later",
+  });
+  await expect(authApi.login("alice", "wrong")).rejects.toThrow("账号暂时锁定");
+});
 
 // auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock("../config", () => ({

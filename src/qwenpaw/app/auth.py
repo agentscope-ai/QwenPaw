@@ -709,7 +709,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         or secrets.token_hex(16)
                     ),
                 )
-            return await call_next(request)
+            response = await call_next(request)
+            if (
+                is_multi_user_enabled()
+                and request.url.path.startswith("/api/auth/")
+            ):
+                self._disable_private_caching(response)
+            return response
 
         token = self._extract_token(request)
         delegation = request.scope.get("qwenpaw.subtask")
@@ -771,7 +777,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 except PluginAccessError:
                     return Response(status_code=404)
                 request.state.authorized_plugin = (pawapp.plugin_id, request.state.actor)
-            return await call_next(request)
+            response = await call_next(request)
+            self._disable_private_caching(response)
+            return response
 
         user = verify_token(token)
         if user is None:
@@ -784,6 +792,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.user = user
         request.state.actor = actor_from_request(request, multi_user=False)
         return await call_next(request)
+
+    @staticmethod
+    def _disable_private_caching(response: Response) -> None:
+        """Do not reuse one account's protected response after a login change."""
+        response.headers["Cache-Control"] = "private, no-store"
+        vary = [
+            value.strip()
+            for value in response.headers.get("Vary", "").split(",")
+            if value.strip()
+        ]
+        for value in ("Authorization", "Cookie"):
+            if value.lower() not in {item.lower() for item in vary}:
+                vary.append(value)
+        response.headers["Vary"] = ", ".join(vary)
 
     @staticmethod
     def _is_compatibility_no_auth_request(request: Request) -> bool:

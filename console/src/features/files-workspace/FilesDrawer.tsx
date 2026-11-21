@@ -13,12 +13,22 @@ import {
   useRef,
   useState,
   useMemo,
+  useSyncExternalStore,
   Suspense,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
+import { protectedFileApiPath, readFileResponse } from "../../api/fileAccess";
+import { getApiUrl } from "../../api/config";
+import { withAgentRequestContext } from "../../api/modules/agentRequestContext";
+import {
+  ensureAccessSessionFresh,
+  getAccessSessionGeneration,
+  subscribeAccessSessionGeneration,
+} from "../../api/authSession";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
@@ -60,12 +70,17 @@ function insertFileReference(path: string): void {
   });
 }
 
-export default function FilesDrawer({
-  state,
-  dispatch,
-  scope,
-}: FilesDrawerProps) {
+export default function FilesDrawer(props: FilesDrawerProps) {
+  const generation = useSyncExternalStore(
+    subscribeAccessSessionGeneration,
+    getAccessSessionGeneration,
+  );
+  return <IdentityFilesDrawer key={generation} {...props} />;
+}
+
+function IdentityFilesDrawer({ state, dispatch, scope }: FilesDrawerProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const drawerRef = useRef<HTMLElement>(null);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
   const [content, setContent] = useState("");
@@ -81,6 +96,13 @@ export default function FilesDrawer({
   const requestContext = useMemo(
     () => ({ agentId: scope.agentId }),
     [scope.agentId],
+  );
+  const binaryHeaders = useMemo(
+    () =>
+      withAgentRequestContext(undefined, requestContext)?.headers as
+        | Record<string, string>
+        | undefined,
+    [requestContext],
   );
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
@@ -128,43 +150,53 @@ export default function FilesDrawer({
     setLoading(true);
     setLoadFailed(false);
     const loadMetadata = target.artifactUrl
-      ? fetch(target.artifactUrl, {
-          headers: buildAuthHeaders(),
-          signal: controller.signal,
-        }).then(async (response) => {
-          if (!response.ok) throw new Error(`${response.status}`);
-          const contentType = response.headers.get("Content-Type") ?? "";
-          const isText =
-            contentType.startsWith("text/") ||
-            /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+      ? readFileResponse(
+          target.artifactUrl,
+          requestContext,
+          async (response) => {
+            const contentType = response.headers.get("Content-Type") ?? "";
+            const isText =
+              contentType.startsWith("text/") ||
+              /\.(?:md|mdx|txt|csv|json|ya?ml|toml|xml|html?|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+                target.path,
+              );
+            const previewKind = /\.(?:png|jpe?g|gif|webp|svg|ico|bmp)$/i.test(
               target.path,
-            );
-          const previewKind = /\.(?:png|jpe?g|gif|webp|svg|ico|bmp)$/i.test(
-            target.path,
-          )
-            ? "image"
-            : /\.pdf$/i.test(target.path)
-            ? "pdf"
-            : /\.csv$/i.test(target.path)
-            ? "csv"
-            : isText
-            ? "text"
-            : "binary";
-          const nextContent = isText ? await response.text() : "";
-          return {
-            metadata: {
-              path: target.path,
-              size: Number(response.headers.get("Content-Length")) || 0,
-              modified_at: response.headers.get("Last-Modified") ?? "",
-              preview_kind: previewKind,
-              etag: response.headers.get("ETag") ?? "",
-            } as FileMetadata,
-            content: nextContent,
-          };
-        })
+            )
+              ? "image"
+              : /\.pdf$/i.test(target.path)
+              ? "pdf"
+              : /\.csv$/i.test(target.path)
+              ? "csv"
+              : isText
+              ? "text"
+              : "binary";
+            const nextContent = isText ? await response.text() : "";
+            return {
+              metadata: {
+                path: target.path,
+                size: Number(response.headers.get("Content-Length")) || 0,
+                modified_at: response.headers.get("Last-Modified") ?? "",
+                preview_kind: previewKind,
+                etag: response.headers.get("ETag") ?? "",
+              } as FileMetadata,
+              content: nextContent,
+            };
+          },
+          {
+            signal: controller.signal,
+            headers: chatId ? { "X-Chat-Id": chatId } : undefined,
+          },
+        )
       : target.source === "workspace"
       ? workspaceApi
-          .getFileMetadata(target.path, chatId, target.root, projectDirOverride, {agentId: scope.agentId})
+          .getFileMetadata(
+            target.path,
+            chatId,
+            target.root,
+            projectDirOverride,
+            { agentId: scope.agentId },
+          )
           .then(async (nextMetadata) => {
             const loaded =
               nextMetadata.preview_kind === "text" ||
@@ -174,7 +206,7 @@ export default function FilesDrawer({
                     chatId,
                     target.root,
                     projectDirOverride,
-                    {agentId: scope.agentId},
+                    { agentId: scope.agentId },
                   )
                 : null;
             return {
@@ -185,7 +217,7 @@ export default function FilesDrawer({
             };
           })
       : target.source === "profile"
-      ? workspaceApi.loadFile(target.path).then((file) => ({
+      ? workspaceApi.loadFile(target.path, requestContext).then((file) => ({
           metadata: {
             path: target.path,
             size: new Blob([file.content]).size,
@@ -261,7 +293,9 @@ export default function FilesDrawer({
   };
 
   const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
-  const filename = (locator?.relativePath ?? target?.path)?.split("/").pop() ?? t("files.title");
+  const filename =
+    (locator?.relativePath ?? target?.path)?.split("/").pop() ??
+    t("files.title");
 
   return (
     <motion.aside
@@ -362,25 +396,38 @@ export default function FilesDrawer({
             type="button"
             className={styles.iconButton}
             aria-label={t("files.download")}
-            onClick={() =>
-              void downloadFileFromUrl(
-                target.artifactUrl ??
-                  workspaceApi.getFileDownloadUrl(target.path, target.root),
-                filename,
-                {
-                  headers: {
-                    ...buildAuthHeaders(),
-                    ...(chatId ? { "X-Chat-Id": chatId } : {}),
-                    ...(!chatId && projectDirOverride
+            onClick={() => {
+              void (async () => {
+                if (!(await ensureAccessSessionFresh()))
+                  throw new Error("登录已失效，请重新登录");
+                const rawUrl =
+                  target.artifactUrl ??
+                  workspaceApi.getFileDownloadUrl(target.path, target.root);
+                const apiPath = protectedFileApiPath(rawUrl);
+                await downloadFileFromUrl(
+                  apiPath ? getApiUrl(apiPath) : rawUrl,
+                  filename,
+                  {
+                    headers: apiPath
                       ? {
-                          "X-Session-Project-Dir": projectDirOverride,
+                          ...buildAuthHeaders(),
+                          "X-Agent-Id": scope.agentId,
+                          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                          ...(!chatId && projectDirOverride
+                            ? {
+                                "X-Session-Project-Dir": projectDirOverride,
+                              }
+                            : {}),
                         }
-                      : {}),
+                      : undefined,
+                    errorMessage: t("files.downloadFailed"),
+                    preferResponseFilename: true,
                   },
-                  errorMessage: t("files.downloadFailed"),
-                },
-              )
-            }
+                );
+              })().catch(() => {
+                message.error(t("files.downloadFailed"));
+              });
+            }}
           >
             <Download size={16} />
           </button>
@@ -434,9 +481,15 @@ export default function FilesDrawer({
             </Suspense>
           ) : (
             <>
-              <div className={styles.previewSurface} aria-busy={locator ? false : loading}>
+              <div
+                className={styles.previewSurface}
+                aria-busy={locator ? false : loading}
+              >
                 {locator ? (
-                  <FilePreviewPane locator={locator} requestContext={requestContext} />
+                  <FilePreviewPane
+                    locator={locator}
+                    requestContext={requestContext}
+                  />
                 ) : loading ? (
                   <div className={styles.empty}>{t("common.loading")}</div>
                 ) : loadFailed ? (
@@ -447,6 +500,7 @@ export default function FilesDrawer({
                     content={content}
                     chatId={chatId}
                     binaryUrl={target.artifactUrl}
+                    binaryHeaders={binaryHeaders}
                     root={target.root}
                     projectDirOverride={projectDirOverride}
                     workspaceBacked={target.source === "workspace"}
@@ -479,7 +533,9 @@ export default function FilesDrawer({
                     onClick={() => dispatch({ type: "EXPAND_WORKSPACE" })}
                   >
                     <Expand size={15} />
-                    {locator ? t("files.fileCenter.open") : t("files.expandWorkspace")}
+                    {locator
+                      ? t("files.fileCenter.open")
+                      : t("files.expandWorkspace")}
                   </button>
                 )}
               </footer>

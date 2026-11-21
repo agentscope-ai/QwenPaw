@@ -17,6 +17,7 @@ from ..services.workspace_files import resolve_workspace_path
 from ..workspaces.layout import ensure_artifacts_directory
 from ..workspaces.resolver import WorkspaceKind, WorkspaceResolver
 from ..utils.io_utils import run_sync_io
+from ..utils.path_safety import is_link_or_junction
 from .models import AgentArtifact
 
 
@@ -49,7 +50,7 @@ class ArtifactCollectionResult:
 def reject_symlink_path(path: Path) -> None:
     """解析前检查整条路径，防止符号链接或 Windows junction 隐藏来源。"""
     for part in (path, *path.parents):
-        if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
+        if is_link_or_junction(part):
             raise ArtifactSourceDenied("artifact_symlink_denied")
 
 
@@ -73,15 +74,31 @@ class ArtifactService:
         reject_symlink_path(source)
         source = Path(os.path.abspath(source))
         private_domain = self._working_dir.resolve() / "user_workspaces"
+        trusted_roots = tuple(Path(item).resolve() for item in trusted_source_roots if item is not None)
         if source.is_relative_to(private_domain) and not source.is_relative_to(root):
-            raise ArtifactSourceDenied("artifact_private_source_denied")
+            # 发布应用也有按用户、应用和版本隔离的运行空间。只接受服务端
+            # 当前会话明确指定的本人应用根，不能借 trusted root 读取另一用户
+            # 或本人另一个 Agent 的目录；交付仍复制到统一的本人归档。
+            allowed_app = False
+            try:
+                relative = source.relative_to(private_domain / str(owner_user_id))
+                if conversation_id is not None and len(relative.parts) >= 4 and relative.parts[0] == "apps":
+                    app = WorkspaceResolver(working_dir=self._working_dir).resolve_shared_app_runtime(
+                        user_id=owner_user_id, shared_app_id=UUID(relative.parts[1]),
+                        publication_id=UUID(relative.parts[2]),
+                    )
+                    allowed_app = app.path.resolve() in trusted_roots and source.is_relative_to(app.path)
+            except ValueError:
+                pass
+            if not allowed_app:
+                raise ArtifactSourceDenied("artifact_private_source_denied")
         library_domain = self._working_dir.resolve() / "user_libraries"
         agent_id = agent_database_id(agent_key)
         own_library = library_domain / str(owner_user_id) / str(agent_id)
         if source.is_relative_to(library_domain) and not source.is_relative_to(own_library):
             raise ArtifactSourceDenied("artifact_private_source_denied")
         source = source.resolve(strict=True)
-        allowed_roots = (root, *(Path(item).resolve() for item in trusted_source_roots if item is not None))
+        allowed_roots = (root, *trusted_roots)
         if not source.is_file() or not any(source.is_relative_to(item) for item in allowed_roots):
             raise ArtifactSourceDenied("artifact_source_denied")
         artifacts = ensure_artifacts_directory(root).resolve()
@@ -93,6 +110,7 @@ class ArtifactService:
             sha256=digest,
         )
         if existing is not None:
+            await run_sync_io(self._ensure_registered_snapshot, existing, root, payload, digest)
             if source_tool == "send_file_to_user" and existing.source_tool == "session_artifact_collector":
                 return await self._repository.mark_delivered(existing)
             return existing
@@ -118,9 +136,27 @@ class ArtifactService:
             status="active", created_at=datetime.now(UTC), deleted_at=None,
         )
         registered = await self._repository.register(artifact)
+        if registered.id != artifact.id:
+            await run_sync_io(self._ensure_registered_snapshot, registered, root, payload, digest)
         if source_tool == "send_file_to_user" and registered.source_tool == "session_artifact_collector":
             return await self._repository.mark_delivered(registered)
         return registered
+
+    @staticmethod
+    def _ensure_registered_snapshot(artifact: AgentArtifact, root: Path, payload: bytes, digest: str) -> None:
+        """重复交付不能只信任登记：快照仍须存在且保持原内容。"""
+        if artifact.sha256 != digest or artifact.status != "active":
+            raise ArtifactSourceDenied("artifact_archive_content_conflict")
+        reject_symlink_path(root / artifact.relative_path)
+        target = resolve_workspace_path(root, artifact.relative_path, portable=True)
+        if target.is_file():
+            if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+                raise ArtifactSourceDenied("artifact_archive_content_conflict")
+            return
+        # 只修复平台自身登记的归档路径，不改写普通工作文件或用户已删除的产物。
+        if not target.is_relative_to(root / "artifacts" / ".registered"):
+            raise ArtifactSourceDenied("artifact_archive_repair_denied")
+        ArtifactService._write_snapshot(target, payload, digest)
 
     async def collect_session(
         self, *, owner_user_id: UUID, agent_key: str, conversation_id: UUID,
@@ -199,6 +235,10 @@ class ArtifactService:
         ppt_sessions = {a.conversation_id for a in artifacts
                         if a.original_name == "slide_jobs.json" and a.source_tool == "session_artifact_collector"}
         for artifact in artifacts:
+            if (artifact.owner_user_id != owner_user_id
+                    or artifact.agent_id != agent_database_id(agent_key)
+                    or artifact.status != "active"):
+                continue
             if (artifact.conversation_id in ppt_sessions and artifact.source_tool == "session_artifact_collector"
                     and _deck_control_file(artifact.original_name)):
                 continue
@@ -223,12 +263,70 @@ class ArtifactService:
             raise ArtifactNotFound("artifact_not_found")
         return artifact, path
 
+    async def download_owned_path(
+        self, *, owner_user_id: UUID, artifact_id: UUID,
+    ) -> tuple[AgentArtifact, Path]:
+        """本人历史产物按持久归属读取，不依赖原 Agent 仍可运行。"""
+        artifact = await self._repository.get(
+            owner_user_id=owner_user_id, artifact_id=artifact_id,
+        )
+        if (artifact is None or artifact.owner_user_id != owner_user_id
+                or artifact.status != "active"):
+            raise ArtifactNotFound("artifact_not_found")
+        # agent_id 是不可逆的登记 UUID，目录名称必须再次与该 UUID 对应。
+        # 只查看本人的直接子目录，既不依赖 Agent 配置/成员授权，也不搜索
+        # 其他用户或任意文件路径；旧 Agent 停用/移除后仍使用已存的私有目录。
+        user_root = self._working_dir.resolve() / "user_workspaces" / str(owner_user_id)
+        try:
+            reject_symlink_path(user_root)
+            candidates = []
+            for candidate in user_root.iterdir():
+                if agent_database_id(candidate.name) != artifact.agent_id:
+                    continue
+                resolved = WorkspaceResolver(working_dir=self._working_dir).resolve(
+                    kind=WorkspaceKind.USER_RUNTIME, resource_id=candidate.name,
+                    actor_user_id=owner_user_id,
+                )
+                reject_symlink_path(resolved.path)
+                if candidate.is_dir() and candidate == resolved.path:
+                    candidates.append(candidate)
+            if len(candidates) != 1:
+                raise ArtifactNotFound("artifact_not_found")
+            root = candidates[0]
+            reject_symlink_path(root / artifact.relative_path)
+            path = resolve_workspace_path(root, artifact.relative_path, portable=True)
+            if not path.is_file() or path.is_symlink():
+                raise ArtifactNotFound("artifact_not_found")
+        except (OSError, ValueError) as exc:
+            raise ArtifactNotFound("artifact_not_found") from exc
+        return artifact, path
+
     async def delete(self, *, owner_user_id: UUID, agent_key: str, artifact_id: UUID) -> AgentArtifact:
         artifact, path = await self.download_path(owner_user_id=owner_user_id, agent_key=agent_key, artifact_id=artifact_id)
-        updated = await self._repository.mark_deleted(owner_user_id=owner_user_id, artifact_id=artifact.id, deleted_at=datetime.now(UTC))
+        return await self._delete_registered(artifact, path)
+
+    async def delete_owned(self, *, owner_user_id: UUID, artifact_id: UUID) -> AgentArtifact:
+        """用户可管理自己历史产物，即使原 Agent 已不可继续使用。"""
+        artifact, path = await self.download_owned_path(
+            owner_user_id=owner_user_id, artifact_id=artifact_id,
+        )
+        return await self._delete_registered(artifact, path)
+
+    async def _delete_registered(self, artifact: AgentArtifact, path: Path) -> AgentArtifact:
+        deleted_at = datetime.now(UTC)
+        updated = await self._repository.mark_deleted(
+            owner_user_id=artifact.owner_user_id, artifact_id=artifact.id, deleted_at=deleted_at,
+        )
         if updated is None:
             raise ArtifactNotFound("artifact_not_found")
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError:
+            if path.is_file():
+                await self._repository.restore_failed_delete(
+                    owner_user_id=artifact.owner_user_id, artifact_id=artifact.id, deleted_at=deleted_at,
+                )
+            raise
         return updated
 
     def _runtime_root(self, owner_user_id: UUID, agent_key: str) -> Path:

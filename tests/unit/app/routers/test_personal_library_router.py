@@ -34,6 +34,24 @@ async def _workspace(_request):
 
 
 @pytest.mark.asyncio
+async def test_index_routes_are_scoped_and_rebuild_cannot_accept_foreign_ids(monkeypatch, tmp_path):
+    from qwenpaw.app.routers import personal_library as router
+
+    owner, other = uuid4(), uuid4()
+    service = PersonalLibraryService(repository=InMemoryRepository(), working_dir=tmp_path)
+    monkeypatch.setattr(router, "_get_service", lambda: service)
+    monkeypatch.setattr(router, "get_agent_for_request", _workspace)
+    doc = await service.create_text(owner_user_id=owner, relative_path="private.md", content="私人旅行计划")
+    assert await router.index_status(_request(other)) == []
+    with pytest.raises(HTTPException) as denied:
+        await router.rebuild_index(_request(other), router.RebuildLibraryIndex(document_ids=[doc.id]))
+    assert denied.value.status_code == 404
+    result = await router.rebuild_index(_request(owner), router.RebuildLibraryIndex(document_ids=[doc.id]))
+    assert result[0]["status"] == "ready"
+    assert result[0]["document_id"] == str(doc.id)
+
+
+@pytest.mark.asyncio
 async def test_router_creates_and_reads_own_markdown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

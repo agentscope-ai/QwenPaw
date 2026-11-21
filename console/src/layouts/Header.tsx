@@ -34,11 +34,10 @@ export default function Header() {
 
     logoClicksRef.current = [];
     invoke("open_devtools")
-      .then(() => message.success("DevTools opened"))
+      .then(() => message.success(t("interaction.devtoolsOpened")))
       .catch((err: unknown) => {
-        const detail = err instanceof Error ? err.message : String(err);
-        console.error("Failed to open DevTools:", detail);
-        message.error(`DevTools error: ${detail}`);
+        console.error("Failed to open developer tools", err);
+        message.error(t("interaction.devtoolsFailed"));
       });
   };
 

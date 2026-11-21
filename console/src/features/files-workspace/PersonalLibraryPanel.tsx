@@ -8,10 +8,12 @@ import {
   Pagination,
   Skeleton,
   Space,
+  Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
-import { FileText, LibraryBig, Upload } from "lucide-react";
+import { FileText, LibraryBig, RefreshCw, Upload } from "lucide-react";
 import prettyBytes from "pretty-bytes";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +24,7 @@ import {
 import {
   personalLibraryApi,
   type PersonalLibraryDocument,
+  type PersonalLibraryIndexStatus,
 } from "../../api/modules/personalLibrary";
 import { ApiRequestError } from "../../api/request";
 import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
@@ -74,6 +77,15 @@ function LibraryContents({
   const [busy, setBusy] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [indexStatuses, setIndexStatuses] = useState<
+    PersonalLibraryIndexStatus[]
+  >([]);
+  const [indexFailed, setIndexFailed] = useState(false);
+  const [rebuildProgress, setRebuildProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const rebuildController = useRef<AbortController>();
   const [editing, setEditing] = useState<{
     action: ManagementAction;
     document: PersonalLibraryDocument;
@@ -91,6 +103,7 @@ function LibraryContents({
     active.current = true;
     return () => {
       active.current = false;
+      rebuildController.current?.abort();
     };
   }, []);
 
@@ -132,6 +145,70 @@ function LibraryContents({
     requestContext.agentId,
     requestContext.governance,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIndexStatuses([]);
+    setIndexFailed(false);
+    void personalLibraryApi
+      .indexStatus(requestContext)
+      .then((result) => {
+        if (!cancelled && current()) setIndexStatuses(result);
+      })
+      .catch(() => {
+        if (!cancelled && current()) setIndexFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    refreshToken,
+    revision,
+    requestContext.agentId,
+    requestContext.governance,
+  ]);
+
+  const rebuild = async () => {
+    if (pending.current || !current()) return;
+    const controller = new AbortController();
+    rebuildController.current = controller;
+    pending.current = true;
+    setBusy(true);
+    setRebuildProgress({ done: 0, total });
+    try {
+      // Pagination and search only affect display; rebuild still covers the whole library.
+      const files = await personalLibraryApi.list("", requestContext);
+      if (!current() || controller.signal.aborted) return;
+      setRebuildProgress({ done: 0, total: files.length });
+      let result: PersonalLibraryIndexStatus[] = [];
+      for (let offset = 0; offset < files.length; offset += 5) {
+        result = await personalLibraryApi.rebuildIndex(
+          files.slice(offset, offset + 5).map((file) => file.id),
+          requestContext,
+          controller.signal,
+        );
+        if (!current() || controller.signal.aborted) return;
+        setIndexStatuses(result);
+        setIndexFailed(false);
+        setRebuildProgress({
+          done: Math.min(offset + 5, files.length),
+          total: files.length,
+        });
+      }
+      if (result.some((item) => item.status !== "ready"))
+        message.warning(t("files.personalLibrary.index.rebuildIncomplete"));
+      else message.success(t("files.personalLibrary.index.rebuilt"));
+    } catch {
+      if (current() && !controller.signal.aborted)
+        message.error(t("files.personalLibrary.index.rebuildFailed"));
+    } finally {
+      pending.current = false;
+      if (current()) {
+        setBusy(false);
+        setRebuildProgress(null);
+      }
+    }
+  };
 
   const failureMessage = (error: unknown, fallback: string) => {
     const detail = error instanceof Error ? error.message : "";
@@ -242,6 +319,16 @@ function LibraryContents({
           <span>{t("files.personalLibrary.description")}</span>
         </div>
         <div>
+          <Button
+            icon={<RefreshCw size={16} />}
+            loading={rebuildProgress !== null}
+            disabled={loading || busy || total === 0}
+            onClick={() => void rebuild()}
+          >
+            {rebuildProgress === null
+              ? t("files.personalLibrary.index.rebuild")
+              : t("files.personalLibrary.index.progress", rebuildProgress)}
+          </Button>
           <input
             ref={uploadInputRef}
             type="file"
@@ -255,7 +342,7 @@ function LibraryContents({
           <Button
             type="primary"
             icon={<Upload size={16} />}
-            loading={busy && !editing}
+            loading={busy && !editing && rebuildProgress === null}
             disabled={busy || !requestContext.agentId}
             onClick={() => uploadInputRef.current?.click()}
           >
@@ -281,6 +368,18 @@ function LibraryContents({
           {t("files.personalLibrary.refresh")}
         </Button>
       </div>
+      {indexFailed && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("files.personalLibrary.index.loadFailed")}
+          action={
+            <Button onClick={() => setRevision((value) => value + 1)}>
+              {t("files.personalLibrary.retry")}
+            </Button>
+          }
+        />
+      )}
       {loading ? (
         <Skeleton active paragraph={{ rows: 4 }} />
       ) : loadFailed ? (
@@ -307,54 +406,77 @@ function LibraryContents({
         <List
           dataSource={documents}
           rowKey="id"
-          renderItem={(document) => (
-            <List.Item className={styles.libraryRow}>
-              <List.Item.Meta
-                avatar={<FileText size={18} />}
-                title={
-                  <Button
-                    type="link"
-                    disabled={!requestContext.agentId}
-                    onClick={() =>
-                      requestContext.agentId &&
-                      onOpen?.({
-                        category: "library",
-                        agentId: requestContext.agentId,
-                        stableId: document.id,
-                        relativePath: document.relative_path,
-                      })
-                    }
-                  >
-                    {document.name}
-                  </Button>
-                }
-                description={
-                  <>
-                    <Typography.Text type="secondary">
-                      {document.relative_path}
-                    </Typography.Text>
-                    <br />
-                    <Typography.Text type="secondary">
-                      {prettyBytes(document.size ?? 0)}
-                    </Typography.Text>
-                  </>
-                }
-              />
-              <Space wrap size="small">
-                {(["rename", "move", "delete"] as const).map((action) => (
-                  <Button
-                    key={action}
-                    size="small"
-                    danger={action === "delete"}
-                    disabled={busy}
-                    onClick={() => openAction(action, document)}
-                  >
-                    {t("files.personalLibrary." + action)}
-                  </Button>
-                ))}
-              </Space>
-            </List.Item>
-          )}
+          renderItem={(document) => {
+            const index = indexStatuses.find(
+              (item) => item.document_id === document.id,
+            );
+            const state = indexFailed
+              ? "unavailable"
+              : index?.status ?? "pending";
+            return (
+              <List.Item className={styles.libraryRow}>
+                <List.Item.Meta
+                  avatar={<FileText size={18} />}
+                  title={
+                    <Button
+                      type="link"
+                      disabled={!requestContext.agentId}
+                      onClick={() =>
+                        requestContext.agentId &&
+                        onOpen?.({
+                          category: "library",
+                          agentId: requestContext.agentId,
+                          stableId: document.id,
+                          relativePath: document.relative_path,
+                        })
+                      }
+                    >
+                      {document.name}
+                    </Button>
+                  }
+                  description={
+                    <>
+                      <Typography.Text type="secondary">
+                        {document.relative_path}
+                      </Typography.Text>
+                      <br />
+                      <Typography.Text type="secondary">
+                        {prettyBytes(document.size ?? 0)}
+                      </Typography.Text>{" "}
+                      <Tooltip
+                        title={t(`files.personalLibrary.index.help.${state}`)}
+                      >
+                        <Tag
+                          color={
+                            state === "ready"
+                              ? "green"
+                              : state === "pending"
+                              ? "default"
+                              : "orange"
+                          }
+                        >
+                          {t(`files.personalLibrary.index.status.${state}`)}
+                        </Tag>
+                      </Tooltip>
+                    </>
+                  }
+                />
+                <Space wrap size="small">
+                  {(["rename", "move", "delete"] as const).map((action) => (
+                    <Button
+                      key={action}
+                      size="small"
+                      danger={action === "delete"}
+                      disabled={busy}
+                      onClick={() => openAction(action, document)}
+                    >
+                      {t("files.personalLibrary." + action)}
+                    </Button>
+                  ))}
+                </Space>
+              </List.Item>
+            );
+          }}
         />
       )}
       {!loadFailed && total > 0 && (

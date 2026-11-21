@@ -96,6 +96,8 @@ QWENPAW_RUNTIME_STATE_DIRS = (
     ".scroll/",
     ".pawgit/",
     "active_skills/",
+    # Delivered files are durable user property, outside checkpoint rollback.
+    "artifacts/.registered/",
     "backup/",
     "browser/",
     "checkpoints/",

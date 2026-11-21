@@ -1,4 +1,4 @@
-import { Alert } from "antd";
+import { Alert, Modal, Space } from "antd";
 import { useSkillScope } from "@/api/skillScope";
 import { SkillSourceActions } from "./components/SkillSourceActions";
 import { useTranslation } from "react-i18next";
@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 import { Button } from "@agentscope-ai/design";
 import { MarketPanel } from "../../Settings/Market/MarketPanel";
+import GovernancePanel from "../../Settings/SkillPool/GovernancePanel";
 import {
   SkillCard,
   SkillDrawer,
@@ -96,6 +97,7 @@ function SkillsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedProviderSkill, setSelectedProviderSkill] =
     useState<HarnessDiscoveredSkill | null>(null);
+  const [requestsOpen, setRequestsOpen] = useState(false);
   const marketView = searchParams.get("view") === "market";
 
   const openMarket = useCallback(() => {
@@ -190,36 +192,54 @@ function SkillsPage() {
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
         extra={
-          readOnly ? (
-            <Button onClick={openMarket}>{t("market.browseMarket")}</Button>
-          ) : (
-            <HeaderActions
-              canSubmit={canSubmit}
-              multiUser={multiUser}
-              batchModeEnabled={batchModeEnabled}
-              selectedSkills={selectedSkills}
-              loading={loading}
-              uploading={uploading}
-              fileInputRef={fileInputRef}
-              onSelectAll={selectAll}
-              onClearSelection={clearSelection}
-              onUploadToPool={handleUploadToPool}
-              onBatchEnable={handleBatchEnable}
-              onBatchDisable={handleBatchDisable}
-              onBatchDelete={handleBatchDelete}
-              onToggleBatchMode={toggleBatchMode}
-              onHardRefresh={hardRefresh}
-              onOpenDownloadPool={() => setPoolModal("download")}
-              onOpenUploadPool={() => setPoolModal("upload")}
-              onUploadClick={handleUploadClick}
-              onImportHub={() => setImportModalOpen(true)}
-              onCreate={handleCreate}
-              onBrowseMarket={openMarket}
-              onFileChange={handleFileChange}
-            />
-          )
+          <Space wrap>
+            {multiUser && (
+              <Button onClick={() => setRequestsOpen(true)}>
+                {t("skillGovernance.myRequests")}
+              </Button>
+            )}
+            {readOnly ? (
+              <Button onClick={openMarket}>{t("market.browseMarket")}</Button>
+            ) : (
+              <HeaderActions
+                canSubmit={canSubmit}
+                multiUser={multiUser}
+                batchModeEnabled={batchModeEnabled}
+                selectedSkills={selectedSkills}
+                loading={loading}
+                uploading={uploading}
+                fileInputRef={fileInputRef}
+                onSelectAll={selectAll}
+                onClearSelection={clearSelection}
+                onUploadToPool={handleUploadToPool}
+                onBatchEnable={handleBatchEnable}
+                onBatchDisable={handleBatchDisable}
+                onBatchDelete={handleBatchDelete}
+                onToggleBatchMode={toggleBatchMode}
+                onHardRefresh={hardRefresh}
+                onOpenDownloadPool={() => setPoolModal("download")}
+                onOpenUploadPool={() => setPoolModal("upload")}
+                onUploadClick={handleUploadClick}
+                onImportHub={() => setImportModalOpen(true)}
+                onCreate={handleCreate}
+                onBrowseMarket={openMarket}
+                onFileChange={handleFileChange}
+              />
+            )}
+          </Space>
         }
       />
+
+      <Modal
+        open={requestsOpen}
+        title={t("skillGovernance.myRequests")}
+        width={1000}
+        destroyOnHidden
+        footer={null}
+        onCancel={() => setRequestsOpen(false)}
+      >
+        <GovernancePanel view="requests" ownRequests />
+      </Modal>
 
       {readOnly && (
         <div className={styles.managementBanner}>

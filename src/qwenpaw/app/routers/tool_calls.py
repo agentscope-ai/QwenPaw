@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ...access.dependencies import get_actor
 from ...identity.runtime import is_multi_user_enabled
-from ...tool_calls._entry import tool_call_owned_by
+from ...tool_calls._entry import ToolCallStatus, tool_call_owned_by
 from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/tool-calls", tags=["tool-calls"])
@@ -81,6 +81,8 @@ async def _get_entry(
     tool_call_id: str,
     session_id: str,
     request: Request,
+    *,
+    allow_completed_read: bool = False,
 ) -> Any:
     """Look up by tool_call_id and enforce session scoping.
 
@@ -102,11 +104,24 @@ async def _get_entry(
         )
         raise HTTPException(404, "Tool call not found")
     if is_multi_user_enabled():
-        selected_agent = getattr(request.state, "agent_id", None) or request.headers.get("X-Agent-Id")
-        if (not tool_call_owned_by(entry, get_actor(request).user_id)
-                or not entry.ctx.agent_id or (selected_agent and selected_agent != entry.ctx.agent_id)):
+        selected_agent = getattr(
+            request.state, "agent_id", None
+        ) or request.headers.get("X-Agent-Id")
+        completed_read = (
+            allow_completed_read and entry.status is ToolCallStatus.COMPLETED
+        )
+        if (
+            not tool_call_owned_by(entry, get_actor(request).user_id)
+            or not entry.ctx.agent_id
+            or (
+                not completed_read
+                and selected_agent
+                and selected_agent != entry.ctx.agent_id
+            )
+        ):
             raise HTTPException(404, "Tool call not found")
-        await get_agent_for_request(request, agent_id=entry.ctx.agent_id)
+        if not completed_read:
+            await get_agent_for_request(request, agent_id=entry.ctx.agent_id)
     return entry
 
 
@@ -200,7 +215,9 @@ async def get_call(
     request: Request,
 ) -> ToolCallInfo:
     coordinator = _get_coordinator(request)
-    entry = await _get_entry(coordinator, tool_call_id, session_id, request)
+    entry = await _get_entry(
+        coordinator, tool_call_id, session_id, request, allow_completed_read=True
+    )
     return _entry_to_info(entry, coordinator)
 
 
@@ -284,7 +301,9 @@ async def get_output(
     request: Request,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(request)
-    entry = await _get_entry(coordinator, tool_call_id, session_id, request)
+    entry = await _get_entry(
+        coordinator, tool_call_id, session_id, request, allow_completed_read=True
+    )
     content_blocks = []
     if entry.final_response and entry.final_response.content:
         for block in entry.final_response.content:

@@ -4,6 +4,12 @@ import { App } from "antd";
 import i18n from "../../../i18n";
 import { adminUsersApi } from "../../../api/modules/adminUsers";
 import UsersPage from ".";
+import { useAuthStore } from "../../../stores/authStore";
+
+vi.mock("../../../stores/authStore", async () => {
+  const { create } = await import("zustand");
+  return { useAuthStore: create(() => ({ user: { platform_role: "admin" } })) };
+});
 
 vi.mock("../../../api/modules/adminUsers", () => ({
   adminUsersApi: {
@@ -14,6 +20,7 @@ vi.mock("../../../api/modules/adminUsers", () => ({
     revokeSessions: vi.fn(),
     updateProfile: vi.fn(),
     resetPassword: vi.fn(),
+    unlock: vi.fn(),
   },
 }));
 
@@ -35,6 +42,7 @@ const users = [
 describe("UsersPage", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    useAuthStore.setState({ user: { platform_role: "admin" } as never });
     vi.clearAllMocks();
     vi.mocked(adminUsersApi.list).mockResolvedValue(users);
     vi.mocked(adminUsersApi.create).mockResolvedValue({
@@ -97,5 +105,75 @@ describe("UsersPage", () => {
     expect(
       screen.getAllByRole("button", { name: "Reset Password" }),
     ).toHaveLength(2);
+  });
+
+  it("lets an administrator unlock a temporarily locked user with Chinese confirmation", async () => {
+    await i18n.changeLanguage("zh");
+    vi.mocked(adminUsersApi.list).mockResolvedValueOnce([
+      {
+        ...users[1],
+        login_locked: true,
+        login_retry_after_seconds: 900,
+        login_failed_attempts: 5,
+      },
+    ]);
+    vi.mocked(adminUsersApi.unlock).mockResolvedValue({
+      ...users[1],
+      login_locked: false,
+    });
+    render(
+      <App>
+        <UsersPage />
+      </App>,
+    );
+    await screen.findByText("member");
+    expect(screen.getByText(/暂时锁定，剩余/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "解锁登录" }));
+    expect((await screen.findAllByText("解除登录锁定"))[0]).toBeInTheDocument();
+    const buttons = screen.getAllByRole("button", { name: "解锁登录" });
+    const confirm = buttons[buttons.length - 1];
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(adminUsersApi.unlock).toHaveBeenCalledWith("member-id"),
+    );
+    expect(
+      await screen.findByText("登录锁定及失败次数已清除"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not expose user-management requests or unlock controls to a member", async () => {
+    await i18n.changeLanguage("zh");
+    useAuthStore.setState({ user: { platform_role: "member" } as never });
+    render(
+      <App>
+        <UsersPage />
+      </App>,
+    );
+    expect(screen.getByText("仅管理员可以管理用户")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "解锁登录" })).toBeNull();
+    expect(adminUsersApi.list).not.toHaveBeenCalled();
+    expect(adminUsersApi.unlock).not.toHaveBeenCalled();
+  });
+
+  it("keeps unlocking disabled for a disabled account", async () => {
+    await i18n.changeLanguage("zh");
+    vi.mocked(adminUsersApi.list).mockResolvedValueOnce([
+      {
+        ...users[1],
+        status: "disabled",
+        login_locked: true,
+        login_retry_after_seconds: 900,
+        login_failed_attempts: 5,
+      },
+    ]);
+    render(
+      <App>
+        <UsersPage />
+      </App>,
+    );
+    await screen.findByText("member");
+    expect(screen.getByRole("button", { name: "解锁登录" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "解锁登录" }));
+    expect(adminUsersApi.unlock).not.toHaveBeenCalled();
   });
 });

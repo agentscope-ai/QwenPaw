@@ -101,7 +101,9 @@ async def test_private_memory_files_use_resolved_private_workspace(
         )
 
     assert files[0].filename == "2026-08-25.md"
-    manager_type.assert_called_once_with(str(private_root), agent_id="agent-a")
+    manager_type.assert_called_once_with(
+        str(private_root), agent_id="agent-a", read_only=True
+    )
 
 
 @pytest.mark.asyncio

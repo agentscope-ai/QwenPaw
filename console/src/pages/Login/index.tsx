@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Form, Input } from "antd";
+import { Alert, Button, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import AuthBootstrapStatus from "../../components/AuthBootstrapStatus";
@@ -9,6 +9,8 @@ import { useAuthStore } from "../../stores/authStore";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getPostLoginHref, isLoginPath } from "../../utils/navigationMode";
 import { PRODUCT_NAME } from "../../config/brand";
+import { AuthResponseError } from "../../api/authErrors";
+import { interactionErrorText } from "../../utils/interactionText";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -17,6 +19,15 @@ export default function LoginPage() {
   const { isDark } = useTheme();
   const [loading, setLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    username: string;
+    code: string;
+    remaining?: number;
+    deadline?: number;
+    message: string;
+  } | null>(null);
+  const [now, setNow] = useState(Date.now);
+  const [username, setUsername] = useState("");
   const hasUsers = useAuthStore((state) => state.hasUsers);
   const phase = useAuthStore((state) => state.phase);
   const bootstrap = useAuthStore((state) => state.bootstrap);
@@ -62,7 +73,29 @@ export default function LoginPage() {
     setIsRegister(!hasUsers);
   }, [hasUsers]);
 
+  useEffect(() => {
+    if (!feedback?.deadline) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [feedback?.deadline]);
+
+  const visibleFeedback =
+    feedback &&
+    (feedback.username === username.trim() ||
+      feedback.code === "ip_locked" ||
+      feedback.code === "login_rate_limited")
+      ? feedback
+      : null;
+  const retrySeconds = Math.max(
+    0,
+    Math.ceil(((visibleFeedback?.deadline ?? 0) - now) / 1000),
+  );
+  const countdown = `${Math.floor(retrySeconds / 60)}:${String(
+    retrySeconds % 60,
+  ).padStart(2, "0")}`;
+
   const onFinish = async (values: { username: string; password: string }) => {
+    if (retrySeconds > 0) return;
     setLoading(true);
     try {
       if (isRegister) {
@@ -74,16 +107,35 @@ export default function LoginPage() {
         finishNavigation(redirect);
       }
     } catch (err) {
-      let errorMsg = t("login.failed");
-
-      // Check if it's an Error object and use the backend message directly
-      if (err instanceof Error) {
-        // Use the backend message directly without complex parsing
-        errorMsg = err.message;
-      } else if (isRegister) {
-        errorMsg = t("login.registerFailed");
-      }
-
+      const detail =
+        err instanceof AuthResponseError &&
+        err.detail &&
+        typeof err.detail === "object"
+          ? (err.detail as Record<string, unknown>)
+          : {};
+      const errorMsg = interactionErrorText(
+        err instanceof Error
+          ? err.message
+          : t(isRegister ? "login.registerFailed" : "login.failed"),
+      );
+      const seconds =
+        typeof detail.retry_after_seconds === "number" &&
+        Number.isFinite(detail.retry_after_seconds)
+          ? Math.max(0, detail.retry_after_seconds)
+          : 0;
+      const remaining =
+        typeof detail.remaining_attempts === "number"
+          ? Math.max(0, detail.remaining_attempts)
+          : undefined;
+      const receivedAt = Date.now();
+      setNow(receivedAt);
+      setFeedback({
+        username: values.username.trim(),
+        code: String(detail.code ?? ""),
+        remaining,
+        deadline: seconds > 0 ? receivedAt + seconds * 1000 : undefined,
+        message: errorMsg,
+      });
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -147,6 +199,10 @@ export default function LoginPage() {
         <Form
           layout="vertical"
           onFinish={onFinish}
+          onValuesChange={(changed) => {
+            if ("username" in changed)
+              setUsername(String(changed.username ?? ""));
+          }}
           autoComplete="off"
           size="large"
         >
@@ -184,10 +240,56 @@ export default function LoginPage() {
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+            {visibleFeedback && (
+              <Alert
+                role="alert"
+                showIcon
+                type={
+                  retrySeconds > 0
+                    ? "warning"
+                    : visibleFeedback.deadline
+                    ? "info"
+                    : "error"
+                }
+                style={{ marginBottom: 16 }}
+                message={
+                  retrySeconds > 0
+                    ? t("login.lockedCountdown", { time: countdown })
+                    : visibleFeedback.deadline
+                    ? t("login.lockExpired")
+                    : visibleFeedback.remaining !== undefined
+                    ? t("login.remainingAttempts", {
+                        count: visibleFeedback.remaining,
+                      })
+                    : visibleFeedback.message
+                }
+                description={
+                  retrySeconds > 0 ? (
+                    <>
+                      {t("login.lockedHelp")}
+                      {visibleFeedback.code === "account_locked" && (
+                        <Button
+                          block
+                          htmlType="button"
+                          style={{ marginTop: 8 }}
+                          onClick={() => setFeedback(null)}
+                        >
+                          {t(
+                            "login.retryAfterUnlock",
+                            "管理员已解锁，重新尝试",
+                          )}
+                        </Button>
+                      )}
+                    </>
+                  ) : undefined
+                }
+              />
+            )}
             <Button
               type="primary"
               htmlType="submit"
               loading={loading}
+              disabled={retrySeconds > 0}
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >

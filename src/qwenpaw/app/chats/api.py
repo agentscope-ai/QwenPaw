@@ -84,14 +84,18 @@ def _protect_history_attachment_urls(
     attachments: list[AttachmentRecord],
     *,
     hide_unowned_local_urls: bool,
+    owned_artifact_urls: frozenset[str] = frozenset(),
 ) -> None:
     """将历史消息中的附件磁盘路径替换为所有者鉴权 URL。"""
+    from .attachment_history import normalize_attachment_history
+
+    normalize_attachment_history(messages, attachments)
     protected_by_storage_key = {
         record.storage_key: f"/api/console/attachments/{record.id}"
         for record in attachments
         if record.lifecycle != "deleted"
     }
-    protected_urls = set(protected_by_storage_key.values())
+    protected_urls = set(protected_by_storage_key.values()) | owned_artifact_urls
     for message in messages:
         for content in getattr(message, "content", []) or []:
             content_type = getattr(content, "type", None)
@@ -99,6 +103,7 @@ def _protect_history_attachment_urls(
             url_field = {
                 "file": "file_url",
                 "image": "image_url",
+                "video": "video_url",
                 "audio": "data",
             }.get(content_type)
             if url_field is None:
@@ -124,6 +129,55 @@ def _protect_history_attachment_urls(
                 ("/api/console/attachments/", "http://", "https://", "data:")
             ):
                 setattr(content, url_field, "")
+
+
+async def _protect_owned_history_artifact_urls(messages, *, user_id, agent_key, conversation_id, attachments=()):
+    """历史展示在 owner 权限边界内，把旧机器/过期令牌链接重绑到产物登记。"""
+    from .artifact_history import has_artifact_history_references, normalize_owned_artifact_history
+
+    if not has_artifact_history_references(messages):
+        return frozenset()
+    from ...artifacts.repository import PostgresArtifactRepository
+    from ...identity.runtime import get_identity_schema
+
+    try:
+        records = await PostgresArtifactRepository(schema=get_identity_schema()).list_active(
+            owner_user_id=user_id, agent_id=agent_database_id(agent_key),
+        )
+    except Exception:
+        # 可选链接修复失败不能让本人的整段对话文本无法读取；下载仍须独立鉴权。
+        logger.warning("chat_artifact_reference_lookup_failed conversation=%s", conversation_id, exc_info=True)
+        for message in messages:
+            if has_artifact_history_references([message]):
+                message.metadata = {**(message.metadata or {}), "qwenpaw_file_reference_status": [{
+                    "code": "artifact_reference_lookup_unavailable",
+                    "message": "产物归属索引暂不可用，对话仍可查看；请稍后重试文件或联系维护人员核对登记。",
+                }]}
+        return frozenset()
+    return normalize_owned_artifact_history(messages, records, owner_user_id=user_id,
+        agent_key=agent_key, conversation_id=conversation_id, attachments=attachments)
+
+
+def _owns_history(access, user_id) -> bool:
+    conversation = getattr(access, "conversation", None)
+    return bool(conversation is not None and conversation.owner_user_id == user_id)
+
+
+async def _protect_history_files(messages, *, user_id, access, workspace, manager, conversation_id):
+    """正文和按需展开的工具结果使用同一归属与链接规则。"""
+    owns_history = _owns_history(access, user_id)
+    attachments = await manager.conversation_repository.with_user(user_id).list_attachments(
+        conversation_id,
+    ) if owns_history else []
+    owned_artifact_urls = await _protect_owned_history_artifact_urls(
+        messages, user_id=user_id, agent_key=workspace.agent_id,
+        conversation_id=conversation_id, attachments=attachments,
+    ) if owns_history else frozenset()
+    _protect_history_attachment_urls(
+        messages, attachments,
+        hide_unowned_local_urls=bool(access and access.read_only and not owns_history),
+        owned_artifact_urls=owned_artifact_urls,
+    )
 
 
 async def get_workspace(request: Request):
@@ -455,8 +509,8 @@ async def remove_conversation_member(
     return {"success": True, "removed": removed}
 
 
-async def _chat_list_item(chat, access, tracker):
-    fields = {"status": await tracker.get_status(chat.id)}
+async def _chat_list_item(chat, access, tracker, *, agent_id: str):
+    fields = {"status": await tracker.get_status(chat.id), "agent_id": agent_id}
     if access is not None:
         fields.update(access_role=access.access_role, read_only=access.read_only,
                       shared_by=access.shared_by_username)
@@ -493,7 +547,8 @@ async def list_chat_page(
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(503, "conversation_authority_unavailable") from exc
-    items = [await _chat_list_item(item.chat, item.access, workspace.task_tracker)
+    items = [await _chat_list_item(item.chat, item.access, workspace.task_tracker,
+                                  agent_id=workspace.agent_id)
              for item in page.items]
     return ChatListPage(items=items, has_more=page.has_more, next_cursor=page.next_cursor)
 
@@ -507,7 +562,8 @@ async def get_chat_spec(
         chat, access = await _require_readable_chat(request, mgr, workspace, chat_id)
     else:
         chat, access = await _require_owned_chat(request, mgr, chat_id), None
-    return await _chat_list_item(chat, access, workspace.task_tracker)
+    return await _chat_list_item(chat, access, workspace.task_tracker,
+                                 agent_id=workspace.agent_id)
 
 
 @router.get("", response_model=list[ChatListItem])
@@ -571,25 +627,10 @@ async def list_chats(
     rows = chats_with_access
     source_chats = [row.chat for row in rows] if rows is not None else chats
     for index, spec in enumerate(source_chats):
-        status = await tracker.get_status(spec.id)
-        if chats_with_access is None:
-            result.append(
-                ChatListItem.model_validate(spec.model_dump() | {"status": status})
-            )
-            continue
-        assert rows is not None
-        access = rows[index].access
-        result.append(
-            ChatListItem.model_validate(
-                spec.model_dump()
-                | {
-                    "status": status,
-                    "access_role": access.access_role,
-                    "read_only": access.read_only,
-                    "shared_by": access.shared_by_username,
-                }
-            )
-        )
+        access = rows[index].access if rows is not None else None
+        result.append(await _chat_list_item(
+            spec, access, tracker, agent_id=workspace.agent_id,
+        ))
     # Revalidate only after rebuilding the caller's authorized view. A revoked
     # share, renamed chat or changed running status must invalidate the list.
     body = json.dumps(
@@ -909,15 +950,9 @@ async def get_chat(
                 status_code=503,
                 detail=str(exc),
             ) from exc
-        attachments = []
-        if access is not None and not access.read_only:
-            attachments = await mgr.conversation_repository.with_user(
-                actor.user_id
-            ).list_attachments(UUID(chat_id))
-        _protect_history_attachment_urls(
-            messages,
-            attachments,
-            hide_unowned_local_urls=bool(access and access.read_only),
+        await _protect_history_files(
+            messages, user_id=actor.user_id, access=access, workspace=workspace,
+            manager=mgr, conversation_id=UUID(chat_id),
         )
         return ChatHistory(
             messages=messages,
@@ -991,15 +1026,9 @@ async def get_chat(
         message.id = str(uuid5(NAMESPACE_URL, f"chat:{chat_id}:{original_id}:{index}"))
     if is_multi_user_enabled():
         actor = get_actor(request)
-        attachments = []
-        if actor.user_id is not None and access is not None and not access.read_only:
-            attachments = await mgr.conversation_repository.with_user(
-                actor.user_id
-            ).list_attachments(UUID(chat_id))
-        _protect_history_attachment_urls(
-            messages,
-            attachments,
-            hide_unowned_local_urls=bool(access and access.read_only),
+        await _protect_history_files(
+            messages, user_id=actor.user_id, access=access, workspace=workspace,
+            manager=mgr, conversation_id=UUID(chat_id),
         )
     has_more, next_before = False, None
     if page_size is not None:
@@ -1068,7 +1097,7 @@ async def get_chat_tool_output(
     if is_multi_user_enabled() and load_cutover_policy().read_uses_postgres(
         CutoverDomain.MESSAGES
     ):
-        await _require_readable_chat(request, mgr, workspace, chat_id)
+        _chat, access = await _require_readable_chat(request, mgr, workspace, chat_id)
         actor = get_actor(request)
         try:
             conversation_id, record_id = UUID(chat_id), UUID(message_id)
@@ -1090,6 +1119,10 @@ async def get_chat_tool_output(
             )
         except RuntimeError as exc:
             raise HTTPException(503, "conversation_history_unavailable") from exc
+        await _protect_history_files(
+            messages, user_id=actor.user_id, access=access, workspace=workspace,
+            manager=mgr, conversation_id=conversation_id,
+        )
     else:
         history = await get_chat(
             chat_id, request, mgr=mgr, session=session, workspace=workspace

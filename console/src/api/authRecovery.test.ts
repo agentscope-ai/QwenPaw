@@ -155,7 +155,10 @@ describe("authentication recovery through the real request and refresh path", ()
           new Response('{"detail":"Session expired"}', { status: 401 }),
       ),
     );
-    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    await expect(request("/models")).rejects.toMatchObject({
+      status: 401,
+      rawMessage: "Not authenticated",
+    });
     expect(getApiToken()).toBe("");
     expect(window.location.href).toBe("/login?redirect=%2Fchat");
   });
@@ -169,7 +172,10 @@ describe("authentication recovery through the real request and refresh path", ()
           : new Response("{}", { status: 401 }),
       ),
     );
-    await expect(request("/models")).rejects.toThrow("Not authenticated");
+    await expect(request("/models")).rejects.toMatchObject({
+      status: 401,
+      rawMessage: "Not authenticated",
+    });
     expect(getApiToken()).toBe("valid-new");
     expect(window.location.href).toBe("");
   });

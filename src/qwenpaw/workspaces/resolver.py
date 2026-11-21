@@ -11,6 +11,7 @@ from typing import Mapping
 from uuid import UUID
 
 from ..constant import WORKING_DIR
+from ..utils.path_safety import is_link_or_junction
 from .layout import ensure_artifacts_directory
 
 _SAFE_RESOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -112,7 +113,7 @@ class WorkspaceResolver:
         current = self._working_dir
         for part in resolved.path.relative_to(self._working_dir).parts:
             current /= part
-            if current.is_symlink():
+            if is_link_or_junction(current):
                 raise WorkspaceResolutionDenied("workspace_symlink_denied")
             current.mkdir(exist_ok=True)
         return resolved.path
@@ -151,7 +152,7 @@ class WorkspaceResolver:
         root = self.ensure(resolved)
         for name in ("media",):
             target = root / name
-            if target.is_symlink():
+            if is_link_or_junction(target):
                 raise WorkspaceResolutionDenied("workspace_symlink_denied")
             target.mkdir(exist_ok=True)
         try:
@@ -190,7 +191,7 @@ class WorkspaceResolver:
             supplied = self._resolve_registered_path(workspace_key)
             if supplied != registered:
                 raise WorkspaceResolutionDenied("legacy_workspace_key_mismatch")
-        if registered.is_symlink():
+        if is_link_or_junction(registered):
             raise WorkspaceResolutionDenied("workspace_symlink_denied")
         return ResolvedWorkspace(
             path=registered,
@@ -210,7 +211,7 @@ class WorkspaceResolver:
             raise WorkspaceResolutionDenied("workspace_path_escape") from exc
         for part in relative.parts:
             current /= part
-            if current.is_symlink():
+            if is_link_or_junction(current):
                 raise WorkspaceResolutionDenied("workspace_symlink_denied")
         try:
             candidate.resolve().relative_to(self._working_dir)
@@ -238,7 +239,7 @@ class WorkspaceResolver:
             path = self._working_dir / path
         absolute_path = path.absolute()
         if any(
-            candidate.exists() and candidate.is_symlink()
+            is_link_or_junction(candidate)
             for candidate in (absolute_path, *absolute_path.parents)
         ):
             raise WorkspaceResolutionDenied("workspace_symlink_denied")

@@ -57,18 +57,11 @@ describe("MemoryPanel", () => {
 
   it("labels scope and memory type as two distinct filter groups", async () => {
     renderWithProviders(
-      <MemoryPanel
-        agentId="agent-a"
-        requestContext={{ agentId: "agent-a" }}
-      />,
+      <MemoryPanel agentId="agent-a" requestContext={{ agentId: "agent-a" }} />,
     );
 
-    expect(
-      screen.getByText("files.fileCenter.memoryScopeLabel"),
-    ).toBeVisible();
-    expect(
-      screen.getByText("files.fileCenter.memoryTypeLabel"),
-    ).toBeVisible();
+    expect(screen.getByText("files.fileCenter.memoryScopeLabel")).toBeVisible();
+    expect(screen.getByText("files.fileCenter.memoryTypeLabel")).toBeVisible();
     expect(
       screen.getByRole("group", {
         name: "files.fileCenter.memoryScopeLabel",
@@ -91,13 +84,12 @@ describe("MemoryPanel", () => {
 
   it("defaults to my private memory and lists nested daily notes despite index failure", async () => {
     renderWithProviders(
-      <MemoryPanel
-        agentId="agent-a"
-        requestContext={{ agentId: "agent-a" }}
-      />,
+      <MemoryPanel agentId="agent-a" requestContext={{ agentId: "agent-a" }} />,
     );
 
-    expect(await screen.findByRole("button", { name: "topic.md" })).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "topic.md" }),
+    ).toBeVisible();
     expect(workspaceApi.listMemoryFiles).toHaveBeenCalledWith(
       "daily",
       "private",
@@ -128,6 +120,29 @@ describe("MemoryPanel", () => {
       }),
     );
     expect(await screen.findByText("记忆正文")).toBeVisible();
+  });
+
+  it("keeps own memory preview when the Agent is unavailable and only private read remains", async () => {
+    vi.mocked(agentApi.getMemoryScopes).mockResolvedValue({
+      agent_id: "retired-agent",
+      scopes: [{ ...privateScope, status: "access_revoked", can_edit: false }],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MemoryPanel
+        agentId="retired-agent"
+        requestContext={{ agentId: "retired-agent" }}
+      />,
+    );
+    await user.click(await screen.findByRole("button", { name: "topic.md" }));
+    expect(await screen.findByText("记忆正文")).toBeVisible();
+    expect(workspaceApi.loadMemoryFile).toHaveBeenLastCalledWith(
+      "2026-09-15/topic.md",
+      "daily",
+      "private",
+      { agentId: "retired-agent" },
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("does not reload scopes or content when the parent stores the emitted locator", async () => {
@@ -189,10 +204,7 @@ describe("MemoryPanel", () => {
     });
 
     renderWithProviders(
-      <MemoryPanel
-        agentId="agent-a"
-        requestContext={{ agentId: "agent-a" }}
-      />,
+      <MemoryPanel agentId="agent-a" requestContext={{ agentId: "agent-a" }} />,
     );
 
     await user.click(await screen.findByRole("button", { name: "older.md" }));
@@ -209,10 +221,7 @@ describe("MemoryPanel", () => {
 
   it("shows a friendly index notice without exposing the internal state value", async () => {
     renderWithProviders(
-      <MemoryPanel
-        agentId="agent-a"
-        requestContext={{ agentId: "agent-a" }}
-      />,
+      <MemoryPanel agentId="agent-a" requestContext={{ agentId: "agent-a" }} />,
     );
 
     expect(await screen.findByRole("status")).toHaveTextContent(
@@ -237,19 +246,14 @@ describe("MemoryPanel", () => {
         },
       ]),
     );
-    vi.mocked(workspaceApi.loadMemoryFile).mockImplementation(
-      (path, section) =>
-        Promise.resolve({
-          content:
-            section === "daily" ? `日记：${path}` : `长期记忆：${path}`,
-        }),
+    vi.mocked(workspaceApi.loadMemoryFile).mockImplementation((path, section) =>
+      Promise.resolve({
+        content: section === "daily" ? `日记：${path}` : `长期记忆：${path}`,
+      }),
     );
 
     renderWithProviders(
-      <MemoryPanel
-        agentId="agent-a"
-        requestContext={{ agentId: "agent-a" }}
-      />,
+      <MemoryPanel agentId="agent-a" requestContext={{ agentId: "agent-a" }} />,
     );
 
     await user.click(

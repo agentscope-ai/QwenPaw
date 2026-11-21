@@ -44,7 +44,7 @@ async def _ready():
 
 
 def test_expected_revision_tracks_current_alembic_head() -> None:
-    assert _module().EXPECTED_SCHEMA_REVISION == "0023_console_tasks"
+    assert _module().EXPECTED_SCHEMA_REVISION == "0024_owner_history_durability"
 
 
 @pytest.mark.asyncio

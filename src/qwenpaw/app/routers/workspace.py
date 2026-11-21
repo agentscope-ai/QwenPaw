@@ -97,6 +97,8 @@ from ...services.workspace_files import (
     FilesWorkspaceAccess,
 )
 from ...utils.io_utils import get_path_lock, run_sync_io
+from ...utils.path_safety import is_link_or_junction
+from ...services.workspace_privacy import is_private_agent_runtime_path
 from ..agent_context import (
     get_agent_access_state,
     get_agent_for_request,
@@ -253,11 +255,21 @@ async def _resolve_files_access(
         if role is AgentResourceRole.USER
         else await get_project_dir_for_request(request, workspace)
     )
-    return await get_files_workspace_access(
+    access = await get_files_workspace_access(
         request,
         workspace,
         agent_project=agent_project,
     )
+    query = getattr(request, "query_params", {})
+    selected_root = access.workspace.path if query.get("root") == "workspace" else access.project.path
+    requested = getattr(request, "path_params", {}).get("file_path") or query.get("path", "")
+    if _is_agent_config_root(workspace, selected_root) and is_private_agent_runtime_path(requested):
+        raise HTTPException(403, "private_runtime_requires_owned_access")
+    return access
+
+
+def _is_agent_config_root(workspace, root: Path) -> bool:
+    return is_multi_user_enabled() and Path(root).resolve() == Path(workspace.workspace_dir).resolve()
 
 
 def _require_files_root_write(root_access: Any) -> None:
@@ -289,11 +301,23 @@ async def _resolve_memory_workspace(
     write: bool,
 ) -> tuple[Path, bool]:
     """Resolve a safe public/private memory root from the authenticated actor."""
+    if is_multi_user_enabled() and scope is MemoryScope.PRIVATE and not write:
+        from ..owned_content import owner_agent_key
+
+        if request.headers.get("X-Agent-Governance") == "runtime-config":
+            raise HTTPException(status_code=403, detail="forbidden")
+        resolver = MemoryScopeResolver()
+        try:
+            context = resolver.resolve_private(
+                actor=get_actor(request),
+                agent_id=owner_agent_key(request),
+            )
+            return resolver.existing_workspace(context), False
+        except MemoryScopeDenied as exc:
+            raise HTTPException(status_code=403, detail="forbidden") from exc
     workspace = await get_running_config_workspace(
         request,
-        action=(
-            "agent.admin.memory.edit" if write else "agent.admin.memory.view"
-        ),
+        action=("agent.admin.memory.edit" if write else "agent.admin.memory.view"),
     )
     access = _runtime_config_access(request, workspace.agent_id)
     actor = get_actor(request)
@@ -334,22 +358,42 @@ def _dir_stats(root: Path) -> tuple[int, int]:
     """Return (file_count, total_size) for *root* recursively."""
     count = 0
     size = 0
-    if root.is_dir():
-        for p in root.rglob("*"):
-            if p.is_file():
-                count += 1
-                size += p.stat().st_size
+    for entry in _archive_entries(root):
+        if entry.is_file():
+            count += 1
+            size += entry.stat().st_size
     return count, size
 
 
-def _zip_directory(root: Path) -> io.BytesIO:
+def _archive_entries(root: Path, *, exclude_private_state: bool = False):
+    """Walk only real entries within the root; never traverse directory links."""
+    from ...artifacts.service import reject_symlink_path
+
+    root = Path(root).absolute()
+    reject_symlink_path(root)
+    resolved_root = root.resolve()
+    for directory, folders, files in os.walk(root, topdown=True, followlinks=False):
+        parent = Path(directory)
+        folders[:] = sorted(name for name in folders if not is_link_or_junction(parent / name)
+                            and not (exclude_private_state and is_private_agent_runtime_path((parent / name).relative_to(root).as_posix())))
+        for name in (*folders, *sorted(files)):
+            entry = parent / name
+            if exclude_private_state and is_private_agent_runtime_path(entry.relative_to(root).as_posix()):
+                continue
+            if is_link_or_junction(entry) or not entry.resolve().is_relative_to(resolved_root):
+                continue
+            yield entry
+
+
+def _zip_directory(root: Path, *, exclude_private_state: bool = False) -> io.BytesIO:
     """Create an in-memory zip archive of *root* and return the buffer.
 
-    All files **and** directories (including empty ones) are included.
+    Regular files and directories (including empty ones) are included.
     """
+    root = Path(root).absolute()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for entry in sorted(root.rglob("*")):
+        for entry in _archive_entries(root, exclude_private_state=exclude_private_state):
             arcname = entry.relative_to(root).as_posix()
             if entry.is_file():
                 zf.write(entry, arcname)
@@ -479,18 +523,23 @@ def _list_all_files(workspace_dir: Path) -> list[dict]:
     frontend ``buildTree`` (which splits on ``/``) works on Windows too.
     """
     files: list[dict] = []
+    from ...artifacts.service import reject_symlink_path
+    reject_symlink_path(workspace_dir)
     root = str(workspace_dir)
     try:
         for dirpath, dirnames, filenames in os.walk(root, topdown=True):
             # Prune in place — must mutate, not rebind, for os.walk to honor.
             dirnames[:] = sorted(
                 d for d in dirnames if not _is_skipped_name(d)
+                and not is_link_or_junction(Path(dirpath) / d)
             )
             rel_dir = os.path.relpath(dirpath, root)
             for name in sorted(filenames):
                 if _is_skipped_name(name):
                     continue
                 full = os.path.join(dirpath, name)
+                if is_link_or_junction(Path(full)):
+                    continue
                 try:
                     st = os.stat(full)
                 except OSError:
@@ -553,13 +602,16 @@ async def list_workspace_tree(
     files_root = await _resolve_files_root(request, workspace, root)
     try:
         async with _FILESYSTEM_SEMAPHORE:
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 list_directory,
                 files_root,
                 path,
                 cursor,
                 limit,
             )
+        if _is_agent_config_root(workspace, files_root):
+            result["entries"] = [entry for entry in result["entries"] if not is_private_agent_runtime_path(entry["path"])]
+        return result
     except InvalidCursor as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except InvalidWorkspacePath as exc:
@@ -988,6 +1040,11 @@ async def upload_workspace_files(
         directory,
         files,
     )
+    if _is_agent_config_root(workspace, files_root) and any(
+        is_private_agent_runtime_path(target.relative_to(files_root).as_posix())
+        for _upload, _filename, target in upload_targets
+    ):
+        raise HTTPException(403, "private_runtime_requires_owned_access")
 
     if conflicts and conflict is None:
         raise HTTPException(
@@ -1059,9 +1116,12 @@ async def list_code_files(request: Request) -> list[dict]:
     """List every non-hidden file in the active coding project directory."""
     workspace = await get_agent_for_request(request)
     access = await _resolve_files_access(request, workspace)
-    return await asyncio.to_thread(
+    files = await asyncio.to_thread(
         lambda: _list_all_files(access.project.path),
     )
+    if _is_agent_config_root(workspace, access.project.path):
+        files = [item for item in files if not is_private_agent_runtime_path(item["path"])]
+    return files
 
 
 _CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -1356,6 +1416,7 @@ async def list_memory_files(
         workspace_manager = AgentMdManager(
             str(memory_root),
             agent_id=memory_root.name,
+            read_only=True,
         )
         raw_files = await asyncio.to_thread(
             workspace_manager.list_memory_mds,
@@ -1365,6 +1426,8 @@ async def list_memory_files(
         return files
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid_memory_path") from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1391,6 +1454,7 @@ async def read_memory_file(
         workspace_manager = AgentMdManager(
             str(memory_root),
             agent_id=memory_root.name,
+            read_only=True,
         )
         content = await asyncio.to_thread(
             workspace_manager.read_memory_md,
@@ -1402,6 +1466,8 @@ async def read_memory_file(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except HTTPException:
         raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid_memory_path") from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -2221,7 +2287,7 @@ def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
                 )
 
 
-def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
+def _extract_and_merge_zip(data: bytes, workspace_dir: Path, *, exclude_private_state: bool = False) -> None:
     """Extract zip data and merge into workspace_dir (blocking operation)."""
     tmp_dir = None
     try:
@@ -2234,6 +2300,14 @@ def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
         if len(top_entries) == 1 and top_entries[0].is_dir():
             extract_root = top_entries[0]
 
+        from ...artifacts.service import reject_symlink_path
+        # 按实际解包根预检，再进行任何覆盖；单层包装目录不能绕过目标检查。
+        for source in extract_root.rglob("*"):
+            relative = source.relative_to(extract_root).as_posix()
+            if exclude_private_state and is_private_agent_runtime_path(relative):
+                raise HTTPException(403, "private_runtime_requires_owned_access")
+            reject_symlink_path(workspace_dir / relative)
+            resolve_workspace_path(workspace_dir, relative)
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
         for item in extract_root.iterdir():
@@ -2249,10 +2323,10 @@ def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _validate_and_extract_zip(data: bytes, workspace_dir: Path) -> None:
+def _validate_and_extract_zip(data: bytes, workspace_dir: Path, *, exclude_private_state: bool = False) -> None:
     """Validate and extract zip data (blocking operation)."""
     _validate_zip_data(data, workspace_dir)
-    _extract_and_merge_zip(data, workspace_dir)
+    _extract_and_merge_zip(data, workspace_dir, exclude_private_state=exclude_private_state)
 
 
 # ---------------------------------------------------------------------------
@@ -2292,7 +2366,8 @@ async def download_workspace(request: Request):
             detail=f"Workspace does not exist: {workspace_dir}",
         )
 
-    buf = await asyncio.to_thread(_zip_directory, workspace_dir)
+    buf = await asyncio.to_thread(_zip_directory, workspace_dir,
+                                  exclude_private_state=_is_agent_config_root(agent, workspace_dir))
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"qwenpaw_workspace_{agent.agent_id}_{timestamp}.zip"
@@ -2354,7 +2429,8 @@ async def upload_workspace(
     data = await file.read()
 
     try:
-        await asyncio.to_thread(_validate_and_extract_zip, data, workspace_dir)
+        await asyncio.to_thread(_validate_and_extract_zip, data, workspace_dir,
+                                exclude_private_state=_is_agent_config_root(agent, workspace_dir))
         return {"success": True}
     except HTTPException:
         raise

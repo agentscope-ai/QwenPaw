@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 
 
-INDEX_VERSION = 1
+INDEX_VERSION = 2
 MAX_INDEXED_CHARACTERS = 2_000_000
 MAX_KEYWORDS = 512
 

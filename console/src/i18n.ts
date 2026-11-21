@@ -58,8 +58,8 @@ export const i18nReady = i18n
     partialBundledLanguages: true,
     initImmediate: false,
     maxRetries: 0,
-    lng: localStorage.getItem("language") || navigator.language || "en",
-    fallbackLng: "en",
+    lng: localStorage.getItem("language") || "zh",
+    fallbackLng: "zh",
     supportedLngs: [...Object.keys(resources), ...Object.keys(localeLoaders)],
     interpolation: {
       escapeValue: false,

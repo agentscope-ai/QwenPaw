@@ -3,11 +3,13 @@
 and memory directories."""
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Literal
 
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from ...config.config import load_agent_config
+from ...utils.path_safety import is_link_or_junction
 
 
 class AgentMdManager:
@@ -18,6 +20,8 @@ class AgentMdManager:
         self,
         working_dir: str | Path,
         agent_id: str | None = None,
+        *,
+        read_only: bool = False,
     ):
         """Initialize directories for working and memory markdown files.
 
@@ -27,12 +31,15 @@ class AgentMdManager:
                       If None, uses default "memory" directory.
         """
         self.working_dir: Path = Path(working_dir)
-        self.working_dir.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self.working_dir.mkdir(parents=True, exist_ok=True)
 
         digest_dir_name = "digest"
 
         # Dynamically get memory_dir from config if agent_id provided
-        if agent_id:
+        if read_only:
+            memory_dir_name, digest_dir_name = self._read_memory_directories(agent_id)
+        elif agent_id:
             agent_config = load_agent_config(agent_id)
             reme_config = agent_config.running.reme_light_memory_config
             memory_dir_name = reme_config.daily_dir
@@ -41,9 +48,52 @@ class AgentMdManager:
             memory_dir_name = "memory"
 
         self.memory_dir: Path = self.working_dir / memory_dir_name
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.digest_dir: Path = self.working_dir / digest_dir_name
-        self.digest_dir.mkdir(parents=True, exist_ok=True)
+        if read_only:
+            for directory in (self.memory_dir, self.digest_dir):
+                self._assert_within_dir(directory, self.working_dir)
+                for part in (directory, *directory.parents):
+                    if is_link_or_junction(part):
+                        raise ValueError("memory_symlink_denied")
+        else:
+            self.memory_dir.mkdir(parents=True, exist_ok=True)
+            self.digest_dir.mkdir(parents=True, exist_ok=True)
+
+    def _read_memory_directories(self, agent_id: str | None) -> tuple[str, str]:
+        """Read existing settings without creating a missing agent.json."""
+        if not agent_id:
+            return "memory", "digest"
+        from ...config.utils import load_config
+
+        try:
+            profile = load_config().agents.profiles.get(agent_id)
+            if profile is not None:
+                agent_root = Path(profile.workspace_dir).expanduser()
+            elif self.working_dir.parent.parent.name == "user_workspaces":
+                # Retained configuration can preserve custom section paths after
+                # the Agent is removed from the navigation configuration.
+                agent_root = self.working_dir.parents[2] / "workspaces" / agent_id
+            elif self.working_dir.parent.name == "workspaces":
+                agent_root = self.working_dir
+            else:
+                return "memory", "digest"
+            path = agent_root / "agent.json"
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            settings = raw.get("running", {}).get("reme_light_memory_config", {})
+            daily, digest = settings.get("daily_dir", "memory"), settings.get(
+                "digest_dir", "digest"
+            )
+        except (OSError, ValueError, AttributeError, TypeError):
+            return "memory", "digest"
+        for value in (daily, digest):
+            if not isinstance(value, str) or not value or ":" in value:
+                raise ValueError("invalid_memory_directory")
+            normalized = value.replace("\\", "/")
+            if normalized.startswith("/") or any(
+                part in {".", "..", ""} for part in normalized.split("/")
+            ):
+                raise ValueError("invalid_memory_directory")
+        return daily, digest
 
     # ------------------------------------------------------------------
     # Path safety helpers
@@ -67,8 +117,7 @@ class AgentMdManager:
         for part in parts:
             if part == "..":
                 raise ValueError(
-                    f"Invalid md_name '{md_name}':"
-                    " path traversal is not allowed",
+                    f"Invalid md_name '{md_name}':" " path traversal is not allowed",
                 )
 
         # Keep only the final component so that any remaining "/" is stripped
@@ -278,6 +327,10 @@ class AgentMdManager:
             for file_path in root_dir.rglob("*.md"):
                 if not file_path.is_file():
                     continue
+                try:
+                    self._assert_within_dir(file_path, root_dir)
+                except ValueError:
+                    continue
                 if excluded_root is not None:
                     try:
                         file_path.resolve().relative_to(excluded_root)
@@ -286,9 +339,7 @@ class AgentMdManager:
                     else:
                         continue
                 stat = file_path.stat()
-                filename = (
-                    f"{prefix}{file_path.relative_to(root_dir).as_posix()}"
-                )
+                filename = f"{prefix}{file_path.relative_to(root_dir).as_posix()}"
                 result.append(
                     self._memory_file_info(file_path, filename, stat),
                 )

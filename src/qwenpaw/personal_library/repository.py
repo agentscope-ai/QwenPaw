@@ -33,6 +33,18 @@ class PostgresPersonalLibraryRepository:
         self._documents_table = f'"{normalized}".user_library_documents'
         self._session_factory = session_factory
 
+    async def get_owned_document(
+        self, *, owner_user_id: UUID, document_id: UUID,
+    ) -> PersonalLibraryDocument | None:
+        """稳定资料 ID 按所有者读取，不依赖原智能体仍可运行。"""
+        async with self._session_factory() as session:
+            await set_request_user(session, owner_user_id)
+            row = (await session.execute(text(
+                f"SELECT * FROM {self._documents_table} "
+                "WHERE owner_user_id = :owner_user_id AND id = :document_id"
+            ), {"owner_user_id": owner_user_id, "document_id": document_id})).mappings().one_or_none()
+        return None if row is None else self._document_from_row(row)
+
     async def get_document(
         self,
         *,

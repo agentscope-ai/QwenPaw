@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import sqlite3
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
@@ -20,6 +22,7 @@ from ...personal_library.service import (
     PersonalLibraryService,
 )
 from ..agent_context import get_agent_for_request
+from ..owned_content import owner_agent_key
 from ..utils import check_upload_size
 
 router = APIRouter(prefix="/console/personal-library", tags=["personal-library"])
@@ -59,6 +62,17 @@ class MoveDocument(BaseModel):
     expected_updated_at: datetime
 
 
+class LibraryIndexStatusResponse(BaseModel):
+    document_id: UUID
+    status: Literal["pending", "ready", "partial", "empty", "unsupported", "too_large", "failed", "missing", "unavailable"]
+    indexed_characters: int
+    updated_at: datetime | None
+
+
+class RebuildLibraryIndex(BaseModel):
+    document_ids: list[UUID] = Field(min_length=1, max_length=10)
+
+
 class AttachmentImport(BaseModel):
     attachment_id: UUID
     destination_path: str = Field(min_length=1)
@@ -95,6 +109,25 @@ def _document_response(document) -> PersonalLibraryDocumentResponse:
         created_at=document.created_at,
         updated_at=document.updated_at,
     )
+
+
+@router.get("/index", response_model=list[LibraryIndexStatusResponse])
+async def index_status(request: Request):
+    return await _get_service().index_status(owner_user_id=_owner_id(request), agent_key=owner_agent_key(request))
+
+
+@router.post("/index/rebuild", response_model=list[LibraryIndexStatusResponse])
+async def rebuild_index(request: Request, payload: RebuildLibraryIndex):
+    workspace = await get_agent_for_request(request)
+    try:
+        return await _get_service().rebuild_index(
+            owner_user_id=_owner_id(request), agent_key=workspace.agent_id,
+            document_ids=payload.document_ids,
+        )
+    except PersonalLibraryNotFound as exc:
+        raise HTTPException(status_code=404, detail="library_document_not_found") from exc
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="library_index_rebuild_failed") from exc
 
 
 @router.post(
@@ -155,12 +188,11 @@ async def list_documents(
     request: Request,
     path: str = Query(""),
 ) -> list[PersonalLibraryDocumentResponse]:
-    workspace = await get_agent_for_request(request)
     try:
         documents = await _get_service().list_directory(
             owner_user_id=_owner_id(request),
             path=path,
-            agent_key=workspace.agent_id,
+            agent_key=owner_agent_key(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -174,9 +206,8 @@ async def list_documents_page(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ) -> PersonalLibraryPage:
-    workspace = await get_agent_for_request(request)
     documents, total = await _get_service().list_page(
-        owner_user_id=_owner_id(request), agent_key=workspace.agent_id,
+        owner_user_id=_owner_id(request), agent_key=owner_agent_key(request),
         query=query, offset=offset, limit=limit,
     )
     return PersonalLibraryPage(items=[_document_response(doc) for doc in documents], total=total)
@@ -221,14 +252,13 @@ async def read_text_document(
     offset: int = Query(0, ge=0),
     limit: int = Query(65_536, ge=1, le=65_536),
 ) -> PersonalLibraryDocumentContentResponse:
-    workspace = await get_agent_for_request(request)
     try:
-        result = await _get_service().read_text(
+        result = await _get_service().read_owned_text(
             owner_user_id=_owner_id(request),
             document_id=document_id,
             offset=offset,
             limit=limit,
-            agent_key=workspace.agent_id,
+            expected_agent_key=owner_agent_key(request) if request.path_params.get("agentId") else None,
         )
     except PersonalLibraryNotFound as exc:
         raise HTTPException(status_code=404, detail="library_document_not_found") from exc
@@ -244,18 +274,17 @@ async def read_text_document(
     )
 
 
-@router.get("/documents/{document_id}/download", response_class=FileResponse)
+@router.api_route("/documents/{document_id}/download", methods=["GET", "HEAD"], response_class=FileResponse)
 async def download_document(
     request: Request,
     document_id: UUID,
 ) -> FileResponse:
-    """下载当前用户在当前 Agent 下有权访问的资料库原始文件。"""
-    workspace = await get_agent_for_request(request)
+    """按稳定 ID 下载本人原始资料，导航或 Agent 状态不改变所有权。"""
     try:
-        document, path, media_type = await _get_service().resolve_download(
+        document, path, media_type = await _get_service().resolve_owned_download(
             owner_user_id=_owner_id(request),
             document_id=document_id,
-            agent_key=workspace.agent_id,
+            expected_agent_key=owner_agent_key(request) if request.path_params.get("agentId") else None,
         )
     except PersonalLibraryNotFound as exc:
         raise HTTPException(

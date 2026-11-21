@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RichFileReferenceInput, {
   RichFileReferenceInputProvider,
 } from "./RichFileReferenceInput";
@@ -8,7 +8,7 @@ import {
   setLastEditorCopy,
 } from "../Coding/lastEditorCopy";
 import { useState } from "react";
-import "../../i18n";
+import i18n from "../../i18n";
 
 function ControlledRichInput() {
   const [value, setValue] = useState("");
@@ -23,6 +23,9 @@ function ControlledRichInput() {
 }
 
 describe("RichFileReferenceInput", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
   afterEach(() => clearLastEditorCopy());
 
   it("shows only atomic chips while preserving the raw submitted value", async () => {
@@ -38,7 +41,7 @@ describe("RichFileReferenceInput", () => {
       await screen.findByRole("button", { name: "app.ts · 7–9" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Code snippet · 1 line/i }),
+      screen.getByRole("button", { name: "代码片段 · 1 行" }),
     ).toBeInTheDocument();
 
     const editor = screen.getByRole("textbox");
@@ -111,7 +114,7 @@ describe("RichFileReferenceInput", () => {
       await screen.findByRole("button", { name: "app.ts · 7" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Code snippet/i }),
+      screen.queryByRole("button", { name: /代码片段/ }),
     ).not.toBeInTheDocument();
     await waitFor(() => {
       expect(container.querySelector("textarea")).toHaveValue("/work/app.ts:7");
@@ -142,7 +145,7 @@ describe("RichFileReferenceInput", () => {
       await screen.findByRole("button", { name: "app.ts · 7" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Code snippet · 1 line/i }),
+      screen.getByRole("button", { name: "代码片段 · 1 行" }),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(container.querySelector("textarea")).toHaveValue(formatted);

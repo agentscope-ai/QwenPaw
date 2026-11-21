@@ -7,10 +7,13 @@ import PersonalLibraryPanel from "./PersonalLibraryPanel";
 import { clearAccessSession } from "../../api/authSession";
 
 const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
   listPage: vi.fn(),
   upload: vi.fn(),
   move: vi.fn(),
   remove: vi.fn(),
+  indexStatus: vi.fn(),
+  rebuildIndex: vi.fn(),
 }));
 
 vi.mock("../../api/modules/personalLibrary", () => ({
@@ -36,6 +39,9 @@ describe("PersonalLibraryPanel", () => {
     mocks.listPage.mockResolvedValue({ items: [], total: 0 });
     mocks.move.mockReset();
     mocks.remove.mockReset();
+    mocks.list.mockReset().mockResolvedValue([]);
+    mocks.indexStatus.mockReset().mockResolvedValue([]);
+    mocks.rebuildIndex.mockReset().mockResolvedValue([]);
     mocks.upload.mockResolvedValue({
       id: "doc-upload",
       relative_path: "guide.pdf",
@@ -301,5 +307,93 @@ describe("PersonalLibraryPanel", () => {
     expect(
       screen.queryByRole("button", { name: "合同.md" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows extraction state and rebuilds the whole library across pages", async () => {
+    const user = userEvent.setup();
+    const guide = {
+      ...document,
+      name: "guide.pdf",
+      relative_path: "guide.pdf",
+    };
+    const other = { ...guide, id: "doc-other", name: "other.pdf" };
+    mocks.listPage.mockResolvedValue({ items: [guide], total: 21 });
+    mocks.list.mockResolvedValue([guide, other]);
+    mocks.indexStatus.mockResolvedValue([
+      { document_id: "doc-a", status: "failed" },
+    ]);
+    mocks.rebuildIndex.mockResolvedValue([
+      { document_id: "doc-a", status: "ready" },
+      { document_id: "doc-other", status: "ready" },
+    ]);
+    render(<PersonalLibraryPanel requestContext={{ agentId: "agent-a" }} />);
+    expect(await screen.findByText("解析失败")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "重建索引" }));
+    expect(await screen.findByText("可检索")).toBeVisible();
+    expect(screen.getByRole("button", { name: "guide.pdf" })).toBeVisible();
+    expect(mocks.list).toHaveBeenCalledWith("", { agentId: "agent-a" });
+    expect(mocks.rebuildIndex).toHaveBeenCalledWith(
+      ["doc-a", "doc-other"],
+      { agentId: "agent-a" },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("keeps documents openable when index status fails", async () => {
+    const guide = {
+      ...document,
+      name: "guide.pdf",
+      relative_path: "guide.pdf",
+    };
+    mocks.listPage.mockResolvedValue({ items: [guide], total: 1 });
+    mocks.indexStatus.mockRejectedValue(new Error("index offline"));
+    const onOpen = vi.fn();
+    render(
+      <PersonalLibraryPanel
+        requestContext={{ agentId: "agent-a" }}
+        onOpen={onOpen}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "guide.pdf" }),
+    );
+    expect(onOpen).toHaveBeenCalledWith({
+      category: "library",
+      agentId: "agent-a",
+      stableId: "doc-a",
+      relativePath: "guide.pdf",
+    });
+    expect(
+      screen.getByText("索引状态暂不可用，仍可打开资料文件。"),
+    ).toBeVisible();
+  });
+
+  it("ignores rebuild response after switching agents", async () => {
+    const guide = { ...document, name: "a.pdf", relative_path: "a.pdf" };
+    let finish!: (value: unknown[]) => void;
+    mocks.listPage
+      .mockResolvedValueOnce({ items: [guide], total: 1 })
+      .mockResolvedValueOnce({
+        items: [{ ...guide, id: "doc-b", name: "b.pdf" }],
+        total: 1,
+      });
+    mocks.list.mockResolvedValue([guide]);
+    mocks.rebuildIndex.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { rerender } = render(
+      <PersonalLibraryPanel requestContext={{ agentId: "agent-a" }} />,
+    );
+    await screen.findByRole("button", { name: "a.pdf" });
+    await userEvent.click(screen.getByRole("button", { name: "重建索引" }));
+    const signal = mocks.rebuildIndex.mock.calls[0][2];
+    rerender(<PersonalLibraryPanel requestContext={{ agentId: "agent-b" }} />);
+    await screen.findByRole("button", { name: "b.pdf" });
+    expect(signal.aborted).toBe(true);
+    await act(async () => finish([{ document_id: "doc-b", status: "ready" }]));
+    expect(screen.queryByText("可检索")).not.toBeInTheDocument();
   });
 });

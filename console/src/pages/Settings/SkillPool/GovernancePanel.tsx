@@ -29,13 +29,36 @@ import {
 
 export type GovernanceView = "published" | "requests" | "grants";
 
-export default function GovernancePanel({ view }: { view: GovernanceView }) {
+export default function GovernancePanel({
+  view,
+  ownRequests = false,
+}: {
+  view: GovernanceView;
+  ownRequests?: boolean;
+}) {
   const scope = useSkillScope();
-  if (!scope.multiUser || !scope.isAdmin) return null;
-  return <Panel key={`${scope.key}:${view}`} view={view} />;
+  if (
+    !scope.multiUser ||
+    !scope.ready ||
+    (!scope.isAdmin && !(ownRequests && view === "requests"))
+  )
+    return null;
+  return (
+    <Panel
+      key={`${scope.key}:${view}:${ownRequests}`}
+      view={view}
+      ownRequests={ownRequests}
+    />
+  );
 }
 
-function Panel({ view }: { view: GovernanceView }) {
+function Panel({
+  view,
+  ownRequests,
+}: {
+  view: GovernanceView;
+  ownRequests: boolean;
+}) {
   const { t } = useTranslation();
   const { scope } = useSkillRuntime();
   const api = useMemo(() => createSkillGovernanceApi(scope), [scope]);
@@ -78,12 +101,21 @@ function Panel({ view }: { view: GovernanceView }) {
       setAgents(targets.agents);
       return;
     }
-    const response = await api.requests();
+    const response = await api.requests(ownRequests ? "mine" : "all");
     if (scope.current()) setRequests(response.requests);
-  }, [api, scope, view]);
+  }, [api, scope, view, ownRequests]);
 
-  const run = async (operation: () => Promise<unknown>, reload = true) => {
-    if (!scope.current() || !scope.isAdmin || busyRef.current) return;
+  const run = async (
+    operation: () => Promise<unknown>,
+    reload = true,
+    requiresManage = true,
+  ) => {
+    if (
+      !scope.current() ||
+      (!scope.isAdmin && (requiresManage || !ownRequests)) ||
+      busyRef.current
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     setError("");
@@ -415,11 +447,15 @@ function Panel({ view }: { view: GovernanceView }) {
       <Alert
         type="info"
         showIcon
-        message={t("skillGovernance.requestsDescription")}
+        message={t(
+          ownRequests
+            ? "skillGovernance.myRequestsDescription"
+            : "skillGovernance.requestsDescription",
+        )}
       />
       {errorAlert}
       <Space wrap>
-        <Button disabled={busy} onClick={() => void run(refresh, false)}>
+        <Button disabled={busy} onClick={() => void run(refresh, false, false)}>
           {t("common.refresh")}
         </Button>
         <Select
@@ -481,7 +517,7 @@ function Panel({ view }: { view: GovernanceView }) {
             render: (_, row) => (
               <Button disabled={busy} onClick={() => void openRequest(row)}>
                 {t(
-                  row.status === "pending"
+                  row.status === "pending" && !ownRequests
                     ? "skillGovernance.reviewAction"
                     : "skillGovernance.viewDetails",
                 )}
@@ -497,7 +533,7 @@ function Panel({ view }: { view: GovernanceView }) {
         destroyOnHidden
         onCancel={closeRequest}
         footer={
-          requestIsPending ? (
+          requestIsPending && !ownRequests ? (
             <Space>
               <Button
                 disabled={busy || (!!publication?.content_hash && !detail)}
@@ -555,7 +591,7 @@ function Panel({ view }: { view: GovernanceView }) {
             {file.content}
           </pre>
         )}
-        {requestIsPending ? (
+        {requestIsPending && !ownRequests ? (
           <Input.TextArea
             aria-label={t("skillGovernance.note")}
             placeholder={t("skillGovernance.note")}

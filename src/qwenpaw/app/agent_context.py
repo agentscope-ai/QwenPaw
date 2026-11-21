@@ -4,9 +4,11 @@
 Provides utilities to get the correct agent instance for each request.
 """
 import asyncio
+import re
 from contextvars import ContextVar, Token
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Iterator
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID
@@ -225,13 +227,50 @@ def allowed_agent_roles_for_request(request: Request, agent_id: str):
 
 
 def allows_historical_chat_read(request: Request, agent_id: str) -> bool:
-    """兼容 Agent-scoped 与旧版 X-Agent-Id 会话只读入口。"""
-    if request.method.upper() not in _SAFE_METHODS:
+    """仅正文、列表及历史工具输出可脱离运行授权读取。"""
+    if request.method.upper() not in {"GET", "HEAD"}:
         return False
-    path = request.url.path
-    return path.startswith("/api/chats") or (
-        f"/agents/{agent_id}/chats" in path
-    )
+    path = _normalized_api_path(request).rstrip("/")
+    return path in {"/chats", "/chats/page"} or bool(re.fullmatch(
+        r"/chats/[^/]+(?:/(?:spec|status|summary)|/messages/[^/]+/tool-output)?",
+        path,
+    ))
+
+
+async def resolve_owned_history_agent_reference(request, profiles, *, expected_agent_id=None):
+    """本人稳定会话 ID 可恢复旧 Agent；显式 scoped 路径不得跨 Agent。"""
+    if not allows_historical_chat_read(request, expected_agent_id or ""):
+        return None
+    parts = _normalized_api_path(request).strip("/").split("/")
+    if len(parts) < 2:
+        return None
+    try:
+        conversation_id = UUID(parts[1])
+    except ValueError:
+        return None
+    actor = get_actor(request)
+    if actor.user_id is None:
+        return None
+    cache_key = (conversation_id, actor.user_id)
+    cached = getattr(request.state, "owned_history_agent_resolution", None)
+    if cached is not None and cached[0] == cache_key:
+        record = cached[1]
+    else:
+        from ..access.agent_repository import PostgresAgentRepository
+        from ..identity.runtime import get_identity_schema
+
+        record = await PostgresAgentRepository(schema=get_identity_schema()).get_owned_history_agent(
+            conversation_id=conversation_id, user_id=actor.user_id, agent_keys=list(profiles),
+        )
+        request.state.owned_history_agent_resolution = (cache_key, record)
+    if record is None or (expected_agent_id is not None and record.key != expected_agent_id):
+        return None
+    root = Path(record.workspace_key).expanduser()
+    if not root.is_absolute():
+        from ..constant import WORKING_DIR
+
+        root = Path(WORKING_DIR) / root
+    return record.key, SimpleNamespace(workspace_dir=str(root), enabled=False)
 
 
 async def authorize_agent_request(
@@ -258,18 +297,27 @@ async def authorize_agent_request(
             request,
             agent_id,
         )
-        access = await service.require_role(
-            actor=actor,
-            agent=LegacyAgentRecord(
-                key=agent_id,
-                name=agent_id,
-                description="",
-                workspace_key=getattr(agent_ref, "workspace_dir", ""),
-                status="active",
-            ),
-            allowed_roles=effective_roles,
-            allow_historical_read_only=allow_historical_read_only,
+        agent = LegacyAgentRecord(
+            key=agent_id,
+            name=agent_id,
+            description="",
+            workspace_key=getattr(agent_ref, "workspace_dir", ""),
+            status="active",
         )
+        if allow_historical_read_only and not getattr(agent_ref, "enabled", True):
+            access = await service.require_historical_read(actor=actor, agent=agent)
+        else:
+            access = await service.require_role(
+                actor=actor,
+                agent=agent,
+                allowed_roles=effective_roles,
+                allow_historical_read_only=allow_historical_read_only,
+            )
+        if getattr(getattr(access, "agent", None), "status", None) in {"disabled", "deleted"}:
+            if not allow_historical_read_only:
+                raise AgentAccessDeniedError()
+            if not getattr(access, "historical_read_only", False):
+                access = await service.require_historical_read(actor=actor, agent=agent)
     except (AuthorizationDeniedError, AgentAccessDeniedError) as exc:
         raise HTTPException(status_code=403, detail="forbidden") from exc
 
@@ -325,14 +373,32 @@ async def get_agent_for_request(
     # Check if agent exists and is enabled
     if config is None:
         config = load_config()
+    recovered_ref = None
+    if is_multi_user_enabled():
+        scoped = request.url.path.startswith("/api/agents/")
+        # 旧页面的全局 X-Agent-Id 可随菜单切换而改变；本人会话归属不随之改变。
+        if not scoped or target_agent_id not in config.agents.profiles:
+            recovered = await resolve_owned_history_agent_reference(
+                request, config.agents.profiles,
+                expected_agent_id=target_agent_id if scoped else None,
+            )
+            if recovered is not None:
+                recovered_id, reference = recovered
+                current = config.agents.profiles.get(recovered_id)
+                if recovered_id != target_agent_id or current is None:
+                    target_agent_id, recovered_ref = recovered_id, current or reference
     if target_agent_id not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{target_agent_id}' not found",
-        )
+        if recovered_ref is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{target_agent_id}' not found",
+            )
 
-    agent_ref = config.agents.profiles[target_agent_id]
-    if not getattr(agent_ref, "enabled", True):
+    agent_ref = recovered_ref or config.agents.profiles[target_agent_id]
+    historical_route = is_multi_user_enabled() and allows_historical_chat_read(
+        request, target_agent_id,
+    )
+    if not getattr(agent_ref, "enabled", True) and not historical_route:
         raise HTTPException(
             status_code=403,
             detail=f"Agent '{target_agent_id}' is disabled",
@@ -347,11 +413,26 @@ async def get_agent_for_request(
             request,
             agent_id=target_agent_id,
             agent_ref=agent_ref,
-            allow_historical_read_only=allows_historical_chat_read(
-                request,
-                target_agent_id,
-            ),
+            allow_historical_read_only=historical_route,
         )
+
+    access = getattr(request.state, "agent_access", None)
+    if historical_route and getattr(access, "historical_read_only", False):
+        from .chats.historical_workspace import create_historical_workspace
+
+        cached = getattr(request.state, "historical_workspace", None)
+        if cached is not None and cached.agent_id == target_agent_id:
+            return cached
+        try:
+            workspace = create_historical_workspace(
+                agent_id=target_agent_id,
+                workspace_dir=agent_ref.workspace_dir,
+                user_id=get_actor(request).user_id,
+            )
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(404, "Chat not found") from exc
+        request.state.historical_workspace = workspace
+        return workspace
 
     # Get MultiAgentManager
     if not hasattr(request.app.state, "multi_agent_manager"):

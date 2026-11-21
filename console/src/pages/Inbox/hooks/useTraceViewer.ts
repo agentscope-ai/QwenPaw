@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { message } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import {
+  getAccessSessionGeneration,
+  subscribeAccessSessionGeneration,
+} from "../../../api/authSession";
+import { useAuthStore } from "../../../stores/authStore";
 import type { PushMessage } from "../types";
 import {
   buildContentFallbackTrace,
@@ -11,6 +23,25 @@ import {
 
 interface TraceData {
   events: Array<{ at: number; event: Record<string, unknown> }>;
+}
+
+function getTraceIdentity() {
+  const auth = useAuthStore.getState();
+  return JSON.stringify([
+    auth.mode,
+    auth.phase,
+    auth.user?.id,
+    getAccessSessionGeneration(),
+  ]);
+}
+
+function subscribeTraceIdentity(listener: () => void) {
+  const unsubscribeUser = useAuthStore.subscribe(listener);
+  const unsubscribeSession = subscribeAccessSessionGeneration(listener);
+  return () => {
+    unsubscribeUser();
+    unsubscribeSession();
+  };
 }
 
 export interface TraceViewerState {
@@ -31,6 +62,13 @@ export function useTraceViewer(
   markMessageAsRead: (id: string) => void,
 ): TraceViewerState {
   const { t } = useTranslation();
+  const identity = useSyncExternalStore(
+    subscribeTraceIdentity,
+    getTraceIdentity,
+  );
+  const [dataIdentity, setDataIdentity] = useState(identity);
+  const currentIdentity = identity === dataIdentity;
+  const sequence = useRef(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<PushMessage | null>(
     null,
@@ -43,10 +81,24 @@ export function useTraceViewer(
   const traceContainerRef = useRef<HTMLDivElement>(null);
   const traceScrollTopByMessageRef = useRef<Record<string, number>>({});
 
+  useEffect(() => {
+    sequence.current++;
+    setDetailOpen(false);
+    setSelectedMessage(null);
+    setTraceLoading(false);
+    setTraceData(null);
+    setExpandedTraceMap({});
+    traceScrollTopByMessageRef.current = {};
+    setDataIdentity(identity);
+    return () => {
+      sequence.current++;
+    };
+  }, [identity]);
+
   const traceEvents = useMemo<TraceDisplayItem[]>(() => {
-    if (!traceData?.events?.length) return [];
+    if (!currentIdentity || !traceData?.events?.length) return [];
     return buildTraceDisplayItems(traceData.events);
-  }, [traceData]);
+  }, [traceData, currentIdentity]);
 
   // Reset expanded state when trace data or modal open state changes
   useEffect(() => {
@@ -56,6 +108,7 @@ export function useTraceViewer(
   // Auto-scroll to bottom (or saved position) when trace loads
   useEffect(() => {
     if (
+      !currentIdentity ||
       !detailOpen ||
       traceLoading ||
       traceEvents.length <= 0 ||
@@ -74,10 +127,20 @@ export function useTraceViewer(
           : container.scrollHeight;
     });
     return () => window.cancelAnimationFrame(rafId);
-  }, [detailOpen, selectedMessage, traceEvents.length, traceLoading]);
+  }, [
+    currentIdentity,
+    detailOpen,
+    selectedMessage,
+    traceEvents.length,
+    traceLoading,
+  ]);
 
   const openMessageDetail = useCallback(
     (messageItem: PushMessage) => {
+      if (identity !== getTraceIdentity()) return;
+      const requestSequence = ++sequence.current;
+      const current = () =>
+        identity === getTraceIdentity() && requestSequence === sequence.current;
       if (!messageItem.read) {
         markMessageAsRead(messageItem.id);
       }
@@ -85,12 +148,15 @@ export function useTraceViewer(
         messageItem.read ? messageItem : { ...messageItem, read: true },
       );
       setDetailOpen(true);
+      setDataIdentity(identity);
+      setTraceData(null);
 
       const runId =
         typeof messageItem.metadata?.payload?.run_id === "string"
           ? (messageItem.metadata.payload.run_id as string)
           : undefined;
       if (!runId) {
+        setTraceLoading(false);
         setTraceData(buildContentFallbackTrace(messageItem));
         return;
       }
@@ -98,18 +164,24 @@ export function useTraceViewer(
       void api
         .getInboxTrace(runId)
         .then((trace) => {
-          setTraceData({ events: trace.events || [] });
+          if (current()) setTraceData({ events: trace.events || [] });
         })
         .catch(() => {
-          setTraceData(buildContentFallbackTrace(messageItem));
+          if (current()) setTraceData(buildContentFallbackTrace(messageItem));
         })
-        .finally(() => setTraceLoading(false));
+        .finally(() => {
+          if (current()) setTraceLoading(false);
+        });
     },
-    [markMessageAsRead],
+    [identity, markMessageAsRead],
   );
 
   const closeDetail = useCallback(() => {
+    sequence.current++;
     setDetailOpen(false);
+    setSelectedMessage(null);
+    setTraceData(null);
+    setTraceLoading(false);
   }, []);
 
   const toggleTracePanel = useCallback((key: string, active: boolean) => {
@@ -118,7 +190,7 @@ export function useTraceViewer(
 
   const copyTraceBlock = useCallback(
     async (text: string) => {
-      if (!text) return;
+      if (!text || identity !== getTraceIdentity()) return;
       try {
         await navigator.clipboard.writeText(text);
         message.success(t("common.copied"));
@@ -126,7 +198,7 @@ export function useTraceViewer(
         message.error(t("common.copyFailed"));
       }
     },
-    [t],
+    [identity, t],
   );
 
   const handleTraceScroll = useCallback(
@@ -138,11 +210,11 @@ export function useTraceViewer(
   );
 
   return {
-    detailOpen,
-    selectedMessage,
-    traceLoading,
+    detailOpen: currentIdentity && detailOpen,
+    selectedMessage: currentIdentity ? selectedMessage : null,
+    traceLoading: currentIdentity && traceLoading,
     traceEvents,
-    expandedTraceMap,
+    expandedTraceMap: currentIdentity ? expandedTraceMap : {},
     traceContainerRef,
     openMessageDetail,
     closeDetail,

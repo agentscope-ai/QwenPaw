@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import FileResponse
 
@@ -98,6 +97,73 @@ async def _is_owned_legacy_attachment(path: Path, user_id) -> bool:
     return False
 
 
+async def _is_owned_registered_artifact(path: Path, user_id, agent_key: str) -> bool:
+    """旧路径预览也须依据有效产物登记，不把路径本身当成永久授权。"""
+    from qwenpaw.access.agent_repository import agent_database_id
+    from qwenpaw.artifacts.repository import PostgresArtifactRepository
+    from qwenpaw.artifacts.service import ArtifactNotFound, ArtifactService
+    from qwenpaw.identity.runtime import get_identity_schema
+
+    repository = PostgresArtifactRepository(schema=get_identity_schema())
+    records = await repository.list_active(
+        owner_user_id=user_id, agent_id=agent_database_id(agent_key),
+    )
+    service = ArtifactService(repository=repository, working_dir=WORKING_DIR)
+    root = WORKING_DIR.resolve() / "user_workspaces" / str(user_id) / agent_key
+    for record in records:
+        if (record.owner_user_id != user_id or record.agent_id != agent_database_id(agent_key)
+                or record.status != "active" or (root / record.relative_path).resolve() != path):
+            continue
+        try:
+            _, registered_path = await service.download_owned_path(
+                owner_user_id=user_id, artifact_id=record.id,
+            )
+        except ArtifactNotFound:
+            continue
+        if registered_path == path:
+            return True
+    return False
+
+
+async def _authorize_private_preview(request: Request, path: Path, unresolved_path: Path) -> None:
+    """已登记本人内容保留读取权；其余工作文件仍校验实时 Agent 权限。"""
+    from qwenpaw.access.dependencies import get_actor
+    from qwenpaw.app.agent_context import get_agent_for_request
+    from qwenpaw.artifacts.service import reject_symlink_path
+
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    user_root = WORKING_DIR.resolve() / "user_workspaces" / str(actor.user_id)
+    try:
+        reject_symlink_path(unresolved_path)
+        reject_symlink_path(user_root)
+        if path.is_relative_to(user_root):
+            relative = path.relative_to(user_root)
+            if len(relative.parts) < 2:
+                raise ValueError()
+            agent_key = relative.parts[0]
+            persistent_owned = (
+                relative.parts[1:3] == ("artifacts", ".registered")
+                and await _is_owned_registered_artifact(path, actor.user_id, agent_key)
+            )
+        else:
+            if not await _is_owned_legacy_attachment(path, actor.user_id):
+                raise ValueError()
+            agent_key = path.relative_to(WORKING_DIR.resolve() / "workspaces").parts[0]
+            persistent_owned = True
+        if persistent_owned:
+            return
+        # 旧 file:// 媒体链接没有请求头时，可从已确认本人归属的受控路径取 Agent。
+        # 显式选择了另一个 Agent 的请求则不能借此跨越作用域。
+        selected = (getattr(request.state, "agent_id", None), request.headers.get("X-Agent-Id"))
+        if any(value and value != agent_key for value in selected):
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(status_code=403, detail="OUTSIDE_USER_WORKSPACE") from None
+    await get_agent_for_request(request, agent_id=agent_key, recheck_access=True)
+
+
 @router.api_route(
     "/preview/{filepath:path}",
     methods=["GET", "HEAD"],
@@ -108,7 +174,8 @@ async def preview_file(
     request: Request,
 ):
     """Preview file."""
-    normalized = unquote(filepath)
+    # ASGI 已解码路径一次；再次 unquote 会改写真实含 % 字符的文件名。
+    normalized = filepath
 
     # Normalize /C:/... to C:/... on Windows.
     if (
@@ -127,24 +194,7 @@ async def preview_file(
     from qwenpaw.identity.runtime import is_multi_user_enabled
 
     if is_multi_user_enabled():
-        from qwenpaw.access.dependencies import get_actor
-        from qwenpaw.artifacts.service import reject_symlink_path
-
-        actor = get_actor(request)
-        if actor.user_id is None:
-            raise HTTPException(status_code=401, detail="not_authenticated")
-        user_root = WORKING_DIR.resolve() / "user_workspaces" / str(actor.user_id)
-        try:
-            reject_symlink_path(unresolved_path)
-            reject_symlink_path(user_root)
-            if not path.is_relative_to(user_root) and not await _is_owned_legacy_attachment(
-                path, actor.user_id,
-            ):
-                raise ValueError()
-        except ValueError:
-            raise HTTPException(
-                status_code=403, detail="OUTSIDE_USER_WORKSPACE"
-            ) from None
+        await _authorize_private_preview(request, path, unresolved_path)
     reason = _check_path(path)
     if reason:
         raise HTTPException(status_code=403, detail=reason)

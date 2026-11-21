@@ -6,6 +6,7 @@ import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -77,6 +78,7 @@ const defaultForm = {
 
 function MCPPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const {
     clients,
     providerServers,
@@ -205,7 +207,7 @@ function MCPPage() {
         resetModal();
       }
     } catch {
-      alert("Invalid JSON format");
+      message.error(t("interaction.invalidJson"));
     }
   };
 
@@ -214,11 +216,11 @@ function MCPPage() {
     const key = form.key.trim();
     const name = form.name.trim();
     if (!key) {
-      alert(t("mcp.form.keyRequired"));
+      message.error(t("mcp.form.keyRequired"));
       return;
     }
     if (!name) {
-      alert(t("mcp.form.nameRequired"));
+      message.error(t("mcp.form.nameRequired"));
       return;
     }
 
@@ -226,11 +228,11 @@ function MCPPage() {
       form.transport === "streamable_http" || form.transport === "sse";
 
     if (isHttp && !form.url.trim()) {
-      alert(t("mcp.form.urlRequired"));
+      message.error(t("mcp.form.urlRequired"));
       return;
     }
     if (form.transport === "stdio" && !form.command.trim()) {
-      alert(t("mcp.form.commandRequired"));
+      message.error(t("mcp.form.commandRequired"));
       return;
     }
 
@@ -278,16 +280,18 @@ function MCPPage() {
     <div className={styles.mcpPage}>
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
-        extra={canEdit ? (
-          <Button
-            data-testid="mcp-create-open"
-            type="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            {t("mcp.create")}
-          </Button>
-        ) : undefined}
+        extra={
+          canEdit ? (
+            <Button
+              data-testid="mcp-create-open"
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreateModalOpen(true)}
+            >
+              {t("mcp.create")}
+            </Button>
+          ) : undefined
+        }
       />
 
       {loading ? (

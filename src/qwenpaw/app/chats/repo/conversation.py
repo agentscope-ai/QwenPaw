@@ -50,10 +50,11 @@ class ConversationAccessRecord(_Record):
     conversation: ConversationRecord
     access_role: ConversationAccessRole
     shared_by_username: str | None = None
+    historical_read_only: bool = False
 
     @property
     def read_only(self) -> bool:
-        return self.access_role == "viewer"
+        return self.access_role == "viewer" or self.historical_read_only
 
 
 class ConversationMemberRecord(_Record):

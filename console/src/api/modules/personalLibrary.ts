@@ -23,7 +23,43 @@ export interface PersonalLibraryDocumentContent
   truncated: boolean;
 }
 
+export interface PersonalLibraryIndexStatus {
+  document_id: string;
+  status:
+    | "pending"
+    | "ready"
+    | "partial"
+    | "empty"
+    | "unsupported"
+    | "too_large"
+    | "failed"
+    | "missing"
+    | "unavailable";
+  indexed_characters: number;
+  updated_at: string | null;
+}
+
 export const personalLibraryApi = {
+  indexStatus: (context: AgentRequestContext) =>
+    request<PersonalLibraryIndexStatus[]>(
+      "/console/personal-library/index",
+      withAgentRequestContext(undefined, context),
+    ),
+  rebuildIndex: (
+    documentIds: string[],
+    context: AgentRequestContext,
+    signal?: AbortSignal,
+  ) =>
+    request<PersonalLibraryIndexStatus[]>(
+      "/console/personal-library/index/rebuild",
+      {
+        ...withAgentRequestContext(undefined, context),
+        method: "POST",
+        signal,
+        timeout: 120_000,
+        body: JSON.stringify({ document_ids: documentIds }),
+      },
+    ),
   listPage: (
     query: string,
     offset: number,

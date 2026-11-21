@@ -16,6 +16,10 @@ class InMemoryRepository:
     def __init__(self) -> None:
         self.documents: dict[UUID, PersonalLibraryDocument] = {}
 
+    async def get_owned_document(self, *, owner_user_id: UUID, document_id: UUID):
+        document = self.documents.get(document_id)
+        return document if document and document.owner_user_id == owner_user_id else None
+
     async def get_document(self, *, owner_user_id: UUID, agent_id: UUID, document_id: UUID):
         document = self.documents.get(document_id)
         return document if document and document.owner_user_id == owner_user_id and document.agent_id == agent_id else None

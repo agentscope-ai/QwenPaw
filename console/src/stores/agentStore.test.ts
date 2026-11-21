@@ -23,6 +23,7 @@ describe("agentStore", () => {
     // Reset to initial state before each test
     useAgentStore.setState({
       selectedAgent: "default",
+      historicalAgentId: null,
       agents: [],
       lastChatIdByAgent: {},
     });
@@ -64,9 +65,9 @@ describe("agentStore", () => {
 
     useAgentStore.getState().setSelectedAgent("agent-a");
 
-    expect(
-      localStorage.getItem("qwenpaw-last-used-agent:user:user-a"),
-    ).toBe("agent-a");
+    expect(localStorage.getItem("qwenpaw-last-used-agent:user:user-a")).toBe(
+      "agent-a",
+    );
     expect(localStorage.getItem("qwenpaw-last-used-agent")).toBeNull();
     expect(
       localStorage.getItem("qwenpaw-agent-storage:user:user-a"),
@@ -166,6 +167,42 @@ describe("agentStore", () => {
 
     expect(useAgentStore.getState().selectedAgent).toBe("");
   });
+
+  it("preserves a selected disabled Agent for owner history without enabling it", async () => {
+    useAgentStore.setState({ selectedAgent: "history" });
+    mocks.listAgents.mockResolvedValue({
+      agents: [
+        { ...mockAgent("active"), enabled: true },
+        { ...mockAgent("history"), enabled: false, historical_read_only: true },
+      ],
+    });
+    await useAgentStore.getState().refreshAgents();
+    expect(useAgentStore.getState().selectedAgent).toBe("history");
+    expect(useAgentStore.getState().agents[1].enabled).toBe(false);
+  });
+
+  it.each([
+    { agents: [] },
+    { agents: [{ ...mockAgent("active"), enabled: true }] },
+  ])(
+    "preserves validated owner history through repeated refresh without its Agent profile (%j)",
+    async ({ agents }) => {
+      useAgentStore
+        .getState()
+        .setSelectedAgent("retired", { ownedHistory: true });
+      mocks.listAgents.mockResolvedValue({ agents });
+      await useAgentStore.getState().refreshAgents();
+      await useAgentStore.getState().refreshAgents();
+      expect(useAgentStore.getState().selectedAgent).toBe("retired");
+      expect(useAgentStore.getState().agents).toEqual(agents);
+      const stored = localStorage.getItem("qwenpaw-agent-storage") ?? "";
+      expect(stored).not.toContain("historicalAgentId");
+      useAgentStore.getState().setSelectedAgent("active");
+      expect(useAgentStore.getState().historicalAgentId).toBeNull();
+      useAgentStore.getState().resetIdentityState();
+      expect(useAgentStore.getState().historicalAgentId).toBeNull();
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // addAgent

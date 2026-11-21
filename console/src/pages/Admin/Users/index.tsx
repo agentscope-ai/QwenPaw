@@ -21,10 +21,14 @@ import {
   type CreateAdminUserRequest,
 } from "../../../api/modules/adminUsers";
 import { formatGovernanceError } from "./errors";
+import { useAuthStore } from "../../../stores/authStore";
 
 export default function UsersPage() {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
+  const isAdmin = useAuthStore(
+    (state) => state.user?.platform_role === "admin",
+  );
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -32,6 +36,8 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [resettingUser, setResettingUser] = useState<AdminUser | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadedAt, setLoadedAt] = useState(Date.now);
+  const [now, setNow] = useState(Date.now);
   const [form] = Form.useForm<CreateAdminUserRequest>();
   const [profileForm] = Form.useForm<AdminUserProfileInput>();
   const [passwordForm] = Form.useForm<{
@@ -40,19 +46,54 @@ export default function UsersPage() {
   }>();
 
   const load = useCallback(async () => {
+    if (!isAdmin) return;
     setLoading(true);
     try {
       setUsers(await adminUsersApi.list());
+      setLoadedAt(Date.now());
+      setNow(Date.now());
     } catch (error) {
       message.error(formatGovernanceError(error, t));
     } finally {
       setLoading(false);
     }
-  }, [message, t]);
+  }, [message, t, isAdmin]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!users.some((user) => user.login_locked)) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [users]);
+
+  const remainingSeconds = (user: AdminUser) =>
+    Math.max(
+      0,
+      (user.login_retry_after_seconds ?? 0) -
+        Math.floor((now - loadedAt) / 1000),
+    );
+
+  const unlockUser = (user: AdminUser) => {
+    modal.confirm({
+      title: t("adminUsers.unlockTitle"),
+      content: t("adminUsers.unlockConfirm", { username: user.username }),
+      okText: t("adminUsers.unlock"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        try {
+          await adminUsersApi.unlock(user.id);
+          message.success(t("adminUsers.unlocked"));
+          await load();
+        } catch (error) {
+          message.error(formatGovernanceError(error, t));
+          throw error;
+        }
+      },
+    });
+  };
 
   const createUser = async (values: CreateAdminUserRequest) => {
     setCreating(true);
@@ -174,6 +215,9 @@ export default function UsersPage() {
     }
   };
 
+  if (!isAdmin)
+    return <Typography.Text>{t("adminUsers.adminOnly")}</Typography.Text>;
+
   return (
     <div style={{ padding: 24 }}>
       <Card>
@@ -249,9 +293,46 @@ export default function UsersPage() {
               ),
             },
             {
+              title: t("adminUsers.loginStatus"),
+              render: (_, user) => (
+                <Space direction="vertical" size={0}>
+                  <Tag
+                    color={
+                      user.login_locked && remainingSeconds(user) > 0
+                        ? "orange"
+                        : "green"
+                    }
+                  >
+                    {user.login_locked && remainingSeconds(user) > 0
+                      ? t("adminUsers.loginLocked", {
+                          seconds: remainingSeconds(user),
+                        })
+                      : t("adminUsers.loginUnlocked")}
+                  </Tag>
+                  {(user.login_failed_attempts ?? 0) > 0 && (
+                    <Typography.Text type="secondary">
+                      {t("adminUsers.failedAttempts", {
+                        count: user.login_failed_attempts,
+                      })}
+                    </Typography.Text>
+                  )}
+                </Space>
+              ),
+            },
+            {
               title: t("adminUsers.actions", "Actions"),
               render: (_, user) => (
                 <Space>
+                  <Button
+                    size="small"
+                    disabled={
+                      user.status !== "active" ||
+                      (!user.login_locked && !(user.login_failed_attempts ?? 0))
+                    }
+                    onClick={() => unlockUser(user)}
+                  >
+                    {t("adminUsers.unlock")}
+                  </Button>
                   <Button size="small" onClick={() => openProfile(user)}>
                     {t("adminUsers.editProfile", "Edit Profile")}
                   </Button>

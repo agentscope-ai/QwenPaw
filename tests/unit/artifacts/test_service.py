@@ -52,6 +52,84 @@ class Repository:
         self.items[item.id] = updated
         return updated
 
+    async def restore_failed_delete(self, *, owner_user_id, artifact_id, deleted_at):
+        from dataclasses import replace
+        item = await self.get(owner_user_id=owner_user_id, artifact_id=artifact_id)
+        if item is None or item.status != "deleted" or item.deleted_at != deleted_at:
+            return None
+        self.items[item.id] = replace(item, status="active", deleted_at=None)
+        return self.items[item.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["owned_app", "foreign_app", "untrusted_app", "other_agent", "invalid_app_id"])
+async def test_shared_application_delivery_keeps_files_in_owned_archive(tmp_path, case):
+    from uuid import uuid4
+    resolver = WorkspaceResolver(working_dir=tmp_path)
+    app = resolver.resolve_shared_app_runtime(
+        user_id=USER_B if case == "foreign_app" else USER_A,
+        shared_app_id=uuid4(), publication_id=uuid4(),
+    )
+    folder = app.path
+    if case == "other_agent":
+        folder = resolver.resolve(kind=WorkspaceKind.USER_RUNTIME, actor_user_id=USER_A, resource_id="other-agent").path
+    elif case == "invalid_app_id":
+        folder = tmp_path / "user_workspaces" / str(USER_A) / "apps" / "invalid-app" / "invalid-version"
+    folder.mkdir(parents=True)
+    source = folder / "应用交付报告.pdf"
+    source.write_bytes(b"%PDF-owned-app-output")
+    repository = Repository()
+    service = ArtifactService(repository=repository, working_dir=tmp_path)
+    params = dict(owner_user_id=USER_A, agent_key="source-agent", source=source,
+        conversation_id=uuid4(), trusted_source_roots=() if case == "untrusted_app" else (folder,))
+    if case != "owned_app":
+        with pytest.raises(ArtifactSourceDenied):
+            await service.publish(**params)
+        assert repository.items == {}
+        return
+    record = await service.publish(**params)
+    assert record.owner_user_id == USER_A
+    # 应用版本工作文件消失后，交付的归档仍属于原用户。
+    source.unlink()
+    _, archive = await ArtifactService(repository=repository, working_dir=tmp_path).download_owned_path(
+        owner_user_id=USER_A, artifact_id=record.id,
+    )
+    assert archive.read_bytes() == b"%PDF-owned-app-output"
+    assert archive.is_relative_to(tmp_path / "user_workspaces" / str(USER_A) / "source-agent")
+    with pytest.raises(ArtifactNotFound):
+        await service.download_owned_path(owner_user_id=USER_B, artifact_id=record.id)
+
+
+@pytest.mark.asyncio
+async def test_redelivery_repairs_missing_snapshot_without_changing_owned_artifact_id(tmp_path):
+    repository = Repository()
+    service = ArtifactService(repository=repository, working_dir=tmp_path)
+    source = service._runtime_root(USER_A, "agent-a") / "简报.pdf"
+    source.write_bytes(b"%PDF-durable-owned-report")
+    conversation = UUID("33333333-3333-4333-8333-333333333333")
+    first = await service.publish(owner_user_id=USER_A, agent_key="agent-a", source=source, conversation_id=conversation)
+    _, archive = await service.download_path(owner_user_id=USER_A, agent_key="agent-a", artifact_id=first.id)
+    archive.unlink()
+    restarted = ArtifactService(repository=repository, working_dir=tmp_path)
+    delivered = await restarted.publish(owner_user_id=USER_A, agent_key="agent-a", source=source, conversation_id=conversation)
+    assert delivered.id == first.id
+    _, restored = await restarted.download_path(owner_user_id=USER_A, agent_key="agent-a", artifact_id=first.id)
+    assert restored.read_bytes() == b"%PDF-durable-owned-report"
+    assert len(repository.items) == 1
+
+
+@pytest.mark.asyncio
+async def test_redelivery_does_not_claim_success_for_corrupt_registered_snapshot(tmp_path):
+    service = ArtifactService(repository=Repository(), working_dir=tmp_path)
+    source = service._runtime_root(USER_A, "agent-a") / "report.pdf"
+    source.write_bytes(b"%PDF-original")
+    first = await service.publish(owner_user_id=USER_A, agent_key="agent-a", source=source)
+    _, archive = await service.download_path(owner_user_id=USER_A, agent_key="agent-a", artifact_id=first.id)
+    archive.write_bytes(b"corrupt")
+    with pytest.raises(ArtifactSourceDenied, match="archive_content_conflict"):
+        await service.publish(owner_user_id=USER_A, agent_key="agent-a", source=source)
+    assert source.read_bytes() == b"%PDF-original"
+
 
 @pytest.mark.asyncio
 async def test_user_artifact_is_copied_to_private_runtime_and_other_user_cannot_read(tmp_path: Path) -> None:
@@ -137,8 +215,11 @@ async def test_publish_rejects_link_ancestor_without_resolving_it(tmp_path, monk
     service = ArtifactService(repository=Repository(), working_dir=tmp_path)
     source = service._runtime_root(USER_A, "agent-a") / "report.md"
     source.write_bytes(b"report")
-    original = Path.is_symlink
-    monkeypatch.setattr(Path, "is_symlink", lambda path: path == source or original(path))
+    from qwenpaw.utils.path_safety import is_link_or_junction
+    monkeypatch.setattr(
+        "qwenpaw.artifacts.service.is_link_or_junction",
+        lambda path: path == source or is_link_or_junction(path),
+    )
     with pytest.raises(ArtifactSourceDenied, match="symlink"):
         await service.publish(owner_user_id=USER_A, agent_key="agent-a", source=source)
 

@@ -87,7 +87,8 @@ async def test_memory_scopes_return_public_and_current_users_private_only(
     public_can_edit: bool,
 ) -> None:
     repository = SimpleNamespace(
-        ensure_private=AsyncMock(return_value=_private_record())
+        ensure_private=AsyncMock(),
+        get_private=AsyncMock(return_value=_private_record()),
     )
     with (
         patch(
@@ -119,8 +120,11 @@ async def test_memory_scopes_return_public_and_current_users_private_only(
     assert response.scopes[1].can_edit is True
     assert not hasattr(response.scopes[1], "workspace_path")
     assert not hasattr(response.scopes[1], "user_id")
-    repository.ensure_private.assert_awaited_once()
-    assert (tmp_path / "user_workspaces" / str(USER_ID) / "agent-a").is_dir()
+    repository.ensure_private.assert_not_awaited()
+    repository.get_private.assert_awaited_once_with(
+        user_id=USER_ID, agent_key="agent-a"
+    )
+    assert not (tmp_path / "user_workspaces" / str(USER_ID) / "agent-a").exists()
 
 
 @pytest.mark.asyncio
@@ -255,9 +259,10 @@ async def test_private_reindex_failure_is_persisted() -> None:
                 scope=MemoryScope.PRIVATE,
             )
 
-    assert repository.update_index_state.await_args_list[-1].kwargs[
-        "index_state"
-    ] is MemoryIndexState.REINDEX_FAILED
+    assert (
+        repository.update_index_state.await_args_list[-1].kwargs["index_state"]
+        is MemoryIndexState.REINDEX_FAILED
+    )
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,17 @@
 """Rate limiting utilities for authentication endpoints."""
 import time
 from collections import defaultdict, deque
+from dataclasses import dataclass
+from math import ceil
 from typing import Dict, Deque
+
+
+@dataclass(frozen=True)
+class LoginLockStatus:
+    locked: bool
+    failed_attempts: int
+    remaining_attempts: int
+    retry_after_seconds: int
 
 
 class LoginRateLimiter:
@@ -87,13 +97,39 @@ class LoginRateLimiter:
 
     def is_user_locked(self, username: str) -> bool:
         """Check if a user account is locked due to failed login attempts."""
+        return self.user_status(username).locked
+
+    def user_status(self, username: str) -> LoginLockStatus:
+        """Return the same normalized account state used by login and admin UI."""
+        username = username.strip()
+        now = time.time()
         if username in self.locked_users:
-            if time.time() < self.locked_users[username]:
-                return True
-            else:
-                # Lock expired, remove from locked list
+            if now >= self.locked_users[username]:
                 del self.locked_users[username]
-        return False
+        retry_after = max(0, ceil(self.locked_users.get(username, now) - now))
+        attempts = self.user_attempts.get(username)
+        if attempts is not None:
+            self._cleanup_old_attempts(attempts)
+        failed = sum(1 for _, success in attempts or () if not success)
+        return LoginLockStatus(
+            locked=retry_after > 0,
+            failed_attempts=failed,
+            remaining_attempts=0 if retry_after else max(
+                0, self.user_max_failed_attempts - failed
+            ),
+            retry_after_seconds=retry_after,
+        )
+
+    def ip_retry_after_seconds(self, ip_address: str) -> int:
+        """Return the IP protection delay without exposing any other account."""
+        if self.is_ip_locked(ip_address):
+            return max(1, ceil(self.locked_ips[ip_address] - time.time()))
+        attempts = self.ip_attempts.get(ip_address)
+        if attempts:
+            self._cleanup_old_attempts(attempts)
+        if attempts and self.is_ip_rate_limited(ip_address):
+            return max(1, ceil(attempts[0][0] + 60 - time.time()))
+        return 0
 
     def record_login_attempt(
         self,
@@ -102,6 +138,8 @@ class LoginRateLimiter:
         success: bool,
     ) -> None:
         """Record a login attempt."""
+        username = username.strip()
+        self.user_status(username)
         timestamp = time.time()
 
         # Record attempt for IP (with username for tracking unique accounts)
@@ -132,8 +170,9 @@ class LoginRateLimiter:
 
             # Lock user account if too many failed attempts
             if recent_failed_attempts_user >= self.user_max_failed_attempts:
-                self.locked_users[username] = (
-                    timestamp + self.user_lock_duration
+                # In-flight failed requests must not extend an existing lock.
+                self.locked_users.setdefault(
+                    username, timestamp + self.user_lock_duration
                 )
 
             # Check if IP should be locked based on rate limiting rules
@@ -142,6 +181,7 @@ class LoginRateLimiter:
 
     def clear_user_failed_attempts(self, username: str) -> None:
         """Clear failed login attempts for a user."""
+        username = username.strip()
         self._cleanup_old_attempts(self.user_attempts[username])
         self.user_attempts[username] = deque(
             [(ts, succ) for ts, succ in self.user_attempts[username] if succ],

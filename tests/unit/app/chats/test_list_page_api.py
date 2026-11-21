@@ -32,6 +32,7 @@ async def test_page_contract_and_invalid_requests(monkeypatch):
         response = await client.get("/chats/page?session_id=old-session")
         assert response.status_code == 200
         assert response.json()["items"][0]["read_only"] is True
+        assert response.json()["items"][0]["agent_id"] == "default"
         assert response.json()["next_cursor"] == "next"
         assert manager.list_chat_page.call_args.kwargs["page_size"] == 20
         assert manager.list_chat_page.call_args.kwargs["session_id"] == "old-session"
@@ -54,9 +55,10 @@ async def test_deep_link_spec_checks_access_without_loading_history(monkeypatch)
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[api.get_chat_manager] = lambda: SimpleNamespace()
-    app.dependency_overrides[api.get_workspace] = lambda: SimpleNamespace(task_tracker=SimpleNamespace(get_status=AsyncMock(return_value="idle")))
+    app.dependency_overrides[api.get_workspace] = lambda: SimpleNamespace(agent_id="history-agent", task_tracker=SimpleNamespace(get_status=AsyncMock(return_value="idle")))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get(f"/chats/{spec.id}/spec")
     assert response.status_code == 200
     assert response.json()["id"] == spec.id
+    assert response.json()["agent_id"] == "history-agent"
     authorize.assert_awaited_once()

@@ -89,8 +89,10 @@ export function createSkillGovernanceApi(scope: SkillScope) {
       call(`${item(id)}/agent-grants/${encodeURIComponent(agentId)}`, "PUT", {
         enabled,
       }),
-    requests: () =>
-      call<{ requests: SkillPublicationRequest[] }>(`${governance}/requests`),
+    requests: (scope: "all" | "mine" = "all") =>
+      call<{ requests: SkillPublicationRequest[] }>(
+        `${governance}/requests${scope === "mine" ? "?scope=mine" : ""}`,
+      ),
     detail: (id: string) => call<SkillRequestDetail>(publication(id)),
     file: (id: string, path: string) =>
       call<{ content: string }>(

@@ -10,6 +10,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { interactionErrorText } from "../../utils/interactionText";
 import {
   Button,
   Input,
@@ -61,6 +63,7 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function GitPanel({ chatId }: { chatId?: string }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -127,12 +130,14 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
       try {
         await gitApi.checkout(branch, false, chatId);
         await refresh();
-        void msgApi.success(`Switched to ${branch}`);
+        void msgApi.success(t("gitInteraction.switched", { branch }));
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        void msgApi.error(
+          interactionErrorText(e instanceof Error ? e.message : String(e)),
+        );
       }
     },
-    [chatId, refresh, msgApi],
+    [chatId, refresh, msgApi, t],
   );
 
   const handleCreateBranch = useCallback(async () => {
@@ -142,11 +147,15 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
       setNewBranchModal(false);
       setNewBranchName("");
       await refresh();
-      void msgApi.success(`Created & switched to ${newBranchName.trim()}`);
+      void msgApi.success(
+        t("gitInteraction.createdBranch", { branch: newBranchName.trim() }),
+      );
     } catch (e: unknown) {
-      void msgApi.error(String(e));
+      void msgApi.error(
+        interactionErrorText(e instanceof Error ? e.message : String(e)),
+      );
     }
-  }, [chatId, newBranchName, refresh, msgApi]);
+  }, [chatId, newBranchName, refresh, msgApi, t]);
 
   // ---- Stage / unstage ------------------------------------------------------
 
@@ -178,12 +187,14 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
       try {
         await gitApi.discard([file.path], chatId);
         await refresh();
-        void msgApi.success(`Discarded changes in ${file.path}`);
+        void msgApi.success(t("gitInteraction.discarded", { path: file.path }));
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        void msgApi.error(
+          interactionErrorText(e instanceof Error ? e.message : String(e)),
+        );
       }
     },
-    [chatId, refresh, msgApi],
+    [chatId, refresh, msgApi, t],
   );
 
   // ---- Diff -----------------------------------------------------------------
@@ -236,24 +247,28 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
         await gitApi.revert(commit.hash, chatId);
         await refresh();
         await refreshLog();
-        void msgApi.success(`Reverted commit ${commit.hash}`);
+        void msgApi.success(
+          t("gitInteraction.reverted", { hash: commit.hash }),
+        );
       } catch (e: unknown) {
-        void msgApi.error(String(e));
+        void msgApi.error(
+          interactionErrorText(e instanceof Error ? e.message : String(e)),
+        );
       }
     },
-    [chatId, refresh, refreshLog, msgApi],
+    [chatId, refresh, refreshLog, msgApi, t],
   );
 
   // ---- Commit ---------------------------------------------------------------
 
   const handleCommit = useCallback(async () => {
     if (!commitMsg.trim()) {
-      void msgApi.warning("Please enter a commit message");
+      void msgApi.warning(t("gitInteraction.commitMessageRequired"));
       return;
     }
     const hasStaged = status?.changes.some((f) => f.staged);
     if (!hasStaged) {
-      void msgApi.warning("No staged files. Stage changes before committing.");
+      void msgApi.warning(t("gitInteraction.noStagedFiles"));
       return;
     }
     setCommitting(true);
@@ -262,22 +277,20 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
       setCommitMsg("");
       await refresh();
       await refreshLog();
-      void msgApi.success("Committed successfully");
+      void msgApi.success(t("gitInteraction.committed"));
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : String(e);
       if (raw.includes("nothing to commit")) {
-        void msgApi.warning("Nothing to commit");
+        void msgApi.warning(t("gitInteraction.nothingToCommit"));
       } else if (raw.includes("nothing added to commit")) {
-        void msgApi.warning(
-          "No staged files. Stage changes before committing.",
-        );
+        void msgApi.warning(t("gitInteraction.noStagedFiles"));
       } else {
-        void msgApi.error(raw);
+        void msgApi.error(interactionErrorText(raw));
       }
     } finally {
       setCommitting(false);
     }
-  }, [chatId, commitMsg, status, refresh, refreshLog, msgApi]);
+  }, [chatId, commitMsg, status, refresh, refreshLog, msgApi, t]);
 
   // ---- Render ---------------------------------------------------------------
 
@@ -467,11 +480,13 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
                             </button>
                           </Tooltip>
                           <Popconfirm
-                            title={`Revert commit "${c.message}"?`}
-                            description="This creates a new commit that undoes these changes."
+                            title={t("gitInteraction.revertTitle", {
+                              message: c.message,
+                            })}
+                            description={t("gitInteraction.revertDescription")}
                             onConfirm={() => void handleRevert(c)}
-                            okText="Revert"
-                            cancelText="Cancel"
+                            okText={t("gitInteraction.revert")}
+                            cancelText={t("common.cancel")}
                             placement="topRight"
                           >
                             <Tooltip title="Revert this commit">
@@ -543,7 +558,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
         title={
           <span>
             <GitMerge size={14} style={{ marginRight: 6 }} />
-            New branch
+            {t("gitInteraction.newBranch")}
           </span>
         }
         onOk={handleCreateBranch}
@@ -551,7 +566,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
           setNewBranchModal(false);
           setNewBranchName("");
         }}
-        okText="Create & Switch"
+        okText={t("gitInteraction.createAndSwitch")}
         width={360}
       >
         <Input
@@ -587,6 +602,7 @@ function FileRow({
   actionIcon,
   actionTip,
 }: FileRowProps) {
+  const { t } = useTranslation();
   const name = file.path.split("/").pop() ?? file.path;
   return (
     <div className={styles.fileRow}>
@@ -602,11 +618,13 @@ function FileRow({
         </Tooltip>
         {onDiscard && (
           <Popconfirm
-            title="Discard changes?"
-            description={`Discard all changes in ${file.path}?`}
+            title={t("gitInteraction.discardTitle")}
+            description={t("gitInteraction.discardDescription", {
+              path: file.path,
+            })}
             onConfirm={onDiscard}
-            okText="Discard"
-            cancelText="Cancel"
+            okText={t("gitInteraction.discard")}
+            cancelText={t("common.cancel")}
             okButtonProps={{ danger: true }}
             placement="topRight"
           >

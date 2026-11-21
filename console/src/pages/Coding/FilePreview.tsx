@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { workspaceApi } from "../../api/modules/workspace";
-import { buildAuthHeaders } from "../../api/authHeaders";
+import { readFileResponse } from "../../api/fileAccess";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock";
 import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
@@ -121,15 +121,17 @@ function useAuthBlobUrl(
 
     const loadBlob = async (): Promise<Blob | null> => {
       const url = binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
-      const res = await fetch(url, {
-        headers: {
-          ...buildAuthHeaders(),
-          ...(chatId ? { "X-Chat-Id": chatId } : {}),
-          ...binaryHeaders,
+      return readFileResponse(
+        url,
+        { agentId: binaryHeaders?.["X-Agent-Id"] ?? selectedAgent },
+        (response) => response.blob(),
+        {
+          headers: {
+            ...(chatId ? { "X-Chat-Id": chatId } : {}),
+            ...binaryHeaders,
+          },
         },
-      });
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.blob();
+      );
     };
 
     loadBlob()

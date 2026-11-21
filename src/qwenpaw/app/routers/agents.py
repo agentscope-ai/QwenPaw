@@ -35,6 +35,7 @@ from ...identity.runtime import get_identity_schema, is_multi_user_enabled
 from ...memory_scope.models import (
     MemoryIndexState,
     MemoryScope,
+    MemoryScopeDenied,
     MemoryWorkspaceStatus,
 )
 from ...memory_scope.resolver import MemoryScopeResolver
@@ -318,6 +319,39 @@ def _get_memory_scope_resolver() -> MemoryScopeResolver:
     return MemoryScopeResolver()
 
 
+async def _private_memory_summary(*, resolver, actor, agent_id: str, can_edit: bool):
+    """本人文件的读取能力独立于可重建的索引元数据，不创建运行空间。"""
+    context = resolver.resolve_private(actor=actor, agent_id=agent_id)
+    resolver.existing_workspace(context)
+    try:
+        record = await _get_agent_user_workspace_repository().get_private(
+            user_id=actor.user_id,
+            agent_key=agent_id,
+        )
+    except Exception:
+        record = None
+    if record is not None and (
+        record.user_id != actor.user_id or record.agent_key != agent_id
+    ):
+        record = None
+    return MemoryScopeSummary(
+        scope=MemoryScope.PRIVATE,
+        can_read=True,
+        can_edit=can_edit,
+        status=(
+            record.status
+            if record
+            else (
+                MemoryWorkspaceStatus.ACTIVE
+                if can_edit
+                else MemoryWorkspaceStatus.ACCESS_REVOKED
+            )
+        ),
+        index_state=record.index_state if record else MemoryIndexState.NEEDS_REINDEX,
+        index_version=record.index_version if record else 0,
+    )
+
+
 def _model_mode(active_model: ModelSlotConfig | None) -> Literal[
     "inherited",
     "explicit",
@@ -351,27 +385,49 @@ async def get_memory_scopes(
         request is not None
         and request.headers.get("X-Agent-Governance") == "runtime-config"
     )
-    access = await _require_agent_role(
-        request=request,
-        agent_id=agentId,
-        allowed_roles={
-            AgentResourceRole.OWNER,
-            AgentResourceRole.COLLABORATOR,
-            AgentResourceRole.USER,
-        },
-    )
     actor = _request_actor(request)
     resolver = _get_memory_scope_resolver()
+    try:
+        access = await _require_agent_role(
+            request=request,
+            agent_id=agentId,
+            allowed_roles={
+                AgentResourceRole.OWNER,
+                AgentResourceRole.COLLABORATOR,
+                AgentResourceRole.USER,
+            },
+        )
+    except HTTPException as exc:
+        if (
+            governance
+            or not is_multi_user_enabled()
+            or exc.status_code not in {403, 404}
+        ):
+            raise
+        # 本人文件不随 Agent 运行资格消失；只返回自己的私有只读能力。
+        try:
+            from ..owned_content import owner_agent_key
+
+            if owner_agent_key(request) != agentId:
+                raise HTTPException(status_code=400, detail="agent_scope_mismatch")
+            summary = await _private_memory_summary(
+                resolver=resolver,
+                actor=actor,
+                agent_id=agentId,
+                can_edit=False,
+            )
+        except MemoryScopeDenied as error:
+            raise HTTPException(status_code=403, detail="forbidden") from error
+        return MemoryScopesResponse(agent_id=agentId, scopes=[summary])
     public_context = resolver.resolve_public(
         actor=actor,
         agent_id=agentId,
         governance=governance,
     )
-    resolver.ensure_workspace(public_context)
+    resolver.existing_workspace(public_context)
     public_can_edit = governance or (
         access is not None
-        and access.role
-        in {AgentResourceRole.OWNER, AgentResourceRole.COLLABORATOR}
+        and access.role in {AgentResourceRole.OWNER, AgentResourceRole.COLLABORATOR}
         and not access.historical_read_only
     )
     try:
@@ -405,26 +461,13 @@ async def get_memory_scopes(
         )
     ]
     if not governance and actor.user_id is not None:
-        private_context = resolver.resolve_private(
-            actor=actor,
-            agent_id=agentId,
-        )
-        resolver.ensure_workspace(private_context)
-        repository = _get_agent_user_workspace_repository()
-        record = await repository.ensure_private(
-            user_id=actor.user_id,
-            agent_key=agentId,
-            workspace_key=resolver.workspace_key(private_context),
-        )
         summaries.append(
-            MemoryScopeSummary(
-                scope=MemoryScope.PRIVATE,
-                can_read=True,
-                can_edit=True,
-                status=record.status,
-                index_state=record.index_state,
-                index_version=record.index_version,
-            )
+            await _private_memory_summary(
+                resolver=resolver,
+                actor=actor,
+                agent_id=agentId,
+                can_edit=not bool(access and access.historical_read_only),
+            ),
         )
     return MemoryScopesResponse(agent_id=agentId, scopes=summaries)
 
@@ -1416,7 +1459,6 @@ async def _persist_agent_update(
             agentId,
             _model_mode(persisted.active_model),
         )
-
 
 
 @router.post(

@@ -429,15 +429,18 @@ async def _resolve_console_attachment_refs(
         )
         if (
             record is None
+            or record.id != attachment_id
             or record.owner_user_id != actor.user_id
             or record.lifecycle == "deleted"
             or record.agent_id != expected_agent_id
             or record.conversation_id not in {None, parsed_conversation_id}
         ):
             raise HTTPException(status_code=404, detail="Attachment not found")
-        target = Path(record.storage_key).resolve()
-        if not target.is_file():
-            raise HTTPException(status_code=404, detail="Attachment not found")
+        from ..attachments.service import resolve_owned_attachment_path
+        try:
+            target = resolve_owned_attachment_path(record, owner_user_id=actor.user_id)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Attachment not found") from exc
         _set_part_value(part, "attachment_id", str(record.id))
         _set_part_value(part, "attachment_url", display_url)
         _set_part_value(part, url_key, str(target))
@@ -1512,16 +1515,21 @@ async def get_push_messages(
     from ..console_push_store import get_recent, take
     from ..approvals import get_approval_service
 
-    # Get messages (session-specific or global)
+    recipient_user_id = None
+    if is_multi_user_enabled():
+        actor = get_actor(request)
+        if actor.user_id is None:
+            raise HTTPException(401, detail="not_authenticated")
+        recipient_user_id = str(actor.user_id)
+    # 先过滤接收人再消费；知道另一会话 ID 不构成读取或清除通知的权限。
+    scope = {"recipient_user_id": recipient_user_id} if recipient_user_id else {}
     if session_id:
-        messages = await take(session_id)
+        messages = await take(session_id, **scope)
     else:
-        messages = await get_recent()
+        messages = await get_recent(**scope)
 
     approval_svc = get_approval_service()
-    approval_user_id = (
-        str(get_actor(request).user_id) if is_multi_user_enabled() else None
-    )
+    approval_user_id = recipient_user_id
     all_pending = await approval_svc.list_pending_for_user(approval_user_id)
 
     # Serialize approval data with root_session_id for frontend filtering
@@ -2148,21 +2156,30 @@ async def get_console_chat_task(
         delegation = getattr(request, "scope", {}).get("qwenpaw.subtask")
         selected_agent = getattr(request.state, "agent_id", None) or request.headers.get("X-Agent-Id")
         source_agent_id = bg.parent_agent_id or bg.agent_id
-        if selected_agent and selected_agent not in {source_agent_id, bg.agent_id}:
+        scoped_agent = request.path_params.get("agentId")
+        if scoped_agent and scoped_agent not in {source_agent_id, bg.agent_id}:
+            raise HTTPException(status_code=404, detail="Task not found")
+        if (
+            bg.status != "finished"
+            and selected_agent
+            and selected_agent not in {source_agent_id, bg.agent_id}
+        ):
             raise HTTPException(status_code=404, detail="Task not found")
         if delegation and (
             (source_agent_id, bg.parent_conversation_id) != (delegation.agent_id, delegation.conversation_id)
             or (delegation.is_subtask and delegation.destination != bg.agent_id)
         ):
             raise HTTPException(status_code=404, detail="Task not found")
-        async with _console_workspace(request, agent_id=bg.agent_id) as workspace:
-            if source_agent_id != bg.agent_id:
-                await _require_source_chat(request, source_agent_id, bg.parent_conversation_id)
-                await _require_owned_chat(request, workspace, bg.conversation_id, delegated=True)
-            else:
-                await _require_console_conversation_write(
-                    request, workspace, bg.parent_conversation_id or bg.conversation_id,
-                )
+        # 已结束结果属于发起用户；历史读取不应重新取得模型/工具运行资格。
+        if bg.status != "finished":
+            async with _console_workspace(request, agent_id=bg.agent_id) as workspace:
+                if source_agent_id != bg.agent_id:
+                    await _require_source_chat(request, source_agent_id, bg.parent_conversation_id)
+                    await _require_owned_chat(request, workspace, bg.conversation_id, delegated=True)
+                else:
+                    await _require_console_conversation_write(
+                        request, workspace, bg.parent_conversation_id or bg.conversation_id,
+                    )
     response: Dict[str, Any] = {
         "status": bg.status,
         "conversation_id": bg.conversation_id,
@@ -2202,11 +2219,17 @@ async def get_console_attachment(
         attachment_id=attachment_id,
         owner_user_id=actor.user_id,
     )
-    if record is None or record.lifecycle == "deleted":
+    if (record is None or record.id != attachment_id
+            or record.owner_user_id != actor.user_id or record.lifecycle == "deleted"):
         raise HTTPException(status_code=404, detail="Attachment not found")
-    target = Path(record.storage_key).resolve()
-    if not target.is_file():
-        raise HTTPException(status_code=404, detail="Attachment not found")
+    from ..attachments.service import resolve_owned_attachment_path
+    try:
+        explicit_agent = request.path_params.get("agentId")
+        if explicit_agent and agent_database_id(explicit_agent) != record.agent_id:
+            raise FileNotFoundError("attachment_not_found")
+        target = resolve_owned_attachment_path(record, owner_user_id=actor.user_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Attachment not found") from exc
     return FileResponse(
         target,
         filename=record.original_name,

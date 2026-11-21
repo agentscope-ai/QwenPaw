@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
 import {
   Button,
   Card,
@@ -38,6 +45,8 @@ import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 import { useAuthStore } from "@/stores/authStore";
 import { useAgentStore } from "@/stores/agentStore";
+import { subscribeChatSessionScope } from "@/stores/chatSessionScope";
+import { getCronAccessScopeKey } from "./useCronJobs";
 
 type CronJob = CronJobSpecOutput;
 type OneTimeCronJob = CronJob & {
@@ -62,6 +71,14 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 function CronJobsPage() {
+  const accessKey = useSyncExternalStore(
+    subscribeChatSessionScope,
+    getCronAccessScopeKey,
+  );
+  return <ScopedCronJobsPage key={accessKey} />;
+}
+
+function ScopedCronJobsPage() {
   const { t } = useTranslation();
   const authUser = useAuthStore((state) => state.user);
   const selectedAgent = useAgentStore((state) =>
@@ -71,6 +88,19 @@ function CronJobsPage() {
     authUser?.platform_role === "admin" ||
     selectedAgent?.access_role === "owner";
   const [taskScope, setTaskScope] = useState<"mine" | "agent">("mine");
+  const viewKey = `${getCronAccessScopeKey()}:${taskScope}`;
+  const viewKeyRef = useRef(viewKey);
+  viewKeyRef.current = viewKey;
+  const activeRef = useRef(true);
+  const current = useCallback(
+    () =>
+      activeRef.current &&
+      viewKeyRef.current === viewKey &&
+      `${getCronAccessScopeKey()}:${taskScope}` === viewKey,
+    [viewKey, taskScope],
+  );
+  const confirmations = useRef(new Set<{ destroy: () => void }>());
+  const historySequence = useRef(0);
   const {
     jobs,
     loading,
@@ -116,6 +146,33 @@ function CronJobsPage() {
   const [targetChannels, setTargetChannels] = useState<string[]>(["console"]);
   const [targetsLoading, setTargetsLoading] = useState(false);
 
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      historySequence.current++;
+      confirmations.current.forEach((modal) => modal.destroy());
+      confirmations.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    setEditingJob(null);
+    setDrawerOpen(false);
+    setHistoryModalOpen(false);
+    setHistoryRecords([]);
+    setHistoryJobName("");
+    historySequence.current++;
+    confirmations.current.forEach((modal) => modal.destroy());
+    confirmations.current.clear();
+  }, [taskScope]);
+
+  const confirm = (options: Parameters<typeof Modal.confirm>[0]) => {
+    if (!current()) return;
+    const modal = Modal.confirm(options);
+    confirmations.current.add(modal);
+  };
+
   const isOneTimeJob = (job: CronJob): job is OneTimeCronJob =>
     job.schedule?.type === "once" && typeof job.schedule?.run_at === "string";
 
@@ -123,29 +180,32 @@ function CronJobsPage() {
     api
       .getUserTimezone()
       .then((res) => {
-        if (res.timezone) {
+        if (current() && res.timezone) {
           userTimezoneRef.current = res.timezone;
           setUserTimezone(res.timezone);
           setCalendarMonth(dayjs().tz(res.timezone));
         }
       })
       .catch((err) => console.error("Failed to fetch user timezone:", err));
-  }, []);
+  }, [current]);
 
   const loadDispatchTargets = useCallback(async () => {
+    if (!current()) return;
     setTargetsLoading(true);
     try {
       const res = await api.listCronDispatchTargets();
+      if (!current()) return;
       setTargetItems(res?.items || []);
       setTargetChannels(res?.channels?.length ? res.channels : ["console"]);
     } catch (error) {
+      if (!current()) return;
       console.error("Failed to fetch cron dispatch targets", error);
       setTargetItems([]);
       setTargetChannels(["console"]);
     } finally {
-      setTargetsLoading(false);
+      if (current()) setTargetsLoading(false);
     }
-  }, []);
+  }, [current]);
 
   useEffect(() => {
     loadDispatchTargets();
@@ -274,7 +334,7 @@ function CronJobsPage() {
   };
 
   const handleDelete = (jobId: string) => {
-    Modal.confirm({
+    confirm({
       title: t("cronJobs.confirmDelete"),
       content: t("cronJobs.deleteConfirm"),
       okText: t("cronJobs.deleteText"),
@@ -291,7 +351,7 @@ function CronJobsPage() {
   };
 
   const handleExecuteNow = async (job: CronJob) => {
-    Modal.confirm({
+    confirm({
       title: t("cronJobs.executeNowTitle"),
       content: t("cronJobs.executeNowContent", { name: job.name }),
       okText: t("cronJobs.executeNowConfirm"),
@@ -309,22 +369,29 @@ function CronJobsPage() {
   };
 
   const handleViewHistory = async (job: CronJob) => {
+    if (!current()) return;
+    const sequence = ++historySequence.current;
     setHistoryJobName(job.name);
+    setHistoryRecords([]);
     setHistoryModalOpen(true);
     setExpandedHistoryErrors(new Set());
     setHistoryLoading(true);
     try {
       const records = await api.getCronJobHistory(job.id);
+      if (!current() || sequence !== historySequence.current) return;
       setHistoryRecords(records || []);
     } catch (error) {
+      if (!current() || sequence !== historySequence.current) return;
       console.error("Failed to fetch cron history", error);
       setHistoryRecords([]);
     } finally {
-      setHistoryLoading(false);
+      if (current() && sequence === historySequence.current)
+        setHistoryLoading(false);
     }
   };
 
   const handleSubmit = async (values: any) => {
+    if (!current()) return;
     let schedule: any = values.schedule || {};
     if ((values.scheduleType || "cron") === "once") {
       const onceRepeatEnabled = Boolean(values.onceRepeatEnabled);
@@ -426,13 +493,15 @@ function CronJobsPage() {
         savedJob = await createJob(processedValues);
       }
     } finally {
-      setSaving(false);
+      if (current()) setSaving(false);
     }
     if (savedJob) {
+      if (!current()) return;
       setDrawerOpen(false);
       if (savedJob.status === "pending_authorization") {
         const preview = await api.getCronJobAuthorization(savedJob.id);
-        Modal.confirm({
+        if (!current()) return;
+        confirm({
           title: t("cronJobs.authorizationTitle"),
           content: (
             <div>
@@ -929,7 +998,11 @@ function CronJobsPage() {
         visible={historyModalOpen}
         title={t("cronJobs.historyTitle", { name: historyJobName })}
         footer={null}
-        onCancel={() => setHistoryModalOpen(false)}
+        onCancel={() => {
+          historySequence.current++;
+          setHistoryModalOpen(false);
+          setHistoryRecords([]);
+        }}
       >
         <div className={styles.historyList}>
           {historyLoading ? (

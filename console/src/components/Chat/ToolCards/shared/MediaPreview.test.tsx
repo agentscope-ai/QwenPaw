@@ -28,6 +28,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import MediaPreview from "./MediaPreview";
+import { useAgentStore } from "../../../../stores/agentStore";
 
 const fetchMock = vi.fn();
 
@@ -39,15 +40,44 @@ beforeEach(() => {
 function mockFetchByUrl(responses: Record<string, number>) {
   fetchMock.mockImplementation(async (url: string) => {
     const status = responses[url] ?? 200;
-    return {
-      ok: status === 200,
-      status,
-      json: async () => ({ detail: status === 404 ? "NOT_FOUND" : "" }),
-    };
+    return new Response(
+      JSON.stringify({ detail: status === 404 ? "NOT_FOUND" : "" }),
+      {
+        status,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
   });
 }
 
 describe("MediaPreview error state", () => {
+  it("checks a private PDF with the current agent header instead of a bare anonymous fetch", async () => {
+    useAgentStore.setState({ selectedAgent: "report-agent" });
+    fetchMock.mockImplementation(async (_url: string, options: RequestInit) => {
+      const allowed =
+        new Headers(options.headers).get("X-Agent-Id") === "report-agent";
+      return new Response(
+        allowed ? "%PDF-owned" : JSON.stringify({ detail: "FORBIDDEN" }),
+        { status: allowed ? 200 : 403 },
+      );
+    });
+    render(
+      <MediaPreview
+        media={{
+          url: "/api/console/artifacts/owned/download",
+          name: "防水简报.pdf",
+          type: "file",
+        }}
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.queryByText("preview.error.FORBIDDEN"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("file-card")).toHaveTextContent("防水简报.pdf");
+  });
   it("shows a warning when the file preview URL 404s", async () => {
     mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
 
