@@ -55,11 +55,30 @@
   // --- fetch ---------------------------------------------------------------
   var originalFetch = window.fetch;
   if (typeof originalFetch === "function") {
-    window.fetch = function (input, init) {
+    window.fetch = async function (input, init) {
       var url = input instanceof Request ? input.url : String(input);
       var target = hostRequestUrl(url);
       if (target) {
-        input = input instanceof Request ? new Request(target, input) : target;
+        if (input instanceof Request) {
+          if (input.bodyUsed && (!init || !("body" in init))) {
+            return Promise.reject(new TypeError("Request body is already used"));
+          }
+          var replayInit = Object.assign(
+            {
+              method: input.method,
+              headers: input.headers,
+              duplex: input.duplex,
+            },
+            init,
+          );
+          if (!("body" in replayInit) && !input.bodyUsed && input.body !== null) {
+            replayInit.body = await input.arrayBuffer();
+          }
+          input = target;
+          init = replayInit;
+        } else {
+          input = target;
+        }
         var token = hostToken();
         var headers = new Headers(
           (init && init.headers) ||

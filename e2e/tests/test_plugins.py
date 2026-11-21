@@ -11,6 +11,7 @@ Cases:
 - COMPAT-002 P1  test_incompatible_install_warning_modal
 - DATA-BASE-PATH-001 P1  test_data_context_console_preserves_nested_base_path
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,6 @@ from playwright.sync_api import Page, expect
 from pages.plugin_page import PluginPage
 from mocks import plugin_market
 from utils.helpers import log_test_step, log_test_result
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +38,14 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
     plugin_path = "/api/frontend_plugin/qwenpaw-data/files/ui/dist"
     main_path = f"{prefix}{plugin_path}/data-console/index.html"
     context_path = f"{prefix}{plugin_path}/context-console/index.html"
-    app_dir = (
-        Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
-    )
+    app_dir = Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
     static_root = app_dir / "ui/public/data-console"
     static_path = f"{prefix}{plugin_path}/data-console/"
     bridge = (app_dir / "scripts/context-console/paw-bridge.js").read_text(
         encoding="utf-8",
     )
     api_requests = []
+    replayed_bodies = []
 
     def serve(route) -> None:
         url = route.request.url
@@ -57,7 +56,7 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
                 content_type="text/html",
                 body=(
                     f"<script>{bridge}</script>"
-                    "<script>"
+                    "<script>(async () => {"
                     "window.apiCallsCompleted = 0;"
                     "fetch('/api/qwenpaw-data/context/status').then(() => {"
                     "window.apiCallsCompleted += 1;});"
@@ -65,19 +64,35 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
                     "xhr.open('GET', '/api/qwenpaw-data/context/config');"
                     "xhr.onload = () => {window.apiCallsCompleted += 1;};"
                     "xhr.send();"
-                    "</script>"
+                    "const consumed = new Request("
+                    "'/api/qwenpaw-data/context/replayed',"
+                    "{method: 'POST', body: 'old'});"
+                    "await consumed.text();"
+                    "await fetch(consumed, {method: 'POST', body: 'new'}).then(() => {"
+                    "window.apiCallsCompleted += 1;});"
+                    "const fresh = new Request("
+                    "'/api/qwenpaw-data/context/fresh',"
+                    "{method: 'POST', body: 'fresh-body'});"
+                    "await fetch(fresh).then(() => {"
+                    "window.apiCallsCompleted += 1;});"
+                    "})();</script>"
                 ),
             )
         elif path.startswith(static_path):
             relative = unquote(path.removeprefix(static_path))
             target = (static_root / relative).resolve()
-            if static_root.resolve() not in target.parents or not target.is_file():
+            if (
+                static_root.resolve() not in target.parents
+                or not target.is_file()
+            ):
                 route.abort()
             else:
                 route.fulfill(status=200, path=target)
         elif path.startswith(f"{prefix}/api/"):
             if path.startswith(f"{prefix}/api/qwenpaw-data/context/"):
                 api_requests.append(url)
+            if path.endswith(("/replayed", "/fresh")):
+                replayed_bodies.append(route.request.post_data)
             route.fulfill(
                 status=200,
                 content_type="application/json",
@@ -94,18 +109,22 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
         entry.click()
     context_page = popup_info.value
     context_page.wait_for_load_state("domcontentloaded")
-    context_page.wait_for_function("window.apiCallsCompleted === 2")
+    context_page.wait_for_function("window.apiCallsCompleted === 4")
 
     assert context_page.url == f"{origin}{context_path}#/data-source"
     assert api_requests == [
         f"{origin}{prefix}/api/qwenpaw-data/context/status",
         f"{origin}{prefix}/api/qwenpaw-data/context/config",
+        f"{origin}{prefix}/api/qwenpaw-data/context/replayed",
+        f"{origin}{prefix}/api/qwenpaw-data/context/fresh",
     ]
+    assert replayed_bodies == ["new", "fresh-body"]
 
 
 # ============================================================================
 # PLUGIN-001 P0 — Plugin Manager page loads
 # ============================================================================
+
 
 @pytest.mark.integration
 @pytest.mark.p0
@@ -149,6 +168,7 @@ class TestPluginManagerPageLoads:
 # with page.route mocks; all UI interactions and assertions stay real.
 # ============================================================================
 
+
 @pytest.mark.integration
 @pytest.mark.p1
 @pytest.mark.plugins
@@ -187,30 +207,40 @@ class TestPluginCompatibility:
         test_name = request.node.name
         page = plugin_page.page
 
-        log_test_step("1. Open Market tab with mocked catalog (1 compat + 1 legacy)")
+        log_test_step(
+            "1. Open Market tab with mocked catalog (1 compat + 1 legacy)"
+        )
         self._open_market_tab(plugin_page)
 
-        log_test_step("2. Compatible plugin row shows a green 'QwenPaw 2.x' tag")
-        compat_row = page.locator(plugin_page.MARKET_ROW).filter(
-            has_text=plugin_market.COMPATIBLE_PLUGIN_NAME
-        ).first
+        log_test_step(
+            "2. Compatible plugin row shows a green 'QwenPaw 2.x' tag"
+        )
+        compat_row = (
+            page.locator(plugin_page.MARKET_ROW)
+            .filter(has_text=plugin_market.COMPATIBLE_PLUGIN_NAME)
+            .first
+        )
         expect(compat_row).to_be_visible(timeout=plugin_page.timeout)
         green_tag = compat_row.locator(plugin_page.COMPAT_TAG_GREEN).first
         expect(green_tag).to_be_visible(timeout=plugin_page.timeout)
-        assert "2.x" in (green_tag.inner_text() or ""), (
-            f"green tag text unexpected: {green_tag.inner_text()!r}"
-        )
+        assert "2.x" in (
+            green_tag.inner_text() or ""
+        ), f"green tag text unexpected: {green_tag.inner_text()!r}"
 
-        log_test_step("3. Incompatible plugin row shows an orange 'QwenPaw 1.x' tag")
-        legacy_row = page.locator(plugin_page.MARKET_ROW).filter(
-            has_text=plugin_market.INCOMPATIBLE_PLUGIN_NAME
-        ).first
+        log_test_step(
+            "3. Incompatible plugin row shows an orange 'QwenPaw 1.x' tag"
+        )
+        legacy_row = (
+            page.locator(plugin_page.MARKET_ROW)
+            .filter(has_text=plugin_market.INCOMPATIBLE_PLUGIN_NAME)
+            .first
+        )
         expect(legacy_row).to_be_visible(timeout=plugin_page.timeout)
         orange_tag = legacy_row.locator(plugin_page.COMPAT_TAG_ORANGE).first
         expect(orange_tag).to_be_visible(timeout=plugin_page.timeout)
-        assert "1.x" in (orange_tag.inner_text() or ""), (
-            f"orange tag text unexpected: {orange_tag.inner_text()!r}"
-        )
+        assert "1.x" in (
+            orange_tag.inner_text() or ""
+        ), f"orange tag text unexpected: {orange_tag.inner_text()!r}"
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")
@@ -228,9 +258,11 @@ class TestPluginCompatibility:
         self._open_market_tab(plugin_page)
 
         log_test_step("2. Click Install on the incompatible plugin")
-        legacy_row = page.locator(plugin_page.MARKET_ROW).filter(
-            has_text=plugin_market.INCOMPATIBLE_PLUGIN_NAME
-        ).first
+        legacy_row = (
+            page.locator(plugin_page.MARKET_ROW)
+            .filter(has_text=plugin_market.INCOMPATIBLE_PLUGIN_NAME)
+            .first
+        )
         expect(legacy_row).to_be_visible(timeout=plugin_page.timeout)
         # Card view reveals the install action only on hover.
         legacy_row.hover()
@@ -244,7 +276,9 @@ class TestPluginCompatibility:
             page.locator(plugin_page.COMPAT_MODAL_TITLE).first
         ).to_be_visible(timeout=plugin_page.timeout)
 
-        log_test_step("4. Confirm 'Install anyway' — modal closes (install mocked)")
+        log_test_step(
+            "4. Confirm 'Install anyway' — modal closes (install mocked)"
+        )
         page.locator(plugin_page.COMPAT_MODAL_OK).first.click()
         expect(modal).not_to_be_visible(timeout=plugin_page.timeout)
 
