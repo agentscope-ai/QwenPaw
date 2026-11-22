@@ -556,6 +556,30 @@ async def test_auto_update_llamacpp_defers_while_running(
 
 
 @pytest.mark.asyncio
+async def test_auto_update_llamacpp_defers_when_server_starts_while_checking(
+    tmp_path: Path,
+) -> None:
+    class _StartingBackend(_FakeLlamaCppBackend):
+        async def has_update(self, latest_version: str) -> bool:
+            # Simulate the user starting the server while the release
+            # manifest is fetched.
+            self.server_running = True
+            return await super().has_update(latest_version)
+
+    backend = _StartingBackend()
+    backend.has_update_result = True
+    manager = make_manager(
+        data_dir=tmp_path,
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, backend),
+    )
+
+    assert await manager.auto_update_llamacpp() == "deferred"
+    assert not any(call[0] == "download" for call in backend.calls)
+    assert not any(call[0] == "shutdown" for call in backend.calls)
+
+
+@pytest.mark.asyncio
 async def test_auto_update_llamacpp_skips_when_disabled(
     tmp_path: Path,
 ) -> None:

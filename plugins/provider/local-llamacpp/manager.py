@@ -198,24 +198,31 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Return whether the current environment can install llama.cpp."""
         return self._llamacpp_backend.check_llamacpp_installability()
 
+    async def _install_runtime_locked(self) -> bool:
+        """Download the runtime while the caller holds the lifecycle lock.
+
+        Returns whether a running llama.cpp server was stopped first.
+        """
+        server_was_running = bool(
+            self._llamacpp_backend.get_server_status().get("running"),
+        )
+        if server_was_running:
+            await self._llamacpp_backend.shutdown_server()
+
+        await run_io(
+            self._llamacpp_backend.download,
+            self.DEFAULT_LLAMA_CPP_BASE_URL,
+            self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+        )
+        return server_was_running
+
     async def start_runtime_download(self) -> bool:
         """Start the llama.cpp binary download task.
 
         Returns whether a running llama.cpp server was stopped first.
         """
         async with self._server_lifecycle_lock:
-            server_was_running = bool(
-                self._llamacpp_backend.get_server_status().get("running"),
-            )
-            if server_was_running:
-                await self._llamacpp_backend.shutdown_server()
-
-            await run_io(
-                self._llamacpp_backend.download,
-                self.DEFAULT_LLAMA_CPP_BASE_URL,
-                self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
-            )
-            return server_was_running
+            return await self._install_runtime_locked()
 
     async def has_update(self) -> bool:
         """Return whether a llama.cpp update is available for download."""
@@ -246,9 +253,18 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             return "downloading"
         if not await self.has_update():
             return "up-to-date"
-        # Installing stops a running server, so this re-checks the idle state
-        # under the lifecycle lock before it claims the download slot.
-        await self.start_runtime_download()
+        # The update check awaited the release manifest, so the user may have
+        # started a server in the meantime. Installing stops a running server,
+        # so the idle state is re-read under the lifecycle lock and the update
+        # is deferred rather than interrupting a server that just started.
+        async with self._server_lifecycle_lock:
+            if self._llamacpp_backend.get_server_status().get("running"):
+                return "deferred"
+            if self._llamacpp_backend.is_server_transitioning():
+                return "deferred"
+            if self._llamacpp_backend.is_download_active():
+                return "downloading"
+            await self._install_runtime_locked()
         return "started"
 
     async def run_auto_update_once(self) -> dict[str, str]:
