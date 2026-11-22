@@ -5,6 +5,42 @@ const REVERSE_MESSAGE_SCROLL_SELECTOR =
 const LINE_HEIGHT_PX = 16;
 const SCROLL_TOLERANCE_PX = 1;
 
+export function enableMessageScrollerKeyboardFocus(
+  root: HTMLElement,
+  label: string,
+): () => void {
+  let scroller: HTMLElement | null = null;
+  let restore: (() => void) | undefined;
+  const bindScroller = () => {
+    if (scroller && root.contains(scroller)) return;
+    restore?.();
+    const target = root.querySelector<HTMLElement>(
+      REVERSE_MESSAGE_SCROLL_SELECTOR,
+    );
+    scroller = target;
+    if (!target) return;
+
+    const attributes = [
+      ["tabindex", "0"],
+      ["role", "region"],
+      ["aria-label", label],
+    ].filter(([name]) => !target.hasAttribute(name));
+    for (const [name, value] of attributes) target.setAttribute(name, value);
+    restore = () => {
+      for (const [name, value] of attributes) {
+        if (target.getAttribute(name) === value) target.removeAttribute(name);
+      }
+    };
+  };
+  bindScroller();
+  const observer = new MutationObserver(bindScroller);
+  observer.observe(root, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    restore?.();
+  };
+}
+
 function wheelDeltaInPixels(
   deltaY: number,
   deltaMode: number,

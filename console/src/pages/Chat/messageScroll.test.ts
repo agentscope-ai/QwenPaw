@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getNextReverseScrollTop,
+  enableMessageScrollerKeyboardFocus,
   scrollReverseMessageList,
 } from "./messageScroll";
 
@@ -59,6 +60,26 @@ function createReverseScroller(): {
 }
 
 describe("scrollReverseMessageList", () => {
+  it("makes a message scroller keyboard reachable when it mounts", async () => {
+    const { root, scroller } = createReverseScroller();
+    scroller.remove();
+    const cleanup = enableMessageScrollerKeyboardFocus(
+      root,
+      "Conversation History",
+    );
+    try {
+      root.append(scroller);
+      await Promise.resolve();
+      expect(scroller.tabIndex).toBe(0);
+      expect(scroller.getAttribute("aria-label")).toBe("Conversation History");
+      scroller.focus();
+      expect(document.activeElement).toBe(scroller);
+    } finally {
+      cleanup();
+    }
+    expect(scroller.hasAttribute("tabindex")).toBe(false);
+  });
+
   it("does not resolve styles for non-scrollable message ancestors", () => {
     const { content, root, scroller } = createReverseScroller();
     const getComputedStyleSpy = vi.spyOn(window, "getComputedStyle");

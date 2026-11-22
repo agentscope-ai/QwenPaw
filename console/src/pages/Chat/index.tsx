@@ -196,7 +196,10 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  enableMessageScrollerKeyboardFocus,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -3903,14 +3906,19 @@ export default function ChatPage() {
       if (handled) event.preventDefault();
     };
 
+    const releaseMessageFocus = enableMessageScrollerKeyboardFocus(
+      root,
+      t("chat.conversationHistory"),
+    );
     root.addEventListener("wheel", handleMessagesWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       root.removeEventListener("wheel", handleMessagesWheel, true);
+      releaseMessageFocus();
     };
-  }, []);
+  }, [t]);
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
