@@ -205,6 +205,11 @@ def test_new_member_requires_new_minimum(tmp_path, source):
     "source",
     [
         (
+            "from qwenpaw.plugins.transcription import TranscriptionContext\n"
+            "async def f(call: TranscriptionContext):\n"
+            "    await call.resources.run_sync(int, '1')\n"
+        ),
+        (
             "from qwenpaw.plugins.models import ModelSelection\n"
             "selection = ModelSelection('provider', 'model')\n"
         ),

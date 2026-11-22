@@ -79,6 +79,47 @@ async def test_subscribing_during_a_run_delivers_remaining_events(
                 assert completed.run_id == request.request_id
 
 
+@pytest.mark.parametrize("status", ["completed", "cancelled"])
+async def test_terminal_event_is_kept_while_subscribers_change(
+    sdk_component,
+    status,
+):
+    first_events, last_events = asyncio.Queue(), asyncio.Queue()
+
+    async def first_listener(call, event):
+        first_events.put_nowait(event)
+
+    async def last_listener(call, event):
+        last_events.put_nowait(event)
+
+    created = {"object": "response", "status": "created"}
+    terminal = {"object": "response", "status": status}
+    trailing = {"object": "metrics"}
+
+    @_events.observe_stream
+    async def stream(workspace, request):
+        yield created
+        yield terminal
+        yield trailing
+
+    async with sdk_component(capabilities=("events",)) as (host, ctx):
+        workspace = await host._workspace("test")
+        request = AgentRequest(request_id="subscriber-switch")
+        async with aclosing(stream(workspace, request)) as events:
+            async with ctx.subscribe_events(EventSubscription(first_listener)):
+                assert await anext(events) is created
+                assert (
+                    await asyncio.wait_for(first_events.get(), 5)
+                ).kind == ("run.started")
+            assert await anext(events) is terminal
+            assert await anext(events) is trailing
+            async with ctx.subscribe_events(EventSubscription(last_listener)):
+                assert [item async for item in events] == []
+                result = await asyncio.wait_for(last_events.get(), 5)
+                assert result.kind == f"run.{status}"
+                assert result.run_id == request.request_id
+
+
 async def test_cancelled_runtime_closes_work_before_notifying_observers(
     sdk_component,
 ):

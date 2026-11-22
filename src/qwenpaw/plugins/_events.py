@@ -217,8 +217,11 @@ def observe_stream(function):
         try:
             async with aclosing(function(workspace, request)) as stream:
                 async for item in stream:
-                    if _listeners:
+                    # Keep the outcome once observed, even across a gap
+                    # between subscribers.
+                    if identity is not None or _listeners:
                         outcome = _stream_outcome(item) or outcome
+                    if _listeners:
                         try:
                             publish("run.updated", chat_event(item))
                         except Exception:

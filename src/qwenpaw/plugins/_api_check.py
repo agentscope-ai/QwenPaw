@@ -25,6 +25,7 @@ _TOOL_CONTEXTS = {
     "qwenpaw.plugins.channels.ChannelContext",
     "qwenpaw.plugins.memory.MemoryContext",
     "qwenpaw.plugins.stops.StopContext",
+    "qwenpaw.plugins.transcription.TranscriptionContext",
     "qwenpaw.plugins.workflows.WorkflowContext",
 }
 _WORKER = "qwenpaw.plugins.channel_workers.ChannelWorkerContext"

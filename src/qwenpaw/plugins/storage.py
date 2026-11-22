@@ -97,8 +97,16 @@ class PluginStorage:
             return ()
         if not origin.is_dir():
             raise SDKError("Legacy tree source must be a directory")
+
+        def raise_scan_error(error: OSError) -> None:
+            raise error
+
         copied = []
-        for directory, dirs, files in os.walk(origin, followlinks=False):
+        for directory, dirs, files in os.walk(
+            origin,
+            onerror=raise_scan_error,
+            followlinks=False,
+        ):
             for item in (*dirs, *files):
                 path = Path(directory) / item
                 if path.is_symlink():

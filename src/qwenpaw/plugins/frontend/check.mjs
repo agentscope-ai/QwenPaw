@@ -13,7 +13,7 @@ function version(value) {
     +match[1],
     +match[2],
     +(match[3] ?? 0),
-    /^(?:[.-]?(?:a|b|rc|dev)|-(?!post))/i.test(match[4]) ? -1 : 0,
+    /^(?:[._-]?(?:a|b|c|rc|pre|dev)|-(?!post))/i.test(match[4]) ? -1 : 0,
   ];
 }
 function older(left, right) {

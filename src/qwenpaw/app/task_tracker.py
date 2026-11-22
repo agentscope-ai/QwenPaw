@@ -43,7 +43,7 @@ def response_outcome(
     status: object,
     error: object,
 ) -> Literal["completed", "failed", "cancelled"] | None:
-    """Classify a response or stream error, ignoring individual messages."""
+    """Classify terminal responses and stream errors."""
     if error:
         return "failed"
     if object_type != "response":
@@ -52,7 +52,9 @@ def response_outcome(
         return "completed"
     if status == "cancelled":
         return "cancelled"
-    return "failed"
+    if status == "failed":
+        return "failed"
+    return None
 
 
 def _has_successful_response(events: list[str]) -> bool:

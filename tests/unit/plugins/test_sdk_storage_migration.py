@@ -265,3 +265,35 @@ async def test_partial_copy_retry_and_source_preservation(
             for path in ctx.storage.path("history/a").parent.iterdir()
         ) == ["a", "b"]
         assert sorted(path.name for path in origin.iterdir()) == ["a", "b"]
+
+
+async def test_unreadable_legacy_subdirectory_can_be_retried(
+    tmp_path,
+    monkeypatch,
+):
+    async with PluginTestHost(tmp_path / "host") as host:
+        ctx = await host.load(package(tmp_path))
+        origin = host.root / "extension-contract/history"
+        nested = origin / "nested"
+        nested.mkdir(parents=True)
+        (origin / "ok.txt").write_text("old", encoding="utf-8")
+        (nested / "record.json").write_text("{}", encoding="utf-8")
+        scandir = os.scandir
+
+        def fail_nested(directory):
+            if directory == str(nested):
+                raise PermissionError("unreadable legacy directory")
+            return scandir(directory)
+
+        with monkeypatch.context() as failure:
+            failure.setattr(os, "scandir", fail_nested)
+            with pytest.raises(PermissionError, match="unreadable"):
+                ctx.storage.import_legacy_tree("history", "data")
+        assert ctx.storage.read_bytes("data/ok.txt") == b"old"
+        assert not ctx.storage.path("data/nested/record.json").exists()
+        ctx.storage.write_bytes("data/ok.txt", b"new")
+        assert ctx.storage.import_legacy_tree("history", "data") == (
+            "data/nested/record.json",
+        )
+        assert ctx.storage.read_bytes("data/ok.txt") == b"new"
+        assert ctx.storage.read_bytes("data/nested/record.json") == b"{}"
