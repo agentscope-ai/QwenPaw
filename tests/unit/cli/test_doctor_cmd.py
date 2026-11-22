@@ -787,8 +787,9 @@ class TestRunDoctorChecks:
         assert "=== Active LLM ===" in out
         assert "=== API ===" in out
 
-    def test_api_probes_include_runtime_base_path(self, monkeypatch):
-        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    @pytest.mark.parametrize("mount", ["/app", "/api", "/paw/api"])
+    def test_api_probes_include_runtime_base_path(self, monkeypatch, mount):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", mount)
         urls = []
 
         def http_get(url, **kwargs):
@@ -803,9 +804,9 @@ class TestRunDoctorChecks:
             dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
 
         assert urls == [
-            "http://127.0.0.1:8088/app/api/healthz",
-            "http://127.0.0.1:8088/app/api/version",
-            "http://127.0.0.1:8088/app/",
+            f"http://127.0.0.1:8088{mount}/api/healthz",
+            f"http://127.0.0.1:8088{mount}/api/version",
+            f"http://127.0.0.1:8088{mount}/",
         ]
 
     @pytest.mark.parametrize("provider_id", ["qwenpaw-local", "copaw-local"])

@@ -211,13 +211,15 @@ def test_explicit_cli_endpoint_never_receives_token(monkeypatch, arguments):
     assert seen == [None]
 
 
-@pytest.mark.parametrize("target", [None, "http://127.0.0.1:9002"])
+@pytest.mark.parametrize("mount", ["", "/api"])
+@pytest.mark.parametrize("target", [None, "http://127.0.0.1:9002/api/"])
 @pytest.mark.asyncio
-async def test_async_agent_requests_scope_token(monkeypatch, target):
+async def test_async_agent_requests_scope_token(monkeypatch, target, mount):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", mount)
     seen = []
 
     def respond(request):
-        seen.append(request.headers.get(_TOKEN_HEADER))
+        seen.append((request.url.path, request.headers.get(_TOKEN_HEADER)))
         return httpx.Response(200, json={"ok": True})
 
     monkeypatch.setattr(
@@ -238,7 +240,12 @@ async def test_async_agent_requests_scope_token(monkeypatch, target):
         base_url=target,
     )
     expected = "secret-a" if target is None else None
-    assert seen == [expected] * 3
+    endpoint_path = f"{mount}/api" if target is None else "/api"
+    assert seen == [
+        (f"{endpoint_path}/console/chat", expected),
+        (f"{endpoint_path}/console/chat/stop", expected),
+        (f"{endpoint_path}/fork/agent", expected),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -400,6 +407,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
     caplog,
     slow_stream,
 ):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/paw/api/")
     seen = []
     closed = []
 
@@ -417,6 +425,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
         seen.append(
             (
                 request.url.port,
+                request.url.path,
                 request.headers.get(_TOKEN_HEADER),
                 request.headers.get("X-Agent-Id"),
             ),
@@ -430,7 +439,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
     )
     with caplog.at_level("INFO"):
         await send_proactive_message_via_http("agent-a", "message", 1)
-    assert seen == [(9001, "secret-a", "agent-a")]
+    assert seen == [(9001, "/paw/api/api/console/chat", "secret-a", "agent-a")]
     assert closed == [True]
     expected = "Timeout (1s)" if slow_stream else "sent successfully via HTTP"
     assert expected in caplog.text

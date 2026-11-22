@@ -44,7 +44,7 @@ def test_base_url_includes_runtime_base_path(monkeypatch):
         obj={"host": "127.0.0.1", "port": 8088},
     )
 
-    assert _base_url(ctx, None) == "http://127.0.0.1:8088/app"
+    assert _base_url(ctx, None) == "http://127.0.0.1:8088/app/api"
 
 
 def test_build_agent_spec_includes_silent_delivery():

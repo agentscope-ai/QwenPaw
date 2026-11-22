@@ -71,6 +71,10 @@
             },
             init,
           );
+          var signal = Object.prototype.hasOwnProperty.call(replayInit, "signal")
+            ? replayInit.signal
+            : (init == null ? undefined : init.signal);
+          replayInit.signal = signal === undefined ? input.signal : signal;
           if (!("body" in replayInit) && !input.bodyUsed && input.body !== null) {
             replayInit.body = await input.arrayBuffer();
           }

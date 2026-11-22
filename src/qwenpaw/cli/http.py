@@ -9,19 +9,19 @@ import click
 import httpx
 
 from ..app.base_path import normalize_base_path
-from ..utils.runtime_api import api_client
+from ..utils.runtime_api import (
+    api_client,
+    api_url_from_deployment,
+    api_url_from_override,
+)
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 
 
 def client(base_url: str) -> httpx.Client:
-    """Create HTTP client with /api prefix added to all requests."""
-    # Ensure base_url ends with /api
-    base = base_url.rstrip("/")
-    if not base.endswith("/api"):
-        base = f"{base}/api"
-    return api_client(base)
+    """Create an API client from a legacy explicit base URL."""
+    return api_client(api_url_from_override(base_url))
 
 
 def print_json(data: Any) -> None:
@@ -46,3 +46,10 @@ def resolve_base_url(ctx: click.Context, base_url: Optional[str]) -> str:
     port = (ctx.obj or {}).get("port", 8088)
     base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
     return f"http://{host}:{port}{base_path}"
+
+
+def resolve_api_endpoint(ctx: click.Context, base_url: Optional[str]) -> str:
+    """Resolve a CLI API endpoint without confusing the mount with /api."""
+    if base_url:
+        return api_url_from_override(base_url)
+    return api_url_from_deployment(resolve_base_url(ctx, None))

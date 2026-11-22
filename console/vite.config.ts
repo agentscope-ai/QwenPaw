@@ -40,25 +40,7 @@ export default defineConfig(({ command, mode }) => {
       : consoleBasename
       ? `${normalizeConsoleBasename(consoleBasename)}/`
       : "./",
-    experimental:
-      !desktop && !consoleBasename
-        ? {
-            renderBuiltUrl(filename, { hostType }) {
-              if (hostType === "js") {
-                return {
-                  runtime: `__qpBase + ${JSON.stringify(`/${filename}`)}`,
-                };
-              }
-              return { relative: true };
-            },
-          }
-        : undefined,
     define: {
-      "import.meta.env.BASE_URL": desktop
-        ? JSON.stringify("/")
-        : consoleBasename
-        ? JSON.stringify(`${normalizeConsoleBasename(consoleBasename)}/`)
-        : "window.__qpBaseUrl",
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,

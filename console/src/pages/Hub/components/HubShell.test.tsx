@@ -3,8 +3,11 @@ import { Grid } from "antd";
 import { afterAll, expect, it, vi } from "vitest";
 import HubShell from "./HubShell";
 
-vi.hoisted(() => {
-  window.__qpBase = "/app/qwenpaw/web";
+const baseElement = vi.hoisted(() => {
+  const base = document.createElement("base");
+  base.href = "/app/qwenpaw/web/";
+  document.head.append(base);
+  return base;
 });
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -15,7 +18,7 @@ vi.mock("../../../components/LanguageSwitcher", () => ({
 const originalLocation = Object.getOwnPropertyDescriptor(window, "location")!;
 afterAll(() => {
   Object.defineProperty(window, "location", originalLocation);
-  delete window.__qpBase;
+  baseElement.remove();
   vi.restoreAllMocks();
 });
 

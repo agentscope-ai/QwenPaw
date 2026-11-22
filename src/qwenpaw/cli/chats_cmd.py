@@ -8,8 +8,9 @@ from typing import Optional
 
 import click
 
-from .http import client, print_json, resolve_base_url
+from .http import print_json, resolve_api_endpoint
 from ..app.channels.schema import DEFAULT_CHANNEL
+from ..utils.runtime_api import api_client as client
 
 
 @click.group("chats")
@@ -64,7 +65,7 @@ def list_chats(
       qwenpaw chats list --channel discord
       qwenpaw chats list --user-id alice --channel discord
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     params: dict[str, str] = {}
     if user_id:
         params["user_id"] = user_id
@@ -101,7 +102,7 @@ def get_chat(
     Examples:
       qwenpaw chats get 823845fe-dd13-43c2-ab8b-d05870602fd8
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.get(f"/chats/{chat_id}", headers=headers)
@@ -175,7 +176,7 @@ def create_chat(
     JSON file creation example:
       qwenpaw chats create -f chat.json
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))
     else:
@@ -228,7 +229,7 @@ def update_chat(
     Examples:
       qwenpaw chats update <chat_id> --name "Renamed Chat"
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     headers = {"X-Agent-Id": agent_id}
     payload = {"name": name}
     with client(base_url) as c:
@@ -265,7 +266,7 @@ def delete_chat(
     Examples:
       qwenpaw chats delete 823845fe-dd13-43c2-ab8b-d05870602fd8
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.delete(f"/chats/{chat_id}", headers=headers)

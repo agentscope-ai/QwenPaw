@@ -102,6 +102,7 @@ def configure_server_process(
     help="Bind port",
 )
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev only)")
+@click.option("--desktop-root", is_flag=True, hidden=True)
 @click.option(
     "--log-level",
     default="info",
@@ -131,6 +132,7 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
+    desktop_root: bool,
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
@@ -138,6 +140,15 @@ def app_cmd(
     """Run QwenPaw FastAPI app."""
     global _dependency_restart  # pylint: disable=global-statement
     _dependency_restart = None
+
+    if desktop_root:
+        if reload:
+            raise click.UsageError(
+                "--desktop-root cannot be used with --reload",
+            )
+        from ..envs.store import force_desktop_base_path_root
+
+        force_desktop_base_path_root()
 
     # NOTE: the server intentionally runs UNPRIVILEGED. The Windows
     # restricted-token sandbox no longer requires the whole server to be

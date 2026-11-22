@@ -49,7 +49,8 @@ from ..envs import load_envs
 from ..envs.registry import is_bootstrap_protected_env_key
 from ..exceptions import SkillsError
 from ..security.skill_scanner import SkillScanError, scan_skill_directory
-from .http import client, resolve_base_url
+from ..utils.runtime_api import api_client as client
+from .http import resolve_api_endpoint
 from .utils import prompt_checkbox, prompt_confirm
 
 
@@ -1229,7 +1230,7 @@ def test_cmd(
                 _warn_skill_command_conflict(
                     report["name"],
                     target_agent,
-                    resolve_base_url(ctx, base_url),
+                    resolve_api_endpoint(ctx, base_url),
                 )
             elif workspace is None:
                 click.echo(

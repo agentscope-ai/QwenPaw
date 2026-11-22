@@ -290,6 +290,7 @@ def _run_backend_server(
     )
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
+    from qwenpaw.envs.store import force_desktop_base_path_root
     from qwenpaw.utils.logging import (
         SuppressPathAccessLogFilter,
         setup_logger,
@@ -326,6 +327,7 @@ def _run_backend_server(
     port_file = str(WORKING_DIR / "desktop_port")
     port, reused_socket = get_stable_port(port_file, host)
 
+    force_desktop_base_path_root()
     # Import the app instance (instead of the import string) so the desktop
     # shutdown endpoint can reach the uvicorn server via app.state.
     from qwenpaw.app._app import app as fastapi_app

@@ -66,6 +66,18 @@ example.com {
 （包括 `qwenpaw env` 和 `qwenpaw plugin`）以及 Chrome Bridge 仍需使用匹配的
 环境变量。
 
+已有部署切换到非根路径前，请在服务仍位于 `/` 时将已安装的 Chrome 和 Voice
+插件更新到 `0.1.2` 或更高版本，再设置前缀并重启 QwenPaw。如果使用 Chrome Bridge，
+请重新运行其设置，让本机桥接程序记录新的 WebSocket 地址。
+
+如果部署前缀本身以 `/api` 结尾，`QWENPAW_BASE_PATH` 仍填写原前缀。
+对 `qwenpaw cron list` 这类命令显式指定 API 地址时，要保留两段：例如部署在
+`/tenant/api` 时，使用 `--base-url http://127.0.0.1:8088/tenant/api/api`。
+
+请一次配置完整的外部前缀，不要将它拆分到外层 ASGI 挂载（或 Uvicorn
+`--root-path`）和 `QWENPAW_BASE_PATH` 两处。桌面应用的私有后端始终从 `/`
+启动，不会改写已保存的 Web 部署设置。
+
 ### 构建时自定义控制台
 
 单独构建控制台时，仍可在 `console/.env.production.local` 中使用

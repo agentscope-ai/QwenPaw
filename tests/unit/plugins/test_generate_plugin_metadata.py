@@ -13,6 +13,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 
 # Add scripts/pack to the path so we can import the module
 sys.path.insert(
@@ -76,6 +77,32 @@ def test_official_channel_publication_matches_bundled_content(tmp_path):
             assert {name: online.read(name) for name in online.namelist()} == {
                 name: offline.read(name) for name in offline.namelist()
             }
+
+
+@pytest.mark.parametrize(
+    ("kind", "plugin_id"),
+    [("bundle", "chrome"), ("channel", "voice")],
+)
+def test_prefix_compatible_plugins_do_not_reuse_published_version(
+    tmp_path: Path,
+    kind: str,
+    plugin_id: str,
+) -> None:
+    index, failed = discover_and_pack(
+        REPO_ROOT / "plugins",
+        tmp_path,
+        "/files/plugins",
+        only=[plugin_id],
+    )
+    assert not failed
+    (entry,) = index["files"].values()
+    version = entry["version"]
+    assert Version(version) > Version("0.1.1")
+    filename = f"{plugin_id}-{version}.zip"
+    assert entry["url"] == f"/files/plugins/{kind}/{plugin_id}/{filename}"
+    with zipfile.ZipFile(tmp_path / kind / plugin_id / filename) as archive:
+        manifest = json.loads(archive.read(f"{plugin_id}/plugin.json"))
+    assert manifest["version"] == version
 
 
 def test_structured_qwenpaw_version_passthrough() -> None:

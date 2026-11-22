@@ -26,7 +26,8 @@ from typing import Any
 
 import click
 
-from .http import client, print_json, resolve_base_url
+from ..utils.runtime_api import api_client as client
+from .http import print_json, resolve_api_endpoint as _base_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ _MANAGER_CLASSES: list[str] = [
 
 
 def _ensure_daemon_alive(base_url: str) -> None:
-    """HEAD ``/healthz`` and abort if the daemon is not reachable."""
+    """HEAD ``/version`` and abort if the daemon is not reachable."""
     try:
         with client(base_url) as c:
             r = c.head("/version")
@@ -48,10 +49,6 @@ def _ensure_daemon_alive(base_url: str) -> None:
             err=True,
         )
         sys.exit(2)
-
-
-def _base_url(ctx: click.Context, base_url: str | None) -> str:
-    return resolve_base_url(ctx, base_url)
 
 
 def _add_command(

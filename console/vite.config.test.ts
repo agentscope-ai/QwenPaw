@@ -1,7 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-function loadDeploymentConfig(basename: string | undefined) {
+function loadDeploymentConfig(
+  basename: string | undefined,
+  mode = "production",
+) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     BASE_URL: "https://unrelated.example.com",
@@ -18,15 +22,13 @@ function loadDeploymentConfig(basename: string | undefined) {
       "--eval",
       `import { loadConfigFromFile } from "vite";
        const { config } = await loadConfigFromFile({
-         command: "build", mode: "production",
+         command: "build", mode: ${JSON.stringify(mode)},
        });
-       const renderBuiltUrl = config.experimental?.renderBuiltUrl;
        process.stdout.write(JSON.stringify({
          base: config.base ?? "/",
          apiBase: config.define.VITE_API_BASE_URL,
-         assetBase: config.define["import.meta.env.BASE_URL"],
-         jsAsset: renderBuiltUrl?.("logo-light.svg", { hostType: "js" }),
-         htmlEntry: renderBuiltUrl?.("assets/index.js", { hostType: "html" }),
+         assetBaseOverride: config.define["import.meta.env.BASE_URL"],
+         assetUrlOverride: Boolean(config.experimental?.renderBuiltUrl),
        }));`,
     ],
     {
@@ -37,23 +39,27 @@ function loadDeploymentConfig(basename: string | undefined) {
   return JSON.parse(output) as {
     base: string;
     apiBase: string;
-    jsAsset?: { runtime: string };
-    htmlEntry?: { relative: boolean };
-    assetBase?: string;
+    assetBaseOverride?: string;
+    assetUrlOverride: boolean;
   };
 }
 
 describe("console deployment configuration", () => {
   it.each([undefined, "", " "])(
-    "uses relative entry assets when the basename is %j",
+    "uses Vite's standard relative asset handling when the basename is %j",
     (basename) => {
       const config = loadDeploymentConfig(basename);
       expect(config.base).toBe("./");
-      expect(config.jsAsset?.runtime).toContain("__qpBase");
-      expect(config.assetBase).toContain("__qpBase");
-      expect(config.htmlEntry).toEqual({ relative: true });
+      expect(config.assetUrlOverride).toBe(false);
+      expect(config.assetBaseOverride).toBeUndefined();
     },
   );
+
+  it("keeps the backend's document-base token without a base-setting script", () => {
+    const html = readFileSync("index.html", "utf8");
+    expect(html).toContain('<base href="/" />');
+    expect(html).not.toContain("__qpBase");
+  });
 
   it.each([
     ["/qwenpaw", "/qwenpaw/"],
@@ -65,5 +71,15 @@ describe("console deployment configuration", () => {
     const config = loadDeploymentConfig(basename);
     expect(config.base).toBe(base);
     expect(config.apiBase).toBe('"/backend"');
+    expect(config.assetUrlOverride).toBe(false);
+    expect(config.assetBaseOverride).toBeUndefined();
+  });
+
+  it("keeps the Tauri asset base at the root regardless of the web basename", () => {
+    const config = loadDeploymentConfig("/qwenpaw", "tauri");
+    expect(config.base).toBe("/");
+    expect(config.apiBase).toBe('""');
+    expect(config.assetUrlOverride).toBe(false);
+    expect(config.assetBaseOverride).toBeUndefined();
   });
 });

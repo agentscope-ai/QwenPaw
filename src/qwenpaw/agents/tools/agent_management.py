@@ -25,6 +25,8 @@ from ...constant import (
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.runtime_api import (
     api_client,
+    api_url_from_deployment,
+    api_url_from_override,
     async_api_client,
     read_runtime_api,
 )
@@ -42,7 +44,7 @@ MAX_SPAWN_BATCH_CONCURRENCY = 3
 
 
 def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
-    """Resolve the agent API base URL.
+    """Discover the deployment root or return a trimmed explicit override.
 
     Priority:
     1. Explicit ``base_url`` argument
@@ -63,11 +65,11 @@ def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
     return f"{DEFAULT_AGENT_API_BASE_URL}{base_path}"
 
 
-def _normalize_api_base_url(base_url: Optional[str]) -> str:
-    base = resolve_agent_api_base_url(base_url).rstrip("/")
-    if not base.endswith("/api"):
-        base = f"{base}/api"
-    return base
+def resolve_agent_api_endpoint(base_url: Optional[str] = None) -> str:
+    """Resolve the API endpoint, not the root of the deployment."""
+    if base_url:
+        return api_url_from_override(base_url)
+    return api_url_from_deployment(resolve_agent_api_base_url())
 
 
 def _tool_text_response(text: str) -> ToolChunk:
@@ -137,7 +139,7 @@ def create_agent_api_client(
     default_timeout: float = DEFAULT_AGENT_API_TIMEOUT,
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
-    normalized = _normalize_api_base_url(base_url)
+    normalized = resolve_agent_api_endpoint(base_url)
     return api_client(
         base_url=normalized,
         timeout=default_timeout,
@@ -389,7 +391,7 @@ async def collect_final_agent_chat_response_async(
     Unlike the sync ``to_thread`` path, cancelling this coroutine exits
     ``AsyncClient`` context managers and aborts the in-flight request.
     """
-    normalized = _normalize_api_base_url(base_url)
+    normalized = resolve_agent_api_endpoint(base_url)
     response_data: Optional[Dict[str, Any]] = None
     async with async_api_client(
         base_url=normalized,
@@ -427,7 +429,7 @@ async def stop_agent_chat_async(
     ``initiator`` carries the caller session that gave up so the target's
     logs can attribute the stop (GH-8252).
     """
-    normalized = _normalize_api_base_url(base_url)
+    normalized = resolve_agent_api_endpoint(base_url)
     async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
@@ -1580,10 +1582,7 @@ async def _call_fork_api(
     base_url: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Call POST /api/fork/agent to prepare fork session + worktree."""
-    url = (
-        _normalize_api_base_url(base_url).removesuffix("/api")
-        + "/api/fork/agent"
-    )
+    url = f"{resolve_agent_api_endpoint(base_url)}/fork/agent"
     payload = {
         "agent_id": agent_id,
         "parent_session_id": parent_session_id,

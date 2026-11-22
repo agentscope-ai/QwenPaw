@@ -68,6 +68,20 @@ such as `http://127.0.0.1:8088/qwenpaw`. Commands without that option, including
 `qwenpaw env` and `qwenpaw plugin`, and Chrome Bridge still require the matching
 environment variable.
 
+Before switching an existing deployment to a non-root prefix, update any
+installed Chrome and Voice plugins to `0.1.2` or later while the server is still
+at `/`. Set the prefix, restart QwenPaw, and rerun Chrome Bridge setup if you
+use it, so the native host records the new WebSocket URL.
+
+If the deployment prefix itself ends in `/api`, keep it unchanged in
+`QWENPAW_BASE_PATH`. When specifying an explicit API base for a command such as
+`qwenpaw cron list`, include both segments: for a deployment at `/tenant/api`,
+use `--base-url http://127.0.0.1:8088/tenant/api/api`.
+
+Configure the whole external prefix in one place; do not split it between an
+outer ASGI mount (or Uvicorn `--root-path`) and `QWENPAW_BASE_PATH`. Desktop's
+private backend always starts at `/`, without changing the saved web setting.
+
 ### Build-time custom Console
 
 For a separately built Console, `VITE_CONSOLE_BASENAME` and

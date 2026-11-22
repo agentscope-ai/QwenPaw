@@ -17,7 +17,7 @@ from agentscope.tool import FunctionTool, Toolkit
 
 from ....config.config import load_agent_config
 from ....utils.runtime_api import async_api_client
-from ...tools.agent_management import resolve_agent_api_base_url
+from ...tools.agent_management import resolve_agent_api_endpoint
 from ...tools import (
     browser,
     execute_shell_command,
@@ -318,11 +318,7 @@ async def send_proactive_message_via_http(
 
     headers = {"X-Agent-Id": active_agent_id}
 
-    base_url = resolve_agent_api_base_url()
-    clean_base = base_url.rstrip("/")
-    api_base_url = (
-        f"{clean_base}/api" if not clean_base.endswith("/api") else clean_base
-    )
+    api_base_url = resolve_agent_api_endpoint()
 
     try:
         async with (

@@ -32,7 +32,8 @@ from ..config.config import (
 from ..config.utils import get_plugins_dir
 from ..plugins.loader import PluginLoader
 from .utils import prompt_confirm, prompt_path, prompt_select
-from .http import client, print_json, resolve_base_url
+from ..utils.runtime_api import api_client as client
+from .http import print_json, resolve_api_endpoint
 
 
 # Fields that contain secrets — display masked in ``list``
@@ -1055,7 +1056,7 @@ def send_cmd(
     Returns:
       JSON response with success status and message details.
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
 
     payload = {
         "channel": channel,

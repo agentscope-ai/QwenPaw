@@ -5,10 +5,12 @@
 
 import io
 import json
+import os
 import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import types
 import urllib.request
@@ -33,41 +35,191 @@ class _Process:
     pid = 17944
 
 
+def _capture_desktop_launch(*, platform: str):
+    process = types.SimpleNamespace(
+        pid=17944,
+        returncode=0,
+        poll=lambda: 0,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+    launches = []
+
+    def fake_popen(args, **kwargs):
+        launches.append((args, kwargs["env"]))
+        return process
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(desktop_cmd.sys, "platform", platform)
+        patch.setattr(desktop_cmd, "setup_logger", lambda _level: None)
+        patch.setattr(desktop_cmd, "get_stable_port", lambda *_: (43123, None))
+        patch.setattr(desktop_cmd, "_wait_for_http", lambda *_: True)
+        patch.setattr(
+            desktop_cmd,
+            "webview",
+            types.SimpleNamespace(
+                create_window=lambda *_args, **_kwargs: None,
+                start=lambda **_kwargs: None,
+            ),
+        )
+        patch.setattr(desktop_cmd.subprocess, "Popen", fake_popen)
+        result = CliRunner().invoke(desktop_cmd.desktop_cmd)
+
+    assert result.exit_code == 0, repr(result.exception)
+    assert len(launches) == 1
+    return launches[0]
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_desktop_backend_does_not_inherit_runtime_base_path(
     monkeypatch,
+    platform,
 ) -> None:
     monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
     monkeypatch.setenv("DESKTOP_TEST_SENTINEL", "preserved")
-    monkeypatch.setattr(desktop_cmd, "setup_logger", lambda _level: None)
-    monkeypatch.setattr(
-        desktop_cmd,
-        "get_stable_port",
-        lambda *_: (43123, None),
+
+    _, child_env = _capture_desktop_launch(platform=platform)
+
+    assert "QWENPAW_BASE_PATH" not in child_env
+    assert child_env["DESKTOP_TEST_SENTINEL"] == "preserved"
+    assert os.environ["QWENPAW_BASE_PATH"] == "/app"
+
+
+@pytest.mark.parametrize("mode", ["legacy", "tauri", "app"])
+def test_desktop_base_path_with_persisted_bootstrap(tmp_path, mode):
+    work, secret, console, home, cache, temp = (
+        tmp_path / name
+        for name in ("work", "secret", "console", "home", "cache", "temp")
     )
-    monkeypatch.setattr(desktop_cmd, "_wait_for_http", lambda *_: True)
-    monkeypatch.setattr(
-        desktop_cmd,
-        "webview",
-        types.SimpleNamespace(
-            create_window=lambda *_args, **_kwargs: None,
-            start=lambda **_kwargs: None,
+    for path in (work, secret, console, home, cache, temp):
+        path.mkdir()
+    (work / "config.json").write_text("{}", encoding="utf-8")
+    (console / "index.html").write_text(
+        '<base href="/" /><title>Desktop bootstrap probe</title>',
+        encoding="utf-8",
+    )
+    (secret / "envs.json").write_text(
+        json.dumps(
+            {
+                "QWENPAW_BASE_PATH": "/persisted",
+                "DESKTOP_TEST_SENTINEL": "persisted",
+            },
         ),
+        encoding="utf-8",
     )
-    process = types.SimpleNamespace(pid=17944, returncode=0, poll=lambda: 0)
-    popen_environments = []
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "SYSTEMROOT", "WINDIR", "COMSPEC")
+        if key in os.environ
+    }
+    env.update(
+        HOME=str(home),
+        USERPROFILE=str(home),
+        APPDATA=str(home),
+        LOCALAPPDATA=str(home),
+        TMPDIR=str(temp),
+        TEMP=str(temp),
+        TMP=str(temp),
+        XDG_CACHE_HOME=str(cache),
+        QWENPAW_WORKING_DIR=str(work),
+        QWENPAW_SECRET_DIR=str(secret),
+        QWENPAW_CONSOLE_STATIC_DIR=str(console),
+        QWENPAW_BASE_PATH="/",
+        QWENPAW_TELEMETRY_DISABLED="1",
+        DESKTOP_TEST_SENTINEL="inherited",
+        PYTHONPATH=str(Path(desktop_cmd.__file__).resolve().parents[2]),
+        PYTHONDONTWRITEBYTECODE="1",
+        PYTHONUTF8="1",
+    )
+    args = ["app"]
+    if mode == "legacy":
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(os, "environ", env)
+            argv, env = _capture_desktop_launch(platform=sys.platform)
+        assert argv[:3] == [sys.executable, "-m", "qwenpaw"]
+        args = argv[3:]
 
-    def fake_popen(_args, **kwargs):
-        popen_environments.append(kwargs["env"])
-        return process
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(
+                """
+                import os
+                import sys
+                from contextlib import nullcontext
+                from types import SimpleNamespace
 
-    monkeypatch.setattr(desktop_cmd.subprocess, "Popen", fake_popen)
+                import uvicorn
+                from fastapi.testclient import TestClient
+                from uvicorn.importer import import_from_string
 
-    result = CliRunner().invoke(desktop_cmd.desktop_cmd)
+                from qwenpaw.envs import (
+                    delete_env_var,
+                    load_envs,
+                    update_env_vars,
+                )
 
-    assert result.exit_code == 0, result.output
-    assert len(popen_environments) == 1
-    assert "QWENPAW_BASE_PATH" not in popen_environments[0]
-    assert popen_environments[0]["DESKTOP_TEST_SENTINEL"] == "preserved"
+                mode = sys.argv[1]
+                assert os.environ["QWENPAW_BASE_PATH"] == "/persisted"
+                assert os.environ["DESKTOP_TEST_SENTINEL"] == "persisted"
+                os.environ["DESKTOP_TEST_SENTINEL"] = "before-app-import"
+
+                def probe(app):
+                    # No context manager: don't run the app's lifespan.
+                    client = TestClient(import_from_string(app))
+                    prefix = "/persisted" if mode == "app" else ""
+                    page = client.get(f"{prefix}/")
+                    assert page.status_code == 200, (mode, page.status_code)
+                    assert "Desktop bootstrap probe" in page.text
+                    assert client.get(f"{prefix}/api/version").status_code == 200
+                    if prefix:
+                        assert client.get("/api/version").status_code == 404
+                    assert os.environ["DESKTOP_TEST_SENTINEL"] == "persisted"
+                    assert os.environ["QWENPAW_BASE_PATH"] == (prefix or "/")
+                    assert load_envs()["QWENPAW_BASE_PATH"] == "/persisted"
+                    if not prefix:
+                        update_env_vars({"QWENPAW_BASE_PATH": "/changed"})
+                        assert os.environ["QWENPAW_BASE_PATH"] == "/"
+                        update_env_vars({"QWENPAW_BASE_PATH": "/"})
+                        delete_env_var("QWENPAW_BASE_PATH")
+                        assert os.environ["QWENPAW_BASE_PATH"] == "/"
+                    print("ASGI probe passed")
+
+                if mode == "tauri":
+                    from qwenpaw.tauri import entry
+                    from qwenpaw.utils import port
+
+                    sys.argv = [sys.argv[0]]
+                    instance = SimpleNamespace(publish=lambda _: None)
+                    entry.BackendInstance = lambda *_: nullcontext(instance)
+                    entry.install_sidecar_logging = lambda _: None
+                    socket = SimpleNamespace(
+                        getsockname=lambda: ("127.0.0.1", 43123),
+                        close=lambda: None,
+                    )
+                    port.get_stable_port = lambda *_: (43123, socket)
+                    uvicorn.Server.run = lambda self, **_: probe(self.config.app)
+                    entry.main()
+                else:
+                    from qwenpaw.cli.main import cli
+
+                    uvicorn.run = lambda app, **_: probe(app)
+                    cli.main(args=sys.argv[2:], standalone_mode=False)
+                """,
+            ),
+            mode,
+            *args,
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ASGI probe passed" in result.stdout
 
 
 def test_shutdown_backend_process_uses_shared_graceful_shutdown(

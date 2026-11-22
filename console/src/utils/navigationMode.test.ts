@@ -81,7 +81,16 @@ describe("navigationMode", () => {
 });
 
 describe("configured console basename", () => {
+  let baseElement: HTMLBaseElement | undefined;
+
+  function setDocumentBase(path: string) {
+    baseElement = document.createElement("base");
+    baseElement.href = `${path}/`;
+    document.head.append(baseElement);
+  }
+
   afterEach(() => {
+    baseElement?.remove();
     vi.unstubAllEnvs();
     vi.resetModules();
   });
@@ -160,23 +169,18 @@ describe("configured console basename", () => {
   it.each(["/控制台", "/my console"])(
     "keeps browser navigation inside %s",
     async (base) => {
-      window.__qpBase = base;
-      try {
-        const navigation = await loadNavigation(undefined);
-        const pathname = new URL(`${base}/login`, "https://example.org")
-          .pathname;
-        expect(navigation.stripRouterBasename(pathname)).toBe("/login");
-        expect(navigation.addRouterBasename(pathname, "/chat")).toBe(
-          pathname.replace(/login$/, "chat"),
-        );
-      } finally {
-        delete window.__qpBase;
-      }
+      setDocumentBase(base);
+      const navigation = await loadNavigation(undefined);
+      const pathname = new URL(`${base}/login`, "https://example.org").pathname;
+      expect(navigation.stripRouterBasename(pathname)).toBe("/login");
+      expect(navigation.addRouterBasename(pathname, "/chat")).toBe(
+        pathname.replace(/login$/, "chat"),
+      );
     },
   );
 
   it("prefers the server-injected runtime base path", async () => {
-    window.__qpBase = "/app/qwenpaw/web";
+    setDocumentBase("/app/qwenpaw/web");
     const navigation = await loadNavigation(undefined);
     const location = {
       pathname: "/app/qwenpaw/web/chat",
@@ -189,6 +193,5 @@ describe("configured console basename", () => {
     expect(navigation.getLoginHref(location)).toBe(
       "/app/qwenpaw/web/login?redirect=%2Fchat%3Fdraft%3Done",
     );
-    delete window.__qpBase;
   });
 });

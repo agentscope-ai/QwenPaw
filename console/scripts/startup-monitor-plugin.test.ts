@@ -16,6 +16,7 @@ const buildMonitor = `
 
 const originalUrl = location.href;
 let entry: HTMLScriptElement;
+let baseElement: HTMLBaseElement;
 
 afterEach(async () => {
   document.body.innerHTML = '<div id="root">Mounted</div>';
@@ -23,7 +24,7 @@ afterEach(async () => {
   entry?.remove();
   document.body.innerHTML = "";
   sessionStorage.clear();
-  delete window.__qpBase;
+  baseElement?.remove();
   vi.useRealTimers();
   history.replaceState(null, "", originalUrl);
 });
@@ -46,7 +47,9 @@ describe("standalone startup monitor bundle", () => {
       );
       vi.useFakeTimers();
       history.replaceState(null, "", `${base}/chat`);
-      window.__qpBase = base;
+      baseElement = document.createElement("base");
+      baseElement.href = `${base}/`;
+      document.head.append(baseElement);
       document.body.innerHTML =
         '<div id="root"><div class="qwenpaw-boot"><div class="qwenpaw-boot__content">Loading</div></div></div>';
       entry = document.createElement("script");

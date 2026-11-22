@@ -78,6 +78,17 @@ async def _add_runtime_token_async(
     _add_runtime_token(request, base_url=base_url)
 
 
+def api_url_from_deployment(deployment_url: str) -> str:
+    """Add the API route prefix to a known deployment root."""
+    return f"{deployment_url.rstrip('/')}/api"
+
+
+def api_url_from_override(base_url: str) -> str:
+    """Accept legacy overrides with or without the API route prefix."""
+    base = base_url.rstrip("/")
+    return base if base.endswith("/api") else api_url_from_deployment(base)
+
+
 def api_client(
     base_url: str,
     *,

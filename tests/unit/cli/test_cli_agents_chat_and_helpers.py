@@ -150,7 +150,7 @@ def test_handle_stream_mode_delegates_to_shared_streamer(
 
     assert result.exit_code == 0
     assert "chunk-1" in result.output
-    assert seen["call"][0] == "http://127.0.0.1:8088"
+    assert seen["call"][0] == "http://127.0.0.1:8088/api"
     assert seen["call"][2] == "bot_b"
     assert seen["call"][3] == 300
     assert seen["handler"] is not None
@@ -590,7 +590,7 @@ def test_check_task_status_forwards_to_agent_and_base_url(
 
     assert result.exit_code == 0
     assert stub.seen == (
-        "http://example.test:9999",
+        "http://example.test:9999/api",
         "task-7",
         "bot_b",
         10,

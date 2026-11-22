@@ -285,6 +285,7 @@ def desktop_cmd(
                 "-m",
                 "qwenpaw",
                 "app",
+                "--desktop-root",
                 "--host",
                 host,
                 "--port",

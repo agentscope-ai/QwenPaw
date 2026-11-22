@@ -1,33 +1,20 @@
-declare global {
-  interface Window {
-    __qpBase?: string;
-  }
-}
-
 export function getRuntimeBasePath(): string {
-  if (typeof window === "undefined") return "";
-  const value = window.__qpBase?.trim() || "";
-  if (!value || value === "/") return "";
-  if (!value.startsWith("/") || /[%?#\\]/.test(value)) return "";
-  const path = value.replace(/\/+$/, "");
-  try {
-    const invalid = path
-      .split("/")
-      .slice(1)
-      .some((segment) => {
-        const decoded = decodeURIComponent(segment);
-        return (
-          !segment ||
-          decoded === "." ||
-          decoded === ".." ||
-          decoded.includes("/") ||
-          decoded.includes("\\")
-        );
-      });
-    return invalid ? "" : path;
-  } catch {
+  if (typeof document === "undefined") return "";
+  // Read the server's raw directory path, not the browser's normalized URL.
+  const href = document.head?.querySelector("base[href]")?.getAttribute("href");
+  if (
+    !href?.startsWith("/") ||
+    !href.endsWith("/") ||
+    /[%?#\\\t\n\r]/.test(href)
+  ) {
     return "";
   }
+  const path = href.slice(0, -1);
+  const invalid = path
+    .split("/")
+    .slice(1)
+    .some((segment) => !segment || segment === "." || segment === "..");
+  return invalid ? "" : path;
 }
 
 export function getConsoleAssetUrl(filename: string): string {

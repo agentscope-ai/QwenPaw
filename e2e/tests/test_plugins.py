@@ -111,14 +111,55 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
     context_page.wait_for_load_state("domcontentloaded")
     context_page.wait_for_function("window.apiCallsCompleted === 4")
 
+    outcomes = context_page.evaluate(
+        """async () => {
+            const aborted = AbortSignal.abort();
+            const live = new AbortController().signal;
+            const outcomes = {};
+            for (const [name, requestSignal, init] of [
+                ["omitted", aborted],
+                ["undefined", aborted, {signal: undefined}],
+                ["override", aborted, {signal: live}],
+                ["null", aborted, {signal: null}],
+                ["inherited-override", aborted, Object.create({signal: live})],
+                ["aborted-override", live, {signal: aborted}],
+            ]) {
+                const request = new Request(
+                    `/api/qwenpaw-data/context/${name}`,
+                    {signal: requestSignal},
+                );
+                try {
+                    const response = init === undefined
+                        ? await fetch(request)
+                        : await fetch(request, init);
+                    outcomes[name] = response.status;
+                } catch (error) {
+                    outcomes[name] = error.name;
+                }
+            }
+            return outcomes;
+        }""",
+    )
+
     assert context_page.url == f"{origin}{context_path}#/data-source"
     assert api_requests == [
         f"{origin}{prefix}/api/qwenpaw-data/context/status",
         f"{origin}{prefix}/api/qwenpaw-data/context/config",
         f"{origin}{prefix}/api/qwenpaw-data/context/replayed",
         f"{origin}{prefix}/api/qwenpaw-data/context/fresh",
+        f"{origin}{prefix}/api/qwenpaw-data/context/override",
+        f"{origin}{prefix}/api/qwenpaw-data/context/null",
+        f"{origin}{prefix}/api/qwenpaw-data/context/inherited-override",
     ]
     assert replayed_bodies == ["new", "fresh-body"]
+    assert outcomes == {
+        "omitted": "AbortError",
+        "undefined": "AbortError",
+        "override": 200,
+        "null": 200,
+        "inherited-override": 200,
+        "aborted-override": "AbortError",
+    }
 
 
 # ============================================================================

@@ -8,17 +8,9 @@ from typing import Any, Dict, Optional
 
 import click
 
-from .http import client, print_json, resolve_base_url
+from .http import print_json, resolve_api_endpoint as _base_url
 from ..app.channels.schema import DEFAULT_CHANNEL
-
-
-def _base_url(ctx: click.Context, base_url: Optional[str]) -> str:
-    """Resolve base_url with priority:
-    1) command --base-url
-    2) global --host/--port
-        (already resolved in main.py, may come from config.json)
-    """
-    return resolve_base_url(ctx, base_url)
+from ..utils.runtime_api import api_client as client
 
 
 @click.group("cron")
