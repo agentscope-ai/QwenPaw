@@ -33,6 +33,21 @@ type ConfigLoadState =
   // retry must re-run that request, not load a hardcoded provider slot.
   | { status: "error"; provider: string | null };
 
+/**
+ * Order-independent fingerprint of the form's values.
+ *
+ * Only used to answer "is this still what the server gave us?", so undefined
+ * and null collapse together: both mean "no value", and the backend treats an
+ * empty api_key as "delete the stored key".
+ */
+function fieldFingerprint(values: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.keys(values)
+      .sort()
+      .map((key) => [key, values[key] ?? null]),
+  );
+}
+
 export function WebSearchConfigModal({
   tool,
   visible,
@@ -53,6 +68,10 @@ export function WebSearchConfigModal({
   });
   // Bump to ignore stale responses when the modal closes or a newer fetch starts.
   const fetchGen = useRef(0);
+  // What the server last gave us, in the current slot. Opening, resetting and
+  // refilling must never be written back: each write calls loadTools(), which
+  // refreshes the list and can bounce straight back into the modal (#8836).
+  const loadedSnapshot = useRef<string | null>(null);
 
   const loadInitialConfig = useCallback(() => {
     const gen = ++fetchGen.current;
@@ -65,6 +84,10 @@ export function WebSearchConfigModal({
           (typeof config?.provider === "string" && config.provider) ||
           "anysearch";
         form.setFieldsValue({ ...(config || {}), provider });
+        loadedSnapshot.current = fieldFingerprint({
+          ...(config || {}),
+          provider,
+        });
         setLoadState({ status: "ready", provider });
       })
       .catch(() => {
@@ -86,6 +109,9 @@ export function WebSearchConfigModal({
         .then((config) => {
           if (gen !== fetchGen.current) return;
           form.setFieldsValue({ api_key: config?.api_key ?? "" });
+          // Deliberately not refreshing loadedSnapshot here: switching the
+          // provider is a user edit, so the form must differ from the open
+          // snapshot and get written back.
           setLoadState({ status: "ready", provider });
         })
         .catch(() => {
@@ -130,6 +156,9 @@ export function WebSearchConfigModal({
   const { schedule, discard, requestClose } = useAutoSave(async () => {
     if (!canSubmit) return false;
     const values = form.getFieldsValue(true);
+    // Nothing has changed since the server's copy. Writing anyway would round
+    // trip through loadTools() and can re-enter this modal indefinitely.
+    if (fieldFingerprint(values) === loadedSnapshot.current) return false;
     try {
       await form.validateFields();
     } catch {
