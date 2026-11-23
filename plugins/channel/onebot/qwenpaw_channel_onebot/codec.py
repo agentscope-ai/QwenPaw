@@ -200,16 +200,15 @@ def _local_media_base64_ref(
         size = path.stat().st_size
         if size > media_base64_max_bytes:
             logger.warning(
-                "onebot: local media file %s is %s bytes, exceeds "
-                "media_base64_max_bytes=%s; sending path instead",
-                path,
-                size,
-                media_base64_max_bytes,
+                f"OneBot local media exceeds inline limit: bytes={size} "
+                f"limit={media_base64_max_bytes}, sending file reference",
             )
             return ref
         data = base64.b64encode(path.read_bytes()).decode("ascii")
-    except OSError:
-        logger.warning("onebot: failed to read local media file %s", path)
+    except OSError as exc:
+        logger.warning(
+            f"OneBot local media read failed ({type(exc).__name__})",
+        )
         return ref
     return "base64://" + data
 

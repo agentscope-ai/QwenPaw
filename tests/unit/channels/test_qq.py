@@ -3,8 +3,12 @@
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import sys
 import threading
+from types import SimpleNamespace
+
+import httpx
 import pytest
 import pytest_asyncio
 from websockets.sync.server import serve
@@ -27,6 +31,76 @@ async def eventually(predicate):
     async with asyncio.timeout(3):
         while not predicate():
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize(
+    f"status, body, codes, ip_rejected",
+    [
+        (
+            401,
+            {
+                f"code": 11298,
+                f"err_code": 40023002,
+                f"trace_id": f"a" * 32,
+            },
+            (f"code=11298", f"err_code=40023002", f"trace_id={f'a' * 32}"),
+            True,
+        ),
+        (200, {f"err_code": 40023002}, (f"err_code=40023002",), True),
+        (
+            403,
+            {f"message": f"接口访问源IP不在白名单"},
+            (),
+            True,
+        ),
+        (403, {f"code": 11251}, (f"code=11251",), False),
+        (502, None, (), False),
+    ],
+)
+def test_gateway_lookup_reports_platform_rejection(
+    status,
+    body,
+    codes,
+    ip_rejected,
+    caplog,
+    monkeypatch,
+):
+    monkeypatch.setenv(f"QQ_API_BASE", f"https://qq.test")
+    monkeypatch.setenv(f"QQ_TOKEN_URL", f"https://qq.test/getAppAccessToken")
+    platform = module(f"qq", f"platform").QQPlatform(
+        {
+            f"app_id": f"local-app",
+            f"client_secret": f"local-secret",
+            f"max_reconnect_attempts": 1,
+        },
+        None,
+        None,
+    )
+
+    def handle(request):
+        if request.url.path.endswith(f"/getAppAccessToken"):
+            return httpx.Response(200, json={f"access_token": f"local-token"})
+        assert request.url.path == f"/gateway"
+        if body is None:
+            return httpx.Response(status, text=f"invalid gateway content")
+        return httpx.Response(status, json={**body, f"secret": f"local-token"})
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        platform._sync_http = client
+        state = platform._state
+        assert not platform._ws_connect_once(state, SimpleNamespace())
+        assert state.reconnect_attempts == 1
+
+    assert f"HTTP {status}" in caplog.text
+    assert (f"源 IP 不在 QQ 开放平台白名单" in caplog.text) == ip_rejected
+    for code in codes:
+        assert code in caplog.text
+    for sensitive in (
+        f"local-token",
+        f"local-secret",
+        f"invalid gateway content",
+    ):
+        assert sensitive not in caplog.text
 
 
 class Gateway:
@@ -262,7 +336,8 @@ async def test_native_text_targets(native_driver, target, path):
     }
 
 
-async def test_image_upload_then_native_media_reply(native_driver):
+async def test_image_upload_then_native_media_reply(native_driver, caplog):
+    caplog.set_level(logging.DEBUG, logger=f"qwenpaw_channel_qq.media")
     _, peer, identity, server = native_driver
     handle = await open_route(peer, identity)
     result = await send(
@@ -283,6 +358,9 @@ async def test_image_upload_then_native_media_reply(native_driver):
     assert message["path"] == "/v2/users/user-A/messages"
     assert message["body"]["msg_type"] == 7
     assert message["body"]["media"] == {"file_info": "native-file-info"}
+    assert f"QQ image send acknowledged: destination=c2c" in caplog.text
+    assert f"native-file-info" not in caplog.text
+    assert f"https://cdn.example/p.png" not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -339,7 +417,9 @@ async def test_native_events_map_sender_and_conversation(
     coordinates,
     session,
     conversation,
+    caplog,
 ):
+    caplog.set_level(logging.INFO)
     driver, peer, _, server = native_driver
     server.push(
         {
@@ -380,6 +460,8 @@ async def test_native_events_map_sender_and_conversation(
         == session
     )
     assert actual["content_parts"] == [{"type": "text", "text": "hello"}]
+    assert f"QQ gateway event {event}" in caplog.text
+    assert f"incoming-A" not in caplog.text
 
 
 @pytest.mark.parametrize(f"require_mention", [False, True])
@@ -620,11 +702,14 @@ async def test_self_mention_only_keeps_attachments(native_driver):
 
 async def test_heartbeat_and_stop_close_native_resources(
     native_driver,
+    caplog,
 ):
+    caplog.set_level(logging.DEBUG, logger=f"qwenpaw_channel_qq.platform")
     driver, _, _, server = native_driver
     platform = driver._platform
     await eventually(lambda: any(frame["op"] == 1 for frame in server.frames))
     assert next(frame for frame in server.frames if frame["op"] == 1)["d"] == 1
+    await eventually(lambda: f"QQ heartbeat acknowledged" in caplog.text)
     identify = next(frame for frame in server.frames if frame["op"] == 2)
     assert identify["d"] == {
         "token": "QQBot native-token",
@@ -673,8 +758,13 @@ async def send_stream(
     return await peer.methods["channel.send"](params, None)
 
 
-async def test_stream_slices_extend_the_delivered_prefix(native_driver):
+async def test_stream_slices_extend_the_delivered_prefix(
+    native_driver,
+    caplog,
+):
     driver, peer, identity, server = native_driver
+    driver_logger = type(driver).__module__
+    caplog.set_level(logging.DEBUG, logger=driver_logger)
     driver._config["streaming_enabled"] = True
     server.reject_prefix_rewrites = True
     handle = await open_route(
@@ -697,6 +787,7 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
     # the placeholder must never reach the wire: the stream opens with real
     # text instead.
     assert server.api_rows() == []
+    assert not any(record.name == driver_logger for record in caplog.records)
     first = await send_stream(
         peer,
         identity,
@@ -730,6 +821,14 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
         accumulated_text="first more now",
     )
     assert end["state"] == "acknowledged"
+    assert [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ] == [
+        (logging.DEBUG, f"QQ stream opened type=message"),
+        (logging.DEBUG, f"QQ stream ended type=message index=2"),
+    ]
 
     rows = server.api_rows()
     assert [row["path"] for row in rows] == [
@@ -773,10 +872,13 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
 async def test_host_falls_back_only_when_qq_rejects_opening(
     native_driver,
     monkeypatch,
+    caplog,
     first_operation,
     status,
 ):
     driver, peer, identity, server = native_driver
+    proxy_logger = IsolatedChannelProxy.__module__
+    caplog.set_level(logging.INFO, logger=proxy_logger)
     driver._config["streaming_enabled"] = True
     code_root = ROOT / "plugins" / "channel" / "qq"
     descriptor_path = code_root / "channel.json"
@@ -835,6 +937,22 @@ async def test_host_falls_back_only_when_qq_rejects_opening(
         ]
         assert rows()[-1]["body"]["markdown"] == {"content": "full answer"}
         assert meta["_isolated_streams"] == {}
+    fallback_logs = [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == proxy_logger
+        and f"using non-streaming reply path" in record.message
+    ]
+    if status == 500:
+        assert fallback_logs == []
+    else:
+        assert fallback_logs == [
+            (
+                logging.INFO,
+                f"qq stream open rejected at stream.{first_operation}; "
+                f"using non-streaming reply path",
+            ),
+        ]
 
 
 @pytest.mark.parametrize(
@@ -1023,9 +1141,24 @@ async def test_stream_type_is_preserved_and_validated(native_driver):
     ]
 
 
-@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
-async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
+@pytest.mark.parametrize(
+    (f"outcome", f"cleanup_status"),
+    [
+        (f"completed", 200),
+        (f"failed", 200),
+        (f"cancelled", 200),
+        (f"completed", 500),
+    ],
+)
+async def test_cleanup_closes_unfinished_stream(
+    native_driver,
+    caplog,
+    outcome,
+    cleanup_status,
+):
     driver, peer, identity, server = native_driver
+    driver_logger = type(driver).__module__
+    caplog.set_level(logging.DEBUG, logger=driver_logger)
     driver._config["streaming_enabled"] = True
     handle = await open_route(
         peer,
@@ -1069,7 +1202,30 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
     finish = ResponseFinishParams.from_mapping(
         {**identity, "response_handle": handle, "outcome": outcome},
     )
+    caplog.clear()
+    if cleanup_status == 500:
+        server.reject_next_stream = cleanup_status
     await peer.methods["channel.response.finish"](finish, None)
+    cleanup_logs = [
+        (record.levelno, record.message)
+        for record in caplog.records
+        if record.name == driver_logger
+    ]
+    if cleanup_status == 500:
+        assert cleanup_logs == [
+            (
+                logging.WARNING,
+                f"QQ stream cleanup not confirmed "
+                f"reason=PLATFORM_RESULT_UNKNOWN side_effect_possible=True",
+            ),
+        ]
+    else:
+        assert cleanup_logs == [
+            (
+                logging.DEBUG,
+                f"QQ stream closed by cleanup index={closing_index}",
+            ),
+        ]
     rows = server.api_rows()
     assert [row["body"]["index"] for row in rows] == list(
         range(closing_index + 1),

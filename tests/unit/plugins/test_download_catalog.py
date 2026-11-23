@@ -118,12 +118,20 @@ def test_build_plugin_catalog_returns_normalized_plugins(
     ]
 
 
-def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
+@pytest.mark.parametrize(
+    ("host_version", "mcp_available"),
+    [("2.3.0.post1", False), ("2.3.1b1", True)],
+)
+def test_bundled_hubs_remain_installable_when_cdn_is_unavailable(
+    host_version: str,
+    mcp_available: bool,
+) -> None:
     from qwenpaw.plugins.download_catalog import (
         build_plugin_catalog as catalog,
     )
 
     with (
+        patch("qwenpaw.__version__.__version__", host_version),
         patch(
             "qwenpaw.plugins.download_catalog._fetch_json",
             side_effect=ConnectionResetError("offline"),
@@ -135,7 +143,16 @@ def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
     ):
         result = catalog()
 
-    hubs = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    entries = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    if mcp_available:
+        mcp = entries["qwenpaw-mcp"]
+        assert mcp["kind"] == "protocol"
+        assert mcp["install_url"] == "bundled:qwenpaw-mcp"
+    hubs = {
+        plugin_id: entry
+        for plugin_id, entry in entries.items()
+        if entry["kind"] == "hub"
+    }
     assert set(hubs) == {
         "qwenpaw-hub",
         "clawhub-hub",

@@ -711,6 +711,7 @@ async def test_default_failure_skips_custom_agent_phase(monkeypatch) -> None:
 
 class _WorkspaceStub:
     def __init__(self, start_event: asyncio.Event, release: asyncio.Event):
+        self.agent_id = "custom"
         self._start_event = start_event
         self._release = release
 
@@ -721,9 +722,16 @@ class _WorkspaceStub:
     def set_manager(self, _manager) -> None:
         return None
 
+    async def stop(self, **_kwargs) -> None:
+        return None
+
 
 @pytest.mark.asyncio
-async def test_get_agent_updates_runtime_status(monkeypatch) -> None:
+@pytest.mark.parametrize("activation_fails", [False, True])
+async def test_get_agent_updates_runtime_status(
+    monkeypatch,
+    activation_fails,
+) -> None:
     manager = MultiAgentManager()
     config = _config("custom")
     monkeypatch.setattr(
@@ -733,6 +741,18 @@ async def test_get_agent_updates_runtime_status(monkeypatch) -> None:
     started = asyncio.Event()
     release = asyncio.Event()
     workspace = _WorkspaceStub(started, release)
+    workspace.cron_manager = MagicMock()
+
+    async def activate():
+        assert manager.agents["custom"] is workspace
+        assert workspace.cron_start_paused
+        workspace.cron_manager.resume_scheduling.assert_not_called()
+        if activation_fails:
+            raise RuntimeError("Driver activation failed")
+
+    workspace.driver_manager = SimpleNamespace(
+        activate_registered_protocols=AsyncMock(side_effect=activate),
+    )
     monkeypatch.setattr(
         manager,
         "_create_workspace",
@@ -746,7 +766,17 @@ async def test_get_agent_updates_runtime_status(monkeypatch) -> None:
     )
 
     release.set()
+    if activation_fails:
+        with pytest.raises(RuntimeError, match="Driver activation failed"):
+            await asyncio.wait_for(task, timeout=1)
+        assert "custom" not in manager.agents
+        assert manager.get_agent_startup_status("custom") == (
+            AgentStartupStatus.FAILED
+        )
+        workspace.cron_manager.resume_scheduling.assert_not_called()
+        return
     assert await asyncio.wait_for(task, timeout=1) is workspace
+    workspace.cron_manager.resume_scheduling.assert_called_once_with()
     assert manager.get_agent_startup_status("custom") == (
         AgentStartupStatus.RUNNING
     )

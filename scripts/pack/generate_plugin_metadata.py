@@ -14,6 +14,7 @@ Layout produced under ``--dist``::
         apps/<plugin_id>/<id>-<version>.zip
         harness/<plugin_id>/<id>-<version>.zip
         channel/<plugin_id>/<id>-<version>.zip
+        provider/<plugin_id>/<id>-<version>.zip
         index.json
 
 Each plugin is stored under its own directory on the CDN
@@ -72,8 +73,10 @@ KIND_DIRS = (
     "memory",
     "apps",
     "channel",
+    "provider",
     "hub",
     "harness",
+    "protocol",
     "transcription",
 )
 # The shared release publisher accepts bundle archives. The catalog still

@@ -208,6 +208,30 @@ async def test_text_and_file_use_native_recipient(
                 assert (await sending)["state"] == "acknowledged"
 
 
+async def test_action_rejection_logs_retcode_without_body(tmp_path, caplog):
+    error = module(f"onebot", f"platform").OneBotPlatformError
+    async with driver_at(tmp_path) as (driver, _, _):
+        platform = driver._platform
+        async with aiohttp.ClientSession() as client:
+            async with client.ws_connect(ws_url(platform)) as ws:
+                call = asyncio.create_task(
+                    platform.call_api(f"get_msg", {f"message_id": 1}),
+                )
+                frame = await asyncio.wait_for(ws.receive_json(), 1)
+                await ws.send_json(
+                    {
+                        f"echo": frame[f"echo"],
+                        f"retcode": 100,
+                        f"status": f"failed",
+                        f"message": f"private-onebot-response",
+                    },
+                )
+                with pytest.raises(error, match=f"PLATFORM_API_FAILED"):
+                    await call
+    assert f"OneBot API get_msg rejected: retcode=100" in caplog.text
+    assert f"private-onebot-response" not in caplog.text
+
+
 async def test_stop_releases_listener_port_and_owned_tasks(tmp_path):
     async with driver_at(tmp_path) as (driver, peer, identity):
         platform = driver._platform

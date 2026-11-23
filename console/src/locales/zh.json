@@ -1,4 +1,10 @@
 {
+  "mcpFeature": {
+    "required": "需要 MCP 插件",
+    "unavailable": "MCP 插件未安装或不可用，Mail 和 ACP 暂不可用。配置已保留，请前往官方插件页面安装、启用或修复。",
+    "openOfficial": "前往官方插件",
+    "later": "稍后"
+  },
   "accessibility": {
     "skipToContent": "跳到主要内容"
   },
@@ -1435,6 +1441,16 @@
     "custom": "自定义"
   },
   "mcp": {
+    "legacyArchived": "部分旧连接未迁移，原配置已备份",
+    "recovery": {
+      "title": "MCP 需要处理",
+      "invalid_upgrade_record": "请检查 MCP 安装记录，然后重试",
+      "orphaned_installation_record": "请检查 MCP 安装记录，然后重试",
+      "offline_upgrade_failed_check_dependencies_and_storage": "请检查离线依赖和存储，然后重试",
+      "workspace_needs_review": "请检查此工作区保存的 MCP 配置，然后重试",
+      "invalid_plugin_settings": "请检查 MCP 插件设置，然后重试",
+      "plugin_runtime_failed": "MCP 插件加载失败，请前往插件管理并选择「修复并重试」。"
+    },
     "title": "MCP 客户端",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "由统一控制面管理，并在运行时注入支持的第三方智能体。",
@@ -1554,6 +1570,7 @@
       "reauthorize": "重新授权",
       "revoke": "撤销授权",
       "startFailed": "启动 OAuth 流程失败",
+      "attemptFailed": "本次授权未完成，原认证配置未更改。你可以重新授权。",
       "authFailed": "OAuth 授权失败",
       "popupBlocked": "弹窗被浏览器拦截，请允许弹窗后重试",
       "windowClosed": "授权窗口已关闭，请重试",
@@ -1571,7 +1588,14 @@
     },
     "local": "本地",
     "remote": "远程",
-    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。"
+    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。",
+    "plugin": {
+      "version": "MCP 插件版本：{{version}}",
+      "updateAvailable": "MCP 插件 {{version}} 可更新",
+      "update": "更新插件",
+      "versionCheckUnavailable": "暂时无法检查插件版本，MCP 可继续使用。",
+      "frontendRefreshFailed": "插件已更新，但界面刷新失败，请刷新页面。"
+    }
   },
   "heartbeat": {
     "customInterval": "自定义间隔",
@@ -4128,6 +4152,16 @@
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令",
     "composer": {
+      "tools": "聊天工具",
+      "menu": {
+        "speech": "语音输入",
+        "attach": "添加附件",
+        "loop": "运行模式",
+        "model": "模型",
+        "context": "上下文",
+        "project-directory": "工作目录",
+        "approval": "审批模式"
+      },
       "attach": "添加附件",
       "send": "发送消息",
       "stop": "停止生成"
@@ -5602,7 +5636,8 @@
     "enableSuccess": "插件已激活。",
     "enableFailed": "插件激活失败。请检查依赖与应用日志后重试。",
     "disableSuccess": "插件已停用",
-    "disableFailed": "无法完成插件停用，请查看诊断信息"
+    "disableFailed": "无法完成插件停用，请查看诊断信息",
+    "kindProtocol": "协议"
   },
   "codingMode": {
     "toolPresentationHelp": "开启后，智能体只使用一个代码工具。搜索、文件处理等操作，统一通过编写并执行 Python 代码完成。",

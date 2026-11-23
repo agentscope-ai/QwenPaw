@@ -2,13 +2,16 @@
 """Channel handshake adapter over the public plugin process component."""
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 from copy import deepcopy
-from ...channel_protocol.artifacts import code_root_digest
 from dataclasses import dataclass, field, replace
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+from ...channel_protocol.artifacts import code_root_digest
 from ...plugins.execution.bootstrap import validate_private_environment
 from ...plugins.execution.process import (  # pylint: disable=unused-import
     PluginProcess,
@@ -328,6 +331,10 @@ class ChannelProcess(PluginProcess):
         for name in ("sdk_storage_root", "sdk_media_root"):
             value = getattr(spec, name)
             packet[name] = str(value) if value is not None else None
+        if self._mode in {"run", "manage"}:
+            packet["channel_log_level"] = logging.getLogger(
+                "qwenpaw",
+            ).getEffectiveLevel()
         return self._encode_packet(packet)
 
     def _worker_path(self, spec):

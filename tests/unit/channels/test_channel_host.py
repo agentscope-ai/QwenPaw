@@ -4,6 +4,7 @@
 import asyncio
 import importlib.abc
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -25,6 +26,7 @@ from tests.channel_support.host import (
     saved_texts,
 )
 from tests.channel_support.process import alive, eventually
+from qwenpaw.utils.logging import add_project_file_handler
 
 
 def _runtime_identity():
@@ -180,6 +182,18 @@ def test_official_discovery_and_descriptor_snapshot_are_static(
             json.loads((source / "plugin.json").read_text(encoding="utf-8")),
         ),
     )
+    from qwenpaw.channel_protocol.artifacts import code_root_digest
+    from qwenpaw.plugins.execution.bootstrap import _hash_code_root
+    from qwenpaw.plugins.install_receipts import write_install_commit
+
+    write_install_commit(source, KEY)
+    assert code_root_digest(source) == description.source_revision
+    assert _hash_code_root(source) == description.source_revision
+    hidden_source = source / ".plugin-owned.py"
+    hidden_source.write_text("value = 1\n", encoding="utf-8")
+    assert code_root_digest(source) != description.source_revision
+    assert _hash_code_root(source) == code_root_digest(source)
+    hidden_source.unlink()
     prepared = description.prepare_proxy_config({"enabled": False})
 
     def forbid_descriptor_load(*args, **kwargs):
@@ -1084,6 +1098,183 @@ async def test_channel_worker_preserves_canonical_runtime_context(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(f"output", [f"logging", f"lark", f"writelines"])
+async def test_channel_worker_handles_log_pipe_backpressure(
+    host,
+    caplog,
+    monkeypatch,
+    output,
+):
+    monkeypatch.setattr(logging.getLogger(f"qwenpaw"), f"level", logging.INFO)
+    caplog.set_level(logging.WARNING, logger=f"qwenpaw.plugins.worker")
+    source = host.artifact() / f"sample.py"
+    bind = f"        super().bind(context)\n"
+    identity = f"    async def identity(self, _params, _request):\n"
+    source.write_text(
+        source.read_text(encoding=f"utf-8")
+        .replace(
+            bind,
+            bind + f"        context.peer.register_method(\n"
+            f"            'sample.burst', self.log_burst)\n",
+        )
+        .replace(
+            identity,
+            f"    async def log_burst(self, params, request):\n"
+            f"        import asyncio, logging, sys\n"
+            f"        logger = logging.getLogger('sample.sdk')\n"
+            f"        if params['output'] == 'lark':\n"
+            f"            logger = logging.getLogger('Lark')\n"
+            f"            console = logging.StreamHandler(sys.stdout)\n"
+            f"            console.setFormatter(logging.Formatter(\n"
+            f"                '[Lark] [%(asctime)s] [%(levelname)s] '\n"
+            f"                '%(message)s'))\n"
+            f"            logger.addHandler(console)\n"
+            f"        async def heartbeat():\n"
+            f"            await asyncio.sleep(0.01)\n"
+            f"            await self._context.peer.notify(\n"
+            f"                'sample.heartbeat', {{'ok': True}})\n"
+            f"        beat = asyncio.create_task(heartbeat())\n"
+            f"        for index in range(2000):\n"
+            f"            if params['output'] == 'writelines':\n"
+            f"                sys.stderr.writelines(('x' * 4095, '\\n'))\n"
+            f"            else:\n"
+            f"                logger.info('x' * 4096)\n"
+            f"            if index % 32 == 0:\n"
+            f"                await asyncio.sleep(0)\n"
+            f"        logger.error('priority after SDK burst')\n"
+            f"        await beat\n"
+            f"        return {{'complete': True}}\n\n" + identity,
+        ),
+        encoding=f"utf-8",
+    )
+    workspace = await host.workspace(f"log-backpressure")
+    await host.loader.load_plugin_from_path(source.parent)
+    channel = await workspace.channel_manager.get_channel(KEY)
+    process = channel.channel_process
+    heartbeats = []
+    process._peer.register_notification(
+        f"sample.heartbeat",
+        lambda params, _request: heartbeats.append(params),
+    )
+    transport = process._process.stderr._transport
+    transport.pause_reading()
+    try:
+        assert await process.call(
+            f"sample.burst",
+            {f"output": output},
+            timeout=3,
+        ) == {f"complete": True}
+        assert heartbeats == [{f"ok": True}]
+        assert await process.call(f"sample.identity", {}, timeout=1)
+        if output == f"lark":
+            transport.resume_reading()
+            await eventually(
+                lambda: f"worker log queue dropped" in caplog.text,
+            )
+            await eventually(
+                lambda: f"priority after SDK burst" in caplog.text,
+            )
+        stopped = await process.stop(timeout=2)
+        assert stopped.exited and not stopped.forced
+        assert stopped.returncode == 0
+        assert rows(host.ledger, f"stopped")
+    finally:
+        transport.resume_reading()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"level", [logging.INFO, logging.DEBUG])
+async def test_channel_worker_forwards_sdk_and_plugin_logs(
+    host,
+    monkeypatch,
+    level,
+):
+    logger = logging.getLogger(f"qwenpaw")
+    monkeypatch.setattr(logger, f"level", level)
+    log_path = host.root / f"qwenpaw.log"
+    handler = add_project_file_handler(log_path)
+    try:
+        workspace = await host.workspace(f"worker-logs")
+        source = host.artifact() / f"sample.py"
+        start = f"    async def start(self, config):\n"
+        source.write_text(
+            source.read_text(encoding=f"utf-8").replace(
+                start,
+                start + f"        import logging, sys\n"
+                f"        sdk = logging.getLogger('ordinary.sdk')\n"
+                f"        sdk.info('ordinary SDK event')\n"
+                f"        sdk.debug('ordinary SDK debug')\n"
+                f"        lark = logging.getLogger('Lark')\n"
+                f"        console = logging.StreamHandler(sys.stdout)\n"
+                f"        console.setFormatter(logging.Formatter(\n"
+                f"            '[Lark] [%(asctime)s] [%(levelname)s] '"
+                f"'%(message)s'\n"
+                f"        ))\n"
+                f"        lark.addHandler(console)\n"
+                f"        if logging.getLogger().level == logging.INFO:\n"
+                f"            lark.setLevel(logging.DEBUG)\n"
+                f"            for _ in range(80):\n"
+                f"                lark.debug('filtered SDK detail')\n"
+                f"        endpoint = 'wss://test/?sig=hidden'\n"
+                f"        lark.info('SDK connected to %s', endpoint)\n"
+                f"        logging.getLogger(__name__).error(\n"
+                f"            'driver failure 白名单 %s', config['app_secret'])\n"
+                f"        print('raw stdout diagnostic')\n"
+                f"        twilio = logging.getLogger('twilio.http_client')\n"
+                f"        twilio.info('Query Params: twilio-private-value')\n"
+                f"        twilio.info('Response Status Code: 403')\n"
+                f"        if logging.getLogger().level == logging.DEBUG:\n"
+                f"            for _ in range(80):\n"
+                f"                sdk.debug('SDK detail during burst')\n"
+                f"            sdk.error('important failure after burst')\n",
+            ),
+            encoding=f"utf-8",
+        )
+        await host.loader.load_plugin_from_path(source.parent)
+        await host.emit(workspace, room=f"ipc-still-works")
+        await eventually(lambda: bool(rows(host.ledger, f"finished")))
+
+        def output():
+            return log_path.read_text(encoding=f"utf-8")
+
+        await eventually(lambda: f"raw stdout diagnostic" in output())
+        if level == logging.DEBUG:
+            await eventually(
+                lambda: f"important failure after burst" in output(),
+            )
+        lines = output().splitlines()
+        for severity, marker in (
+            (f"INFO", f"[ordinary.sdk] ordinary SDK event"),
+            (f"INFO", f"[Lark] SDK connected to wss://test/"),
+            (f"ERROR", f"driver failure 白名单 [REDACTED]"),
+            (f"WARNING", f"raw stdout diagnostic"),
+            (f"INFO", f"[twilio.http_client] Response Status Code: 403"),
+        ):
+            matches = [line for line in lines if marker in line]
+            assert len(matches) == 1
+            assert f"| {severity} |" in matches[0]
+            assert f"plugin_id={KEY}" in matches[0]
+            assert f"instance_id=" in matches[0]
+        assert all(f"local-only" not in line for line in lines)
+        assert all(f"sig=hidden" not in line for line in lines)
+        assert all(f"twilio-private-value" not in line for line in lines)
+        assert (f"ordinary SDK debug" in output()) == (level == logging.DEBUG)
+        phases = [
+            line for line in lines if f'"phase": "driver_verify"' in line
+        ]
+        assert bool(phases) == (level == logging.DEBUG)
+        assert all(f"| DEBUG |" in line for line in phases)
+        assert f'"event": "process_ready"' in output()
+        if level == logging.INFO:
+            assert f"filtered SDK detail" not in output()
+            assert f"omitted " not in output()
+    finally:
+        logger.removeHandler(handler)
+        logging.getLogger(f"apscheduler").removeHandler(handler)
+        handler.close()
+
+
+@pytest.mark.asyncio
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,
@@ -1495,6 +1686,12 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
 
     await eventually(
         lambda: any(row["event"] == "connection_failed" for row in observed()),
+    )
+    assert any(
+        record.name == f"qwenpaw.plugins.startup"
+        and record.levelno == logging.ERROR
+        and f'"event": "connection_failed"' in record.getMessage()
+        for record in caplog.records
     )
     if failure == "exited":
         await eventually(

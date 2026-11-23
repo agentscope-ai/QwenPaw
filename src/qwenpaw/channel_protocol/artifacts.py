@@ -9,6 +9,9 @@ from pathlib import Path
 
 from .errors import ArtifactValidationError
 
+# Written by the host after installation commits; never plugin source code.
+_HOST_METADATA_FILES = frozenset({".plugin-install-commit.json"})
+
 
 def _error(message: str, *path: str | int) -> ArtifactValidationError:
     return ArtifactValidationError(message, path=path)
@@ -30,7 +33,11 @@ def code_root_digest(
             continue
         if path.is_symlink():
             raise _error("code_root cannot contain symlinks", "code_root")
-        if path.relative_to(root).as_posix() in ignored_paths:
+        relative_path = path.relative_to(root).as_posix()
+        if (
+            relative_path in _HOST_METADATA_FILES
+            or relative_path in ignored_paths
+        ):
             continue
         if path.is_file():
             files.append(path)

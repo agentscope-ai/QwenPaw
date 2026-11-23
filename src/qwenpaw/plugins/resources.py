@@ -210,8 +210,19 @@ class ResourceScope:  # pylint: disable=protected-access
         task.add_done_callback(completed)
         return task
 
-    def connection(self, client: _T, description: str = "connection") -> _T:
-        closer = custody.ConnectionCloser(client, description)
+    def connection(
+        self,
+        client: _T,
+        description: str = "connection",
+        timeout: float | None = None,
+    ) -> _T:
+        """Own a connection and bound each close attempt.
+
+        ``timeout`` overrides the host's five-second default, in seconds.
+        Composite connections derive it from their child stop budgets.
+        Incomplete closes remain owned and can be retried.
+        """
+        closer = custody.ConnectionCloser(client, description, timeout=timeout)
 
         async def close():
             await closer()

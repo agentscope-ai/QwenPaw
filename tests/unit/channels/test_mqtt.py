@@ -21,6 +21,9 @@ class Client:
     def reconnect_delay_set(self, **kwargs):
         pass
 
+    def enable_logger(self):
+        self.sdk_logger_enabled = True
+
     def connect(self, host, port, keepalive):
         self.connection = host, port, keepalive
 
@@ -78,6 +81,7 @@ async def test_start_subscribes_with_configured_qos(mqtt):
     driver, _, _, client = mqtt
     assert client.connection == ("broker.invalid", 1883, 60)
     assert client.subscriptions == [("request/+/text", 2)]
+    assert client.sdk_logger_enabled
     assert driver._connected and not client.options["reconnect_on_failure"]
 
 
@@ -119,6 +123,7 @@ async def test_publish_confirmation_unknown_is_not_replayed(
     mqtt,
     tmp_path,
     monkeypatch,
+    caplog,
 ):
     driver, peer, identity, client = mqtt
     event = await inbound(mqtt, b"hello")
@@ -131,6 +136,8 @@ async def test_publish_confirmation_unknown_is_not_replayed(
 
     # A single slot makes capacity recovery observable without a stress loop.
     monkeypatch.setattr(shared_response_driver, "_MAX_ROUTES", 1)
+    now = 0.0
+    monkeypatch.setattr(shared_response_driver, f"monotonic", lambda: now)
     handle = event["response_handle"]
     config = dict(driver._config)
     for archived in (False, True):
@@ -146,9 +153,18 @@ async def test_publish_confirmation_unknown_is_not_replayed(
             assert client.published == []
             assert len(driver._routes.snapshots()) == (0 if archived else 1)
             if not archived:
-                with pytest.raises(ResponseStateError) as error:
-                    await open_route(peer, identity, "device-B")
-                assert error.value.reason_code == "RESPONSE_SCOPE_LIMIT"
+                for now in (0.0, 59.0):
+                    with pytest.raises(ResponseStateError) as error:
+                        await open_route(peer, identity, f"device-B")
+                    assert error.value.reason_code == f"RESPONSE_SCOPE_LIMIT"
+                assert [
+                    log
+                    for log in caplog.messages
+                    if f"RESPONSE_SCOPE_LIMIT" in log
+                ] == [
+                    f"mqtt RESPONSE_SCOPE_LIMIT: routes=1 limit=1 "
+                    f"active=1 unknown_attempt=1 no_attempt=0",
+                ]
                 assert (await finish(peer, identity, handle))[
                     "state"
                 ] == "closed"
@@ -177,7 +193,11 @@ async def test_publish_confirmation_unknown_is_not_replayed(
             await driver.stop()
 
 
-async def test_malformed_payload_is_filtered_before_valid_barrier(mqtt):
+async def test_malformed_payload_is_filtered_before_valid_barrier(
+    mqtt,
+    caplog,
+):
+    caplog.set_level(f"DEBUG", logger=f"qwenpaw_channel_mqtt.platform")
     driver, peer, _, client = mqtt
     for payload in (b"[]", b"\xff", b'{"text":12}', b'{"text":""}'):
         client.on_message(
@@ -188,6 +208,9 @@ async def test_malformed_payload_is_filtered_before_valid_barrier(mqtt):
     event = await inbound(mqtt, b"barrier")
     assert len(peer.batches) == 1
     assert event["content_parts"] == [{"type": "text", "text": "barrier"}]
+    assert f"MQTT invalid message (UnicodeDecodeError)" in caplog.text
+    assert f"MQTT received message: text_chars=7" in caplog.text
+    assert f"barrier" not in caplog.text
 
 
 async def test_stop_disconnects_and_is_idempotent_without_connection(

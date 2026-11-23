@@ -320,21 +320,20 @@ async def download_and_upload_media(
         file_data = _read_local_media(local_path, allowed_roots)
         filename = os.path.basename(local_path)
         logger.info(
-            "yuanbao media: read local file %s (%s bytes)",
-            filename,
-            len(file_data),
+            f"Yuanbao media read from disk: bytes={len(file_data)}",
         )
     elif media_path.startswith(("http://", "https://")):
         async with session.get(media_path) as resp:
             if resp.status != 200:
+                logger.warning(
+                    f"Yuanbao media fetch failed: HTTP {resp.status}",
+                )
                 raise RuntimeError(f"Failed to download media: {resp.status}")
             file_data = await _read_response(resp, MAX_UPLOAD_MB * 1024 * 1024)
             parsed = urlparse(media_path)
             filename = os.path.basename(parsed.path) or "file"
         logger.info(
-            "yuanbao media: downloaded %s (%s bytes)",
-            filename,
-            len(file_data),
+            f"Yuanbao media fetched from HTTP: bytes={len(file_data)}",
         )
     else:
         raise RuntimeError(f"Cannot resolve media path: {media_path}")
@@ -369,7 +368,7 @@ async def download_and_upload_media(
         mime_type,
     )
 
-    logger.info("yuanbao media: uploaded %s → %s", filename, resource_url[:80])
+    logger.info(f"Yuanbao media uploaded: bytes={len(file_data)}")
 
     return UploadResult(
         url=resource_url,
@@ -526,11 +525,8 @@ async def resolve_download_url(
             headers=auth_headers,
         ) as resp:
             if resp.status != 200:
-                text = await resp.text()
                 logger.warning(
-                    "yuanbao: download API failed: %s %s",
-                    resp.status,
-                    text[:100],
+                    f"Yuanbao download API failed: HTTP {resp.status}",
                 )
                 return media_url
 
@@ -541,12 +537,11 @@ async def resolve_download_url(
 
         download_url = data.get("url") or data.get("realUrl") or ""
         if download_url:
-            logger.debug(
-                "yuanbao: resolved download URL for resourceId=%s",
-                resource_id,
-            )
+            logger.debug(f"Yuanbao media download URL resolved")
             return download_url
     except Exception as exc:
-        logger.warning("yuanbao: resolve download URL failed: %s", exc)
+        logger.warning(
+            f"Yuanbao download URL resolution failed ({type(exc).__name__})",
+        )
 
     return media_url

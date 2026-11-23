@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 import runpy
 import shutil
+import tomllib
 from types import SimpleNamespace
 
 import pytest
@@ -160,7 +161,6 @@ def test_desktop_spec_collects_reme_entry_point_plugins():
 
 
 def test_optional_runtimes_stay_out_of_full_and_desktop():
-    import tomllib
     from packaging.requirements import Requirement
 
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
@@ -171,8 +171,8 @@ def test_optional_runtimes_stay_out_of_full_and_desktop():
         for item in project["optional-dependencies"]["full"]
         for extra in Requirement(item).extras
     }
-    assert {"channels", "qwenpaw-data", "hub", "local"} <= full
-    assert not {"whisper", "codex", "qoder"} & full
+    assert {"channels", "qwenpaw-data", "hub"} <= full
+    assert not {"local", "whisper", "codex", "qoder"} & full
     assert (
         not {
             "openai-whisper",
@@ -233,22 +233,25 @@ def test_desktop_spec_reaches_analysis_without_vendor_sdks(
     tmp_path,
     monkeypatch,
 ) -> None:
-    """Run real collectors with a bounded installed full dependency graph."""
+    """Run real collectors with a bounded desktop dependency graph."""
     assert importlib.util.find_spec("qoder_agent_sdk") is None
     assert importlib.util.find_spec("codex_cli_bin") is None
 
-    # The core test environment does not install desktop's full extra. Its
-    # editable metadata may also predate a dependency move to a plugin.
-    # Keep the selected full graph explicit while collecting its installed
-    # transitive distributions through the production metadata collector.
+    # Exercise the production full extra with a small set of installed packages.
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    full = project["project"]["optional-dependencies"]["full"]
     metadata = tmp_path / "qwenpaw-0.0.0.dist-info"
     metadata.mkdir()
     (metadata / "METADATA").write_text(
         "Metadata-Version: 2.1\nName: qwenpaw\nVersion: 0.0.0\n"
+        "Provides-Extra: local\n"
         "Provides-Extra: full\n"
         "Requires-Dist: openai; extra == 'full'\n"
         "Requires-Dist: pydantic; extra == 'full'\n"
-        "Requires-Dist: httpx; extra == 'full'\n",
+        "Requires-Dist: modelscope; extra == 'local'\n"
+        "Requires-Dist: modelscope-hub; extra == 'local'\n"
+        "Requires-Dist: httpx; extra == 'full'\n"
+        + "".join(f"Requires-Dist: {dep}; extra == 'full'\n" for dep in full),
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -260,6 +263,7 @@ def test_desktop_spec_reaches_analysis_without_vendor_sdks(
     staged_pack.mkdir(parents=True)
     for name in ("qwenpaw.spec", "collect_runtime_metadata.py"):
         (staged_pack / name).symlink_to(SPEC_PATH.parent / name)
+    (staged_root / "pyproject.toml").symlink_to(REPO_ROOT / "pyproject.toml")
     for name in ("src", "packages", "plugins"):
         (staged_root / name).symlink_to(
             REPO_ROOT / name,
@@ -314,6 +318,8 @@ def test_desktop_spec_reaches_analysis_without_vendor_sdks(
     assert host_transitives <= metadata_names
     assert (
         not {
+            "modelscope",
+            "modelscope-hub",
             "openai-codex",
             "codex-cli-bin",
             "qoder-agent-sdk",

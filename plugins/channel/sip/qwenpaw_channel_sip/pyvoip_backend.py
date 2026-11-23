@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from collections import deque
+import logging
 import threading
 import time
 
@@ -12,6 +13,7 @@ from .backend import SIPPlatformError
 from .runtime import ResourceClaim, run_native
 
 _AUDIO_QUEUE_MAX_FRAMES = 150
+logger = logging.getLogger(__name__)
 
 
 def _put_latest_audio(queue, frame):
@@ -207,6 +209,7 @@ class PyVoIPBackend:
         with self._guard:
             call = self._active_calls.get(call_id)
         if call is None or not self._running:
+            logger.debug(f"PyVoIP playback skipped for closed call")
             raise SIPPlatformError("CALL_CLOSED")
         await run_native(call.write_audio, audio)
 
@@ -228,6 +231,7 @@ class PyVoIPBackend:
                 self._active_calls[call_id] = call
                 self._readers.add(thread)
         if not allowed:
+            logger.debug(f"PyVoIP incoming call declined by local admission")
             try:
                 call.hangup()
             except InvalidStateError:
@@ -268,7 +272,12 @@ class PyVoIPBackend:
                     bridge.put(pcm)
                 time.sleep(0.018)
         except InvalidStateError:
-            pass
+            logger.debug(f"PyVoIP native call no longer active")
+        except Exception as error:
+            logger.warning(
+                f"PyVoIP native call failed ({type(error).__name__})",
+            )
+            raise
         finally:
             bridge.put(None)
             if self.on_call_ended:

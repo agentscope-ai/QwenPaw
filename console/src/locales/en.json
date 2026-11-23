@@ -1,4 +1,10 @@
 {
+  "mcpFeature": {
+    "required": "MCP plugin required",
+    "unavailable": "MCP is not installed or is unavailable. Mail and ACP cannot run. Your settings are retained; install, enable or repair MCP on the official plugins page.",
+    "openOfficial": "Open official plugins",
+    "later": "Later"
+  },
   "accessibility": {
     "skipToContent": "Skip to content"
   },
@@ -1623,6 +1629,16 @@
     "custom": "Custom"
   },
   "mcp": {
+    "legacyArchived": "Some legacy connections were not migrated. The original configuration was backed up.",
+    "recovery": {
+      "title": "MCP needs attention",
+      "invalid_upgrade_record": "Review the MCP installation record, then retry",
+      "orphaned_installation_record": "Review the MCP installation record, then retry",
+      "offline_upgrade_failed_check_dependencies_and_storage": "Check offline dependencies and storage, then retry",
+      "workspace_needs_review": "Review this workspace’s saved MCP configuration, then retry",
+      "invalid_plugin_settings": "Review the MCP plugin settings, then retry",
+      "plugin_runtime_failed": "The MCP plugin failed to load. Open Plugin Manager and select Repair and retry."
+    },
     "title": "MCP Clients",
     "qwenpawManaged": "QwenPaw managed",
     "qwenpawManagedHint": "Shared control-plane configuration injected into supported third-party Agents at runtime.",
@@ -1742,6 +1758,7 @@
       "reauthorize": "Re-authorize",
       "revoke": "Revoke",
       "startFailed": "Failed to start OAuth flow",
+      "attemptFailed": "This authorization did not complete. Your previous authentication configuration is unchanged. You can try again.",
       "authFailed": "OAuth authorization failed",
       "popupBlocked": "Popup was blocked by the browser. Please allow popups and try again.",
       "windowClosed": "Authorization window was closed. Please try again.",
@@ -1759,7 +1776,14 @@
     },
     "local": "Local",
     "remote": "Remote",
-    "invalidJson": "Enter valid JSON containing at least one MCP server."
+    "invalidJson": "Enter valid JSON containing at least one MCP server.",
+    "plugin": {
+      "version": "MCP plugin version: {{version}}",
+      "updateAvailable": "MCP plugin {{version}} is available",
+      "update": "Update plugin",
+      "versionCheckUnavailable": "Plugin version check is unavailable. MCP can continue running.",
+      "frontendRefreshFailed": "The plugin was updated, but its interface could not refresh. Reload the page."
+    }
   },
   "heartbeat": {
     "customInterval": "Custom interval",
@@ -4299,6 +4323,16 @@
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands",
     "composer": {
+      "tools": "Chat tools",
+      "menu": {
+        "speech": "Voice input",
+        "attach": "Attach files",
+        "loop": "Run mode",
+        "model": "Model",
+        "context": "Context",
+        "project-directory": "Directory",
+        "approval": "Approval"
+      },
       "attach": "Attach files",
       "send": "Send message",
       "stop": "Stop generating"
@@ -5586,7 +5620,8 @@
     "enableSuccess": "Plugin activated.",
     "enableFailed": "Plugin activation failed. Check its dependencies and application logs, then retry.",
     "disableSuccess": "Plugin disabled",
-    "disableFailed": "Could not finish disabling the plugin; check its diagnostics"
+    "disableFailed": "Could not finish disabling the plugin; check its diagnostics",
+    "kindProtocol": "Protocol"
   },
   "codingMode": {
     "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",

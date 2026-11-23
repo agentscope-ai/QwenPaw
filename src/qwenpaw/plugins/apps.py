@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from .conversations import ConversationService
     from .sdk import PluginContext
     from .resources import Registration
-
+    from .drivers import DriverContext
 
 JSONBody = Union[
     None,
@@ -184,6 +184,14 @@ class AppContext(ToolContext):
         from .conversations import ConversationService
 
         return ConversationService(self)
+
+    def driver_source(
+        self,
+        protocol: str,
+        source_id: str,
+    ) -> AbstractAsyncContextManager["DriverContext"]:
+        """Open an authenticated management scope for this plugin's source."""
+        return self._services.driver_source(protocol, source_id)
 
     async def workspaces(self) -> tuple[WorkspaceSummary, ...]:
         """Configured console workspaces, without host paths or credentials."""

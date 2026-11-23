@@ -56,17 +56,18 @@ async def _download_mattermost_file(
         async with http.stream("GET", url) as resp:
             if resp.status_code != 200:
                 logger.warning(
-                    "mattermost: download %s returned %s",
-                    file_id,
-                    resp.status_code,
+                    f"Mattermost attachment download refused: "
+                    f"HTTP {resp.status_code}",
                 )
                 return None
             with open(local_path, "wb") as fh:
                 async for chunk in resp.aiter_bytes(65536):
                     fh.write(chunk)
         return str(local_path)
-    except Exception:
-        logger.exception("mattermost: download failed for file_id=%s", file_id)
+    except Exception as exc:
+        logger.warning(
+            f"Mattermost attachment download failed ({type(exc).__name__})",
+        )
         return None
 
 
@@ -106,13 +107,27 @@ class MattermostPlatform:
 
     async def start(self):
         if not self._url or not self._bot_token:
+            logger.warning(
+                f"Mattermost credentials incomplete: "
+                f"has_url={bool(self._url)} has_token={bool(self._bot_token)}",
+            )
             raise ValueError("MATTERMOST_URL_AND_TOKEN_REQUIRED")
         self._http = httpx.AsyncClient(
             headers={"Authorization": "Bearer " + self._bot_token},
             timeout=30,
             follow_redirects=True,
         )
-        response = await self._http.get(self._url + "/api/v4/users/me")
+        try:
+            response = await self._http.get(self._url + "/api/v4/users/me")
+        except httpx.RequestError as exc:
+            logger.warning(
+                f"Mattermost bot lookup unavailable ({type(exc).__name__})",
+            )
+            raise
+        if response.is_error:
+            logger.warning(
+                f"Mattermost bot lookup failed: HTTP {response.status_code}",
+            )
         response.raise_for_status()
         identity = response.json()
         self._bot_id, self._bot_username = identity.get(
@@ -120,8 +135,11 @@ class MattermostPlatform:
             "",
         ), identity.get("username", "")
         if not self._bot_id:
+            logger.warning(f"Mattermost bot lookup returned no bot identity")
             raise ValueError("MATTERMOST_BOT_IDENTITY_INVALID")
+        logger.info(f"Mattermost bot identity verified")
         self._task = asyncio.create_task(self._websocket_loop())
+        logger.debug(f"Mattermost WebSocket task started")
 
     async def _websocket_loop(self):
         url = (
@@ -159,18 +177,23 @@ class MattermostPlatform:
                                     )
                                 authenticated = self.connected = True
                                 await self.on_state("connected")
+                                logger.info(
+                                    f"Mattermost WebSocket authenticated",
+                                )
                                 delay = 1
                             continue
                         if event.get("event") == "posted":
+                            logger.debug(f"Mattermost WebSocket event posted")
                             self._spawn_event(event, self._epoch)
             except asyncio.CancelledError:
+                logger.debug(f"Mattermost WebSocket task cancelled")
                 raise
-            except Exception:
+            except Exception as exc:
                 if self._stopping:
                     raise
                 logger.warning(
-                    "Mattermost listener disconnected",
-                    exc_info=True,
+                    f"Mattermost listener disconnected "
+                    f"({type(exc).__name__})",
                 )
             finally:
                 self.connected = False
@@ -180,11 +203,15 @@ class MattermostPlatform:
                 if not self._stopping:
                     await self.on_state("disconnected")
             if not self._stopping:
+                logger.info(f"Mattermost WebSocket reconnecting in {delay}s")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60)
 
     def _spawn_event(self, event, epoch):
-        if self._stopping or len(self._event_tasks) >= 500:
+        if self._stopping:
+            return
+        if len(self._event_tasks) >= 500:
+            logger.warning(f"Mattermost event capacity exceeded: limit=500")
             return
         task = asyncio.create_task(self._on_posted_event(event, epoch))
         self._event_tasks.add(task)
@@ -192,8 +219,9 @@ class MattermostPlatform:
 
     def _event_done(self, task):
         self._event_tasks.discard(task)
-        if not task.cancelled() and task.exception():
-            logger.warning("Mattermost event failed: %s", task.exception())
+        error = task.exception() if not task.cancelled() else None
+        if error is not None:
+            logger.warning(f"Mattermost event failed ({type(error).__name__})")
 
     @asynccontextmanager
     async def _session_lock(self, session):
@@ -236,11 +264,15 @@ class MattermostPlatform:
             if not self._is_triggered(post, channel_type):
                 return
             if original_root and not is_dm:
+                logger.debug(f"Mattermost fetching thread history")
                 context = await self._fetch_thread_history(
                     original_root,
                     triggering_post_id=post_id,
                 )
             elif session not in self._seen_sessions:
+                logger.debug(
+                    f"Mattermost fetching initial history: dm={is_dm}",
+                )
                 context = await self._fetch_channel_history(
                     channel,
                     per_page=20 if is_dm else 10,
@@ -283,6 +315,8 @@ class MattermostPlatform:
                 self._bounded_add(self._seen_sessions, session)
                 if root:
                     self._bounded_add(self._participated_threads, root)
+            else:
+                logger.warning(f"Mattermost inbound post admission failed")
 
     async def _process_attachments(self, post):
         hints = {
@@ -392,17 +426,24 @@ class MattermostPlatform:
                 json=payload,
             )
         except httpx.HTTPError as exc:
+            logger.warning(
+                f"Mattermost post result unknown ({type(exc).__name__})",
+            )
             raise MattermostDeliveryError(
                 "MATTERMOST_POST_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
         if response.status_code != 201:
+            logger.warning(
+                f"Mattermost post rejected: HTTP {response.status_code}",
+            )
             raise MattermostDeliveryError(
                 "MATTERMOST_POST_REJECTED",
                 side_effect_possible=False,
             )
         message_id = response.json().get("id")
         if not message_id:
+            logger.warning(f"Mattermost post returned no delivery identifier")
             raise MattermostDeliveryError(
                 "MATTERMOST_POST_UNKNOWN",
                 side_effect_possible=True,
@@ -602,8 +643,11 @@ class MattermostPlatform:
                 "please answer based on existing memory]",
             )
             return "\n".join(lines)
-        except Exception:
-            logger.exception("mattermost: fetch thread history failed")
+        except Exception as exc:
+            logger.warning(
+                f"Mattermost thread history lookup failed "
+                f"({type(exc).__name__})",
+            )
         return ""
 
     async def _fetch_channel_history(
@@ -643,8 +687,11 @@ class MattermostPlatform:
                     "based on the above context]",
                 )
                 return "\n".join(lines)
-        except Exception:
-            logger.exception("mattermost: fetch channel history failed")
+        except Exception as exc:
+            logger.warning(
+                f"Mattermost channel history lookup failed "
+                f"({type(exc).__name__})",
+            )
         return ""
 
     async def _download_file(
@@ -682,10 +729,7 @@ class MattermostPlatform:
         ):
             raise MattermostDeliveryError("MEDIA_PATH_UNAUTHORIZED")
         if not path.exists():
-            logger.warning(
-                "mattermost: upload — file not found: %s",
-                local_path,
-            )
+            logger.warning(f"Mattermost local upload source is missing")
             return None
         try:
             with open(path, "rb") as fh:
@@ -704,17 +748,17 @@ class MattermostPlatform:
                     side_effect_possible=True,
                 )
             logger.warning(
-                "mattermost: file upload failed %s: %s",
-                resp.status_code,
-                resp.text[:200],
+                f"Mattermost file upload failed: HTTP {resp.status_code}",
             )
         except (httpx.HTTPError, ValueError) as exc:
             raise MattermostDeliveryError(
                 "MATTERMOST_UPLOAD_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
-        except OSError:
-            logger.exception("mattermost: upload failed for %s", local_path)
+        except OSError as exc:
+            logger.warning(
+                f"Mattermost upload source unreadable ({type(exc).__name__})",
+            )
         return None
 
     def _chunk_text(self, text: str) -> list[str]:

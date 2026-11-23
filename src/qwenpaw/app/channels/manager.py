@@ -888,9 +888,8 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 )
             except Exception as e:
                 logger.warning(
-                    "Failed to initialize channel '%s', skipping: %s",
-                    key,
-                    e,
+                    f"Failed to initialize channel {key}; "
+                    f"skipping ({type(e).__name__})",
                 )
                 continue
 
@@ -1123,22 +1122,21 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             )
             logger.debug(
                 f"Enqueued: channel={channel_id} "
-                f"session={session_id[:30]} "
                 f"priority={priority_level} "
-                f"query={query[:40] if query else '(empty)'}",
+                f"query_chars={len(query) if query else 0}",
             )
         except asyncio.TimeoutError:
             pass
         except asyncio.CancelledError:
             logger.debug(
                 f"Enqueue cancelled: channel={channel_id} "
-                f"session={session_id[:30]}",
+                f"priority={priority_level}",
             )
             raise
         except Exception as e:
-            logger.exception(
+            logger.error(
                 f"Enqueue failed: channel={channel_id} "
-                f"session={session_id[:30]} error={e}",
+                f"priority={priority_level} ({type(e).__name__})",
             )
 
     def enqueue(self, channel_id: str, payload: Any) -> None:
@@ -1176,7 +1174,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         """
         logger.info(
             f"Consumer started: channel={channel_id} "
-            f"session={session_id[:30]} "
             f"priority={priority_level}",
         )
 
@@ -1228,9 +1225,8 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 # never merge across ACL identities.
                 if not await _complete_queue_batch(ch, batch):
                     logger.debug(
-                        "Cancelled queue batch: channel=%s session=%s",
-                        channel_id,
-                        session_id[:30],
+                        f"Cancelled queue batch: channel={channel_id} "
+                        f"priority={priority_level} batch_size={len(batch)}",
                     )
                     continue
 
@@ -1245,7 +1241,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
 
                 logger.debug(
                     f"Processed batch: channel={channel_id} "
-                    f"session={session_id[:30]} "
                     f"priority={priority_level} "
                     f"batch_size={len(batch)}",
                 )
@@ -1253,15 +1248,13 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             except asyncio.CancelledError:
                 logger.debug(
                     f"Consumer cancelled: channel={channel_id} "
-                    f"session={session_id[:30]} "
                     f"priority={priority_level}",
                 )
                 raise
-            except Exception:
-                logger.exception(
+            except Exception as exc:
+                logger.error(
                     f"Consumer failed: channel={channel_id} "
-                    f"session={session_id[:30]} "
-                    f"priority={priority_level}",
+                    f"priority={priority_level} ({type(exc).__name__})",
                 )
             finally:
                 # Start custody at the first get, including channel lookup
@@ -1281,6 +1274,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         self._stopping = False
         if self._defer_channel_start:
             return
+        logger.debug(f"Checking startup tasks: channels={len(self.channels)}")
         for channel in list(self.channels):
             if id(
                 channel,
@@ -1522,6 +1516,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         pending: set[asyncio.Task] = set()
         done: set[asyncio.Task]
         if unowned:
+            logger.debug(f"Cancelling {len(unowned)} channel startup tasks")
             done, pending = await asyncio.wait(
                 unowned,
                 timeout=_CHANNEL_START_STOP_TIMEOUT,
@@ -1550,16 +1545,21 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             and r.detail != "not running"
         ]
         if failures:
+            logger.warning(f"Channel cleanup failed: count={len(failures)}")
             raise QuiescenceError(
                 "Channel cleanup incomplete",
                 receipt=failures[0],
             )
         if pending:
+            logger.warning(
+                f"Channel startup tasks pending: count={len(pending)}",
+            )
             raise QuiescenceError("Channel startup tasks are still pending")
         if self._queue_manager is not None:
             await self._queue_manager.stop_all()
             self._queue_manager = None
         self._stopping = True
+        logger.info(f"Channel manager stopped")
 
     def _find_channel(self, key: str) -> BaseChannel | None:
         return next((c for c in self.channels if c.channel == key), None)
@@ -1737,6 +1737,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     timeout=_CHANNEL_START_STOP_TIMEOUT,
                 )
                 if pending:
+                    logger.warning(
+                        f"Channel {key} startup still pending during stop",
+                    )
                     return self._stop_receipt(
                         channel,
                         False,
@@ -1785,6 +1788,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 timeout=_CHANNEL_START_STOP_TIMEOUT,
             )
             if pending:
+                logger.warning(
+                    f"Channel {key} startup still pending during stop",
+                )
                 return StopReceipt(
                     key=key,
                     stopped=False,
@@ -1810,7 +1816,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             self._failed_channels.add(key)
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed to stop channel '%s'", key)
+            logger.error(
+                f"Failed to stop channel {key} ({type(exc).__name__})",
+            )
             self._failed_channels.add(key)
             return self._stop_receipt(
                 channel,
@@ -1905,9 +1913,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         try:
             return await channel_instance.health_check()
         except Exception as exc:
-            logger.exception(
-                "health_check failed for channel=%s",
-                channel_name,
+            logger.error(
+                f"Channel {channel_name} health check failed "
+                f"({type(exc).__name__})",
             )
             return {
                 "channel": channel_name,
@@ -1926,7 +1934,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             raise RuntimeError("Cannot restart channel: workspace not set")
         if self._workspace is not None:
             config = load_agent_config(self._workspace.agent_id)
+        logger.info(f"Restarting channel {channel_name}")
         await self.replace_channel(channel_name, config)
+        logger.info(f"Channel {channel_name} restarted")
         return {
             "channel": channel_name,
             "status": "restarted",
@@ -2095,12 +2105,8 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         )
         ch_name = getattr(ch, "channel", channel)
         logger.info(
-            "channel send_text: channel=%s user_id=%s session_id=%s "
-            "to_handle=%s",
-            ch_name,
-            (user_id or "")[:40],
-            (session_id or "")[:40],
-            (to_handle or "")[:60],
+            f"channel send_text: channel={ch_name} chars={len(text)} "
+            f"target_resolved={bool(to_handle)}",
         )
 
         # Keep the same behavior as the agent pipeline:

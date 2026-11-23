@@ -394,15 +394,118 @@ export interface PluginRouteDeclaration {
   priority?: number;
 }
 
+export type MenuLocation =
+  | "primary.agentScoped"
+  | "primary.settings"
+  | "userMenu";
+export interface MenuItem {
+  id: string;
+  location?: MenuLocation;
+  parentId?: string;
+  before?: string;
+  after?: string;
+  order?: number;
+  label: string | (() => React.ReactNode);
+  icon?: React.ComponentType<any> | React.ReactNode;
+  route?: string;
+  href?: string;
+  visible?: () => boolean;
+  isGroup?: boolean;
+  divider?: boolean;
+}
+export type RouteDomain =
+  | "chat"
+  | "tasks"
+  | "workspace"
+  | "extensions"
+  | "settings";
+export type RouteScope = "global" | "agent" | "session" | "workspace";
+export type RouteLayout = "standard" | "workbench" | "immersive";
+export type RouteNavigation = "rail" | "context" | "settings" | "search-only";
+
+export interface RouteMeta {
+  domain: RouteDomain;
+  title: Localized<string>;
+  description?: Localized<string>;
+  scope: RouteScope;
+  layout: RouteLayout;
+  navigation: RouteNavigation;
+}
+
+export interface Route {
+  id: string;
+  path: string;
+  caseSensitive?: boolean;
+  component: React.ComponentType<any>;
+  meta?: RouteMeta;
+}
+
+export type RouteWrapper = (
+  Inner: React.ComponentType<any>,
+) => React.ComponentType<any>;
+
+export type SlotName = string;
+export type SlotKind = "fill" | "replace";
+export interface SlotOpts {
+  id?: string;
+  order?: number;
+  visible?: () => boolean;
+  before?: string;
+  after?: string;
+}
+
+export type SlotRenderer = (
+  defaultContent?: React.ReactNode,
+) => React.ReactNode;
+export interface SlotInfo {
+  name: SlotName;
+  kind: SlotKind;
+  source: string;
+  id?: string;
+  order?: number;
+}
+/** @since 1.2.0 */
+export interface QwenPawMenuNamespace {
+  add(pluginId: string, item: MenuItem | MenuItem[]): Disposable;
+  replace(pluginId: string, targetId: string, item: MenuItem): Disposable;
+  remove(targetId: string): void;
+  snapshot(location?: MenuLocation): MenuItem[];
+}
+/** @since 1.2.0 */
+export interface QwenPawRouteNamespace {
+  add(pluginId: string, route: Route | Route[]): Disposable;
+  replace(
+    pluginId: string,
+    targetId: string,
+    component: React.ComponentType<any>,
+  ): Disposable;
+  wrap(pluginId: string, targetId: string, wrapper: RouteWrapper): Disposable;
+  remove(targetId: string): void;
+}
+/** @since 1.2.0 */
+export interface QwenPawSlotNamespace {
+  fill(
+    pluginId: string,
+    name: SlotName,
+    render: SlotRenderer,
+    opts?: SlotOpts,
+  ): Disposable;
+  replace(
+    pluginId: string,
+    name: SlotName,
+    render: SlotRenderer,
+    opts?: SlotOpts,
+  ): Disposable;
+  snapshot(): SlotInfo[];
+}
+
 export interface QwenPawWindowNamespace {
-  /** @since 1.2.0 Typed, additive subset of the existing host registry. */
-  menu: {
-    add(pluginId: string, item: PluginMenuItem | PluginMenuItem[]): Disposable;
-  };
-  /** @since 1.2.0 Registration owns its route and can be disposed. */
-  route: {
-    add(pluginId: string, route: PluginRoute | PluginRoute[]): Disposable;
-  };
+  /** @since 1.2.0 */
+  menu: QwenPawMenuNamespace;
+  /** @since 1.2.0 */
+  route: QwenPawRouteNamespace;
+  /** @since 1.2.0 */
+  slot: QwenPawSlotNamespace;
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
@@ -420,35 +523,10 @@ export interface QwenPawWindowNamespace {
   ): void;
 }
 
-/** @since 1.2.0 Stable menu registration; broader host internals are not exported. */
-export interface PluginMenuItem {
-  id: string;
-  label: string | (() => React.ReactNode);
-  location?: "primary.agentScoped" | "primary.settings" | "userMenu";
-  parentId?: string;
-  before?: string;
-  after?: string;
-  order?: number;
-  icon?: React.ElementType | React.ReactNode;
-  route?: string;
-  href?: string;
-  visible?: () => boolean;
-  isGroup?: boolean;
-  divider?: boolean;
-}
+/** @since 1.2.0 Menu registration in the host registry. */
+export type PluginMenuItem = MenuItem;
 
 /** @since 1.2.0 Page components receive no required host-private props. */
-export interface PluginRoute {
-  id: string;
-  path: string;
-  caseSensitive?: boolean;
+export type PluginRoute = Omit<Route, "component"> & {
   component: React.ComponentType;
-  meta?: {
-    domain: "chat" | "tasks" | "workspace" | "extensions" | "settings";
-    title: Localized<string>;
-    description?: Localized<string>;
-    scope: "global" | "agent" | "session" | "workspace";
-    layout: "standard" | "workbench" | "immersive";
-    navigation: "rail" | "context" | "settings" | "search-only";
-  };
-}
+};

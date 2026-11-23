@@ -80,6 +80,7 @@ async def test_interrupted_additions_require_verified_recovery(
     if outcome == "missing_dependency":
         context["requirements"].append("absent-recovery-dependency>=1")
     if outcome == "no_bootstrap":
+        host_package = Path(context["support_root"]) / "qwenpaw"
         support = tmp_path / "support"
         package = support / "qwenpaw/plugins"
         package.mkdir(parents=True)
@@ -87,7 +88,10 @@ async def test_interrupted_additions_require_verified_recovery(
             "raise AssertionError('Recovery must not restart host bootstrap')\n",
         )
         (package / "__init__.py").write_text(
-            f"__path__ = {[str(Path(context['support_root']) / 'qwenpaw/plugins')]!r}\n",
+            "from qwenpaw import __path__ as host_path\n"
+            f"host_path.append({str(host_package)!r})\n"
+            f"__path__ = {[str(host_package / 'plugins')]!r}\n",
+            encoding="utf-8",
         )
         context["support_root"] = str(support)
 

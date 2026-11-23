@@ -11,6 +11,7 @@ import { useAgents } from "./useAgents";
 import { AgentModal, CopyAgentModal } from "./components";
 import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
 
@@ -27,6 +28,10 @@ export default function AgentsPage() {
   } = useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
+  const [mcpCheck, setMcpCheck] = useState<{
+    id: string;
+    revision: number;
+  } | null>(null);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
   const [copyModalVisible, setCopyModalVisible] = useState(false);
   const [copyingAgent, setCopyingAgent] = useState<AgentSummary | null>(null);
@@ -114,6 +119,18 @@ export default function AgentsPage() {
     setCopying(true);
     try {
       const result = await agentsApi.copyAgent(copyingAgent.id, body);
+      // Copy is already committed; a read-only recovery check must not turn
+      // a successful copy into an error or encourage a duplicate retry.
+      void agentsApi
+        .getAgent(result.id)
+        .then((copied) => {
+          if (copied.mail)
+            setMcpCheck((previous) => ({
+              id: result.id,
+              revision: (previous?.revision ?? 0) + 1,
+            }));
+        })
+        .catch(() => {});
       message.success(`${t("agent.copySuccess")} (ID: ${result.id})`);
       setCopyModalVisible(false);
       setCopyingAgent(null);
@@ -242,6 +259,7 @@ export default function AgentsPage() {
         mail,
       };
 
+      let savedAgentId = editingAgent?.id;
       if (editingAgent) {
         await agentsApi.updateAgent(editingAgent.id, payload);
         message.success(t("agent.updateSuccess"));
@@ -251,10 +269,18 @@ export default function AgentsPage() {
           language: i18n.language,
           skill_names: values.backend === "qwenpaw" ? selectedSkills : [],
         });
+        savedAgentId = result.id;
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
       setModalVisible(false);
+      if (payload.mail && savedAgentId) {
+        const id = savedAgentId;
+        setMcpCheck((previous) => ({
+          id,
+          revision: (previous?.revision ?? 0) + 1,
+        }));
+      }
       await loadAgents();
     } catch (error: unknown) {
       console.error("Failed to save agent:", error);
@@ -303,6 +329,12 @@ export default function AgentsPage() {
 
   return (
     <div className={styles.agentsPage}>
+      {mcpCheck && (
+        <MCPFeatureStatus
+          key={`${mcpCheck.id}:${mcpCheck.revision}`}
+          agentId={mcpCheck.id}
+        />
+      )}
       <PageHeader
         current={t("agent.agents")}
         extra={

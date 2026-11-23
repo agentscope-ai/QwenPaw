@@ -10,8 +10,10 @@ def make_plugin(
     capabilities,
     *,
     plugin_id="extension-contract",
-    sdk_version="1.0",
+    sdk_version=None,
 ):
+    if sdk_version is None:
+        sdk_version = "1.2" if "drivers" in capabilities else "1.0"
     root = tmp_path / (
         "extension-plugin" if plugin_id == "extension-contract" else plugin_id
     )

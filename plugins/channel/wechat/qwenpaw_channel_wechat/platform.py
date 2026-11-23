@@ -22,7 +22,7 @@ from qwenpaw.app.channels.utils import (
 )
 from qwenpaw.utils.io_utils import write_text_atomic_async
 
-from .client import ILinkClient, _DEFAULT_BASE_URL
+from .client import ILinkClient, _DEFAULT_BASE_URL, response_codes
 from .errors import WeChatDeliveryError
 from .messages import WeChatMessageParser
 
@@ -68,8 +68,16 @@ class WeChatPlatform:
                     for k, v in data.items()
                     if isinstance(k, str) and isinstance(v, str)
                 }
-        except (OSError, ValueError):
+                logger.debug(
+                    f"WeChat context cache loaded: "
+                    f"entries={len(self._contexts)}",
+                )
+        except FileNotFoundError:
             pass
+        except (OSError, ValueError) as error:
+            logger.warning(
+                f"WeChat context cache unreadable ({type(error).__name__})",
+            )
 
     def _save_contexts(self):
         try:
@@ -88,16 +96,25 @@ class WeChatPlatform:
         if not token:
             try:
                 token = self._token_file.read_text(encoding="utf-8").strip()
-            except OSError:
+                if token:
+                    logger.debug(f"WeChat bot credential loaded from storage")
+            except FileNotFoundError:
                 pass
+            except OSError as error:
+                logger.warning(
+                    f"WeChat bot credential unreadable "
+                    f"({type(error).__name__})",
+                )
         self._load_contexts()
         self._client = ILinkClient(
             token,
             self._config.get("base_url") or _DEFAULT_BASE_URL,
         )
+        login_pending = False
         try:
             await self._client.start()
             if not token:
+                login_pending = True
                 data = await self._client.get_bot_qrcode()
                 code = data.get("qrcode", "")
                 if not code:
@@ -105,7 +122,7 @@ class WeChatPlatform:
                 scan_url = data.get("qrcode_img_content", "")
                 if not scan_url.startswith("http"):
                     scan_url = f"https://liteapp.weixin.qq.com/q/7GiQu1?qrcode={code}&bot_type=3"
-                logger.info("WeChat login: scan %s", scan_url)
+                logger.info(f"WeChat login requires QR scan")
                 if self._on_auth_required is not None:
                     await self._on_auth_required(scan_url)
                 # The legacy helper counts poll intervals, not wall time.
@@ -114,6 +131,8 @@ class WeChatPlatform:
                     token, base = await self._client.wait_for_login(code)
                 if not token:
                     raise ValueError("QRCODE_CREDENTIALS_MISSING")
+                logger.info(f"WeChat QR login succeeded")
+                login_pending = False
                 self._client.bot_token = token
                 self._client.base_url = (base or self._client.base_url).rstrip(
                     "/",
@@ -122,14 +141,21 @@ class WeChatPlatform:
                     await write_text_atomic_async(self._token_file, token)
                 except OSError:
                     logger.warning("WeChat token could not be saved")
+                else:
+                    logger.debug(f"WeChat bot credential saved")
             self._poll_client = ILinkClient(token, self._client.base_url)
             await self._poll_client.start()
             await self._on_state("connected")
+            logger.info(f"WeChat polling started")
             self._poll_task = asyncio.create_task(
                 self._poll(),
                 name="wechat-poll",
             )
-        except BaseException:
+        except BaseException as exc:
+            if login_pending and isinstance(exc, Exception):
+                logger.warning(
+                    f"WeChat QR login failed ({type(exc).__name__})",
+                )
             await self._close_clients()
             raise
         finally:
@@ -157,11 +183,12 @@ class WeChatPlatform:
             try:
                 await self._poll_task
             except asyncio.CancelledError:
-                pass
+                logger.debug(f"WeChat polling task cancelled during stop")
             self._poll_task = None
         for handle in tuple(self._typing):
             await self.finish_response(handle)
         await self._close_clients()
+        logger.info(f"WeChat channel stopped")
 
     async def _poll(self):
         cursor, failures = "", 0
@@ -172,20 +199,35 @@ class WeChatPlatform:
                 if data.get("get_updates_buf") is not None:
                     cursor = data["get_updates_buf"]
                 messages = data.get("msgs") or []
+                ret, errcode = response_codes(data)
+                if ret not in (None, 0, -1) or errcode not in (None, 0):
+                    logger.warning(
+                        f"WeChat getupdates failed: "
+                        f"ret={ret} errcode={errcode}",
+                    )
+                elif ret == -1 and not messages:
+                    logger.debug(f"WeChat getupdates timed out (ret=-1)")
                 for message in messages:
                     if self._stopping:
                         return
                     try:
                         await self._message(message)
-                    except Exception:
-                        logger.warning("WeChat inbound message failed")
+                    except Exception as exc:
+                        logger.warning(
+                            f"WeChat inbound message failed "
+                            f"({type(exc).__name__})",
+                        )
                 if data.get("ret", -1) not in (0, -1) and not messages:
                     await asyncio.sleep(3)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.warning("WeChat polling failed; retrying")
-                await asyncio.sleep(min(5 * 2 ** min(failures, 5), 120))
+            except Exception as exc:
+                delay = min(5 * 2 ** min(failures, 5), 120)
+                logger.warning(
+                    f"WeChat polling failed ({type(exc).__name__}); "
+                    f"retrying in {delay}s",
+                )
+                await asyncio.sleep(delay)
                 failures += 1
 
     async def _message(self, message):
@@ -194,7 +236,10 @@ class WeChatPlatform:
         sender = message.get("from_user_id", "")
         context = message.get("context_token", "")
         native_id = context or f"{sender}_{message.get('msg_id', '')}"
-        if not sender or native_id in self._processed:
+        if not sender:
+            return
+        if native_id in self._processed:
+            logger.debug(f"WeChat duplicate message skipped")
             return
         self._processed[native_id] = None
         while len(self._processed) > 2000:
@@ -213,6 +258,10 @@ class WeChatPlatform:
         if text:
             text_key = (sender, hashlib.md5(text.encode()).hexdigest()[:16])
             if text_key in self._text_seen:
+                logger.debug(
+                    f"WeChat duplicate message content skipped: "
+                    f"chars={len(text)}",
+                )
                 return
             self._text_seen[text_key] = now + 30
         parts = await self._parser.parse(message, self._poll_client)
@@ -223,6 +272,9 @@ class WeChatPlatform:
             self._contexts[sender] = context
             self._save_contexts()
         session = f"wechat:group:{group}" if group else f"wechat:{sender}"
+        logger.debug(
+            f"WeChat inbound message: group={bool(group)} parts={len(parts)}",
+        )
         await self._on_message(
             {
                 "event_id": hashlib.sha256(native_id.encode()).hexdigest(),
@@ -247,6 +299,7 @@ class WeChatPlatform:
         self._typing[handle] = user
         entry = self._typing_users.get(user)
         if entry is None:
+            logger.debug(f"WeChat starting typing indicator")
             entry = {
                 "handles": set(),
                 "ticket": "",
@@ -264,20 +317,35 @@ class WeChatPlatform:
             cached = self._tickets.get(user)
             if cached and cached[1] > time.monotonic():
                 ticket = cached[0]
+                logger.debug(f"WeChat using cached typing ticket")
             else:
+                logger.debug(f"WeChat requesting typing ticket via getconfig")
                 data = await self._client.getconfig(user, context)
                 ticket = (data.get("typing_ticket") or "").strip()
+                ret, errcode = response_codes(data)
+                rejected = ret not in (None, 0) or errcode not in (None, 0)
+                level = (
+                    logging.WARNING if rejected or not ticket else logging.INFO
+                )
+                logger.log(
+                    level,
+                    f"WeChat getconfig response: ret={ret} errcode={errcode} "
+                    f"has_ticket={bool(ticket)}",
+                )
                 if ticket:
                     self._tickets[user] = (ticket, time.monotonic() + 86400)
             if ticket:
                 self._typing_users[user]["ticket"] = ticket
+                logger.debug(f"WeChat typing refresh started")
                 while not self._stopping:
                     await self._client.sendtyping(user, ticket, status=1)
                     await asyncio.sleep(5)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.warning("WeChat typing indicator failed")
+        except Exception as exc:
+            logger.warning(
+                f"WeChat typing indicator failed ({type(exc).__name__})",
+            )
 
     async def finish_response(self, handle):
         user = self._typing.get(handle)
@@ -294,6 +362,7 @@ class WeChatPlatform:
                 pass
             if entry["ticket"] and self._client is not None:
                 await self._client.sendtyping(user, entry["ticket"], status=2)
+                logger.debug(f"WeChat typing refresh stopped")
             del self._typing_users[user]
         else:
             entry["handles"].discard(handle)
@@ -316,6 +385,7 @@ class WeChatPlatform:
                 not any(path.is_relative_to(root) for root in self._roots)
                 or not path.is_file()
             ):
+                logger.warning(f"WeChat local media file unavailable")
                 raise WeChatDeliveryError("MEDIA_PATH_INVALID")
             yield path, materialized.filename or local_path.name
 
@@ -324,6 +394,10 @@ class WeChatPlatform:
             "wechat_context_token",
         ) or self.context_token(route["wechat_from_user_id"])
         if not user or not context:
+            logger.warning(
+                f"WeChat outbound route incomplete: "
+                f"has_target={bool(user)} has_context={bool(context)}",
+            )
             raise WeChatDeliveryError("CONTEXT_TOKEN_MISSING")
         sent = False
         try:
@@ -358,18 +432,22 @@ class WeChatPlatform:
                                 "PLATFORM_CONNECT_FAILED",
                                 side_effect_possible=sent,
                             ) from exc
-                        self._check_result(response, sent)
+                        self._check_result(response, sent, kind)
                         sent = True
                 elif kind in ("image", "file", "video", "audio"):
                     value = part.get(
                         "data" if kind == "audio" else kind + "_url",
                     )
                     if not isinstance(value, str) or not value:
+                        logger.warning(
+                            f"WeChat {kind} send has no media locator",
+                        )
                         raise WeChatDeliveryError(
                             "MEDIA_PATH_INVALID",
                             side_effect_possible=sent,
                         )
                     if kind == "audio" and value.startswith("data:"):
+                        logger.warning(f"WeChat inline audio is unsupported")
                         raise WeChatDeliveryError(
                             "MEDIA_UNSUPPORTED",
                             side_effect_possible=sent,
@@ -397,9 +475,10 @@ class WeChatPlatform:
                                 filename,
                                 context,
                             )
-                    self._check_result(response, sent)
+                    self._check_result(response, sent, kind)
                     sent = True
                 else:
+                    logger.warning(f"WeChat unsupported outbound content")
                     raise WeChatDeliveryError(
                         "CONTENT_UNSUPPORTED",
                         side_effect_possible=sent,
@@ -408,6 +487,10 @@ class WeChatPlatform:
             exc.side_effect_possible |= sent
             raise
         except Exception as exc:
+            logger.debug(
+                f"WeChat send result unknown ({type(exc).__name__}): "
+                f"partly_sent={sent}",
+            )
             raise WeChatDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -416,7 +499,7 @@ class WeChatPlatform:
             raise WeChatDeliveryError("CONTENT_EMPTY")
 
     @staticmethod
-    def _check_result(response, sent):
+    def _check_result(response, sent, kind=f"message"):
         if not isinstance(response, dict) or not (
             {"ret", "errcode"} & response.keys()
         ):
@@ -425,6 +508,7 @@ class WeChatPlatform:
             # below, including when a message_id is also in the body.
             if isinstance(response, dict) and response.get("message_id"):
                 return
+            logger.warning(f"WeChat {kind} send response missing status")
             raise WeChatDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -434,11 +518,17 @@ class WeChatPlatform:
             for key in ("ret", "errcode")
             if key in response
         ):
+            logger.warning(f"WeChat {kind} send response has invalid status")
             raise WeChatDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
             )
-        if response.get("ret") == -2:
+        ret, errcode = response_codes(response)
+        if ret not in (None, 0) or errcode not in (None, 0):
+            logger.warning(
+                f"WeChat {kind} send failed: ret={ret} errcode={errcode}",
+            )
+        if ret == -2:
             raise WeChatDeliveryError(
                 "CONTEXT_TOKEN_INVALID",
                 side_effect_possible=sent,

@@ -30,6 +30,8 @@ This enables Coding-Mode prompt and tool behavior **for that TUI session only** 
 
 > No separate install or server to manage: the TUI launches its own `qwenpaw acp` backend using the interpreter it ships in, so it always drives the same install/venv as your `qwenpaw` command.
 
+On first use, QwenPaw may install the MCP plugin locally from the bundled resources. The plugin is required for ordinary TUI sessions, and QwenPaw checks its availability when creating or resuming a session and sending messages. If the plugin is disabled, uninstalled, or the local installation fails, open the **Official plugins** page in the QwenPaw Console to install, enable, or repair it, then reconnect the TUI. After a local installation failure, you need to install or repair the plugin manually.
+
 ---
 
 ## The Layout

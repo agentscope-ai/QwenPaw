@@ -17,6 +17,8 @@ packages = find_namespace_packages(
 for package, directory in (
     ("qwenpawmail_mcp", "packages/qwenpawmail-mcp/src/qwenpawmail_mcp"),
     ("qwenpaw.plugins.bundled.hub", "plugins/hub"),
+    ("qwenpaw.plugins.bundled.optional.mcp", "plugins/protocol/mcp"),
+    ("qwenpaw.plugins.bundled.provider", "plugins/provider"),
     ("qwenpaw.plugins.bundled.transcription", "plugins/transcription"),
 ):
     packages.append(package)

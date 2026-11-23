@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 import hashlib
 import json
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -26,6 +27,8 @@ from qwenpaw.channel_protocol.targets import decode_reply_target
 
 from .errors import WeComDeliveryError
 from .inbound import parse_chatid_from_handle, resolve_session_id
+
+logger = logging.getLogger(__name__)
 
 
 class WeComDriver(SharedResponseDriver):
@@ -114,6 +117,7 @@ class WeComDriver(SharedResponseDriver):
             meta.get("wecom_chatid") or parse_chatid_from_handle(session),
         )
         if not chatid or chatid == "unknown":
+            logger.warning(f"WeCom outbound destination unavailable")
             raise WeComDeliveryError("OUTBOUND_TARGET_UNKNOWN")
         chat_type = str(
             meta.get("wecom_chat_type")

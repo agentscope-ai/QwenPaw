@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+from contextlib import suppress
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -93,8 +94,7 @@ def test_windows_installer_owns_job_before_resuming(monkeypatch, outcome):
             if outcome == "cancel":
                 cancel.set()
 
-        def signal(self, *, force):
-            assert force
+        def terminate_and_wait(self):
             events.append("stop_job")
             self.running = False
 
@@ -467,7 +467,12 @@ async def test_installer_reaps_stubborn_child_after_parent_exits(
         )
         with pytest.raises(expected):
             await asyncio.wait_for(asyncio.shield(worker), timeout=6)
-        assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE
+        # The OS can reap the child between the two checks.
+        with suppress(psutil.NoSuchProcess):
+            assert (
+                not child.is_running()
+                or child.status() == psutil.STATUS_ZOMBIE
+            )
         assert spawned[0].poll() is not None
     finally:
         # Kill only this test's processes if an assertion/regression fails.

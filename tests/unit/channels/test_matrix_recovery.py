@@ -56,9 +56,9 @@ async def homeserver():
                 ),
             )
             if state["whoami_errors"]:
-                code, status = state["whoami_errors"].pop(0)
+                code, status, *detail = state["whoami_errors"].pop(0)
                 return web.json_response(
-                    {"errcode": code, "error": code},
+                    {"errcode": code, "error": detail[0] if detail else code},
                     status=status,
                 )
             return web.json_response(
@@ -269,11 +269,12 @@ async def test_other_auth_rejections_do_not_relogin(
     homeserver,
     channel_factory,
     code,
+    caplog,
 ):
     first = channel_factory()
     await first.start()
     await first.stop()
-    homeserver["whoami_errors"] = [(code, 403)]
+    homeserver["whoami_errors"] = [(code, 403, "private-whoami-detail")]
     restarted = channel_factory()
     try:
         with pytest.raises(RuntimeError):
@@ -281,6 +282,8 @@ async def test_other_auth_rejections_do_not_relogin(
         assert len(homeserver["logins"]) == 1
         assert restarted._sync_task is None
         assert (await restarted.health_check())["status"] == "unhealthy"
+        assert f"http_status=403 code={code}" in caplog.text
+        assert "private-whoami-detail" not in caplog.text
     finally:
         await restarted.stop()
 

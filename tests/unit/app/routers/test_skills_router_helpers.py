@@ -140,8 +140,11 @@ class TestSnapshotRestore:
             "demo",
         )
         backup_dir = Path(snapshot["backup_dir"])
-        # the backup sits beside the workspace, on its own volume
-        assert backup_dir.parent.parent == workspace_dir
+        # the backup sits beside the skill, on the same volume, so the
+        # restore is a rename; the workspace root stays clean
+        assert backup_dir.parent.parent == workspace_dir / "skills"
+        assert backup_dir.parent.name.startswith(".qwenpaw_skill_rollback_")
+        assert list(workspace_dir.glob(".qwenpaw_skill_rollback_*")) == []
 
         (skill_dir / "SKILL.md").write_text("corrupted", encoding="utf-8")
 

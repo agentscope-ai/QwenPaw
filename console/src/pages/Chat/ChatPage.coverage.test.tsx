@@ -30,6 +30,9 @@ const {
   mockFilePreviewUrl,
   mockGetChatStatus,
   mockRuntimeSubmit,
+  mockRuntimeResume,
+  mockRuntimeGetActiveRun,
+  mockSetSessionMessages,
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
@@ -51,6 +54,9 @@ const {
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
   mockGetChatStatus: vi.fn(),
   mockRuntimeSubmit: vi.fn(),
+  mockRuntimeResume: vi.fn(),
+  mockRuntimeGetActiveRun: vi.fn(),
+  mockSetSessionMessages: vi.fn(),
   mockGetApiUrl: vi.fn((p: string) => `http://localhost:3000${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
@@ -114,11 +120,13 @@ vi.mock("@agentscope-ai/chat", () => ({
         removeAllMessages: vi.fn(),
         getSessionMessages: vi.fn(() => []),
         getMessages: vi.fn(() => []),
-        setSessionMessages: vi.fn(),
+        setSessionMessages: mockSetSessionMessages,
       },
       execution: {
         execute: mockRuntimeSubmit,
         cancel: vi.fn(async () => ({ status: "not-found" })),
+        resume: mockRuntimeResume,
+        getActiveRun: mockRuntimeGetActiveRun,
       },
     }));
     return (
@@ -578,6 +586,11 @@ describe("ChatPage coverage", () => {
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
+    mockRuntimeResume.mockReset();
+    mockRuntimeResume.mockResolvedValue({});
+    mockRuntimeGetActiveRun.mockReset();
+    mockRuntimeGetActiveRun.mockResolvedValue(undefined);
+    mockSetSessionMessages.mockReset();
     mockRuntimeMount.mockReset();
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
@@ -599,6 +612,12 @@ describe("ChatPage coverage", () => {
       }),
     );
     vi.mocked(sessionApi.createSession).mockClear();
+    vi.mocked(sessionApi.refreshSession).mockReset();
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "Test session",
+      messages: [],
+    });
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = "last-chat-1";
     localStorage.clear();
@@ -695,6 +714,323 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
     await act(async () => {});
     expect(capturedOptions).toBeTruthy();
+  });
+
+  it("attaches an externally started run without remounting the chat", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: true,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledWith({
+        sessionId: "test-session",
+        source: "direct",
+      });
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledWith(
+      "test-session",
+      expect.any(Array),
+    );
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    expect(sessionApi.refreshSession).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "running",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(3);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(4);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(2);
+
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: true,
+    });
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(sessionApi.refreshSession).toHaveBeenCalledTimes(2);
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(1);
+
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: false,
+    });
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(sessionApi.refreshSession).toHaveBeenCalledTimes(3);
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(2);
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("preserves a restored run guard across later polling", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    const { rerender } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      });
+    });
+
+    const firstPoll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => firstPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+
+    mockRequiresQwenPawModel.mockReturnValue(false);
+    rerender(<ChatPage />);
+    mockRequiresQwenPawModel.mockReturnValue(true);
+    rerender(<ChatPage />);
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+
+    mockGetChatStatus.mockResolvedValueOnce({ status: "idle" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(3);
+    });
+
+    mockRuntimeGetActiveRun.mockResolvedValue(null);
+    mockGetChatStatus.mockResolvedValueOnce({ status: "running" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+    setIntervalSpy.mockRestore();
+  });
+
+  it("retries polling after an SDK reconnect request fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("reconnect failed"));
+    await expect(
+      capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("reconnect failed");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+    setIntervalSpy.mockRestore();
+  });
+
+  it("keeps the new session guard after an old reconnect fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const sourceChatId = "33322222-2222-4222-8222-222222222226";
+    const targetChatId = "33322222-2222-4222-8222-222222222227";
+    let rejectSourceReconnect: ((reason: Error) => void) | undefined;
+
+    function ChatHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${targetChatId}`)}>
+            Switch session
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatHarness />, {
+      initialEntries: [`/chat/${sourceChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectSourceReconnect = reject;
+        }),
+    );
+    const sourceReconnect = capturedOptions.api.reconnect({
+      chatSessionId: sourceChatId,
+      signal: new AbortController().signal,
+    });
+    const sourceFailure = expect(sourceReconnect).rejects.toThrow(
+      "source reconnect failed",
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+    });
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: targetChatId,
+        signal: new AbortController().signal,
+      });
+    });
+    rejectSourceReconnect?.(new Error("source reconnect failed"));
+    await sourceFailure;
+
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not reconcile messages after a local run finishes", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "running",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(2);
+    });
+
+    expect(sessionApi.refreshSession).not.toHaveBeenCalled();
+    expect(mockSetSessionMessages).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not resume after the active run check is aborted", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    let resolveActiveRun:
+      | ((value: { getState: () => string }) => void)
+      | undefined;
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveActiveRun = resolve;
+        }),
+    );
+    const { unmount } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    unmount();
+    await act(async () => {
+      resolveActiveRun?.({ getState: () => "disconnected" });
+      await Promise.resolve();
+    });
+
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
   });
 
   it("does not bind an unresolved route chat to the current agent", async () => {

@@ -380,6 +380,29 @@ async def test_file_upload_prefers_explicit_filename(native, tmp_path):
     assert row["file_name"] == "改名后.docx"
 
 
+async def test_thread_reply_rejection_logs_only_diagnostic_fields(
+    native,
+    monkeypatch,
+    caplog,
+):
+    event = await ingress(native, message(f"reply-source", thread=f"topic"))
+    api = native.driver._platform._client.im.v1.message
+
+    async def reject(_request):
+        return NS(success=lambda: False, code=230001, msg=f"private-response")
+
+    monkeypatch.setattr(api, f"areply", reject)
+    result = await send(
+        native,
+        event[f"response_handle"],
+        [{f"type": f"text", f"text": f"private-message"}],
+    )
+    assert result[f"reason_code"] == f"MESSAGE_REJECTED"
+    assert f"send rejected: thread=True code=230001" in caplog.text
+    assert f"private-response" not in caplog.text
+    assert f"private-message" not in caplog.text
+
+
 async def test_stream_finalizes_same_card(native):
     rt = native
     event = await ingress(rt, message("stream"))
@@ -421,7 +444,11 @@ async def test_stream_finalizes_same_card(native):
     assert len([r for r in rt.rows if r["kind"] == "create"]) == 1
 
 
-async def test_legitimate_approval_action_maps_authenticated_actor(native):
+async def test_legitimate_approval_action_maps_authenticated_actor(
+    native,
+    caplog,
+):
+    caplog.set_level(f"INFO", logger=f"qwenpaw_channel_feishu")
     rt = native
     event = await ingress(rt, message("approval", group=True, mentioned=True))
     assert (
@@ -459,6 +486,9 @@ async def test_legitimate_approval_action_maps_authenticated_actor(native):
     assert click["content_parts"] == [
         {"type": "text", "text": "/approval approve rid-A"},
     ]
+    assert f"Feishu approval card accepted by platform" in caplog.text
+    assert f"Feishu approval callback: accepted=True" in caplog.text
+    assert f"rid-A" not in caplog.text
 
 
 async def test_stop_joins_sdk_thread_and_closes_http(native):

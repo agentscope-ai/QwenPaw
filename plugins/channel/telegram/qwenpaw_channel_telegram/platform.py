@@ -623,8 +623,12 @@ class TelegramPlatform:
 
     def _task_done(self, task):
         self._tasks.discard(task)
-        if not task.cancelled():
-            task.exception()
+        error = task.exception() if not task.cancelled() else None
+        if error is not None:
+            logger.warning(
+                f"Telegram polling background task failed "
+                f"({type(error).__name__})",
+            )
 
     def _build_application(self):
         proxy = self._http_proxy.strip() or None
@@ -652,6 +656,7 @@ class TelegramPlatform:
         app = builder.build()
         app.add_handler(MessageHandler(filters.ALL, self._handle_message))
         app.add_handler(CallbackQueryHandler(self._native_callback))
+        logger.debug(f"Telegram polling application initialized")
         return app
 
     async def _handle_message(self, update, context):
@@ -663,6 +668,7 @@ class TelegramPlatform:
             media_dir=self._media_dir,
         )
         if not parts:
+            logger.debug(f"Telegram update has no message content")
             return
         meta = _message_meta(update)
         if not meta.get("chat_id"):
@@ -701,6 +707,8 @@ class TelegramPlatform:
             self._seen_updates[update.update_id] = None
             while len(self._seen_updates) > 500:
                 self._seen_updates.popitem(last=False)
+        else:
+            logger.warning(f"Telegram inbound event admission failed")
 
     async def _native_callback(self, update, context):
         if not self._stopping and update.callback_query is not None:
@@ -712,7 +720,11 @@ class TelegramPlatform:
         if self._stopping or self._reconnect_reason is not None:
             return
         self._reconnect_reason = reason
-        _, self._reconnect_delay = self._plan_polling_reconnect(reason)
+        attempt, self._reconnect_delay = self._plan_polling_reconnect(reason)
+        logger.warning(
+            f"Telegram polling reconnect requested: reason={reason} "
+            f"attempt={attempt} delay={self._reconnect_delay:.1f}s",
+        )
         self._reconnect_event.set()
 
     async def _polling_cycle(self, app):
@@ -754,6 +766,8 @@ class TelegramPlatform:
             )
         except Exception:
             logger.warning("Telegram command publication failed")
+        else:
+            logger.info(f"Telegram commands published: count={len(commands)}")
         await app.updater.start_polling(
             bootstrap_retries=0,
             allowed_updates=["message", "edited_message", "callback_query"],
@@ -761,6 +775,7 @@ class TelegramPlatform:
         )
         await app.start()
         await self.on_state("connected")
+        logger.info(f"Telegram polling started (receiving updates)")
         self._connected_event.set()
         await self._reconnect_event.wait()
 
@@ -800,6 +815,10 @@ class TelegramPlatform:
                 raise RuntimeError("TELEGRAM_CLEANUP_CANCELLED")
             error = self._cleanup_task.exception()
             if error is not None:
+                logger.warning(
+                    f"Telegram polling cleanup failed "
+                    f"({type(error).__name__})",
+                )
                 self._last_stop_error = repr(error)
                 self._cleanup_task = None
         if self._cleanup_task is None:
@@ -814,31 +833,46 @@ class TelegramPlatform:
     async def _run_polling(self):
         delay = 2.0
         while not self._stopping:
-            app = self._build_application()
+            try:
+                app = self._build_application()
+            except Exception as exc:
+                logger.error(
+                    f"Telegram application initialization failed "
+                    f"({type(exc).__name__})",
+                )
+                raise
             self._application = app
             try:
                 await self._polling_cycle(app)
                 delay = self._reconnect_delay
             except InvalidToken:
+                logger.error(f"Telegram bot token rejected")
                 await self.on_state("failed")
                 raise
             except asyncio.CancelledError:
+                logger.debug(f"Telegram polling cancelled")
                 raise
-            except Exception:
+            except Exception as exc:
                 await self.on_state("disconnected")
-                logger.exception("Telegram polling connection failed")
+                logger.warning(
+                    f"Telegram polling connection failed "
+                    f"({type(exc).__name__})",
+                )
             finally:
                 await self._teardown(app)
             if not self._stopping:
                 await self.on_state("connecting")
+                logger.info(f"Telegram reconnecting in {delay:g}s")
                 await asyncio.sleep(delay)
                 delay = min(delay * 1.8, 30.0)
 
     async def start(self):
         if not self._bot_token:
+            logger.warning(f"Telegram bot token is missing")
             raise TelegramDeliveryError("BOT_TOKEN_MISSING")
         self._stopping = False
         self._task = asyncio.create_task(self._run_polling())
+        logger.debug(f"Telegram polling task created")
         ready = asyncio.create_task(self._connected_event.wait())
         try:
             done, _ = await asyncio.wait(
@@ -865,6 +899,10 @@ class TelegramPlatform:
             except asyncio.CancelledError:
                 pass
             except Exception as exc:
+                logger.warning(
+                    f"Telegram polling task stopped with an error "
+                    f"({type(exc).__name__})",
+                )
                 self._last_stop_error = repr(exc)
         if self._application is not None:
             await self._teardown(self._application)
@@ -925,14 +963,22 @@ class TelegramPlatform:
             )
         return ident
 
-    async def _effect(self, awaitable):
+    async def _effect(self, awaitable, *, operation=f"API request"):
         try:
             return await awaitable
         except asyncio.CancelledError:
             raise
         except (BadRequest, Forbidden, RetryAfter) as exc:
+            delay = getattr(exc, f"retry_after", None)
+            logger.warning(
+                f"Telegram {operation} rejected ({type(exc).__name__}), "
+                f"retry_after={delay}",
+            )
             raise TelegramDeliveryError("PLATFORM_REJECTED") from exc
         except Exception as exc:
+            logger.warning(
+                f"Telegram {operation} result unknown ({type(exc).__name__})",
+            )
             raise TelegramDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -950,10 +996,18 @@ class TelegramPlatform:
                 return [self._message_id(value)]
             except (BadRequest, EndPointNotFound) as exc:
                 if not _rich_rejection(exc):
+                    logger.warning(
+                        f"Telegram rich send rejected ({type(exc).__name__})",
+                    )
                     raise TelegramDeliveryError("PLATFORM_REJECTED") from exc
+                logger.debug(f"Telegram using HTML fallback for rich message")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                logger.warning(
+                    f"Telegram rich send result unknown "
+                    f"({type(exc).__name__})",
+                )
                 raise TelegramDeliveryError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -969,17 +1023,26 @@ class TelegramPlatform:
                 )
             except BadRequest as exc:
                 if sent or not _format_rejection(exc):
+                    logger.warning(f"Telegram HTML message rejected")
                     raise TelegramDeliveryError(
                         "PLATFORM_REJECTED",
                         side_effect_possible=bool(sent),
                     ) from exc
+                logger.info(
+                    f"Telegram HTML message falling back to plain text",
+                )
                 plain = html.unescape(re.sub(r"<[^>]+>", "", rendered))
                 value = await self._effect(
                     bot.send_message(**kwargs, text=plain),
+                    operation=f"plain text fallback",
                 )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                logger.warning(
+                    f"Telegram HTML send result unknown "
+                    f"({type(exc).__name__})",
+                )
                 raise TelegramDeliveryError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -1019,6 +1082,7 @@ class TelegramPlatform:
                     "Could not decode media data URL.",
                 )
             if len(media.data) > TELEGRAM_MAX_FILE_SIZE_BYTES:
+                logger.warning(f"Telegram inline media exceeds file limit")
                 raise _FileTooLargeError(
                     "File too large to send via Telegram "
                     "(Telegram bot limit: 50 MB)",
@@ -1032,21 +1096,27 @@ class TelegramPlatform:
             )
             return await self._effect(
                 getattr(bot, method_name)(**kwargs, **{payload_name: payload}),
+                operation=method_name,
             )
         if value.startswith("file://"):
             local = file_url_to_local_path(value)
             if not local:
+                logger.warning(f"Telegram rejected invalid local file URL")
                 raise _MediaFileUnavailableError(
                     "Could not resolve media file from URL.",
                 )
             path = Path(local).resolve()
             self._authorize_path(path)
             if not path.is_file():
+                logger.warning(f"Telegram local media file unavailable")
                 raise _MediaFileUnavailableError(
                     f"Media file not found: {path.name}",
                 )
             size = path.stat().st_size
             if size > TELEGRAM_MAX_FILE_SIZE_BYTES:
+                logger.warning(
+                    f"Telegram local media exceeds limit: bytes={size}",
+                )
                 raise _FileTooLargeError(
                     f"File too large to send via Telegram: {path.name} "
                     f"({size / (1024 * 1024):.1f} MB, "
@@ -1058,11 +1128,13 @@ class TelegramPlatform:
                         **kwargs,
                         **{payload_name: file},
                     ),
+                    operation=method_name,
                 )
         if urlparse(value).scheme not in {"http", "https"}:
             value = _native_media_reference(value, payload_name)
         return await self._effect(
             getattr(bot, method_name)(**kwargs, **{payload_name: value}),
+            operation=method_name,
         )
 
     async def send_parts(self, route, parts, source=None):
@@ -1106,6 +1178,9 @@ class TelegramPlatform:
             _MediaFileUnavailableError,
             OSError,
         ) as exc:
+            logger.warning(
+                f"Telegram media preparation failed ({type(exc).__name__})",
+            )
             try:
                 await self._send_text(route, str(exc))
             except TelegramDeliveryError as notice_error:
@@ -1168,6 +1243,7 @@ class TelegramPlatform:
         text = "💭 ⏳" if stream_type == "reasoning" else _STREAM_PLACEHOLDER
         value = await self._effect(
             self.bot.send_message(**self._kwargs(route), text=text),
+            operation=f"stream start",
         )
         return {
             **self._receipt(route, [self._message_id(value)]),
@@ -1225,12 +1301,20 @@ class TelegramPlatform:
                     }
                 except (BadRequest, EndPointNotFound) as exc:
                     if not _rich_rejection(exc):
+                        logger.warning(f"Telegram rich stream end rejected")
                         raise TelegramDeliveryError(
                             "PLATFORM_REJECTED",
                         ) from exc
+                    logger.debug(
+                        f"Telegram rich stream end falling back to HTML",
+                    )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    logger.warning(
+                        f"Telegram rich stream end failed "
+                        f"({type(exc).__name__})",
+                    )
                     raise TelegramDeliveryError(
                         "PLATFORM_RESULT_UNKNOWN",
                         side_effect_possible=True,
@@ -1248,6 +1332,9 @@ class TelegramPlatform:
             except BadRequest as exc:
                 if "not modified" not in str(exc).lower():
                     if final and _format_rejection(exc):
+                        logger.info(
+                            f"Telegram stream end falling back to plain text",
+                        )
                         await self._effect(
                             self.bot.edit_message_text(
                                 **kwargs,
@@ -1259,14 +1346,22 @@ class TelegramPlatform:
                                     ),
                                 ),
                             ),
+                            operation=f"stream end plain text fallback",
                         )
                     else:
+                        logger.warning(
+                            f"Telegram stream edit rejected: final={final}",
+                        )
                         raise TelegramDeliveryError(
                             "PLATFORM_REJECTED",
                         ) from exc
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                logger.warning(
+                    f"Telegram stream edit failed: final={final} "
+                    f"error={type(exc).__name__}",
+                )
                 raise TelegramDeliveryError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -1283,6 +1378,7 @@ class TelegramPlatform:
         for ident in json.loads(resource["message_ids"]):
             await self._effect(
                 self.bot.delete_message(chat_id=chat, message_id=ident),
+                operation=f"stream placeholder delete",
             )
 
     async def send_approval(self, route, params, identity):
@@ -1309,6 +1405,7 @@ class TelegramPlatform:
                 text=build_approval_text(body),
                 reply_markup=build_approval_keyboard(approval.request_id),
             ),
+            operation=f"approval send",
         )
         ident = self._message_id(value)
         self._identity = identity
@@ -1331,6 +1428,7 @@ class TelegramPlatform:
             binding,
             approval.severity.value,
         )
+        logger.info(f"Telegram approval card acknowledged")
         return self._receipt(route, [ident])
 
     def complete_card_delivery(self, delivery_id, acknowledged):
@@ -1383,6 +1481,7 @@ class TelegramPlatform:
             )
             return
         if binding.request_id in self._cards._processed_requests:
+            logger.debug(f"Telegram duplicate approval callback ignored")
             try:
                 await query.answer(text="Already processed.", show_alert=False)
             except Exception:
@@ -1432,6 +1531,9 @@ class TelegramPlatform:
                     },
                 ],
             },
+        )
+        logger.info(
+            f"Telegram approval callback forwarded: action={parsed['action']}",
         )
 
     async def resolve_approval(self, route, params):
@@ -1487,6 +1589,7 @@ class TelegramPlatform:
                 if not str(exc).lower().startswith("message is not modified"):
                     raise
 
-        await self._effect(edit_resolved())
+        await self._effect(edit_resolved(), operation=f"approval update")
         self._cards._mark_processed(request_id, action)
+        logger.info(f"Telegram approval card updated: action={action}")
         return self._receipt(route, [binding.message_id])
