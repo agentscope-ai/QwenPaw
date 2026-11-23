@@ -5,6 +5,9 @@ import type { ToolInfo } from "../../../api/modules/tools";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
+type SwitchField = "enabled" | "async_execution";
+type SwitchEdit = { name: string; field: SwitchField };
+
 function currentAgentId() {
   return useAgentStore.getState().selectedAgent || "default";
 }
@@ -23,6 +26,18 @@ export function useTools() {
   const { message } = useAppMessage();
   const requestGeneration = useRef(0);
   const loadedAgentRef = useRef<string | null>(null);
+  const pendingSwitchEdits = useRef(new Set<SwitchEdit>());
+  const refreshSwitchEdits = useRef<Set<SwitchEdit> | null>(null);
+
+  const trackSwitchEdit = useCallback((name: string, field: SwitchField) => {
+    const edit = { name, field };
+    const pending = pendingSwitchEdits.current;
+    pending.add(edit);
+    refreshSwitchEdits.current?.add(edit);
+    return () => {
+      pending.delete(edit);
+    };
+  }, []);
 
   const ownsCurrentAgent = useCallback(
     (agentId: string | null) =>
@@ -40,6 +55,11 @@ export function useTools() {
       const isCurrentRequest = () =>
         generation === requestGeneration.current &&
         currentAgentId() === requestedAgent;
+      // Include edits already in flight and any that start during this read.
+      const overlappingEdits = background
+        ? new Set(pendingSwitchEdits.current)
+        : null;
+      refreshSwitchEdits.current = overlappingEdits;
 
       if (background) {
         setRefreshState((state) => (state === "failed" ? "retrying" : state));
@@ -54,8 +74,14 @@ export function useTools() {
       try {
         const data = await api.listTools(requestedAgent);
         if (!isCurrentRequest()) return;
-        if (background) {
-          // Config refreshes must not overwrite concurrent switch changes.
+        if (overlappingEdits?.size) {
+          const protectedFields = {
+            enabled: new Set<string>(),
+            async_execution: new Set<string>(),
+          };
+          for (const { name, field } of overlappingEdits) {
+            protectedFields[field].add(name);
+          }
           setTools((previous) => {
             const current = new Map(previous.map((tool) => [tool.name, tool]));
             return data.map((tool) => {
@@ -63,15 +89,24 @@ export function useTools() {
               return local
                 ? {
                     ...tool,
-                    enabled: local.enabled,
-                    async_execution: local.async_execution,
+                    enabled: protectedFields.enabled.has(tool.name)
+                      ? local.enabled
+                      : tool.enabled,
+                    async_execution: protectedFields.async_execution.has(
+                      tool.name,
+                    )
+                      ? local.async_execution
+                      : tool.async_execution,
                   }
                 : tool;
             });
           });
-          setRefreshState("idle");
         } else {
           setTools(data);
+        }
+        if (background) {
+          setRefreshState("idle");
+        } else {
           loadedAgentRef.current = requestedAgent;
           setLoadedAgent(requestedAgent);
         }
@@ -89,6 +124,9 @@ export function useTools() {
           message.error(t("tools.loadError"));
         }
       } finally {
+        if (refreshSwitchEdits.current === overlappingEdits) {
+          refreshSwitchEdits.current = null;
+        }
         if (!background && isCurrentRequest()) setLoading(false);
       }
     },
@@ -102,10 +140,13 @@ export function useTools() {
   );
 
   useEffect(() => {
+    const pending = pendingSwitchEdits.current;
     loadTools();
     return () => {
       requestGeneration.current += 1;
       loadedAgentRef.current = null;
+      pending.clear();
+      refreshSwitchEdits.current = null;
     };
   }, [loadTools]);
 
@@ -113,6 +154,7 @@ export function useTools() {
     async (tool: ToolInfo) => {
       const owner = loadedAgentRef.current;
       if (!ownsCurrentAgent(owner)) return;
+      const finish = trackSwitchEdit(tool.name, "enabled");
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -140,15 +182,18 @@ export function useTools() {
           ),
         );
         message.error(t("tools.toggleError"));
+      } finally {
+        finish();
       }
     },
-    [message, ownsCurrentAgent, t],
+    [message, ownsCurrentAgent, t, trackSwitchEdit],
   );
 
   const toggleAsyncExecution = useCallback(
     async (tool: ToolInfo) => {
       const owner = loadedAgentRef.current;
       if (!ownsCurrentAgent(owner)) return;
+      const finish = trackSwitchEdit(tool.name, "async_execution");
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -187,80 +232,71 @@ export function useTools() {
           ),
         );
         message.error(t("tools.toggleError"));
+      } finally {
+        finish();
       }
     },
-    [message, ownsCurrentAgent, t],
+    [message, ownsCurrentAgent, t, trackSwitchEdit],
   );
 
-  const enableAll = useCallback(async () => {
-    const owner = loadedAgentRef.current;
-    if (!ownsCurrentAgent(owner)) return;
-    const disabledTools = tools.filter((tool) => !tool.enabled);
-    if (disabledTools.length === 0) {
-      message.info(t("tools.allEnabled"));
-      return;
-    }
-
-    // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
-
-    setBatchLoading(true);
-    try {
-      const results = await Promise.all(
-        disabledTools.map((tool) => api.toggleTool(tool.name)),
-      );
+  const setAllEnabled = useCallback(
+    async (enabled: boolean) => {
+      const owner = loadedAgentRef.current;
       if (!ownsCurrentAgent(owner)) return;
-      message.success(t("tools.enableAllSuccess"));
+      const targets = new Set(
+        tools
+          .filter((tool) => tool.enabled !== enabled)
+          .map((tool) => tool.name),
+      );
+      if (targets.size === 0) {
+        message.info(t(enabled ? "tools.allEnabled" : "tools.allDisabled"));
+        return;
+      }
+
       setTools((prev) =>
-        prev.map((t) => {
-          const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, enabled: result.enabled } : t;
-        }),
+        prev.map((tool) =>
+          targets.has(tool.name) ? { ...tool, enabled } : tool,
+        ),
       );
-    } catch {
-      if (!ownsCurrentAgent(owner)) return;
-      message.error(t("tools.toggleError"));
-      // Reload on error to sync with server
-      await loadTools();
-    } finally {
-      if (ownsCurrentAgent(owner)) setBatchLoading(false);
-    }
-  }, [loadTools, message, ownsCurrentAgent, t, tools]);
+      setBatchLoading(true);
+      try {
+        // Track each request separately and reload only after they all settle.
+        const results = await Promise.allSettled(
+          Array.from(targets, async (name) => {
+            const finish = trackSwitchEdit(name, "enabled");
+            try {
+              const result = await api.toggleTool(name);
+              if (!ownsCurrentAgent(owner)) return;
+              setTools((prev) =>
+                prev.map((tool) =>
+                  tool.name === result.name
+                    ? { ...tool, enabled: result.enabled }
+                    : tool,
+                ),
+              );
+            } finally {
+              finish();
+            }
+          }),
+        );
+        if (!ownsCurrentAgent(owner)) return;
+        if (results.some((result) => result.status === "rejected")) {
+          message.error(t("tools.toggleError"));
+          await loadTools();
+          return;
+        }
+        message.success(
+          t(enabled ? "tools.enableAllSuccess" : "tools.disableAllSuccess"),
+        );
+      } finally {
+        if (ownsCurrentAgent(owner)) setBatchLoading(false);
+      }
+    },
+    [loadTools, message, ownsCurrentAgent, t, tools, trackSwitchEdit],
+  );
 
-  const disableAll = useCallback(async () => {
-    const owner = loadedAgentRef.current;
-    if (!ownsCurrentAgent(owner)) return;
-    const enabledTools = tools.filter((tool) => tool.enabled);
-    if (enabledTools.length === 0) {
-      message.info(t("tools.allDisabled"));
-      return;
-    }
-
-    // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
-
-    setBatchLoading(true);
-    try {
-      const results = await Promise.all(
-        enabledTools.map((tool) => api.toggleTool(tool.name)),
-      );
-      if (!ownsCurrentAgent(owner)) return;
-      message.success(t("tools.disableAllSuccess"));
-      setTools((prev) =>
-        prev.map((t) => {
-          const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, enabled: result.enabled } : t;
-        }),
-      );
-    } catch {
-      if (!ownsCurrentAgent(owner)) return;
-      message.error(t("tools.toggleError"));
-      // Reload on error to sync with server
-      await loadTools();
-    } finally {
-      if (ownsCurrentAgent(owner)) setBatchLoading(false);
-    }
-  }, [loadTools, message, ownsCurrentAgent, t, tools]);
+  const enableAll = useCallback(() => setAllEnabled(true), [setAllEnabled]);
+  const disableAll = useCallback(() => setAllEnabled(false), [setAllEnabled]);
 
   const saveToolConfig = useCallback(
     async (
