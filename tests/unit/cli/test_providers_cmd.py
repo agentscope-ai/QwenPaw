@@ -858,6 +858,8 @@ class TestListCmd:
         assert "Local (p-local) [local]" in res.output
         assert "Local Model" in res.output
         assert "No models downloaded." in res.output
+        assert "Settings -> Models" in res.output
+        assert "qwenpaw models download" not in res.output
         assert "(not set)" in res.output
         assert "p-api / m1" in res.output
 

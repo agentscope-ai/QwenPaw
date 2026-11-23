@@ -553,7 +553,10 @@ def list_cmd() -> None:
                     click.echo(f"    - {m.name}")
             else:
                 click.echo("  No models downloaded.")
-                click.echo("  Use 'qwenpaw models download' to add models.")
+                click.echo(
+                    "  Manage local models in the Console under "
+                    "Settings -> Models.",
+                )
         else:
             click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
