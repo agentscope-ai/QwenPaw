@@ -732,6 +732,7 @@ async def _normalize_messages_for_formatter(
     # HTTPS ``image_url`` is forwarded as-is), so tightening cannot change
     # the payload and the retry must not be spent on it.
     try:
+        # pylint: disable=protected-access
         formatter_instance._qwenpaw_last_wire_max_image_side = (
             max(observed_sides) if observed_sides else 0
         )
@@ -888,6 +889,63 @@ def _describe_wire_media_blocks(value: Any) -> list[str]:
             or f"#{len(labels) + 1} unknown",
         )
     return labels
+
+
+def _max_wire_image_bytes(value: Any) -> int:
+    """Largest encoded image payload on the wire, in bytes.
+
+    A tightened limit only changes the request when it actually re-encodes
+    the image. Dropping a 2 MiB budget to 1 MiB cannot change a 120-byte
+    PNG, so the retry would resend the same payload and be refused again.
+    The recovery compares the new budget against this number instead of
+    against the previous limit.
+    """
+    largest = 0
+
+    def _payload(block: dict) -> tuple[str, str]:
+        media_type = ""
+        payload = ""
+        source = block.get("source")
+        if isinstance(source, dict):
+            media_type = str(source.get("media_type") or "")
+            payload = str(source.get("data") or "")
+        if not media_type:
+            inline = block.get("inline_data") or block.get("file_data")
+            if isinstance(inline, dict):
+                media_type = str(inline.get("mime_type") or "")
+                payload = str(inline.get("data") or "")
+        if not media_type:
+            image_url = block.get("image_url")
+            if isinstance(image_url, str):
+                media_type, payload = _split_data_url(image_url)
+            elif isinstance(image_url, dict):
+                media_type, payload = _split_data_url(
+                    str(image_url.get("url") or ""),
+                )
+        return media_type, payload
+
+    def _walk(node: Any) -> None:
+        nonlocal largest
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") in _WIRE_MEDIA_BLOCK_TYPES:
+            media_type, payload = _payload(node)
+            if media_type.startswith("image/") and payload:
+                largest = max(largest, len(payload) * 3 // 4)
+            return
+        if any(key in node for key in _WIRE_MEDIA_CONTAINER_KEYS):
+            media_type, payload = _payload(node)
+            if media_type.startswith("image/") and payload:
+                largest = max(largest, len(payload) * 3 // 4)
+        for item in node.values():
+            _walk(item)
+
+    _walk(value)
+    return largest
 
 
 def _count_wire_media_blocks(value: Any) -> int:
@@ -2286,6 +2344,12 @@ def _create_file_block_support_formatter(
 
             wire_messages = _strip_top_level_message_name(messages)
             self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
+                wire_messages,
+            )
+            # Largest encoded image on this wire payload. The media recovery
+            # uses it to notice that a smaller budget cannot change the
+            # image, which would make the retry byte-for-byte identical.
+            self._qwenpaw_last_wire_max_image_bytes = _max_wire_image_bytes(
                 wire_messages,
             )
             # Same traversal as the count, so a rejection can name the blocks

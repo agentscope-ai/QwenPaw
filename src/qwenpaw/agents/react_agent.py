@@ -901,7 +901,11 @@ class QwenPawAgent(Agent):
             return (0, 0)
         return (side, max_bytes)
 
-    def _tighten_media_limits(self) -> tuple[int, int] | None:
+    def _tighten_media_limits(  # pylint: disable=too-many-return-statements,too-many-branches
+        self,
+        *,
+        enforce_payload_check: bool = False,
+    ) -> tuple[int, int] | None:
         """Halve the request-scoped media limits once, for a single retry.
 
         Only the request copy is affected: the stored message keeps its
@@ -953,15 +957,25 @@ class QwenPawAgent(Agent):
         # than resending what the provider already refused. If the observed
         # size moved (the earlier attempt was still too large), fall through
         # and compute a smaller target.
-        accepted = getattr(self, "_media_rendition_target", None)
+        #
+        # The key is the source image, not the last rejected rendition: one
+        # recovery chain walks 2000 -> 1000 -> 512, so the accepted limits
+        # belong to the source that entered the chain. Keying the rendition
+        # made the next call start from the original again and replay the
+        # whole chain.
         if (
-            accepted is not None
+            getattr(self, "_media_rendition_source", None) is None
             and observed_side > 0
-            and accepted[0] == observed_side
         ):
-            formatter.max_image_side, formatter.max_bytes = accepted[1]
-            setattr(formatter, "_qwenpaw_media_limits_tightened", True)
-            return (side, max_bytes)
+            self._media_rendition_source = observed_side
+        accepted = getattr(self, "_media_rendition_target", None)
+        if isinstance(accepted, tuple) and len(accepted) == 2:
+            # pylint: disable=unpacking-non-sequence
+            accepted_key, accepted_limits = accepted
+            if observed_side > 0 and accepted_key == observed_side:
+                formatter.max_image_side, formatter.max_bytes = accepted_limits
+                setattr(formatter, "_qwenpaw_media_limits_tightened", True)
+                return (side, max_bytes)
         # Never raise the configured cap. A single request can carry images
         # of different sizes (a 500 px animated GIF next to a 600 px PNG with
         # ``max_image_side=256``): the observed side belongs to the largest
@@ -986,11 +1000,35 @@ class QwenPawAgent(Agent):
             new_bytes = max(self._MEDIA_LIMIT_BYTES_FLOOR, max_bytes // 2)
         if (new_side, new_bytes) == (side, max_bytes):
             return None
+        # A smaller budget only helps when it is below the image actually on
+        # the wire. Passing a 2 MiB limit down to 1 MiB cannot change a
+        # 120-byte PNG: the retry would carry the identical payload and be
+        # refused again. Compare against the encoded size instead of against
+        # the previous limit.
+        observed_bytes = getattr(
+            formatter,
+            "_qwenpaw_last_wire_max_image_bytes",
+            0,
+        )
+        if not isinstance(observed_bytes, int) or isinstance(
+            observed_bytes,
+            bool,
+        ):
+            observed_bytes = 0
+        if enforce_payload_check and new_side >= observed_side:
+            if 0 < observed_bytes <= new_bytes:
+                return None
         # A target identical to one this turn already sent cannot fix the
         # refusal: the formatted request would be byte-for-byte the same and
         # the provider would reject it again. Record every target this turn
         # tried and stop before replaying one.
-        signature = (observed_side, new_side, new_bytes)
+        #
+        # The side is the key, not the byte budget: once the rendition is at
+        # its smallest side, halving the byte limit again re-encodes the same
+        # pixels, so a 2000 -> 1000 -> 512 chain would keep retrying 512 while
+        # only the byte number moved (the reviewer saw the last two requests
+        # carry the identical 120-byte PNG).
+        signature = (observed_side, new_side)
         history = getattr(self, "_media_tighten_history", None)
         if history is None:
             history = []
@@ -1026,6 +1064,7 @@ class QwenPawAgent(Agent):
         formatter = self._get_active_formatter()
         observed = 0
         limits = pending[1]
+        wire_images = -1
         if formatter is not None:
             wire_side = getattr(
                 formatter,
@@ -1034,8 +1073,35 @@ class QwenPawAgent(Agent):
             )
             if isinstance(wire_side, int) and not isinstance(wire_side, bool):
                 observed = wire_side
+            wire_count = getattr(
+                formatter,
+                "_qwenpaw_last_wire_media_count",
+                0,
+            )
+            if isinstance(wire_count, int) and not isinstance(
+                wire_count,
+                bool,
+            ):
+                wire_images = wire_count
             limits = (formatter.max_image_side, formatter.max_bytes)
-        key = observed if observed > 0 else pending[0]
+        # ``summary`` is only written by a completed ``format`` call, so a
+        # list (even an empty one) proves the request was formatted and shows
+        # what it carried. Without it there is nothing to prove either way.
+        formatted = isinstance(
+            getattr(formatter, "_qwenpaw_last_wire_media_summary", None),
+            list,
+        )
+        if formatted and wire_images == 0:
+            # The call succeeded with no media at all, so it proved nothing
+            # about the rendition the pending step computed: caching it would
+            # let a later call in the same turn resend the size the provider
+            # never accepted (500 px recorded off a media-free success).
+            self._media_rendition_pending = None
+            self._media_rendition_target = None
+            return
+        key = getattr(self, "_media_rendition_source", None)
+        if not key:
+            key = observed if observed > 0 else pending[0]
         self._media_rendition_target = (key, limits)
         self._media_rendition_pending = None
 
@@ -1304,6 +1370,10 @@ class QwenPawAgent(Agent):
         # different content and deserves its own attempt. Only the recovery
         # steps inside this call share it.
         self._media_tighten_history = None
+        # The source image of this call's recovery chain, recorded on the
+        # first tighten. Reset per call for the same reason as the history:
+        # a later call may carry different media.
+        self._media_rendition_source = None
         remaining = 2
         call_model = super()._call_model
 
@@ -1421,7 +1491,9 @@ class QwenPawAgent(Agent):
                     )
                 finally:
                     self._set_formatter_media_strip(False)
-            saved_limits = self._tighten_media_limits()
+            saved_limits = self._tighten_media_limits(
+                enforce_payload_check=not body_overflow,
+            )
             if saved_limits is not None:
                 current_side, current_bytes = self._active_media_limits()
                 logger.warning(
@@ -1444,6 +1516,32 @@ class QwenPawAgent(Agent):
                     return result
                 finally:
                     self._restore_media_limits(saved_limits)
+            # No smaller rendition is available. For a body-size rejection
+            # that means the request body is still too large and another
+            # attempt would be identical: stop instead of replaying it.
+            if body_overflow:
+                raise exc
+            # For a media refusal, drop the media for this request: the user
+            # still gets an answer and the block stays in context for later
+            # turns.
+            removed = len(self._last_wire_media_summary())
+            if removed:
+                self._note_media_omission(
+                    removed,
+                    "provider media limit",
+                )
+            logger.warning(
+                "The provider rejected the request media and it cannot be "
+                "shrunk further; retrying without media.",
+            )
+            self._set_formatter_media_strip(True)
+            try:
+                return await self._retry_with_refreshed_input(
+                    tool_choice,
+                    retry=retry,
+                )
+            finally:
+                self._set_formatter_media_strip(False)
             # Context recovery can fold consumed tool results in the active
             # turn. Do not silently remove media the user is asking about.
             raise exc
@@ -2232,6 +2330,9 @@ class QwenPawAgent(Agent):
         self._media_rendition_target = None
         self._media_rendition_pending = None
         self._media_tighten_history = None
+        # Source image of the recovery chain in progress; cleared with the
+        # rest of the per-turn media state.
+        self._media_rendition_source = None
         stream = super()._reply(**kwargs)
         self._defer_context_save = True
         try:

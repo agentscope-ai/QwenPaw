@@ -957,3 +957,97 @@ async def test_unreadable_image_is_returned_without_reopening(monkeypatch):
     assert (data, media_type) == (b"not-an-image", "image/png")
     assert opens == [1]
     assert observed == []
+
+
+def test_an_unchanged_rendition_side_is_not_retried():
+    """2000 -> 1000 -> 512, then stop: another 512 would resend the payload.
+
+    Halving the byte budget below the side floor re-encodes the same pixels,
+    so the formatted request is identical. The reviewer saw the last two
+    attempts carry the same 120-byte PNG; this pins that the chain ends at
+    the second 512 instead of replaying it.
+    """
+    agent = _media_agent(_media_history()[:2])
+    formatter = agent.formatter
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_resizable_images = 1
+    # A 120-byte PNG: no tightened byte budget can re-encode it, so only the
+    # side matters for whether a retry could carry a different payload.
+    formatter._qwenpaw_last_wire_max_image_bytes = 120
+    original = (8192, 2 * 1024 * 1024)
+
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+    assert agent._tighten_media_limits(enforce_payload_check=True) is not None
+    assert formatter.max_image_side == 1000
+    agent._restore_media_limits(original)
+
+    formatter._qwenpaw_last_wire_max_image_side = 1000
+    assert agent._tighten_media_limits(enforce_payload_check=True) is not None
+    assert formatter.max_image_side == 512
+    agent._restore_media_limits(original)
+
+    # 512 is the floor and the image is already 120 bytes, so no limit can
+    # re-encode it: another attempt would format the identical payload.
+    formatter._qwenpaw_last_wire_max_image_side = 512
+    assert agent._tighten_media_limits(enforce_payload_check=True) is None
+
+
+def test_a_media_free_success_does_not_cache_a_rendition():
+    """A call that carried no media proves nothing about the rendition.
+
+    The reviewer's run succeeded with ``500 px -> 500 px -> no image``; caching
+    500 px as accepted made the next iteration resend a size the provider had
+    never accepted.
+    """
+    agent = _media_agent(_media_history()[:2])
+    agent._media_rendition_pending = (500, (512, 128 * 1024))
+    agent.formatter._qwenpaw_last_wire_media_count = 0
+    agent.formatter._qwenpaw_last_wire_media_summary = []
+
+    agent._accept_media_rendition()
+
+    assert agent._media_rendition_pending is None
+    assert agent._media_rendition_target is None
+
+
+def test_an_accepted_rendition_is_reused_by_its_source_image():
+    """The next call in the turn starts from the accepted limits, not 2000.
+
+    Keying the cache by the last rejected rendition made every iteration walk
+    2000 -> 1000 -> 512 again. The source image is what the cache belongs to.
+    """
+    agent = _media_agent(_media_history()[:2])
+    formatter = agent.formatter
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_resizable_images = 1
+    # A 120-byte PNG: no tightened byte budget can re-encode it, so only the
+    # side matters for whether a retry could carry a different payload.
+    formatter._qwenpaw_last_wire_max_image_bytes = 120
+    original = (8192, 2 * 1024 * 1024)
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+    assert agent._tighten_media_limits() is not None
+    agent._restore_media_limits(original)
+    formatter._qwenpaw_last_wire_max_image_side = 1000
+    assert agent._tighten_media_limits() is not None
+    # The provider accepted the 512 rendition this attempt carried.
+
+    # The provider accepted the 512 rendition of this call.
+    formatter.max_image_side = 512
+    formatter.max_bytes = 128 * 1024
+    formatter._qwenpaw_last_wire_media_count = 1
+    formatter._qwenpaw_last_wire_media_summary = ["#1 image 512x512"]
+    agent._accept_media_rendition()
+    agent._restore_media_limits(original)
+
+    # Next call in the same turn: rebuilt from the stored source image.
+    agent._media_tighten_history = None
+    agent._media_rendition_source = None
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+
+    assert agent._tighten_media_limits() is not None
+    assert formatter.max_image_side == 512
+    assert formatter.max_bytes == 128 * 1024
