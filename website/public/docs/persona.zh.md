@@ -80,7 +80,7 @@ MEMORY.md 用于存储经过提炼的长期记忆（重要决策、经验教训�
 
 在控制台的 **文件 → 档案** 页面，你可以：
 
-![files](https://img.alicdn.com/imgextra/i2/O1CN011vXjrv1n6phWAi02c_!!6000000005041-2-tps-3822-2070.png)
+![档案中的 SOUL.md 文件及其编辑器](https://img.alicdn.com/imgextra/i1/O1CN01nYb5ccP3uaE3FPfU_!!6000000006917-2-tps-1600-1000.png)
 
 1. **选择人设文件**：档案列表展示默认人设文件和已启用的文件，不是工作区中所有 Markdown 文件。要使用其他文件，点击 **从工作区添加**。
 2. **在线编辑内容**：点击文件后在右侧编辑器中修改内容，点击「保存」生效

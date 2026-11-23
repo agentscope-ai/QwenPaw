@@ -429,7 +429,9 @@ If a scheduled task does not run as expected, try the following:
 
 6. To verify that the task was created and can run, click **Execute Now**. If it works, you should see the reply in the target channel. You can also ask QwenPaw: “Trigger the ‘drink water reminder’ task I just created.”
 
-   ![exec](https://img.alicdn.com/imgextra/i4/O1CN01MkrSYn1mJpJshAO8n_!!6000000004934-2-tps-3224-878.png)
+   Open the job history to check the time and result of the manual run.
+
+   ![Job history showing a successful manual run](https://img.alicdn.com/imgextra/i4/O1CN01lcYClDVcaOE3FPfU_!!6000000003127-2-tps-1600-1000.png)
 
 ### How to manage Skills
 

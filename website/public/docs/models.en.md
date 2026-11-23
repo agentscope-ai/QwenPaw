@@ -160,11 +160,11 @@ To activate a cloud provider, go to the provider's configuration page. Most clou
 
 If the provider settings offer **Test Connection**, use it to check the endpoint with the credentials currently in the form. A failure can also indicate an incorrect address or a network problem. A successful provider check does not establish access to every model.
 
-![Test Connection Result](https://gw.alicdn.com/imgextra/i1/O1CN01dGL7cJ1jH88mTpW9z_!!6000000004522-2-tps-1088-946.png)
+![Successful connection test in Kilo Code provider settings](https://img.alicdn.com/imgextra/i3/O1CN01fDRsmAAoSaF3FPfU_!!6000000007117-2-tps-1600-1000.png)
 
 To check a particular model, save the provider settings, open its model list, and use **Test Connection** on the target row. This check uses the selected model ID, unlike the provider-level check.
 
-![Model Connection Test Result](https://img.alicdn.com/imgextra/i3/O1CN01tKRARl1UaAMsQC4En_!!6000000002533-2-tps-1268-1508.png)
+![Connection test result for Kilo Auto in the model library](https://img.alicdn.com/imgextra/i3/O1CN010eaKLd6b29E3FPfU_!!6000000002245-2-tps-1600-1000.png)
 
 If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 

@@ -155,7 +155,7 @@ important notifications.
 Approval-required actions triggered from any agent chat in the Console channel
 appear in the Inbox approval page.
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN01sVXgDs1uRd07B7u7a_!!6000000006034-2-tps-2926-1860.png)
+![Approvals tab with no requests pending](https://img.alicdn.com/imgextra/i1/O1CN01NxxfS5sBF9D3FPfU_!!6000000002304-2-tps-1600-1000.png)
 
 You can handle approvals from all agents in one place (approve / reject /
 cancel task). Approval cards include a countdown; if no action is taken before
@@ -599,15 +599,13 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 > Sidebar: **Settings → Token Usage**
 
-![Token Usage](https://img.alicdn.com/imgextra/i1/O1CN01FWWKrS1hYsGvs4wG1_!!6000000004290-2-tps-3810-2064.png)
+![Sample usage trends by model and token type](https://img.alicdn.com/imgextra/i1/O1CN01Y2BQWEzoc2E3FPfU_!!6000000001057-2-tps-1600-1000.png)
 
-View LLM token usage over a range, by date and model.
+In **Trends**, select a date range to update the statistics. The summary shows LLM calls, prompt and completion tokens, cache-hit tokens, and the cache hit rate. Scroll down for breakdowns by model, date, and agent.
 
-**View usage:**
+Switch to **Activity** and select a year to see daily usage on a heatmap. Both screenshots use sample data.
 
-1. Select a date range (default: last 30 days).
-2. Click **Refresh** to fetch data.
-3. The page shows total tokens, total calls, and breakdowns by model and date.
+![Annual heatmap of daily token usage](https://img.alicdn.com/imgextra/i4/O1CN01HExoJmPAX3D3FPfU_!!6000000003481-2-tps-1600-1000.png)
 
 **Query via chat:**
 Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls

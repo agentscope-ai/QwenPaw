@@ -61,7 +61,7 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
 4. 点击「启动 Agent」，Agent 开始策划并进入工作台。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01tdK9SHSDDJC3thAe_!!6000000005409-2-tps-1920-1080.png" alt="Creator 首页中目标描述、素材导入、创作类型、画幅和模型配置区域" />
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01pR8bL0IK7kK3FPfU_!!6000000005314-2-tps-1600-1000.png" alt="Creator 首页中目标描述、素材导入、创作类型、画幅和模型配置区域" />
   <figcaption>一个输入区同时承载目标、素材和限制；这只是项目的启动动作，后续素材会进入可追踪的资产与方案结构。</figcaption>
 </figure>
 
@@ -72,8 +72,8 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
 Creator 的 Agentic 能力不是额外悬浮在编辑器旁边：**项目里的内容本身就是 Agent 可以操作的上下文**。当前选中的片段 / 字幕 / 动效 / 转场 / 资产会作为关联对象出现在 AgentDock 输入区上方；时间点、时间区间和划选文本可通过选择浮层加入输入框。你也可以用 `@` 引用其他对象。描述修改意图后，Agent 会针对这些精确对象工作。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN0109MaKHOvgHC3thAe_!!6000000000337-2-tps-1920-1080.png" alt="打开元素详情后，将时间线与多个项目元素关联到 AgentDock 输入区的 Creator 工作台" />
-  <figcaption>当前项目元素会关联到 AgentDock；精确时间区间以引用片段进入输入框。既能用自然语言针对上下文修改，也能继续在工作台中手动精修。</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i3/O1CN01bj9c7TFmHbF3FPfU_!!6000000003900-2-tps-1600-1000.png" alt="工作台中选中的「出门瞬间」片段及右侧详情" />
+  <figcaption>在时间轴上选择「出门瞬间」后，右侧会显示这个片段的起止时间（0 至 10 秒）和内容简介。</figcaption>
 </figure>
 
 | 你选择的内容                           | 如何成为 Agent 上下文                             | 仍然可以手动做什么                               |
@@ -142,13 +142,13 @@ Agent 生成的媒体和修改的文本会进入决策托盘；你手动编辑�
 
 ## 预览、管理与导出
 
-- **成片预览**：在工作台点击「视频预览」，或在「我的项目」卡片上点击「预览」；
+- **成片预览**：在工作台的时间轴上方播放成片，或在「我的项目」卡片上点击「预览」；
 - **合成与导出**：使用工作台右上角的「合成成片」，完成后通过「下载 / 导出」保存最终视频；
 - **管理项目**：「我的项目」集中展示创作类型、画幅、分辨率与更新时间，并支持排序。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01VO33ftbLHSF3thAe_!!6000000003520-2-tps-1920-1080.png" alt="包含项目管理页面和完整成片预览窗口的 Creator 全局界面" />
-  <figcaption>「我的项目」集中展示项目状态和创作规格；打开「预览」即可在完整弹窗中检查成片。</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i3/O1CN01uF6CAKyabmH3FPfU_!!6000000006388-2-tps-1600-1000.png" alt="在 Creator 时间轴上预览带字幕的「小猫视角」成片" />
+  <figcaption>在时间轴上播放「小猫视角」的 63 秒成片，可对照下方的片段和字幕轨道检查画面。</figcaption>
 </figure>
 
 ---

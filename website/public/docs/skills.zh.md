@@ -234,11 +234,11 @@ qwenpaw skills info <skill_name> --pool
 
 3. 点击 **确认** 并等待导入结果。点击示例链接只会填入地址，不会安装技能。
 
-   ![click](https://img.alicdn.com/imgextra/i4/O1CN01amjZHZ1lwT7eVqWx9_!!6000000004883-2-tps-3822-2070.png)
+   ![已填入 QwenPaw 官方技能目录示例地址的导入框](https://img.alicdn.com/imgextra/i3/O1CN01c2KTrP8MklE3FPfU_!!6000000004886-2-tps-1600-1000.png)
 
 4. 导入成功后，skill 出现在技能列表中，**默认启用**。
 
-   ![new](https://img.alicdn.com/imgextra/i4/O1CN01TOYn2U1RFbk5BQOR1_!!6000000002082-2-tps-3822-2070.png)
+   ![导入后技能列表中的 qwenpaw-docs-zh](https://img.alicdn.com/imgextra/i3/O1CN01C7EkNQTIsvK3FPfU_!!6000000005276-2-tps-1600-1000.png)
 
 #### URL 获取示例
 

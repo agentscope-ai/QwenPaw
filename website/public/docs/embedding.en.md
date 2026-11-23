@@ -59,7 +59,7 @@ The setup moves through several distinct stages:
 - **Saved** means the settings were written to the running configuration. Changes within the same vector space can be applied live; a vector-space change pauses vector search until a rebuild completes.
 - **Rebuild required** means the semantic coordinate system changed and existing vectors must be regenerated.
 
-![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
+![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01yB9oI8D4N4K2On7V_!!6000000008153-2-tps-1182-183.png)
 
 The test sends one real text request. The result must arrive within `health_check_timeout` (15 seconds by default), contain a non-empty vector of finite numbers, and match `dimensions`. This proves only that one call works with the current settings. Initial indexing or a rebuild still has to process existing memories and can encounter quotas, rate limits, or oversized inputs.
 
@@ -86,7 +86,7 @@ including the score, vector, and keyword fields, without summarizing or rewritin
 
 `dimensions` is used for strict validation. Unless both the model and API explicitly support variable dimensions, enter the model's native output size. If the configuration expects 256 dimensions but the service returns 1,024, the test fails:
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg" alt="Embedding test failing because the expected and returned dimensions differ" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01u1hS43sxWpK0qMm4_!!6000000006812-2-tps-416-188.png" alt="Embedding test failing because the expected and returned dimensions differ" />
 
 `use_dimensions` only controls whether the `openai` backend sends a dimension parameter. It does not disable response validation. Some OpenAI-compatible services reject this parameter; turn it off and set `dimensions` to the size the service actually returns.
 
@@ -106,7 +106,7 @@ To abandon a vector-space change that has not yet been rebuilt, use the Console 
 POST /api/agents/{agentId}/memory/reindex/undo
 ```
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Confirmation shown before rebuilding the memory index" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i1/O1CN01feiXtKtiT3D0qMmQ_!!6000000007783-2-tps-416-210.png" alt="Confirmation shown before rebuilding the memory index" />
 
 ### The Service Endpoint Is Unreachable
 

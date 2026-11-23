@@ -270,12 +270,12 @@ qwenpaw skills info <skill_name> --pool
 
 3. Click **Confirm** and wait for the import result. Clicking an example URL only fills in the address; it does not install the skill.
 
-   ![click](https://img.alicdn.com/imgextra/i3/O1CN01FXICJa1fcsUDbQpiv_!!6000000004028-2-tps-3822-2070.png)
+   ![Import dialog with the QwenPaw skill catalog example URL](https://img.alicdn.com/imgextra/i4/O1CN01D6h6bMVyyjG3FPfU_!!6000000006747-2-tps-1600-1000.png)
 
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i1/O1CN01qamRgj1DHzB63zl9e_!!6000000000192-2-tps-3822-2070.png)
+   ![Imported qwenpaw-docs-zh in the skill list](https://img.alicdn.com/imgextra/i3/O1CN01rwVvVuH4PSD3FPfU_!!6000000004357-2-tps-1600-1000.png)
 
 #### URL acquisition example
 

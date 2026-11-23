@@ -673,7 +673,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Scan Alerts tab** (shows badge count when alerts exist):
 
-![alarm](https://img.alicdn.com/imgextra/i4/O1CN01ykUkgG1gI68G7WUGP_!!6000000004118-2-tps-3822-2070.png)
+![Warnings recorded by the skill scanner](https://img.alicdn.com/imgextra/i3/O1CN01b4CoSdQG6lL3FPfU_!!6000000004280-2-tps-1600-1000.png)
 
 - View all blocked and warned records
 - Click eye icon to view detailed findings
@@ -683,7 +683,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Whitelist tab** (shows badge count when entries exist):
 
-![white list](https://img.alicdn.com/imgextra/i1/O1CN01MPqRpL1TKJ2KxhnDT_!!6000000002363-2-tps-3822-2070.png)
+![Skill scanner Whitelist tab with no entries](https://img.alicdn.com/imgextra/i1/O1CN01JX35lCI8czE3FPfU_!!6000000004768-2-tps-1600-1000.png)
 
 - View all whitelisted skills
 - Shows skill name, content hash (first 16 chars), added time

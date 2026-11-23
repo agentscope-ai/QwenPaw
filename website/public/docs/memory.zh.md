@@ -506,7 +506,7 @@ POST /api/agents/{agentId}/memory/reindex/undo
 撤销会恢复与现有向量匹配的上一份 Embedding 配置，不会删除记忆文件。只有存在待重建变更时才能撤销。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的资源占用确认提示" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01t1PV3fCoKAF0qMm4_!!6000000007304-2-tps-416-188.png" alt="Embedding 索引重建确认框" />
 </p>
 
 ---

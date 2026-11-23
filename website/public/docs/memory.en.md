@@ -548,7 +548,7 @@ POST /api/agents/{agentId}/memory/reindex/undo
 Undo restores the previous Embedding configuration that matches the existing vectors. It does not delete memory files and is available only while a rebuild-requiring change is pending.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Resource-usage confirmation before rebuilding the memory index" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01feiXtKtiT3D0qMmQ_!!6000000007783-2-tps-416-210.png" alt="Confirmation before rebuilding the Embedding index" />
 </p>
 
 ---

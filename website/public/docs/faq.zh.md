@@ -387,7 +387,9 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 6. 排查结束后，如果想确认一下定时任务是否创建成功，且能成功触发，可以点击 **立即执行**，若成功创建，则可在对应频道收到回复。或者也可以直接与 QwenPaw 对话：“帮我触发一下刚刚创建的提醒喝水定时任务”。
 
-   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01a1IIsY1PhQZ5YXlCe_!!6000000001872-2-tps-3232-890.png)
+   打开任务的 **执行记录**，可查看这次手动触发的时间和结果。
+
+   ![执行记录中手动触发成功的任务](https://img.alicdn.com/imgextra/i3/O1CN01H6ge5gfEBCL3FPfU_!!6000000007924-2-tps-1600-1000.png)
 
 ### 如何管理Skill
 

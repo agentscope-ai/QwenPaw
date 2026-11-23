@@ -647,7 +647,7 @@ governance decision: tool=Bash target="..." action=sandbox_fallback sandbox=bubb
 
 **扫描告警标签页** (有告警时显示数字角标):
 
-![alarm](https://img.alicdn.com/imgextra/i1/O1CN013IUVEk26x1X9MtFen_!!6000000007727-2-tps-3822-2070.png)
+![技能扫描器中记录的警告](https://img.alicdn.com/imgextra/i4/O1CN01UZOdXyY99nH3FPfU_!!6000000005392-2-tps-1600-1000.png)
 
 - 查看所有拦截和警告记录
 - 点击眼睛图标查看详细发现
@@ -657,7 +657,7 @@ governance decision: tool=Bash target="..." action=sandbox_fallback sandbox=bubb
 
 **白名单标签页** (有条目时显示数字角标):
 
-![white list](https://img.alicdn.com/imgextra/i3/O1CN01aQ0miE1kzO1vB34Vu_!!6000000004754-2-tps-3822-2070.png)
+![技能扫描器的白名单标签页，当前没有条目](https://img.alicdn.com/imgextra/i2/O1CN01ZCw84kxO3XL3FPfU_!!6000000001607-2-tps-1600-1000.png)
 
 - 查看所有已加入白名单的技能
 - 显示技能名称、内容哈希(前16字符)、添加时间

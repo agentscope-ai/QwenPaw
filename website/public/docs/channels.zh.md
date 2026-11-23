@@ -60,9 +60,9 @@
 
 **方法1**: 在console前端配置
 
-从“控制→频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
+从“设置 → 频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
 
-![console](https://img.alicdn.com/imgextra/i4/O1CN01YVQdZe1WsbXoxJOnJ_!!6000000002844-2-tps-3822-2070.png)
+![钉钉 频道配置表单](https://img.alicdn.com/imgextra/i2/O1CN01xgvNYBmJwLK3FPfU_!!6000000001613-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -255,7 +255,7 @@
 如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 QwenPaw 服务，才能继续配置长链接的操作。
-> ![console](https://img.alicdn.com/imgextra/i3/O1CN01KCQj1b1z8utMnRr6y_!!6000000006670-2-tps-3822-2070.png)
+> ![飞书 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01bDowJoZWrUD3FPfU_!!6000000001100-2-tps-1600-1000.png)
 
 ### 机器人权限建议
 
@@ -326,9 +326,9 @@
 
 4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
 
-   - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
+   - 进入 **设置 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![控制台](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
+     ![iMessage 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01g6l8HHvgwwE3FPfU_!!6000000004684-2-tps-1600-1000.png)
 
    - 填写智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）：
 
@@ -398,9 +398,9 @@
 
 **方法1**: 在console前端配置
 
-从“控制→频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
+从“设置 → 频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i1/O1CN01kRdzN61HBLu9LghUV_!!6000000000719-2-tps-3822-2070.png)
+![Discord 频道配置表单](https://img.alicdn.com/imgextra/i1/O1CN01NCkuuFXmiQE3FPfU_!!6000000008118-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -492,7 +492,7 @@
 
 或者也可以在console前端填写：
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01FJrXGd1dNBgbrPZMf_!!6000000003723-2-tps-3822-2070.png)
+![QQ 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN0183I5SWimOAD3FPfU_!!6000000005536-2-tps-1600-1000.png)
 
 ---
 
@@ -601,7 +601,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **方法一**在console填写
 
-![console](https://img.alicdn.com/imgextra/i1/O1CN01pyx6Ma1YMCl1kMnje_!!6000000003044-2-tps-3822-2070.png)
+![企业微信 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN014OkqorNtkkE3FPfU_!!6000000002265-2-tps-1600-1000.png)
 
 **方法二**在 `agent.json` 填写（如 `~/.qwenpaw/workspaces/default/agent.json`）
 
@@ -718,9 +718,9 @@ WECHAT_GROUP_POLICY=open
 
 **方法1**: 在console前端配置
 
-从"控制→频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
+从"设置 → 频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01wrQfVo1QmIOUaWqoW_!!6000000002018-2-tps-3822-2070.png)
+![Telegram 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01Bmu451TLMrG3FPfU_!!6000000002958-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -1494,7 +1494,7 @@ https://xxxx.ngrok-free.app/api/messages
 - **App Password**：第一步的 Client Secret Value
 - **Tenant ID**：第一步的 Directory (tenant) ID
 
-![控制台 Azure Bot 配置抽屉界面](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+![Azure Bot 频道配置表单](https://img.alicdn.com/imgextra/i1/O1CN01NlDQrR0izBH3FPfU_!!6000000002504-2-tps-1600-1000.png)
 
 **方法 2：** 修改 `agent.json`
 

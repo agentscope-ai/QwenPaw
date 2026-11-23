@@ -134,7 +134,7 @@ example.com {
 **审批：**
 所有 Agent 在 console channel 的聊天中触发的需要审批的内容，都会出现在收件箱的审批页面中。
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01SYaJiY1iBLX2ue6K6_!!6000000004374-2-tps-2966-1858.png)
+![收件箱的审批标签页，当前没有待处理请求](https://img.alicdn.com/imgextra/i4/O1CN01FBHlKIhZPfF3FPfU_!!6000000006654-2-tps-1600-1000.png)
 
 你可以在这个页面对来自所有agent的审批内容进行统一操作（批准/拒绝/取消任务）。审批操作有倒计时，结束时未操作则 **默认拒绝**。在该页面进行的审批操作与在聊天页面弹窗进行操作时同步的。
 
@@ -529,15 +529,13 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → Token 消耗**
 
-![token消耗](https://img.alicdn.com/imgextra/i2/O1CN01hK1Elq270gie8c8NX_!!6000000007735-2-tps-3810-2064.png)
+![示例用量按模型和 Token 类型展示的趋势](https://img.alicdn.com/imgextra/i2/O1CN01Py8UFXjNn3K3FPfU_!!6000000005917-2-tps-1600-1000.png)
 
-在这里查看一段时间内的 LLM Token 消耗，按日期和模型统计。
+在 **趋势** 中选择日期范围，统计会自动更新。顶部显示 LLM 调用次数、输入和输出 Token、缓存命中 Token 和命中率。向下滚动可按模型、日期或智能体查看明细。
 
-**查看消耗：**
+切换到 **活跃度**，选择年份即可查看每日用量热力图。两张图均使用演示数据。
 
-1. 选择日期范围（默认最近 30 天）。
-2. 点击 **刷新** 获取数据。
-3. 页面展示总 Token 数、总调用次数、按模型和按日期的明细。
+![按年查看每日 Token 用量的活跃度热力图](https://img.alicdn.com/imgextra/i2/O1CN01fGXy4Pd7coH3FPfU_!!6000000006922-2-tps-1600-1000.png)
 
 **通过对话查询：**
 

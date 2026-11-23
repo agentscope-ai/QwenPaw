@@ -80,7 +80,7 @@ After setup completes, BOOTSTRAP.md is deleted, so it only exists during initial
 
 Under **Files → Profile** in the Console, you can:
 
-![files](https://img.alicdn.com/imgextra/i4/O1CN01PxPeIs1G8m3jwGq6c_!!6000000000578-2-tps-3822-2070.png)
+![SOUL.md open in the Profile editor](https://img.alicdn.com/imgextra/i3/O1CN010Lmn7qnmEvG3FPfU_!!6000000003750-2-tps-1600-1000.png)
 
 1. **Choose profile files**: The list shows default profile files and files already enabled, not every Markdown file in the workspace. Use **Add from workspace** to include another file.
 2. **Edit content online**: Click a file to edit it in the right-side editor, then click "Save" to apply changes
