@@ -233,12 +233,23 @@ async def checkpoint_contract(call: ToolContext) -> None:
 def terminal_contract(context: "PluginContext", call: "CliContext") -> None:
     import click
     from qwenpaw.plugins.cli import CliSpec
-    from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
+    from qwenpaw.plugins.doctor import (
+        DOCTOR,
+        DoctorContext,
+        DoctorSpec,
+        DoctorResult,
+    )
     from qwenpaw.plugins.resources import Registration
     from qwenpaw.plugins.logging import PluginLogger
 
     async def operation() -> str:
         return "result"
+
+    def legacy_check(_call: DoctorContext) -> list[str]:
+        return ["ready"]
+
+    async def status_check(_call: DoctorContext) -> list[DoctorResult]:
+        return [DoctorResult("OK", "ready")]
 
     assert_type(call.run(operation()), str)
     assert_type(call.logger, PluginLogger)
@@ -251,10 +262,12 @@ def terminal_contract(context: "PluginContext", call: "CliContext") -> None:
     assert_type(
         context.register_extension(
             DOCTOR,
-            DoctorSpec("hello", lambda ctx: []),
+            DoctorSpec("hello", status_check),
         ),
         Registration,
     )
+
+    assert_type(DoctorSpec("legacy", legacy_check), DoctorSpec)
 
 
 async def close_streams(

@@ -123,7 +123,12 @@ PUBLIC_API = MappingProxyType(
             "CommandResult",
         ),
         "qwenpaw.plugins.cli": ("CliSpec", "CliContext"),
-        "qwenpaw.plugins.doctor": ("DOCTOR", "DoctorSpec", "DoctorContext"),
+        "qwenpaw.plugins.doctor": (
+            "DOCTOR",
+            "DoctorSpec",
+            "DoctorContext",
+            "DoctorResult",
+        ),
         "qwenpaw.plugins.extensions": ("ExtensionPoint",),
         "qwenpaw.plugins.hooks": (
             "HookPhase",

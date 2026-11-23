@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Optional
 
 import click
@@ -42,4 +43,35 @@ def resolve_base_url(ctx: click.Context, base_url: Optional[str]) -> str:
         return base_url.rstrip("/")
     host = (ctx.obj or {}).get("host", "127.0.0.1")
     port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
+    return str(httpx.URL(scheme="http", host=host.strip("[]"), port=port))
+
+
+def selected_runtime_url(ctx: click.Context | None) -> str | None:
+    """Return the explicit or running App that owns CLI mutations."""
+    if ctx is None:
+        return None
+    root = ctx.find_root()
+    explicit = any(
+        root.get_parameter_source(option)
+        is click.core.ParameterSource.COMMANDLINE
+        for option in ("host", "port")
+    )
+    if explicit:
+        return resolve_base_url(root, None)
+    return local_runtime_url()
+
+
+def local_runtime_url() -> str | None:
+    """Find the App associated with this local working directory."""
+    from ..config.utils import is_qwenpaw_running, read_last_api
+    from ..utils.runtime_api import read_runtime_api
+
+    endpoint = read_runtime_api()
+    if endpoint is None and os.getenv("QWENPAW_RUNTIME_ID"):
+        raise click.ClickException("Managed runtime endpoint is unavailable")
+    if endpoint is None and is_qwenpaw_running():
+        endpoint = read_last_api()
+    if endpoint is None:
+        return None
+    host, port = endpoint
+    return str(httpx.URL(scheme="http", host=host.strip("[]"), port=port))

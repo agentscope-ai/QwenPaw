@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Optional
 
 import click
@@ -16,65 +15,6 @@ from qwenpaw.exceptions import (
 from ..providers.provider import ModelInfo, Provider, ProviderInfo
 from ..providers.provider_manager import ProviderManager
 from .utils import prompt_choice
-
-
-# TODO: Replace legacy manager access through the plugin CLI contract.
-def _get_local_model_manager():
-    try:
-        from ..local_models import LocalModelManager
-    except ImportError as exc:
-        click.echo(
-            click.style(
-                "Local model dependencies not installed. "
-                "Install with: pip install 'qwenpaw[local]'",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1) from exc
-
-    return LocalModelManager.get_instance()
-
-
-def _wait_for_local_model_download(
-    local_model_manager,
-    *,
-    timeout: float | None = 7200.0,
-) -> dict[str, object]:
-    """
-    Wait for a local model download to reach a terminal state.
-
-    This function polls the download progress until it reports a terminal
-    status or the optional timeout is reached. On timeout or user
-    cancellation (Ctrl-C), it attempts to cancel the download if the
-    manager exposes a ``cancel_model_download`` method.
-    """
-    start = time.monotonic()
-    try:
-        while True:
-            progress = local_model_manager.get_model_download_progress()
-            status = str(progress.get("status", "idle"))
-            if status in {"completed", "failed", "cancelled"}:
-                return progress
-            if timeout is not None and (time.monotonic() - start) > timeout:
-                cancel = getattr(
-                    local_model_manager,
-                    "cancel_model_download",
-                    None,
-                )
-                if callable(cancel):
-                    cancel()
-                raise click.ClickException(
-                    "Timed out while waiting for the local model download to "
-                    "complete. The download has been cancelled; please try "
-                    "again.",
-                )
-            time.sleep(0.5)
-    except KeyboardInterrupt as exc:
-        cancel = getattr(local_model_manager, "cancel_model_download", None)
-        if callable(cancel):
-            cancel()
-        # Use click.Abort to exit cleanly from a Click command.
-        raise click.Abort() from exc
 
 
 def _manager() -> ProviderManager:
@@ -561,7 +501,9 @@ def list_cmd() -> None:
                     click.echo(f"    - {m.name}")
             else:
                 click.echo("  No models downloaded.")
-                click.echo("  Use 'qwenpaw models download' to add models.")
+                click.echo(
+                    "  Run 'qwenpaw models --help' for available commands.",
+                )
         else:
             click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
@@ -766,129 +708,3 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-
-
-# ---------------------------------------------------------------------------
-# Local model management commands
-# TODO: Register these commands for enabled plugins through the shared
-# plugin CLI contract.
-# Command registration is disabled until that integration is available.
-# ---------------------------------------------------------------------------
-
-
-# @models_group.command("download")
-@click.argument("repo_id")
-@click.option(
-    "--file",
-    "-f",
-    "filename",
-    default=None,
-    help="Deprecated in the new local-model architecture",
-)
-@click.option(
-    "--source",
-    "-s",
-    type=click.Choice(["huggingface", "modelscope"]),
-    default="huggingface",
-    help="Download source",
-)
-def download_cmd(
-    repo_id: str,
-    filename: str | None,
-    source: str,
-) -> None:
-    """Download a local model repository.
-
-    \b
-    Examples:
-      qwenpaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF
-      qwenpaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
-    """
-    local_model_manager = _get_local_model_manager()
-
-    if filename:
-        click.echo(
-            click.style(
-                "Error: --file is no longer supported. "
-                "The current local-model architecture downloads whole repos.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
-
-    from ..local_models import (  # pylint: disable=no-name-in-module
-        DownloadSource,
-    )
-
-    source_type = DownloadSource(source) if source else None
-    source_label = source_type.value if source_type is not None else "auto"
-    click.echo(f"Downloading {repo_id} from {source_label}...")
-
-    try:
-        local_model_manager.start_model_download(
-            repo_id,
-            source=source_type,
-        )
-        progress = _wait_for_local_model_download(local_model_manager)
-    except (ImportError, RuntimeError, ValueError) as exc:
-        click.echo(click.style(f"Download failed: {exc}", fg="red"))
-        raise SystemExit(1) from exc
-
-    if progress.get("status") != "completed":
-        error = progress.get("error") or "unknown error"
-        click.echo(click.style(f"Download failed: {error}", fg="red"))
-        raise SystemExit(1)
-
-    local_path = str(progress.get("local_path") or "")
-    raw_downloaded_bytes = progress.get("downloaded_bytes")
-    size_bytes = (
-        raw_downloaded_bytes if isinstance(raw_downloaded_bytes, int) else 0
-    )
-    size_mb = size_bytes / (1024 * 1024)
-    click.echo(f"Done! Model saved to: {local_path}")
-    click.echo(f"  Size: {size_mb:.1f} MB")
-    click.echo(f"  Name: {repo_id}")
-    click.echo(
-        "\nTo use this model, run:\n"
-        "  qwenpaw models set-llm  (select 'qwenpaw-local' provider)",
-    )
-
-
-# @models_group.command("local")
-def list_local_cmd() -> None:
-    """List all downloaded local models."""
-    local_model_manager = _get_local_model_manager()
-
-    models = local_model_manager.list_downloaded_models()
-
-    if not models:
-        click.echo("No local models downloaded.")
-        click.echo("Use 'qwenpaw models download <repo_id>' to download one.")
-        return
-
-    click.echo(f"\n=== Local Models ({len(models)}) ===")
-    for m in models:
-        size_mb = m.size_bytes / (1024 * 1024)
-        click.echo(f"\n{'─' * 44}")
-        click.echo(f"  {m.name}")
-        click.echo(f"  ID:      {m.id}")
-        click.echo(f"  Size:    {size_mb:.1f} MB")
-    click.echo()
-
-
-# @models_group.command("remove-local")
-@click.argument("model_id")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
-def remove_local_cmd(model_id: str, yes: bool) -> None:
-    """Remove a downloaded local model."""
-    local_model_manager = _get_local_model_manager()
-
-    if not yes:
-        if not click.confirm(f"Delete local model '{model_id}'?"):
-            return
-    try:
-        local_model_manager.remove_downloaded_model(model_id)
-    except (ValueError, AppBaseException) as exc:
-        click.echo(click.style(f"Error: {exc}", fg="red"))
-        raise SystemExit(1) from exc
-    click.echo(f"Done! Model '{model_id}' deleted.")

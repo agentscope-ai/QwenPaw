@@ -2,7 +2,7 @@
 """Invocation-owned bridge between synchronous Click and plugin lifecycle."""
 
 import asyncio
-from contextlib import ExitStack
+from contextlib import asynccontextmanager, ExitStack
 import inspect
 
 import click
@@ -141,9 +141,22 @@ class PluginSession:
 
     def context(self, plugin_id, click_ctx):
         from ..plugins.cli import CliContext
+        from ..utils.io_utils import run_sync_io
+        from ..utils.runtime_api import async_api_client
+        from .http import local_runtime_url
 
         sdk = self.loader.lifecycle.get_instance(plugin_id).sdk_context
         options = click_ctx.find_root().obj or {}
+
+        @asynccontextmanager
+        async def local_runtime_api():
+            target = await run_sync_io(local_runtime_url)
+            if target is None:
+                yield None
+            else:
+                async with async_api_client(f"{target}/api/") as client:
+                    yield client
+
         return CliContext(
             plugin_id,
             sdk.config,
@@ -153,6 +166,7 @@ class PluginSession:
             options.get("host", "127.0.0.1"),
             options.get("port", 8088),
             self.run,
+            local_runtime_api,
         )
 
     def execute(self, plugin_id, reference, callback, /, *args, **kwargs):

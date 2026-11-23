@@ -12,30 +12,27 @@ import click
 @contextmanager
 def _provider_api(manager, provider_id, saved=None):
     """Route plugin mutations to their live owner or the local operation."""
-    from ..config.utils import is_qwenpaw_running
     from ..providers.provider import provider_identity_key
+    from .http import client, selected_runtime_url
 
     provider_key = provider_identity_key(provider_id)
     is_plugin = (
         provider_key in getattr(manager, "plugin_providers", {})
         or saved is not None
     )
-    ctx = click.get_current_context(silent=True)
-    root = ctx.find_root() if ctx is not None else None
-    explicit = root is not None and any(
-        root.get_parameter_source(option)
-        is click.core.ParameterSource.COMMANDLINE
-        for option in ("host", "port")
+    target = (
+        selected_runtime_url(click.get_current_context(silent=True))
+        if is_plugin
+        else None
     )
-    if not is_plugin or not (explicit or is_qwenpaw_running()):
+    if target is None:
         yield None
         return
 
     import httpx
-    from .http import client, resolve_base_url
 
     try:
-        with client(resolve_base_url(ctx, None)) as api:
+        with client(target) as api:
             yield api
     except httpx.HTTPError as exc:
         raise click.ClickException(
@@ -141,29 +138,57 @@ def ensure_resources(capability):
 
 
 def doctor_contributions(context):
-    """Adapt plugin-owned diagnostic notes to the legacy doctor envelope."""
+    """Run owned diagnostic checks and bind the selected runtime transport."""
     ctx = click.get_current_context(silent=True)
     if ctx is None:
         return []
-    from .plugin_cli import catalog_for
+    from .plugin_cli import catalog_for, missing_cli_root_messages
     from .plugin_session import session_for
-    from ..plugins.doctor import DOCTOR, DoctorContext
+    from .doctor_checks import selected_provider_ids
+    from ..plugins.doctor import DOCTOR, DoctorContext, DoctorResult
+    from ..plugins.errors import SDKError
     from ..utils.io_utils import run_sync_io
 
     catalog = catalog_for(ctx)
+
+    async def get_runtime(path):
+        from urllib.parse import urlsplit
+        import httpx
+        from ..utils.runtime_api import async_api_client
+
+        target = urlsplit(path)
+        if target.scheme or target.netloc or path.startswith("/"):
+            raise SDKError("Runtime API path must be relative")
+        try:
+            async with async_api_client(
+                context.cli_base_url.rstrip("/") + "/api/",
+            ) as client:
+                response = await client.get(path, timeout=context.timeout)
+                response.raise_for_status()
+                return response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SDKError(f"Runtime API read failed: {exc}") from exc
+
     result = [
         (issue.source_path.name, [f"(discovery error) {issue.message}"])
         for issue in catalog.issues
     ]
+    for message in missing_cli_root_messages(ctx, catalog):
+        result.append(("cli", [message]))
     for path, mounts in catalog.mounts.items():
         if len(mounts) > 1:
             result.append(("cli", [f"CLI path conflict: {' '.join(path)}"]))
+    selected_providers = None
     for manifest, source in catalog.enabled_plugins:
         if not manifest.declares_extension(DOCTOR.id):
             continue
         session = session_for(ctx)
         try:
             session.load_registration(manifest, source)
+            if selected_providers is None:
+                selected_providers = session.run(
+                    run_sync_io(selected_provider_ids, context.cfg),
+                )
             checks = session.loader.registry.get_extensions(DOCTOR)
             for contribution in checks:
                 owner, name = contribution.plugin_id, contribution.id
@@ -177,6 +202,8 @@ def doctor_contributions(context):
                     context.cli_base_url,
                     context.timeout,
                     context.deep,
+                    get_runtime,
+                    selected_providers=selected_providers,
                 )
 
                 async def check(contribution=contribution, call=call):
@@ -193,10 +220,11 @@ def doctor_contributions(context):
                             if inspect.isawaitable(notes):
                                 notes = await notes
                             if not isinstance(notes, list) or not all(
-                                isinstance(n, str) for n in notes
+                                isinstance(n, (str, DoctorResult))
+                                for n in notes
                             ):
                                 raise TypeError(
-                                    "Diagnostic must return a list of strings",
+                                    "Diagnostic must return notes or DoctorResult values",
                                 )
                             return notes
 

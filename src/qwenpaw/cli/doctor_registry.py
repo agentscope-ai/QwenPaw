@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points as metadata_entry_points
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..plugins.doctor import DoctorResult
+
 if TYPE_CHECKING:
     from ..config.config import Config
 
@@ -101,9 +103,10 @@ def _resolved_eps() -> list[tuple[str, DoctorNotesFn]]:
 
 def run_extension_contributions(
     ctx: DoctorRunContext,
-) -> list[tuple[str, list[str]]]:
+) -> list[tuple[str, list[str | DoctorResult]]]:
     """Run manual registrations first, then setuptools entry points."""
-    results: list[tuple[str, list[str]]] = []
+    results: list[tuple[str, list[str | DoctorResult]]] = []
+    lines: list[str | DoctorResult]
 
     for cid in sorted(_manual):
         fn = _manual[cid]

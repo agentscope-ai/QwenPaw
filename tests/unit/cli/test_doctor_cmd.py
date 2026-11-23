@@ -54,7 +54,10 @@ class _Resp:
 
 
 def _ctx(host="127.0.0.1", port=8088):
-    return SimpleNamespace(obj={"host": host, "port": port})
+    return click.Context(
+        click.Command("doctor"),
+        obj={"host": host, "port": port},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +525,7 @@ class TestCheckActiveLlm:
             staticmethod(lambda: _Mgr(_Slot("p", "m"), prov)),
         )
         ok, detail, notes = _run_async(dc._check_active_llm(1.0, False))
-        assert ok is True
+        assert ok is None
         assert "live check skipped" in detail
 
     def test_ping_success(self, monkeypatch):
@@ -775,7 +778,7 @@ class TestRunDoctorChecks:
 
     @pytest.mark.parametrize("provider_id", ["qwenpaw-local", "copaw-local"])
     @pytest.mark.parametrize("deep", [False, True])
-    def test_local_plugin_checks_do_not_fail_doctor(
+    def test_missing_plugin_provider_fails_doctor(
         self,
         monkeypatch,
         capsys,
@@ -808,12 +811,13 @@ class TestRunDoctorChecks:
                 checks.check_enabled_agents_model_connections
             ),
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=deep)
+            with pytest.raises(SystemExit) as error:
+                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=deep)
+        assert error.value.code == 1
         captured = capsys.readouterr()
-        assert "model check skipped" in captured.out
-        assert f"agent-a: SKIP — {provider_id}" in captured.out
+        assert f"provider not found: {provider_id!r}" in captured.err
+        assert "agent-a: FAIL" in captured.err
         assert "=== API ===" in captured.out
-        assert "FAIL" not in captured.err
 
     def test_config_invalid_exits_and_skips_sections(
         self,
@@ -1023,6 +1027,30 @@ class TestRunDoctorChecks:
         out = capsys.readouterr().out
         assert "[ext1]" in out
         assert "note a" in out
+
+    @pytest.mark.parametrize("status", ["OK", "FAIL", "SKIP"])
+    def test_extension_result_controls_exit_status(
+        self,
+        monkeypatch,
+        capsys,
+        status,
+    ):
+        from qwenpaw.plugins.doctor import DoctorResult
+
+        with _OkPatch(
+            monkeypatch,
+            run_extension_contributions=lambda ctx: [
+                ("local:files", [DoctorResult(status, "binary check")]),
+            ],
+        ):
+            if status == "FAIL":
+                with pytest.raises(SystemExit) as error:
+                    dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+                assert error.value.code == 1
+            else:
+                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+        captured = capsys.readouterr()
+        assert f"{status} — binary check" in captured.out + captured.err
 
     def test_legacy_workspace_note(self, monkeypatch, capsys):
         with _OkPatch(

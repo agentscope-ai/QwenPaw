@@ -100,7 +100,13 @@ def _get_api_base() -> Optional[str]:
     if api_info is None:
         return None
     host, port = api_info
-    return f"http://{host}:{port}/api"
+    address = httpx.URL(
+        scheme="http",
+        host=host.strip("[]"),
+        port=port,
+        path="/api",
+    )
+    return str(address)
 
 
 def _api_install_plugin(source: str, force: bool = False) -> bool:
@@ -709,7 +715,8 @@ def uninstall(plugin_id: str):
         ):
             click.echo("Cancelled.")
             return
-        _api_uninstall_plugin(resolved_id)
+        if not _api_uninstall_plugin(resolved_id):
+            raise click.exceptions.Exit(1)
         return
 
     plugin_id = resolved_id

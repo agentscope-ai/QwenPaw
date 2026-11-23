@@ -14,6 +14,249 @@ from qwenpaw.plugins.provision import inventory_path, record_tool_factory
 from qwenpaw.plugins.source_usage import source_writer
 
 
+def test_local_commands_use_plugin_ownership_and_existing_model_files(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+):
+    import shutil
+    import threading
+    import asyncio
+    from types import SimpleNamespace
+
+    import click
+    import httpx
+
+    from qwenpaw import constant
+    from qwenpaw.cli.plugin_resources import doctor_contributions
+    from qwenpaw.config import utils
+    from qwenpaw.plugins.local_model_legacy import bundled_local_source
+    from qwenpaw.utils import runtime_api
+
+    # Model a legal installation without importing or downloading either SDK.
+    for package, version in (
+        ("huggingface_hub", "0.20.0"),
+        ("modelscope-hub", "0.7.1"),
+    ):
+        metadata = (
+            bounded_dependency_environment
+            / f"{package.replace('-', '_')}-{version}.dist-info"
+        )
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: {package}\nVersion: {version}\n",
+            encoding="utf-8",
+        )
+
+    plugins = tmp_path / "plugins"
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+    config = tmp_path / "config.json"
+    data = tmp_path / "local-data"
+    settings = {"plugins": {"local-llamacpp": {"data_dir": str(data)}}}
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    runner = CliRunner()
+    assert runner.invoke(cli, ["models", "local"]).exit_code == 2
+    source = plugins / "local-llamacpp"
+    shutil.copytree(bundled_local_source(), source)
+    threads = set(threading.enumerate())
+    result = runner.invoke(cli, ["models", "download", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--source" in result.output and "Examples:" in result.output
+    assert not data.exists()
+    model = data / "models" / "example" / "small" / "weights.gguf"
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b"GGUF")
+    result = runner.invoke(cli, ["models", "local"])
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert "example/small" in result.output
+    result = runner.invoke(
+        cli,
+        ["models", "remove-local", "example/small"],
+        input="n\n",
+    )
+    assert result.exit_code == 0 and model.exists()
+
+    requests = []
+    slow = False
+
+    async def runtime(request):
+        requests.append(request)
+        if request.method == "DELETE":
+            return httpx.Response(
+                409,
+                json={"detail": "Cannot delete a model while it is running"},
+            )
+        if slow:
+            await asyncio.Event().wait()
+        return httpx.Response(200, json={"running": False})
+
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        runtime_api.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(
+            transport=httpx.MockTransport(runtime),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "local-test")
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "test-token")
+    monkeypatch.setenv("QWENPAW_RUNTIME_API_URL", "http://127.0.0.1:54321")
+
+    @click.command()
+    def check():
+        for _name, notes in doctor_contributions(
+            SimpleNamespace(
+                cfg=None,
+                raw_cfg={},
+                cli_base_url="http://127.0.0.1:54321",
+                timeout=0.5 if slow else 2,
+                deep=True,
+            ),
+        ):
+            for note in notes:
+                click.echo(note)
+
+    result = runner.invoke(check)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert "inference was not checked" in result.output
+    assert len(requests) == 1
+    assert (
+        str(requests[0].url)
+        == "http://127.0.0.1:54321/api/local-models/diagnostics"
+    )
+    assert requests[0].headers["X-QwenPaw-Runtime-Token"] == "test-token"
+    slow = True
+    result = runner.invoke(check)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert "Local llama.cpp binary:" in result.output
+    assert "(extension error) TimeoutError" in result.output
+    remove = ["models", "remove-local", "example/small", "-y"]
+    result = runner.invoke(cli, remove)
+    assert result.exit_code == 1 and model.exists(), result.output
+    assert "Cannot delete a model while it is running" in result.output
+    assert requests[-1].url.path == "/api/local-models/models"
+    assert requests[-1].url.params["model_id"] == "example/small"
+    assert requests[-1].headers["X-QwenPaw-Runtime-Token"] == "test-token"
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID")
+    result = runner.invoke(cli, remove)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert not model.exists()
+    settings["plugins"]["local-llamacpp"]["enabled"] = False
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    assert runner.invoke(cli, ["models", "local"]).exit_code == 2
+    shutil.rmtree(source)
+    assert runner.invoke(cli, ["models", "local"]).exit_code == 2
+    assert not fresh_registry.cli_contributions
+    assert not fresh_registry.extensions
+    assert not fresh_registry.runtime_owners.leases()
+    assert set(threading.enumerate()) <= threads
+
+
+@pytest.mark.parametrize("kind", ["custom", "native", "static"])
+def test_sdk_provider_doctor_preserves_registration_only_boundary(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+    kind,
+):
+    import click
+
+    from qwenpaw import constant
+    from qwenpaw.cli.doctor_cmd import _check_active_llm
+    from qwenpaw.cli.plugin_resources import ensure_resources
+    from qwenpaw.cli.plugin_session import session_for
+    from qwenpaw.config import utils
+    from qwenpaw.config.config import ModelSlotConfig
+    from qwenpaw.providers.provider_manager import ProviderManager
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider import ModelConnectionResult
+
+    async def check_static(provider, model_id, _timeout):
+        assert provider.base_url == "https://example.test/v1"
+        assert model_id == "test"
+        return ModelConnectionResult(success=True, message="reachable")
+
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "check_model_connection",
+        check_static,
+    )
+
+    plugins = tmp_path / "plugins"
+    source = plugins / "doctor-provider"
+    source.mkdir(parents=True)
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": source.name,
+                "version": "1.0.0",
+                "type": "provider",
+                "entry": {"backend": "main.py"},
+                "sdk": {"version": "1.1.0", "capabilities": ["providers"]},
+            },
+        ),
+        encoding="utf-8",
+    )
+    (source / "main.py").write_text(
+        f"KIND = {kind!r}\n"
+        + """
+from qwenpaw.plugins.providers import ProviderSpec, ModelInfo
+
+def unexpected(*args):
+    raise AssertionError('Doctor entered business execution')
+
+class Plugin:
+    def register(self, ctx):
+        ctx.on_activate(unexpected)
+        ctx.register_provider(ProviderSpec(
+            'doctor-provider', 'Doctor provider',
+            protocol=None if KIND == 'custom' else 'openai-chat',
+            generate=unexpected if KIND == 'custom' else None,
+            connect=unexpected if KIND == 'native' else None,
+            check_connection=unexpected if KIND == 'custom' else None,
+            require_api_key=False,
+            base_url='https://example.test/v1',
+            models=(ModelInfo('test', 'Test', supports_multimodal=False),),
+        ))
+
+plugin = Plugin()
+""",
+        encoding="utf-8",
+    )
+
+    @click.command()
+    @click.pass_context
+    def check(ctx):
+        ensure_resources("providers")
+        session_for(ctx).run(
+            ProviderManager.get_instance().set_default_model(
+                "chat",
+                ModelSlotConfig(provider_id="doctor-provider", model="test"),
+            ),
+        )
+        status, detail, _notes = session_for(ctx).run(
+            _check_active_llm(1, False),
+        )
+        assert status is (True if kind == "static" else None), detail
+        click.echo(detail)
+
+    result = CliRunner().invoke(check)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert (
+        "reachable" if kind == "static" else "requires plugin activation"
+    ) in result.output
+    assert fresh_registry.get_provider("doctor-provider") is None
+
+
 @pytest.mark.parametrize("args", [[], ["status"], ["status", "--help"]])
 def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
     from types import SimpleNamespace
@@ -261,7 +504,103 @@ def check(call):
     assert result.exit_code == 2, result.output
 
 
-@pytest.mark.parametrize("mode", ["command", "lazy", "alias", "nested"])
+def test_missing_parent_reports_plugin_path_without_loading_entry(
+    tmp_path,
+    monkeypatch,
+):
+    import click
+
+    from qwenpaw.cli.plugin_cli import (
+        ExtensibleGroup,
+        catalog_for,
+        missing_cli_root_messages,
+    )
+    from qwenpaw.config import utils
+
+    source = tmp_path / "orphan"
+    source.mkdir()
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": "orphan",
+                "version": "1.0.0",
+                "entry": {"backend": "main.py"},
+                "sdk": {"version": "1.2.0", "capabilities": ["cli"]},
+                "cli": [
+                    {"id": "root", "path": ["missing", "status"]},
+                    {"id": "nested", "path": ["known", "missing", "status"]},
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    (source / "main.py").write_text(
+        "raise AssertionError('Parent lookup must stay passive')",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(utils, "get_plugins_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        utils,
+        "get_config_path",
+        lambda: tmp_path / "config.json",
+    )
+
+    @click.group(cls=ExtensibleGroup)
+    def root():
+        pass
+
+    @root.group()
+    def known():
+        pass
+
+    @root.command()
+    @click.pass_context
+    def diagnose(ctx):
+        for message in missing_cli_root_messages(ctx, catalog_for(ctx)):
+            click.echo(message)
+
+    runner = CliRunner()
+    for args in (["missing"], ["known", "missing"]):
+        result = runner.invoke(root, [*args, "status"])
+        assert result.exit_code == 2
+        assert f"requires a parent command group at: {' '.join(args)}" in (
+            result.output
+        )
+    result = runner.invoke(root, ["diagnose"])
+    assert result.exit_code == 0
+    assert "requires a parent command group at: missing" in result.output
+
+
+def test_required_subcommand_fails_without_activating_plugin(monkeypatch):
+    from types import SimpleNamespace
+
+    import click
+
+    from qwenpaw.cli import plugin_cli
+
+    class CustomGroup(click.Group):
+        def invoke(self, ctx):
+            return super().invoke(ctx)
+
+    def unexpected_execution(*_args):
+        pytest.fail("A missing subcommand activated the plugin")
+
+    monkeypatch.setattr(plugin_cli, "catalog_for", lambda _ctx: None)
+    command = plugin_cli._execution_command(
+        CustomGroup("example", no_args_is_help=False),
+        SimpleNamespace(session=SimpleNamespace(execute=unexpected_execution)),
+    )
+
+    result = CliRunner().invoke(command)
+
+    assert result.exit_code == 2, result.output
+    assert "Missing command" in result.output
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["command", "invoke", "group-invoke", "lazy", "alias", "nested"],
+)
 def test_plugin_command_registers_runs_and_cleans_up(
     tmp_path,
     monkeypatch,
@@ -310,7 +649,11 @@ def test_plugin_command_registers_runs_and_cleans_up(
                         "id": "status",
                         "path": ["models", "example"],
                         "help": "Example status",
-                        "kind": "command" if mode == "command" else "group",
+                        "kind": (
+                            "command"
+                            if mode in {"command", "invoke"}
+                            else "group"
+                        ),
                     },
                 ],
             },
@@ -348,6 +691,26 @@ def build(call):
             raise click.ClickException('requested failure')
     if MODE == 'command':
         return status
+    if MODE == 'invoke':
+        class CustomCommand(click.Command):
+            def invoke(self, ctx):
+                return status.callback(**ctx.params)
+        return CustomCommand('status', params=status.params)
+    if MODE == 'group-invoke':
+        class DefaultGroup(click.Group):
+            def get_command(self, ctx, name):
+                return status if name == 'child' else None
+
+            def invoke(self, ctx):
+                record('invoke-active' if plugin.loop is not None else 'route')
+                return super().invoke(ctx)
+        def default_status(**options):
+            if click.get_current_context().invoked_subcommand is None:
+                return status.callback(**options)
+        return DefaultGroup(
+            'status', callback=default_status, params=status.params,
+            invoke_without_command=True,
+        )
     class LazyGroup(click.Group):
         def list_commands(self, ctx):
             return ['alias', 'nested', 'status']
@@ -362,6 +725,8 @@ def build(call):
     return LazyGroup()
 
 class Plugin:
+    loop = None
+
     def register(self, ctx):
         record('register')
         ctx.register_tool(ToolSpec('peer', 'Peer tool', {'type': 'object'},
@@ -403,7 +768,7 @@ plugin = Plugin()
     monkeypatch.setattr(PluginSession, "execute", track_execution)
     runner = CliRunner()
     args = ["models", "example"]
-    if mode != "command":
+    if mode not in {"command", "invoke", "group-invoke"}:
         args.extend(
             {
                 "lazy": ["status"],
@@ -430,18 +795,33 @@ plugin = Plugin()
     assert result.exit_code == 0, result.output
     assert events.read_text().splitlines() == ["register"]
     assert not execute_calls
+    if mode == "group-invoke":
+        events.unlink()
+        result = runner.invoke(cli, [*args, "child", "--help"])
+        assert result.exit_code == 0, result.output
+        assert events.read_text().splitlines() == ["register", "route"]
+        assert not execute_calls
+        events.unlink()
+        result = runner.invoke(cli, [*args, "child"])
+        assert result.exit_code == 0, (result.output, result.exception)
+        assert events.read_text().splitlines() == [
+            "register",
+            "route",
+            "activate",
+            "run",
+            "close",
+        ]
+        assert execute_calls == ["terminal-example"]
     for tail, code in (([], 0), (["--fail"], 1)):
         events.write_text("", encoding="utf-8")
         execute_calls.clear()
         result = runner.invoke(cli, [*args, *tail])
         assert result.exit_code == code, (result.output, result.exception)
         assert "ready" in result.output
-        assert events.read_text().splitlines() == [
-            "register",
-            "activate",
-            "run",
-            "close",
-        ]
+        expected = ["register", "activate"]
+        if mode == "group-invoke":
+            expected.append("invoke-active")
+        assert events.read_text().splitlines() == [*expected, "run", "close"]
         assert execute_calls == ["terminal-example"]
         assert inventory.read_bytes() == saved
         assert not fresh_registry.leftover_registrations("terminal-example")
@@ -475,7 +855,9 @@ plugin = Plugin()
         "qwenpaw.plugins.discovery.discover_plugins",
         unexpected_plugin_scan,
     )
-    assert runner.invoke(cli, ["models", "local", "--help"]).exit_code == 0
+    assert (
+        runner.invoke(cli, ["models", "config-key", "--help"]).exit_code == 0
+    )
 
 
 def test_cli_cleanup_keeps_memory_implementations_unloaded(tmp_path):

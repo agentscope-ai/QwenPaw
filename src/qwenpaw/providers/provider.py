@@ -341,6 +341,8 @@ class ProviderInfo(BaseModel):
 class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     """Represents a provider instance with its configuration."""
 
+    # Passive diagnostics skip live checks that require plugin activation.
+    connection_check_requires_activation: ClassVar[bool] = False
     capture_cache_headers: ClassVar[bool] = False
     cache_modes: ClassVar[frozenset[str]] = frozenset()
     wire_protocol: ClassVar[str] = f"chat"

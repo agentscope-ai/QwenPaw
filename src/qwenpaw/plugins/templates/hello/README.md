@@ -1,9 +1,6 @@
 # Hello SDK
 
-The `sdk.version: 1.1.0` declaration follows the SDK version already on main.
-TODO: Maintainers must approve the release version for the CLI and extension
-APIs. Keep this template's `sdk.version` and API `since` values aligned with
-that decision.
+The terminal command and Doctor contribution use SDK 1.2.0.
 
 This template imports only public SDK types. `hello_sdk` validates a name,
 returns a tool result and stores a counter separately for each workspace.
@@ -39,6 +36,9 @@ The two greetings return `Hello SDK (1)` and `Hello SDK (2)`. The CLI uses
 `cli-count.json`; the Tool keeps its existing workspace counter separately.
 `main.py` registers the command factory, and imports `cli.py` when the host
 builds the selected command. Both use the existing public plugin entry.
+To place a command under an existing group, declare its full path in
+`plugin.json`. Each parent in that path must be provided by QwenPaw or an
+enabled plugin.
 
 `qwenpaw doctor` includes `Hello SDK is installed` under `hello-sdk:hello`.
 This check reports plugin availability; it does not probe a model or platform.

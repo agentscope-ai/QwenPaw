@@ -798,17 +798,18 @@ class TestUninstallCommand:
         assert res.exit_code == 0
         assert "Cancelled" in res.output
 
-    def test_hot_path_confirm_calls_api(self, monkeypatch):
+    @pytest.mark.parametrize("success", [True, False])
+    def test_hot_path_propagates_api_result(self, monkeypatch, success):
         monkeypatch.setattr(pc, "_resolve_plugin_id", lambda p: "pid")
         monkeypatch.setattr(pc, "_is_running", lambda: True)
         seen = []
         monkeypatch.setattr(
             pc,
             "_api_uninstall_plugin",
-            lambda pid: seen.append(pid) or True,
+            lambda pid: seen.append(pid) or success,
         )
         res = CliRunner().invoke(pc.plugin, ["uninstall", "pid"], input="y\n")
-        assert res.exit_code == 0
+        assert res.exit_code == (0 if success else 1)
         assert seen == ["pid"]
 
     def test_offline_not_found(self, monkeypatch, tmp_path):

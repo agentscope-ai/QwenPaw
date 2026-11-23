@@ -1425,13 +1425,6 @@ class TestActiveLlmLocalFailureHint:
         hint = dc.active_llm_local_failure_hint(provider, "lmstudio")
         assert "LM Studio" in hint
 
-    def test_qwenpaw_local(self):
-        hint = dc.active_llm_local_failure_hint(
-            SimpleNamespace(),
-            "qwenpaw-local",
-        )
-        assert "llama.cpp" in hint
-
     def test_generic_local(self):
         provider = SimpleNamespace(is_local=True, base_url="http://x:1")
         hint = dc.active_llm_local_failure_hint(provider, "custom-local")
@@ -1510,6 +1503,45 @@ class TestResolveAgentEffectiveModelSlot:
             )
             is True
         )
+
+
+@pytest.mark.parametrize("local_source", ["default", "agent", "disabled"])
+def test_selected_providers_follow_default_and_enabled_agents(
+    monkeypatch,
+    local_source,
+):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    default = SimpleNamespace(
+        provider_id="qwenpaw-local" if local_source == "default" else "cloud",
+        model="test",
+    )
+    monkeypatch.setattr(
+        ProviderManager,
+        "get_instance",
+        lambda: SimpleNamespace(get_active_model=lambda: default),
+    )
+    config = _make_config(
+        {"example": SimpleNamespace(enabled=local_source != "disabled")},
+    )
+
+    def load(agent_id):
+        assert agent_id == "example" and local_source != "disabled"
+        return SimpleNamespace(
+            active_model=SimpleNamespace(
+                provider_id="qwenpaw-local",
+                model="test",
+            ),
+        )
+
+    monkeypatch.setattr(dc, "load_agent_config", load)
+    assert dc.selected_provider_ids(config) == (
+        {"qwenpaw-local"}
+        if local_source == "default"
+        else {"cloud", "qwenpaw-local"}
+        if local_source == "agent"
+        else {"cloud"}
+    )
 
 
 class TestCheckEnabledAgentsModelConnections:
@@ -1794,7 +1826,15 @@ class TestCheckEnabledAgentsModelConnections:
                 return None
 
             def get_provider(self, pid):
-                return provider if pid == "cloud" else None
+                return (
+                    provider
+                    if pid == "cloud"
+                    else SimpleNamespace(
+                        is_local=True,
+                        require_api_key=False,
+                        connection_check_requires_activation=True,
+                    )
+                )
 
         self._patch_pm(monkeypatch, _Mgr())
         monkeypatch.setattr(

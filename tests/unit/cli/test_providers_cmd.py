@@ -221,89 +221,6 @@ class TestGetOllamaHost:
         assert pcmd._get_ollama_host() == "http://remote:11434"
 
 
-class TestWaitForLocalModelDownload:
-    def test_returns_on_terminal_status(self, monkeypatch):
-        calls = {"n": 0}
-
-        class M:
-            def get_model_download_progress(self):
-                calls["n"] += 1
-                if calls["n"] < 3:
-                    return {"status": "downloading"}
-                return {"status": "completed", "local_path": "/m"}
-
-        monkeypatch.setattr(pcmd.time, "sleep", lambda s: None)
-        got = pcmd._wait_for_local_model_download(M())
-        assert got["status"] == "completed"
-
-    def test_timeout_cancels_and_raises(self, monkeypatch):
-        cancelled = []
-
-        class M:
-            def get_model_download_progress(self):
-                return {"status": "downloading"}
-
-            def cancel_model_download(self):
-                cancelled.append(True)
-
-        monkeypatch.setattr(pcmd.time, "sleep", lambda s: None)
-        with pytest.raises(click.ClickException, match="Timed out"):
-            pcmd._wait_for_local_model_download(M(), timeout=0)
-        assert cancelled == [True]
-
-    def test_timeout_without_cancel_method(self, monkeypatch):
-        class M:
-            def get_model_download_progress(self):
-                return {"status": "downloading"}
-
-        monkeypatch.setattr(pcmd.time, "sleep", lambda s: None)
-        with pytest.raises(click.ClickException, match="Timed out"):
-            pcmd._wait_for_local_model_download(M(), timeout=0)
-
-    def test_keyboard_interrupt_cancels_and_aborts(self, monkeypatch):
-        cancelled = []
-
-        class M:
-            def get_model_download_progress(self):
-                raise KeyboardInterrupt
-
-            def cancel_model_download(self):
-                cancelled.append(True)
-
-        with pytest.raises(click.Abort):
-            pcmd._wait_for_local_model_download(M())
-        assert cancelled == [True]
-
-
-class TestGetLocalModelManager:
-    def test_missing_dependency_exits(self, monkeypatch):
-        # `from ..local_models import ...` on a module set to None in
-        # sys.modules raises ImportError -> the CLI prints and exits 1
-        import sys
-
-        monkeypatch.setitem(sys.modules, "qwenpaw.local_models", None)
-        with pytest.raises(SystemExit) as exc:
-            pcmd._get_local_model_manager()
-        assert exc.value.code == 1
-
-    def test_returns_singleton(self, monkeypatch):
-        sentinel = object()
-
-        class LM:
-            @staticmethod
-            def get_instance():
-                return sentinel
-
-        import types
-
-        fake = types.ModuleType("qwenpaw.local_models")
-        fake.LocalModelManager = LM
-        import sys
-
-        monkeypatch.setitem(sys.modules, "qwenpaw.local_models", fake)
-        assert pcmd._get_local_model_manager() is sentinel
-
-
 # ---------------------------------------------------------------------------
 # interactive selection helpers
 # ---------------------------------------------------------------------------
@@ -859,6 +776,8 @@ class TestListCmd:
         assert "Local (p-local) [local]" in res.output
         assert "Local Model" in res.output
         assert "No models downloaded." in res.output
+        assert "qwenpaw models --help" in res.output
+        assert "qwenpaw models download" not in res.output
         assert "(not set)" in res.output
         assert "p-api / m1" in res.output
 
@@ -1051,7 +970,7 @@ class TestRemoveModelCmd:
 
 
 @pytest.mark.parametrize("command", ["download", "local", "remove-local"])
-def test_local_commands_wait_for_plugin_cli(command):
+def test_local_commands_are_owned_by_plugins(command):
     result = CliRunner().invoke(pcmd.models_group, [command])
     assert result.exit_code == 2
     assert "No such command" in result.output

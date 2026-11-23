@@ -2,9 +2,18 @@
 """Terminal command definitions and one managed terminal invocation."""
 
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Protocol, TypeVar
+from contextlib import asynccontextmanager
+from typing import (
+    AsyncContextManager,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Protocol,
+    TypeVar,
+)
 
 import click
+from httpx import AsyncClient
 
 from .resources import ResourceScope
 from .storage import PluginConfig, PluginStorage
@@ -35,10 +44,22 @@ class CliContext:
     host: str
     port: int
     _run: _Runner = field(repr=False)
+    _local_runtime_api: (
+        Callable[[], AsyncContextManager[AsyncClient | None]] | None
+    ) = field(default=None, repr=False, compare=False)
 
     def run(self, operation: Awaitable[T]) -> T:
         """Wait for an async operation in this invocation's owned loop."""
         return self._run(operation)
+
+    @asynccontextmanager
+    async def local_runtime_api(self) -> AsyncIterator[AsyncClient | None]:
+        """Open the API of this workspace's running App, or yield None offline."""
+        if self._local_runtime_api is None:
+            yield None
+        else:
+            async with self._local_runtime_api() as client:
+                yield client
 
 
 @dataclass(frozen=True)

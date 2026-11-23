@@ -119,6 +119,13 @@ class CliCatalog:
     def children(self, path):
         return {p[-1] for p in self.mounts if p[:-1] == path}
 
+    def has_descendants(self, path):
+        depth = len(path)
+        return any(
+            candidate[:depth] == path and len(candidate) > depth
+            for candidate in self.mounts
+        )
+
 
 def catalog_for(ctx):
     root = ctx.find_root()
@@ -133,6 +140,20 @@ def command_path(ctx):
         parts.append(ctx.command.name or ctx.info_name)
         ctx = ctx.parent
     return canonical(tuple(reversed(parts)))
+
+
+def missing_cli_root_messages(ctx, catalog):
+    """Diagnose missing top-level parents without building plugin groups."""
+    root = ctx.find_root()
+    if not isinstance(root.command, ExtensibleGroup):
+        return ()
+    available = set(root.command.list_commands(root))
+    missing = {path[0] for path in catalog.mounts if path[0] not in available}
+    return tuple(_missing_parent((name,)) for name in sorted(missing))
+
+
+def _missing_parent(path):
+    return f"Plugin CLI requires a parent command group at: {' '.join(path)}"
 
 
 class ExtensibleGroup(click.Group):
@@ -162,14 +183,25 @@ class ExtensibleGroup(click.Group):
         if command is not None and execution is None:
             return overlay(command)
         path = command_path(ctx) + (name,)
-        mounts = catalog_for(ctx).mounts.get(path, ())
+        catalog = catalog_for(ctx)
+        mounts = catalog.mounts.get(path, ())
         if command is not None:
             return (
-                ConflictingCommand(name)
+                UnavailableCommand(
+                    name,
+                    click.ClickException(f"CLI path conflict: {name}"),
+                )
                 if mounts
                 else _execution_command(command, execution)
             )
-        return PluginCommand(name, mounts) if mounts else None
+        if mounts:
+            return PluginCommand(name, mounts)
+        if catalog.has_descendants(path):
+            return UnavailableCommand(
+                name,
+                click.UsageError(_missing_parent(path), ctx),
+            )
+        return None
 
 
 def overlay(command):
@@ -202,22 +234,32 @@ def _execution_command(command, execution):
     """Return an execution-bound command without modifying the original."""
     if getattr(command, "_plugin_execution", None) is execution:
         return command
-    command = copy(command)
+    command = overlay(copy(command))
     command._plugin_execution = execution
+    executing = False
 
     def wrap(callback, prepare=False):
         @wraps(callback)
         def execute(*args, **kwargs):
             ctx = click.get_current_context()
             try:
-                if prepare and ctx.invoked_subcommand is not None:
+                if executing or (
+                    prepare and ctx.invoked_subcommand is not None
+                ):
                     return callback(*args, **kwargs)
+
+                def invoke():
+                    nonlocal executing
+                    executing = True
+                    try:
+                        return callback(*args, **kwargs)
+                    finally:
+                        executing = False
+
                 return execution.session.execute(
                     execution.plugin_id,
                     execution.reference,
-                    callback,
-                    *args,
-                    **kwargs,
+                    invoke,
                 )
             except (click.ClickException, click.exceptions.Exit, click.Abort):
                 raise
@@ -228,22 +270,41 @@ def _execution_command(command, execution):
 
         return execute
 
-    if command.callback is not None:
-        command.callback = wrap(
-            command.callback,
-            prepare=isinstance(command, click.Group),
-        )
     if isinstance(command, click.Group):
+        if command.callback is not None:
+            command.callback = wrap(command.callback, prepare=True)
         if command._result_callback is not None:
             command._result_callback = wrap(command._result_callback)
-    return overlay(command)
+        invoke = command.invoke
+        if getattr(invoke, "__func__", invoke) is not click.Group.invoke:
+            execute_default = wrap(invoke)
+
+            @wraps(invoke)
+            def invoke_group(ctx):
+                # Click resolves child help during dispatch. A group with
+                # no pending child can execute its own default action.
+                pending = getattr(ctx, "_protected_args", None)
+                if pending is None:
+                    pending = ctx.protected_args  # Click 8.1
+                if pending or not command.invoke_without_command:
+                    return invoke(ctx)
+                return execute_default(ctx)
+
+            command.invoke = invoke_group
+    else:
+        command.invoke = wrap(command.invoke)
+    return command
 
 
-class ConflictingCommand(click.Command):
-    """Keep help usable while refusing an ambiguous plugin-owned path."""
+class UnavailableCommand(click.Command):
+    """Explain why a plugin path cannot be invoked."""
+
+    def __init__(self, name, error):
+        super().__init__(name)
+        self.error = error
 
     def make_context(self, info_name, args, parent=None, **extra):
-        raise click.ClickException(f"CLI path conflict: {info_name}")
+        raise self.error
 
 
 class PluginCommand(click.Command):
