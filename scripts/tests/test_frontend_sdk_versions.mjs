@@ -112,7 +112,7 @@ test("SDK 1.2 accepts the same public usage", async () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-for (const version of ["1.2.0RC1", "1.2.0c1", "1.2.0_preview1"]) {
+for (const version of ["1.2.0RC1", "1.2.0c1", "1.2.0_preview1", "1.2.0.0rc1"]) {
   test(`SDK ${version} rejects APIs introduced in the final release`, async () => {
     const result = await check(version, additions);
     assert.equal(result.ok, false, JSON.stringify(result));
@@ -123,6 +123,21 @@ for (const version of ["1.2.0RC1", "1.2.0c1", "1.2.0_preview1"]) {
     );
   });
 }
+
+test("equivalent post-release declarations both allow Harness APIs", async () => {
+  const harness = `
+import { getHost } from '@qwenpaw/plugin-sdk';
+getHost().harnesses.register('app', {backendId:'example'});
+`;
+  for (const version of ["1.1.0-1", "1.1.0.post1"]) {
+    const result = await check(version, harness);
+    assert.equal(result.ok, true, JSON.stringify(result));
+  }
+});
+
+test("invalid version suffixes cannot pass the minimum SDK check", async () => {
+  await assert.rejects(check("1.2.0garbage", additions), /sdk\.version/);
+});
 
 test("same-named third-party declarations and old SDK APIs are not rejected", async () => {
   const result = await check(

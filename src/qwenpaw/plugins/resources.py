@@ -252,6 +252,7 @@ class ResourceScope:  # pylint: disable=protected-access
 
         Cancelling the waiter does not stop the function. Closing the scope
         joins the actual thread and reports incomplete cleanup on timeout.
+        A callback's StopIteration is raised as the cause of a RuntimeError.
         """
         self._check()
         loop = asyncio.get_running_loop()
@@ -272,6 +273,12 @@ class ResourceScope:  # pylint: disable=protected-access
             try:
                 value = inherited.run(function, *args, **kwargs)
             except BaseException as exc:
+                if isinstance(exc, StopIteration):
+                    error = RuntimeError(
+                        "run_sync callback raised StopIteration",
+                    )
+                    error.__cause__ = exc
+                    exc = error
                 loop.call_soon_threadsafe(completed, result.set_exception, exc)
             else:
                 loop.call_soon_threadsafe(completed, result.set_result, value)

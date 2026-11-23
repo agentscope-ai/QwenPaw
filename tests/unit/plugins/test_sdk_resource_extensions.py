@@ -35,6 +35,17 @@ async def test_run_sync_releases_finished_work_before_scope_closes():
         assert resources._handles == []
 
 
+async def test_run_sync_delivers_stop_iteration_after_thread_exits():
+    async with scope() as resources:
+        with pytest.raises(
+            RuntimeError,
+            match="run_sync.*StopIteration",
+        ) as error:
+            await asyncio.wait_for(resources.run_sync(next, iter(())), 3)
+        assert isinstance(error.value.__cause__, StopIteration)
+        assert not resources.snapshot()["resources"]
+
+
 async def test_cleanup_diagnostics_retain_each_failure_until_success():
     resources = scope()
     attempts = []

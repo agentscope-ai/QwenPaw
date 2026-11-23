@@ -4,26 +4,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { compareVersions, parseVersion } from "./pep440.js";
 
 const sdkRoot = path.dirname(fileURLToPath(import.meta.url));
-function version(value) {
-  const match = /^(\d+)\.(\d+)(?:\.(\d+))?(.*)$/.exec(value ?? "");
-  if (!match) throw new Error("plugin.json must declare sdk.version");
-  return [
-    +match[1],
-    +match[2],
-    +(match[3] ?? 0),
-    /^(?:[._-]?(?:a|b|c|rc|pre|dev)|-(?!post))/i.test(match[4]) ? -1 : 0,
-  ];
-}
-function older(left, right) {
-  const at = left.findIndex((part, i) => part !== right[i]);
-  return at >= 0 && left[at] < right[at];
-}
 
 export function checkProject(manifestPath, projectPath) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const minimum = version(manifest.sdk?.version);
+  if (typeof manifest.sdk?.version !== "string")
+    throw new Error("plugin.json must declare sdk.version");
+  const minimum = parseVersion(manifest.sdk.version);
   projectPath = path.resolve(projectPath);
   const ts = createRequire(projectPath)("typescript");
   const config = ts.readConfigFile(projectPath, ts.sys.readFile);
@@ -72,7 +61,7 @@ export function checkProject(manifestPath, projectPath) {
           if (tag.tagName.text !== "since" || typeof tag.comment !== "string")
             continue;
           const since = tag.comment.split(/\s/)[0];
-          if (older(minimum, version(since)))
+          if (compareVersions(minimum, parseVersion(since)) < 0)
             add(
               node,
               "sdk-version",
