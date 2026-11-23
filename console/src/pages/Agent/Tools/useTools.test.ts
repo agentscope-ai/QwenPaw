@@ -103,6 +103,43 @@ describe("useTools", () => {
     expect(result.current.ready).toBe(true);
   });
 
+  it.each(["before", "after"])(
+    "preserves the saved config when a toggle resolves %s the refresh",
+    async (order) => {
+      const tool = makeTool();
+      const configValues = { api_key: "***" };
+      const refresh = deferred<ToolInfo[]>();
+      const toggle = deferred<ToolInfo>();
+      apiMocks.listTools
+        .mockResolvedValueOnce([tool])
+        .mockReturnValueOnce(refresh.promise);
+      apiMocks.toggleTool.mockReturnValueOnce(toggle.promise);
+
+      const { result } = renderToolsHook();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      act(() => {
+        void result.current.loadTools({ background: true });
+        void result.current.toggleEnabled(tool);
+      });
+
+      const finishRefresh = () => {
+        refresh.resolve([{ ...tool, config_values: configValues }]);
+      };
+      const finishToggle = () => {
+        toggle.resolve({ ...tool, config_values: {}, enabled: true });
+      };
+      const steps =
+        order === "before"
+          ? [finishToggle, finishRefresh]
+          : [finishRefresh, finishToggle];
+      for (const finish of steps) {
+        await act(async () => finish());
+        expect(result.current.tools[0].enabled).toBe(true);
+      }
+      expect(result.current.tools[0].config_values).toEqual(configValues);
+    },
+  );
+
   it("keeps the latest agent tools when an older request finishes last", async () => {
     const agentARequest = deferred<ToolInfo[]>();
     const agentBRequest = deferred<ToolInfo[]>();

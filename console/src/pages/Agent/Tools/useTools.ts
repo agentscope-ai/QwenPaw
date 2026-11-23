@@ -15,6 +15,9 @@ export function useTools() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [refreshState, setRefreshState] = useState<
+    "idle" | "failed" | "retrying"
+  >("idle");
   const [loadedAgent, setLoadedAgent] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const { message } = useAppMessage();
@@ -38,30 +41,53 @@ export function useTools() {
         generation === requestGeneration.current &&
         currentAgentId() === requestedAgent;
 
-      if (!background) {
+      if (background) {
+        setRefreshState((state) => (state === "failed" ? "retrying" : state));
+      } else {
         loadedAgentRef.current = null;
         setLoadedAgent(null);
         setLoading(true);
         setBatchLoading(false);
         setError(null);
+        setRefreshState("idle");
       }
       try {
         const data = await api.listTools(requestedAgent);
         if (!isCurrentRequest()) return;
-        setTools(data);
-        loadedAgentRef.current = requestedAgent;
-        setLoadedAgent(requestedAgent);
+        if (background) {
+          // Config refreshes must not overwrite concurrent switch changes.
+          setTools((previous) => {
+            const current = new Map(previous.map((tool) => [tool.name, tool]));
+            return data.map((tool) => {
+              const local = current.get(tool.name);
+              return local
+                ? {
+                    ...tool,
+                    enabled: local.enabled,
+                    async_execution: local.async_execution,
+                  }
+                : tool;
+            });
+          });
+          setRefreshState("idle");
+        } else {
+          setTools(data);
+          loadedAgentRef.current = requestedAgent;
+          setLoadedAgent(requestedAgent);
+        }
       } catch (error) {
         if (!isCurrentRequest()) return;
         console.error("Failed to load tools:", error);
-        if (!background) {
+        if (background) {
+          setRefreshState("failed");
+        } else {
           loadedAgentRef.current = null;
           setLoadedAgent(null);
           setError(
             error instanceof Error ? error : new Error("Failed to load tools"),
           );
+          message.error(t("tools.loadError"));
         }
-        message.error(t("tools.loadError"));
       } finally {
         if (!background && isCurrentRequest()) setLoading(false);
       }
@@ -100,10 +126,10 @@ export function useTools() {
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
         );
-        // Merge rather than replace to preserve any local state not returned
-        // by the server (e.g. UI-only fields added in future expansions).
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
+          prev.map((t) =>
+            t.name === result.name ? { ...t, enabled: result.enabled } : t,
+          ),
         );
       } catch {
         if (!ownsCurrentAgent(owner)) return;
@@ -143,9 +169,12 @@ export function useTools() {
             ? t("tools.asyncExecutionEnabled")
             : t("tools.asyncExecutionDisabled"),
         );
-        // Merge server response to preserve static metadata.
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
+          prev.map((t) =>
+            t.name === result.name
+              ? { ...t, async_execution: result.async_execution }
+              : t,
+          ),
         );
       } catch {
         if (!ownsCurrentAgent(owner)) return;
@@ -182,11 +211,10 @@ export function useTools() {
       );
       if (!ownsCurrentAgent(owner)) return;
       message.success(t("tools.enableAllSuccess"));
-      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, ...result } : t;
+          return result ? { ...t, enabled: result.enabled } : t;
         }),
       );
     } catch {
@@ -218,11 +246,10 @@ export function useTools() {
       );
       if (!ownsCurrentAgent(owner)) return;
       message.success(t("tools.disableAllSuccess"));
-      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...t, ...result } : t;
+          return result ? { ...t, enabled: result.enabled } : t;
         }),
       );
     } catch {
@@ -256,6 +283,7 @@ export function useTools() {
     tools,
     loading,
     error,
+    refreshState,
     ready: !loading && !error && loadedAgent === (selectedAgent || "default"),
     batchLoading,
     toggleEnabled,

@@ -73,6 +73,25 @@ const POPULATED: ToolInfo[] = [
   },
 ];
 
+const configurableTool: ToolInfo = {
+  ...POPULATED[0],
+  requires_config: true,
+  config_fields: [
+    { name: "api_key", label: "API Key", type: "password", required: true },
+  ],
+};
+
+async function openPluginConfig() {
+  render(<ToolsPage />);
+  const configure = await screen.findByRole("button", {
+    name: "tools.configure plugin_tool",
+  });
+  await act(async () => {
+    fireEvent.click(configure);
+  });
+  return screen.getByLabelText("API Key");
+}
+
 describe("ToolsPage load recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -135,19 +154,12 @@ describe("ToolsPage load recovery", () => {
   );
 
   it("keeps the password form open while refreshing tools after a save", async () => {
-    const configuredTool: ToolInfo = {
-      ...POPULATED[0],
-      requires_config: true,
-      config_fields: [
-        { name: "api_key", label: "API Key", type: "password", required: true },
-      ],
-    };
     let finishRefresh!: (tools: ToolInfo[]) => void;
     const refresh = new Promise<ToolInfo[]>((resolve) => {
       finishRefresh = resolve;
     });
     harness.listTools
-      .mockResolvedValueOnce([configuredTool])
+      .mockResolvedValueOnce([configurableTool])
       .mockReturnValueOnce(refresh);
     harness.getToolConfig.mockResolvedValue({ api_key: "***" });
 
@@ -176,7 +188,7 @@ describe("ToolsPage load recovery", () => {
     );
     expect(screen.getByLabelText("API Key")).toBe(password);
 
-    finishRefresh([{ ...configuredTool, config_values: { api_key: "***" } }]);
+    finishRefresh([{ ...configurableTool, config_values: { api_key: "***" } }]);
     await waitFor(() =>
       expect(
         screen.queryByText("tools.requiresConfig"),
@@ -184,5 +196,69 @@ describe("ToolsPage load recovery", () => {
     );
     expect(screen.getByLabelText("API Key")).toBe(password);
     expect(harness.getToolConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes after saving without waiting for the list refresh", async () => {
+    let finishRefresh!: (tools: ToolInfo[]) => void;
+    const refresh = new Promise<ToolInfo[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    harness.listTools
+      .mockResolvedValueOnce([configurableTool])
+      .mockReturnValueOnce(refresh);
+    harness.getToolConfig.mockResolvedValue({});
+
+    const password = await openPluginConfig();
+    fireEvent.change(password, { target: { value: "new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(harness.listTools).toHaveBeenCalledTimes(2));
+    expect(harness.updateToolConfig).toHaveBeenCalledExactlyOnceWith(
+      "plugin_tool",
+      { api_key: "new-key" },
+      "agent-a",
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await act(async () => {
+      finishRefresh([
+        { ...configurableTool, config_values: { api_key: "***" } },
+      ]);
+    });
+    expect(screen.queryByText("tools.requiresConfig")).toBeNull();
+  });
+
+  it("retries a failed refresh without resaving or losing the tool list", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const disabledTool = { ...configurableTool, enabled: false };
+    const configured = { ...disabledTool, config_values: { api_key: "***" } };
+    harness.listTools
+      .mockResolvedValueOnce([disabledTool])
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce([configured]);
+    harness.getToolConfig.mockResolvedValue({});
+    harness.toggleTool.mockResolvedValue({ ...configured, enabled: true });
+
+    const password = await openPluginConfig();
+    fireEvent.change(password, { target: { value: "new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    const retry = await screen.findByRole("button", { name: "common.retry" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("alert")).toHaveTextContent("tools.loadError");
+    expect(screen.getByText("tools.requiresConfig")).toBeInTheDocument();
+    expect(screen.getByRole("switch")).not.toBeChecked();
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("tools.requiresConfig")).toBeNull();
+    expect(harness.listTools).toHaveBeenNthCalledWith(3, "agent-a");
+    expect(harness.updateToolConfig).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("switch", { name: "common.enable plugin_tool" }),
+    );
+    expect(harness.toggleTool).toHaveBeenCalledWith("plugin_tool");
+    expect(await screen.findByRole("switch")).toBeChecked();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
