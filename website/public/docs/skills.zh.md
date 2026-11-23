@@ -225,12 +225,12 @@ qwenpaw skills info <skill_name> --pool
 
 1. 打开 [控制台](./console) → **设置 → 技能**，点击 **添加技能 → 通过URL上传**。
 
-   ![import](https://img.alicdn.com/imgextra/i2/O1CN01iaEhjy1hOnXfVjZaK_!!6000000004268-2-tps-3822-2070.png)
+   ![import](https://img.alicdn.com/imgextra/i2/O1CN01a0m6t0rKZmF3FPfU_!!6000000004975-2-tps-1600-1000.png)
 
 2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。弹窗内会列出
    受支持的来源及各自的示例 URL，点击示例可直接填入输入框。
 
-   ![url](https://img.alicdn.com/imgextra/i2/O1CN01l47mhN1aKwu48KLry_!!6000000003312-2-tps-3822-2070.png)
+   ![url](https://img.alicdn.com/imgextra/i3/O1CN01NNMlWpKYsKK3FPfU_!!6000000006658-2-tps-1600-1000.png)
 
 3. 点击 **确认** 并等待导入结果。点击示例链接只会填入地址，不会安装技能。
 

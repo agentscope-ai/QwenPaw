@@ -54,7 +54,7 @@ Specifically:
 
 On Linux/macOS, `command` is usually the command that starts the external agent in ACP mode, such as `opencode` or `qwen`, or the command that launches the corresponding ACP plugin, such as `npx`. Put the remaining flags and arguments in `args`, such as `--acp` or `-y`. Each argument must be entered on its own line. The source code ships with these built-in runner examples: `opencode`, `qwen_code`, `claude_code`, and `codex`. You can also add custom runners on the ACP page as long as they can run via ACP and are configured correctly.
 
-![config_mac](https://gw.alicdn.com/imgextra/i3/O1CN01QQjKIv1jAibICuR7Q_!!6000000004508-2-tps-1224-480.png)
+![config_mac](https://img.alicdn.com/imgextra/i1/O1CN01i25HXH81ytB3FPfU_!!6000000008078-2-tps-1600-1000.png)
 
 On Windows, use the launcher installed for your runner. For a command script that needs `cmd`, set `command` to `cmd` and enter `/c`, the launcher name, and each argument on separate lines in `args`. A native executable can be the command itself; do not paste the whole command line into one argument.
 
@@ -62,7 +62,7 @@ On Windows, use the launcher installed for your runner. For a command script tha
 
 After configuration, enable the `delegate_external_agent` tool under **Settings → Tools** for the current agent.
 
-![config](https://gw.alicdn.com/imgextra/i4/O1CN01XS6D6W1Yzap02Jnjk_!!6000000003130-2-tps-1224-700.png)
+![config](https://img.alicdn.com/imgextra/i4/O1CN01LPPRS5HqwaC3FPfU_!!6000000002400-2-tps-1600-1000.png)
 
 You can then explicitly specify which external agent you want to collaborate with in the conversation.
 

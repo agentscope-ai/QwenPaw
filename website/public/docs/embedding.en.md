@@ -50,7 +50,7 @@ For the current agent, open **Settings → Configuration → Memory** and find t
 2. Click **Service verification** to send one test request using the current form. A successful check shows the returned dimensions and latency; if the dimensions differ, check the model configuration.
 3. Settings are saved automatically. If the vector space changed, wait for the changes to save, then click **Embedding index** and review the rebuild confirmation. Testing the service does not rebuild the index.
 
-![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
+![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i3/O1CN01YjM8UcBmCyG3FPfU_!!6000000001313-2-tps-1600-1000.png)
 
 The setup moves through several distinct stages:
 

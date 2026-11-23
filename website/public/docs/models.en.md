@@ -2,7 +2,7 @@
 
 Before using QwenPaw, you need to configure at least one available model. QwenPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
-![Global defaults and cloud providers](/doc-images/2.3.1b1/models.en.png)
+![Global defaults and cloud providers](https://img.alicdn.com/imgextra/i3/O1CN01HJqMiEzR7MJ3FPfU_!!6000000005835-2-tps-1600-1000.png)
 
 QwenPaw supports various LLM providers:
 
@@ -26,7 +26,7 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 On a fresh installation, **Settings → Models → Local & Custom** lists Ollama and LM Studio. These connect to services that you run separately. To have QwenPaw manage llama.cpp and its GGUF files instead:
 
-![Local & Custom before installing QwenPaw Local](/doc-images/2.3.1b1/models-local.en.png)
+![Local & Custom before installing QwenPaw Local](https://img.alicdn.com/imgextra/i3/O1CN01jnH9eVHuqvF3FPfU_!!6000000002438-2-tps-1600-1000.png)
 
 1. Open **Settings → Extension → Plugins → Official Plugins** and install **QwenPaw Local** (`local-llamacpp`). If it is already installed, check that it is enabled under **Installed Plugins**.
 2. Return to **Models → Local & Custom** and open the model manager on the **QwenPaw Local** card. Click **Install llama.cpp** if the inference engine is missing. Installing the plugin does not download the engine or a model.
@@ -39,7 +39,7 @@ When QwenPaw restarts, it tries to restore a previously started local model sele
 
 Before using Ollama, you need to install the latest version of [Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
 
-![Ollama Settings](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
+![Ollama Settings](https://img.alicdn.com/imgextra/i2/O1CN016SaCfhrrKrI3FPfU_!!6000000007523-2-tps-1600-1000.png)
 
 To verify that Ollama is working properly, go to the **Settings** page of the QwenPaw Ollama provider and click the **Test Connection** button.
 
@@ -152,11 +152,11 @@ Currently supported cloud providers include:
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
-![Cloud Provider List](/doc-images/2.3.1b1/models.en.png)
+![Cloud Provider List](https://img.alicdn.com/imgextra/i3/O1CN01HJqMiEzR7MJ3FPfU_!!6000000005835-2-tps-1600-1000.png)
 
 To activate a cloud provider, go to the provider's configuration page. Most cloud providers have pre-configured base URL; you only need to enter your API Key.
 
-![Configure API Key](/doc-images/2.3.1b1/models-key.en.png)
+![Configure API Key](https://img.alicdn.com/imgextra/i3/O1CN015dnga0znQtK3FPfU_!!6000000001354-2-tps-1600-1000.png)
 
 If the provider settings offer **Test Connection**, use it to check the endpoint with the credentials currently in the form. A failure can also indicate an incorrect address or a network problem. A successful provider check does not establish access to every model.
 
@@ -168,7 +168,7 @@ To check a particular model, save the provider settings, open its model list, an
 
 If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 
-![Add Model](/doc-images/2.3.1b1/model-add-dialog.en.png)
+![Add Model](https://img.alicdn.com/imgextra/i1/O1CN01mIFvyZ6D8qI3FPfU_!!6000000008163-2-tps-1600-1000.png)
 
 ## Custom Provider Configuration
 
@@ -178,13 +178,13 @@ If the preset cloud and local providers do not meet your needs, QwenPaw also sup
 
 In **Settings → Models**, click **Add Provider**. Enter a provider ID, display name, and base URL. Supply an API key if the service requires one. Match the protocol to the endpoint: OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages. After saving, open the provider’s model list to add a model.
 
-![Add Provider](/doc-images/2.3.1b1/models-provider.en.png)
+![Add Provider](https://img.alicdn.com/imgextra/i2/O1CN01otwziNcxq0J3FPfU_!!6000000005084-2-tps-1600-1000.png)
 
 ### Configure Provider
 
 After adding a provider, go to its **Settings** page to configure the API access information, including _Base URL_ and _API Key_.
 
-![Custom Provider Settings](/doc-images/2.3.1b1/custom-settings.en.png)
+![Custom Provider Settings](https://img.alicdn.com/imgextra/i2/O1CN01LP0rLsyewHH3FPfU_!!6000000001256-2-tps-1600-1000.png)
 
 ### Add Model
 
@@ -196,11 +196,11 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 
 Under **Settings → Models → Default models**, choose a **Chat model**. The selection is saved immediately. **Decision model** is a separate slot, not a second chat model.
 
-![Global chat model selector](/doc-images/2.3.1b1/default-model.en.png)
+![Global chat model selector](https://img.alicdn.com/imgextra/i2/O1CN019X2i5pZzxKD3FPfU_!!6000000002643-2-tps-1600-1000.png)
 
 To override the model for one conversation, use the model selector in the chat input area. Clear that selection to inherit the agent’s model again. This does not change the agent or global defaults.
 
-![Conversation model selector in the chat input](/doc-images/2.3.1b1/chat-model.en.png)
+![Conversation model selector in the chat input](https://img.alicdn.com/imgextra/i4/O1CN01pq8rx72eaSB3FPfU_!!6000000001688-2-tps-1600-1000.png)
 
 ## Advanced Model Configuration
 
@@ -236,4 +236,4 @@ Since different models and tasks may require different generation parameters (su
 
 After configuring, click **Save**. QwenPaw will automatically include these parameters when generating with models from this provider.
 
-![Generation Parameters](/doc-images/2.3.1b1/advanced-model.en.png)
+![Generation Parameters](https://img.alicdn.com/imgextra/i1/O1CN0132aA21fW9RB3FPfU_!!6000000007667-2-tps-1600-1000.png)

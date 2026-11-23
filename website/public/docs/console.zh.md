@@ -86,7 +86,7 @@ example.com {
 
 这是你和 QwenPaw 对话的地方。打开控制台后默认就是这个页面。
 
-![聊天](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
+![聊天](https://img.alicdn.com/imgextra/i2/O1CN01fF3zkDt03oB3FPfU_!!6000000000168-2-tps-1600-1000.png)
 
 **选择模型：**
 聊天输入区的模型选择器可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
@@ -151,7 +151,7 @@ example.com {
 黑名单。通过待处理发件人后，系统会逐封补处理该记录中保存的所有邮件；失败任务会进入可跨
 重启重试的队列。
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN014IeD9J1xljELLdZL9_!!6000000006484-2-tps-2984-1882.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01hi2ryXZXGrK3FPfU_!!6000000000984-2-tps-1600-1000.png)
 
 ---
 
@@ -161,7 +161,7 @@ example.com {
 
 在这里管理各消息频道（Console、钉钉、飞书、Discord、QQ、微信、iMessage等）的开关和凭据。
 
-![频道](https://img.alicdn.com/imgextra/i1/O1CN01sDfcFb1kfEcUB66Va_!!6000000004710-2-tps-3810-2064.png)
+![频道](https://img.alicdn.com/imgextra/i4/O1CN01Rv9BsJNEXlH3FPfU_!!6000000007954-2-tps-1600-1000.png)
 
 **启用一个频道：**
 
@@ -186,7 +186,7 @@ example.com {
 
 在这里查看、筛选和清理所有频道的聊天会话。
 
-![会话](https://img.alicdn.com/imgextra/i4/O1CN01JTBZoq1KxOIIRuL6J_!!6000000001230-2-tps-3822-2070.png)
+![会话](https://img.alicdn.com/imgextra/i4/O1CN01H32SkeANxUJ3FPfU_!!6000000004818-2-tps-1600-1000.png)
 
 **查找会话：**
 在搜索框中输入用户名过滤，或用下拉菜单按频道筛选，表格会即时更新。
@@ -208,7 +208,7 @@ example.com {
 
 在这里创建和管理 QwenPaw 按时间自动执行的定时任务。
 
-![定时任务](https://img.alicdn.com/imgextra/i1/O1CN01UqMEHK1g2WfLs2wUQ_!!6000000004084-2-tps-3822-2070.png)
+![定时任务](https://img.alicdn.com/imgextra/i4/O1CN01o2Be8K5IeUL3FPfU_!!6000000003887-2-tps-1600-1000.png)
 
 **创建新任务：**
 
@@ -250,7 +250,7 @@ example.com {
 
 > 侧边栏：**控制 → 心跳**
 
-![心跳](https://img.alicdn.com/imgextra/i4/O1CN01jW2DeC1QIWeM4HHBM_!!6000000001953-2-tps-3822-2070.png)
+![心跳](https://img.alicdn.com/imgextra/i1/O1CN01Qq47daBj4GH3FPfU_!!6000000002660-2-tps-1600-1000.png)
 
 为**当前选中的智能体**配置定时「自检」：按间隔把 `HEARTBEAT.md` 里的内容当作用户消息发给 QwenPaw，并可把回复投递到指定目标。
 
@@ -277,7 +277,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 > 工作区、配置、记忆和对话历史。智能体之间还可以互相协作。在控制台顶部可以切换当前操作的智能体。
 > 详见 [多智能体](./multi-agent)。
 
-![文件](https://img.alicdn.com/imgextra/i4/O1CN01Buqn3J1YJSNgrz9eY_!!6000000003038-2-tps-3822-2070.png)
+![文件](https://img.alicdn.com/imgextra/i4/O1CN01ZYoawSq0eUG3FPfU_!!6000000001205-2-tps-1600-1000.png)
 
 **编辑文件：**
 
@@ -313,7 +313,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里管理扩展 QwenPaw 能力的技能（如读取 PDF、创建 Word 文档、获取新闻等），更详细的内容请看 [Skills](./skills)。
 
-![技能](https://img.alicdn.com/imgextra/i1/O1CN015rwm8V24Aoc48bGTp_!!6000000007351-2-tps-3822-2070.png)
+![技能](https://img.alicdn.com/imgextra/i1/O1CN01y2ukuWNyQaL3FPfU_!!6000000004805-2-tps-1600-1000.png)
 
 **启用技能：**
 点击技能卡片底部的 **启用** 链接，立即生效。
@@ -357,7 +357,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 工具**
 
-![工具](https://img.alicdn.com/imgextra/i1/O1CN01Ofuk2I1pH1kRvkwcr_!!6000000005334-2-tps-3822-2070.png)
+![工具](https://img.alicdn.com/imgextra/i3/O1CN01wUnAZ8bJJEL3FPfU_!!6000000005966-2-tps-1600-1000.png)
 
 按**内置工具名称**单独开启或关闭（如读文件、执行命令、浏览器等）。关闭后该 Agent 在对话中无法调用该工具。
 
@@ -373,7 +373,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里启用/禁用/删除**MCP**，或者创建新的客户端。
 
-![MCP](https://img.alicdn.com/imgextra/i2/O1CN01J0qnP91bQH7nxR2ww_!!6000000003459-2-tps-3822-2070.png)
+![MCP](https://img.alicdn.com/imgextra/i4/O1CN015k95fIG4fzB3FPfU_!!6000000002571-2-tps-1600-1000.png)
 
 **创建客户端**
 点击右上角的**创建客户端**，填写必要信息，点击**创建**，可以看到MCP客户端列表中新增内容。
@@ -382,7 +382,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 运行配置**
 
-![运行配置](https://img.alicdn.com/imgextra/i2/O1CN01isFubh1fmxDTGufCc_!!6000000004050-2-tps-3810-2064.png)
+![运行配置](https://img.alicdn.com/imgextra/i2/O1CN01VqUrK2lsWWE3FPfU_!!6000000000446-2-tps-1600-1000.png)
 
 本页集中配置**当前智能体**的运行参数，分多块卡片，改完后点底部 **保存**（**重置** 可重新拉取服务端数据）。
 
@@ -408,7 +408,7 @@ Console 会保留并标记该选项不可用，而不是静默改成其他记忆
 
 > 侧边栏：**设置 → 智能体管理**
 
-![智能体管理](https://img.alicdn.com/imgextra/i3/O1CN01mG2dkX1GHTaJLMjWo_!!6000000000597-2-tps-3822-2070.png)
+![智能体管理](https://img.alicdn.com/imgextra/i4/O1CN01JYBVge26cPH3FPfU_!!6000000002820-2-tps-1600-1000.png)
 
 创建、编辑、启用/禁用或删除智能体；列表中的 **描述** 会用于多智能体协作时的分工判断，建议写清用途。
 
@@ -427,7 +427,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
-![全局默认模型与云端提供商](/doc-images/2.3.1b1/models.zh.png)
+![全局默认模型与云端提供商](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 在本页面，你可以：
 
@@ -444,7 +444,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里对技能做全局管理，更详细的内容请看 [Skills](./skills)。
 
-![技能池](https://img.alicdn.com/imgextra/i2/O1CN014Kpiia1OW9CKI06jN_!!6000000001712-2-tps-3822-2070.png)
+![技能池](https://img.alicdn.com/imgextra/i1/O1CN01tyeYMcJ2h0K3FPfU_!!6000000002401-2-tps-1600-1000.png)
 
 在当前页面，可对技能做以下操作：
 
@@ -465,7 +465,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里管理 QwenPaw 的工具和技能在运行时需要的环境变量（如 `TAVILY_API_KEY`）。
 
-![环境变量](https://img.alicdn.com/imgextra/i2/O1CN01EIfkyk1mR9epvvu5G_!!6000000004950-2-tps-3822-2070.png)
+![环境变量](https://img.alicdn.com/imgextra/i3/O1CN01HDTKRps8eGD3FPfU_!!6000000005710-2-tps-1600-1000.png)
 
 **添加变量：**
 
@@ -504,7 +504,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 工具后台策略**
 
-![设置 → 工具后台策略（保持前台执行 / 自动转入后台）](https://img.alicdn.com/imgextra/i4/O1CN01eve2Vfke2oJ7nOIU_!!6000000002955-0-tps-3840-1986.jpg)
+![设置 → 工具后台策略（保持前台执行 / 自动转入后台）](https://img.alicdn.com/imgextra/i3/O1CN01mEobxuyCu8C3FPfU_!!6000000000220-2-tps-1600-1000.png)
 
 配置工具到达转入后台截止时间时的默认行为，可选：
 
@@ -517,7 +517,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 安全**
 
-![安全](https://img.alicdn.com/imgextra/i4/O1CN01APDb151R02HB3zHet_!!6000000002048-2-tps-3822-2070.png)
+![安全](https://img.alicdn.com/imgextra/i3/O1CN01daeJW3fVIwC3FPfU_!!6000000004121-2-tps-1600-1000.png)
 
 分 **工具防护**、**文件防护**、**技能扫描器** 等页签：分别控制危险工具参数拦截、敏感路径访问拦截、技能包安全扫描策略。
 
@@ -551,7 +551,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 语音转写**
 
-![语音转写](https://img.alicdn.com/imgextra/i2/O1CN01yddyyw1HwWhQnbqwR_!!6000000000822-2-tps-3822-2070.png)
+![语音转写](https://img.alicdn.com/imgextra/i2/O1CN01Lg6fZzeC0RE3FPfU_!!6000000001409-2-tps-1600-1000.png)
 
 配置**各频道发来的语音/音频**在进入模型前的处理方式（与聊天里的语音输入、频道语音消息共用这套设置）。
 

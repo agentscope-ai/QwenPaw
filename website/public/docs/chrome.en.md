@@ -77,7 +77,7 @@ Return to the QwenPaw page and select **I've installed it, refresh status**.
 > You can also use **Copy Path** or **Open Folder** to get at the extension
 > folder directly.
 
-![Console Chrome page showing install methods and local install steps](https://img.alicdn.com/imgextra/i2/O1CN018PXoUzHJ5WH68fdG_!!6000000004186-0-tps-3024-1654.jpg)
+![Console Chrome page showing install methods and local install steps](https://img.alicdn.com/imgextra/i1/O1CN012JgUrdExkcC3FPfU_!!6000000003062-2-tps-1600-1000.png)
 
 ![Chrome extensions page with Developer mode on and Load unpacked available](https://img.alicdn.com/imgextra/i1/O1CN015fXKuBrqFoI68fdG_!!6000000006443-0-tps-3024-1654.jpg)
 

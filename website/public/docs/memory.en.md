@@ -264,7 +264,7 @@ When Daily Paper is enabled, QwenPaw selects popular papers related to your inte
 - the Markdown readings enter the normal memory index and can later be consolidated.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper schedule and topic settings" />
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01yxWwlUCwB7B3FPfU_!!6000000007068-2-tps-1600-1000.png" alt="Daily Paper schedule and topic settings" />
 </p>
 
 Auto Fin fetches CLS telegraph news from a rolling time window (the preceding 24 hours by default), selects items related to configured topics, and searches ReMe memory for useful historical context. It writes one Chinese research report with validated Wikilinks to `memory/YYYY-MM-DD/auto_fin.md`. Current news and topic-selection results remain in runtime memory; only the final report is persisted. A same-day rerun atomically replaces the existing report with a revision. If no current news is relevant, the job succeeds as a skip without writing a report or sending an Inbox notification.
@@ -414,7 +414,7 @@ Returning to the financial-analyst example:
 7. You can inspect and correct the Markdown at any time, and those edits guide future work.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw long-term memory Console overview" />
+  <img src="https://img.alicdn.com/imgextra/i4/O1CN01tr6O6vBAf3C3FPfU_!!6000000000754-2-tps-1600-1000.png" alt="QwenPaw long-term memory Console overview" />
 </p>
 
 ### 6. Results: Can It Recall from a Long History?
@@ -526,7 +526,7 @@ Schema, and do not enter the Auto-Memory queue. Run those maintenance operations
 through the authenticated Console or maintenance API rather than `/reme`.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01KgTbaWZ1MTB3FPfU_!!6000000003025-2-tps-1600-1000.png" alt="ReMe background activity, resource usage, and index component status" />
 </p>
 
 Normal Markdown additions and edits are indexed incrementally. Rebuild only after a vector-space change, index damage, or clearly abnormal search results. In **Configuration → Memory**, use **Maintenance & repair → Rebuild BM25 index** for keywords, or **Embedding model hub → Embedding index** for vectors. The maintenance API supports scoped rebuilds:

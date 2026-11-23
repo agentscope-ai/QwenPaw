@@ -2,7 +2,7 @@
 
 在使用 QwenPaw 之前，您需要配置至少一个可用模型，QwenPaw 支持多种模型提供商，您可以在页面左侧边栏的 **设置 -> 模型** 页面进行配置和管理。
 
-![全局默认模型与云端提供商](/doc-images/2.3.1b1/models.zh.png)
+![全局默认模型与云端提供商](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 QwenPaw 支持多种 LLM 提供商：
 
@@ -26,7 +26,7 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 全新安装时，**设置 → 模型 → 本地 & 自定义** 中有 Ollama 和 LM Studio，它们连接的是你单独运行的服务。如果希望由 QwenPaw 管理 llama.cpp 和 GGUF 文件，请按以下步骤操作：
 
-![安装 QwenPaw Local 之前的本地提供商列表](/doc-images/2.3.1b1/models-local.zh.png)
+![安装 QwenPaw Local 之前的本地提供商列表](https://img.alicdn.com/imgextra/i4/O1CN01knTfR9R1sgL3FPfU_!!6000000004916-2-tps-1600-1000.png)
 
 1. 打开 **设置 → 扩展 → 插件 → 官方插件**，安装 **QwenPaw Local**（`local-llamacpp`）。如果已经安装，在 **已安装插件** 中确认已启用。
 2. 回到 **模型 → 本地 & 自定义**，打开 **QwenPaw Local** 卡片的模型管理窗口。若缺少推理引擎，点击 **安装 llama.cpp**。安装插件本身不会下载引擎或模型。
@@ -39,7 +39,7 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
 
-![Ollama 设置](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
+![Ollama 设置](https://img.alicdn.com/imgextra/i4/O1CN01qO1GW7AMDYH3FPfU_!!6000000006595-2-tps-1600-1000.png)
 
 为了验证 Ollama 是否能够正常使用，可以进入 QwenPaw Ollama 提供商的 **设置** 页面，点击 **测试连接** 按钮来验证 QwenPaw 是否能够连接到 Ollama 服务。
 
@@ -152,11 +152,11 @@ QwenPaw 当前支持的云提供商包括：
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
 
-![云供应商列表](/doc-images/2.3.1b1/models.zh.png)
+![云供应商列表](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 为了激活云供应商，你需要进入供应商的配置页面进行配置，大部分云供应商都已经提前配置了 API 域名，您只需要输入 API Key 即可。
 
-![配置 API Key](/doc-images/2.3.1b1/models-key.zh.png)
+![配置 API Key](https://img.alicdn.com/imgextra/i1/O1CN01YQFnwvTvL5B3FPfU_!!6000000007650-2-tps-1600-1000.png)
 
 若提供商设置中有 **测试连接**，点击它可用当前表单的地址和凭据检查连接。连接失败不一定是密钥有误，也应检查服务地址及网络。提供商检查通过，不代表账号有权使用其所有模型。
 
@@ -168,7 +168,7 @@ QwenPaw 当前支持的云提供商包括：
 
 如果预设的模型无法满足需求，您也可以在模型管理页面选择 **添加模型** 来添加增加新的模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识，通常可以从提供商文档中获得）以及 **模型名称** （用于在界面中展示）。手动添加的模型同样可以通过 **测试连接** 来验证是否能够正常使用。
 
-![添加模型](/doc-images/2.3.1b1/model-add-dialog.zh.png)
+![添加模型](https://img.alicdn.com/imgextra/i2/O1CN01yYjwwEcsEZJ3FPfU_!!6000000001862-2-tps-1600-1000.png)
 
 ## 自定义供应商配置
 
@@ -178,13 +178,13 @@ QwenPaw 当前支持的云提供商包括：
 
 点击 **设置 → 模型 → 添加提供商**，填写提供商 ID、显示名称和基础 URL，按服务要求填写 API Key。选择端点实际使用的协议：OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages。保存后，在该提供商的模型列表中添加模型。
 
-![添加提供商](/doc-images/2.3.1b1/models-provider.zh.png)
+![添加提供商](https://img.alicdn.com/imgextra/i2/O1CN01745rhA69jSC3FPfU_!!6000000002896-2-tps-1600-1000.png)
 
 ### 配置供应商
 
 供应商添加完成后，您可以进入该供应商的 **设置** 页面来配置该供应商的 API 访问信息，包括 _基础 URL_ 以及 _API 秘钥_ 。
 
-![自定义供应商设置](/doc-images/2.3.1b1/custom-settings.zh.png)
+![自定义供应商设置](https://img.alicdn.com/imgextra/i4/O1CN0131q7xruKgpF3FPfU_!!6000000002386-2-tps-1600-1000.png)
 
 ### 添加模型
 
@@ -196,11 +196,11 @@ QwenPaw 当前支持的云提供商包括：
 
 在 **设置 → 模型 → 默认模型** 中选择 **对话模型**，选择后自动保存。**决策模型** 是独立配置，不是第二个对话模型。
 
-![全局对话模型选择器](/doc-images/2.3.1b1/default-model.zh.png)
+![全局对话模型选择器](https://img.alicdn.com/imgextra/i3/O1CN01zlN7yTjh7hB3FPfU_!!6000000002887-2-tps-1600-1000.png)
 
 要为某个会话单独选模，请使用聊天输入区的模型选择器。清除会话选择后会重新继承智能体的模型；不会修改智能体或全局默认值。
 
-![聊天输入区的会话模型选择器](/doc-images/2.3.1b1/chat-model.zh.png)
+![聊天输入区的会话模型选择器](https://img.alicdn.com/imgextra/i1/O1CN01eNUg5R1qLmG3FPfU_!!6000000002950-2-tps-1600-1000.png)
 
 ## 模型配置进阶
 
@@ -236,4 +236,4 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 配置完成后点击 **保存**，QwenPaw 就会在使用该供应商的模型进行生成时自动带上这些参数配置了。
 
-![生成参数](/doc-images/2.3.1b1/advanced-model.zh.png)
+![生成参数](https://img.alicdn.com/imgextra/i1/O1CN01B6plEcVl8SE3FPfU_!!6000000003566-2-tps-1600-1000.png)

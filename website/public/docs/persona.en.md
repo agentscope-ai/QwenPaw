@@ -130,7 +130,7 @@ If using `qwenpaw init --defaults`, the default language is `zh` (Chinese).
 
 You can switch the agent's language in the Console's **Settings → Configuration** page. After switching:
 
-![language](https://img.alicdn.com/imgextra/i2/O1CN01fwbflF29ynv8ex1xR_!!6000000008137-2-tps-3822-2070.png)
+![language](https://img.alicdn.com/imgextra/i2/O1CN01rcV4TwJyzqK3FPfU_!!6000000007421-2-tps-1600-1000.png)
 
 1. The system will **overwrite** existing persona files (AGENTS.md, SOUL.md, PROFILE.md) with new language templates
 2. This is the **agent's own language** setting that determines the system prompt language

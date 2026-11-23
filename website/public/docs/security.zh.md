@@ -185,7 +185,7 @@ QwenPaw 的安全系统由五个核心安全层组成:
 
 在控制台 **设置 → 安全 → 工具防护** 标签页中,你可以:
 
-![tool guard](https://img.alicdn.com/imgextra/i1/O1CN01aAqcPv290Ldjj8NNi_!!6000000008005-2-tps-3822-2070.png)
+![tool guard](https://img.alicdn.com/imgextra/i3/O1CN01daeJW3fVIwC3FPfU_!!6000000004121-2-tps-1600-1000.png)
 
 - **启用/禁用工具守卫** — 总开关,关闭后所有工具调用不做检查
 - **选择守护范围** — 留空守护所有工具,或指定需要守护的工具列表
@@ -346,7 +346,7 @@ QwenPaw 的安全系统由五个核心安全层组成:
 
 在控制台 **设置 → 安全 → 文件防护** 标签页中,你可以:
 
-![file guard](https://img.alicdn.com/imgextra/i4/O1CN01EqUuWs1sPDgDvsbeV_!!6000000005758-2-tps-3822-2070.png)
+![file guard](https://img.alicdn.com/imgextra/i4/O1CN015bnqI29GloE3FPfU_!!6000000000057-2-tps-1600-1000.png)
 
 - **启用/禁用文件防护** — 独立开关,可在不影响工具守卫其他功能的情况下单独控制文件保护
 - **查看保护列表** — 表格形式展示所有受保护的路径:
@@ -638,7 +638,7 @@ governance decision: tool=Bash target="..." action=sandbox_fallback sandbox=bubb
 
 在控制台 **设置 → 安全 → 技能扫描器** 标签页中,你可以:
 
-![skill scanner](https://img.alicdn.com/imgextra/i4/O1CN01c4UGLh1Yd9PbL2bZC_!!6000000003081-2-tps-3822-2070.png)
+![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01SXgQECz3VlH3FPfU_!!6000000002746-2-tps-1600-1000.png)
 
 **配置区**:
 
@@ -884,7 +884,7 @@ policy:
 
 在控制台 **智能体 → MCP** 页面中，点击任意 MCP 客户端卡片上的**工具&权限**即可打开访问策略面板：
 
-![access policy](https://img.alicdn.com/imgextra/i1/O1CN01HJgGjv1cQZ0TKGnfC_!!6000000003595-0-tps-3838-2076.jpg)
+![access policy](https://img.alicdn.com/imgextra/i3/O1CN017guzzMyBpxI3FPfU_!!6000000005052-2-tps-1600-1000.png)
 
 - **设置默认效果** — 选择客户端级别的默认策略：询问（黄色）、放行（绿色）或拒绝（红色）
 - **添加客户端级规则** — 为特定来源或用户覆盖默认策略：
@@ -956,7 +956,7 @@ policy:
 
 QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。
 
-![login](https://img.alicdn.com/imgextra/i4/O1CN01VdXCuP1tWpsl0TlQ5_!!6000000005910-2-tps-3822-2070.png)
+![login](https://img.alicdn.com/imgextra/i4/O1CN01dT1IjM4nXLI3FPfU_!!6000000001850-2-tps-1600-1000.png)
 
 ### 工作原理
 

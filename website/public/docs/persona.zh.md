@@ -130,7 +130,7 @@ MEMORY.md 用于存储经过提炼的长期记忆（重要决策、经验教训�
 
 你可以在控制台的「**设置 → 运行配置**」页面中切换智能体语言。切换后：
 
-![language](https://img.alicdn.com/imgextra/i3/O1CN01HU0SrF1Oc6LZNAkb5_!!6000000001725-2-tps-3822-2070.png)
+![language](https://img.alicdn.com/imgextra/i2/O1CN01VqUrK2lsWWE3FPfU_!!6000000000446-2-tps-1600-1000.png)
 
 1. 系统会用新语言的模板**覆盖**现有的人设文件（AGENTS.md、SOUL.md、PROFILE.md）
 2. 这是**智能体自身的语言**设置，决定系统提示词的语言

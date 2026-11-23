@@ -50,7 +50,7 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 2. 点击 **服务验证**，用当前表单参数发送一次测试请求。验证成功时会显示实际维度和耗时；维度不匹配时先核对模型配置。
 3. 设置自动保存。若向量空间已变化，等更改保存后点击 **Embedding 索引**，核对确认框再重建。仅验证服务不会重建索引。
 
-![长期记忆中的 Embedding 模型配置区域](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
+![长期记忆中的 Embedding 模型配置区域](https://img.alicdn.com/imgextra/i1/O1CN01t8HOdSTpnzF3FPfU_!!6000000007832-2-tps-1600-1000.png)
 
 配置过程中需要区分以下几个阶段：
 

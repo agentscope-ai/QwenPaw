@@ -187,7 +187,7 @@ Or change it in the Console under **Settings → Agents** in the agent's configu
 
 In the Console under **Settings → Security → Tool Guard** tab, you can:
 
-![tool guard](https://img.alicdn.com/imgextra/i3/O1CN015wiSQW1h8JHZb0CNX_!!6000000004232-2-tps-3822-2070.png)
+![tool guard](https://img.alicdn.com/imgextra/i4/O1CN01B9x5NxvxPiC3FPfU_!!6000000005334-2-tps-1600-1000.png)
 
 - **Enable/disable Tool Guard** — Master switch; when disabled, all tool calls bypass checks
 - **Select guard scope** — Leave empty to guard all tools, or specify a list of tools to guard
@@ -358,7 +358,7 @@ In `config.json`:
 
 In the Console under **Settings → Security → File Guard** tab, you can:
 
-![file guard](https://img.alicdn.com/imgextra/i2/O1CN01Qip9IY1tl29zT8s5L_!!6000000005941-2-tps-3822-2070.png)
+![file guard](https://img.alicdn.com/imgextra/i3/O1CN01q4yoKAvw7WD3FPfU_!!6000000005791-2-tps-1600-1000.png)
 
 - **Enable/disable File Guard** — Independent toggle; controls file protection without affecting other Tool Guard features
 - **View protection list** — Table display of all protected paths:
@@ -664,7 +664,7 @@ The whitelist is useful for:
 
 In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
-![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01K1sySe1pqkdpHHCSB_!!6000000005412-2-tps-3822-2070.png)
+![skill scanner](https://img.alicdn.com/imgextra/i4/O1CN01lIyYDI8W8bE3FPfU_!!6000000001856-2-tps-1600-1000.png)
 
 **Configuration area**:
 
@@ -910,7 +910,7 @@ policy:
 
 In the Console under **Agent → MCP**, click **Tools & Access** on any MCP client card to open the Access Policy panel:
 
-![access policy](https://img.alicdn.com/imgextra/i3/O1CN01tpnV8w1XnOfo2bOIE_!!6000000002968-0-tps-3840-2080.jpg)
+![access policy](https://img.alicdn.com/imgextra/i1/O1CN01giNnBqCl3sG3FPfU_!!6000000003862-2-tps-1600-1000.png)
 
 - **Set default effect** — Choose the client-wide default: Ask (yellow), Allow (green), or Deny (red)
 - **Add client-level rules** — Override the default for specific sources or users:
@@ -982,7 +982,7 @@ Here's a complete `config.json` with all security features configured:
 
 QwenPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable.
 
-![login](https://img.alicdn.com/imgextra/i1/O1CN01wh3Sv01SxPEXpb6Wj_!!6000000002313-2-tps-3822-2070.png)
+![login](https://img.alicdn.com/imgextra/i3/O1CN01fOYXL7jV7oB3FPfU_!!6000000002919-2-tps-1600-1000.png)
 
 ### How it works
 

@@ -236,7 +236,7 @@ source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
 - Markdown 阅读记录进入普通记忆索引，也能继续参与长期整理。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper 的调度与主题配置" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01lzzwOgq7unF3FPfU_!!6000000005738-2-tps-1600-1000.png" alt="Daily Paper 的调度与主题配置" />
 </p>
 
 Auto Fin 会拉取一个滚动时间窗口内的财联社电报（默认最近 24 小时），按关注主题筛选相关新闻，再搜索 ReMe 中有回顾价值的历史记忆，生成一份带有效 Wikilink 的中文研究报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告会写入 `memory/YYYY-MM-DD/auto_fin.md`。同日重跑会参考已有报告并原子覆盖为修订结果；没有相关新闻时任务成功跳过，不写报告，也不发送 Inbox 通知。
@@ -375,7 +375,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 7. 你可以随时检查和修正 Markdown，修改后的内容继续参与后续协作。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw 长期记忆控制台总览" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01X8kWs8lRGMC3FPfU_!!6000000003955-2-tps-1600-1000.png" alt="QwenPaw 长期记忆控制台总览" />
 </p>
 
 ### 6. 实验效果：历史变长后还能找回来吗？
@@ -484,7 +484,7 @@ action 目录。QwenPaw 明确允许 `status`、`search`、`proactive`、`auto_m
 API 执行，而不是 `/reme`。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01ON8EnCCRL7L3FPfU_!!6000000001517-2-tps-1600-1000.png" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>
 
 正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要重建。在 **运行配置 → 记忆与检索** 中，通过 **维护与修复 → 重建 BM25 索引** 修复关键词索引；通过 **Embedding 模型中心 → Embedding 索引** 重建向量索引。维护 API 支持分范围重建：

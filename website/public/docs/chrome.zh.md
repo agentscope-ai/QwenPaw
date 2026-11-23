@@ -57,7 +57,7 @@ Chrome 连接能力由官方 **Chrome** 插件提供，需要先安装插件：
 
 > 扩展目录也可以用 **复制路径** 或 **打开目录** 直接取用。
 
-![控制台「Chrome浏览器」页面：安装方式与本地安装步骤](https://img.alicdn.com/imgextra/i1/O1CN016GrqlLntuqC68fdG_!!6000000005448-0-tps-3024-1654.jpg)
+![控制台「Chrome浏览器」页面：安装方式与本地安装步骤](https://img.alicdn.com/imgextra/i3/O1CN010PyKbYFmsUH3FPfU_!!6000000005474-2-tps-1600-1000.png)
 
 ![Chrome 扩展页：开启开发者模式后点击「加载未打包的扩展程序」](https://img.alicdn.com/imgextra/i1/O1CN015fXKuBrqFoI68fdG_!!6000000006443-0-tps-3024-1654.jpg)
 

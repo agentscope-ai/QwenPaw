@@ -260,13 +260,13 @@ qwenpaw skills info <skill_name> --pool
 1. In [Console](./console) → **Settings → Skills**, click **Add Skill →
    Upload via URL**.
 
-   ![skill](https://img.alicdn.com/imgextra/i2/O1CN018GbM8v1Iuyyp9Cuyp_!!6000000000954-2-tps-3822-2070.png)
+   ![skill](https://img.alicdn.com/imgextra/i2/O1CN01a14kGCyGPdE3FPfU_!!6000000004329-2-tps-1600-1000.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
    below). The dialog lists the supported sources with an example URL for
    each — click an example to fill it in.
 
-   ![url](https://img.alicdn.com/imgextra/i4/O1CN01ztz7ds28L7zh408Si_!!6000000007915-2-tps-3822-2070.png)
+   ![url](https://img.alicdn.com/imgextra/i3/O1CN015cY20zq7ZND3FPfU_!!6000000004494-2-tps-1600-1000.png)
 
 3. Click **Confirm** and wait for the import result. Clicking an example URL only fills in the address; it does not install the skill.
 

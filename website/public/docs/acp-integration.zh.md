@@ -54,7 +54,7 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 对于 Linux/macOS，`command` 一般填写外部 agent 以 ACP 模式启动时使用的命令，例如 `opencode`、`qwen`，或者相应 ACP 插件的启动命令，例如 `npx`；`args` 则填写后续参数，例如 `--acp`、`-y` 等。**注意每个参数都需要单独占一行**。源码中默认内置了这些 runner 示例：`opencode`、`qwen_code`、`claude_code`、`codex`。你也可以在 ACP 页面中添加自定义 runner，只要它能够以 ACP 方式运行并被正确配置即可。
 
-![config_mac](https://gw.alicdn.com/imgextra/i3/O1CN01pskmLt29VwyFGhO1r_!!6000000008074-2-tps-1224-472.png)
+![config_mac](https://img.alicdn.com/imgextra/i4/O1CN01Sb9DZIny6qB3FPfU_!!6000000003269-2-tps-1600-1000.png)
 
 Windows 上使用 runner 实际安装的启动方式。如果需要通过 `cmd` 调用命令脚本，将 `command` 设为 `cmd`，在 `args` 中依次填写 `/c`、启动命令及其参数，每项一行。原生可执行文件可直接作为 `command`；不要把整条命令粘贴进一个参数。
 
@@ -62,7 +62,7 @@ Windows 上使用 runner 实际安装的启动方式。如果需要通过 `cmd` 
 
 配置完成后，在当前智能体的 **设置 → 工具** 中启用 `delegate_external_agent` 工具。
 
-![config](https://gw.alicdn.com/imgextra/i1/O1CN01xNZfYc1OM4UFIR79S_!!6000000001690-2-tps-1224-696.png)
+![config](https://img.alicdn.com/imgextra/i3/O1CN01XgncX0JC3SI3FPfU_!!6000000005041-2-tps-1600-1000.png)
 
 随后，你就可以在对话中明确指定要与哪个外部 agent 进行协作。
 

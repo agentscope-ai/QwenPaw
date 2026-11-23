@@ -22,12 +22,12 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
 在控制台打开 **扩展 → 应用 → 官方应用**，找到 **QwenPaw Creator** 并安装。安装完成后从 **我的应用** 打开；如果已经安装，不必重复安装。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-official-apps.zh.png" alt="官方应用列表中 QwenPaw Creator 卡片上的安装按钮" />
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i4/O1CN01EgLvYOiQFfB3FPfU_!!6000000003779-2-tps-1600-1000.png" alt="官方应用列表中 QwenPaw Creator 卡片上的安装按钮" />
   <figcaption>在「官方应用」找到 QwenPaw Creator，点击卡片上的「安装」。</figcaption>
 </figure>
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-my-apps.zh.png" alt="我的应用中 QwenPaw Creator 的打开应用按钮" />
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i2/O1CN01vtIcH5DirXL3FPfU_!!6000000005808-2-tps-1600-1000.png" alt="我的应用中 QwenPaw Creator 的打开应用按钮" />
   <figcaption>安装后，切换到「我的应用」，点击「打开应用」进入 Creator。</figcaption>
 </figure>
 
