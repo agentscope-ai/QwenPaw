@@ -56,6 +56,17 @@ class RunStatus(str, Enum):
     Cancelled = "cancelled"
 
 
+class RunOutcome(str, Enum):
+    """Machine-readable reason a conversation turn ended."""
+
+    Success = "success"
+    LoopDetected = "loop_detected"
+    MaxIterations = "max_iterations"
+    Cancelled = "cancelled"
+    RateLimited = "rate_limited"
+    Error = "error"
+
+
 class ContentType(str, Enum):
     TEXT = "text"
     IMAGE = "image"
@@ -292,6 +303,8 @@ class AgentResponse(BaseModel):
     id: Optional[str] = None
     output: List[Message] = Field(default_factory=list)
     status: RunStatus = RunStatus.Completed
+    outcome: RunOutcome = RunOutcome.Success
+    stop_reason: Optional[str] = None
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -313,6 +326,7 @@ __all__ = [
     "MessageType",
     "RefusalContent",
     "Role",
+    "RunOutcome",
     "RunStatus",
     "TextContent",
     "VideoContent",
