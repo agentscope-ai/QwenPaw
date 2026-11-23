@@ -326,10 +326,11 @@ async def test_update_tool_config_validation_error_stays_500(
 
 
 @pytest.mark.parametrize(f"category", [None, f"media", f"unknown", 123])
-def test_plugin_tool_metadata(monkeypatch, category) -> None:
+@pytest.mark.parametrize("tool_name", ["generate_image_qwen", "read_file"])
+def test_plugin_tool_metadata(monkeypatch, category, tool_name) -> None:
     """Only explicit per-tool categories are exposed; text stays original."""
     tool = SimpleNamespace(
-        name=f"generate_image_qwen",
+        name=tool_name,
         enabled=True,
         description=f"Plugin original description",
         async_execution=False,
