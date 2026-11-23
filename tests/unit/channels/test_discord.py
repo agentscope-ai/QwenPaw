@@ -201,3 +201,20 @@ async def test_duplicate_callback_and_stop_gateway(discord):
     task = driver._platform._task
     await driver.stop()
     assert client.closed and task.done() and driver._platform is None
+
+
+def test_chunk_text_opening_fence_on_chunk_boundary_stays_balanced():
+    chunk_text = module("discord", "formatting").chunk_text
+    text = (
+        "intro line one is here\n"
+        "intro line two is here too\n"
+        "```python\n"
+        "x = 1\n"
+        "```\n"
+        "after"
+    )
+    chunks = chunk_text(text, max_len=60)
+    assert chunks == [
+        "intro line one is here\nintro line two is here too",
+        "```python\nx = 1\n```\nafter",
+    ]
