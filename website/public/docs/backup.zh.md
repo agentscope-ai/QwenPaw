@@ -59,7 +59,7 @@
 
 ### 完整备份
 
-![创建完整备份](https://img.alicdn.com/imgextra/i3/O1CN01lMb2N81Wh9e3WnYPG_!!6000000002819-2-tps-882-928.png)
+![创建完整备份](/doc-images/2.3.1b1/backup-create.zh.png)
 
 完整备份适合作为「全量快照」：
 
@@ -89,7 +89,7 @@
 
 ### 恢复前备份
 
-![创建恢复前备份](https://img.alicdn.com/imgextra/i4/O1CN01xIWPgV1bBcS9THtY8_!!6000000003427-2-tps-866-273.png)
+![创建恢复前备份](/doc-images/2.3.1b1/backup-before.zh.png)
 
 点击列表上任意备份的 **恢复** 按钮后，系统会先弹出 **恢复前备份** 对话框：
 
@@ -117,6 +117,8 @@
 2. 手动勾选「我确认要恢复此备份」二次确认。
 3. 点击 **确认** 提交恢复。若系统提示核验备份来源，核实后再继续。
 
+![完整备份默认选中整体恢复，并显示安全与 MCP 配置的恢复策略](/doc-images/2.3.1b1/backup-full-restore.zh.png)
+
 ### 自定义恢复
 
 **精细化控制要恢复的内容**，避免误删：
@@ -132,7 +134,7 @@
 4. 勾选是否恢复全局设置 / 技能池 / 密钥信息。
 5. 核对所选范围和安全策略，勾选恢复确认后再点击 **确认**。
 
-![自定义恢复](https://img.alicdn.com/imgextra/i2/O1CN01rObfhL23GTtnvidfq_!!6000000007228-2-tps-1131-1396.png)
+![部分备份的自定义恢复选项，仅含一个智能体工作区和全局设置](/doc-images/2.3.1b1/backup-custom-restore.zh.png)
 
 ---
 

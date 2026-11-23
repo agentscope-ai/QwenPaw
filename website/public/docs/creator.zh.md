@@ -22,8 +22,8 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
 在控制台打开 **扩展 → 应用 → 官方应用**，找到 **QwenPaw Creator** 并安装。安装完成后从 **我的应用** 打开；如果已经安装，不必重复安装。
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01C3nur6L5b7C4fX2q_!!6000000006822-2-tps-2300-1520.png" alt="QwenPaw Apps 页面中的应用导航和 QwenPaw Creator 应用卡片" />
-  <figcaption>QwenPaw Creator 应用卡片。新版控制台将安装入口和已安装应用分在两个标签页。</figcaption>
+  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-official-apps.zh.png" alt="官方应用列表中 QwenPaw Creator 卡片上的安装按钮" />
+  <figcaption>在「官方应用」找到 QwenPaw Creator，点击卡片上的「安装」。</figcaption>
 </figure>
 
 ### 2. 配置模型

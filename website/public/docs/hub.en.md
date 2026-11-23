@@ -176,9 +176,13 @@ Administrators can see each user's runtime and perform these actions:
 | Docker rebuild | Recreates the container with the current image policy    |
 | Delete         | Removes the runtime record but preserves data on disk    |
 
-In the Console, open **Account → Personal runtime → Restart runtime**. If the runtime has failed or was stopped normally and the Console cannot open, the startup status page also offers a restart. If an administrator disabled startup, there is no retry button; contact the administrator.
+Select your account in the lower-left corner of the Console, then open **Account → Personal runtime → Restart runtime**.
 
-![Personal runtime status and restart action](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
+![Restart runtime in the Personal runtime section of a Hub member’s Account dialog](/doc-images/2.3.1b1/hub-personal-runtime.en.png)
+
+If the runtime has failed or was stopped normally and the Console cannot open, the startup status page also offers a restart. If an administrator disabled startup, there is no retry button; contact the administrator.
+
+![Startup status page showing Restart runtime after an administrator stopped the process](/doc-images/2.3.1b1/hub-runtime-stopped.en.png)
 
 ## Where Hub stores data
 

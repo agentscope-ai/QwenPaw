@@ -22,8 +22,8 @@ Creator natively supports [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Pl
 In the Console, open **Extension → Apps → Official Apps**, find **QwenPaw Creator**, and install it. Open it from **My Apps** after installation. If it is already there, open it directly.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01gEoPuRRY0KE4fX2q_!!6000000002947-2-tps-2300-1520.png" alt="The Apps navigation and QwenPaw Creator card on the QwenPaw Apps page" />
-  <figcaption>The QwenPaw Creator app card. The current Console separates the install catalog from installed apps.</figcaption>
+  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-official-apps.en.png" alt="Install button on the QwenPaw Creator card in Official Apps" />
+  <figcaption>Find QwenPaw Creator in Official Apps and select Install on its card.</figcaption>
 </figure>
 
 ### 2. Configure models

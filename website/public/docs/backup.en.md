@@ -60,7 +60,7 @@ Console → **Settings → Backup**. Click **Create Backup** in the top-right co
 
 ### Full backup
 
-![Create a full backup](https://img.alicdn.com/imgextra/i3/O1CN01LfFJ2L1ZtvXP3SDfi_!!6000000003253-2-tps-872-994.png)
+![Create a full backup](/doc-images/2.3.1b1/backup-create.en.png)
 
 A full backup is best used as a complete snapshot:
 
@@ -90,7 +90,7 @@ A partial backup is best for migrating only specific modules or syncing only a f
 
 ### Pre-restore backup
 
-![Create a pre-restore backup](https://img.alicdn.com/imgextra/i3/O1CN01MwWjoy24qx3N2wfoR_!!6000000007443-2-tps-861-314.png)
+![Create a pre-restore backup](/doc-images/2.3.1b1/backup-before.en.png)
 
 When you click the **Restore** button on any backup row, QwenPaw first opens the **Pre-restore backup** dialog:
 
@@ -118,6 +118,8 @@ Steps:
 2. Manually tick "I confirm I want to restore this backup" as a second confirmation.
 3. Click **Confirm** to submit the restore. If prompted to verify the backup’s origin, check it before proceeding.
 
+![Full Restore selected for a full backup, with strategy options for security and MCP settings](/doc-images/2.3.1b1/backup-full-restore.en.png)
+
 ### Custom restore
 
 **Fine-grained control** over what gets restored, to avoid accidental deletions:
@@ -133,7 +135,7 @@ Steps:
 4. Decide whether to restore the global settings / skill pool / secrets.
 5. Review the scope and security strategy, tick the restore confirmation, then click **Confirm**.
 
-![Custom restore](https://img.alicdn.com/imgextra/i3/O1CN01DAM9Pe264WP7KAF8P_!!6000000007608-2-tps-1132-1527.png)
+![Custom restore options for a partial backup containing one agent workspace and global settings](/doc-images/2.3.1b1/backup-custom-restore.en.png)
 
 ---
 
