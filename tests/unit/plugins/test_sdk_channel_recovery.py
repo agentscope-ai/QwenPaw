@@ -3,11 +3,10 @@
 
 import hashlib
 import json
-import os
-import signal
 import sys
 from pathlib import Path
 
+import psutil
 import pytest
 from aiohttp import web
 
@@ -172,7 +171,7 @@ async def test_callbacks_recover_with_durable_host_state_and_no_duplicate_effect
     async def crash_and_resume(generation):
         pid = starts()[-1]["pid"]
         pids.append(pid)
-        os.kill(pid, signal.SIGKILL)
+        psutil.Process(pid).kill()
         await eventually(
             lambda: process.health_snapshot()["generation"] == generation
             and process.health_snapshot()["state"] == "ready"

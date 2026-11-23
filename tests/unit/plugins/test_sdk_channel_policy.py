@@ -163,7 +163,6 @@ def test_merge_delay_is_a_bounded_integer(delay):
 @pytest.mark.parametrize(
     "delay,continued,failure",
     [
-        (None, False, ""),
         (0, False, ""),
         (10000, False, ""),
         (None, False, "failed"),

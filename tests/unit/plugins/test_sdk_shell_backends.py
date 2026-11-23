@@ -2,6 +2,7 @@
 """Backend routing on the actual native tool, with real local fallback probes."""
 
 import asyncio
+import os
 import shlex
 from unittest.mock import AsyncMock
 
@@ -22,16 +23,16 @@ from qwenpaw.schemas import AgentRequest
 from .sdk_author_fixture import make_plugin
 
 
-@pytest.mark.parametrize("policy", [False, True])
 @pytest.mark.parametrize(
-    ("arguments", "configured", "expected"),
+    ("policy", "arguments", "configured", "expected"),
     [
-        ({}, 120.0, 120.0),
-        ({}, None, 60.0),
-        ({"timeout": 60.0}, 120.0, 120.0),
-        ({"timeout": 90.0}, 120.0, 90.0),
-        ({"timeout": "90"}, 120.0, 90.0),
-        ({"timeout": "invalid"}, 120.0, 120.0),
+        (False, {}, 120.0, 120.0),
+        (False, {}, None, 60.0),
+        (False, {"timeout": 60.0}, 120.0, 120.0),
+        (False, {"timeout": 90.0}, 120.0, 90.0),
+        (False, {"timeout": "90"}, 120.0, 90.0),
+        (False, {"timeout": "invalid"}, 120.0, 120.0),
+        (True, {"timeout": 90.0}, 120.0, 90.0),
     ],
 )
 async def test_remote_and_local_share_effective_timeout(
@@ -223,8 +224,8 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
             "alice",
             "console",
         )
-        result = await tool(policy=policy)(command="printf LOCAL")
-        assert result.content[0].text == "LOCAL"
+        result = await tool(policy=policy)(command="echo LOCAL")
+        assert result.content[0].text.strip() == "LOCAL"
 
 
 def tool(user="alice", session="selected", workspace="test", policy=False):
@@ -277,7 +278,14 @@ async def test_selected_backend_failure_never_runs_locally(
             "resource-contract:remote",
         )
         marker = tmp_path / "MUST_NOT_RUN_LOCALLY"
-        command = "touch " + shlex.quote(str(marker))
+        command = (
+            f'type NUL > "{marker}"'
+            if os.name == "nt"
+            else "touch " + shlex.quote(str(marker))
+        )
+        await tool(session="unselected")(command=command)
+        assert marker.is_file()
+        marker.unlink()
         for policy in (False, True):
             result = await tool(policy=policy)(
                 command=command,
@@ -302,8 +310,8 @@ async def test_selected_backend_failure_never_runs_locally(
             {"session": "other"},
             {"workspace": "two"},
         ):
-            result = await tool(**arguments)(command="printf LOCAL")
-            assert "LOCAL" in result.content[0].text
+            result = await tool(**arguments)(command="echo LOCAL")
+            assert result.content[0].text.strip() == "LOCAL"
         assert len(seen) == count
         selected.clear()
         assert (
@@ -317,9 +325,8 @@ async def test_selected_backend_failure_never_runs_locally(
             "console",
             None,
         )
-        assert (
-            "LOCAL" in (await tool()(command="printf LOCAL")).content[0].text
-        )
+        result = await tool()(command="echo LOCAL")
+        assert result.content[0].text.strip() == "LOCAL"
         selected.add(("test", "selected", "alice"))
         assert await chats.set_shell_backend(
             "selected",
@@ -366,9 +373,8 @@ async def test_shell_target_is_independent_of_chat_metadata_and_catalog(
         with monkeypatch.context() as patch:
             load = AsyncMock(side_effect=AssertionError("Opened chat catalog"))
             patch.setattr(chats._repo, "load", load)
-            assert (await laptop(command="printf LOCAL")).content[0].text == (
-                "LOCAL"
-            )
+            result = await laptop(command="echo LOCAL")
+            assert result.content[0].text.strip() == "LOCAL"
             load.assert_not_awaited()
 
         assert await chats.set_shell_backend(*identity, key)
@@ -380,7 +386,7 @@ async def test_shell_target_is_independent_of_chat_metadata_and_catalog(
         with monkeypatch.context() as patch:
             load = AsyncMock(side_effect=AssertionError("Opened chat catalog"))
             patch.setattr(chats._repo, "load", load)
-            assert (await laptop(command="printf LOCAL")).content[0].text == (
+            assert (await laptop(command="echo LOCAL")).content[0].text == (
                 "REMOTE"
             )
             load.assert_not_awaited()

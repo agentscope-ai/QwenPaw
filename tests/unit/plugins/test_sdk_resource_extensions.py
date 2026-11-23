@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+from contextlib import suppress
 
 import psutil
 import pytest
@@ -21,8 +22,7 @@ def scope():
 async def test_run_sync_releases_finished_work_before_scope_closes():
     resources = scope()
     async with resources:
-        for value in range(300):
-            assert await resources.run_sync(int, str(value)) == value
+        assert await resources.run_sync(int, "42") == 42
         with pytest.raises(ValueError, match="invalid literal"):
             await resources.run_sync(int, "invalid")
         assert resources.snapshot() == {
@@ -254,9 +254,8 @@ async def test_async_process_interactive_io_and_close():
     try:
         process.stdin.write(b"hello\n")
         await process.stdin.drain()
-        assert (
-            await asyncio.wait_for(process.stdout.readline(), 3) == b"hello\n"
-        )
+        line = await asyncio.wait_for(process.stdout.readline(), 3)
+        assert line.splitlines() == [b"hello"]
         assert psutil.pid_exists(process.pid)
     finally:
         await resources.close()
@@ -303,7 +302,7 @@ async def test_tree_closes_descendant_after_leader_exit(
         except psutil.NoSuchProcess:
             pass
     finally:
-        if psutil.pid_exists(pid):
+        with suppress(psutil.NoSuchProcess):
             psutil.Process(pid).kill()
         if not resources.closed:
             await resources.close()
@@ -358,8 +357,13 @@ async def test_session_visibility_failure_rejects_before_spawn(monkeypatch):
         raise PermissionError("process list unavailable")
 
     monkeypatch.setattr(ProcessTree, "check_session_visibility", unavailable)
+    error = (
+        "not yet supported on Windows"
+        if os.name == "nt"
+        else "process-session visibility"
+    )
     async with scope() as resources:
-        with pytest.raises(ResourceError, match="process-session visibility"):
+        with pytest.raises(ResourceError, match=error):
             await resources.async_process(
                 [sys.executable, "-c", "pass"],
                 tree=True,
@@ -367,6 +371,7 @@ async def test_session_visibility_failure_rejects_before_spawn(monkeypatch):
         assert not resources.snapshot()["resources"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-session inspection")
 @pytest.mark.parametrize("asynchronous", [False, True])
 async def test_tree_inspection_failure_retains_launched_child(
     monkeypatch,

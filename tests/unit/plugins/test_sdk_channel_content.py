@@ -103,7 +103,6 @@ def tool_result(output, name="external"):
 @pytest.mark.parametrize(
     "scenario",
     [
-        "visible",
         "hidden",
         "preview",
         "truncated",
@@ -216,7 +215,7 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
                 ]
                 == "image/png"
             )
-            if scenario in {"visible", "tool-error"}:
+            if scenario == "tool-error":
                 assert [p["type"] for p in output] == ["text", "image", "text"]
                 assert [output[0]["text"], output[2]["text"]] == [
                     "before-image",

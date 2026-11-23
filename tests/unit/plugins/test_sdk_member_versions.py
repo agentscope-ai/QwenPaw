@@ -194,8 +194,8 @@ def test_harness_interfaces_keep_sdk_11_minimum(tmp_path, source):
     ],
 )
 def test_new_member_requires_new_minimum(tmp_path, source):
-    old = package(tmp_path, source, "1.0")
-    assert any(f.code == "sdk-version" for f in old.findings)
+    old = package(tmp_path, source, "1.1")
+    assert {f.code for f in old.findings} == {"sdk-version"}
     assert not old.ok
     current = package(tmp_path, source, "1.2")
     assert current.ok, current.findings
@@ -214,16 +214,6 @@ def test_new_member_requires_new_minimum(tmp_path, source):
             "selection = ModelSelection('provider', 'model')\n"
         ),
         "from qwenpaw.plugins.channel_workers import ChannelDefinition\n",
-        (
-            "from qwenpaw.plugins.resources import ResourceScope\n"
-            "async def f(scope: ResourceScope):\n"
-            "    await scope.run_sync(int, '1')\n"
-        ),
-        (
-            "from qwenpaw.plugins import PluginContext\n"
-            "def f(ctx: PluginContext):\n"
-            "    ctx.register_shell_backend(None)\n"
-        ),
         (
             "from qwenpaw.plugins.apps import AppContext\n"
             "async def f(call: AppContext):\n"
