@@ -26,6 +26,11 @@ In the Console, open **Extension → Apps → Official Apps**, find **QwenPaw Cr
   <figcaption>Find QwenPaw Creator in Official Apps and select Install on its card.</figcaption>
 </figure>
 
+<figure class="creator-figure">
+  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-my-apps.en.png" alt="Open app button on the installed QwenPaw Creator card in My Apps" />
+  <figcaption>After installation, switch to My Apps and select Open app to launch Creator.</figcaption>
+</figure>
+
 ### 2. Configure models
 
 Before your first project, open **Model Configuration** at the lower right of the home composer (or follow the first-run guide). Connect only the capabilities your scenario needs:

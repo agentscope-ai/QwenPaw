@@ -26,6 +26,11 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
   <figcaption>在「官方应用」找到 QwenPaw Creator，点击卡片上的「安装」。</figcaption>
 </figure>
 
+<figure class="creator-figure">
+  <img class="creator-shot" src="/doc-images/2.3.1b1/creator-my-apps.zh.png" alt="我的应用中 QwenPaw Creator 的打开应用按钮" />
+  <figcaption>安装后，切换到「我的应用」，点击「打开应用」进入 Creator。</figcaption>
+</figure>
+
 ### 2. 配置模型
 
 首次使用前，点击首页输入区右下角的 **模型配置**（或跟随首次引导）完成接入。按场景准备能力即可：
