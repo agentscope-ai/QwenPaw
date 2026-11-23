@@ -36,13 +36,12 @@ identity) — see [Browser](./browser).
 Chrome connectivity is provided by the official **Chrome** plugin, so install
 the plugin first:
 
-1. Open the Console and go to **Settings → Plugin Manager**.
+1. Open the Console and go to **Settings → Extension → Plugins**.
 2. Find **Chrome** under **Official Plugins** and select **Install**.
 3. If you received a trusted plugin ZIP file or install URL from another
    source, select **Install Plugin** in the upper-right corner, then upload the
    ZIP file or enter the plugin URL.
-4. Refresh the page after installing; a **Chrome** entry appears in the left
-   sidebar.
+4. Make sure the plugin is enabled, then open **Chrome** under **Extensions** in the settings sidebar. This installs the QwenPaw plugin; the extension still needs to be loaded in Chrome itself.
 
 > Only install plugins from the official list or other trusted sources. This
 > plugin acts on pages in your browser on your behalf — do not grant that to a
@@ -52,7 +51,7 @@ the plugin first:
 
 ## Install the extension
 
-Open **Chrome** in the left sidebar. The top of the page shows the current
+Open **Chrome** in the settings sidebar. The top of the page shows the current
 connection state, followed by **Install method**: **Local install** is marked
 **Recommended** and is the only method available today, while **Chrome Web
 Store** shows **Coming soon**.

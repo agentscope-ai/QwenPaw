@@ -158,11 +158,11 @@ To activate a cloud provider, go to the provider's configuration page. Most clou
 
 ![Configure API Key](/doc-images/2.3.1b1/models-key.en.png)
 
-After entering the API Key, click the **Test Connection** button. The system will automatically verify whether the API Key is correct (only supported by some providers).
+If the provider settings offer **Test Connection**, use it to check the endpoint with the credentials currently in the form. A failure can also indicate an incorrect address or a network problem. A successful provider check does not establish access to every model.
 
 ![Test Connection Result](https://gw.alicdn.com/imgextra/i1/O1CN01dGL7cJ1jH88mTpW9z_!!6000000004522-2-tps-1088-946.png)
 
-Once the cloud provider is configured, you can further check if the models are available. A series of models are preset for each cloud provider. You can click the **Test Connection** button for a specific model on the provider's model management page to verify if the model is working properly.
+To check a particular model, save the provider settings, open its model list, and use **Test Connection** on the target row. This check uses the selected model ID, unlike the provider-level check.
 
 ![Model Connection Test Result](https://img.alicdn.com/imgextra/i3/O1CN01tKRARl1UaAMsQC4En_!!6000000002533-2-tps-1268-1508.png)
 

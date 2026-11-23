@@ -221,7 +221,7 @@ source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory 完成后推送到 Inbox 的任务结果" />
 </p>
 
-Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然是 workspace 中的文件。
+在 **收件箱 → 推送消息** 查看运行结果。Auto-Memory 和 Auto-Dream 的收件箱通知分别控制；开启后，记忆有变化或任务失败才会推送。成功但没有变化时，没有消息是正常的。可编辑的记忆仍在工作区文件中。
 
 ### 3. Auto Resource（Beta）从外部补充知识
 
@@ -487,7 +487,7 @@ API 执行，而不是 `/reme`。
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>
 
-正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**。维护 API 支持分范围重建：
+正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要重建。在 **运行配置 → 记忆与检索** 中，通过 **维护与修复 → 重建 BM25 索引** 修复关键词索引；通过 **Embedding 模型中心 → Embedding 索引** 重建向量索引。维护 API 支持分范围重建：
 
 ```http
 POST /api/agents/{agentId}/memory/reindex?scope=all

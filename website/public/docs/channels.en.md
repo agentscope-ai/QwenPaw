@@ -5,8 +5,10 @@ in DingTalk; same for QQ, etc. If that term is new, see [Introduction](./intro).
 
 Two ways to configure channels:
 
-- **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
+- **Console** (recommended) — In the [Console](./console) under **Settings → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
 - **Edit `agent.json` directly** — Agent workspace config at `~/.qwenpaw/workspaces/{agent_id}/agent.json`, set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
+
+A channel card can appear before its plugin is installed. If the configuration drawer says **Plugin not installed**, install and enable the corresponding plugin first. Entering credentials or editing the config file does not install it. After saving, send a test message from the platform to verify delivery and replies.
 
 Below is how to get credentials and fill config for each channel.
 
@@ -401,7 +403,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Discord**, and enter the **Bot Token** you obtained.
+Go to **Settings → Channels**, click **Discord**, and enter the **Bot Token** you obtained.
 
 ![console](https://img.alicdn.com/imgextra/i1/O1CN01VjFNXn1oUTlVH6Bmt_!!6000000005228-2-tps-3822-2070.png)
 
@@ -731,7 +733,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
+Go to **Settings → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
 
 ![console](https://img.alicdn.com/imgextra/i2/O1CN01Ue1bBr1DxCp8WkyzP_!!6000000000282-2-tps-3822-2070.png)
 
@@ -891,7 +893,7 @@ The Matrix channel connects QwenPaw to any Matrix homeserver using the [matrix-n
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Matrix**, enable it, and fill in:
+Go to **Settings → Channels**, click **Matrix**, enable it, and fill in:
 
 - **Homeserver URL** — e.g. `https://matrix.org`
 - **User ID** — e.g. `@mybot:matrix.org`
@@ -1044,7 +1046,7 @@ cloudflared tunnel --url http://localhost:8088
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Voice**, enable it, and fill in:
+Go to **Settings → Channels**, click **Voice**, enable it, and fill in:
 
 - **Twilio Account SID**: From Twilio Dashboard
 - **Twilio Auth Token**: From Twilio Dashboard
@@ -1147,7 +1149,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Control → Channels → SIP**: enable it, fill in your DashScope API Key, and click **Save**. All other fields can be left at their defaults — when `sip_server` is empty, QwenPaw automatically starts a built-in registrar, uses `aliyun` for STT/TTS, and picks a default voice.
+Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Settings → Channels → SIP**: enable it, fill in your DashScope API Key, and click **Save**. All other fields can be left at their defaults — when `sip_server` is empty, QwenPaw automatically starts a built-in registrar, uses `aliyun` for STT/TTS, and picks a default voice.
 
 QwenPaw will restart the SIP channel automatically. You'll see in the terminal:
 
@@ -1197,7 +1199,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Control → Channels → SIP**: enable it, set SIP Mode to **Production (LiveKit)**, and fill in these 4 fields:
+Open **http://127.0.0.1:8088/** → **Settings → Models**: configure a model provider and API key. Then go to **Settings → Channels → SIP**: enable it, set SIP Mode to **Production (LiveKit)**, and fill in these 4 fields:
 
 - **LiveKit URL** (e.g., `wss://<your-project>.livekit.cloud`)
 - **LiveKit API Key**
@@ -1253,7 +1255,7 @@ Dev mode uses `pyVoIP` — a pure-Python SIP library.
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **SIP**, select **Dev (pyVoIP)** mode. Leave `sip_server` empty to use the built-in registrar, or fill in your external SIP server address. Click **Save**.
+Go to **Settings → Channels**, click **SIP**, select **Dev (pyVoIP)** mode. Leave `sip_server` empty to use the built-in registrar, or fill in your external SIP server address. Click **Save**.
 
 **Method 2:** Edit agent workspace `agent.json`
 
@@ -1470,7 +1472,7 @@ Configure via the Console UI or by editing `agent.json` directly.
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Azure Bot**, and fill in:
+Go to **Settings → Channels**, click **Azure Bot**, and fill in:
 
 - **App ID**: Application (client) ID from Step 1
 - **App Password**: Client Secret Value from Step 1
@@ -1608,7 +1610,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 **Method 1:** Configure in the Console
 
-Go to **Control → Channels**, click **Slack**, and enter the **Bot Token** and **App Token** you obtained.
+Go to **Settings → Channels**, click **Slack**, and enter the **Bot Token** and **App Token** you obtained.
 
 **Method 2:** Edit agent workspace `agent.json`
 

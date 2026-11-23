@@ -19,11 +19,11 @@ Creator natively supports [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Pl
 
 ### 1. Open Creator
 
-Creator is installed and opened from **Apps** in QwenPaw. Start QwenPaw and open the console (default `http://127.0.0.1:8088/`), select **Apps** in the left navigation, find **QwenPaw Creator**, and choose Install. After installation, open it from the same Apps page.
+In the Console, open **Extension → Apps → Official Apps**, find **QwenPaw Creator**, and install it. Open it from **My Apps** after installation. If it is already there, open it directly.
 
 <figure class="creator-figure">
   <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01gEoPuRRY0KE4fX2q_!!6000000002947-2-tps-2300-1520.png" alt="The Apps navigation and QwenPaw Creator card on the QwenPaw Apps page" />
-  <figcaption>Find QwenPaw Creator in Apps, install it, and open it from the same page.</figcaption>
+  <figcaption>The QwenPaw Creator app card. The current Console separates the install catalog from installed apps.</figcaption>
 </figure>
 
 ### 2. Configure models
@@ -150,6 +150,6 @@ Before a paid image or video generation call, the Agent presents a **production 
 
 ## Appendix: installation and runtime
 
-Open **Apps** in the QwenPaw console, find **QwenPaw Creator**, and select Install. After installation, open Creator directly from Apps.
+Install from **Extension → Apps → Official Apps**; launch the installed Creator from **My Apps**.
 
 Creator uses a few local tools without changing your system installation: `ffmpeg` handles media processing and composition (set `CREATOR_FFMPEG_PATH`, otherwise it falls back to system `ffmpeg` or `imageio-ffmpeg`); `jq` supports structured Agent edits to project files (`CREATOR_JQ_PATH` or `PATH`). If a dependency is missing, Creator starts in degraded mode; inspect `GET /api/qwenpaw-creator/health` for details.

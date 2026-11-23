@@ -34,7 +34,7 @@ Before using an external runner, make sure you have installed an ACP-compatible 
 
 Once the command-line side is ready, you can configure a custom runner in QwenPaw or collaborate with one of the built-in runners directly.
 
-External runners must be configured and enabled on the **Workspace → ACP** page before they can be used by `delegate_external_agent`.
+Configure and enable the runner for the current agent under **Settings → ACP**. If the page reports that the MCP plugin is unavailable, follow the prompt to install, enable, or repair the official MCP plugin. A preset supplies a launch configuration; it does not install the external program.
 
 The current ACP configuration UI supports these fields for each runner:
 
@@ -56,11 +56,11 @@ On Linux/macOS, `command` is usually the command that starts the external agent 
 
 ![config_mac](https://gw.alicdn.com/imgextra/i3/O1CN01QQjKIv1jAibICuR7Q_!!6000000004508-2-tps-1224-480.png)
 
-On Windows, after confirming the external agent can be launched normally from the command line, set `command` to `cmd` and put `/c` as the first line in `args`, followed by the actual command and its arguments, again one per line. Example:
+On Windows, use the launcher installed for your runner. For a command script that needs `cmd`, set `command` to `cmd` and enter `/c`, the launcher name, and each argument on separate lines in `args`. A native executable can be the command itself; do not paste the whole command line into one argument.
 
 ![config_win](https://gw.alicdn.com/imgextra/i3/O1CN01BDYXdk22Zt4726sHa_!!6000000007135-2-tps-1608-792.png)
 
-After configuration, enable the `delegate_external_agent` tool in the toolbar.
+After configuration, enable the `delegate_external_agent` tool under **Settings → Tools** for the current agent.
 
 ![config](https://gw.alicdn.com/imgextra/i4/O1CN01XS6D6W1Yzap02Jnjk_!!6000000003130-2-tps-1224-700.png)
 
@@ -72,10 +72,10 @@ You can then explicitly specify which external agent you want to collaborate wit
 
 A typical delegated ACP workflow looks like this:
 
-1. Configure and enable a runner on the **Workspace → ACP** page.
+1. Configure and enable a runner under **Settings → ACP**.
 2. In a conversation, call `delegate_external_agent(action="start", runner="...", message="...")` to start a new delegated session for that runner.
 3. If you want to continue the collaboration, call `delegate_external_agent(action="message", runner="...", message="...")` to send follow-up instructions to the existing runner session.
-4. If the external runner raises a permission request, first let the user choose from the options shown in the UI, then call `delegate_external_agent(action="respond", runner="...", message="<exact option id>")` to resume execution. Here, `message` must be the **exact option id** returned by that permission request.
+4. If the delegation pauses for approval, first let the user choose from the options shown in the UI, then call `delegate_external_agent(action="respond", runner="...", message="<exact option id>")` to resume execution. Here, `message` must be the **exact option id** returned by that permission request.
 5. After the delegated work is complete, call `delegate_external_agent(action="close", runner="...")` to close the runner session.
 
 You can pass task prompts such as "analyze the current working directory structure" or "write your self-introduction into a Markdown file" in `start` or `message`, but the underlying flow always maps to the same four actions: `start`, `message`, `respond`, and `close`.
@@ -93,15 +93,7 @@ The built-in delegation flow supports these action types:
 
 ### Permission handling
 
-When an external ACP runner asks for permission, QwenPaw does **not** decide on the user's behalf.
-
-Instead, it:
-
-- pauses the delegated flow
-- shows the permission details and available options
-- waits for the user to choose how to proceed
-
-This keeps delegated ACP execution aligned with the same user-controlled safety model used elsewhere in QwenPaw.
+For per-request approval, turn off **Trusted** for that runner. When approval is required, delegation pauses and shows the available choices. With **Trusted** on, eligible requests may be approved without showing a prompt. Requests that hit a hard security block are cancelled in either mode.
 
 ### When to use ACP as a Tool
 

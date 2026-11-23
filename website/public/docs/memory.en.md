@@ -249,7 +249,7 @@ Previously recalled memory is removed before extraction so it cannot be mistaken
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory result delivered to Inbox" />
 </p>
 
-Inbox is only a run-status surface. The reusable, editable memory remains in workspace files.
+Look under **Inbox → Push Messages** for results. Auto-Memory and Auto-Dream have separate Inbox notification switches. When enabled, they report changes or failures; a successful run with no changes normally produces no message. The editable memories remain in workspace files.
 
 ### 3. Auto Resource (Beta) Enriches Memory from External Sources
 
@@ -529,7 +529,7 @@ through the authenticated Console or maintenance API rather than `/reme`.
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
 </p>
 
-Normal Markdown additions and edits are indexed incrementally. Use **Rebuild Memory Index** only when the Console reports a vector-space change, the index is damaged, or search is clearly abnormal. The maintenance API supports scoped rebuilds:
+Normal Markdown additions and edits are indexed incrementally. Rebuild only after a vector-space change, index damage, or clearly abnormal search results. In **Configuration → Memory**, use **Maintenance & repair → Rebuild BM25 index** for keywords, or **Embedding model hub → Embedding index** for vectors. The maintenance API supports scoped rebuilds:
 
 ```http
 POST /api/agents/{agentId}/memory/reindex?scope=all

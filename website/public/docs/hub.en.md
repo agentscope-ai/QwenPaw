@@ -176,7 +176,7 @@ Administrators can see each user's runtime and perform these actions:
 | Docker rebuild | Recreates the container with the current image policy    |
 | Delete         | Removes the runtime record but preserves data on disk    |
 
-Users can restart a failed or normally stopped runtime from their personal page. After an administrator disables startup, only an administrator can restore it.
+In the Console, open **Account → Personal runtime → Restart runtime**. If the runtime has failed or was stopped normally and the Console cannot open, the startup status page also offers a restart. If an administrator disabled startup, there is no retry button; contact the administrator.
 
 ![Personal runtime status and restart action](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
 
@@ -234,7 +234,7 @@ Enter the complete `Repository:Tag` shown by `docker image ls` and set the pull 
 
 ### Sign-in succeeds, but the personal QwenPaw does not open
 
-Open **Runtimes** and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.
+As an administrator, open **Runtimes** in the admin panel and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.
 
 ### The page opens, but chat does not keep streaming
 

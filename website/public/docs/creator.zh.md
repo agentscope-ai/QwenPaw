@@ -19,11 +19,11 @@ Creator 原生支持 [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Plugins
 
 ### 1. 打开 Creator
 
-Creator 通过 QwenPaw 的 **Apps（应用中心）** 安装和打开。启动 QwenPaw 并进入控制台（默认 `http://127.0.0.1:8088/`），在左侧选择 **Apps**；找到 **QwenPaw Creator** 并点击安装，安装完成后从同一位置打开。
+在控制台打开 **扩展 → 应用 → 官方应用**，找到 **QwenPaw Creator** 并安装。安装完成后从 **我的应用** 打开；如果已经安装，不必重复安装。
 
 <figure class="creator-figure">
   <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01C3nur6L5b7C4fX2q_!!6000000006822-2-tps-2300-1520.png" alt="QwenPaw Apps 页面中的应用导航和 QwenPaw Creator 应用卡片" />
-  <figcaption>在 QwenPaw 的 Apps 页面找到 QwenPaw Creator，完成安装后即可从同一位置打开。</figcaption>
+  <figcaption>QwenPaw Creator 应用卡片。新版控制台将安装入口和已安装应用分在两个标签页。</figcaption>
 </figure>
 
 ### 2. 配置模型
@@ -150,6 +150,6 @@ Agent 生成的媒体和修改的文本会进入决策托盘；你手动编辑�
 
 ## 附录：安装与运行环境
 
-请打开 QwenPaw 控制台的 **Apps（应用中心）**，找到 **QwenPaw Creator** 并点击安装；安装完成后，直接从 Apps 打开 Creator。
+安装入口是 **扩展 → 应用 → 官方应用**；启动入口是 **我的应用**。
 
 Creator 会使用若干本地工具，但不会改动系统安装：`ffmpeg` 负责媒体处理与合成（可用 `CREATOR_FFMPEG_PATH` 指定，否则回退系统 `ffmpeg` 或 `imageio-ffmpeg`）；`jq` 支撑 Agent 对项目文件的结构化编辑（`CREATOR_JQ_PATH` 或 `PATH`）。依赖缺失时 Creator 以降级模式启动，可通过 `GET /api/qwenpaw-creator/health` 查看缺失项。

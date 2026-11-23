@@ -4,8 +4,10 @@
 
 配置频道有两种方式：
 
-- **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
+- **控制台**（推荐）— 在 [控制台](./console) 的 **设置 → 频道** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.qwenpaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
+
+频道卡片可在插件未安装时显示。如果配置抽屉提示 **插件未安装**，请先安装并启用相应插件。填写凭据或编辑配置文件不会安装插件；保存后请从消息平台发送一条测试消息，确认能够收发。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -889,7 +891,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 **方式一：** 在 Console 中配置
 
-前往 **控制 → 频道**，点击 **Matrix**，启用后填写：
+前往 **设置 → 频道**，点击 **Matrix**，启用后填写：
 
 - **Homeserver URL** — 例如 `https://matrix.org`
 - **User ID** — 例如 `@mybot:matrix.org`
@@ -1062,7 +1064,7 @@ cloudflared tunnel --url http://localhost:8088
 
 **方式一：** 在 Console 中配置
 
-前往 **控制 → 频道**，点击 **Voice**，启用后填写：
+前往 **设置 → 频道**，点击 **Voice**，启用后填写：
 
 - **Twilio Account SID**：从 Twilio Dashboard 获取
 - **Twilio Auth Token**：从 Twilio Dashboard 获取
@@ -1165,7 +1167,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **设置 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
 
 QwenPaw 会自动重启 SIP 频道，终端中会看到：
 
@@ -1215,7 +1217,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，SIP 模式选 **Production (LiveKit)**，填写以下 4 个字段：
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **设置 → 频道 → SIP**：启用，SIP 模式选 **Production (LiveKit)**，填写以下 4 个字段：
 
 - **LiveKit URL**（如 `wss://<your-project>.livekit.cloud`）
 - **LiveKit API Key**
@@ -1271,7 +1273,7 @@ Dev 模式使用 `pyVoIP` — 一个纯 Python SIP 库。
 
 **方式一：** 在控制台中配置
 
-进入 **控制 → 频道**，点击 **SIP**，选择 **Dev (pyVoIP)** 模式。`sip_server` 留空使用内置注册服务器，或填写外部 SIP 服务器地址。点击 **保存**。
+进入 **设置 → 频道**，点击 **SIP**，选择 **Dev (pyVoIP)** 模式。`sip_server` 留空使用内置注册服务器，或填写外部 SIP 服务器地址。点击 **保存**。
 
 **方式二：** 编辑 agent 工作区 `agent.json`
 
@@ -1624,7 +1626,7 @@ https://xxxx.ngrok-free.app/api/messages
 
 **方法 1：** 在控制台中配置
 
-转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
+转到 **设置 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
 
 **方法 2：** 编辑代理工作区 `agent.json`
 

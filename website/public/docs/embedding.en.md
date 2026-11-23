@@ -44,13 +44,11 @@ Keep these boundaries in mind:
 
 ## Configure in the Console
 
-Open **Agent Config → Running Config → Long-term Memory → Embedding Model Config**:
+For the current agent, open **Settings → Configuration → Memory** and find the **Embedding model hub**:
 
-1. Select the SDK type that matches the service interface.
-2. Enter the model name, API key, and endpoint.
-3. Enter the model's actual output dimensions.
-4. Select **Test Embedding Service**.
-5. Save after the test succeeds. If the Console reports a vector-space change, select **Rebuild Memory Index**.
+1. Under **Embedding Service**, select the SDK type and enter the model name and its actual output dimensions. Supply credentials and an endpoint as required by the backend; Ollama needs no API key.
+2. Click **Service verification** to send one test request using the current form. A successful check shows the returned dimensions and latency; if the dimensions differ, check the model configuration.
+3. Settings are saved automatically. If the vector space changed, wait for the changes to save, then click **Embedding index** and review the rebuild confirmation. Testing the service does not rebuild the index.
 
 ![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
 
