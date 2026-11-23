@@ -93,7 +93,7 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 ![Chat](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 **Choose a model:**
-Use the control at the **top-right** of the chat page to pick the model for the
+Use the model selector in the chat input area to pick the model for the
 current conversation. This selection is saved with the conversation and leaves
 the agent default unchanged. Clear the conversation override in the selector to
 inherit the agent default again.
@@ -487,12 +487,12 @@ backends do not support mail configuration. See
 
 Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i2/O1CN012UbhBA1lVuAQm9Cb3_!!6000000004825-2-tps-3810-2064.png)
+![Global defaults and cloud providers](/doc-images/2.3.1b1/models.en.png)
 
 On this page you can:
 
 - Configure Cloud Providers (ModelScope, DashScope, OpenAI, Anthropic, etc.)
-- Configure Local Providers (llama.cpp, Ollama, LM Studio)
+- Connect to Ollama or LM Studio, or manage llama.cpp with the optional QwenPaw Local plugin
 - Add Custom Providers by filling in API details
 - Select the default model for agents
 

@@ -264,16 +264,13 @@ In Console, go to **Settings → Models** to configure. See the
 
 - Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
   custom provider).
-- Local models: supports `llama.cpp`, LM Studio and Ollama.
+- Local models: use the optional QwenPaw Local plugin or connect to a running Ollama or LM Studio server.
 
-After configuration, choose the target provider and model under **Default LLM**
-at the top of the Models page and **Save** — that becomes the global default.
+Under **Settings → Models → Default models**, choose a **Chat model**. The selection is saved immediately. **Decision model** is a separate slot, not a second chat model.
 
-To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the **Chat** page for that
-agent.
+To override the model for one conversation, use the model selector in the chat input area. Clear that selection to inherit the agent’s model again. This does not change the agent or global defaults.
 
-You can also use `qwenpaw models` for setup, downloads, and switching. See
-[CLI → Models and environment variables → qwenpaw models](https://qwenpaw.agentscope.io/docs/cli#qwenpaw-models).
+For provider credentials and default model selection in the terminal, see [CLI: qwenpaw models](./cli#qwenpaw-models).
 
 ### How to use QwenPaw-Flash series models
 
@@ -287,14 +284,9 @@ QwenPaw-Flash models are currently open-sourced on
 [Hugging Face](https://huggingface.co/agentscope-ai/models), and can be
 downloaded directly from either platform.
 
-All built-in local providers in QwenPaw can be used with QwenPaw-Flash models:
-
 #### QwenPaw Local (llama.cpp)
 
-In the QwenPaw Local model interface, simply choose a QwenPaw-Flash model to
-download and start it.
-
-![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
+Follow [QwenPaw Local setup](./models#QwenPaw-Local-llamacpp-Configuration) to enable the plugin, install the runtime, and start a Flash GGUF model. If the card is missing, check the plugin before downloading any weights.
 
 > QwenPaw Local is still in beta. Compatibility across different devices and
 > runtime stability are still being improved. If you run into issues while
@@ -348,8 +340,7 @@ Then run the following command in your terminal:
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. In QwenPaw model settings, choose the Ollama provider, then automatically load
-   the model on the Models page.
+4. Open the Ollama model list in QwenPaw, click **Update model list**, and enable the imported model.
 
 #### LM Studio
 
@@ -365,8 +356,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-4. In QwenPaw model settings, choose the LM Studio provider, then automatically
-   load the model on the Models page.
+4. Open the LM Studio model list in QwenPaw, click **Update model list**, and enable the imported model.
 
 ### When using models deployed with Ollama / LM Studio, why can't QwenPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 

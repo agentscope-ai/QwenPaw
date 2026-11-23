@@ -247,13 +247,13 @@ QwenPaw 已开源，官方仓库地址：
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://qwenpaw.agentscope.io/docs/models)：
 
 - 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商）。
-- 本地模型：支持 `llama.cpp`，LM Studio 和 Ollama。
+- 本地模型：使用可选的 QwenPaw Local 插件，或连接已启动的 Ollama、LM Studio 服务。
 
-配置好模型后，可在模型页面最上方的 **默认 LLM** 中选择目标提供商和目标模型，保存后即为全局默认模型。
+在 **设置 → 模型 → 默认模型** 中选择 **对话模型**，选择后自动保存。**决策模型** 是独立配置，不是第二个对话模型。
 
-如果想为不同智能体配置单独的模型，可以在控制台页面左上角切换智能体，并在 **聊天** 页面右上角为当前智能体选择单独的模型。
+要为某个会话单独选模，请使用聊天输入区的模型选择器。清除会话选择后会重新继承智能体的模型；不会修改智能体或全局默认值。
 
-命令行也可使用 `qwenpaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → qwenpaw models](https://qwenpaw.agentscope.io/docs/cli#qwenpaw-models)。
+在终端配置提供商凭据或切换默认模型，见 [CLI：qwenpaw models](./cli#qwenpaw-models)。
 
 ### 如何使用 QwenPaw-Flash 系列模型
 
@@ -261,13 +261,9 @@ QwenPaw-Flash 是 QwenPaw 官方根据 QwenPaw 的应用场景专门调优的系
 
 QwenPaw-Flash 模型目前已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 以及 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，你可以直接从这两个平台下载使用。
 
-QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
-
 #### QwenPaw Local (llama.cpp)
 
-直接在 QwenPaw Local 的模型界面中选择下载 QwenPaw-Flash 模型并启动即可。
-
-![Start Model](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
+按[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)中的步骤启用插件、安装引擎并启动 Flash GGUF 模型。若看不到提供商卡片，应先检查插件状态，而不是重新下载权重。
 
 > QwenPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
 > 如果无法正常使用 QwenPaw Local，建议先使用 Ollama 或 LM Studio 部署 QwenPaw-Flash 模型。
@@ -311,7 +307,7 @@ PARAMETER top_p 0.95
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. 在 QwenPaw 的模型配置中选择 Ollama 提供商，并在模型页面中自动获取模型即可。
+4. 在 QwenPaw 打开 Ollama 的模型列表，点击 **更新模型列表**，再启用已导入的模型。
 
 #### LM Studio
 
@@ -325,7 +321,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-4. 在 QwenPaw 的模型配置中选择 LM Studio 提供商，并在模型页面中自动获取模型即可。
+4. 在 QwenPaw 打开 LM Studio 的模型列表，点击 **更新模型列表**，再启用已导入的模型。
 
 ### 使用 Ollama / LM Studio 部署的模型时，为什么 QwenPaw 无法完成多轮交互、复杂工具调用，或记不住之前的指令？
 

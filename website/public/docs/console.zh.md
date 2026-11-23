@@ -89,7 +89,7 @@ example.com {
 ![聊天](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
 
 **选择模型：**
-聊天页面右上角可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
+聊天输入区的模型选择器可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
 
 普通回复、手动 `/compact`、`/history` 的上下文上限和自动会话标题生成都会跟随这一选择。会话中的推理偏好按提供商和模型分别保存。图片和视频能力检查、按需探测会跟随实际执行本轮对话的模型，包括触发 fallback 后使用的模型。
 
@@ -427,12 +427,12 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
-![模型](https://img.alicdn.com/imgextra/i2/O1CN01ardjB01FvwzCXWW2f_!!6000000000550-2-tps-3810-2064.png)
+![全局默认模型与云端提供商](/doc-images/2.3.1b1/models.zh.png)
 
 在本页面，你可以：
 
 - 配置云端提供商（ModelScope、DashScope、OpenAI、Anthropic 等）
-- 配置本地提供商（llama.cpp、Ollama、LM Studio）
+- 连接 Ollama 或 LM Studio，或通过可选的 QwenPaw Local 插件管理 llama.cpp
 - 通过填写 API 详情添加自定义提供商
 - 选择智能体默认使用的模型
 
