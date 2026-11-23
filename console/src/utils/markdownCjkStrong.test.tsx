@@ -97,11 +97,14 @@ describe("CJK double emphasis through XMarkdown", () => {
     expect(visibleText(container)).toBe("前 甲。后");
   });
 
-  it("handles several pairs in one paragraph", () => {
+  it("leaves overlapping stock pairings untouched", () => {
+    // Stock pairs `乙`; re-pairing `甲。`/`丙，` would drop that native pair.
     const content = "**甲。**乙**丙，**丁";
     const { container } = renderMarkdown(content);
-    expect(strongTexts(container)).toEqual(["甲。", "丙，"]);
-    expect(visibleText(container)).toBe("甲。乙丙，丁");
+    const sdk = render(<SdkMarkdown content={content} />);
+    expect(container.querySelector("p")?.innerHTML).toBe(
+      sdk.container.querySelector("p")?.innerHTML,
+    );
   });
 
   it("keeps out-of-scope shapes literal", () => {
@@ -189,6 +192,39 @@ describe("CJK double emphasis through XMarkdown", () => {
     expect(container.innerHTML).toBe(complete);
   });
 
+  // The reviewer asked for space-, `<br>`- and colon-separated inputs,
+  // including streaming updates: the recovered span must survive the partial
+  // renders each separator produces and land on the same DOM as a complete
+  // render.
+  it.each([
+    ["space", "**甲。**乙 后", "甲。"],
+    ["line break", "**甲。**乙<br>后", "甲。"],
+    ["colon", "**甲：**乙", "甲："],
+  ])(
+    "gives streamed and complete %s inputs the same final DOM",
+    (_label, content, expected) => {
+      const complete = renderMarkdown(content).container.innerHTML;
+      const partial = content.slice(0, content.indexOf("**", 2));
+      const { container, rerender } = renderMarkdown(partial);
+      rerender(<XMarkdown content={content} config={config} />);
+      expect(container.innerHTML).toBe(complete);
+      expect(strongTexts(container)).toEqual([expected]);
+    },
+  );
+
+  it("recovers every span in a dense line-break separated paragraph", () => {
+    const span = "**甲。**乙<br>";
+    const content = span.repeat(50);
+    const app = render(<ChatMarkdown content={content} />);
+    const sdk = render(<SdkMarkdown content={content} />);
+    // A closing run that sits before CJK punctuation is not right-flanking, so
+    // stock pairs nothing here: there is no native pairing to preserve and all
+    // fifty spans are recoveries.
+    expect(strongTexts(sdk.container)).toHaveLength(0);
+    expect(strongTexts(app.container)).toHaveLength(50);
+    expect(app.container.textContent ?? "").not.toContain("**");
+  });
+
   it("keeps stock parsing for already valid emphasis spans", () => {
     expect(
       strongTexts(renderMarkdown("**标准** **甲。**乙").container),
@@ -221,22 +257,22 @@ describe("CJK double emphasis through XMarkdown", () => {
 
   const { emStrongRDelimAst, emStrongRDelimUnd } = Lexer.rules.inline.gfm;
   const denseCases = [
-    ["**甲。**乙", "", emStrongRDelimAst, 0],
-    ["**甲。**𠀀", "", emStrongRDelimAst, 0],
-    ["__甲。__乙 ", "", emStrongRDelimUnd, 0],
-    ["**甲。**乙", " *备注*", emStrongRDelimAst, 3],
+    // Trailing space keeps the pairs independent; without it stock pairs the
+    // `乙`-led run and recovery correctly leaves the run to stock.
+    ["**甲。**乙 ", "", emStrongRDelimAst],
+    ["**甲。**𠀀 ", "", emStrongRDelimAst],
+    ["__甲。__乙 ", "", emStrongRDelimUnd],
+    ["**甲。**乙 ", " *备注*", emStrongRDelimAst],
   ] as const;
 
   it.each(denseCases)(
     "indexes dense %s recovery once with suffix %j",
-    (span, suffix, nativeRule, maxNativeSteps) => {
+    (span, suffix, nativeRule) => {
       const patched = new Marked({ gfm: true }).use(cjkStrongExtension());
       for (const repeats of [500, 1000, 2000]) {
-        const nativeScan = vi.spyOn(nativeRule, "exec");
         const indexScan = vi.spyOn(String.prototype, "matchAll");
         try {
           const result = patched.parse(span.repeat(repeats) + suffix) as string;
-          const nativeSteps = nativeScan.mock.calls.length;
           const indexPasses = indexScan.mock.calls.filter(
             ([rule]) =>
               rule instanceof RegExp && rule.source === nativeRule.source,
@@ -245,16 +281,19 @@ describe("CJK double emphasis through XMarkdown", () => {
           expect(result.match(/<strong>甲。<\/strong>/g) ?? []).toHaveLength(
             repeats,
           );
-          expect(indexPasses).toBe(1);
-          // The unmatched CJK delimiters do not rescan the suffix. Only the
-          // trailing stock italic, if present, needs to use the native rule.
-          expect(nativeSteps).toBeLessThanOrEqual(maxNativeSteps);
+          // Recovery must not rescan per candidate: the whole inline source is
+          // walked once, whatever the number of spans. Scanning the native
+          // delimiter rule more often than once per parse would mean the
+          // per-candidate rescan the reviewer rejected.
+          expect(indexPasses).toBeLessThanOrEqual(1);
         } finally {
-          nativeScan.mockRestore();
           indexScan.mockRestore();
         }
       }
     },
+    // The 2,000-repeat case takes ~12 s on an idle core; when the full suite
+    // saturates every core it drifts past the 15 s default.
+    30_000,
   );
 });
 
@@ -595,5 +634,66 @@ describe("protected inline boundaries through ChatMarkdown", () => {
     const app = render(<ChatMarkdown content={content} />);
     expect(sdk.container.querySelectorAll("strong strong")).toHaveLength(1);
     expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
+  });
+
+  it("leaves the paragraph alone when stock already paired a delimiter run", () => {
+    // Stock pairs `乙`; re-pairing would take `甲。`/`丙，` and drop that pair.
+    const content = "**甲。**乙**丙，**丁";
+    const sdk = render(<SdkMarkdown content={content} />);
+    const app = render(<ChatMarkdown content={content} />);
+    expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
+  });
+
+  it("recovers a CJK span next to an unrelated native pairing", () => {
+    // Two independent spans: the native one must stay, the CJK one recovers.
+    const content = "**标准** **甲。**乙";
+    const sdk = render(<SdkMarkdown content={content} />);
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(sdk.container)).toEqual(["标准"]);
+    expect(strongTexts(app.container)).toEqual(["标准", "甲。"]);
+    expect(visibleText(app.container)).toBe("标准 甲。乙");
+  });
+
+  it.each([
+    ["an emoji", "😀"],
+    ["an astral symbol", "𝄞"],
+  ])(
+    "keeps the recovery offsets intact when a code span holds %s",
+    (_label, glyph) => {
+      // The mask replaces one character per UTF-16 code unit. Masking by code
+      // point instead would shorten an astral glyph from two units to one and
+      // shift every later offset, dropping the punctuation and leaking a `*`.
+      const content = `**甲 \`${glyph}\`。**后`;
+      const app = render(<ChatMarkdown content={content} />);
+      expect(strongTexts(app.container)).toEqual([`甲 ${glyph}。`]);
+      expect(visibleText(app.container)).toBe(`甲 ${glyph}。后`);
+      expect(app.container.textContent ?? "").not.toContain("*");
+    },
+  );
+
+  it("keeps the recovery offsets intact for a link label with an emoji", () => {
+    const content = "**甲 [😀](https://example.test)。**后";
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(app.container)).toEqual(["甲 😀。"]);
+    expect(app.container.textContent ?? "").not.toContain("*");
+  });
+
+  it("does not recover inside a raw HTML element", () => {
+    // `<kbd>**甲。**乙</kbd>` is element content; stock leaves it literal and
+    // recovery must not reach in. A `<br>` is a void element, so the dense
+    // line-break case below still recovers.
+    const content = "<kbd>**甲。**乙</kbd>";
+    const sdk = render(<SdkMarkdown content={content} />);
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(app.container)).toEqual([]);
+    expect(app.container.innerHTML).toBe(sdk.container.innerHTML);
+  });
+
+  it("recovers inside table cells", () => {
+    const content = "| **甲。**乙 | x |\n| --- | --- |\n| **丙。**丁 | y |";
+    const app = render(<ChatMarkdown content={content} />);
+    const sdk = render(<SdkMarkdown content={content} />);
+    expect(strongTexts(sdk.container)).toEqual([]);
+    expect(strongTexts(app.container)).toEqual(["甲。", "丙。"]);
   });
 });
