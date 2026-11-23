@@ -11,6 +11,10 @@ from pathlib import Path
 import sys
 from typing import Any
 
+PLATFORM_STATES = frozenset(
+    ("connecting", "connected", "disconnected", "failed"),
+)
+
 
 class DriverContext:
     """Preserve the Channel context and platform state wire contract."""
@@ -44,7 +48,7 @@ class DriverContext:
         await self.peer.notify("channel.auth.required", params.to_mapping())
 
     async def set_platform_state(self, state: str) -> None:
-        if state not in {"connecting", "connected", "disconnected", "failed"}:
+        if state not in PLATFORM_STATES:
             raise ValueError("PLATFORM_STATE_INVALID")
         await self.peer.notify(
             "shared.state",

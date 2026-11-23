@@ -18,6 +18,7 @@ from ..channel_protocol.response_policy import (
     SendFormatPolicy,
 )
 from ..channel_protocol.shared_response_driver import SharedResponseDriver
+from ..channel_protocol.shared_worker import PLATFORM_STATES
 from ..channel_protocol.targets import decode_reply_target
 from ._events import freeze
 from ._models import json_mapping
@@ -363,8 +364,13 @@ class WorkerAdapter(SharedResponseDriver):
         )
 
     async def _status(self, state):
+        if state not in PLATFORM_STATES:
+            raise ValueError("PLATFORM_STATE_INVALID")
+        connected = state == "connected"
+        if connected != self._connected:
+            self._connection_generation += 1
+            self._connected = connected
         await self._context.set_platform_state(state)
-        self._connected = state == "connected"
 
     async def start(self, config):
         await self._restore_responses()
@@ -416,8 +422,17 @@ class WorkerAdapter(SharedResponseDriver):
             self._context.capabilities,
         )
 
-    async def _persist_target(self, handle, target, *, owner):
+    async def _persist_target(
+        self,
+        handle,
+        target,
+        *,
+        owner,
+        connection_generation=None,
+    ):
         async with self._target_lock:
+            if connection_generation is not None:
+                self._check_connection(connection_generation)
             attributes = {
                 "target": json.dumps(
                     _target_data(target),
@@ -527,6 +542,7 @@ class WorkerAdapter(SharedResponseDriver):
 
     async def _receive_message(self, message):
         self._require_connected()
+        connection_generation = self._connection_generation
         if message.session_scope not in {"default", "sender", "group"}:
             raise ValueError("Unknown channel session scope")
         if message.session_scope == "group" and not message.is_group:
@@ -622,11 +638,13 @@ class WorkerAdapter(SharedResponseDriver):
                         "user_id": user_id,
                         "session_id": message.session_id,
                     },
+                    connection_generation=connection_generation,
                 )
             ack, uncertain = await self._admit_event(
                 event,
                 created,
                 detailed=True,
+                connection_generation=connection_generation,
             )
             if ack:
                 if event_id in ack.accepted_event_ids:

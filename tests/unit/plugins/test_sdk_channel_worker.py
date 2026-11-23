@@ -569,6 +569,117 @@ async def test_channel_admission_reports_host_result_without_false_acceptance(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("window", ["resolve", "retry"])
+@pytest.mark.parametrize("reconnect", [False, True])
+async def test_channel_stops_old_inbound_work_on_disconnect(
+    tmp_path,
+    window,
+    reconnect,
+):
+    async def disconnect(ch):
+        await ch.report_status("disconnected")
+        if reconnect:
+            await ch.report_status("connected")
+
+    class DisconnectingDriver(Driver):
+        async def resolve_target(self, ch, target):
+            if window == "resolve" and target.session_id == "old-session":
+                await disconnect(ch)
+            return target
+
+    class DisconnectingPeer(HostPeer):
+        transition = None
+
+        async def call(self, name, params):
+            if (
+                name == "event.batch"
+                and window == "retry"
+                and not self.batches
+            ):
+                self.batches.append(params)
+                # Run the transition when the admission loop waits to retry.
+                self.transition = asyncio.create_task(disconnect(adapter.ch))
+                event_id = params["events"][0]["event_id"]
+                return {
+                    "batch_id": params["batch_id"],
+                    "rejected_events": [
+                        {
+                            "event_id": event_id,
+                            "reason_code": "INGRESS_BACKPRESSURE",
+                            "retryable": True,
+                        },
+                    ],
+                }
+            return await super().call(name, params)
+
+    peer = DisconnectingPeer(tmp_path)
+    adapter, _, _ = await setup(tmp_path, DisconnectingDriver, peer=peer)
+    old = ChannelMessage(
+        "alice",
+        (ContentBlock(text="old message"),),
+        session_id="old-session",
+        message_id="old",
+    )
+    try:
+        with pytest.raises(RuntimeError, match="STALE_CONNECTION_CALLBACK"):
+            await adapter.ch.receive(old)
+        attempts = 0 if window == "resolve" else 1
+        assert len(peer.batches) == attempts
+        if window == "resolve":
+            assert not adapter._routes.snapshots()
+        if not reconnect:
+            with pytest.raises(ValueError, match="NOT_CONNECTED"):
+                await adapter.ch.receive(old)
+            await adapter.ch.report_status("connected")
+        new = replace(old, session_id="new-session", message_id="new")
+        result = await adapter.ch.receive(new)
+        assert result.status == "accepted"
+        assert len(peer.batches) == attempts + 1
+        assert peer.batches[-1]["events"][0]["metadata"]["message_id"] == "new"
+        if window == "retry":
+            first = peer.batches[0]["events"][0]
+            assert (await adapter.ch.receive(old)).status == "accepted"
+            retried = peer.batches[-1]["events"][0]
+            assert retried["event_id"] == first["event_id"]
+            assert retried["response_handle"] == first["response_handle"]
+    finally:
+        if peer.transition is not None:
+            await peer.transition
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_invalidates_locally_before_notifying_host(tmp_path):
+    notifying, release = asyncio.Event(), asyncio.Event()
+
+    class SlowStatusPeer(HostPeer):
+        async def notify(self, name, params):
+            if params.get("platform_state") == "disconnected":
+                notifying.set()
+                await release.wait()
+            await super().notify(name, params)
+
+    adapter, peer, _ = await setup(tmp_path, peer=SlowStatusPeer(tmp_path))
+    disconnect = asyncio.create_task(adapter.ch.report_status("disconnected"))
+    try:
+        await asyncio.wait_for(notifying.wait(), 5)
+        with pytest.raises(ValueError, match="NOT_CONNECTED"):
+            await adapter.ch.receive(
+                ChannelMessage(
+                    "alice",
+                    (),
+                    session_id="one",
+                    message_id="old",
+                ),
+            )
+        assert not peer.batches
+    finally:
+        release.set()
+        await disconnect
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_inflight_effect_and_retains_unknown_receipt(
     tmp_path,
 ):

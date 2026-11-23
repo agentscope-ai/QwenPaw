@@ -610,7 +610,14 @@ class SharedResponseDriver:
             self._locks[handle] = asyncio.Lock()
         return self._locks[handle]
 
-    async def _admit_event(self, event, created, *, detailed=False):
+    async def _admit_event(
+        self,
+        event,
+        created,
+        *,
+        detailed=False,
+        connection_generation=None,
+    ):
         if getattr(
             event,
             "actor_unknown",
@@ -621,7 +628,11 @@ class SharedResponseDriver:
             (),
         ):
             raise RpcError(-32602, "Unknown actor capability was not declared")
-        generation = self._connection_generation
+        generation = (
+            self._connection_generation
+            if connection_generation is None
+            else connection_generation
+        )
         policy = RetryPolicy(initial_delay=0.1, max_delay=1.0, max_attempts=5)
         batch = EventBatchParams(uuid.uuid4().hex, (event,))
         uncertain = False
