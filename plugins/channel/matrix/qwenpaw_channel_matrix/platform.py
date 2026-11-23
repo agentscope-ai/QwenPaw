@@ -125,6 +125,18 @@ _E2EE_STARTUP_RETRY_DELAY = 1
 
 _LOGIN_RETRY_INITIAL_DELAY = 5.0
 _LOGIN_RETRY_MAX_DELAY = 60.0
+_MATRIX_ERROR_CODE = re.compile(r"M_[A-Z0-9_]{1,48}")
+
+
+def _response_summary(response: Any) -> str:
+    """Return protocol status without response bodies or request URLs."""
+    code = getattr(response, "status_code", None)
+    if not isinstance(code, str) or not _MATRIX_ERROR_CODE.fullmatch(code):
+        code = None
+    transport = getattr(response, "transport_response", None)
+    status = getattr(transport, "status", None)
+    return f"{type(response).__name__} http_status={status} code={code}"
+
 
 # Known QwenPaw slash commands — used to decide whether to strip
 # @mention prefix
@@ -305,14 +317,16 @@ class MatrixPlatform:
         self._tasks.discard(task)
         if not task.cancelled() and task.exception() is not None:
             logger.error(
-                "Matrix background task failed",
-                exc_info=task.exception(),
+                f"Matrix background task failed "
+                f"({type(task.exception()).__name__})",
             )
 
     async def start(self):
         if self._client is not None or self._start_task is not None:
             raise RuntimeError("MATRIX_RESOURCES_ALREADY_OWNED")
         if not self.enabled or not self.homeserver:
+            if self.enabled:
+                logger.warning(f"Matrix homeserver missing; skipping startup")
             await self.on_state("disconnected")
             return
         self._ready = False
@@ -338,13 +352,16 @@ class MatrixPlatform:
             )
             self._init_async_client(resolved_device_id)
             if has_password_creds and not self._cached_auth_identity:
+                logger.debug(f"Matrix authenticating with password")
                 authenticated = await self._login_with_password(
                     login_user,
                     resolved_device_id,
                 )
             elif self.access_token:
+                logger.debug(f"Matrix authenticating with access token")
                 authenticated = await self._login_with_access_token()
             else:
+                logger.error(f"Matrix credentials missing")
                 raise RuntimeError("MATRIX_CREDENTIALS_REQUIRED")
             if not authenticated or self._is_stopping():
                 raise RuntimeError("MATRIX_AUTHENTICATION_FAILED")
@@ -373,6 +390,10 @@ class MatrixPlatform:
         if self._stop_event is not None:
             self._stop_event.set()
         current = asyncio.current_task()
+        if self._sync_task and (
+            self._sync_task is not current and not self._sync_task.done()
+        ):
+            logger.debug(f"Matrix stopping active sync task")
         tasks = {*self._tasks, *self._typing_tasks.values(), *self._operations}
         if self._start_task is not None:
             tasks.add(self._start_task)
@@ -432,10 +453,15 @@ class MatrixPlatform:
             cache.clear()
         self._state.close()
         await self.on_state("disconnected")
+        logger.info(f"Matrix stopped")
 
     def _load_auth_state(self, restore_token=True, restore_identity=True):
         try:
             payload = self._state.auth_hint() or {}
+            if payload and not (restore_token or restore_identity):
+                logger.debug(
+                    f"Matrix cached auth state skipped by configuration",
+                )
             if restore_token:
                 token = payload.get("access_token")
                 user = payload.get("user_id")
@@ -446,16 +472,21 @@ class MatrixPlatform:
                     isinstance(value, str) and value
                     for value in (token, user, device)
                 ):
+                    logger.debug(f"Matrix cached auth state scope mismatched")
                     return
                 if not hmac.compare_digest(
                     str(payload.get("password_fingerprint", "")),
                     self._password_fingerprint(token),
                 ):
+                    logger.debug(
+                        f"Matrix cached auth state password mismatched",
+                    )
                     return
                 if not self.access_token:
                     self.access_token = token
                     self.device_id = device
                     self._cached_auth_identity = (user, device)
+                    logger.debug(f"Matrix cached password session restored")
             if restore_identity:
                 self.matrix_user_id = self.matrix_user_id or str(
                     payload.get("user_id", ""),
@@ -463,8 +494,12 @@ class MatrixPlatform:
                 self.device_id = self.device_id or str(
                     payload.get("device_id", ""),
                 )
+                if payload:
+                    logger.debug(f"Matrix cached identity hints loaded")
         except Exception as exc:
-            logger.warning("Matrix auth hint could not be read: %s", exc)
+            logger.warning(
+                f"Matrix auth hint could not be read ({type(exc).__name__})",
+            )
 
     def _password_fingerprint(self, token: str) -> str:
         """Bind a cached session to its password with a slow password KDF."""
@@ -512,7 +547,9 @@ class MatrixPlatform:
                 else "",
             )
         except OSError as exc:
-            logger.warning("Matrix auth state could not be saved: %s", exc)
+            logger.warning(
+                f"Matrix auth state could not be saved ({type(exc).__name__})",
+            )
         self.access_token = self._client.access_token
         self.matrix_user_id = self._user_id
         self.device_id = self._client.device_id or self.device_id
@@ -523,13 +560,18 @@ class MatrixPlatform:
             )
 
     def _load_sync_token(self):
-        return self._state.load_sync()
+        token = self._state.load_sync()
+        if token is not None:
+            logger.debug(f"Matrix sync token restored")
+        return token
 
     def _save_sync_token(self, token):
         try:
             self._state.save_sync(token)
         except OSError as exc:
-            logger.warning("Matrix sync token could not be saved: %s", exc)
+            logger.warning(
+                f"Matrix sync token could not be saved ({type(exc).__name__})",
+            )
 
     def _media_dir(self):
         path = (
@@ -690,20 +732,14 @@ class MatrixPlatform:
             self._client.device_id = resp.device_id
         if getattr(resp, "access_token", None):
             self._client.access_token = resp.access_token
-        logger.info(
-            "MatrixChannel: logged in as %s (password, device=%s, device_name=%s)",
-            self._user_id,
-            getattr(self._client, "device_id", ""),
-            self.device_name,
-        )
+        logger.info(f"Matrix password login succeeded")
         await self._bind_authenticated_state()
         self._save_auth_state()
         if self.encryption and self._client.store_path:
             if self._client.device_id:
                 self._client.load_store()
                 logger.info(
-                    "MatrixChannel: crypto store loaded from %s",
-                    self._client.store_path,
+                    f"Matrix crypto store loaded after password login",
                 )
             else:
                 logger.warning(
@@ -764,14 +800,13 @@ class MatrixPlatform:
                 return True
             if not self._is_retryable_auth_failure(resp):
                 logger.error(
-                    "MatrixChannel: password login rejected: %s",
-                    resp,
+                    f"Matrix password login rejected: "
+                    f"{_response_summary(resp)}",
                 )
                 return False
             logger.warning(
-                "MatrixChannel: password login temporarily failed, retrying in %.1fs: %s",
-                delay,
-                resp,
+                f"Matrix password login temporary failure: "
+                f"{_response_summary(resp)}; retrying in {delay:.1f}s",
             )
             if await self._wait_backoff_or_stop(delay):
                 return False
@@ -801,12 +836,14 @@ class MatrixPlatform:
                     self._client.device_id,
                 )
             if not self._is_retryable_auth_failure(whoami):
-                logger.error("MatrixChannel: token login rejected: %s", whoami)
+                logger.error(
+                    f"Matrix token login rejected: "
+                    f"{_response_summary(whoami)}",
+                )
                 return False
             logger.warning(
-                "MatrixChannel: token login temporarily failed, retrying in %.1fs: %s",
-                delay,
-                whoami,
+                f"Matrix token login temporary failure: "
+                f"{_response_summary(whoami)}; retrying in {delay:.1f}s",
             )
             if await self._wait_backoff_or_stop(delay):
                 return False
@@ -828,9 +865,7 @@ class MatrixPlatform:
                 return False
         elif self.matrix_user_id and self.matrix_user_id != whoami.user_id:
             logger.error(
-                "MatrixChannel: configured user_id=%s does not match access_token owner=%s; refusing stale credentials",
-                self.matrix_user_id,
-                whoami.user_id,
+                f"Matrix configured user does not match the token owner",
             )
             return False
         self._user_id = whoami.user_id
@@ -838,20 +873,13 @@ class MatrixPlatform:
         self._client.user = whoami.user_id
         if whoami.device_id:
             self._client.device_id = whoami.device_id
-        logger.info(
-            "MatrixChannel: logged in as %s (token, device=%s)",
-            self._user_id,
-            whoami.device_id,
-        )
+        logger.info(f"Matrix token login succeeded")
         await self._bind_authenticated_state()
         self._save_auth_state()
         if self.encryption and self._client.store_path:
             if self._client.device_id:
                 self._client.load_store()
-                logger.info(
-                    "MatrixChannel: crypto store loaded from %s",
-                    self._client.store_path,
-                )
+                logger.info(f"Matrix crypto store loaded after token login")
             else:
                 logger.error(
                     "MatrixChannel: E2EE enabled but whoami returned no device_id "
@@ -948,7 +976,10 @@ class MatrixPlatform:
                 )
             except Exception as exc:
                 self._e2ee_query_retryable = True
-                logger.warning("Matrix E2EE device keys query failed: %s", exc)
+                logger.warning(
+                    f"Matrix E2EE device keys query failed "
+                    f"({type(exc).__name__})",
+                )
                 return self._record_e2ee_error(
                     "Matrix E2EE device keys query could not complete.",
                 )
@@ -996,14 +1027,17 @@ class MatrixPlatform:
                 uploaded = await client.keys_upload()
                 if not isinstance(uploaded, KeysUploadResponse):
                     return self._record_e2ee_error(
-                        "Matrix E2EE keys upload failed; restart the channel "
-                        "to retry.",
+                        f"Matrix E2EE keys upload failed: "
+                        f"{_response_summary(uploaded)}; "
+                        f"restart the channel to retry.",
                     )
                 logger.info("MatrixChannel: E2E keys uploaded")
             self._e2ee_error = None
             return True
         except Exception as exc:
-            logger.warning("MatrixChannel: E2EE key check failed: %s", exc)
+            logger.warning(
+                f"Matrix E2EE key check failed ({type(exc).__name__})",
+            )
             return self._record_e2ee_error(
                 "Matrix E2EE device keys could not be verified.",
             )
@@ -1078,7 +1112,9 @@ class MatrixPlatform:
                 )
             await self._client.send_to_device_messages()
         except Exception as exc:
-            logger.warning("MatrixChannel: E2EE maintenance error: %s", exc)
+            logger.warning(
+                f"Matrix E2EE maintenance failed ({type(exc).__name__})",
+            )
 
     async def _on_key_verification_event(
         self,
@@ -1086,20 +1122,12 @@ class MatrixPlatform:
     ) -> None:
         if not self._client or not self._client.olm:
             logger.info(
-                "MatrixChannel: verification event received but olm is not ready (event=%s, tx=%s, sender=%s)",
-                type(event).__name__,
-                getattr(event, "transaction_id", ""),
-                getattr(event, "sender", ""),
+                f"Matrix verification event without Olm: "
+                f"{type(event).__name__}",
             )
             return
         try:
-            logger.info(
-                "MatrixChannel: verification event received (event=%s, tx=%s, sender=%s, from_device=%s)",
-                type(event).__name__,
-                getattr(event, "transaction_id", ""),
-                getattr(event, "sender", ""),
-                getattr(event, "from_device", ""),
-            )
+            logger.info(f"Matrix verification event: {type(event).__name__}")
             if isinstance(event, KeyVerificationStart):
                 await self._handle_key_verification_start(event)
             elif isinstance(event, KeyVerificationKey):
@@ -1107,10 +1135,8 @@ class MatrixPlatform:
             elif isinstance(event, KeyVerificationMac):
                 sas = self._client.key_verifications.get(event.transaction_id)
                 logger.info(
-                    "MatrixChannel: key verification MAC received (tx=%s, verified=%s, verified_devices=%s)",
-                    event.transaction_id,
-                    getattr(sas, "verified", False),
-                    getattr(sas, "verified_devices", []),
+                    f"Matrix verification MAC received: "
+                    f"verified={bool(sas and sas.verified)}",
                 )
                 if getattr(sas, "verified", False):
                     await self._send_verification_done(event.transaction_id)
@@ -1121,32 +1147,21 @@ class MatrixPlatform:
                     {},
                 )
                 if known_tx:
-                    logger.info(
-                        "MatrixChannel: key verification cancelled by %s (tx=%s, reason=%s)",
-                        event.sender,
-                        event.transaction_id,
-                        getattr(event, "reason", ""),
-                    )
+                    logger.info(f"Matrix known key verification cancelled")
                 else:
                     logger.info(
-                        "MatrixChannel: key verification cancelled for unknown "
-                        "key verification tx=%s from %s (reason=%s)",
-                        event.transaction_id,
-                        event.sender,
-                        getattr(event, "reason", ""),
+                        f"Matrix key verification cancelled for an unknown "
+                        f"transaction",
                     )
                 self._clear_verification_transaction(event.transaction_id)
             else:
                 logger.info(
-                    "MatrixChannel: unhandled verification event type=%s (tx=%s, sender=%s)",
-                    type(event).__name__,
-                    getattr(event, "transaction_id", ""),
-                    getattr(event, "sender", ""),
+                    f"Matrix unhandled verification event: "
+                    f"{type(event).__name__}",
                 )
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: key verification handling failed: %s",
-                exc,
+                f"Matrix verification handling failed ({type(exc).__name__})",
             )
 
     async def _on_to_device_probe_event(self, event: ToDeviceEvent) -> None:
@@ -1158,10 +1173,7 @@ class MatrixPlatform:
         ):
             return
         logger.info(
-            "MatrixChannel: raw to-device verification event (type=%s, parsed=%s, sender=%s)",
-            raw_type,
-            type(event).__name__,
-            getattr(event, "sender", ""),
+            f"Matrix raw to-device verification event: {type(event).__name__}",
         )
         if raw_type in (
             "m.key.verification.request",
@@ -1184,22 +1196,11 @@ class MatrixPlatform:
     ) -> None:
         if isinstance(event, RoomKeyRequest):
             logger.warning(
-                "MatrixChannel: room key request received; other device may show "
-                "'Review' until trust decision is made (sender=%s device=%s "
-                "request_id=%s room_id=%s session_id=%s)",
-                event.sender,
-                event.requesting_device_id,
-                event.request_id,
-                getattr(event, "room_id", ""),
-                getattr(event, "session_id", ""),
+                f"Matrix room key request received; "
+                f"other device may show 'Review' pending a trust decision",
             )
         else:
-            logger.info(
-                "MatrixChannel: room key request cancelled (sender=%s device=%s request_id=%s)",
-                event.sender,
-                event.requesting_device_id,
-                event.request_id,
-            )
+            logger.info(f"Matrix room key request cancelled")
 
     async def _handle_unknown_key_verification_request(
         self,
@@ -1212,35 +1213,22 @@ class MatrixPlatform:
         sender = getattr(event, "sender", "")
         from_device = str(content.get("from_device", "") or "")
         transaction_id = str(content.get("transaction_id", "") or "")
-        methods = content.get("methods", []) or []
         request_key = f"{sender}|{from_device}|{transaction_id}"
         self._prune_verification_state()
         if request_key in self._handled_verification_requests:
-            logger.debug(
-                "MatrixChannel: verification request already handled (sender=%s, device=%s, tx=%s)",
-                sender,
-                from_device,
-                transaction_id,
-            )
+            logger.debug(f"Matrix verification request already handled")
             return
         self._remember_verification_request(request_key)
         if not sender or not from_device:
             logger.warning(
-                "MatrixChannel: cannot handle verification request without sender/device (sender=%s, device=%s, tx=%s)",
-                sender,
-                from_device,
-                transaction_id,
+                f"Matrix verification request missing peer identity",
             )
             return
         self._remember_verification_peer(transaction_id, sender, from_device)
         our_device = getattr(self._client, "device_id", "") or ""
         if not our_device:
             logger.warning(
-                "MatrixChannel: cannot reply verification request without local "
-                "device_id (sender=%s, device=%s, tx=%s)",
-                sender,
-                from_device,
-                transaction_id,
+                f"Matrix verification reply missing a local device ID",
             )
             return
         ready_content = {
@@ -1259,30 +1247,18 @@ class MatrixPlatform:
         except Exception as exc:
             self._handled_verification_requests.pop(request_key, None)
             logger.warning(
-                "MatrixChannel: failed to send verification ready (sender=%s, device=%s, tx=%s): %s",
-                sender,
-                from_device,
-                transaction_id,
-                exc,
+                f"Matrix could not send verification ready "
+                f"({type(exc).__name__})",
             )
             return
         if isinstance(resp, ToDeviceError):
             self._handled_verification_requests.pop(request_key, None)
             logger.warning(
-                "MatrixChannel: homeserver rejected verification ready (sender=%s, device=%s, tx=%s): %s",
-                sender,
-                from_device,
-                transaction_id,
-                resp,
+                f"Matrix verification ready rejected: "
+                f"{_response_summary(resp)}",
             )
             return
-        logger.info(
-            "MatrixChannel: sent verification ready for request (sender=%s, device=%s, tx=%s, methods=%s)",
-            sender,
-            from_device,
-            transaction_id,
-            methods,
-        )
+        logger.info(f"Matrix verification ready sent")
 
     async def _handle_unknown_key_verification_done(
         self,
@@ -1293,11 +1269,7 @@ class MatrixPlatform:
         tx = str(content.get("transaction_id", "") or "")
         if not tx:
             return
-        logger.info(
-            "MatrixChannel: received verification done from %s (tx=%s)",
-            getattr(event, "sender", ""),
-            tx,
-        )
+        logger.info(f"Matrix verification done received")
         if tx not in self._sent_verification_done:
             await self._send_verification_done(tx)
 
@@ -1317,12 +1289,8 @@ class MatrixPlatform:
             await self._recover_key_verification_start(event)
         if event.transaction_id not in self._client.key_verifications:
             logger.warning(
-                "MatrixChannel: cannot accept key verification from %s "
-                "(device=%s, tx=%s) because no SAS state exists yet; retry "
-                "verification after the next sync",
-                event.sender,
-                event.from_device,
-                event.transaction_id,
+                f"Matrix verification missing local SAS state; retry after "
+                f"the next sync",
             )
             return
         try:
@@ -1331,24 +1299,17 @@ class MatrixPlatform:
             )
         except LocalProtocolError as exc:
             logger.warning(
-                "MatrixChannel: accept_key_verification failed for tx=%s: %s",
-                event.transaction_id,
-                exc,
+                f"Matrix could not accept key verification: "
+                f"({type(exc).__name__})",
             )
             return
         if isinstance(resp, ToDeviceError):
             logger.warning(
-                "MatrixChannel: accept_key_verification failed for tx=%s: %s",
-                event.transaction_id,
-                resp,
+                f"Matrix could not accept key verification: "
+                f"{_response_summary(resp)}",
             )
             return
-        logger.info(
-            "MatrixChannel: accepted key verification from %s (device=%s, tx=%s)",
-            event.sender,
-            event.from_device,
-            event.transaction_id,
-        )
+        logger.info(f"Matrix key verification accepted")
 
     async def _send_verification_done(self, transaction_id: str) -> None:
         if (
@@ -1360,8 +1321,7 @@ class MatrixPlatform:
         peer = self._verification_tx_peers.get(transaction_id)
         if not peer:
             logger.warning(
-                "MatrixChannel: cannot send verification done for tx=%s because peer device is unknown",
-                transaction_id,
+                f"Matrix verification completion missing the peer device",
             )
             return
         sender, device_id = peer
@@ -1375,30 +1335,19 @@ class MatrixPlatform:
             resp = await self._client.to_device(done_message)
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: failed to send verification done (tx=%s, sender=%s, device=%s): %s",
-                transaction_id,
-                sender,
-                device_id,
-                exc,
+                f"Matrix could not send verification done "
+                f"({type(exc).__name__})",
             )
             return
         if isinstance(resp, ToDeviceError):
             logger.warning(
-                "MatrixChannel: homeserver rejected verification done (tx=%s, sender=%s, device=%s): %s",
-                transaction_id,
-                sender,
-                device_id,
-                resp,
+                f"Matrix verification done rejected: "
+                f"{_response_summary(resp)}",
             )
             return
         self._remember_sent_verification_done(transaction_id)
         self._clear_verification_transaction(transaction_id)
-        logger.info(
-            "MatrixChannel: sent verification done (tx=%s, sender=%s, device=%s)",
-            transaction_id,
-            sender,
-            device_id,
-        )
+        logger.info(f"Matrix verification done sent")
 
     def _prune_verification_state(self) -> None:
         cutoff = time.monotonic() - VERIFICATION_STATE_TTL_S
@@ -1464,18 +1413,15 @@ class MatrixPlatform:
                 await self._client.keys_query()
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: failed to query keys for verification from %s: %s",
-                event.sender,
-                exc,
+                f"Matrix verification key query failed ({type(exc).__name__})",
             )
             return
         try:
             self._client.olm.handle_key_verification(event)
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: failed to rebuild key verification state for tx=%s: %s",
-                event.transaction_id,
-                exc,
+                f"Matrix could not rebuild verification state "
+                f"({type(exc).__name__})",
             )
 
     async def _handle_key_verification_key(
@@ -1487,16 +1433,13 @@ class MatrixPlatform:
         sas = self._client.key_verifications.get(event.transaction_id)
         if sas is None:
             logger.warning(
-                "MatrixChannel: key verification key for unknown tx=%s from %s; ask Element to restart verification",
-                event.transaction_id,
-                event.sender,
+                f"Matrix verification key has no active transaction; "
+                f"restart verification in Element",
             )
             return
         logger.warning(
-            "MatrixChannel: Element key verification challenge from %s (tx=%s): %s",
-            event.sender,
-            event.transaction_id,
-            self._format_sas_challenge(sas),
+            f"Matrix Element key verification challenge: "
+            f"{self._format_sas_challenge(sas)}",
         )
         await self._client.send_to_device_messages()
         try:
@@ -1505,22 +1448,16 @@ class MatrixPlatform:
             )
         except LocalProtocolError as exc:
             logger.warning(
-                "MatrixChannel: confirm_short_auth_string failed for tx=%s: %s",
-                event.transaction_id,
-                exc,
+                f"Matrix could not confirm SAS: " f"({type(exc).__name__})",
             )
             return
         if isinstance(resp, ToDeviceError):
             logger.warning(
-                "MatrixChannel: confirm_short_auth_string failed for tx=%s: %s",
-                event.transaction_id,
-                resp,
+                f"Matrix could not confirm SAS: " f"{_response_summary(resp)}",
             )
             return
         logger.info(
-            "MatrixChannel: confirmed local SAS side for tx=%s; compare the "
-            "challenge in Element and accept there if it matches",
-            event.transaction_id,
+            f"Matrix confirmed local SAS; compare the challenge in Element",
         )
 
     @staticmethod
@@ -1541,7 +1478,9 @@ class MatrixPlatform:
                         ),
                     )
             except Exception as exc:
-                logger.debug("MatrixChannel: get_emoji failed: %s", exc)
+                logger.debug(
+                    f"Matrix SAS emoji unavailable ({type(exc).__name__})",
+                )
         get_decimal = getattr(sas, "get_decimal", None)
         if callable(get_decimal):
             try:
@@ -1551,10 +1490,13 @@ class MatrixPlatform:
                         "decimal=" + " ".join((str(n) for n in decimals)),
                     )
             except Exception as exc:
-                logger.debug("MatrixChannel: get_decimal failed: %s", exc)
+                logger.debug(
+                    f"Matrix SAS decimal unavailable ({type(exc).__name__})",
+                )
         return "; ".join(parts) if parts else "unavailable"
 
     async def _sync_loop(self) -> None:
+        logger.info(f"Matrix sync loop started")
         next_batch: Optional[str] = self._load_sync_token()
         if next_batch is None:
             logger.info(
@@ -1577,7 +1519,7 @@ class MatrixPlatform:
                     if next_batch is not None:
                         self._save_sync_token(next_batch)
                     for room_id in resp.rooms.invite:
-                        logger.info("MatrixChannel: auto-joining %s", room_id)
+                        logger.info(f"Matrix auto-joining an invited room")
                         await self._client.join(room_id)
                     await self._e2ee_maintenance()
                     logger.info(
@@ -1585,13 +1527,12 @@ class MatrixPlatform:
                     )
                 else:
                     logger.warning(
-                        "MatrixChannel: catch-up sync error: %s",
-                        resp,
+                        f"Matrix catch-up sync failed: "
+                        f"{_response_summary(resp)}",
                     )
             except Exception as exc:
-                logger.exception(
-                    "MatrixChannel: catch-up sync exception: %s",
-                    exc,
+                logger.warning(
+                    f"Matrix catch-up sync failed " f"({type(exc).__name__})",
                 )
         else:
             logger.info(
@@ -1610,18 +1551,18 @@ class MatrixPlatform:
                     if next_batch is not None:
                         self._save_sync_token(next_batch)
                     for room_id in resp.rooms.invite:
-                        logger.info("MatrixChannel: auto-joining %s", room_id)
+                        logger.info(f"Matrix auto-joining an invited room")
                         await self._client.join(room_id)
                     await self._e2ee_maintenance()
                 else:
                     logger.warning(
-                        "MatrixChannel: full-state sync error: %s",
-                        resp,
+                        f"Matrix full-state sync failed: "
+                        f"{_response_summary(resp)}",
                     )
             except Exception as exc:
-                logger.exception(
-                    "MatrixChannel: full-state sync exception: %s",
-                    exc,
+                logger.warning(
+                    f"Matrix full-state sync failed "
+                    f"({type(exc).__name__})",
                 )
         while not self._is_stopping():
             try:
@@ -1637,52 +1578,34 @@ class MatrixPlatform:
                     if next_batch is not None:
                         self._save_sync_token(next_batch)
                     for room_id in resp.rooms.invite:
-                        logger.info("MatrixChannel: auto-joining %s", room_id)
+                        logger.info(f"Matrix auto-joining an invited room")
                         await self._client.join(room_id)
                     await self._e2ee_maintenance()
                 else:
-                    if isinstance(resp, SyncError) and getattr(
-                        resp,
-                        "status_code",
-                        None,
-                    ) in {"M_UNKNOWN_TOKEN", "M_MISSING_TOKEN"}:
-                        logger.error(
-                            "MatrixChannel: sync stopped due to invalid/missing "
-                            "access token; please re-login (password or fresh token)",
-                        )
-                        if self._client:
-                            self._client.access_token = ""
-                        self.access_token = ""
-                        await self.on_state("failed")
-                        return
-                    logger.warning("MatrixChannel: sync error: %s", resp)
+                    logger.warning(
+                        f"Matrix sync failed: {_response_summary(resp)}; "
+                        f"retrying in 5s",
+                    )
                     await asyncio.sleep(5)
             except asyncio.CancelledError:
                 logger.debug("MatrixChannel: sync loop cancelled")
                 raise
             except Exception as exc:
-                logger.exception("MatrixChannel: sync exception: %s", exc)
+                logger.warning(
+                    f"Matrix sync failed ({type(exc).__name__}), "
+                    f"retrying in 5s",
+                )
                 await asyncio.sleep(5)
 
     def _is_channel_disabled(
         self,
-        sender_id: str,
-        room_id: str,
         is_dm: bool,
     ) -> bool:
         if is_dm and self.dm_disabled:
-            logger.warning(
-                "MatrixChannel: dropping DM message (dm_disabled) sender=%s room=%s",
-                sender_id,
-                room_id,
-            )
+            logger.warning(f"Matrix dropping DM: dm_disabled")
             return True
         if not is_dm and self.group_disabled:
-            logger.warning(
-                "MatrixChannel: dropping group message (group_disabled) sender=%s room=%s",
-                sender_id,
-                room_id,
-            )
+            logger.warning(f"Matrix dropping group message: group_disabled")
             return True
         return False
 
@@ -1738,10 +1661,8 @@ class MatrixPlatform:
         if room and self._user_id:
             display_name = self._get_display_name(room, self._user_id)
             logger.debug(
-                "strip_mention_prefix: user_id=%s display_name=%r room_users=%d",
-                self._user_id,
-                display_name,
-                len(getattr(room, "users", {})),
+                f"Matrix checking display-name prefix: "
+                f"room_users={len(getattr(room, 'users', {}))}",
             )
             if display_name and display_name != self._user_id:
                 result = re.sub(
@@ -1773,9 +1694,8 @@ class MatrixPlatform:
                 return name
         except Exception as exc:
             logger.debug(
-                "MatrixChannel: user_name failed for %s: %s",
-                user_id,
-                exc,
+                f"Matrix room display-name lookup failed "
+                f"({type(exc).__name__})",
             )
         if self._client:
             room_id = getattr(room, "room_id", None)
@@ -1786,22 +1706,19 @@ class MatrixPlatform:
                         name = client_room.user_name(user_id)
                         if name:
                             logger.debug(
-                                "display_name resolved via client.rooms fallback: %s -> %r",
-                                user_id,
-                                name,
+                                f"Matrix display name resolved from client "
+                                f"room cache",
                             )
                             return name
                     except Exception as exc:
                         logger.debug(
-                            "MatrixChannel: client_room user_name failed for %s: %s",
-                            user_id,
-                            exc,
+                            f"Matrix cached-room display-name lookup failed "
+                            f"({type(exc).__name__})",
                         )
         logger.debug(
-            "display_name fallback to localpart for %s (room.users=%d, client_rooms=%d)",
-            user_id,
-            len(getattr(room, "users", {})),
-            len(self._client.rooms) if self._client else 0,
+            f"Matrix display name fell back to localpart: "
+            f"room_users={len(getattr(room, 'users', {}))} "
+            f"client_rooms={len(self._client.rooms) if self._client else 0}",
         )
         return user_id.split(":")[0].lstrip("@") or user_id
 
@@ -1957,21 +1874,17 @@ class MatrixPlatform:
 
             if isinstance(resp, DownloadError):
                 logger.warning(
-                    "MatrixChannel: failed to download mxc %s: %s %s",
-                    mxc_url,
-                    type(resp).__name__,
-                    getattr(resp, "message", ""),
+                    f"Matrix media download rejected: "
+                    f"{_response_summary(resp)}",
                 )
                 return None
             dest = self._media_destination(filename)
             dest.write_bytes(resp.body)
-            logger.debug("MatrixChannel: downloaded %s → %s", mxc_url, dest)
+            logger.debug(f"Matrix media downloaded: bytes={len(resp.body)}")
             return str(dest)
         except Exception as exc:
-            logger.exception(
-                "MatrixChannel: unexpected error downloading %s: %s",
-                mxc_url,
-                exc,
+            logger.warning(
+                f"Matrix media download failed ({type(exc).__name__})",
             )
             return None
 
@@ -1991,10 +1904,8 @@ class MatrixPlatform:
 
             if isinstance(resp, DownloadError):
                 logger.warning(
-                    "MatrixChannel: failed to download encrypted %s: %s %s",
-                    mxc_url,
-                    type(resp).__name__,
-                    getattr(resp, "message", ""),
+                    f"Matrix encrypted media download rejected: "
+                    f"{_response_summary(resp)}",
                 )
                 return None
             from nio.crypto.attachments import decrypt_attachment
@@ -2004,17 +1915,12 @@ class MatrixPlatform:
             plaintext = decrypt_attachment(resp.body, jwk_key, sha256_hash, iv)
             dest = self._media_destination(filename)
             dest.write_bytes(plaintext)
-            logger.debug(
-                "MatrixChannel: downloaded+decrypted %s → %s",
-                mxc_url,
-                dest,
-            )
+            logger.debug(f"Matrix media decrypted: bytes={len(plaintext)}")
             return str(dest)
         except Exception as exc:
-            logger.exception(
-                "MatrixChannel: failed to download encrypted %s: %s",
-                mxc_url,
-                exc,
+            logger.warning(
+                f"Matrix encrypted media download failed "
+                f"({type(exc).__name__})",
             )
             return None
 
@@ -2026,11 +1932,8 @@ class MatrixPlatform:
         """Handle undecryptable encrypted events (missing session key)."""
         log = logger.warning if self._logged_megolm_failure else logger.error
         log(
-            "MatrixChannel: could not decrypt event %s in %s (session_id=%s); "
-            "check Matrix channel health for missing E2EE device keys",
-            event.event_id,
-            room.room_id,
-            getattr(event, "session_id", "?"),
+            f"Matrix could not decrypt event; check channel health "
+            f"for missing E2EE device keys",
         )
         self._logged_megolm_failure = True
 
@@ -2044,7 +1947,7 @@ class MatrixPlatform:
         sender_id = event.sender
         room_id = room.room_id
         is_dm = await self._is_dm_room(room_id, sender_id, room)
-        if self._is_channel_disabled(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(is_dm):
             return
         if not is_dm:
             if self._require_mention(room_id) and (
@@ -2213,7 +2116,8 @@ class MatrixPlatform:
                         size=len(data),
                     )
                 logger.warning(
-                    f"MatrixChannel: data URL upload failed: {resp}",
+                    f"Matrix data URL upload failed: "
+                    f"{_response_summary(resp)}",
                 )
                 return None
             local_path = local_media_path(file_ref)
@@ -2226,10 +2130,7 @@ class MatrixPlatform:
             ):
                 raise ValueError("MATRIX_MEDIA_OUTSIDE_WORKSPACE")
             if not path.exists():
-                logger.warning(
-                    "MatrixChannel: upload source not found: %s",
-                    file_ref,
-                )
+                logger.warning(f"Matrix upload source missing")
                 return None
             mime_type, _ = mimetypes.guess_type(str(path))
             mime_type = mime_type or "application/octet-stream"
@@ -2242,9 +2143,7 @@ class MatrixPlatform:
             )
             if isinstance(resp, UploadResponse):
                 logger.debug(
-                    "MatrixChannel: uploaded %s → %s",
-                    path.name,
-                    resp.content_uri,
+                    f"Matrix local media uploaded: bytes={len(data)}",
                 )
                 return _UploadedMedia(
                     uri=resp.content_uri,
@@ -2252,13 +2151,13 @@ class MatrixPlatform:
                     mime_type=mime_type,
                     size=len(data),
                 )
-            logger.warning("MatrixChannel: upload failed: %s", resp)
+            logger.warning(
+                f"Matrix local media upload failed: {_response_summary(resp)}",
+            )
             return None
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: upload error for %s: %s",
-                file_ref,
-                exc,
+                f"Matrix media upload failed ({type(exc).__name__})",
             )
             return None
 
@@ -2312,10 +2211,8 @@ class MatrixPlatform:
                 and (sender_id in members)
             )
             logger.debug(
-                "MatrixChannel: DM check (cached) room=%s members=%d is_dm=%s",
-                room_id,
-                len(members),
-                is_dm,
+                f"Matrix cached DM check: "
+                f"members={len(members)} is_dm={is_dm}",
             )
             return is_dm
         try:
@@ -2331,33 +2228,25 @@ class MatrixPlatform:
                     and (sender_id in members)
                 )
                 logger.debug(
-                    "MatrixChannel: DM check (API) room=%s members=%d is_dm=%s members=%s",
-                    room_id,
-                    len(members),
-                    is_dm,
-                    members,
+                    f"Matrix API DM check: "
+                    f"members={len(members)} is_dm={is_dm}",
                 )
                 return is_dm
             else:
                 logger.warning(
-                    "MatrixChannel: joined_members failed for %s: %s",
-                    room_id,
-                    resp,
+                    f"Matrix member lookup rejected: "
+                    f"{_response_summary(resp)}",
                 )
                 fallback = self._is_dm_room_fallback(room, sender_id)
                 logger.warning(
-                    "MatrixChannel: joined_members fallback for %s -> is_dm=%s",
-                    room_id,
-                    fallback,
+                    f"Matrix room classification fallback: is_dm={fallback}",
                 )
                 return fallback
         except Exception as exc:
             fallback = self._is_dm_room_fallback(room, sender_id)
             logger.warning(
-                "MatrixChannel: joined_members error for %s: %s; fallback is_dm=%s",
-                room_id,
-                exc,
-                fallback,
+                f"Matrix member lookup failed "
+                f"({type(exc).__name__}); fallback is_dm={fallback}",
             )
             return fallback
 
@@ -2373,23 +2262,17 @@ class MatrixPlatform:
         text = event.body or ""
         is_dm = await self._is_dm_room(room_id, sender_id, room)
         logger.info(
-            "_on_room_event: sender=%s room=%s body=%r is_dm=%s",
-            event.sender,
-            room_id,
-            (event.body or "")[:80],
-            is_dm,
+            f"Matrix room message received: text_chars={len(text)} "
+            f"is_dm={is_dm}",
         )
-        if self._is_channel_disabled(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(is_dm):
             return
         if not is_dm:
             if self._require_mention(room_id) and (
                 not self._was_mentioned(event, text)
             ):
                 logger.info(
-                    "MatrixChannel: group text not mentioned, cached to history (room=%s sender=%s event_id=%s)",
-                    room_id,
-                    sender_id,
-                    event.event_id,
+                    f"Matrix unmentioned group text cached to history",
                 )
                 self._record_history(
                     room_id,
@@ -2405,11 +2288,7 @@ class MatrixPlatform:
         command_text = text
         stripped = self._strip_mention_prefix(text, room)
         if stripped.strip() == "NO_REPLY":
-            logger.info(
-                "MatrixChannel: received NO_REPLY from %s in %s, ignoring",
-                sender_id,
-                room_id,
-            )
+            logger.info(f"Matrix ignored inbound NO_REPLY")
             return
         cmd = (
             stripped.lstrip("/").split()[0] if stripped.startswith("/") else ""
@@ -2425,9 +2304,7 @@ class MatrixPlatform:
                 )
             if stripped != text:
                 logger.info(
-                    "Stripped mention prefix for slash command: %r -> %r",
-                    text,
-                    command_text,
+                    f"Matrix removed mention before slash command {cmd}",
                 )
         content_parts: list[Any] = [
             TextContent(type=ContentType.TEXT, text=command_text),
@@ -2469,17 +2346,14 @@ class MatrixPlatform:
         sender_id = event.sender
         room_id = room.room_id
         is_dm = await self._is_dm_room(room_id, sender_id, room)
-        if self._is_channel_disabled(sender_id, room_id, is_dm):
+        if self._is_channel_disabled(is_dm):
             return
         if not is_dm:
             if self._require_mention(room_id) and (
                 not self._was_mentioned(event, "")
             ):
                 logger.info(
-                    "MatrixChannel: group media not mentioned, cached to history (room=%s sender=%s event_id=%s)",
-                    room_id,
-                    sender_id,
-                    event.event_id,
+                    f"Matrix unmentioned group media cached to history",
                 )
                 await self._record_media_history(
                     room,
@@ -2590,11 +2464,7 @@ class MatrixPlatform:
                 read_event=event_id,
             )
         except Exception as exc:
-            logger.debug(
-                "MatrixChannel: read receipt failed for %s: %s",
-                event_id,
-                exc,
-            )
+            logger.debug(f"Matrix read receipt failed ({type(exc).__name__})")
 
     _MATRIX_USER_ID_RE = re.compile(
         "@[a-zA-Z0-9._=+/\\-]+:[a-zA-Z0-9.\\-]+(?::\\d+)?",
@@ -2634,9 +2504,8 @@ class MatrixPlatform:
                 target_room.encrypted = True
             except Exception as exc:
                 logger.debug(
-                    "MatrixChannel: failed to mark %s encrypted: %s",
-                    room_id,
-                    exc,
+                    f"Matrix could not mark room encrypted "
+                    f"({type(exc).__name__})",
                 )
 
     def _room_will_encrypt(self, room_id: str) -> bool:
@@ -2659,8 +2528,7 @@ class MatrixPlatform:
             return
         if not self._client or not getattr(self._client, "olm", None):
             logger.warning(
-                "MatrixChannel: E2EE configured but Olm is not ready; outbound message to %s will not be encrypted",
-                room_id,
+                f"Matrix outbound E2EE unavailable because Olm is not ready",
             )
             return
         await self._e2ee_maintenance()
@@ -2668,8 +2536,8 @@ class MatrixPlatform:
             return
         if room_id not in getattr(self._client, "rooms", {}):
             logger.warning(
-                "MatrixChannel: room %s not in client cache; cannot confirm E2EE before send (wait for sync / join)",
-                room_id,
+                f"Matrix room cache miss; cannot confirm outbound E2EE "
+                f"before sync",
             )
             return
         try:
@@ -2680,9 +2548,8 @@ class MatrixPlatform:
             )
         except Exception as exc:
             logger.warning(
-                "MatrixChannel: failed to get m.room.encryption for %s: %s",
-                room_id,
-                exc,
+                f"Matrix could not query room encryption "
+                f"({type(exc).__name__})",
             )
             enc_state = None
         if isinstance(enc_state, RoomGetStateEventResponse):
@@ -2690,15 +2557,12 @@ class MatrixPlatform:
             if algo:
                 self._mark_room_encrypted(room_id)
                 logger.debug(
-                    "MatrixChannel: marked %s encrypted from server (%s)",
-                    room_id,
-                    algo,
+                    f"Matrix marked room encrypted using server state",
                 )
         if not self._room_will_encrypt(room_id):
             logger.warning(
-                "MatrixChannel: E2EE on but room %s is not encrypted in client "
-                "after state check; outbound send may be plaintext",
-                room_id,
+                f"Matrix room encryption not confirmed; outbound send may be "
+                f"plaintext",
             )
 
     async def _sync_valid(self, response):
@@ -2706,6 +2570,10 @@ class MatrixPlatform:
             "M_UNKNOWN_TOKEN",
             "M_MISSING_TOKEN",
         }:
+            logger.error(
+                f"Matrix sync stopped: code={response.status_code}; "
+                f"sign in again with a password or fresh token",
+            )
             self._client.access_token = self.access_token = ""
             await self.on_state("failed")
             return False
@@ -2729,6 +2597,10 @@ class MatrixPlatform:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    logger.debug(
+                        f"Matrix typing indicator start failed "
+                        f"({type(exc).__name__})",
+                    )
                     raise MatrixDeliveryError(
                         "MATRIX_TYPING_UNKNOWN",
                         side_effect_possible=True,
@@ -2768,6 +2640,10 @@ class MatrixPlatform:
             except MatrixDeliveryError:
                 raise
             except Exception as exc:
+                logger.debug(
+                    f"Matrix typing indicator stop failed "
+                    f"({type(exc).__name__})",
+                )
                 raise MatrixDeliveryError(
                     "MATRIX_TYPING_STOP_UNKNOWN",
                     side_effect_possible=True,
@@ -2777,6 +2653,7 @@ class MatrixPlatform:
 
     async def _typing_renewal_loop(self, room_id):
         elapsed = 0
+        phase = "renewal"
         try:
             while elapsed < TYPING_MAX_DURATION_S and not self._stopping:
                 await asyncio.sleep(TYPING_RENEWAL_INTERVAL_S)
@@ -2789,13 +2666,23 @@ class MatrixPlatform:
                     timeout=TYPING_SERVER_TIMEOUT_MS,
                 )
             if not self._stopping and self._client:
+                phase = "stop after renewal cap"
                 await self._client.room_typing(room_id, typing_state=False)
+        except asyncio.CancelledError:
+            logger.debug(f"Matrix typing renewal cancelled")
+            raise
+        except Exception as exc:
+            logger.debug(
+                f"Matrix typing {phase} failed ({type(exc).__name__})",
+            )
+            raise
         finally:
             if self._typing_tasks.get(room_id) is asyncio.current_task():
                 self._typing_tasks.pop(room_id, None)
 
     async def _room_send(self, room_id, content, transaction_id):
         if self._stopping or self._client is None:
+            logger.debug(f"Matrix room send requires a connection")
             raise MatrixDeliveryError("NOT_CONNECTED")
         # Encryption/state preparation has not yet attempted a visible room
         # message; errors here can be reported as definitely unsent.
@@ -2804,6 +2691,9 @@ class MatrixPlatform:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            logger.warning(
+                f"Matrix room send preparation failed ({type(exc).__name__})",
+            )
             raise MatrixDeliveryError(
                 "MATRIX_SEND_PREPARATION_FAILED",
             ) from exc
@@ -2818,6 +2708,9 @@ class MatrixPlatform:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            logger.warning(
+                f"Matrix room send result unknown ({type(exc).__name__})",
+            )
             raise MatrixDeliveryError(
                 "MATRIX_SEND_UNKNOWN",
                 side_effect_possible=True,
@@ -2840,6 +2733,10 @@ class MatrixPlatform:
             definitive = (
                 definitive or response.status_code in _NON_RETRYABLE_AUTH_CODES
             )
+            logger.warning(
+                f"Matrix room send failed: {_response_summary(response)} "
+                f"definitive={definitive}",
+            )
             raise MatrixDeliveryError(
                 "MATRIX_SEND_REJECTED"
                 if definitive
@@ -2847,6 +2744,7 @@ class MatrixPlatform:
                 side_effect_possible=not definitive,
                 retryable=definitive and status == 429,
             )
+        logger.warning(f"Matrix room send returned no event receipt")
         raise MatrixDeliveryError(
             "MATRIX_SEND_UNKNOWN",
             side_effect_possible=True,
@@ -2862,6 +2760,10 @@ class MatrixPlatform:
         sender_id = route.get("sender_id") or route.get("user_id")
         if sender_id:
             self._apply_mention(content, sender_id, route["room_id"])
+        logger.debug(
+            f"Matrix formatted text: chars={len(text)} "
+            f"html_chars={len(content['formatted_body'])}",
+        )
         return content
 
     async def send_parts(self, route, parts, content_source, delivery_id):
@@ -2883,6 +2785,7 @@ class MatrixPlatform:
         sent = []
         try:
             if text.strip() == "NO_REPLY":
+                logger.debug(f"Matrix suppressed outbound NO_REPLY")
                 return {"room_id": route["room_id"], "suppressed": "true"}
             if text or source == "direct":
                 sent.append(
@@ -2903,6 +2806,7 @@ class MatrixPlatform:
                     filename_hint=part.get("filename"),
                 )
                 if uploaded is None:
+                    logger.warning(f"Matrix media unavailable for room send")
                     raise MatrixDeliveryError("MATRIX_MEDIA_UNAVAILABLE")
                 content = {
                     "msgtype": "m." + kind,
@@ -2923,6 +2827,7 @@ class MatrixPlatform:
                         delivery_id + "-media-" + str(index),
                     ),
                 )
+                logger.debug(f"Matrix media sent")
         except MatrixDeliveryError as exc:
             if sent and not exc.side_effect_possible:
                 raise MatrixDeliveryError(
@@ -2961,7 +2866,14 @@ class MatrixPlatform:
             "m.new_content": new_content,
             "m.relates_to": {"rel_type": "m.replace", "event_id": event_id},
         }
-        await self._room_send(room_id, content, delivery_id)
+        try:
+            await self._room_send(room_id, content, delivery_id)
+        except MatrixDeliveryError as exc:
+            logger.debug(
+                f"Matrix stream edit failed: reason={exc.reason_code} "
+                f"final={final}",
+            )
+            raise
         # No fallback new-message send: a lost edit receipt is unknown.
         return {**resource, "final": "true" if final else "false"}
 

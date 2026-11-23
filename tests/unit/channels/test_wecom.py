@@ -25,6 +25,27 @@ async def eventually(predicate):
             await asyncio.sleep(0.01)
 
 
+async def test_sdk_logs_invalid_message_without_payload(caplog, monkeypatch):
+    loaded = sys.modules.get(f"aibot")
+    if loaded is not None and not hasattr(loaded, f"__path__"):
+        monkeypatch.delitem(sys.modules, f"aibot")
+    handler_module = importlib.import_module(f"aibot.message_handler")
+    adapter = module(f"wecom", f"platform")._SdkLoggerAdapter()
+    handler = handler_module.MessageHandler(adapter)
+    handler.handle_frame({f"body": {f"text": f"private-message"}}, None)
+    adapter.warn(
+        f"Reply ack error: reqId=private-request, errcode=40001, "
+        f"errmsg=private-response",
+    )
+    adapter.error(f"File download failed:", f"private-download-url")
+    assert f"WeCom SDK received invalid message format" in caplog.text
+    assert f"private-message" not in caplog.text
+    assert f"Reply ack error: errcode=40001" in caplog.text
+    assert f"private-request" not in caplog.text
+    assert f"private-response" not in caplog.text
+    assert f"private-download-url" not in caplog.text
+
+
 class WeComExternal:
     def __init__(self, directory):
         self.directory = directory

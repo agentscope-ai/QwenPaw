@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import { subscribeToPluginChanges } from "@/utils/pluginChangeEvents";
 import {
   fetchPluginCatalog,
@@ -69,9 +70,9 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
         await onInstalled(result);
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : t("pluginManager.installFailed");
-        message.error(msg);
+        message.error(
+          pluginErrorMessage(err, t("pluginManager.installFailed"), t),
+        );
       } finally {
         setInstallingId(null);
       }

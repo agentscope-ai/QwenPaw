@@ -15,7 +15,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
-import jsonschema
 from agentscope.message import DataBlock, TextBlock, ToolCallBlock
 from agentscope.message import ToolResultState
 from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -27,6 +26,7 @@ from ...config import load_config
 from ...governance import PolicyGuardedTool
 from ...governance.policy import ToolCallSpec
 from ...utils.io_utils import run_sync_io
+from ...utils.json_schema import schema_validator
 from ...config.context import get_current_recent_max_bytes
 from ...config.context import current_script_tool_call
 from ._process import WorkerProcess
@@ -204,14 +204,20 @@ class CodeModeTool(ToolBase):
         self.toolkit = toolkit
         self.governor = governor
         self.request_context = request_context
-        self.check_permission: Callable[
-            ...,
-            Awaitable[PermissionDecision],
-        ] | None = None
-        self.acting: Callable[
-            [ToolCallBlock],
-            AsyncIterator[ToolChunk | ToolResponse],
-        ] | None = None
+        self.check_permission: (
+            Callable[
+                ...,
+                Awaitable[PermissionDecision],
+            ]
+            | None
+        ) = None
+        self.acting: (
+            Callable[
+                [ToolCallBlock],
+                AsyncIterator[ToolChunk | ToolResponse],
+            ]
+            | None
+        ) = None
         self.condition = asyncio.Condition()
         self.readers = 0
         self.writer = False
@@ -419,9 +425,9 @@ class _Script:
                     f"External-only tool cannot run in code: {name}",
                 )
             await asyncio.to_thread(
-                jsonschema.validate,
-                arguments,
-                tool.input_schema,
+                lambda: schema_validator(tool.input_schema).validate(
+                    arguments,
+                ),
             )
             call = ToolCallBlock(
                 id=f"code_{uuid.uuid4().hex}",

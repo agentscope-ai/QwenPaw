@@ -39,8 +39,8 @@ class PluginActivity:
         self._interrupted_tasks = set()
 
     @contextmanager
-    def invocation(self, *, cleanup=False):
-        task = asyncio.current_task()
+    def invocation(self, *, cleanup=False, owner=None):
+        task = owner if owner is not None else asyncio.current_task()
         if self.blocked and not (cleanup and task in self.cleanup_tasks):
             raise PluginBusyError(
                 self.plugin_id,

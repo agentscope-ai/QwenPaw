@@ -6,8 +6,11 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
+
+from .sdk_version import SDK_VERSION, validate_sdk
 
 PUBLIC_API = MappingProxyType(
     {
@@ -26,6 +29,17 @@ PUBLIC_API = MappingProxyType(
             "PluginBusyError",
         ),
         "qwenpaw.plugins.logging": ("PluginLogger",),
+        "qwenpaw.plugins.drivers": (
+            "DriverSource",
+            "DriverCapabilitySpec",
+            "DriverCallResult",
+            "DriverRequestContext",
+            "DriverCredential",
+            "DriverCredentialAccess",
+            "DriverContext",
+            "DriverConnection",
+            "DriverProtocolSpec",
+        ),
         "qwenpaw.plugins.models": ("ModelService",),
         "qwenpaw.plugins.messages": ("Message", "ContentBlock", "Attachment"),
         "qwenpaw.plugins.tools": (
@@ -77,6 +91,13 @@ PUBLIC_API = MappingProxyType(
             "ProviderContext",
             "ConnectionResult",
             "ProviderSpec",
+            "ProviderHandle",
+        ),
+        "qwenpaw.plugins.transcription": (
+            "TranscriptionSpec",
+            "TranscriptionContext",
+            "TranscriptionResult",
+            "TranscriptionStatus",
         ),
         "qwenpaw.plugins.memory": (
             "MemorySpec",
@@ -193,11 +214,21 @@ class APIExport:
     stability: str = "stable"
 
 
+# TODO: Review how public API introduction versions are maintained.
 API_EXPORTS = tuple(
     APIExport(
         module,
         symbol,
-        since="1.1.0" if module == "qwenpaw.plugins.harnesses" else "1.0.0",
+        since=(
+            "1.2.0"
+            if (module, symbol)
+            == ("qwenpaw.plugins.providers", "ProviderHandle")
+            else {
+                "qwenpaw.plugins.drivers": "1.2.0",
+                "qwenpaw.plugins.harnesses": "1.1.0",
+                "qwenpaw.plugins.transcription": "1.1.0",
+            }.get(module, "1.0.0")
+        ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
     for module, symbols in PUBLIC_API.items()
@@ -221,7 +252,7 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.1.0"
+    sdk_version: str = SDK_VERSION
     rules_version: str = "1.0.0"
     checked_at: str = ""
     plugin_id: str = ""
@@ -277,7 +308,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
             sources.append(file)
         digest.update(str(file.relative_to(directory)).encode() + b"\0")
         with file.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            for chunk in iter(partial(stream.read, 1024 * 1024), b""):
                 digest.update(chunk)
         digest.update(b"\0")
     manifest = {}
@@ -290,7 +321,6 @@ def check_plugin(directory: str | Path) -> CheckReport:
             or not manifest.get("version")
         ):
             raise ValueError("Manifest requires id and version")
-        from .sdk_version import validate_sdk
         from .dependency_gate import manifest_requirements
 
         validate_sdk(manifest.get("sdk"), manifest["id"])
@@ -352,10 +382,12 @@ def check_plugin(directory: str | Path) -> CheckReport:
             continue
         aliases = {}
 
-        def reject(node, code, message):
-            findings.append(CheckFinding(relative, node.lineno, code, message))
+        def reject(node, code, message, _relative=relative):
+            findings.append(
+                CheckFinding(_relative, node.lineno, code, message),
+            )
 
-        def dependency(node, module, symbol=None):
+        def dependency(node, module, symbol=None, _reject=reject):
             dependencies.add(module + ("." + symbol if symbol else ""))
             if module == "qwenpaw" or module.startswith("qwenpaw."):
                 full_module = module + "." + symbol if symbol else module
@@ -365,7 +397,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                     module not in PUBLIC_API
                     or symbol not in PUBLIC_API[module]
                 ):
-                    reject(
+                    _reject(
                         node,
                         "private-import",
                         f"Not a public SDK dependency: {full_module}",
@@ -388,12 +420,15 @@ def check_plugin(directory: str | Path) -> CheckReport:
                         item.name,
                     )
 
-        def qualified(node):
-            if isinstance(node, ast.Name):
-                return aliases.get(node.id, node.id)
-            if isinstance(node, ast.Attribute):
-                return qualified(node.value) + "." + node.attr
-            return ""
+        def qualified(node, _lookup=aliases.get):
+            parts = []
+            while isinstance(node, ast.Attribute):
+                parts.append(node.attr)
+                node = node.value
+            base = (
+                _lookup(node.id, node.id) if isinstance(node, ast.Name) else ""
+            )
+            return ".".join((base, *reversed(parts)))
 
         contexts = {"ctx", "context", "call", "api"}
         for node in ast.walk(tree):
@@ -556,14 +591,11 @@ def check_plugin(directory: str | Path) -> CheckReport:
                                 "Private context member: "
                                 f"{node.args[1].value}",
                             )
-    from .sdk_version import SDK_VERSION
-
     return CheckReport(
         tuple(findings),
         tuple(sorted(dependencies)),
         tuple(sorted(uncovered)),
         package_hash=digest.hexdigest(),
-        sdk_version=SDK_VERSION,
         checked_at=datetime.now(timezone.utc).isoformat(),
         plugin_id=str(manifest.get("id", "")),
         declared_sdk_version=str(declaration.get("version", "")),

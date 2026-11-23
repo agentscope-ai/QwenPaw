@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Describe lazy exports for static analyzers without loading host modules.
+    from .activity import PluginBusyError as PluginBusyError
     from .api import get_tool_config as get_tool_config
     from .errors import SDKError as SDKError
     from .sdk import Plugin as Plugin, PluginContext as PluginContext

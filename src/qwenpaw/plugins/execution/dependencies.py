@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
+from email.message import Message
 from importlib import metadata
 from importlib.machinery import EXTENSION_SUFFIXES
 from importlib.util import source_from_cache
@@ -664,9 +666,20 @@ def _read_installed_metadata(
             if type(distribution) is metadata.PathDistribution
             else distribution
         ).metadata
+        inferred_name, separator, inferred_version = origin.stem.partition("-")
+        if installed_metadata is None or not installed_metadata.get("Name"):
+            # Missing headers can be attributed only to an identifiable package.
+            try:
+                canonicalize_name(inferred_name, validate=True)
+                if separator:
+                    Version(inferred_version)
+            except ValueError:
+                raise dependency_error() from None
+            if installed_metadata is None:
+                installed_metadata = Message()
         name = installed_metadata.get("Name")
         version = installed_metadata.get("Version")
-        key = str(canonicalize_name(name or origin.name.split("-", 1)[0]))
+        key = str(canonicalize_name(name or inferred_name))
         if not valid_metadata_headers(
             installed_metadata,
             ("Name", "Version"),
@@ -870,6 +883,44 @@ def _inventory_sites(code_root, paths):
     )
 
 
+def _file_top_levels(declared, files):
+    """Use the same file-to-provider rules for baseline and fresh audits."""
+    tops = set(declared)
+    for path in files:
+        parts = str(path).replace("\\", "/").split("/")
+        part = parts[0]
+        # Scripts are not import providers; real package markers are.
+        if (
+            len(parts) == 2
+            and part in {"bin", "Scripts"}
+            and not parts[1].casefold().startswith("__init__.")
+        ):
+            continue
+        if part not in {"", ".", ".."} and not part.endswith(
+            (".dist-info", ".egg-info"),
+        ):
+            tops.add(part.split(".", 1)[0])
+    return tuple(sorted(tops))
+
+
+def _complete_dependency_top_levels(snapshot, names):
+    """Inspect a pinned set of existing providers without importing them."""
+    rows = dict(snapshot.distributions)
+    for name in names:
+        if name not in rows:
+            continue
+        row = rows[name]
+        distribution = metadata.Distribution.at(row["metadata_path"])
+        rows[name] = {
+            **row,
+            "top_level": _file_top_levels(
+                row["top_level"],
+                distribution.files or (),
+            ),
+        }
+    return replace(snapshot, distributions=rows)
+
+
 # Inventory and relevant-closure rejection form one child-only audit.
 # pylint: disable=too-many-branches,too-many-statements,protected-access
 def observe_dependencies(
@@ -895,8 +946,6 @@ def observe_dependencies(
             packet["_audit_sites"],
             requirements,
         )
-        import logging
-
         for warning in view.warnings:
             logging.getLogger(__name__).warning(
                 "Dependency warning: %s",
@@ -937,24 +986,17 @@ def observe_dependencies(
         environment,
     ):
         if name in invalid and not packet.get("_reuse_ambiguous", False):
+            logging.getLogger(__name__).warning(
+                "Dependency audit refused package %r: %s",
+                name,
+                invalid[name],
+            )
             raise dependency_error(invalid[name])
         if name in rows and name not in scanned:
-            tops = set(rows[name]["top_level"])
-            for path in observed[name].files or ():
-                parts = str(path).replace("\\", "/").split("/")
-                part = parts[0]
-                # Scripts are not import providers; real package markers are.
-                if (
-                    len(parts) == 2
-                    and part in {"bin", "Scripts"}
-                    and not parts[1].casefold().startswith("__init__.")
-                ):
-                    continue
-                if part not in {"", ".", ".."} and not part.endswith(
-                    (".dist-info", ".egg-info"),
-                ):
-                    tops.add(part.split(".", 1)[0])
-            rows[name]["top_level"] = tuple(sorted(tops))
+            rows[name]["top_level"] = _file_top_levels(
+                rows[name]["top_level"],
+                observed[name].files or (),
+            )
             scanned.add(name)
     if not packet.get("_reuse_ambiguous", False):
         for name in invalid:

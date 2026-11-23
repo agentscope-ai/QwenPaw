@@ -5,7 +5,7 @@ on:
     paths:
       - '.github/workflows/piccolo-runtime.yml'
       - 'docs/patches/piccolo-llama.cpp.patch'
-      - 'src/qwenpaw/local_models/runtime-release.json'
+      - 'plugins/provider/local-llamacpp/runtime-release.json'
       - 'scripts/piccolo_runtime.py'
       - 'scripts/test_piccolo_runtime.py'
       - 'scripts/test_piccolo_install.py'
@@ -44,7 +44,7 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          config = json.loads(Path('plugins/provider/local-llamacpp/runtime-release.json').read_text())
           assert os.environ['RELEASE_TAG'] == 'llama-cpp-' + config['release']
           PY
 
@@ -83,7 +83,7 @@ jobs:
           import json
           from pathlib import Path
           from huggingface_hub import snapshot_download
-          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          config = json.loads(Path('plugins/provider/local-llamacpp/runtime-release.json').read_text())
           for role, model in config['smoke_models'].items():
               snapshot_download(model['repo'], revision=model['revision'], local_dir=f'var/models/{role}', allow_patterns=model['files'])
           PY
@@ -105,7 +105,7 @@ jobs:
           python - <<'PY'
           import json, subprocess, sys
           from pathlib import Path
-          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          config = json.loads(Path('plugins/provider/local-llamacpp/runtime-release.json').read_text())
           target = '${{ matrix.id }}'
           extension = 'zip' if target.startswith('win-') else 'tar.gz'
           archive = Path('dist/piccolo-runtime') / f"llama-{config['release']}-bin-{target}.{extension}"

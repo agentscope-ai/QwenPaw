@@ -145,6 +145,18 @@ async def test_own_message_and_other_bot_are_filtered(discord):
     assert len(peer.batches) == 1
 
 
+async def test_gateway_resume_logs_once(discord, caplog):
+    driver, _, _, client, _ = discord
+    caplog.set_level(f"INFO", logger=driver._platform.__module__)
+    await client.handlers[f"on_disconnect"]()
+    caplog.clear()
+    await client.handlers[f"on_resumed"]()
+    assert driver._connected
+    assert [
+        log for log in caplog.messages if log.startswith(f"Discord Gateway")
+    ] == [f"Discord Gateway session resumed"]
+
+
 async def test_attachment_is_downloaded_classified_and_sent_as_file(discord):
     _, peer, identity, _, root = discord
     event, channel = await receive(discord, attachments=[Attachment()])
@@ -161,6 +173,24 @@ async def test_attachment_is_downloaded_classified_and_sent_as_file(discord):
     assert result["state"] == "acknowledged"
     assert channel.sent[0]["file"] == b"png image"
     assert channel.sent[0]["filename"] == "9_picture.png"
+
+
+async def test_stream_failure_log_preserves_operation_and_status(caplog):
+    native = module(f"discord", f"platform")
+
+    async def reject():
+        raise native.discord.HTTPException(
+            NS(status=403, reason=f"Forbidden"),
+            {f"code": 50013, f"message": f"private-response"},
+        )
+
+    with pytest.raises(native.DiscordDeliveryError, match=f"DISCORD_REJECTED"):
+        await native.DiscordPlatform._request(
+            reject(),
+            operation=f"stream end",
+        )
+    assert f"Discord stream end failed: HTTP 403, code=50013" in caplog.text
+    assert f"private-response" not in caplog.text
 
 
 async def test_duplicate_callback_and_stop_gateway(discord):
