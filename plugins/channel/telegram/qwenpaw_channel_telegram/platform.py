@@ -319,12 +319,12 @@ def _message_meta(update: Any) -> dict:
     username = (getattr(user, "username", None) or "") if user else ""
     chat_type = getattr(chat, "type", "") if chat else ""
     is_topic_message = bool(getattr(message, "is_topic_message", False))
+    thread_id = getattr(message, "message_thread_id", None)
     is_general_topic = (
         chat_type == "supergroup"
         and thread_id == 1
         and (is_topic_message or getattr(chat, "is_forum", False))
     )
-    thread_id = getattr(message, "message_thread_id", None)
     if is_general_topic:
         thread_id = None
     return {
