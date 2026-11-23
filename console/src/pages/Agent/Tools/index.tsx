@@ -217,7 +217,7 @@ export default function ToolsPage() {
   const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
     await saveToolConfig(currentTool.name, values, configAgentId);
-    await loadTools();
+    await loadTools({ background: true });
   };
 
   const handleExperimentalChange = async (experimental: boolean) => {

@@ -30,18 +30,21 @@ export function useTools() {
   );
 
   const loadToolsForAgent = useCallback(
-    async (requestedAgent: string) => {
+    async (requestedAgent: string, background: boolean) => {
       if (currentAgentId() !== requestedAgent) return;
+      if (background && !ownsCurrentAgent(requestedAgent)) return;
       const generation = ++requestGeneration.current;
       const isCurrentRequest = () =>
         generation === requestGeneration.current &&
         currentAgentId() === requestedAgent;
 
-      loadedAgentRef.current = null;
-      setLoadedAgent(null);
-      setLoading(true);
-      setBatchLoading(false);
-      setError(null);
+      if (!background) {
+        loadedAgentRef.current = null;
+        setLoadedAgent(null);
+        setLoading(true);
+        setBatchLoading(false);
+        setError(null);
+      }
       try {
         const data = await api.listTools(requestedAgent);
         if (!isCurrentRequest()) return;
@@ -51,21 +54,24 @@ export function useTools() {
       } catch (error) {
         if (!isCurrentRequest()) return;
         console.error("Failed to load tools:", error);
-        loadedAgentRef.current = null;
-        setLoadedAgent(null);
-        setError(
-          error instanceof Error ? error : new Error("Failed to load tools"),
-        );
+        if (!background) {
+          loadedAgentRef.current = null;
+          setLoadedAgent(null);
+          setError(
+            error instanceof Error ? error : new Error("Failed to load tools"),
+          );
+        }
         message.error(t("tools.loadError"));
       } finally {
-        if (isCurrentRequest()) setLoading(false);
+        if (!background && isCurrentRequest()) setLoading(false);
       }
     },
-    [message, t],
+    [message, ownsCurrentAgent, t],
   );
 
   const loadTools = useCallback(
-    () => loadToolsForAgent(selectedAgent || "default"),
+    ({ background = false }: { background?: boolean } = {}) =>
+      loadToolsForAgent(selectedAgent || "default", background),
     [loadToolsForAgent, selectedAgent],
   );
 

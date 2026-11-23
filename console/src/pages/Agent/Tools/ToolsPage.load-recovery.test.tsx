@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolInfo } from "../../../api/modules/tools";
 
@@ -9,7 +15,12 @@ const harness = vi.hoisted(() => ({
   updateAsyncExecution: vi.fn(),
   updateToolConfig: vi.fn(),
   getToolConfig: vi.fn(),
-  message: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    destroy: vi.fn(),
+  },
   t: (key: string, fallback?: unknown) =>
     typeof fallback === "string" ? fallback : key,
 }));
@@ -27,7 +38,10 @@ vi.mock("../../../api", () => ({
 vi.mock("../../../stores/agentStore", () => {
   const useAgentStore = Object.assign(
     () => ({ selectedAgent: harness.selectedAgent }),
-    { getState: () => ({ selectedAgent: harness.selectedAgent }) },
+    {
+      getState: () => ({ selectedAgent: harness.selectedAgent }),
+      subscribe: () => () => {},
+    },
   );
   return { useAgentStore };
 });
@@ -39,6 +53,12 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: harness.t }),
 }));
+
+// Use the real antd form methods through Vitest's module interop.
+vi.mock("@agentscope-ai/design", async (importOriginal) => {
+  const { Form, Input, Select } = await import("antd");
+  return { ...(await importOriginal<object>()), Form, Input, Select };
+});
 
 import ToolsPage from "./index";
 
@@ -113,4 +133,56 @@ describe("ToolsPage load recovery", () => {
       expect(harness.updateToolConfig).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps the password form open while refreshing tools after a save", async () => {
+    const configuredTool: ToolInfo = {
+      ...POPULATED[0],
+      requires_config: true,
+      config_fields: [
+        { name: "api_key", label: "API Key", type: "password", required: true },
+      ],
+    };
+    let finishRefresh!: (tools: ToolInfo[]) => void;
+    const refresh = new Promise<ToolInfo[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    harness.listTools
+      .mockResolvedValueOnce([configuredTool])
+      .mockReturnValueOnce(refresh);
+    harness.getToolConfig.mockResolvedValue({ api_key: "***" });
+
+    render(<ToolsPage />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "tools.configure plugin_tool",
+      }),
+    );
+    const password = await screen.findByDisplayValue("***");
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(password, { target: { value: "new-key" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(harness.listTools).toHaveBeenCalledTimes(2);
+    expect(harness.updateToolConfig).toHaveBeenCalledExactlyOnceWith(
+      "plugin_tool",
+      { api_key: "new-key" },
+      "agent-a",
+    );
+    expect(screen.getByLabelText("API Key")).toBe(password);
+
+    finishRefresh([{ ...configuredTool, config_values: { api_key: "***" } }]);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("tools.requiresConfig"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("API Key")).toBe(password);
+    expect(harness.getToolConfig).toHaveBeenCalledTimes(1);
+  });
 });
