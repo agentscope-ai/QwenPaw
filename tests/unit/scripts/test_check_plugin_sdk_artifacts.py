@@ -175,7 +175,7 @@ def test_ci_artifact_scope_matches_installed_extras(
         str(source / "scripts/check_plugin_sdk_artifacts.py"),
     )
     config = yaml.safe_load(
-        (source / ".github/workflows" / workflow).read_text(),
+        (source / ".github/workflows" / workflow).read_text(encoding="utf-8"),
     )
     checked = 0
     for job in config["jobs"].values():
