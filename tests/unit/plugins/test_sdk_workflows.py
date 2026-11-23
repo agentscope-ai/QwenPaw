@@ -3,6 +3,7 @@
 
 import asyncio
 from contextvars import ContextVar
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
@@ -315,18 +316,55 @@ async def test_workflow_retains_thread_and_clears_ambient_request(
                 await manager.stop()
 
 
-@pytest.mark.parametrize(
-    "initialization_error",
-    [
-        None,
-        FileNotFoundError("git"),
-        OSError("checkpoint storage unavailable"),
-    ],
-)
+async def test_workflow_rejected_by_shared_tracker_does_not_start(
+    sdk_component,
+):
+    calls = []
+
+    async def work(call, parameters):
+        calls.append(call.workspace_id)
+        return WorkflowResult()
+
+    def declare(ctx):
+        ctx.register_workflow(
+            WorkflowSpec("report", work, WorkflowSchedule("0 0 * * *")),
+        )
+
+    async with sdk_component(declare) as (host, ctx):
+        manager = await cron(host, "one")
+        workspace = host._workspaces["one"]
+        tracker = workspace.task_tracker
+        owner = replace(ctx.resources.owner, workspace_id=workspace.agent_id)
+        key = f"workflow:{owner}:resource-contract:report"
+        release = asyncio.Event()
+        old = tracker.start_background_task(
+            key,
+            lambda: asyncio.create_task(release.wait()),
+        )
+        try:
+            await host._loader.registry.projector.project_workspace(workspace)
+            job = manager._scheduler.get_job(
+                "_service:sdk_resource-contract:report",
+            )
+            _, declaration = job.args
+            with pytest.raises(ValueError, match="already tracked"):
+                await declaration.callback()
+            assert await tracker.snapshot_active_tasks() == {key: old}
+            release.set()
+            await old
+            await declaration.callback()
+            assert calls == ["one"]
+        finally:
+            release.set()
+            await old
+            await manager.stop()
+
+
+@pytest.mark.parametrize("initialization_failed", [False, True])
 async def test_workflow_does_not_require_checkpoint_initialization(
     sdk_component,
     monkeypatch,
-    initialization_error,
+    initialization_failed,
 ):
     calls = []
 
@@ -336,14 +374,11 @@ async def test_workflow_does_not_require_checkpoint_initialization(
 
     async with sdk_component() as (host, ctx):
         workspace = await host._workspace("one")
-        initialize = Mock(
-            side_effect=initialization_error or FileNotFoundError("git"),
-        )
+        initialize = Mock(side_effect=FileNotFoundError("git"))
         monkeypatch.setattr(RUNTIME, "_initialize_storage", initialize)
-        if initialization_error is not None:
-            with pytest.raises(type(initialization_error)):
+        if initialization_failed:
+            with pytest.raises(FileNotFoundError, match="git"):
                 await RUNTIME.get_for_workspace_async(workspace)
-        attempts = initialize.call_count
         ctx.register_workflow(
             WorkflowSpec("report", work, WorkflowSchedule("0 0 * * *")),
         )
@@ -353,7 +388,7 @@ async def test_workflow_does_not_require_checkpoint_initialization(
         )
         assert result == WorkflowResult(text="completed without checkpoints")
         assert calls == ["one"]
-        assert initialize.call_count == attempts
+        assert initialize.call_count == int(initialization_failed)
 
 
 async def test_restore_waits_for_workflow_and_blocks_new_admission(

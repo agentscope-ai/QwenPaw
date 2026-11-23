@@ -22,7 +22,6 @@ from tests.channel_support.process import digest
 
 from .test_sdk_channel_worker import Driver, send_params, setup
 
-
 PROCESS_DRIVER = """
 from qwenpaw.plugins.channel_workers import (
     ChannelDriver, ChannelSendResult, ResponsePolicy,
@@ -350,7 +349,7 @@ def test_prefix_control_preserves_explicit_metadata(enabled, override):
     proxy = object.__new__(IsolatedChannelProxy)
     proxy.bot_prefix = "configured:"
     policy = SendFormatPolicy(configured_prefix=enabled)
-    meta = {"bot_prefix": override}
+    meta = proxy._with_bot_prefix({"bot_prefix": override} if override else {})
     expected = override or ("configured:" if enabled else "")
     for entry, separator in (("direct", ""), ("parts", "  ")):
         fields = {"content_parts": [{"type": "text", "text": "answer"}]}

@@ -24,23 +24,39 @@ from .sdk_author_fixture import make_plugin
 
 
 @pytest.mark.parametrize(
-    ("policy", "arguments", "configured", "expected"),
+    ("arguments", "configured", "expected"),
     [
-        (False, {}, 120.0, 120.0),
-        (False, {}, None, 60.0),
-        (False, {"timeout": 60.0}, 120.0, 120.0),
-        (False, {"timeout": 90.0}, 120.0, 90.0),
-        (False, {"timeout": "90"}, 120.0, 90.0),
-        (False, {"timeout": "invalid"}, 120.0, 120.0),
-        (True, {"timeout": 90.0}, 120.0, 90.0),
+        ({}, 120.0, 120.0),
+        ({}, None, 60.0),
+        ({"timeout": 60.0}, 120.0, 120.0),
+        ({"timeout": 90.0}, 120.0, 90.0),
+        ({"timeout": "90"}, 120.0, 90.0),
+        ({"timeout": "invalid"}, 120.0, 120.0),
     ],
+)
+def test_shell_timeout_resolution(
+    monkeypatch,
+    arguments,
+    configured,
+    expected,
+):
+    monkeypatch.setattr(
+        native_shell,
+        "get_current_shell_command_timeout",
+        lambda: configured,
+    )
+    assert native_shell.resolve_shell_command_timeout(**arguments) == expected
+
+
+@pytest.mark.parametrize(
+    ("policy", "arguments", "expected"),
+    [(False, {}, 120.0), (True, {"timeout": 90.0}, 90.0)],
 )
 async def test_remote_and_local_share_effective_timeout(
     sdk_component,
     monkeypatch,
     policy,
     arguments,
-    configured,
     expected,
 ):
     seen = []
@@ -57,7 +73,7 @@ async def test_remote_and_local_share_effective_timeout(
     monkeypatch.setattr(
         native_shell,
         "get_current_shell_command_timeout",
-        lambda: configured,
+        lambda: 120.0,
     )
     local = AsyncMock(return_value=(0, "LOCAL", ""))
     monkeypatch.setattr(native_shell, "_execute_posix_host", local)

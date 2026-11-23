@@ -56,14 +56,20 @@ typing and then undoing does not revive an old snapshot. No draft is modified
 when replacement fails. The snapshot contains `agentId`, nullable `sessionId`
 and `chatId`, `text`, and a monotonically advancing `revision`.
 
-`composer.model()` resolves the current draft's `ModelSelection`
+`composer.model()` resolves the current draft's QwenPaw provider model
 (`provider_id`, `model_id`) without credentials. It returns `null` if the
-composer changed while resolving the model. For an SDK PawApp request that
+composer changed during lookup or the host cannot provide a QwenPaw provider
+model for the selection, as can happen with an external execution engine.
+For an SDK PawApp request that
 needs selected main-chat text or project directories, pass the snapshot's
 non-null `chatId` as `X-Chat-Id` and its `agentId` as `agent_id`. The backend
 checks the authenticated user's ownership; this does not grant arbitrary
 session access. The Python `conversations.history()` API returns saved text
 only and takes a bounded `limit`, not a session identifier.
+
+For `checkpoints(appId)`, pass both `chatId` and `agentId` from the selected
+saved conversation. Use the same pair for timeline, snapshot, preview, and
+restore so they all target that conversation's workspace.
 
 `getHost().host.selectAgent(agentId)` validates the current host list and uses
 the normal workspace selection flow. It rejects unavailable workspaces and
@@ -90,6 +96,10 @@ introduction version. The checker never runs plugin code or compiler plugins.
 It returns JSON and exits with 1 for findings, 2 for an input/tool failure.
 TypeScript `>=5.8 <6` is an optional author dependency; the host does not need Node
 or TypeScript to run plugins.
+
+If the root `tsconfig.json` only lists project `references`, run the command
+with each referenced `tsconfig` that includes plugin source files, for example
+`npx qwenpaw-sdk-check ../plugin.json ./tsconfig.app.json`.
 
 Run the Python SDK checker as well. This command checks only sources included in
 the selected TypeScript project, not an omitted entry or deployed bundle. `any`,

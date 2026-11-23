@@ -190,19 +190,25 @@ def register(plugin, spec):
                 await drain()
                 # Scheduled service work must not inherit the installing
                 # HTTP request's user, model, project or cancellation context.
-                task = Context().run(
-                    scope.task,
-                    owned(scheduled, arguments),
-                    "workflow:" + name,
-                )
-                cleanup_task = Context().run(
-                    asyncio.create_task,
-                    retain_until_idle(task),
-                )
-                workspace.task_tracker.track_background_task(
+                task = None
+
+                def start():
+                    nonlocal task
+                    task = Context().run(
+                        scope.task,
+                        owned(scheduled, arguments),
+                        "workflow:" + name,
+                    )
+                    return Context().run(
+                        asyncio.create_task,
+                        retain_until_idle(task),
+                    )
+
+                cleanup_task = workspace.task_tracker.start_background_task(
                     f"workflow:{scope.owner}:{name}",
-                    cleanup_task,
+                    start,
                 )
+                assert task is not None
                 result = await task
                 if isinstance(result, Exception):
                     raise result

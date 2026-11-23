@@ -71,6 +71,25 @@ async def stop_thread(
 
 
 def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=PROCESS_STOP_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=PROCESS_STOP_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"subprocess {desc!r} did not exit "
+                    f"in {PROCESS_STOP_SECONDS:.0f}s",
+                ) from exc
+
+    # Closing buffered stdin can flush data into a full pipe. Wait until
+    # the child has exited before closing its streams.
     for stream in (
         getattr(proc, "stdin", None),
         getattr(proc, "stdout", None),
@@ -84,24 +103,10 @@ def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
                 closer()
             except Exception:  # noqa: BLE001
                 logger.debug("Failed to close pipe for %s", desc)
-    if proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=PROCESS_STOP_SECONDS)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        try:
-            proc.wait(timeout=PROCESS_STOP_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            raise TimeoutError(
-                f"subprocess {desc!r} did not exit "
-                f"in {PROCESS_STOP_SECONDS:.0f}s",
-            ) from exc
 
 
 async def stop_subprocess(proc: Any, desc: str) -> None:
-    """Close pipes, terminate, wait, then kill if needed — off the loop."""
+    """Reap the child and close its pipes off the event loop."""
     await run_sync_io(_stop_subprocess_blocking, proc, desc)
 
 

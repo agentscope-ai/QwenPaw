@@ -872,6 +872,16 @@ class BaseChannel(ABC):
                 parts.append(text)
         return "".join(parts)
 
+    def _with_bot_prefix(self, send_meta: Dict[str, Any]) -> Dict[str, Any]:
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            return {**send_meta, "bot_prefix": bot_prefix}
+        return send_meta
+
     async def _stream_with_tracker(
         self,
         payload: Any,
@@ -891,13 +901,7 @@ class BaseChannel(ABC):
         else:
             send_meta = getattr(request, "channel_meta", None) or {}
 
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+        send_meta = self._with_bot_prefix(send_meta)
 
         to_handle = self.get_to_handle_from_request(request)
         session_id = getattr(request, "session_id", "") or ""
@@ -1542,13 +1546,7 @@ class BaseChannel(ABC):
                 send_meta["session_webhook"] = payload["session_webhook"]
         else:
             send_meta = getattr(request, "channel_meta", None) or {}
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+        send_meta = self._with_bot_prefix(send_meta)
         logger.info(
             "base _consume_one_request: send_meta has_session_webhook=%s",
             bool((send_meta or {}).get("session_webhook")),
@@ -2455,13 +2453,7 @@ class BaseChannel(ABC):
         send_meta: Dict[str, Any] = dict(channel_meta or {})
         send_meta.setdefault("session_id", session_id)
         send_meta.setdefault("user_id", user_id)
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta["bot_prefix"] = bot_prefix
+        send_meta = self._with_bot_prefix(send_meta)
 
         event = Event(
             object="message",

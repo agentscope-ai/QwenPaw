@@ -1259,6 +1259,20 @@ class IsolatedChannelProxy(BaseChannel):
             **fields,
         )
 
+    def _with_bot_prefix(self, send_meta):
+        result = super()._with_bot_prefix(send_meta)
+        if result is not send_meta:
+            result["_bot_prefix_from_config"] = True
+        return result
+
+    def _reply_prefixes(self, meta, policy):
+        metadata_prefix = meta.get("bot_prefix")
+        if policy.configured_prefix:
+            return metadata_prefix, self.bot_prefix
+        return (
+            "" if meta.get("_bot_prefix_from_config") else metadata_prefix
+        ), ""
+
     def _format_send_fields(
         self,
         fields,
@@ -1268,17 +1282,17 @@ class IsolatedChannelProxy(BaseChannel):
         *,
         strip_text=False,
     ):
-        configured_prefix = self.bot_prefix if policy.configured_prefix else ""
+        metadata_prefix, configured_prefix = self._reply_prefixes(meta, policy)
         if entry == "direct":
             prefix = (
-                (meta.get("bot_prefix") or configured_prefix)
+                (metadata_prefix or configured_prefix)
                 if policy.direct_prefix
                 else ""
             )
             separator = ""
         else:
             prefix = (
-                meta.get("bot_prefix") if policy.parts_metadata_prefix else ""
+                metadata_prefix if policy.parts_metadata_prefix else ""
             ) or (configured_prefix if policy.parts_configured_prefix else "")
             separator = "  "
         prefixed = []
@@ -2135,9 +2149,9 @@ class IsolatedChannelProxy(BaseChannel):
         if stream_type == "reasoning" and text:
             text = "💭 " + text
         policy = send_format or SendFormatPolicy()
-        configured_prefix = self.bot_prefix if policy.configured_prefix else ""
+        metadata_prefix, configured_prefix = self._reply_prefixes(meta, policy)
         prefix = (
-            meta.get("bot_prefix") or configured_prefix
+            metadata_prefix or configured_prefix
             if policy.stream_prefix
             else ""
         )
@@ -2835,7 +2849,10 @@ class IsolatedChannelProxy(BaseChannel):
 
     async def _run_process_loop(self, request, to_handle, send_meta):
         # Preparation can add policy, delivery state or a newly opened route.
-        send_meta.update(getattr(request, "channel_meta", None) or {})
+        request_meta = getattr(request, "channel_meta", None) or {}
+        if "bot_prefix" in request_meta and request_meta is not send_meta:
+            send_meta.pop("_bot_prefix_from_config", None)
+        send_meta.update(request_meta)
         request.channel_meta = send_meta
         scope = self._response_context.get()
         if scope is not None:

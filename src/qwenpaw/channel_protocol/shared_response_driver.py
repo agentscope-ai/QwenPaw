@@ -1181,9 +1181,13 @@ class SharedResponseDriver:
             )
             await self._checkpoint()
             try:
-                await await_send(
-                    self._perform_stream_cleanup(ref, resource, sequence),
-                )
+                try:
+                    await await_send(
+                        self._perform_stream_cleanup(ref, resource, sequence),
+                    )
+                finally:
+                    # The cleanup callback may have checkpointed its steps.
+                    snapshot = self._routes.snapshot(snapshot.response_handle)
             except self.delivery_error as exc:
                 if not exc.side_effect_possible:
                     resource["cleanup"] = "failed"

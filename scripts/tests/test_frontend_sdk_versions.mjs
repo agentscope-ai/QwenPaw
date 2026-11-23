@@ -4,13 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { test } from "node:test";
+import {
+  compareVersions,
+  parseVersion,
+} from "../../src/qwenpaw/plugins/frontend/pep440.js";
 
 const repo = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
 const dependencies = path.join(repo, "console/node_modules");
-async function check(version, source, files = ["author.ts"]) {
+async function check(version, source, projectConfig = { files: ["author.ts"] }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sdk11-author-version-"));
   const sdk = path.join(root, "node_modules/@qwenpaw/plugin-sdk");
   try {
@@ -42,7 +46,7 @@ async function check(version, source, files = ["author.ts"]) {
           moduleResolution: "bundler",
           skipLibCheck: false,
         },
-        files,
+        ...projectConfig,
       }),
     );
     fs.writeFileSync(path.join(root, "author.ts"), source);
@@ -62,7 +66,7 @@ const composer = host().chat.composer;
 const {selectAgent: select} = host().host;
 void select('one');
 void window.QwenPaw.chat['composer'].read();
-void timeline('app').timeline({chatId:'selected'});
+void timeline('app').timeline({chatId:'selected', agentId:'one'});
 void composer.model();
 void host().menu.add('app', {id:'menu',label:'Menu'});
 void host().route.add('app', {id:'route',path:'/plugin/app',component:()=>null});
@@ -100,7 +104,7 @@ test("SDK 1.1 rejects new APIs while retaining Harness support", async () => {
   assert.deepEqual(
     [...new Set(result.findings.map((f) => f.message.split(" ")[0]))].sort(),
     [
-      "add", "chatId", "checkpoints", "composer", "menu", "model",
+      "add", "agentId", "chatId", "checkpoints", "composer", "menu", "model",
       "read", "route", "selectAgent", "timeline",
     ],
   );
@@ -112,27 +116,35 @@ test("SDK 1.2 accepts the same public usage", async () => {
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 
-for (const version of ["1.2.0RC1", "1.2.0c1", "1.2.0_preview1", "1.2.0.0rc1"]) {
-  test(`SDK ${version} rejects APIs introduced in the final release`, async () => {
-    const result = await check(version, additions);
-    assert.equal(result.ok, false, JSON.stringify(result));
-    assert.ok(result.findings.every((f) => f.rule === "sdk-version"));
-    assert.ok(
-      result.findings.some((f) => f.message.startsWith("composer ")),
-      JSON.stringify(result),
-    );
-  });
-}
+test("equivalent PEP 440 spellings have the same SDK ordering", () => {
+  const rc = parseVersion("1.2.0rc1");
+  assert.ok(compareVersions(rc, parseVersion("1.2.0")) < 0);
+  for (const alias of [
+    "1.2.0RC1", "1.2.0c1", "1.2.0_preview1", "1.2.0.0rc1",
+  ])
+    assert.equal(compareVersions(parseVersion(alias), rc), 0, alias);
+  const post = parseVersion("1.1.0-1");
+  assert.equal(compareVersions(post, parseVersion("1.1.0.post1")), 0);
+  assert.ok(compareVersions(post, parseVersion("1.1.0")) > 0);
+});
 
-test("equivalent post-release declarations both allow Harness APIs", async () => {
+test("a prerelease cannot use APIs introduced in the final release", async () => {
+  const result = await check("1.2.0.0rc1", additions);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.ok(result.findings.every((f) => f.rule === "sdk-version"));
+  assert.ok(
+    result.findings.some((f) => f.message.startsWith("composer ")),
+    JSON.stringify(result),
+  );
+});
+
+test("an implicit post-release declaration allows Harness APIs", async () => {
   const harness = `
 import { getHost } from '@qwenpaw/plugin-sdk';
 getHost().harnesses.register('app', {backendId:'example'});
 `;
-  for (const version of ["1.1.0-1", "1.1.0.post1"]) {
-    const result = await check(version, harness);
-    assert.equal(result.ok, true, JSON.stringify(result));
-  }
+  const result = await check("1.1.0-1", harness);
+  assert.equal(result.ok, true, JSON.stringify(result));
 });
 
 test("invalid version suffixes cannot pass the minimum SDK check", async () => {
@@ -158,9 +170,10 @@ test("invalid methods and parameter types produce compiler diagnostics", async (
   const result = await check(
     "1.1.0",
     `
-import { getHost } from '@qwenpaw/plugin-sdk';
+import { getHost, checkpoints } from '@qwenpaw/plugin-sdk';
 getHost().chat.composer.replaceAll('x');
 getHost().host.selectAgent(42);
+checkpoints('app').timeline({chatId:'selected'});
 `,
   );
   assert.equal(result.ok, false);
@@ -173,11 +186,23 @@ getHost().host.selectAgent(42);
     JSON.stringify(result),
   );
   assert.ok(result.findings.some((f) => f.rule === "TS2345"));
+  assert.ok(result.findings.some((f) => f.rule === "TS2345" && f.message.includes("'agentId' is missing")));
 });
 
 test("an empty author project cannot report success", async () => {
-  const result = await check("1.1.0", "export {};", []);
+  const result = await check("1.1.0", "export {};", { files: [] });
   assert.equal(result.ok, false, JSON.stringify(result));
   assert.equal(result.files.length, 0);
   assert.ok(result.findings.some((f) => f.rule === "input"));
+});
+
+test("a references-only config points the author to a source project", async () => {
+  const result = await check("1.2.0", "export {};", {
+    files: [],
+    references: [{ path: "./tsconfig.app.json" }],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.findings.some((f) =>
+    f.rule === "input" && f.message.includes("Pass a referenced tsconfig"),
+  ));
 });

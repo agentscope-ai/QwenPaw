@@ -25,6 +25,7 @@ from tests.channel_support.sdk import make_channel, workspace_store
 from tests.channel_support.process import alive, eventually
 
 KEY = "ingress-contract"
+WORKSPACES = ("one", "two")
 
 
 def definition():
@@ -105,6 +106,17 @@ def signed(url, secret, body=b""):
     }
 
 
+async def assert_ws_closed(ws):
+    try:
+        assert (await ws.receive(timeout=3)).type in {
+            aiohttp.WSMsgType.CLOSE,
+            aiohttp.WSMsgType.CLOSED,
+            aiohttp.WSMsgType.ERROR,
+        }
+    finally:
+        await ws.close()
+
+
 @pytest.mark.asyncio
 async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
     tmp_path,
@@ -142,6 +154,15 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                 (storage(workspace) / "binding.json").read_text(),
             )
 
+        def bindings():
+            assert len(ingress._bindings) == len(WORKSPACES)
+            return {workspace: binding(workspace) for workspace in WORKSPACES}
+
+        def replaced(report, previous):
+            assert report.ok, report
+            assert all(not alive(row["pid"]) for row in previous.values())
+            return bindings()
+
         async def control(text):
             await host.send_channel(
                 KEY,
@@ -153,18 +174,24 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
 
         try:
             assert (await host.install(ingress_plugin)).ok
-            for workspace in ("one", "two"):
+            for workspace in WORKSPACES:
                 await host.start_channel(
                     KEY,
                     {"public_origin": origin, "secret": "key-" + workspace},
                     workspace_id=workspace,
                 )
-            old = {
-                workspace: binding(workspace) for workspace in ("one", "two")
-            }
+            old = bindings()
             assert old["one"]["pid"] != old["two"]["pid"]
             async with aiohttp.ClientSession() as client:
-                for workspace in ("one", "two"):
+
+                async def expect_post(url, status, **kwargs):
+                    async with client.post(url, **kwargs) as response:
+                        assert response.status == status, (
+                            url,
+                            response.status,
+                        )
+
+                for workspace in WORKSPACES:
                     url = old[workspace]["urls"]["echo"]
                     async with client.post(
                         url,
@@ -188,8 +215,7 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                         "X-Qwenpaw-Ingress-Original-URL": url,
                     },
                 ):
-                    async with client.post(url, headers=headers) as response:
-                        assert response.status == 403
+                    await expect_post(url, 403, headers=headers)
                 async with client.post(
                     url,
                     headers={
@@ -200,34 +226,26 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                 ) as response:
                     assert response.status == 200
                     assert (await response.json())["original"] == url
-                async with client.post(
+                await expect_post(
                     url,
+                    403,
                     headers={**signed(url, "key-one"), "Host": "evil.test"},
-                ) as response:
-                    assert response.status == 403
-                async with client.post(url.split("?")[0]) as response:
-                    assert response.status == 400
-                async with client.post(
-                    url.replace("/echo?", "/undeclared?"),
-                ) as response:
-                    assert response.status == 503
+                )
+                await expect_post(url.split("?")[0], 400)
+                await expect_post(url.replace("/echo?", "/undeclared?"), 503)
                 direct = (
                     f'http://127.0.0.1:{old["one"]["port"]}'
                     + urlsplit(url).path
                 )
-                async with client.post(
-                    direct,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert response.status == 403
+                await expect_post(direct, 403, headers=signed(url, "key-one"))
 
                 oversized = b"x" * (1024 * 1024 + 1)
-                async with client.post(
+                await expect_post(
                     url,
+                    413,
                     data=oversized,
                     headers=signed(url, "key-one", oversized),
-                ) as response:
-                    assert response.status == 413
+                )
                 ws_url = old["one"]["urls"]["ws"]
                 ws = await client.ws_connect(
                     ws_url,
@@ -244,26 +262,16 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                     (storage("one") / "http-open.json").exists,
                     timeout=5,
                 )
-                async with client.post(
-                    url,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert (
-                        response.status == 503
-                    ), "Concurrency limit belongs to the exact owner"
+                # A saturated owner must not restrict the other workspace.
+                await expect_post(url, 503, headers=signed(url, "key-one"))
                 other_url = old["two"]["urls"]["echo"]
-                async with client.post(
+                await expect_post(
                     other_url,
+                    200,
                     headers=signed(other_url, "key-two"),
-                ) as response:
-                    assert response.status == 200
+                )
                 await control("pause")
-                assert (await ws.receive(timeout=3)).type in {
-                    aiohttp.WSMsgType.CLOSE,
-                    aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.ERROR,
-                }
-                await ws.close()
+                await assert_ws_closed(ws)
                 await asyncio.wait_for(
                     asyncio.gather(holding, return_exceptions=True),
                     5,
@@ -276,118 +284,71 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                     (storage("one") / "ws-closed.json").exists,
                     timeout=5,
                 )
-                async with client.post(
-                    url,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert response.status == 503
+                await expect_post(url, 503, headers=signed(url, "key-one"))
                 await control("resume")
                 assert (storage("one") / "old-binding-invalid.json").exists()
                 url = binding("one")["urls"]["echo"]
-                async with client.post(
-                    url,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert response.status == 200
+                await expect_post(url, 200, headers=signed(url, "key-one"))
                 ws_url = binding("one")["urls"]["ws"]
                 closing_ws = await client.ws_connect(
                     ws_url,
                     headers=signed(ws_url, "key-one"),
                 )
                 await control("close")
-                assert (await closing_ws.receive(timeout=3)).type in {
-                    aiohttp.WSMsgType.CLOSE,
-                    aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.ERROR,
-                }
-                await closing_ws.close()
+                await assert_ws_closed(closing_ws)
                 assert alive(
                     old["one"]["pid"],
                 ), "Route withdrawal alone is not listener cleanup"
-                async with client.post(
-                    url,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert response.status == 503
+                await expect_post(url, 503, headers=signed(url, "key-one"))
 
-                reloaded = await host.reload(KEY, new_source=ingress_plugin)
-                assert reloaded.ok, reloaded
-                assert all(not alive(row["pid"]) for row in old.values())
-                current = {
-                    workspace: binding(workspace)
-                    for workspace in ("one", "two")
-                }
-                async with client.post(
-                    url,
-                    headers=signed(url, "key-one"),
-                ) as response:
-                    assert (
-                        response.status == 503
-                    ), "Old selectors must not address a new generation"
+                current = replaced(
+                    await host.reload(KEY, new_source=ingress_plugin),
+                    old,
+                )
+                # Old selectors must not address a new generation.
+                await expect_post(url, 503, headers=signed(url, "key-one"))
                 new_url = current["one"]["urls"]["echo"]
-                async with client.post(
+                await expect_post(
                     new_url,
+                    200,
                     headers=signed(new_url, "key-one"),
-                ) as response:
-                    assert response.status == 200
-                updated = await host.update_config(KEY, {"validation": True})
-                assert updated.ok, updated
-                assert all(not alive(row["pid"]) for row in current.values())
-                current = {
-                    workspace: binding(workspace)
-                    for workspace in ("one", "two")
-                }
+                )
+                current = replaced(
+                    await host.update_config(KEY, {"validation": True}),
+                    current,
+                )
                 upgrade = tmp_path / "upgrade"
                 shutil.copytree(ingress_plugin, upgrade)
                 manifest = json.loads((upgrade / "plugin.json").read_text())
                 manifest["version"] = "0.1.1"
                 (upgrade / "plugin.json").write_text(json.dumps(manifest))
-                upgraded = await host.install(upgrade, replace=True)
-                assert upgraded.ok, upgraded
-                assert all(not alive(row["pid"]) for row in current.values())
-                current = {
-                    workspace: binding(workspace)
-                    for workspace in ("one", "two")
-                }
-                assert (
-                    len(ingress._bindings) == 2
-                ), "Lifecycle changes must not duplicate route owners"
+                current = replaced(
+                    await host.install(upgrade, replace=True),
+                    current,
+                )
                 new_url = current["two"]["urls"]["echo"]
-                async with client.post(
+                await expect_post(
                     new_url,
+                    200,
                     headers=signed(new_url, "key-two"),
-                ) as response:
-                    assert response.status == 200
+                )
                 ws_url = current["two"]["urls"]["ws"]
                 disabled_ws = await client.ws_connect(
                     ws_url,
                     headers=signed(ws_url, "key-two"),
                 )
                 assert (await host.set_enabled(KEY, False)).quiescent
-                assert (await disabled_ws.receive(timeout=3)).type in {
-                    aiohttp.WSMsgType.CLOSE,
-                    aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.ERROR,
-                }
-                await disabled_ws.close()
+                await assert_ws_closed(disabled_ws)
                 assert all(not alive(row["pid"]) for row in current.values())
                 assert (await host.set_enabled(KEY, True)).ok
-                current = {
-                    workspace: binding(workspace)
-                    for workspace in ("one", "two")
-                }
+                current = bindings()
                 ws_url = current["two"]["urls"]["ws"]
                 removed_ws = await client.ws_connect(
                     ws_url,
                     headers=signed(ws_url, "key-two"),
                 )
                 removed = await host.uninstall(KEY)
-                assert (await removed_ws.receive(timeout=3)).type in {
-                    aiohttp.WSMsgType.CLOSE,
-                    aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.ERROR,
-                }
-                await removed_ws.close()
+                await assert_ws_closed(removed_ws)
                 assert removed.clean and removed.quiescent, removed
                 assert all(not alive(row["pid"]) for row in current.values())
                 assert not ingress._bindings

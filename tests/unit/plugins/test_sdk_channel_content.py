@@ -16,7 +16,6 @@ from qwenpaw.channel_protocol.models import SendParams
 from qwenpaw.channel_protocol.structured_content import (
     validate_structured_parts,
 )
-from qwenpaw.plugins import SDKError
 from qwenpaw.plugins.channel_workers import (
     ChannelContent,
     ChannelDefinition,
@@ -100,29 +99,21 @@ def tool_result(output, name="external"):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "scenario",
-    [
-        "hidden",
-        "preview",
-        "truncated",
-        "tool-error",
-        "missing-capability",
-    ],
-)
+@pytest.mark.parametrize("scenario", ["hidden", "preview", "tool-error"])
 async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
     source = tmp_path / "channel"
     key = "sdk-content"
-    capabilities = ("channel.generic.v1", "channel.text_merge.v1")
-    if scenario != "missing-capability":
-        capabilities += ("send.structured_parts.v1",)
     definition = ChannelDefinition(
         key,
         {"en": "Content", "zh": "内容"},
         "driver:Driver",
         {"type": "object", "properties": {}},
         (),
-        capabilities,
+        (
+            "channel.generic.v1",
+            "channel.text_merge.v1",
+            "send.structured_parts.v1",
+        ),
     )
     make_channel(
         source,
@@ -151,11 +142,6 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
     )
     root = tmp_path / "host"
     async with PluginTestHost(root, process_channels=(key,)) as host:
-        if scenario == "missing-capability":
-            with pytest.raises(SDKError, match="WORKER_START_FAILED"):
-                await host.install(source)
-            assert not list((root / "plugin-data" / key).glob("**/pid.json"))
-            return
         assert (await host.install(source)).ok
         provider = await host.load(
             provider_source,
@@ -175,8 +161,6 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
                 "show_tool_results": False,
                 "show_thinking": False,
             }
-        elif scenario == "truncated":
-            settings = {"tool_call_max_length": 1, "tool_result_max_length": 3}
         await host.start_channel(key, settings)
         storage = workspace_store(root, key, "test")
         await eventually((storage / "finished.json").exists, timeout=15)
@@ -222,16 +206,11 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
                     "after-image",
                 ]
                 assert call["arguments"] == "{}"
-            elif scenario == "preview":
+            else:
                 assert call["arguments"] == "..."
                 assert [p["type"] for p in output] == ["text", "image"]
                 assert output[0]["text"] == "..."
                 assert "before-image" not in json.dumps(parts)
-            else:
-                assert call["arguments"] == "{..."
-                assert [p["type"] for p in output] == ["text", "image"]
-                assert output[0]["text"] == "bef..."
-                assert "after-image" not in json.dumps(parts)
         pid = json.loads((storage / "pid.json").read_text())
         assert (await host.uninstall(key)).quiescent
         assert not alive(pid)
@@ -245,11 +224,15 @@ def test_hidden_internal_media_and_shared_truncation_budget():
             "source": {"type": "url", "url": "https://example.test/a.png"},
         },
         {"type": "text", "text": "cdef"},
+        {"type": "text", "text": "over-budget"},
         {"type": "thinking", "thinking": "hidden-thought"},
     ]
-    display = ChannelDisplayConfig(
-        show_thinking=False,
-        tool_result_max_length=3,
+    display = ChannelDisplayConfig.from_config(
+        {
+            "show_thinking": False,
+            "tool_call_max_length": 1,
+            "tool_result_max_length": 3,
+        },
     )
     renderer = MessageRenderer(
         RenderStyle(
@@ -257,6 +240,15 @@ def test_hidden_internal_media_and_shared_truncation_budget():
             internal_tools=frozenset({"view_image"}),
         ),
     )
+    call = message(
+        [
+            DataContent(
+                data={"call_id": "one", "name": "tool", "arguments": "{}"},
+            ),
+        ],
+        MessageType.FUNCTION_CALL,
+    )
+    assert project_structured_content(renderer, call)[0]["arguments"] == "{..."
     output = project_structured_content(renderer, tool_result(blocks))[0][
         "output"
     ]

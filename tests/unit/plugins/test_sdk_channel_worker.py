@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import re
 import threading
 from dataclasses import replace
 
@@ -21,6 +22,7 @@ from qwenpaw.plugins.channel_workers import (
     ChannelSendResult,
     ChannelDeliveryError,
     ReplyTarget,
+    ResponsePolicy,
 )
 from qwenpaw.plugins.channels import ChannelMessage
 from qwenpaw.plugins.messages import Attachment, ContentBlock
@@ -72,6 +74,30 @@ async def setup(
     return adapter, peer, identity
 
 
+class DeduplicatingPeer(HostPeer):
+    def __init__(self, root):
+        super().__init__(root)
+        self.queued = {}
+
+    async def call(self, name, params):
+        if name != "event.batch":
+            return await super().call(name, params)
+        self.batches.append(params)
+        event = params["events"][0]
+        key = event["event_id"]
+        duplicate = key in self.queued
+        if not duplicate:
+            self.queued[key] = event
+        return {
+            "batch_id": params["batch_id"],
+            "duplicate_event_ids"
+            if duplicate
+            else "accepted_event_ids": [
+                key,
+            ],
+        }
+
+
 @pytest.mark.parametrize(
     "messages",
     [
@@ -83,27 +109,6 @@ async def test_message_identity_is_session_scoped_and_restart_stable(
     tmp_path,
     messages,
 ):
-    class DeduplicatingPeer(HostPeer):
-        def __init__(self, root):
-            super().__init__(root)
-            self.queued = {}
-
-        async def call(self, name, params):
-            if name != "event.batch":
-                return await super().call(name, params)
-            self.batches.append(params)
-            event = params["events"][0]
-            key = event["event_id"]
-            duplicate = key in self.queued
-            if not duplicate:
-                self.queued[key] = event
-            return {
-                "batch_id": params["batch_id"],
-                "duplicate_event_ids"
-                if duplicate
-                else "accepted_event_ids": [key],
-            }
-
     peer = DeduplicatingPeer(tmp_path)
     adapter, _, _ = await setup(tmp_path, peer=peer)
     handles = []
@@ -341,6 +346,46 @@ def send_params(identity, handle, delivery="one", **values):
     )
 
 
+async def test_concurrent_duplicate_keeps_accepted_reply_open(tmp_path):
+    resolving = asyncio.Event()
+    release = asyncio.Event()
+
+    class PausedTarget(Driver):
+        async def resolve_target(self, ch, target):
+            resolving.set()
+            await release.wait()
+            return target
+
+    adapter, peer, identity = await setup(
+        tmp_path,
+        PausedTarget,
+        peer=DeduplicatingPeer(tmp_path),
+    )
+    try:
+        message = ChannelMessage(
+            "alice",
+            (ContentBlock(text="hello"),),
+            session_id="room",
+            message_id="redelivered",
+        )
+        first = asyncio.create_task(adapter.ch.receive(message))
+        await resolving.wait()
+        second = asyncio.create_task(adapter.ch.receive(message))
+        await asyncio.sleep(0)
+        release.set()
+        accepted, duplicate = await asyncio.gather(first, second)
+        assert accepted.status == "accepted"
+        assert duplicate.status == "duplicate"
+        assert accepted.response_handle == duplicate.response_handle
+        params = send_params(identity, accepted.response_handle)
+        result = await peer.methods["channel.send"](params, None)
+        assert result["state"] == "acknowledged"
+        assert len(adapter.driver.sent) == 1
+    finally:
+        release.set()
+        await adapter.stop()
+
+
 @pytest.mark.asyncio
 async def test_receive_and_send_preserve_identity_media_and_durable_replay(
     tmp_path,
@@ -409,10 +454,13 @@ async def test_stream_previous_resource_and_final_cleanup_are_host_owned(
 ):
     class Streaming(Driver):
         async def on_stream(self, ch, response):
+            step = await ch.delivery.prepare_step(response.operation)
             self.sent.append(response)
             if response.operation != "stream.start":
                 assert response.previous.message_id == "card-1"
-            return ChannelSendResult("card-1")
+            result = ChannelSendResult("card-1")
+            await ch.delivery.record_progress(step, result)
+            return result
 
     adapter, peer, identity = await setup(tmp_path, Streaming)
     handle = await open_response(peer, identity)
@@ -437,16 +485,19 @@ async def test_stream_previous_resource_and_final_cleanup_are_host_owned(
                 None,
             )
             assert result["state"] == "acknowledged"
-        await peer.methods["channel.response.finish"](
-            ResponseFinishParams(
-                identity.channel_key,
-                identity.instance_id,
-                identity.generation,
-                handle,
-                ResponseOutcome.CANCELLED,
-            ),
-            None,
+        finish = ResponseFinishParams(
+            identity.channel_key,
+            identity.instance_id,
+            identity.generation,
+            handle,
+            ResponseOutcome.CANCELLED,
         )
+        for _ in range(2):
+            result = await peer.methods["channel.response.finish"](
+                finish,
+                None,
+            )
+            assert result["state"] == "closed"
         assert [r.operation for r in adapter.driver.sent] == [
             "stream.start",
             "stream.delta",
@@ -495,8 +546,7 @@ async def test_failure_has_durable_determinate_or_unknown_receipt(
         await adapter.stop()
 
 
-@pytest.mark.asyncio
-async def test_sdk_driver_probe_validates_without_constructing(tmp_path):
+def test_sdk_driver_probe_validates_without_constructing():
     class Unconstructable(Driver):
         def __init__(self):
             raise AssertionError("Probe must not construct")
@@ -511,6 +561,21 @@ async def test_sdk_driver_probe_validates_without_constructing(tmp_path):
         prepare_driver(Invalid, {"mode": "probe"})
     with pytest.raises(ValueError, match="identity"):
         prepare_driver(Driver, {"config": {"workspace_id": "forged"}})
+
+    for policy, missing in (
+        (ResponsePolicy(text_merge_delay_ms=0), "channel.text_merge.v1"),
+        (
+            ResponsePolicy(content_source="semantic"),
+            "send.structured_parts.v1",
+        ),
+    ):
+        Unconstructable.response_policy = policy
+        with pytest.raises(ValueError, match=re.escape(missing)):
+            prepare_driver(
+                Unconstructable,
+                {"mode": "probe"},
+                capabilities=("channel.generic.v1",),
+            )
 
 
 @pytest.mark.asyncio

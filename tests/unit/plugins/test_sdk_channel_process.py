@@ -2,8 +2,8 @@
 """Real process, SDK-only driver, native handshake and stop acknowledgment."""
 
 import json
+import os
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -12,7 +12,7 @@ from qwenpaw.app.channels.process_supervisor import ChannelProcess, LaunchSpec
 from qwenpaw.channel_protocol.shared import SharedChannelDescriptor
 from qwenpaw.plugins.channel_workers import ChannelDefinition
 from tests.channel_support.driver import HostPeer
-from tests.channel_support.process import alive, digest, eventually
+from tests.channel_support.process import ROOT, alive, digest, eventually
 
 SOURCE = """
 import json
@@ -99,7 +99,7 @@ async def test_sdk_driver_in_actual_worker_process(tmp_path):
     ledger = tmp_path / "ledger.jsonl"
     spec = LaunchSpec(
         python_executable=sys.executable,
-        support_root=Path(__file__).resolve().parents[3] / "src",
+        support_root=ROOT / "src",
         code_root=code,
         descriptor_path=code / "channel.json",
         source_revision=digest(code),
@@ -138,8 +138,6 @@ async def test_sdk_driver_in_actual_worker_process(tmp_path):
             return await peer.call(name, params.to_mapping())
 
         process.register_method(name, call)
-    result = None
-    pid = None
     try:
         await process.probe(spec)
         assert (
@@ -161,7 +159,7 @@ async def test_sdk_driver_in_actual_worker_process(tmp_path):
                 "scan_url": "https://example.test/scan",
             },
         ]
-        assert pid != __import__("os").getpid() and alive(pid)
+        assert pid != os.getpid() and alive(pid)
         event = peer.batches[0]["events"][0]
         params = {
             "channel_key": "example",
@@ -172,18 +170,15 @@ async def test_sdk_driver_in_actual_worker_process(tmp_path):
             "operation": "message.create",
             "content_parts": [{"type": "text", "text": "worker answer"}],
         }
-        assert (await process.call("channel.send", params))[
-            "state"
-        ] == "acknowledged"
-        assert (await process.call("channel.send", params))[
-            "state"
-        ] == "acknowledged"
+        for _ in range(2):
+            sent = await process.call("channel.send", params)
+            assert sent["state"] == "acknowledged"
         rows = [json.loads(line) for line in ledger.read_text().splitlines()]
         assert len([r for r in rows if r["kind"] == "sent"]) == 1
     finally:
         result = await process.stop()
     assert result.exited and not result.forced and not result.residual
-    assert pid is not None and not alive(pid)
+    assert not alive(pid)
     assert "thread-exited" in ledger.read_text()
     assert (
         json.loads((tmp_path / "storage/state.json").read_text())["workspace"]

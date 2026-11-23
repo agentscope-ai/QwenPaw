@@ -31,8 +31,10 @@ class DeliveryBridge:
         )
 
     @contextmanager
-    def bind(self, handle, delivery_id):
-        token = self.current.set((handle, delivery_id, asyncio.current_task()))
+    def bind(self, handle, delivery_id, cleanup=False):
+        token = self.current.set(
+            (handle, delivery_id, asyncio.current_task(), cleanup),
+        )
         try:
             yield
         finally:
@@ -48,7 +50,14 @@ class DeliveryBridge:
         snapshot = self.adapter._routes.snapshot(value[0])
         if snapshot is None:
             raise SDKAccessError("Response journal is no longer available")
-        return value[0], value[1], snapshot
+        return value[0], value[1], snapshot, value[3]
+
+    def record_step(self, handle, ref, cleanup):
+        routes = self.adapter._routes
+        if cleanup:
+            routes.record_cleanup_delivery(handle, [ref])
+        else:
+            routes.record_delivery(handle, [ref])
 
     @staticmethod
     def name(value):
@@ -87,7 +96,7 @@ class DeliveryBridge:
         )
 
     async def prepare(self, name):
-        handle, delivery_id, snapshot = self.scope()
+        handle, delivery_id, snapshot, cleanup = self.scope()
         step_id = self.step_id(handle, delivery_id, name)
         ref = next(
             (
@@ -115,12 +124,12 @@ class DeliveryBridge:
             step_id,
             {"name": name, "delivery_id": delivery_id, "state": "unknown"},
         )
-        self.adapter._routes.record_delivery(handle, [ref])
+        self.record_step(handle, ref, cleanup)
         await self.adapter._checkpoint()
         return ChannelDeliveryStep(step_id, name, False)
 
     async def progress(self, step, result):
-        handle, delivery_id, snapshot = self.scope()
+        handle, delivery_id, snapshot, cleanup = self.scope()
         if not isinstance(
             step,
             ChannelDeliveryStep,
@@ -153,18 +162,19 @@ class DeliveryBridge:
             and dict(old.attributes) != attributes
         ):
             raise SDKAccessError("A confirmed step cannot be rewritten")
-        self.adapter._routes.record_delivery(
+        self.record_step(
             handle,
-            [ResponseResourceRef.create("sdk.step", step.id, attributes)],
+            ResponseResourceRef.create("sdk.step", step.id, attributes),
+            cleanup,
         )
         try:
             await self.adapter._checkpoint()
         except BaseException:
-            self.adapter._routes.record_delivery(handle, [old])
+            self.record_step(handle, old, cleanup)
             raise
 
     async def resource(self, name, result):
-        handle, delivery_id, _snapshot = self.scope()
+        handle, delivery_id, _snapshot, _cleanup = self.scope()
         self.name(name)
         if delivery_id is None:
             raise SDKAccessError(
@@ -179,7 +189,7 @@ class DeliveryBridge:
         await self.adapter._checkpoint()
 
     def resources(self):
-        _handle, _delivery_id, snapshot = self.scope()
+        _handle, _delivery_id, snapshot, _cleanup = self.scope()
         return MappingProxyType(
             {
                 r.resource_id: self.adapter._send_result(dict(r.attributes))

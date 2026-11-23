@@ -76,14 +76,19 @@ describe("published plugin SDK runtime", () => {
     });
   });
 
-  it("does not send a restore without a selected chat and advertised support", async () => {
+  it("requires a selected conversation, workspace, and advertised support", async () => {
     const { api } = hostWith(supported);
+    const client = checkpoints("author-app");
     await expect(
-      checkpoints("author-app").restore("commit", { chatId: "chat" }),
-    ).rejects.toThrow(/advertised/);
-    await expect(
-      checkpoints("author-app").timeline({ chatId: "" }),
+      client.timeline({ chatId: "", agentId: "one" }),
     ).rejects.toThrow(/conversation/);
+    await expect(
+      client.timeline({ chatId: "chat", agentId: " " }),
+    ).rejects.toThrow(/workspace/);
+    expect(api.get).not.toHaveBeenCalled();
+    await expect(
+      client.restore("commit", { chatId: "chat", agentId: "one" }),
+    ).rejects.toThrow(/advertised/);
     expect(api.post).not.toHaveBeenCalled();
   });
 

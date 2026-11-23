@@ -155,7 +155,9 @@ export function checkProject(manifestPath, projectPath) {
       line: 1,
       column: 1,
       rule: "input",
-      message: "No author source files were checked",
+      message: parsed.projectReferences?.length
+        ? "No author source files were checked. Pass a referenced tsconfig that includes the plugin source files."
+        : "No author source files were checked. Pass a tsconfig that includes the plugin source files.",
     });
   return {
     ok: findings.length === 0,

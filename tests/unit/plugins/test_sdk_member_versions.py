@@ -191,19 +191,6 @@ def test_harness_interfaces_keep_sdk_11_minimum(tmp_path, source):
             "async def f(call: ToolContext):\n"
             "    return await call.workspace_ops.resolve_path('file')\n"
         ),
-    ],
-)
-def test_new_member_requires_new_minimum(tmp_path, source):
-    old = package(tmp_path, source, "1.1")
-    assert {f.code for f in old.findings} == {"sdk-version"}
-    assert not old.ok
-    current = package(tmp_path, source, "1.2")
-    assert current.ok, current.findings
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
         (
             "from qwenpaw.plugins.transcription import TranscriptionContext\n"
             "async def f(call: TranscriptionContext):\n"
@@ -221,11 +208,12 @@ def test_new_member_requires_new_minimum(tmp_path, source):
         ),
     ],
 )
-def test_sdk_11_rejects_sdk_12_additions(tmp_path, source):
+def test_new_member_requires_new_minimum(tmp_path, source):
     old = package(tmp_path, source, "1.1.0")
     assert not old.ok
     assert {finding.code for finding in old.findings} == {"sdk-version"}
-    assert package(tmp_path, source, "1.2.0").ok
+    current = package(tmp_path, source, "1.2.0")
+    assert current.ok, current.findings
 
 
 def test_old_host_rejects_new_plugin_before_loading(monkeypatch):

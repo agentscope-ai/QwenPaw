@@ -267,6 +267,7 @@ class WorkerAdapter(SharedResponseDriver):
         self.packet = packet
         self.ch = None
         self._ingress = set()
+        self._admitting = {}
         self._stop_lock = asyncio.Lock()
         self._target_lock = asyncio.Lock()
         self._started = False
@@ -619,32 +620,11 @@ class WorkerAdapter(SharedResponseDriver):
                     "actor_unknown": message.actor_unknown,
                 },
             )
-            snapshot = self._routes.snapshot(handle)
-            created = snapshot is None
-            if snapshot is None or snapshot.kind.value != "terminal":
-                target = await self.driver.resolve_target(
-                    self.ch,
-                    ReplyTarget(
-                        message.reply_to or message.session_id,
-                        message.sender_id,
-                        message.session_id,
-                        freeze(metadata),
-                    ),
-                )
-                await self._persist_target(
-                    handle,
-                    target,
-                    owner={
-                        "user_id": user_id,
-                        "session_id": message.session_id,
-                    },
-                    connection_generation=connection_generation,
-                )
-            ack, uncertain = await self._admit_event(
+            ack, uncertain = await self._admit_message(
                 event,
-                created,
-                detailed=True,
-                connection_generation=connection_generation,
+                message,
+                metadata,
+                connection_generation,
             )
             if ack:
                 if event_id in ack.accepted_event_ids:
@@ -727,12 +707,59 @@ class WorkerAdapter(SharedResponseDriver):
             freeze(value["metadata"]),
         )
 
-    async def _invoke(self, method, *args, handle=None, delivery_id=None):
+    async def _admit_message(self, event, message, metadata, generation):
+        handle = event.response_handle
+        # Only the first admission can own rollback of a newly opened route.
+        # Keep this separate from the lock used for replies and their cleanup.
+        while previous := self._admitting.get(handle):
+            await asyncio.shield(previous)
+        self._check_connection(generation)
+        done = asyncio.get_running_loop().create_future()
+        self._admitting[handle] = done
+        try:
+            snapshot = self._routes.snapshot(handle)
+            if snapshot is None or snapshot.kind.value != "terminal":
+                target = await self.driver.resolve_target(
+                    self.ch,
+                    ReplyTarget(
+                        message.reply_to or message.session_id,
+                        message.sender_id,
+                        message.session_id,
+                        freeze(metadata),
+                    ),
+                )
+                await self._persist_target(
+                    handle,
+                    target,
+                    owner={
+                        "user_id": metadata["user_id"],
+                        "session_id": message.session_id,
+                    },
+                    connection_generation=generation,
+                )
+            return await self._admit_event(
+                event,
+                snapshot is None,
+                detailed=True,
+                connection_generation=generation,
+            )
+        finally:
+            del self._admitting[handle]
+            done.set_result(None)
+
+    async def _invoke(
+        self,
+        method,
+        *args,
+        handle=None,
+        delivery_id=None,
+        cleanup_delivery=False,
+    ):
         async def invoke():
             try:
                 if handle is None:
                     return await method(self.ch, *args)
-                with self.delivery.bind(handle, delivery_id):
+                with self.delivery.bind(handle, delivery_id, cleanup_delivery):
                     return await method(self.ch, *args)
             except Exception as exc:
                 return exc
@@ -745,28 +772,44 @@ class WorkerAdapter(SharedResponseDriver):
             raise result
         return result
 
-    async def _perform(self, params, operation, method):
+    async def _invoke_delivery(
+        self,
+        method,
+        response,
+        handle,
+        *,
+        cleanup_delivery=False,
+    ):
         try:
             result = await self._invoke(
                 method,
-                self._response(params, operation),
-                handle=params.to_handle,
-                delivery_id=params.delivery_id,
+                response,
+                handle=handle,
+                delivery_id=response.delivery_id,
+                cleanup_delivery=cleanup_delivery,
             )
         except ChannelDeliveryError as exc:
-            if self._pending_steps(params.to_handle, params.delivery_id):
+            if self._pending_steps(handle, response.delivery_id):
                 raise ChannelDeliveryError(
                     exc.reason_code,
                     side_effect_possible=True,
                 ) from exc
             raise
-        if self._pending_steps(params.to_handle, params.delivery_id):
+        if self._pending_steps(handle, response.delivery_id):
             raise ChannelDeliveryError(
                 "STEP_RESULT_UNKNOWN",
                 side_effect_possible=True,
             )
         if not isinstance(result, ChannelSendResult):
             raise TypeError("Channel callbacks must return ChannelSendResult")
+        return result
+
+    async def _perform(self, params, operation, method):
+        result = await self._invoke_delivery(
+            method,
+            self._response(params, operation),
+            params.to_handle,
+        )
         data = {
             "message_id": result.message_id,
             "metadata": json_mapping(result.metadata),
@@ -879,19 +922,12 @@ class WorkerAdapter(SharedResponseDriver):
             text=resource["text"],
             previous=self._send_result(resource),
         )
-        result = await self._invoke(
+        await self._invoke_delivery(
             self.driver.on_stream,
             response,
-            handle=resource["handle"],
-            delivery_id=response.delivery_id,
+            resource["handle"],
+            cleanup_delivery=True,
         )
-        if self._pending_steps(resource["handle"], response.delivery_id):
-            raise ChannelDeliveryError(
-                "STEP_RESULT_UNKNOWN",
-                side_effect_possible=True,
-            )
-        if not isinstance(result, ChannelSendResult):
-            raise TypeError("Channel callbacks must return ChannelSendResult")
 
     async def _before_local_retirement(self, snapshot):
         self.runs.require_finished(snapshot.response_handle)

@@ -13,6 +13,7 @@ import pytest
 
 from qwenpaw.plugins import ResourceError
 from qwenpaw.plugins.resources import ResourceOwner, ResourceScope
+from .timing import WAIT_TIMEOUT
 
 
 def scope():
@@ -248,6 +249,38 @@ async def test_run_sync_cancellation_retains_actual_thread(monkeypatch):
         await resources.close()
     assert not any(t.ident in worker_ids for t in threading.enumerate())
     assert not resources.snapshot()["resources"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="uses a POSIX nonblocking pipe")
+async def test_process_cleanup_reaps_child_with_full_buffered_stdin():
+    resources = scope()
+    process = resources.process(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdin=subprocess.PIPE,
+    )
+    closing = None
+    try:
+        assert process.stdin is not None
+        fd = process.stdin.fileno()
+        os.set_blocking(fd, False)
+        for chunk in (b"x" * 4096, b"x"):
+            with suppress(BlockingIOError):
+                while True:
+                    os.write(fd, chunk)
+        os.set_blocking(fd, True)
+        process.stdin.write(b"still buffered")
+        closing = asyncio.create_task(resources.close())
+        done, _ = await asyncio.wait({closing}, timeout=WAIT_TIMEOUT)
+        assert closing in done, "cleanup blocked while closing stdin"
+        await closing
+        assert process.poll() is not None and process.stdin.closed
+    finally:
+        if process.poll() is None:
+            process.kill()
+        if closing is not None:
+            await closing
+        else:
+            await resources.close()
 
 
 async def test_async_process_interactive_io_and_close():

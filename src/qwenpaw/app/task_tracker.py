@@ -113,12 +113,12 @@ class TaskTracker:
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    def track_background_task(
+    def start_background_task(
         self,
         run_key: str,
-        task: asyncio.Task,
-    ) -> None:
-        """Track an externally owned task on the current event loop.
+        start: Callable[[], asyncio.Task],
+    ) -> asyncio.Task:
+        """Admit and track an externally owned task on the current loop.
 
         Registration is synchronous so admission cannot race an idle check.
         The caller must keep the task alive until its resources settle.
@@ -126,6 +126,7 @@ class TaskTracker:
         state = self._runs.get(run_key)
         if state is not None and not state.task.done():
             raise ValueError(f"Task is already tracked: {run_key}")
+        task = start()
         state = _RunState(task=task)
         self._runs[run_key] = state
 
@@ -136,6 +137,7 @@ class TaskTracker:
                 self._runs.pop(run_key)
 
         task.add_done_callback(finished)
+        return task
 
     async def get_status(self, run_key: str) -> str:
         """Return ``'idle'`` or ``'running'``."""

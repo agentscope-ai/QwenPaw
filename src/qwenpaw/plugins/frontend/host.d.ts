@@ -150,7 +150,7 @@ export interface QwenPawChatNamespace {
   composer: {
     read(): ComposerSnapshot | null;
     replace(snapshot: ComposerSnapshot, text: string): boolean;
-    /** Current draft's model, or null when unavailable/changed during lookup. */
+    /** Current draft's QwenPaw provider model. External engines and stale selections can return null. */
     model(): Promise<ModelSelection | null>;
   };
   /** Last registration for a language wins; disposing it restores the previous one. */

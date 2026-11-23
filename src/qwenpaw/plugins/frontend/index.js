@@ -50,10 +50,13 @@ export function checkpoints(appId) {
   const api = forApp(appId).api;
   async function request(action, body, options) {
     if (!options?.chatId) throw new Error("Select a saved conversation first");
+    if (typeof options.agentId !== "string" || !options.agentId.trim()) {
+      throw new Error("Specify the selected conversation's workspace (agentId)");
+    }
     const scope = {
       signal: options.signal,
       headers: { ...options.headers, "X-Chat-Id": options.chatId },
-      query: { ...options.query, ...(options.agentId ? { agent_id: options.agentId } : {}) },
+      query: { ...options.query, agent_id: options.agentId },
     };
     const advertised = await capabilities(appId, scope);
     if (advertised.status !== "supported" || !advertised.capabilities.includes("checkpoints")) {

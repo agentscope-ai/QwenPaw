@@ -64,7 +64,7 @@ export declare function tasks(appId: string): AppTasks;
 /** @since 1.2.0 An explicitly selected main conversation in this workspace. */
 export interface CheckpointScope extends PawRequestOptions {
   chatId: string;
-  agentId?: string;
+  agentId: string;
 }
 /** @since 1.2.0 */
 export interface CheckpointEntry {
