@@ -882,3 +882,78 @@ async def test_second_non_streaming_refusal_reaches_the_shared_budget() -> None:
     assert result == "ok"
     assert len(recoveries) == 2
     assert len(attempts) == 3
+
+
+async def test_mixed_media_retry_keeps_the_configured_side_cap():
+    """A large GIF must not raise the PNG above the configured cap.
+
+    ``max_image_side=256`` with a 500 px animated GIF and a 600 px PNG: the
+    request's observed side is 500, so the retry used to set the cap to 500
+    and sent the PNG at 500 px as well.
+    """
+    agent = _media_agent(_media_history()[:2])
+    agent.formatter.max_image_side = 256
+    agent.formatter.max_bytes = 16 * 1024 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 500
+    agent.formatter._qwenpaw_last_wire_resizable_images = 2
+
+    saved = agent._tighten_media_limits()
+
+    assert saved is not None
+    assert agent.formatter.max_image_side == 256
+
+
+async def test_identical_tighten_target_is_not_retried():
+    """Recomputing the same target cannot fix a refusal; stop before it."""
+    agent = _media_agent(_media_history()[:2])
+    agent.formatter.max_image_side = 1024
+    agent.formatter.max_bytes = 1024 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 1024
+    agent.formatter._qwenpaw_last_wire_resizable_images = 1
+
+    first = agent._tighten_media_limits()
+    assert first is not None
+    agent._restore_media_limits(first)
+
+    # The provider refused the retry too, and recomputing from restored
+    # limits yields the exact same rendition.
+    assert agent._tighten_media_limits() is None
+
+
+async def test_accepted_rendition_is_keyed_by_the_size_that_succeeded():
+    """1000 px refused, 512 px accepted: cache 512, not the guess."""
+    agent = _media_agent(_media_history()[:2])
+    agent._media_rendition_pending = (1000, (1000, 512 * 1024))
+    agent.formatter.max_image_side = 512
+    agent.formatter.max_bytes = 128 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 512
+
+    agent._accept_media_rendition()
+
+    assert agent._media_rendition_target == (512, (512, 128 * 1024))
+
+
+async def test_unreadable_image_is_returned_without_reopening(monkeypatch):
+    """A bomb error must not be raised a second time by ``_emit()``."""
+    from qwenpaw.agents.utils import image_resize
+
+    opens = []
+
+    def exploding_open(*args, **kwargs):
+        opens.append(1)
+        raise image_resize.Image.DecompressionBombError("too large")
+
+    monkeypatch.setattr(image_resize.Image, "open", exploding_open)
+    observed: list[int] = []
+
+    data, media_type = image_resize.downscale_image_bytes(
+        b"not-an-image",
+        "image/png",
+        max_side=256,
+        max_bytes=1024,
+        observed_sides=observed,
+    )
+
+    assert (data, media_type) == (b"not-an-image", "image/png")
+    assert opens == [1]
+    assert observed == []

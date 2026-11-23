@@ -962,26 +962,42 @@ class QwenPawAgent(Agent):
             formatter.max_image_side, formatter.max_bytes = accepted[1]
             setattr(formatter, "_qwenpaw_media_limits_tightened", True)
             return (side, max_bytes)
-        side_target = side
-        if observed_side > 0 and (side <= 0 or observed_side <= side):
-            side_target = observed_side
+        # Never raise the configured cap. A single request can carry images
+        # of different sizes (a 500 px animated GIF next to a 600 px PNG with
+        # ``max_image_side=256``): the observed side belongs to the largest
+        # image in the request, and adopting it as the new cap let that image
+        # drag every other one above the configured limit (256 → 500 on the
+        # retry). Only ever shrink below the configured cap.
+        effective = side
+        if observed_side > 0:
+            effective = min(side, observed_side) if side > 0 else observed_side
         new_side = side
-        if observed_side > 0 and observed_side <= self._MEDIA_LIMIT_SIDE_FLOOR:
+        if effective <= self._MEDIA_LIMIT_SIDE_FLOOR:
             # The image is already at the smallest side worth sending. Keep
             # that size instead of climbing back to the configured limit —
             # halving the limit here rebuilt a much larger target and the
             # retry would have carried a bigger image than the refused one.
             # Only the byte budget may move from this point on.
-            new_side = observed_side
-        elif side_target > self._MEDIA_LIMIT_SIDE_FLOOR:
-            new_side = max(self._MEDIA_LIMIT_SIDE_FLOOR, side_target // 2)
-        elif side > self._MEDIA_LIMIT_SIDE_FLOOR:
-            new_side = max(self._MEDIA_LIMIT_SIDE_FLOOR, side // 2)
+            new_side = effective
+        else:
+            new_side = max(self._MEDIA_LIMIT_SIDE_FLOOR, effective // 2)
         new_bytes = max_bytes
         if max_bytes > self._MEDIA_LIMIT_BYTES_FLOOR:
             new_bytes = max(self._MEDIA_LIMIT_BYTES_FLOOR, max_bytes // 2)
         if (new_side, new_bytes) == (side, max_bytes):
             return None
+        # A target identical to one this turn already sent cannot fix the
+        # refusal: the formatted request would be byte-for-byte the same and
+        # the provider would reject it again. Record every target this turn
+        # tried and stop before replaying one.
+        signature = (observed_side, new_side, new_bytes)
+        history = getattr(self, "_media_tighten_history", None)
+        if history is None:
+            history = []
+            self._media_tighten_history = history
+        if signature in history:
+            return None
+        history.append(signature)
         formatter.max_image_side = new_side
         formatter.max_bytes = new_bytes
         setattr(formatter, "_qwenpaw_media_limits_tightened", True)
@@ -997,14 +1013,30 @@ class QwenPawAgent(Agent):
         ``_tighten_media_limits`` runs before the request, so the target it
         computes is a guess: the provider may refuse that size too. Caching
         the guess made every later call in the same turn replay the refused
-        size (2000 → 1000 → 1000 → 1000). Only a completed call proves the
-        rendition was accepted, so the promotion happens here and nothing is
-        reused until it does.
+        size (2000 → 1000 → 1000 → 1000). Only a completed call proves a
+        rendition was accepted, and only the rendition that call actually
+        carried may be keyed: when the provider refused 1000 px and accepted
+        512 px, the reusable key is 512. Keying the pending guess recorded
+        1000 and the next call rebuilt the size the provider had already
+        rejected.
         """
         pending = getattr(self, "_media_rendition_pending", None)
         if pending is None:
             return
-        self._media_rendition_target = pending
+        formatter = self._get_active_formatter()
+        observed = 0
+        limits = pending[1]
+        if formatter is not None:
+            wire_side = getattr(
+                formatter,
+                "_qwenpaw_last_wire_max_image_side",
+                0,
+            )
+            if isinstance(wire_side, int) and not isinstance(wire_side, bool):
+                observed = wire_side
+            limits = (formatter.max_image_side, formatter.max_bytes)
+        key = observed if observed > 0 else pending[0]
+        self._media_rendition_target = (key, limits)
         self._media_rendition_pending = None
 
     def _restore_media_limits(self, saved: tuple[int, int] | None) -> None:
@@ -1268,6 +1300,10 @@ class QwenPawAgent(Agent):
         changed the model input. Invocation and streaming share the budget.
         """
         self._index_tool_schemas(tools)
+        # Retry history is per call: a later call in the same turn may carry
+        # different content and deserves its own attempt. Only the recovery
+        # steps inside this call share it.
+        self._media_tighten_history = None
         remaining = 2
         call_model = super()._call_model
 
@@ -2195,6 +2231,7 @@ class QwenPawAgent(Agent):
         self._media_omission_notice = None
         self._media_rendition_target = None
         self._media_rendition_pending = None
+        self._media_tighten_history = None
         stream = super()._reply(**kwargs)
         self._defer_context_save = True
         try:

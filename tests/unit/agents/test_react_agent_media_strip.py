@@ -1518,6 +1518,11 @@ def test_a_later_call_reuses_the_accepted_rendition() -> None:
     assert saved == (8192, 2 * 1024 * 1024)
     assert formatter.max_image_side == 1000
 
+    # The provider accepted that rendition, so the recovery path promotes it
+    # before the limits are restored. Without this step the test skipped the
+    # real call order and asserted reuse of a target that was never accepted.
+    agent._accept_media_rendition()
+
     agent._restore_media_limits(saved)
     assert formatter.max_image_side == 8192
     formatter._qwenpaw_last_wire_max_image_side = 2000

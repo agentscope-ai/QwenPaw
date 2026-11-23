@@ -107,7 +107,12 @@ def downscale_image_bytes(
             try:
                 with Image.open(BytesIO(data)) as out:
                     observed_sides.append(max(out.size))
-            except (OSError, UnidentifiedImageError, ValueError):
+            except (
+                Image.DecompressionBombError,
+                OSError,
+                UnidentifiedImageError,
+                ValueError,
+            ):
                 pass
         return data, mtype
 
@@ -170,7 +175,12 @@ def downscale_image_bytes(
         UnidentifiedImageError,
         ValueError,
     ):
-        return _emit(image_bytes, media_type)
+        # Do not call ``_emit`` here: it re-opens the same bytes, so a
+        # ``DecompressionBombError`` (or any failure that survives the first
+        # ``Image.open``) raises a second time and escapes. Returning the
+        # original payload untouched also means no dimensions are recorded,
+        # which is correct — this call never inspected the image.
+        return image_bytes, media_type
     return _emit(image_bytes, media_type)
 
 
