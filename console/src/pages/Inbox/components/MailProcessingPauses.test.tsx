@@ -8,7 +8,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { ConfigProvider } from "antd";
 import { renderWithProviders } from "@/test/common_setup";
+import { ApiError } from "../../../api/request";
 import { MailProcessingPauses } from "./MailProcessingPauses";
 
 const mocks = vi.hoisted(() => ({
@@ -111,17 +113,24 @@ describe("MailProcessingPauses", () => {
     );
   });
 
-  it("refreshes a stale confirmation without automatically releasing the new pause", async () => {
-    mocks.resume.mockRejectedValue(new Error("409 stale pause"));
-    renderWithProviders(<MailProcessingPauses />);
+  it("closes a stale confirmation and requires a new confirmation", async () => {
+    mocks.resume.mockRejectedValueOnce(new ApiError(409, "Pause changed"));
+    renderWithProviders(
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <MailProcessingPauses />
+      </ConfigProvider>,
+    );
     fireEvent.click(
       await screen.findByRole("button", {
         name: "inbox.mailProcessingReview",
       }),
     );
-    mocks.list.mockResolvedValue([
-      { ...batch, pause_id: "batch-2", count: 80 },
-    ]);
+    let finishRefresh!: (pauses: (typeof batch)[]) => void;
+    mocks.list.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishRefresh = resolve;
+      }),
+    );
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", {
         name: /inbox.mailProcessingConfirmBatch/,
@@ -132,8 +141,52 @@ describe("MailProcessingPauses", () => {
         "inbox.mailProcessingResumeFailed",
       ),
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      screen.queryByRole("button", { name: "inbox.mailProcessingReview" }),
+    ).toBeNull();
+    await act(async () => {
+      finishRefresh([{ ...batch, pause_id: "batch-2", count: 80 }]);
+    });
     await screen.findByText(/inbox.mailProcessingReason_batch.*80/);
     expect(mocks.resume).toHaveBeenCalledExactlyOnceWith(
+      "acl-disabled-agent",
+      "batch-1",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "inbox.mailProcessingReview" }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: /inbox.mailProcessingConfirmBatch.*80/,
+      }),
+    );
+    await waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    expect(mocks.resume).toHaveBeenNthCalledWith(
+      2,
+      "acl-disabled-agent",
+      "batch-2",
+    );
+  });
+
+  it("keeps the confirmation open on a retryable failure", async () => {
+    mocks.resume.mockRejectedValueOnce(new Error("offline"));
+    renderWithProviders(<MailProcessingPauses />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "inbox.mailProcessingReview",
+      }),
+    );
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", {
+      name: /inbox.mailProcessingConfirmBatch.*1033/,
+    });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    expect(mocks.resume).toHaveBeenNthCalledWith(
+      2,
       "acl-disabled-agent",
       "batch-1",
     );
