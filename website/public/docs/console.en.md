@@ -416,11 +416,11 @@ service restart — see [Browser](./browser).
 
 ## MCP
 
-> Sidebar: **Workspace → MCP**
+> Sidebar: **Settings → MCP**
 
 Enable/disable/delete **MCP** clients here, or create new ones.
 
-![MCP](https://img.alicdn.com/imgextra/i4/O1CN01pyOYmNyW1fD3FPfU_!!6000000003910-2-tps-1600-1000.png)
+![MCP Clients list with the Create Client button in the upper right](https://img.alicdn.com/imgextra/i4/O1CN01NeffbT6Yg2D3FPfU_!!6000000007368-2-tps-1600-1000.png)
 
 **Create a client**
 Click **Create Client** in the top-right, fill in required fields, then **Create**.
@@ -668,7 +668,7 @@ python -c "import whisper; print('openai-whisper installed')"
 | Files                 | Workspace → Files              | Persona files, memory, upload/download         |
 | Skills                | Workspace → Skills             | Enable/disable, create/zip/URL/market add      |
 | Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
-| MCP                   | Workspace → MCP                | MCP clients                                    |
+| MCP                   | Settings → MCP                 | MCP clients                                    |
 | Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
 | Agent management      | Settings → Agent management    | CRUD agents, enable/disable                    |
 | Models                | Settings → Models              | Providers, local models, active model          |

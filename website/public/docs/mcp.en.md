@@ -14,7 +14,7 @@ QwenPaw provides two types of tools for agents:
    - Can be individually enabled/disabled
 
 2. **MCP Tools**: Connect to external services via MCP protocol to extend additional capabilities
-   - Configure clients on the **Agent → MCP** page
+   - Configure clients on the **Settings → MCP** page
    - MCP clients register new tools with the agent
 
 Both types can be used simultaneously without conflict.
@@ -41,12 +41,12 @@ node --version  # Check version
 
 ### Adding MCP Clients
 
-1. Open the Console and go to **Agent → MCP**
-2. Click **+ Create** button
-3. Paste your MCP client JSON configuration
+1. Open the Console and go to **Settings → MCP**
+2. Select **Create Client**
+3. Open **JSON Import** and paste your MCP client configuration
 4. Click **Create** to import
 
-![MCP](https://img.alicdn.com/imgextra/i4/O1CN01pyOYmNyW1fD3FPfU_!!6000000003910-2-tps-1600-1000.png)
+![JSON Import tab in the Create Client dialog with a filesystem configuration](https://img.alicdn.com/imgextra/i4/O1CN018sB4NL9MBFG1chr0_!!6000000006886-2-tps-800-578.png)
 
 ---
 
@@ -171,7 +171,7 @@ The client exposes 22 tools for reading, sending, attachments, organization,
 threads, and statistics.
 
 New driver cards use `ask` as their default access policy. You can adjust policy
-by tool and call origin in **Workspace → MCP**. Saving the mail configuration
+by tool and call origin in **Settings → MCP**. Saving the mail configuration
 again preserves the existing enabled state, tool scope, and access policy.
 
 You do not create this client manually on the general MCP page, but a source
