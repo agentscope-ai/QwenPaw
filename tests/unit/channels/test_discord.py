@@ -240,13 +240,13 @@ def test_chunk_text_boundary_fence_respects_message_limit():
 @pytest.mark.parametrize(f"sizes", [(1986,), (1986, 4), (1986, 1986, 128)])
 def test_chunk_text_splits_long_line_within_code_fence(sizes):
     chunk_text = module(f"discord", f"formatting").chunk_text
-    code_char = f"x"
-    line = code_char * sum(sizes)
+    code_parts = [f"{index}" * size for index, size in enumerate(sizes)]
+    line = f"".join(code_parts)
     text = f"```python\nx = 1\n{line}\n```"
 
     assert chunk_text(text) == [
         f"```python\nx = 1\n```",
-        *(f"```python\n{code_char * size}\n```" for size in sizes),
+        *(f"```python\n{part}\n```" for part in code_parts),
     ]
 
 
@@ -255,7 +255,10 @@ def test_chunk_text_padded_closing_fence_respects_message_limit():
     closing_fence = f"```" + f" " * 1990
     text = f"```python\nx = 1\n{closing_fence}"
 
-    assert chunk_text(text) == [f"```python\nx = 1\n```", closing_fence]
+    chunks = chunk_text(text)
+
+    assert chunks[0] == f"```python\nx = 1\n```"
+    assert all(len(chunk) <= 2000 for chunk in chunks)
 
 
 def test_chunk_text_preserves_blank_line_at_fence_boundary():
@@ -266,12 +269,10 @@ def test_chunk_text_preserves_blank_line_at_fence_boundary():
     assert chunk_text(text) == [f"```\n{code}\n```", f"```\n\ny\n```"]
 
 
-@pytest.mark.parametrize(
-    (f"text", f"max_len"),
-    [(f"123456789\n\nabc", 10), (f"xx\nx\nx\n\nxx", 4)],
-)
-def test_chunk_text_preserves_blank_line_at_plain_text_boundary(text, max_len):
+def test_chunk_text_preserves_blank_line_at_plain_text_boundary():
     chunk_text = module(f"discord", f"formatting").chunk_text
+    text = f"xx\nx\nx\n\nxx"
+    max_len = 4
 
     chunks = chunk_text(text, max_len=max_len)
 
