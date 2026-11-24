@@ -5,10 +5,12 @@ import asyncio
 import hashlib
 import hmac
 
+from ..channel_protocol.errors import RpcError
 from ..channel_protocol.models import (
     EndpointParams,
     EndpointRegistrationResult,
 )
+from ..channel_protocol.rpc import JSONRPC_INVALID_PARAMS
 from .channel_ingress import (
     ChannelIngress,
     ChannelIngressBinding,
@@ -70,13 +72,19 @@ class IngressBridge:
                 },
             )
             self.attempted = True
+            previous = self.binding
             self.binding = None
-            result = EndpointRegistrationResult.from_mapping(
-                await self.context.peer.call(
+            try:
+                response = await self.context.peer.call(
                     "ingress.endpoint." + operation,
                     params.to_mapping(),
-                ),
-            )
+                )
+            except RpcError as exc:
+                # The host rejects invalid params before changing the route.
+                if exc.code == JSONRPC_INVALID_PARAMS:
+                    self.binding = previous
+                raise
+            result = EndpointRegistrationResult.from_mapping(response)
             wire = result.forwarding
             if (
                 result.generation != self.context.identity.generation

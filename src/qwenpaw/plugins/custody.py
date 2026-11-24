@@ -121,10 +121,16 @@ async def stop_async_process(
     desc: str,
 ) -> None:
     """Stop and reap a child without cancelling its exit waiter."""
+    if proc.stdin is not None:
+        stdin = proc.stdin.transport
+        # A graceful close can wait for a descendant to consume queued input.
+        # A closing pipe with no pending writes is already being released.
+        if not stdin.is_closing() or stdin.get_write_buffer_size():
+            stdin.abort()
     # A paused/full stdout pipe can keep Process.wait() pending even after
     # the OS child has exited. Teardown discards unread output and releases
     # pipe transports rather than waiting for an absent terminal consumer.
-    for descriptor in (0, 1, 2):
+    for descriptor in (1, 2):
         transport = proc._transport.get_pipe_transport(
             descriptor,
         )  # pylint: disable=protected-access
@@ -153,8 +159,6 @@ async def stop_async_process(
     finally:
         if not waiter.done():
             waiter.cancel()
-        if proc.stdin is not None:
-            proc.stdin.close()
 
 
 async def stop_process_tree(proc, tree, desc: str) -> None:
