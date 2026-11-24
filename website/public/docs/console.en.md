@@ -90,10 +90,10 @@ asset requests reach the SPA fallback and return HTML instead of JavaScript.
 
 This is where you talk to QwenPaw. It is the default page when the Console opens.
 
-![Chat](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
+![Chat](https://img.alicdn.com/imgextra/i4/O1CN01AR8EW7fRoYD3FPfU_!!6000000003768-2-tps-1600-1000.png)
 
 **Choose a model:**
-Use the control at the **top-right** of the chat page to pick the model for the
+Use the model selector in the chat input area to pick the model for the
 current conversation. This selection is saved with the conversation and leaves
 the agent default unchanged. Clear the conversation override in the selector to
 inherit the agent default again.
@@ -155,7 +155,7 @@ important notifications.
 Approval-required actions triggered from any agent chat in the Console channel
 appear in the Inbox approval page.
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN01sVXgDs1uRd07B7u7a_!!6000000006034-2-tps-2926-1860.png)
+![Approvals tab with no requests pending](https://img.alicdn.com/imgextra/i1/O1CN01NxxfS5sBF9D3FPfU_!!6000000002304-2-tps-1600-1000.png)
 
 You can handle approvals from all agents in one place (approve / reject /
 cancel task). Approval cards include a countdown; if no action is taken before
@@ -179,7 +179,7 @@ dismiss them; and maintain exact-address or `*@example.com` domain allowlists
 and blocklists. Approving a pending sender processes every message saved in that
 pending record; failed work remains in a retry queue that survives restarts.
 
-![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01wUx1CopuimE3FPfU_!!6000000002803-2-tps-1600-1000.png)
 
 ---
 
@@ -190,7 +190,7 @@ pending record; failed work remains in a retry queue that survives restarts.
 Manage messaging channels (Console, DingTalk, Feishu, Discord, QQ, WeChat,
 iMessage, etc.): enable/disable and credentials.
 
-![Channels](https://img.alicdn.com/imgextra/i2/O1CN01ieCEb91uiZfJ6Zz5V_!!6000000006071-2-tps-3810-2064.png)
+![Channels](https://img.alicdn.com/imgextra/i4/O1CN01koo5WKo8OnK3FPfU_!!6000000001886-2-tps-1600-1000.png)
 
 **Enable a channel:**
 
@@ -212,7 +212,7 @@ Open the same panel, turn off **Enable**, then click **Save**.
 
 View, filter, and clean up chat sessions across all channels.
 
-![Sessions](https://img.alicdn.com/imgextra/i4/O1CN01PY9Yhe25Pl9TuEBfz_!!6000000007519-2-tps-3822-2070.png)
+![Sessions](https://img.alicdn.com/imgextra/i2/O1CN01TW0PZ6qEgIG3FPfU_!!6000000003094-2-tps-1600-1000.png)
 
 **Find sessions:**
 Use the search box to filter by user, or use the dropdown to filter by
@@ -235,7 +235,7 @@ Select rows → click **Batch Delete** → confirm.
 
 Create and manage scheduled jobs that QwenPaw runs automatically by time.
 
-![Cron Jobs](https://img.alicdn.com/imgextra/i3/O1CN01WsQvrb1dKthp8QMvd_!!6000000003718-2-tps-3822-2070.png)
+![Cron Jobs](https://img.alicdn.com/imgextra/i1/O1CN01Y7rqloTIzaI3FPfU_!!6000000002217-2-tps-1600-1000.png)
 
 **Create a new job:**
 
@@ -279,7 +279,7 @@ Click **Execute Now** → confirm.
 
 > Sidebar: **Control → Heartbeat**
 
-![Heartbeat](https://img.alicdn.com/imgextra/i1/O1CN017fS5GW1jIxj8FuQXl_!!6000000004526-2-tps-3822-2070.png)
+![Heartbeat](https://img.alicdn.com/imgextra/i3/O1CN01Uxe4I3CvGVL3FPfU_!!6000000001569-2-tps-1600-1000.png)
 
 Configure periodic "self-check" for the **currently selected agent**: on each
 tick, send the contents of `HEARTBEAT.md` as a user message to QwenPaw, and
@@ -311,7 +311,7 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 > switcher at the top of the Console to change the active agent. See
 > [Multi-Agent](./multi-agent).
 
-![Files](https://img.alicdn.com/imgextra/i4/O1CN01iEhSJL1cHP4JHPdio_!!6000000003575-2-tps-3822-2070.png)
+![Files](https://img.alicdn.com/imgextra/i4/O1CN01t4qBnMuxFiE3FPfU_!!6000000007331-2-tps-1600-1000.png)
 
 **Edit files:**
 
@@ -353,7 +353,7 @@ individual files locally and upload them through Files if needed.
 Manage skills that extend QwenPaw (e.g. read PDF, create Word, fetch news). More
 detail: [Skills](./skills).
 
-![Skills](https://img.alicdn.com/imgextra/i4/O1CN017tsPAI27USRjSJLBA_!!6000000007800-2-tps-3822-2070.png)
+![Skills](https://img.alicdn.com/imgextra/i1/O1CN01WZVqv54JHFG3FPfU_!!6000000003648-2-tps-1600-1000.png)
 
 **Enable a skill:**
 Click **Enable** at the bottom of a skill card. It takes effect immediately.
@@ -399,7 +399,7 @@ automatically disabled first.
 
 > Sidebar: **Workspace → Tools**
 
-![Tools](https://img.alicdn.com/imgextra/i4/O1CN01ZKnoAE1pqkdpFVQuM_!!6000000005412-2-tps-3822-2070.png)
+![Tools](https://img.alicdn.com/imgextra/i3/O1CN01xbqxmkOa1wB3FPfU_!!6000000006028-2-tps-1600-1000.png)
 
 Toggle **built-in tools** by name (read files, run commands, browser, etc.). When
 off, this agent cannot call that tool in chat.
@@ -416,11 +416,11 @@ service restart — see [Browser](./browser).
 
 ## MCP
 
-> Sidebar: **Workspace → MCP**
+> Sidebar: **Settings → MCP**
 
 Enable/disable/delete **MCP** clients here, or create new ones.
 
-![MCP](https://img.alicdn.com/imgextra/i3/O1CN01dEioYs1JMv8ln8RE7_!!6000000001015-2-tps-3822-2070.png)
+![MCP Clients list with the Create Client button in the upper right](https://img.alicdn.com/imgextra/i4/O1CN01NeffbT6Yg2D3FPfU_!!6000000007368-2-tps-1600-1000.png)
 
 **Create a client**
 Click **Create Client** in the top-right, fill in required fields, then **Create**.
@@ -432,7 +432,7 @@ The new client appears in the list.
 
 > Sidebar: **Workspace → Configuration**
 
-![Runtime Config](https://img.alicdn.com/imgextra/i4/O1CN01MC8p7m1iSICDbWOFr_!!6000000004411-2-tps-3810-2064.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i2/O1CN01rcV4TwJyzqK3FPfU_!!6000000007421-2-tps-1600-1000.png)
 
 This page configures **runtime parameters for the current agent**, grouped in
 cards. Click **Save** at the bottom (**Reset** reloads from the server).
@@ -463,7 +463,7 @@ For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embeddin
 
 > Sidebar: **Settings → Agent management**
 
-![Agent management](https://img.alicdn.com/imgextra/i1/O1CN01MlsPdv1yioJgESwhm_!!6000000006613-2-tps-3822-2070.png)
+![Agent management](https://img.alicdn.com/imgextra/i4/O1CN01U7JjNUTWOWK3FPfU_!!6000000000044-2-tps-1600-1000.png)
 
 Create, edit, enable/disable, or delete agents. The **Description** field is used
 when multiple agents collaborate — write a clear role.
@@ -487,12 +487,12 @@ backends do not support mail configuration. See
 
 Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i2/O1CN012UbhBA1lVuAQm9Cb3_!!6000000004825-2-tps-3810-2064.png)
+![Global defaults and cloud providers](https://img.alicdn.com/imgextra/i3/O1CN01HJqMiEzR7MJ3FPfU_!!6000000005835-2-tps-1600-1000.png)
 
 On this page you can:
 
 - Configure Cloud Providers (ModelScope, DashScope, OpenAI, Anthropic, etc.)
-- Configure Local Providers (llama.cpp, Ollama, LM Studio)
+- Connect to Ollama or LM Studio, or manage llama.cpp with the optional QwenPaw Local plugin
 - Add Custom Providers by filling in API details
 - Select the default model for agents
 
@@ -504,7 +504,7 @@ On this page you can:
 
 Global skill management. More detail: [Skills](./skills).
 
-![Skill pool](https://img.alicdn.com/imgextra/i1/O1CN01uDUQGJ1dfVWqWGD8G_!!6000000003763-2-tps-3822-2070.png)
+![Skill pool](https://img.alicdn.com/imgextra/i3/O1CN01bNwK3sTtDPG3FPfU_!!6000000005932-2-tps-1600-1000.png)
 
 On this page you can:
 
@@ -527,7 +527,7 @@ On this page you can:
 Manage runtime environment variables needed by QwenPaw tools and skills (e.g.
 `TAVILY_API_KEY`).
 
-![Environment Variables](https://img.alicdn.com/imgextra/i2/O1CN01TpB5YF22AhHMVydps_!!6000000007080-2-tps-3822-2070.png)
+![Environment Variables](https://img.alicdn.com/imgextra/i3/O1CN01LDUTWBkhuiE3FPfU_!!6000000000511-2-tps-1600-1000.png)
 
 **Add a variable:**
 
@@ -569,7 +569,7 @@ complete workflow.
 
 > Sidebar: **Settings → Tool Offload**
 
-![Settings → Tool Offload (Keep Foreground / Auto Offload to Background)](https://img.alicdn.com/imgextra/i2/O1CN01NTmeZPSYyeF7nOIU_!!6000000001249-0-tps-3840-1986.jpg)
+![Settings → Tool Offload (Keep Foreground / Auto Offload to Background)](https://img.alicdn.com/imgextra/i3/O1CN01ocSEijuHpkC3FPfU_!!6000000000685-2-tps-1600-1000.png)
 
 Configure the default action when a tool reaches its offload deadline:
 
@@ -585,7 +585,7 @@ Configure the default action when a tool reaches its offload deadline:
 
 > Sidebar: **Settings → Security**
 
-![Security](https://img.alicdn.com/imgextra/i4/O1CN01oxB5ns1GH1BksHGtZ_!!6000000000596-2-tps-3822-2070.png)
+![Security](https://img.alicdn.com/imgextra/i4/O1CN01B9x5NxvxPiC3FPfU_!!6000000005334-2-tps-1600-1000.png)
 
 Tabs for **tool guard**, **file guard**, **skill scanner**, etc.: control
 dangerous-tool parameter blocking, sensitive path access, and skill package
@@ -599,15 +599,13 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 > Sidebar: **Settings → Token Usage**
 
-![Token Usage](https://img.alicdn.com/imgextra/i1/O1CN01FWWKrS1hYsGvs4wG1_!!6000000004290-2-tps-3810-2064.png)
+![Sample usage trends by model and token type](https://img.alicdn.com/imgextra/i1/O1CN01Y2BQWEzoc2E3FPfU_!!6000000001057-2-tps-1600-1000.png)
 
-View LLM token usage over a range, by date and model.
+In **Trends**, select a date range to update the statistics. The summary shows LLM calls, prompt and completion tokens, cache-hit tokens, and the cache hit rate. Scroll down for breakdowns by model, date, and agent.
 
-**View usage:**
+Switch to **Activity** and select a year to see daily usage on a heatmap. Both screenshots use sample data.
 
-1. Select a date range (default: last 30 days).
-2. Click **Refresh** to fetch data.
-3. The page shows total tokens, total calls, and breakdowns by model and date.
+![Annual heatmap of daily token usage](https://img.alicdn.com/imgextra/i4/O1CN01HExoJmPAX3D3FPfU_!!6000000003481-2-tps-1600-1000.png)
 
 **Query via chat:**
 Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls
@@ -622,7 +620,7 @@ Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls
 
 > Sidebar: **Settings → Voice transcription**
 
-![Voice transcription](https://img.alicdn.com/imgextra/i3/O1CN01ZdRtQq1TgkRa5kJhr_!!6000000002412-2-tps-3822-2070.png)
+![Voice transcription](https://img.alicdn.com/imgextra/i3/O1CN01fo8QlBC5R6D3FPfU_!!6000000005925-2-tps-1600-1000.png)
 
 Configure how **voice/audio from channels** is handled before it reaches the
 model (same settings apply to voice input in chat and channel voice messages).
@@ -670,7 +668,7 @@ python -c "import whisper; print('openai-whisper installed')"
 | Files                 | Workspace → Files              | Persona files, memory, upload/download         |
 | Skills                | Workspace → Skills             | Enable/disable, create/zip/URL/market add      |
 | Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
-| MCP                   | Workspace → MCP                | MCP clients                                    |
+| MCP                   | Settings → MCP                 | MCP clients                                    |
 | Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
 | Agent management      | Settings → Agent management    | CRUD agents, enable/disable                    |
 | Models                | Settings → Models              | Providers, local models, active model          |

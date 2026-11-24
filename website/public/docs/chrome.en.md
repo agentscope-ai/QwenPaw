@@ -36,13 +36,12 @@ identity) — see [Browser](./browser).
 Chrome connectivity is provided by the official **Chrome** plugin, so install
 the plugin first:
 
-1. Open the Console and go to **Settings → Plugin Manager**.
+1. Open the Console and go to **Settings → Extension → Plugins**.
 2. Find **Chrome** under **Official Plugins** and select **Install**.
 3. If you received a trusted plugin ZIP file or install URL from another
    source, select **Install Plugin** in the upper-right corner, then upload the
    ZIP file or enter the plugin URL.
-4. Refresh the page after installing; a **Chrome** entry appears in the left
-   sidebar.
+4. Make sure the plugin is enabled, then open **Chrome** under **Extensions** in the settings sidebar. This installs the QwenPaw plugin; the extension still needs to be loaded in Chrome itself.
 
 > Only install plugins from the official list or other trusted sources. This
 > plugin acts on pages in your browser on your behalf — do not grant that to a
@@ -52,7 +51,7 @@ the plugin first:
 
 ## Install the extension
 
-Open **Chrome** in the left sidebar. The top of the page shows the current
+Open **Chrome** in the settings sidebar. The top of the page shows the current
 connection state, followed by **Install method**: **Local install** is marked
 **Recommended** and is the only method available today, while **Chrome Web
 Store** shows **Coming soon**.
@@ -78,7 +77,7 @@ Return to the QwenPaw page and select **I've installed it, refresh status**.
 > You can also use **Copy Path** or **Open Folder** to get at the extension
 > folder directly.
 
-![Console Chrome page showing install methods and local install steps](https://img.alicdn.com/imgextra/i2/O1CN018PXoUzHJ5WH68fdG_!!6000000004186-0-tps-3024-1654.jpg)
+![Console Chrome page showing install methods and local install steps](https://img.alicdn.com/imgextra/i1/O1CN012JgUrdExkcC3FPfU_!!6000000003062-2-tps-1600-1000.png)
 
 ![Chrome extensions page with Developer mode on and Load unpacked available](https://img.alicdn.com/imgextra/i1/O1CN015fXKuBrqFoI68fdG_!!6000000006443-0-tps-3024-1654.jpg)
 

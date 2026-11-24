@@ -2,7 +2,7 @@
 
 在使用 QwenPaw 之前，您需要配置至少一个可用模型，QwenPaw 支持多种模型提供商，您可以在页面左侧边栏的 **设置 -> 模型** 页面进行配置和管理。
 
-![设置模型](https://img.alicdn.com/imgextra/i4/O1CN01fCY3MW1R3F46MQWCk_!!6000000002055-2-tps-3810-2064.png)
+![全局默认模型与云端提供商](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 QwenPaw 支持多种 LLM 提供商：
 
@@ -24,33 +24,31 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 > QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
 
-打开 **设置 → 模型**。如果看不到 QwenPaw Local，请打开 **插件管理**，在 **官方插件** 中安装 **QwenPaw Local**（`local-llamacpp`），或在 **已安装插件** 中启用它。然后返回模型页面。
+全新安装时，**设置 → 模型 → 本地 & 自定义** 中有 Ollama 和 LM Studio，它们连接的是你单独运行的服务。如果希望由 QwenPaw 管理 llama.cpp 和 GGUF 文件，请按以下步骤操作：
 
-![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
+![安装 QwenPaw Local 之前的本地提供商列表](https://img.alicdn.com/imgextra/i4/O1CN01knTfR9R1sgL3FPfU_!!6000000004916-2-tps-1600-1000.png)
 
-打开 QwenPaw Local 的管理窗口。如果尚未安装运行库，点击 **安装 llama.cpp**。
-
-![下载 llama.cpp](https://img.alicdn.com/imgextra/i2/O1CN01zN4QFs1RGyvkxM8lE_!!6000000002085-2-tps-1550-1308.png)
-
-从推荐列表下载模型，例如用于聊天的 QwenPaw-Flash。也可以选择 ModelScope 或 Hugging Face，输入 GGUF 模型仓库 ID，例如 `Qwen/Qwen3-0.6B-GGUF`。已有 GGUF 文件可按[本地模型](./models#本地模型)中的步骤手动导入。
-
-![下载模型](https://img.alicdn.com/imgextra/i2/O1CN01io6OUC1kBvFn3RA8U_!!6000000004646-2-tps-1346-1694.png)
-
-点击模型旁的 **启动**。启动 Flash 会将它设为默认聊天模型。启动 Piccolo 会将它设为默认决策模型。llama.cpp 一次运行一个模型，切换前请等当前请求完成。
-
-![启动模型](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
-
-点击 **停止** 可关闭本地服务。已下载的模型会保留。
-
-![停止模型](https://img.alicdn.com/imgextra/i4/O1CN01u6zmTW1lCfW2lsXAh_!!6000000004783-2-tps-1354-1796.png)
+1. 打开 **设置 → 扩展 → 插件 → 官方插件**，安装 **QwenPaw Local**（`local-llamacpp`）。如果已经安装，在 **已安装插件** 中确认已启用。
+2. 回到 **模型 → 本地 & 自定义**，打开 **QwenPaw Local** 卡片的模型管理窗口。若缺少推理引擎，点击 **安装 llama.cpp**。安装插件本身不会下载引擎或模型。
+3. 下载推荐模型，或选择 ModelScope、Hugging Face 并填写 GGUF 仓库 ID。如果已有权重，可以[手动导入 GGUF](./models#本地模型)，不必重复下载。
+4. 点击已下载模型旁的 **启动**。Flash 会成为默认对话模型，Piccolo 会成为默认决策模型。两者共用一个服务，切换前请等待当前请求完成。**停止** 只关闭服务，不删除权重。
 
 重启 QwenPaw 时，如果启用的智能体仍选用已启动过的本地模型，QwenPaw 会尝试恢复该模型。只使用云模型时，llama.cpp 不会随 App 启动。
+
+### 使用本地 Piccolo 决策模型
+
+在 QwenPaw Local 的 **决策模型** 列表中，按机器内存选择推荐的 BF16 或 Q8_0 版本，下载后点击 **启动**。如需 Q4_K_M，可在自定义下载中填写 GGUF 仓库 ID，例如 Hugging Face 的 `agentscope-ai/Piccolo-4B-Q4_K_M` 或 ModelScope 的 `AgentScope/Piccolo-4B-Q4_K_M`。
+
+在 **模型 → 默认模型 → 决策模型** 确认已选中 Piccolo，再按用途配置智能体：
+
+- **工具审查**：在智能体的安全设置中选择 **决策模型模式**，并在对话中开启工具审查。
+- **上下文压缩**：在智能体的上下文设置中开启自动上下文压缩，再打开 **启用决策模型压缩**。
 
 ## Ollama 配置
 
 在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
 
-![Ollama 设置](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
+![Ollama 设置](https://img.alicdn.com/imgextra/i4/O1CN01qO1GW7AMDYH3FPfU_!!6000000006595-2-tps-1600-1000.png)
 
 为了验证 Ollama 是否能够正常使用，可以进入 QwenPaw Ollama 提供商的 **设置** 页面，点击 **测试连接** 按钮来验证 QwenPaw 是否能够连接到 Ollama 服务。
 
@@ -91,11 +89,7 @@ PARAMETER top_p 0.95
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. 回到 QwenPaw 的 Ollama 提供商模型页面，点击 **自动获取模型** 即可将该模型加入 QwenPaw。
-
-Ollama 安装配置完成后，可以进入 QwenPaw Ollama 提供商的 **模型** 页面，点击 **自动获取模型** 按钮以获得当前可用的 Ollama 模型列表，获取完成后可以进一步点击 **测试连接** 来验证模型是否能够正常使用。
-
-![Ollama 模型列表](https://img.alicdn.com/imgextra/i3/O1CN01cxqKOB1siui8vYlvp_!!6000000005801-2-tps-1504-1720.png)
+4. 打开 Ollama 卡片的模型列表，点击刷新图标 **更新模型列表**，再启用要使用的模型。同步目录不会把模型权重下载到 QwenPaw。
 
 ## LM Studio 配置
 
@@ -135,9 +129,7 @@ hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-3. 回到 QwenPaw 的 LM Studio 提供商模型页面，点击 **自动获取模型** 即可将该模型加入 QwenPaw。
-
-后续流程与 Ollama 相同，点击 **测试连接** 按钮来验证 QwenPaw 是否能够连接到 LM Studio 服务，如果连接成功，就可以进入 LM Studio 模型管理页面，点击 **自动获取模型** 来获取当前 LM Studio 中可用的模型列表，获取完成后可以进一步点击 **测试连接** 来验证模型是否能够正常使用。
+3. 保持 LM Studio 服务运行，在 QwenPaw 打开它的模型列表，点击 **更新模型列表**，再启用要使用的模型。
 
 > 对于将 QwenPaw 部署在 Docker 容器中的用户，如果 LM Studio 安装在宿主机上，请确保 Docker 的网络配置允许容器访问宿主机的 LM Studio 服务（在 `docker run` 命令中添加 `--add-host=host.docker.internal:host-gateway`），并将 API 地址设置为 `http://host.docker.internal:1234/v1` 来实现连接。
 
@@ -169,23 +161,23 @@ QwenPaw 当前支持的云提供商包括：
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
 
-![云供应商列表](https://img.alicdn.com/imgextra/i4/O1CN01AvAWdy1GGYoDlNecN_!!6000000000595-2-tps-3810-2064.png)
+![云供应商列表](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 为了激活云供应商，你需要进入供应商的配置页面进行配置，大部分云供应商都已经提前配置了 API 域名，您只需要输入 API Key 即可。
 
-![配置 API Key](https://img.alicdn.com/imgextra/i1/O1CN01dIMlx51XuizaWQOqA_!!6000000002984-2-tps-1170-862.png)
+![配置 API Key](https://img.alicdn.com/imgextra/i1/O1CN01YQFnwvTvL5B3FPfU_!!6000000007650-2-tps-1600-1000.png)
 
-填入 API Key 后，点击 **测试连接** 按钮，系统会自动验证 API Key 是否正确（仅部分供应商支持）。
+若提供商设置中有 **测试连接**，点击它可用当前表单的地址和凭据检查连接。连接失败不一定是密钥有误，也应检查服务地址及网络。提供商检查通过，不代表账号有权使用其所有模型。
 
-![测试连接结果](https://img.alicdn.com/imgextra/i3/O1CN01PCK2ai1fpFBDiqPAp_!!6000000004055-2-tps-1218-1060.png)
+![Kilo Code 提供商设置中的连接测试成功提示](https://img.alicdn.com/imgextra/i4/O1CN015ymitubzuwJ3FPfU_!!6000000004194-2-tps-1600-1000.png)
 
-云供应商配置完成后可以进一步检测模型是否能够使用，云供应商内已经预设了一系列常用模型，你可以点击供应商的模型管理页面中某个具体模型的 **测试连接** 按钮，系统会自动验证模型是否能够正常使用。
+要检查某个模型，请先保存提供商设置，再打开它的模型列表，点击目标模型对应的 **测试连接**。这次检查针对所选模型 ID，与提供商级检查不同。
 
-![模型连接测试结果](https://img.alicdn.com/imgextra/i3/O1CN01fmAwzz1l0lDanBi4b_!!6000000004757-2-tps-1278-1394.png)
+![模型库中 Kilo Auto 免费模型的连接测试结果](https://img.alicdn.com/imgextra/i2/O1CN012nMBTYT0yFG3FPfU_!!6000000005975-2-tps-1600-1000.png)
 
 如果预设的模型无法满足需求，您也可以在模型管理页面选择 **添加模型** 来添加增加新的模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识，通常可以从提供商文档中获得）以及 **模型名称** （用于在界面中展示）。手动添加的模型同样可以通过 **测试连接** 来验证是否能够正常使用。
 
-![添加模型](https://img.alicdn.com/imgextra/i1/O1CN014GTNqr1t4tipsb3OF_!!6000000005849-2-tps-1260-1588.png)
+![添加模型](https://img.alicdn.com/imgextra/i2/O1CN01yYjwwEcsEZJ3FPfU_!!6000000001862-2-tps-1600-1000.png)
 
 ## 自定义供应商配置
 
@@ -193,15 +185,15 @@ QwenPaw 当前支持的云提供商包括：
 
 ### 添加提供商
 
-您可以使用 **设置 -> 模型 -> 提供商** 右上角的 **添加提供商** 来添加一个新的提供商，添加时需要提供 **提供商 ID**（用于 QwenPaw 内部索引）以及 **提供商名称** （用于在界面中展示），并选择该供应商的 API 兼容模式（目前支持 OpenAI `chat.completions` 以及 Anthropic `messages` 两种）。添加完成后您可以像云提供商一样在该提供商下添加模型，并且在聊天等场景中选择使用该提供商的模型。
+点击 **设置 → 模型 → 添加提供商**，填写提供商 ID、显示名称和基础 URL，按服务要求填写 API Key。选择端点实际使用的协议：OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages。保存后，在该提供商的模型列表中添加模型。
 
-![添加提供商](https://img.alicdn.com/imgextra/i4/O1CN0109IMbU1x9FyG248X2_!!6000000006400-2-tps-3810-2064.png)
+![添加提供商](https://img.alicdn.com/imgextra/i2/O1CN01745rhA69jSC3FPfU_!!6000000002896-2-tps-1600-1000.png)
 
 ### 配置供应商
 
 供应商添加完成后，您可以进入该供应商的 **设置** 页面来配置该供应商的 API 访问信息，包括 _基础 URL_ 以及 _API 秘钥_ 。
 
-![自定义供应商设置](https://img.alicdn.com/imgextra/i1/O1CN01qwzsQy1ch3FTHnNaq_!!6000000003631-2-tps-3826-2076.png)
+![自定义供应商设置](https://img.alicdn.com/imgextra/i4/O1CN0131q7xruKgpF3FPfU_!!6000000002386-2-tps-1600-1000.png)
 
 ### 添加模型
 
@@ -211,13 +203,13 @@ QwenPaw 当前支持的云提供商包括：
 
 ## 选择模型
 
-配置好的模型供应商以及模型会显示在 **设置 -> 模型 -> 默认 LLM** 的列表中，您可以选择一个模型作为全局默认模型，点击模型右侧的 **保存** 按钮即可，在该页面设置的模型会作为全局默认模型被 QwenPaw 使用，如果您在某些场景（例如聊天）中没有指定模型，QwenPaw 就会使用这里设置的默认模型。
+在 **设置 → 模型 → 默认模型** 中选择 **对话模型**，选择后自动保存。**决策模型** 是独立配置，不是第二个对话模型。
 
-![默认模型设置](https://img.alicdn.com/imgextra/i4/O1CN01hczGZs1OH290Y4JAG_!!6000000001679-2-tps-3810-2064.png)
+![全局对话模型选择器](https://img.alicdn.com/imgextra/i3/O1CN01zlN7yTjh7hB3FPfU_!!6000000002887-2-tps-1600-1000.png)
 
-由于不同任务所需的模型能力存在差别，QwenPaw 也支持在不同聊天中使用不同的模型，你可以在 **聊天** 页面右上角的下拉菜单中选择合适的供应商和模型，但该设置仅对当前使用的智能体以及聊天生效。如果没有在聊天页面配置供应商或者模型，QwenPaw 就会使用全局默认模型。
+要为某个会话单独选模，请使用聊天输入区的模型选择器。清除会话选择后会重新继承智能体的模型；不会修改智能体或全局默认值。
 
-![聊天模型设置](https://img.alicdn.com/imgextra/i2/O1CN01YhPlMl1ONRgnMBj7i_!!6000000001693-2-tps-3810-2064.png)
+![聊天输入区的会话模型选择器](https://img.alicdn.com/imgextra/i1/O1CN01eNUg5R1qLmG3FPfU_!!6000000002950-2-tps-1600-1000.png)
 
 ## 模型配置进阶
 
@@ -253,4 +245,4 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 配置完成后点击 **保存**，QwenPaw 就会在使用该供应商的模型进行生成时自动带上这些参数配置了。
 
-![生成参数](https://img.alicdn.com/imgextra/i2/O1CN01XreaTi1VPSj9sMQtp_!!6000000002645-2-tps-1170-1476.png)
+![生成参数](https://img.alicdn.com/imgextra/i1/O1CN01B6plEcVl8SE3FPfU_!!6000000003566-2-tps-1600-1000.png)

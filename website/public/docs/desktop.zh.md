@@ -102,7 +102,7 @@ A: 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows
 - **操作系统**: macOS 14 (Sonoma) 或更高版本
 - **架构**:
   - ✅ **Apple Silicon (M1/M2/M3/M4)** - 推荐
-  - ⚠️ Intel 芯片 - 可能可以运行，但可能无法使用内置的本地模型服务
+  - Intel Mac：macOS 桌面发行包面向 Apple Silicon；Intel 用户请使用 [Python 安装方式](./quickstart)。
 
 ### 安装步骤
 
@@ -221,7 +221,7 @@ A: 按照上述"解除系统安全限制"步骤操作
 A: 将 `QwenPaw Desktop.app` 拖到废纸篓，然后删除 `~/.qwenpaw` 配置文件夹
 
 **Q: Intel Mac 可以用吗？**
-A: 可以运行，但可能无法使用内置的本地模型服务
+A: 桌面发行包面向 Apple Silicon。Intel Mac 可使用 [Python 安装方式](./quickstart) 并打开网页控制台。可选的 QwenPaw Local 插件另有 macOS x64 推理引擎。
 
 **Q: 应用为什么没有签名，为什么系统会提示有风险？**
 
