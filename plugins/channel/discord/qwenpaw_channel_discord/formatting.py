@@ -52,7 +52,7 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
 
     def _flush() -> None:
         nonlocal current_len
-        body = "".join(current).rstrip("\n")
+        body = "".join(current).removesuffix(f"\n")
         current.clear()
         current_len = 0
         if fence_open:
@@ -74,9 +74,10 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
             else:
                 next_fence_open = stripped
 
-        # The final newline is stripped before the chunk is sent.
+        # Count blank lines and omit the trailing separator for other lines.
+        line_len = max(1, len(line))
         reserved = len(closing_fence) if next_fence_open else 0
-        if current and current_len + len(line) + reserved > max_len:
+        if current and current_len + line_len + reserved > max_len:
             _flush()
 
         available = max_len - current_len - reserved

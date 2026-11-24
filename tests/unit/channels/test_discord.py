@@ -256,3 +256,24 @@ def test_chunk_text_padded_closing_fence_respects_message_limit():
     text = f"```python\nx = 1\n{closing_fence}"
 
     assert chunk_text(text) == [f"```python\nx = 1\n```", closing_fence]
+
+
+def test_chunk_text_preserves_blank_line_at_fence_boundary():
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    code = f"x" * 1991
+    text = f"```\n{code}\n\ny\n```"
+
+    assert chunk_text(text) == [f"```\n{code}\n```", f"```\n\ny\n```"]
+
+
+@pytest.mark.parametrize(
+    (f"text", f"max_len"),
+    [(f"123456789\n\nabc", 10), (f"xx\nx\nx\n\nxx", 4)],
+)
+def test_chunk_text_preserves_blank_line_at_plain_text_boundary(text, max_len):
+    chunk_text = module(f"discord", f"formatting").chunk_text
+
+    chunks = chunk_text(text, max_len=max_len)
+
+    assert f"\n".join(chunks) == text
+    assert all(len(chunk) <= max_len for chunk in chunks)
