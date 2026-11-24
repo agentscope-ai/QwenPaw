@@ -104,9 +104,9 @@ void app.chat("hello", { model });
 // @ts-expect-error PawApp tasks use the Agent's configured model.
 void tasks("author-app").start({ message: "hello", model });
 // @ts-expect-error Restore requires an explicitly selected conversation.
-void checkpoints("author-app").restore("checkpoint", {});
+void checkpoints("author-app").restore("checkpoint", { agentId: "default" });
 // @ts-expect-error Selected files are paths.
-void checkpoints("author-app").previewRestore("checkpoint", { chatId: "chat", files: true });
+void checkpoints("author-app").previewRestore("checkpoint", { agentId: "default", chatId: "chat", files: true });
 const legacyRoute: PluginRouteDeclaration = {
   path: "/plugin/author/legacy", component: () => null, label: "Legacy label",
 };
@@ -173,7 +173,7 @@ const draft = host.chat.composer.read();
 if (draft) host.chat.composer.replace(draft, "Improved");
 void host.host.selectAgent("default");
 void host.chat.composer.model();
-void checkpoints("author-app").timeline({chatId: "selected"});
+void checkpoints("author-app").timeline({agentId: "default", chatId: "selected"});
 """,
 )
 for minimum, expected in (("1.0.0", 1), ("1.1.0", 1), ("1.2.0", 0)):

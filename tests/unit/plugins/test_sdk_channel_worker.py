@@ -452,6 +452,8 @@ async def test_receive_and_send_preserve_identity_media_and_durable_replay(
 async def test_stream_previous_resource_and_final_cleanup_are_host_owned(
     tmp_path,
 ):
+    cleanup_resources = []
+
     class Streaming(Driver):
         async def on_stream(self, ch, response):
             step = await ch.delivery.prepare_step(response.operation)
@@ -460,7 +462,15 @@ async def test_stream_previous_resource_and_final_cleanup_are_host_owned(
                 assert response.previous.message_id == "card-1"
             result = ChannelSendResult("card-1")
             await ch.delivery.record_progress(step, result)
+            if response.operation == "stream.end":
+                await ch.delivery.record_resource("final-card", result)
             return result
+
+        async def finish_response(self, ch, target, outcome):
+            cleanup_resources.append(dict(ch.delivery.resources()))
+            with pytest.raises(SDKAccessError):
+                await ch.delivery.record_resource("late", ChannelSendResult())
+            await super().finish_response(ch, target, outcome)
 
     adapter, peer, identity = await setup(tmp_path, Streaming)
     handle = await open_response(peer, identity)
@@ -508,6 +518,9 @@ async def test_stream_previous_resource_and_final_cleanup_are_host_owned(
             and adapter.driver.sent[-1].sequence == 2
         )
         assert adapter.driver.finished[0][1] == "cancelled"
+        assert cleanup_resources == [
+            {"final-card": ChannelSendResult("card-1")},
+        ]
     finally:
         await adapter.stop()
     with pytest.raises((asyncio.CancelledError, StaleContextError)):

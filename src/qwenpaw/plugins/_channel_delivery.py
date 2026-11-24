@@ -52,7 +52,7 @@ class DeliveryBridge:
             raise SDKAccessError("Response journal is no longer available")
         return value[0], value[1], snapshot, value[3]
 
-    def record_step(self, handle, ref, cleanup):
+    def _record_ref(self, handle, ref, cleanup):
         routes = self.adapter._routes
         if cleanup:
             routes.record_cleanup_delivery(handle, [ref])
@@ -124,7 +124,7 @@ class DeliveryBridge:
             step_id,
             {"name": name, "delivery_id": delivery_id, "state": "unknown"},
         )
-        self.record_step(handle, ref, cleanup)
+        self._record_ref(handle, ref, cleanup)
         await self.adapter._checkpoint()
         return ChannelDeliveryStep(step_id, name, False)
 
@@ -162,7 +162,7 @@ class DeliveryBridge:
             and dict(old.attributes) != attributes
         ):
             raise SDKAccessError("A confirmed step cannot be rewritten")
-        self.record_step(
+        self._record_ref(
             handle,
             ResponseResourceRef.create("sdk.step", step.id, attributes),
             cleanup,
@@ -170,22 +170,22 @@ class DeliveryBridge:
         try:
             await self.adapter._checkpoint()
         except BaseException:
-            self.record_step(handle, old, cleanup)
+            self._record_ref(handle, old, cleanup)
             raise
 
     async def resource(self, name, result):
-        handle, delivery_id, _snapshot, _cleanup = self.scope()
+        handle, delivery_id, _snapshot, cleanup = self.scope()
         self.name(name)
         if delivery_id is None:
             raise SDKAccessError(
-                "Resources must be recorded before response cleanup",
+                "Only a delivery callback can record platform resources",
             )
         ref = ResponseResourceRef.create(
             "sdk.resource",
             name,
             {"result": self.result_data(result)},
         )
-        self.adapter._routes.record_delivery(handle, [ref])
+        self._record_ref(handle, ref, cleanup)
         await self.adapter._checkpoint()
 
     def resources(self):

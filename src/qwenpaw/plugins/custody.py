@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 import logging
 import subprocess
 import threading
@@ -88,10 +89,15 @@ def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
                     f"in {PROCESS_STOP_SECONDS:.0f}s",
                 ) from exc
 
-    # Closing buffered stdin can flush data into a full pipe. Wait until
-    # the child has exited before closing its streams.
+    # A descendant may still hold stdin open after the child has exited.
+    # Close the raw pipe directly to discard pending input without flushing.
+    stdin = getattr(proc, "stdin", None)
+    if isinstance(stdin, io.TextIOWrapper):
+        stdin = stdin.buffer
+    if isinstance(stdin, io.BufferedWriter):
+        stdin = stdin.raw
     for stream in (
-        getattr(proc, "stdin", None),
+        stdin,
         getattr(proc, "stdout", None),
         getattr(proc, "stderr", None),
     ):

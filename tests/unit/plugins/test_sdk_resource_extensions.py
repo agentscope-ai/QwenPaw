@@ -252,15 +252,42 @@ async def test_run_sync_cancellation_retains_actual_thread(monkeypatch):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="uses a POSIX nonblocking pipe")
-async def test_process_cleanup_reaps_child_with_full_buffered_stdin():
+@pytest.mark.parametrize(
+    ("inherited", "text"),
+    [(False, False), (True, False), (True, True)],
+)
+async def test_process_cleanup_reaps_child_with_full_buffered_stdin(
+    tmp_path,
+    inherited,
+    text,
+):
     resources = scope()
+    release = tmp_path / "release"
+    command = [sys.executable, "-c", "import time; time.sleep(60)"]
+    if inherited:
+        holder = (
+            "import os, sys, time\n"
+            "deadline = time.monotonic() + 60\n"
+            "while not os.path.exists(sys.argv[1]) and time.monotonic() < deadline:\n"
+            "    time.sleep(0.01)\n"
+        )
+        command = [
+            sys.executable,
+            "-c",
+            "import subprocess,sys; subprocess.Popen([sys.executable,'-c',*sys.argv[1:]])",
+            holder,
+            str(release),
+        ]
     process = resources.process(
-        [sys.executable, "-c", "import time; time.sleep(60)"],
+        command,
         stdin=subprocess.PIPE,
+        text=text,
     )
     closing = None
     try:
         assert process.stdin is not None
+        if inherited:
+            assert await asyncio.to_thread(process.wait, WAIT_TIMEOUT) == 0
         fd = process.stdin.fileno()
         os.set_blocking(fd, False)
         for chunk in (b"x" * 4096, b"x"):
@@ -268,13 +295,14 @@ async def test_process_cleanup_reaps_child_with_full_buffered_stdin():
                 while True:
                     os.write(fd, chunk)
         os.set_blocking(fd, True)
-        process.stdin.write(b"still buffered")
+        process.stdin.write("still buffered" if text else b"still buffered")
         closing = asyncio.create_task(resources.close())
         done, _ = await asyncio.wait({closing}, timeout=WAIT_TIMEOUT)
         assert closing in done, "cleanup blocked while closing stdin"
         await closing
         assert process.poll() is not None and process.stdin.closed
     finally:
+        release.touch()
         if process.poll() is None:
             process.kill()
         if closing is not None:
