@@ -451,6 +451,23 @@ async def delete_chat_group(
     return {"success": True, "group_id": group_id}
 
 
+async def _release_deleted_chats(
+    workspace,
+    manager: ChatManager,
+    chats: list[ChatSpec],
+) -> None:
+    """Release sessions that no longer have a chat mapping."""
+    sessions = {chat.session_id for chat in chats}
+    remaining = await manager.list_chats(archived=None)
+    sessions.difference_update(chat.session_id for chat in remaining)
+    for session_id in sessions:
+        await workspace.release_session(session_id)
+    await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+        workspace,
+        [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
+    )
+
+
 @router.post("/batch-delete", response_model=dict)
 async def batch_delete_chats(
     chat_ids: list[str],
@@ -473,10 +490,11 @@ async def batch_delete_chats(
         await workspace.task_tracker.request_stop(chat_id)
     deleted = await mgr.delete_chats(chat_ids=chat_ids)
     if deleted:
-        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+        await _release_deleted_chats(
             workspace,
+            mgr,
             [
-                (chat.session_id, chat.user_id, chat.channel)
+                chat
                 for chat_id in chat_ids
                 if (chat := chats.get(chat_id)) is not None
             ],
@@ -997,8 +1015,5 @@ async def delete_chat(
             detail=f"Chat not found: {chat_id}",
         )
     if chat is not None:
-        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
-            workspace,
-            [(chat.session_id, chat.user_id, chat.channel)],
-        )
+        await _release_deleted_chats(workspace, mgr, [chat])
     return {"deleted": True}

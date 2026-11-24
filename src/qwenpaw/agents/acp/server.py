@@ -89,7 +89,7 @@ from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...plugins.registry import PluginRegistry
 from ...providers.provider_manager import ProviderManager
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_async_to_completion, run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
 )
@@ -796,14 +796,13 @@ class QwenPawACPAgent(Agent):
     ) -> NewSessionResponse:
         await self._require_mcp()
         session_id = uuid4().hex
-        self._sessions[session_id] = self._resolve_session(
+        parameters = self._resolve_session(
             cwd=cwd,
             meta=kwargs,
         )
         try:
-            await self._sync_session_mcp(session_id, mcp_servers)
+            await self._configure_session(session_id, parameters, mcp_servers)
         except BaseException:
-            self._sessions.pop(session_id, None)
             await self._remove_session_mcp(session_id)
             raise
         logger.info(
@@ -836,15 +835,13 @@ class QwenPawACPAgent(Agent):
             restored=True,
         )
         await self._cancel_active_prompt(session_id)
-        self._sessions[session_id] = candidate_session
-        try:
-            await self._sync_session_mcp(session_id, mcp_servers)
-        except BaseException:
-            if previous_session is None:
-                self._sessions.pop(session_id, None)
-            else:
-                self._sessions[session_id] = previous_session
-            raise
+        await run_async_to_completion(
+            self._configure_session(
+                session_id,
+                candidate_session,
+                mcp_servers,
+            ),
+        )
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -1109,15 +1106,13 @@ class QwenPawACPAgent(Agent):
             resume=True,
         )
         await self._cancel_active_prompt(session_id)
-        self._sessions[session_id] = candidate_session
-        try:
-            await self._sync_session_mcp(session_id, mcp_servers)
-        except BaseException:
-            if previous_session is None:
-                self._sessions.pop(session_id, None)
-            else:
-                self._sessions[session_id] = previous_session
-            raise
+        await run_async_to_completion(
+            self._configure_session(
+                session_id,
+                candidate_session,
+                mcp_servers,
+            ),
+        )
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument
@@ -1239,30 +1234,34 @@ class QwenPawACPAgent(Agent):
                 session_id,
             )
 
+    async def _configure_session(
+        self,
+        session_id: str,
+        parameters: ACPRuntimeParameters,
+        mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
+    ) -> None:
+        """Publish session parameters after the resource owner is ready."""
+        await self._sync_session_mcp(session_id, parameters, mcp_servers)
+        self._sessions[session_id] = parameters
+
     async def _sync_session_mcp(
         self,
         session_id: str,
+        parameters: ACPRuntimeParameters,
         mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
     ) -> None:
         """Replace the transient MCP Drivers owned by one ACP session."""
         scope_id = acp_mcp_scope_id(session_id)
-        session_info = self._sessions.get(session_id)
-        if session_info is None:
-            raise RuntimeError(
-                f"ACP session {session_id!r} is not registered",
-            )
-        session_cwd = session_info.cwd
         cards = build_acp_mcp_driver_cards(
             session_id,
             mcp_servers,
-            session_cwd=session_cwd,
+            session_cwd=parameters.cwd,
         )
         # Admission may retain a candidate before its runtime has started.
         if not cards and not self._workspace_ready:
             return
 
         workspace = await self._ensure_workspace()
-        parameters = self._sessions[session_id]
         async with workspace.configure_session(
             session_id,
             parameters,
@@ -1273,6 +1272,20 @@ class QwenPawACPAgent(Agent):
                     "QwenPaw workspace has no DriverManager for ACP MCP",
                 )
             await driver_manager.replace_transient_drivers(scope_id, cards)
+            # Dedicated owners stop on replacement. The shared owner lives
+            # on, so retire its old scope while the handoff lock is held.
+            if (
+                owner is not workspace
+                and session_id in self._sessions
+                and workspace.session_workspace(session_id) is workspace
+            ):
+                try:
+                    await self._remove_session_mcp(session_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to retire ACP MCP scope for session=%s",
+                        session_id,
+                    )
 
     async def _remove_session_mcp(self, session_id: str) -> None:
         """Remove transient MCP Drivers for one ACP session if initialized."""

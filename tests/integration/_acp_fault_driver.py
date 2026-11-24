@@ -88,7 +88,7 @@ async def _build_model_state(self, session_id=None):
     return None
 
 
-async def _sync_session_mcp(self, session_id, mcp_servers):
+async def _sync_session_mcp(self, session_id, parameters, mcp_servers):
     return None
 
 

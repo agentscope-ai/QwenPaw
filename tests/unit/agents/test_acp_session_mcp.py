@@ -22,6 +22,7 @@ from acp.schema import (
     SseMcpServer,
 )
 
+from qwenpaw.agents.acp.meta import ACP_CONFIG_META_KEY
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 from qwenpaw.agents.acp.session_mcp import (
     acp_mcp_scope_id,
@@ -385,27 +386,69 @@ async def test_acp_new_session_rolls_back_failed_mcp_registration(
     assert len(workspace.driver_manager.removals) == 1
 
 
-async def test_acp_load_session_restores_metadata_on_mcp_failure(
+@pytest.mark.parametrize("method", ["load_session", "resume_session"])
+async def test_acp_workspace_handoff_keeps_old_mcp_until_ready(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
 ) -> None:
     workspace = _FakeWorkspace()
+    replacement = _FakeWorkspace()
+    directory = str(tmp_path / "replacement")
+    owner = workspace
+
+    @asynccontextmanager
+    async def configure_session(session_id, parameters):
+        nonlocal owner
+        candidate = (
+            replacement
+            if parameters.config.workspace_dir == directory
+            else workspace
+        )
+        yield candidate
+        owner = candidate
+
+    monkeypatch.setattr(workspace, "configure_session", configure_session)
+    monkeypatch.setattr(workspace, "session_workspace", lambda _: owner)
     agent = _TestACPAgent(workspace)
     await agent.load_session(
         cwd=str(tmp_path),
         session_id="session-1",
-        mcp_servers=[],
+        mcp_servers=[_stdio_server()],
     )
+    scope = acp_mcp_scope_id("session-1")
     previous = agent._sessions["session-1"]
-    workspace.driver_manager.fail_replacement = True
+    restore = getattr(agent, method)
+    metadata = {ACP_CONFIG_META_KEY: {"workspace_dir": directory}}
+    replacement.driver_manager.fail_replacement = True
 
     with pytest.raises(RuntimeError, match="registration failed"):
-        await agent.load_session(
-            cwd="/replacement",
+        await restore(
+            cwd=str(tmp_path),
             session_id="session-1",
             mcp_servers=[_stdio_server()],
+            **metadata,
         )
 
-    assert agent._sessions["session-1"] == previous
+    assert agent._sessions["session-1"] is previous
+    assert owner is workspace
+    assert workspace.driver_manager.removals == []
+
+    replacement.driver_manager.fail_replacement = False
+    await restore(
+        cwd=str(tmp_path),
+        session_id="session-1",
+        mcp_servers=[_stdio_server()],
+        **metadata,
+    )
+    assert agent._sessions["session-1"].config.workspace_dir == directory
+    assert owner is replacement
+    assert workspace.driver_manager.removals == [scope]
+    assert replacement.driver_manager.removals == []
+
+    await agent.close_session("session-1")
+    assert workspace.driver_manager.removals == [scope]
+    assert replacement.driver_manager.removals == [scope]
 
 
 async def test_acp_resume_session_removes_new_metadata_on_mcp_failure(

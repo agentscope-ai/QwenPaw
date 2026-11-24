@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, TypeVar
 
 from pydantic import BaseModel
 
@@ -14,6 +14,8 @@ from ..constant import WORKING_DIR
 from .config import AgentProfileConfig, Config, SessionConfig
 from .context import current_runtime_parameters
 from .overrides import merge_overrides, _check_fields
+
+_Model = TypeVar("_Model", bound=BaseModel)
 
 
 def _session_values(value: BaseModel, schema: type[BaseModel]) -> dict:
@@ -32,6 +34,18 @@ def _session_values(value: BaseModel, schema: type[BaseModel]) -> dict:
                 item = item.model_dump()
         result[name] = deepcopy(item)
     return result
+
+
+def _with_validated_fields(model: _Model, validated: BaseModel) -> _Model:
+    """Apply validated fields while retaining the model's extended schema."""
+    updates = {}
+    for name, value in validated:
+        original = getattr(model, name)
+        if isinstance(value, BaseModel) and type(original) is not type(value):
+            if isinstance(original, type(value)):
+                value = _with_validated_fields(original, value)
+        updates[name] = value
+    return model.model_copy(update=updates, deep=True)
 
 
 def _apply_session(
@@ -54,10 +68,9 @@ def _apply_session(
         strict=True,
     )
     _check_fields(patch, candidate, "session")
-    values = candidate.model_dump()
     if "project_dir" in patch and candidate.project_dir:
         directory = candidate.project_dir
-        values["project_dirs"] = [
+        candidate.project_dirs = [
             next(
                 (
                     item
@@ -72,10 +85,7 @@ def _apply_session(
                 if item.get("path") != directory
             ),
         ]
-    result = AgentProfileConfig.model_validate(
-        merge_overrides(config.model_dump(), values),
-        strict=True,
-    )
+    result = _with_validated_fields(config, candidate)
     result._runtime_scoped = True  # pylint: disable=protected-access
     return result
 
@@ -111,20 +121,29 @@ class RuntimeParameters:
         defaults: dict[str, Any] | None = None,
     ) -> Self:
         """Use explicit agent values over defaults from the global config."""
-        values: dict[str, Any] = {}
+        profile = profile.model_copy(deep=True)
         if global_config is not None:
+            values: dict[str, Any] = {}
             fields = AgentProfileConfig.model_fields
             for source in (global_config, global_config.agents):
                 values.update(
-                    {
-                        key: value
-                        for key, value in source.model_dump().items()
-                        if key in fields
-                    },
+                    source.model_dump(
+                        include=fields.keys()
+                        & type(source).model_fields.keys(),
+                    ),
                 )
-        profile = AgentProfileConfig.model_validate(
-            merge_overrides(values, profile.model_dump(exclude_unset=True)),
-        )
+            inherited = AgentProfileConfig.model_validate(
+                merge_overrides(
+                    {**values, "id": profile.id, "name": profile.name},
+                    profile.model_dump(
+                        include=set(values),
+                        exclude_unset=True,
+                    ),
+                ),
+            )
+            profile = profile.model_copy(
+                update={key: getattr(inherited, key) for key in values},
+            )
         if not profile.workspace_dir:
             reference = (
                 global_config.agents.profiles.get(profile.id)

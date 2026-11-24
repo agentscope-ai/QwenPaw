@@ -280,6 +280,20 @@ def test_agent_mail_secrets_round_trip_outside_agent_json(isolated_agent):
     assert reloaded.mail.credential.auth_code == "a" * 16
     assert reloaded.mail.credential.password == "mail-password"
     assert reloaded.mail.credential.phone_number == "13800000000"
+    for parameters in (
+        RuntimeParameters(profile=reloaded),
+        RuntimeParameters.from_profile(
+            reloaded,
+            global_config=config_utils.load_config(),
+        ),
+    ):
+        scoped = parameters.with_overrides({"session_persistence": False})
+        snapshot = scoped.config
+        assert snapshot.mail == reloaded.mail
+        assert snapshot.mail is not reloaded.mail
+        assert snapshot.model_dump()["mail"]["credential"] == (
+            reloaded.model_dump()["mail"]["credential"]
+        )
 
 
 def test_load_migrates_legacy_plaintext_mail_credentials(isolated_agent):
