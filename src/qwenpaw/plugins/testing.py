@@ -19,7 +19,7 @@ import asyncio
 import inspect
 import os
 import sys
-from contextlib import aclosing
+from contextlib import aclosing, ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,6 +159,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         """
         self.root = Path(root).resolve()
         self._restore = []
+        self._dependency_readers = ExitStack()
         self._loader = None
         self._governors = {}
         self._tool_policy = dict(tool_policy or {})
@@ -180,17 +181,21 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             raise ValueError("tool_policy values must be allow, deny or ask")
 
     async def __aenter__(self) -> PluginTestHost:
+        from ..utils.io_utils import run_sync_io
+
         try:
             result = self._enter()
             if self._process_channels:
                 from ..__version__ import __version__
-                from ..utils.io_utils import run_sync_io
                 from .channel_adapter import ChannelRuntimeSettings
-                from .dependency_maintenance import lease_environment
+                from .dependency_maintenance import scoped_environment_readers
 
                 site = self.root / "channel-dependencies"
                 site.mkdir(exist_ok=True)
-                await run_sync_io(lease_environment, (site,))
+                await run_sync_io(
+                    self._dependency_readers.enter_context,
+                    scoped_environment_readers((site,)),
+                )
                 self._loader.registry.configure_channel_runtime(
                     ChannelRuntimeSettings(
                         python_executable=sys.executable,
@@ -205,7 +210,10 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             return result
         except BaseException:
             if _ACTIVE_HOST is self:
-                self._restore_environment()
+                try:
+                    await run_sync_io(self._dependency_readers.close)
+                finally:
+                    self._restore_environment()
             raise
 
     def _enter(self):
@@ -286,6 +294,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
     async def close(self) -> None:
         """Retry cleanup after a failed close; ownership stays until it succeeds."""
         from .lifecycle import QuiescenceError, UnloadMode
+        from ..utils.io_utils import run_sync_io
 
         if _ACTIVE_HOST is not self:
             return
@@ -336,6 +345,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         AuditLog.close_instance()
         for governor in self._governors.values():
             governor.stop()
+        await run_sync_io(self._dependency_readers.close)
         self._restore_environment()
 
     def _restore_environment(self):

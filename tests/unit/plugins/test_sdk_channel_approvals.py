@@ -26,39 +26,43 @@ from qwenpaw.plugins.channels import ChannelMessage
 class Driver(ChannelDriver):
     async def start(self, ch):
         self.lock = asyncio.Lock()
+        self.sent = 0
         await ch.report_status("connected")
         ch.resources.task(self.listen(ch), "platform-callbacks")
 
     async def listen(self, ch):
-        seen = None
         while True:
             action = await ch.storage.aread_json("action.json", None)
-            if action and action["id"] != seen:
-                seen = action["id"]
+            if action:
+                await ch.storage.adelete("action.json")
+                ack = f"ack-{action['id']}.json"
                 message = ChannelMessage(
                     "display",
                     (),
                     session_id=action["session"],
-                    message_id=seen,
+                    message_id=action["id"],
                     acl_sender_id=action["actor"],
                     is_group=True,
                     session_scope="group",
                     mentioned=False,
                 )
-                result = await ch.approvals.resolve(
-                    ChannelApprovalAction(
-                        action["request_id"], action["decision"], message
+                try:
+                    result = await ch.approvals.resolve(
+                        ChannelApprovalAction(
+                            action["request_id"], action["decision"], message
+                        )
                     )
-                )
-                await ch.storage.awrite_json(
-                    "ack.json", {"id": seen, "status": result.status}
-                )
+                except Exception as exc:
+                    await ch.storage.awrite_json(ack, {"error": repr(exc)})
+                    raise
+                await ch.storage.awrite_json(ack, {"status": result.status})
             await asyncio.sleep(0.01)
 
     async def send(self, ch, response):
         async with self.lock:
-            sent = await ch.storage.aread_json("sent.json", [])
-            sent.append(
+            self.sent += 1
+            await ch.storage.awrite_json(
+                f"sent-{self.sent:04d}.json",
                 {
                     "card": (
                         asdict(response.approval)
@@ -72,7 +76,6 @@ class Driver(ChannelDriver):
                     ),
                 }
             )
-            await ch.storage.awrite_json("sent.json", sent)
         return ChannelSendResult(response.delivery_id)
 """
 
@@ -147,8 +150,10 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
         )
 
         def rows(workspace):
-            path = stores[workspace] / "sent.json"
-            return json.loads(path.read_text()) if path.exists() else []
+            return [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in sorted(stores[workspace].glob("sent-*.json"))
+            ]
 
         await eventually(
             lambda: any(row["card"] for row in rows("one")),
@@ -180,18 +185,19 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
                         "decision": decision,
                     },
                 ),
+                encoding="utf-8",
             )
             temporary.replace(path)
-            ack = stores[workspace] / "ack.json"
-            await eventually(
-                lambda: ack.exists()
-                and json.loads(ack.read_text())["id"] == label,
-                timeout=10,
-            )
+            # Each action publishes one result, so the worker never replaces
+            # a file that the test is concurrently reading on Windows.
+            ack = stores[workspace] / f"ack-{label}.json"
+            await eventually(ack.exists, timeout=10)
+            result = json.loads(ack.read_text(encoding="utf-8"))
+            assert "status" in result, (label, workspace, result)
             assert await workspaces[
                 workspace
             ].channel_manager._queue_manager.drain()
-            return json.loads(ack.read_text())["status"]
+            return result["status"]
 
         assert await action("blocked", actor="intruder") == "rejected"
         assert not pending.future.done()

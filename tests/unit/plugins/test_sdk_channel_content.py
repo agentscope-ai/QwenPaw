@@ -167,7 +167,7 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
         assert (
             json.loads((storage / "finished.json").read_text()) == "completed"
         )
-        parts = json.loads((storage / "sent.json").read_text())
+        parts = json.loads((storage / "sent.json").read_text(encoding="utf-8"))
         assert provider.storage.read_json("calls.json") == 2
         assert provider.storage.read_json("tool.json") is True
         assert parts[-1]["type"] == "text" and parts[-1]["text"] == "part-2"

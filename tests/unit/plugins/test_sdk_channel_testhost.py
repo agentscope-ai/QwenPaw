@@ -6,6 +6,7 @@ import json
 import pytest
 
 from qwenpaw.plugins.channel_workers import ChannelDefinition
+from qwenpaw.plugins.dependency_maintenance import live_readers
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.plugins.compliance import check_plugin
 from tests.channel_support.sdk import make_channel, workspace_store
@@ -63,8 +64,10 @@ async def test_public_testhost_runs_installed_process_channel_in_two_workspaces(
     report = check_plugin(source)
     assert report.ok, report.findings
     root = tmp_path / "host"
+    dependencies = root / "channel-dependencies"
     workspaces = ("one", "two")
     async with PluginTestHost(root, process_channels=("sdk-worker",)) as host:
+        assert live_readers((dependencies,))
         installed = await host.install(source)
         assert installed.ok and installed.status == "active", installed
         for workspace in workspaces:
@@ -108,6 +111,7 @@ async def test_public_testhost_runs_installed_process_channel_in_two_workspaces(
         result = await host.uninstall("sdk-worker")
         assert result.clean and result.quiescent, result
         assert all(not alive(pid) for pid in current)
+    assert not live_readers((dependencies,))
 
 
 @pytest.mark.asyncio
