@@ -23,6 +23,7 @@ from qwenpaw.config.config import (
     load_agent_config,
 )
 from qwenpaw.modes.default import DefaultMode, resolve_max_iterations
+from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.runtime.tool_guard import _guarded_tool_resolve_execution_level
 from qwenpaw.security.tool_guard.execution_level import ToolExecutionLevel
 from qwenpaw.services.project_directory import (
@@ -177,6 +178,25 @@ async def test_acp_config_precedence_and_instance_isolation(
     await agent.prompt([text_block("inherited model")], second.session_id)
     assert workspace.configs[-2].active_model == selected
     assert workspace.configs[-1].active_model == new_default
+
+    partial = await agent.new_session(
+        cwd=str(tmp_path),
+        **{ACP_CONFIG_META_KEY: {"active_model": {"model": "pinned"}}},
+    )
+    assert partial.models.current_model_id == "test:pinned"
+    monkeypatch.setattr(
+        ProviderManager.get_instance(),
+        "get_active_model",
+        lambda: ModelSlotConfig(provider_id="global", model="default"),
+    )
+    refreshed = base.model_copy(update={"active_model": None})
+    await agent.prompt([text_block("pinned model")], partial.session_id)
+    assert workspace.configs[-1].active_model == ModelSlotConfig(
+        provider_id="global",
+        model="pinned",
+    )
+    await agent.prompt([text_block("selected model")], first.session_id)
+    assert workspace.configs[-1].active_model == selected
 
 
 async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):

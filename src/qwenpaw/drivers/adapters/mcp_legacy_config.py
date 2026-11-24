@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
@@ -11,15 +13,17 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from ...config.config import (
-    AgentProfileConfig,
+    MCPClientConfig,
     MCPConfig,
-    load_persisted_agent_config,
-    update_agent_config_async,
+    _assert_agent_config_unchanged,
+    _read_agent_config_snapshot,
 )
-from ...config.utils import load_config
-from ...utils.io_utils import run_sync_io
+from ...config.utils import _agent_config_lock
+from ...exceptions import ConfigurationException
+from ...utils.io_utils import run_sync_io, write_json_atomic
 from .env_ref import env_ref
 from .mcp_console import (
     mcp_credential_ref,
@@ -45,6 +49,7 @@ from ..contracts import (
     DriverPolicy,
     PolicyRule,
     PolicyTarget,
+    validate_card_name,
 )
 from ..credentials.types import CredentialRecord
 from ..errors import DriverCardError
@@ -58,6 +63,45 @@ logger = logging.getLogger(__name__)
 #   v1: legacy agent.json ``mcp.clients`` -> DriverCard storage
 #   v2: single ``${VAR}`` literal -> ``env:`` credential ref (#6029 heal)
 CURRENT_MCP_MIGRATION_VERSION = 2
+
+
+def normalize_legacy_mcp(raw, *, root=False):
+    """Use the legacy model on saved values, leaving model defaults implicit."""
+    if raw is None and not root:
+        return None, ()
+    if not isinstance(raw, dict):
+        return MCPConfig(clients={}), (("mcp", "invalid section"),)
+    try:
+        mcp = MCPConfig.model_validate({**raw, "clients": {}})
+    except ValidationError:
+        return MCPConfig(clients={}), (("mcp", "invalid settings"),)
+    if mcp.migration_version < 0:
+        return MCPConfig(clients={}), (("mcp", "invalid migration version"),)
+    if mcp.migration_version > CURRENT_MCP_MIGRATION_VERSION:
+        return mcp, (("mcp", "invalid migration version"),)
+    if not isinstance(raw.get("clients", {}), dict):
+        return mcp, (("mcp", "invalid section"),)
+    if mcp.migration_version:
+        # Consumed source definitions can remain on disk for downgrade.
+        return mcp, ()
+
+    skipped = []
+    for index, (name, value) in enumerate(raw.get("clients", {}).items(), 1):
+        try:
+            validate_card_name(name)
+        except DriverCardError:
+            skipped.append((f"entry #{index}", "invalid source name"))
+            continue
+        try:
+            model = MCPClientConfig.model_validate(value)
+        except (DriverCardError, ValidationError, ConfigurationException):
+            skipped.append((name, "invalid client configuration"))
+        else:
+            if args_may_contain_secret(model.args):
+                skipped.append((name, "possible secret in launch arguments"))
+                continue
+            mcp.clients[name] = model
+    return mcp, tuple(skipped)
 
 
 @dataclass
@@ -118,24 +162,28 @@ async def migrate_legacy_mcp_if_needed(
     """
     report = LegacyMCPMigrationReport()
     cards_dir = driver_manager.cards_dir
-    mcp = await run_sync_io(_load_migration_source, agent_id, cards_dir)
-    if mcp is None:
+    config_path = cards_dir.parent / "agent.json"
+    source = await run_sync_io(_load_migration_source, config_path)
+    if source is None:
         return report
 
+    _, _, mcp = source
     current = mcp.migration_version
     if current >= CURRENT_MCP_MIGRATION_VERSION:
         return report
+    await run_sync_io(_check_migration_paths, config_path, cards_dir)
 
     if current < 1:
         # v0 -> v1: move legacy mcp.clients into DriverCard storage.  The
         # per-client "card exists" guard in _migrate_one_client is now only
         # an in-run idempotency / crash-rerun guard, not the judgement.
         saved_clients = mcp.clients
+        # Materializing a saved profile may add the implicit default client.
         if clients is None:
             clients = saved_clients
-        elif any(
-            saved_clients.get(name) != client
-            for name, client in clients.items()
+        elif saved_clients not in (
+            clients,
+            {**MCPConfig().clients, **clients},
         ):
             raise RuntimeError(
                 "Agent MCP configuration changed during migration",
@@ -156,36 +204,70 @@ async def migrate_legacy_mcp_if_needed(
 
     await asyncio.to_thread(_write_report, cards_dir, report)
 
-    def commit(profile: AgentProfileConfig) -> None:
-        if not _owns_migration_source(agent_id, cards_dir):
-            raise RuntimeError("Agent workspace changed during MCP migration")
-        saved = profile.mcp
-        if saved and saved.migration_version >= CURRENT_MCP_MIGRATION_VERSION:
-            return
-        if saved is None or saved != mcp:
-            raise RuntimeError(
-                "Agent MCP configuration changed during migration",
-            )
-        saved.migration_version = CURRENT_MCP_MIGRATION_VERSION
-
-    await update_agent_config_async(agent_id, commit)
+    await run_sync_io(
+        _persist_mcp_migration_version,
+        agent_id,
+        config_path,
+        cards_dir,
+        mcp,
+    )
     return report
 
 
-def _load_migration_source(agent_id: str, cards_dir: Path) -> MCPConfig | None:
-    if _owns_migration_source(agent_id, cards_dir):
-        return load_persisted_agent_config(agent_id).mcp
-    return None
+def _load_migration_source(
+    config_path: Path,
+) -> tuple[bytes, dict[str, Any], MCPConfig] | None:
+    try:
+        content, _ = _read_agent_config_snapshot(config_path)
+    except FileNotFoundError:
+        return None
+    payload = json.loads(content)
+    if not isinstance(payload, dict):
+        raise ValueError("Agent config must be an object")
+    raw = payload.get("mcp")
+    if not isinstance(raw, dict):
+        return None
+    mcp, _ = normalize_legacy_mcp(raw)
+    if mcp is None:
+        return None
+    return content, payload, mcp
 
 
-def _owns_migration_source(agent_id: str, cards_dir: Path) -> bool:
-    """Associate saved migration versions with the agent's own card store."""
-    reference = load_config().agents.profiles.get(agent_id)
-    if reference is None:
-        return False
-    workspace_dir = Path(reference.workspace_dir).expanduser().resolve()
-    candidate = cards_dir.parent.resolve() / cards_dir.name
-    return candidate == workspace_dir / "drivers"
+def _check_migration_paths(config_path: Path, cards_dir: Path) -> None:
+    """Keep both migration outputs inside the workspace being upgraded."""
+    workspace = config_path.parent.resolve()
+    if not all(
+        path.resolve().is_relative_to(workspace)
+        for path in (config_path, cards_dir)
+    ):
+        raise ValueError("MCP migration paths must belong to the workspace")
+
+
+def _persist_mcp_migration_version(
+    agent_id: str,
+    config_path: Path,
+    cards_dir: Path,
+    source: MCPConfig,
+) -> None:
+    with _agent_config_lock:
+        _check_migration_paths(config_path, cards_dir)
+        latest = _load_migration_source(config_path)
+        if latest is None:
+            raise RuntimeError("Agent MCP configuration was removed")
+        content, payload, saved = latest
+        if saved.migration_version >= CURRENT_MCP_MIGRATION_VERSION:
+            return
+        if saved != source:
+            raise RuntimeError(
+                "Agent MCP configuration changed during migration",
+            )
+        _assert_agent_config_unchanged(
+            config_path,
+            hashlib.sha256(content).digest(),
+            agent_id,
+        )
+        payload["mcp"]["migration_version"] = CURRENT_MCP_MIGRATION_VERSION
+        write_json_atomic(config_path, payload, retry_windows_replace=True)
 
 
 async def _migrate_one_client(

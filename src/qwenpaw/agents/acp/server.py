@@ -562,16 +562,14 @@ class QwenPawACPAgent(Agent):
         restored: bool = False,
     ) -> ACPRuntimeParameters:
         try:
-            parameters = self._with_current_model(
-                self._session_configuration(),
-            )
-            return parameters.for_session(
+            parameters = self._session_configuration().for_session(
                 cwd,
                 meta,
                 previous=previous,
                 resume=resume,
                 restored=restored,
             )
+            return self._with_current_model(parameters)
         except (ValueError, AppBaseException) as error:
             raise RequestError.invalid_params(
                 {"details": f"Invalid session configuration: {error}"},
@@ -584,12 +582,21 @@ class QwenPawACPAgent(Agent):
         """Refresh the inherited model before resolving a session or turn."""
         profile = parameters.profile
         active_model = load_persisted_agent_config(profile.id).active_model
-        if active_model == profile.active_model:
-            return parameters
-        return replace(
-            parameters,
-            profile=profile.model_copy(update={"active_model": active_model}),
-        )
+        if active_model != profile.active_model or parameters.fallback_model:
+            parameters = replace(
+                parameters,
+                profile=profile.model_copy(
+                    update={"active_model": active_model},
+                ),
+                fallback_model=None,
+            )
+        selected = parameters.config.active_model
+        if selected is not None and not (
+            selected.provider_id and selected.model
+        ):
+            fallback = ProviderManager.get_instance().get_active_model()
+            return replace(parameters, fallback_model=fallback)
+        return parameters
 
     async def _install_runtime_provider(self) -> None:
         """Register the process-scoped provider without persisting it."""

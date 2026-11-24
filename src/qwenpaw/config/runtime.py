@@ -11,7 +11,7 @@ from typing import Any, Self, TypeVar
 from pydantic import BaseModel
 
 from ..constant import WORKING_DIR
-from .config import AgentProfileConfig, Config, SessionConfig
+from .config import AgentProfileConfig, Config, ModelSlotConfig, SessionConfig
 from .context import current_runtime_parameters
 from .overrides import merge_overrides, _check_fields
 
@@ -61,12 +61,22 @@ def _with_validated_fields(model: _Model, validated: BaseModel) -> _Model:
 def _apply_session(
     config: AgentProfileConfig,
     overrides: Mapping,
+    fallback_model: ModelSlotConfig | None,
 ) -> AgentProfileConfig:
     """Validate only session fields, then preserve agent-owned resources."""
     if not isinstance(overrides, Mapping):
         raise ValueError("Session configuration must be an object")
     values = _session_values(config, SessionConfig)
     patch = deepcopy(dict(overrides))
+    if fallback_model is not None:
+        active_model = config.active_model
+        if active_model is not None:
+            values["active_model"] = merge_overrides(
+                fallback_model.model_dump(),
+                active_model.model_dump(exclude_unset=True),
+            )
+        elif isinstance(patch.get("active_model"), dict):
+            values["active_model"] = fallback_model.model_dump()
     if (
         "active_model" in patch
         and merge_overrides(values, patch)["active_model"]
@@ -120,6 +130,7 @@ class RuntimeParameters:
     overrides: dict[str, Any] = field(default_factory=dict)
     mode_defaults: dict[str, Any] = field(default_factory=dict)
     restored_mode: str | None = None
+    fallback_model: ModelSlotConfig | None = None
     _config: AgentProfileConfig = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -127,10 +138,12 @@ class RuntimeParameters:
         object.__setattr__(self, "defaults", deepcopy(self.defaults))
         object.__setattr__(self, "mode_defaults", deepcopy(self.mode_defaults))
         object.__setattr__(self, "overrides", deepcopy(self.overrides))
+        fallback = deepcopy(self.fallback_model)
+        object.__setattr__(self, "fallback_model", fallback)
         object.__setattr__(
             self,
             "_config",
-            _apply_session(self.base, self.overrides),
+            _apply_session(self.base, self.overrides, fallback),
         )
 
     @classmethod
@@ -181,10 +194,12 @@ class RuntimeParameters:
     @property
     def base(self) -> AgentProfileConfig:
         """Return the agent and startup defaults without session overrides."""
-        return _apply_session(
-            _apply_session(self.profile, self.mode_defaults),
-            self.defaults,
+        profile = _apply_session(
+            self.profile,
+            self.mode_defaults,
+            self.fallback_model,
         )
+        return _apply_session(profile, self.defaults, self.fallback_model)
 
     @property
     def config(self) -> AgentProfileConfig:

@@ -15,6 +15,7 @@ The fix moves the judgement onto an explicit, persisted schema watermark
 * the ``env:`` self-heal upgrade (#6029) is folded in as a one-shot v1->v2
   step instead of being re-scanned on every start.
 """
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -31,6 +32,7 @@ from qwenpaw.config.config import (
     MCPConfig,
 )
 from qwenpaw.config.runtime import RuntimeParameters
+from qwenpaw.drivers.adapters import mcp_legacy_config
 from qwenpaw.drivers.adapters.mcp_legacy_config import (
     CURRENT_MCP_MIGRATION_VERSION,
     migrate_legacy_mcp_if_needed,
@@ -126,19 +128,38 @@ async def test_migration_runs_and_persists_watermark_when_unmigrated(
 ) -> None:
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
     manager = DriverManager(tmp_path / "drivers", store)
-    save_mcp({"wind": _client()}, 0)
+    path = save_mcp({"wind": _client()}, 0)
     profile = cfg_config.load_persisted_agent_config("default")
     parameters = RuntimeParameters.from_profile(
         profile,
         defaults={"approval_level": "OFF"},
     )
-    alternate = DriverManager(tmp_path / "other" / "drivers", store)
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    alternate = DriverManager(
+        other_dir / "drivers",
+        AsyncCredentialStore(other_dir / "credentials.yaml"),
+    )
+    saved_config = path.read_bytes()
     with parameters.scope():
         await migrate_legacy_mcp_if_needed("default", alternate)
         assert await alternate.card_store.list_paths() == []
+        other_path = other_dir / "agent.json"
+        other_path.write_bytes(saved_config)
+        other_report = await migrate_legacy_mcp_if_needed(
+            "default",
+            alternate,
+        )
+        assert [client.client_key for client in other_report.migrated] == [
+            "wind",
+        ]
+        assert path.read_bytes() == saved_config
+        expected = json.loads(saved_config)
+        expected["mcp"]["migration_version"] = CURRENT_MCP_MIGRATION_VERSION
+        assert json.loads(other_path.read_bytes()) == expected
         with patch.object(
-            cfg_config,
-            "save_agent_config",
+            mcp_legacy_config,
+            "write_json_atomic",
             side_effect=OSError("save failed"),
         ):
             with pytest.raises(OSError, match="save failed"):
