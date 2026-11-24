@@ -110,6 +110,32 @@ describe("WebSearchConfigModal", () => {
     expect(passwordInput()).toHaveValue("***masked***");
   });
 
+  it.each(["anysearch", "tavily"])(
+    "does not autosave after loading saved %s configuration",
+    async (provider) => {
+      vi.useFakeTimers();
+      try {
+        hoisted.getToolConfig.mockResolvedValue({
+          provider,
+          api_key: "***masked***",
+        });
+        const onSave = vi.fn().mockResolvedValue(undefined);
+        await act(async () => {
+          renderModal(onSave);
+        });
+        expect(selectedProvider()).toBe(provider);
+        expect(passwordInput()).toHaveValue("***masked***");
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
+        expect(onSave).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("shows the optional api_key field and tavily hint while provider is tavily", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     renderModal();
