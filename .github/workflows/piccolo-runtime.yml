@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/piccolo-runtime.yml'
-      - 'docs/patches/piccolo-llama.cpp.patch'
+      - 'scripts/patches/piccolo-llama.cpp.patch'
       - 'plugins/provider/local-llamacpp/runtime-release.json'
       - 'scripts/piccolo_runtime.py'
       - 'scripts/test_piccolo_runtime.py'

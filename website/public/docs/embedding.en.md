@@ -44,15 +44,13 @@ Keep these boundaries in mind:
 
 ## Configure in the Console
 
-Open **Agent Config → Running Config → Long-term Memory → Embedding Model Config**:
+For the current agent, open **Settings → Configuration → Memory** and find the **Embedding model hub**:
 
-1. Select the SDK type that matches the service interface.
-2. Enter the model name, API key, and endpoint.
-3. Enter the model's actual output dimensions.
-4. Select **Test Embedding Service**.
-5. Save after the test succeeds. If the Console reports a vector-space change, select **Rebuild Memory Index**.
+1. Under **Embedding Service**, select the SDK type and enter the model name and its actual output dimensions. Supply credentials and an endpoint as required by the backend; Ollama needs no API key.
+2. Click **Service verification** to send one test request using the current form. A successful check shows the returned dimensions and latency; if the dimensions differ, check the model configuration.
+3. Settings are saved automatically. If the vector space changed, wait for the changes to save, then click **Embedding index** and review the rebuild confirmation. Testing the service does not rebuild the index.
 
-![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
+![Embedding model configuration in the long-term memory settings](https://img.alicdn.com/imgextra/i3/O1CN01YjM8UcBmCyG3FPfU_!!6000000001313-2-tps-1600-1000.png)
 
 The setup moves through several distinct stages:
 
@@ -61,7 +59,7 @@ The setup moves through several distinct stages:
 - **Saved** means the settings were written to the running configuration. Changes within the same vector space can be applied live; a vector-space change pauses vector search until a rebuild completes.
 - **Rebuild required** means the semantic coordinate system changed and existing vectors must be regenerated.
 
-![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
+![Verified Embedding service with its returned dimensions and latency](https://img.alicdn.com/imgextra/i1/O1CN01yB9oI8D4N4K2On7V_!!6000000008153-2-tps-1182-183.png)
 
 The test sends one real text request. The result must arrive within `health_check_timeout` (15 seconds by default), contain a non-empty vector of finite numbers, and match `dimensions`. This proves only that one call works with the current settings. Initial indexing or a rebuild still has to process existing memories and can encounter quotas, rate limits, or oversized inputs.
 
@@ -88,7 +86,7 @@ including the score, vector, and keyword fields, without summarizing or rewritin
 
 `dimensions` is used for strict validation. Unless both the model and API explicitly support variable dimensions, enter the model's native output size. If the configuration expects 256 dimensions but the service returns 1,024, the test fails:
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg" alt="Embedding test failing because the expected and returned dimensions differ" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01u1hS43sxWpK0qMm4_!!6000000006812-2-tps-416-188.png" alt="Embedding test failing because the expected and returned dimensions differ" />
 
 `use_dimensions` only controls whether the `openai` backend sends a dimension parameter. It does not disable response validation. Some OpenAI-compatible services reject this parameter; turn it off and set `dimensions` to the size the service actually returns.
 
@@ -108,7 +106,7 @@ To abandon a vector-space change that has not yet been rebuilt, use the Console 
 POST /api/agents/{agentId}/memory/reindex/undo
 ```
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Confirmation shown before rebuilding the memory index" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i1/O1CN01feiXtKtiT3D0qMmQ_!!6000000007783-2-tps-416-210.png" alt="Confirmation shown before rebuilding the memory index" />
 
 ### The Service Endpoint Is Unreachable
 

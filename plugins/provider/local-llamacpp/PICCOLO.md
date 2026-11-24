@@ -1,21 +1,12 @@
-# Local Piccolo decisions
+# Piccolo runtime
 
-Piccolo uses QwenPaw's native Jev decision interface for tool review and ReMe context compaction. Models are available on [Hugging Face](https://huggingface.co/agentscope-ai) (`agentscope-ai/Piccolo-*`) and [ModelScope](https://modelscope.cn/organization/AgentScope) (`AgentScope/Piccolo-*`). GGUF variants use `-BF16`, `-Q8_0`, and `-Q4_K_M` repositories. The catalog recommends BF16 and Q8_0 models according to machine memory; Q4_K_M is available through custom model download.
-
-## Download and enable
-
-1. In **Models → QwenPaw Local**, install or update the inference engine. The managed runtime supports both Flash chat and Piccolo decisions.
-2. Choose **Hugging Face** or **ModelScope**, download a model under **Decision models**, and click **Start**. Check **Models → Default models → Decision model**.
-3. For tool review, choose **Decision Model Mode** in the agent's security settings and enable review in the conversation.
-4. For compaction, enable context compaction and **Decision model compaction** in the agent's context settings.
-
-Both model groups share one managed runtime. Starting another local model switches that runtime to the selected model. Piccolo fills the decision slot; Flash fills the chat slot. Other providers' default selections remain unchanged.
+Piccolo uses QwenPaw's native Jev decision interface for tool review and ReMe context compaction. For setup instructions, see [Local Piccolo decision models](../../../website/public/docs/models.en.md#local-piccolo-decision-models).
 
 ## Runtime builds and releases
 
-[`runtime-release.json`](../src/qwenpaw/local_models/runtime-release.json) pins the llama.cpp revision, the [Piccolo patch](patches/piccolo-llama.cpp.patch), and the installer release. The build matrix covers macOS and Linux on x64/ARM64, Windows CPU on x64/ARM64, and Windows x64 with CUDA 12.4/13.1.
+[`runtime-release.json`](runtime-release.json) pins the llama.cpp revision, the [Piccolo patch](../../../scripts/patches/piccolo-llama.cpp.patch), and the installer release. The build matrix covers macOS and Linux on x64/ARM64, Windows CPU on x64/ARM64, and Windows x64 with CUDA 12.4/13.1.
 
-Build and test a bundle locally:
+From the repository root, run the following commands to build and test a bundle.
 
 ```bash
 python -m pip install cmake ninja
