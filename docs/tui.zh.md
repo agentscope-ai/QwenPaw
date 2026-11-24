@@ -4,7 +4,7 @@ QwenPaw **终端界面（TUI）** 是一个完全运行在终端里的全屏聊�
 
 它也是 **Coding 模式** 最自然的入口：在某个代码仓库目录中启动，智能体就会把该目录当作它的工作场所。
 
-![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i3/O1CN0165izgXrPBEI2qEhU_!!6000000002338-2-tps-1400-840.png)
 
 ---
 
@@ -29,6 +29,8 @@ qwenpaw tui /path/to/repo     # 指定一个明确的目录
 这只会为**当前这次终端会话**启用 Coding 模式的提示词与工具行为——并不会改动 `agent.json` 中保存的项目，也不会改变控制台里选中的项目。
 
 > 无需单独安装或维护服务：终端界面会用它自带的解释器启动属于自己的 `qwenpaw acp` 后端，因此它驱动的始终是与你的 `qwenpaw` 命令相同的安装环境 / 虚拟环境。
+
+首次使用 TUI 时，QwenPaw 可能从随包资源在本地安装 MCP 插件。普通会话也需要该插件，新建、恢复会话和发送消息都会检查插件是否可用。如果插件被禁用、卸载或本地安装失败，请打开 QwenPaw Console 的**官方插件**页面，安装、启用或修复 MCP 插件，然后重新连接 TUI。本地安装失败后，后续需要由用户手动安装或修复。
 
 ---
 

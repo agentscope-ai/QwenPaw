@@ -249,7 +249,7 @@ Previously recalled memory is removed before extraction so it cannot be mistaken
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory result delivered to Inbox" />
 </p>
 
-Inbox is only a run-status surface. The reusable, editable memory remains in workspace files.
+Look under **Inbox → Push Messages** for results. Auto-Memory and Auto-Dream have separate Inbox notification switches. When enabled, they report changes or failures; a successful run with no changes normally produces no message. The editable memories remain in workspace files.
 
 ### 3. Auto Resource (Beta) Enriches Memory from External Sources
 
@@ -264,7 +264,7 @@ When Daily Paper is enabled, QwenPaw selects popular papers related to your inte
 - the Markdown readings enter the normal memory index and can later be consolidated.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper schedule and topic settings" />
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01yxWwlUCwB7B3FPfU_!!6000000007068-2-tps-1600-1000.png" alt="Daily Paper schedule and topic settings" />
 </p>
 
 Auto Fin fetches CLS telegraph news from a rolling time window (the preceding 24 hours by default), selects items related to configured topics, and searches ReMe memory for useful historical context. It writes one Chinese research report with validated Wikilinks to `memory/YYYY-MM-DD/auto_fin.md`. Current news and topic-selection results remain in runtime memory; only the final report is persisted. A same-day rerun atomically replaces the existing report with a revision. If no current news is relevant, the job succeeds as a skip without writing a report or sending an Inbox notification.
@@ -414,7 +414,7 @@ Returning to the financial-analyst example:
 7. You can inspect and correct the Markdown at any time, and those edits guide future work.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw long-term memory Console overview" />
+  <img src="https://img.alicdn.com/imgextra/i4/O1CN01tr6O6vBAf3C3FPfU_!!6000000000754-2-tps-1600-1000.png" alt="QwenPaw long-term memory Console overview" />
 </p>
 
 ### 6. Results: Can It Recall from a Long History?
@@ -526,10 +526,10 @@ Schema, and do not enter the Auto-Memory queue. Run those maintenance operations
 through the authenticated Console or maintenance API rather than `/reme`.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe background activity, resource usage, and index component status" />
+  <img src="https://img.alicdn.com/imgextra/i3/O1CN01KgTbaWZ1MTB3FPfU_!!6000000003025-2-tps-1600-1000.png" alt="ReMe background activity, resource usage, and index component status" />
 </p>
 
-Normal Markdown additions and edits are indexed incrementally. Use **Rebuild Memory Index** only when the Console reports a vector-space change, the index is damaged, or search is clearly abnormal. The maintenance API supports scoped rebuilds:
+Normal Markdown additions and edits are indexed incrementally. Rebuild only after a vector-space change, index damage, or clearly abnormal search results. In **Configuration → Memory**, use **Maintenance & repair → Rebuild BM25 index** for keywords, or **Embedding model hub → Embedding index** for vectors. The maintenance API supports scoped rebuilds:
 
 ```http
 POST /api/agents/{agentId}/memory/reindex?scope=all
@@ -548,7 +548,7 @@ POST /api/agents/{agentId}/memory/reindex/undo
 Undo restores the previous Embedding configuration that matches the existing vectors. It does not delete memory files and is available only while a rebuild-requiring change is pending.
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="Resource-usage confirmation before rebuilding the memory index" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01feiXtKtiT3D0qMmQ_!!6000000007783-2-tps-416-210.png" alt="Confirmation before rebuilding the Embedding index" />
 </p>
 
 ---

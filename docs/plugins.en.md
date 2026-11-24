@@ -96,6 +96,131 @@ The host supplies configuration, logging, models, and storage in the call contex
 Registration and activation callbacks are not generally moved to worker threads; avoid
 blocking work there and await storage operations from async activation callbacks.
 
+## SDK 1.2: driver protocols
+
+SDK `1.2.0` adds the `drivers` capability and `DriverProtocolSpec`. SDK 1.0
+plugins remain loadable. A plugin declaring `drivers` must require SDK 1.2;
+an older host rejects the declaration before importing its backend entry.
+
+Every `DriverCapabilitySpec.input_schema` must declare `type: "object"` and an
+object-valued `properties` at the top level. A tool with no parameters uses:
+
+```json
+{ "type": "object", "properties": {} }
+```
+
+An empty `properties` object declares no named parameters. Set
+`additionalProperties: false` to reject extra arguments. The SDK checks the
+shape when the capability is constructed, and the host validates arguments
+against the declared schema at invocation time.
+
+Create `echo-driver/plugin.json` and `echo-driver/main.py` from the two blocks
+below. This complete example uses a local fake protocol and only public SDK imports:
+
+```json
+{
+  "id": "echo-driver",
+  "name": "Echo Driver",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
+}
+```
+
+```python
+from qwenpaw.plugins import PluginContext, SDKError
+from qwenpaw.plugins.drivers import (
+    DriverCallResult, DriverCapabilitySpec, DriverProtocolSpec,
+)
+from qwenpaw.plugins.messages import ContentBlock
+
+class EchoConnection:
+    def __init__(self, context, source):
+        self.context = context
+
+    async def open(self):
+        pass
+
+    async def discover(self, request):
+        request.check_cancelled()
+        return (DriverCapabilitySpec(
+            name="echo", description="Echo text",
+            input_schema={"type": "object", "properties": {
+                "text": {"type": "string"}}, "required": ["text"],
+                "additionalProperties": False},
+        ),)
+
+    async def invoke(self, name, arguments, request):
+        request.check_cancelled()
+        if name != "echo":
+            raise SDKError("Unknown capability")
+        return DriverCallResult(content=(ContentBlock(text=arguments["text"]),))
+
+    async def close(self):
+        pass
+
+
+def validate(source):
+    if source.protocol != "echo":
+        raise SDKError("Expected echo protocol")
+
+class Plugin:
+    def register(self, context: PluginContext):
+        context.register_driver_protocol(DriverProtocolSpec(
+            protocol="echo", validate=validate, create=EchoConnection,
+        ))
+
+plugin = Plugin()
+```
+
+Run `python -m qwenpaw.plugins.check ./echo-driver --runtime`, then run this
+standalone author probe from the parent directory:
+
+```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from qwenpaw.plugins.testing import PluginTestHost
+
+async def main():
+    with TemporaryDirectory() as directory:
+        async with PluginTestHost(Path(directory)) as host:
+            await host.load(Path("echo-driver"))
+            await host.open_driver({
+                "name": "echo-source", "protocol": "echo",
+                "endpoint": {}, "enabled": True,
+                "policy": {"default_effect": "allow"},
+            })
+            capabilities = await host.list_driver_capabilities("echo-source")
+            assert capabilities
+            result = await host.call_driver("echo-source", "echo", {"text": "hello"})
+            assert result.content[0].text == "hello"
+            await host.close_driver("echo-source")
+
+asyncio.run(main())
+```
+
+The test host uses the production adapter, DriverManager and governance path.
+`open_driver` accepts a DriverCard-shaped JSON mapping; `policy.default_effect`
+is explicitly `allow` in this local example. Production sources retain their
+allow/deny/ask policy and tool whitelist; an empty `tools` list denies all tools.
+
+`validate` is synchronous and checks an immutable `DriverSource`; `create`
+constructs a connection without opening it. The host calls `open`, `discover`,
+`invoke`, and `close` and owns their lifecycle. Use `DriverContext.resources`
+for background tasks and cleanup, `credentials` for declared source-scoped aliases,
+and `subprocess_environment()` for a managed child process environment. Never
+import host managers, credential stores, or internal registry modules in a plugin.
+The host validates workspace/source identity, schema, policy and cancellation;
+`DriverRequestContext` carries the workspace instance, session, user and deadline.
+Do not swallow cancellation or report successful close while resources still run.
+After a reconnect changes discovered capabilities, call
+`context.invalidate_capabilities()` to refresh the host cache.
+
+The official `qwenpaw-mcp` plugin registers protocol `mcp` through this same
+contract. Its management UI is at `/mcp`. See [the MCP guide](./mcp.en.md) for
+connection and configuration examples.
+
 ## Asynchronous storage and ownership
 
 Async handlers use `await storage.aread_bytes/awrite_bytes/aread_json/awrite_json/adelete`
@@ -219,6 +344,31 @@ interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeo
 unreleased resource still prevents replacement; retry public lifecycle operations after
 the fault is resolved. Old contexts cannot write or register resources for a new generation.
 
+## Model providers
+
+`ctx.register_provider(spec)` returns a `ProviderHandle` scoped to that provider.
+Import `ProviderSpec` and `ProviderHandle` from `qwenpaw.plugins.providers`.
+
+Declare `generate` for custom inference, or `protocol="openai-chat"` for the host's
+OpenAI-compatible transport. Optional `connect(ctx, model_id)` returns an async
+context manager yielding the base URL. The host enters it before each call and
+exits when that call ends or its stream closes. The plugin remains in use until
+the owning turn ends. In `connect`, `ctx.connection_purpose` identifies inference
+(`inference`), a connectivity check (`check`), or a multimodal capability probe (`probe`).
+
+Read `handle.published_model_ids` for the current IDs saved by `update(models=...)`.
+
+Await the following handle methods:
+
+- `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields;
+  `None` leaves a field unchanged. `models` replaces the published list while
+  retaining saved settings for matching model IDs.
+- `select(model_id, model_type="chat")` selects this provider's default for a
+  type: `chat` or `decision`. The type must match the published `ModelInfo.model_type`.
+- `clear_selection(model_type="chat")` clears that type's default if it uses this provider
+  and returns whether it was cleared. Agent overrides remain unchanged.
+- `close()` revokes the registration. Old handles become invalid after reload.
+
 ## Public capabilities
 
 | Capability                                          | Public entry                                                                               |
@@ -230,7 +380,8 @@ the fault is resolved. Old contexts cannot write or register resources for a new
 | Messages, attachments, run and approval observation | `qwenpaw.plugins.messages`, `qwenpaw.plugins.events`                                       |
 | Commands, hooks, modes, prompts                     | `commands`, `hooks`, `modes`, `prompts`                                                    |
 | Channels and applications                           | `channels`, `apps`                                                                         |
-| Model providers, memory, markets, skills            | `providers`, `memory`, `markets`, `skills`                                                 |
+| Model providers                                     | `providers.ProviderSpec`, `providers.ProviderHandle`                                       |
+| Memory, markets, skills                             | `memory`, `markets`, `skills`                                                              |
 | Resources, results, testing                         | `resources`, `results`, `testing`                                                          |
 | Exceptions                                          | Import public exceptions such as `SDKError` and `StaleContextError` from `qwenpaw.plugins` |
 

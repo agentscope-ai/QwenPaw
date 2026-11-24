@@ -82,6 +82,122 @@ plugin = Plugin()
 `register()` 只声明贡献；连接和后台任务放在 `context.on_activate(callback)`，
 通过 `context.resources` 管理。调用上下文的配置、日志、模型、存储均由宿主提供。
 
+## SDK 1.2：Driver 协议
+
+SDK `1.2.0` 新增 `drivers` capability 和 `DriverProtocolSpec`，继续兼容 SDK 1.0
+插件。声明 `drivers` 的插件必须要求 SDK 1.2；旧宿主在导入后端入口前拒绝不支持的声明。
+
+每个 `DriverCapabilitySpec.input_schema` 都必须在顶层声明 `type: "object"` 和对象形式的
+`properties`。无参数工具的标准写法是：
+
+```json
+{ "type": "object", "properties": {} }
+```
+
+空的 `properties` 表示没有声明具名参数。如果工具需要拒绝额外参数，请设置
+`additionalProperties: false`。SDK 在构造能力时检查格式，宿主在调用时按声明的 Schema
+校验参数。
+
+分别将下面两段保存为 `echo-driver/plugin.json` 与 `echo-driver/main.py`。
+这是只依赖公开 SDK 的完整本地 fake 协议示例：
+
+```json
+{
+  "id": "echo-driver",
+  "name": "Echo Driver",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
+}
+```
+
+```python
+from qwenpaw.plugins import PluginContext, SDKError
+from qwenpaw.plugins.drivers import (
+    DriverCallResult, DriverCapabilitySpec, DriverProtocolSpec,
+)
+from qwenpaw.plugins.messages import ContentBlock
+
+class EchoConnection:
+    def __init__(self, context, source):
+        self.context = context
+
+    async def open(self):
+        pass
+
+    async def discover(self, request):
+        request.check_cancelled()
+        return (DriverCapabilitySpec(
+            name="echo", description="Echo text",
+            input_schema={"type": "object", "properties": {
+                "text": {"type": "string"}}, "required": ["text"],
+                "additionalProperties": False},
+        ),)
+
+    async def invoke(self, name, arguments, request):
+        request.check_cancelled()
+        if name != "echo":
+            raise SDKError("Unknown capability")
+        return DriverCallResult(content=(ContentBlock(text=arguments["text"]),))
+
+    async def close(self):
+        pass
+
+
+def validate(source):
+    if source.protocol != "echo":
+        raise SDKError("Expected echo protocol")
+
+class Plugin:
+    def register(self, context: PluginContext):
+        context.register_driver_protocol(DriverProtocolSpec(
+            protocol="echo", validate=validate, create=EchoConnection,
+        ))
+
+plugin = Plugin()
+```
+
+先执行 `python -m qwenpaw.plugins.check ./echo-driver --runtime`，再从父目录运行：
+
+```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from qwenpaw.plugins.testing import PluginTestHost
+
+async def main():
+    with TemporaryDirectory() as directory:
+        async with PluginTestHost(Path(directory)) as host:
+            await host.load(Path("echo-driver"))
+            await host.open_driver({
+                "name": "echo-source", "protocol": "echo",
+                "endpoint": {}, "enabled": True,
+                "policy": {"default_effect": "allow"},
+            })
+            capabilities = await host.list_driver_capabilities("echo-source")
+            assert capabilities
+            result = await host.call_driver("echo-source", "echo", {"text": "hello"})
+            assert result.content[0].text == "hello"
+            await host.close_driver("echo-source")
+
+asyncio.run(main())
+```
+
+测试宿主经过生产 adapter、DriverManager 和治理路径。`open_driver` 接受 DriverCard
+结构的 JSON 映射；本地示例显式使用 `policy.default_effect: allow`。真实来源保留
+allow/deny/ask 策略与工具白名单，空 `tools` 列表表示全部禁止。
+
+同步 `validate` 检查不可变的 `DriverSource`；`create` 只创建连接对象。
+宿主管理 `open`、`discover`、`invoke`、`close` 的生命周期。后台任务和清理使用
+`DriverContext.resources`，凭据使用 `credentials` 的来源级别名，子进程环境通过
+`subprocess_environment()` 获取。插件不得导入宿主 Manager、凭据存储或内部 Registry。
+宿主验证工作区/来源身份、schema、策略和取消状态；`DriverRequestContext` 提供工作区
+实例、会话、用户与截止时间。不要吞掉取消，也不要在资源尚未关闭时报告关闭成功。
+重连后发现的能力发生变化时，调用 `context.invalidate_capabilities()` 刷新缓存。
+
+官方 `qwenpaw-mcp` 插件也通过这一契约注册 `mcp` 协议，管理页面保留在 `/mcp`。
+连接方式和配置示例见 [MCP 指南](./mcp.zh.md)。
+
 ## 异步存储与资源归属
 
 异步 handler 使用 `await storage.aread_bytes/awrite_bytes/aread_json/awrite_json/adelete`
@@ -193,20 +309,43 @@ asyncio.run(main())
 `reload(plugin_id, interrupt_tasks=True)`；超时或资源未释放仍拒绝换代。
 故障解除后可通过公开生命周期操作重试。旧上下文不能写入或注册新一代资源。
 
+## 模型提供方
+
+`ctx.register_provider(spec)` 返回仅管理该 Provider 的 `ProviderHandle`。
+从 `qwenpaw.plugins.providers` 导入 `ProviderSpec` 和 `ProviderHandle`。
+
+自定义推理使用 `generate`，或声明 `protocol="openai-chat"` 复用宿主的 OpenAI 兼容传输。
+可选的 `connect(ctx, model_id)` 返回异步上下文管理器，yield 服务的 base URL。
+宿主在每次调用前进入它，并在该调用结束或流关闭时退出。宿主保留插件使用权直到所属 turn 结束。
+在 `connect` 中，`ctx.connection_purpose` 区分推理（`inference`）、连接检查（`check`）和多模态探测（`probe`）。
+
+通过 `handle.published_model_ids` 读取 `update(models=...)` 已保存的模型 ID。
+
+以下句柄方法均需 `await`：
+
+- `update(base_url=..., models=..., generate_kwargs=...)` 持久化提供的字段；
+  `None` 保持原值。`models` 替换发布列表，并保留同 ID 模型的已有配置。
+- `select(model_id, model_type="chat")` 将自身模型设为指定类型的默认模型；
+  `model_type` 可为 `chat` 或 `decision`，应与发布的 `ModelInfo.model_type` 一致。
+- `clear_selection(model_type="chat")` 仅清除该类型中指向自身 Provider 的默认选择，返回是否清除。
+  Agent 独立配置保持不变。
+- `close()` 撤销注册。重载后旧 Handle 失效。
+
 ## 能力与公开模块
 
-| 能力                         | 公开入口                                                             |
-| ---------------------------- | -------------------------------------------------------------------- |
-| 声明与版本                   | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
-| 工具与配置字段               | `qwenpaw.plugins.tools`                                              |
-| 配置、持久数据、媒体         | `qwenpaw.plugins.storage`，实例由上下文提供                          |
-| 日志、已配置模型调用         | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
-| 消息、附件、运行与审批观察   | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
-| 命令、钩子、模式、提示词     | `commands`、`hooks`、`modes`、`prompts`                              |
-| 渠道、应用                   | `channels`、`apps`                                                   |
-| 模型提供方、记忆、市场、技能 | `providers`、`memory`、`markets`、`skills`                           |
-| 资源、结果、测试             | `resources`、`results`、`testing`                                    |
-| 异常                         | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
+| 能力                       | 公开入口                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
+| 声明与版本                 | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
+| 工具与配置字段             | `qwenpaw.plugins.tools`                                              |
+| 配置、持久数据、媒体       | `qwenpaw.plugins.storage`，实例由上下文提供                          |
+| 日志、已配置模型调用       | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
+| 消息、附件、运行与审批观察 | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
+| 命令、钩子、模式、提示词   | `commands`、`hooks`、`modes`、`prompts`                              |
+| 渠道、应用                 | `channels`、`apps`                                                   |
+| 模型提供方                 | `providers.ProviderSpec`、`providers.ProviderHandle`                 |
+| 记忆、市场、技能           | `memory`、`markets`、`skills`                                        |
+| 资源、结果、测试           | `resources`、`results`、`testing`                                    |
+| 异常                       | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
 
 后六行模块均位于 `qwenpaw.plugins` 下，具体公开符号以白名单为准。
 
@@ -289,27 +428,27 @@ plugin = Plugin()
 `API_EXPORTS` 为每个符号列出 `module/symbol/since/stability`；兼容入口单独标注。
 以下模块的列出类型属于 SDK 1.x 稳定契约；以下表格不能解释为允许模块所有属性。
 
-| 能力       | 公开声明                                                                          | 实际接入                                                          |
-| ---------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 插件       | `Plugin`, `PluginContext`                                                         | Loader / Lifecycle                                                |
-| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                        | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
-| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                  | AgentScope 转换，未知块明确拒绝                                   |
-| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                         | Workspace SlashCommandRegistry                                    |
-| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                   | 原 Runtime 各阶段                                                 |
-| 模式       | `modes.ModeSpec`, `ModeContext`                                                   | 每工作区 AgentMode 与工具模式过滤                                 |
-| 日志       | `logging.PluginLogger`                                                            | 宿主日志，固定插件及调用身份与独立作者字段                        |
-| 模型调用   | `models.ModelService`                                                             | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
-| 模型提供方 | `providers.ProviderSpec`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
-| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`               | 原 BaseMemoryManager / ServiceManager / shared worker             |
-| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability` | 原 Market 搜索及 Hub 安装/扫描                                    |
-| 技能       | `skills.SkillSpec`                                                                | 原技能投影、inventory、三方合并                                   |
-| 提示词     | `prompts.PromptSpec`                                                              | PromptManager，真实 priority 排序                                 |
-| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`     | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
-| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                       | 原 PawApp 聚合、身份与标准能力路由                                |
-| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`        | 真实 Workspace.stream_query 和审批状态变更                        |
-| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                        | 原 custody 及生命周期清理账本                                     |
-| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                             | 所有权限定的持久配置/数据/实际文件预览                            |
-| 测试       | `testing.PluginTestHost`、公开测试结果类型                                        | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
+| 能力       | 公开声明                                                                                            | 实际接入                                                          |
+| ---------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 插件       | `Plugin`, `PluginContext`                                                                           | Loader / Lifecycle                                                |
+| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                                          | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
+| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                                    | AgentScope 转换，未知块明确拒绝                                   |
+| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                                           | Workspace SlashCommandRegistry                                    |
+| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                                     | 原 Runtime 各阶段                                                 |
+| 模式       | `modes.ModeSpec`, `ModeContext`                                                                     | 每工作区 AgentMode 与工具模式过滤                                 |
+| 日志       | `logging.PluginLogger`                                                                              | 宿主日志，固定插件及调用身份与独立作者字段                        |
+| 模型调用   | `models.ModelService`                                                                               | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
+| 模型提供方 | `providers.ProviderSpec`, `ProviderHandle`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
+| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`                                 | 原 BaseMemoryManager / ServiceManager / shared worker             |
+| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability`                   | 原 Market 搜索及 Hub 安装/扫描                                    |
+| 技能       | `skills.SkillSpec`                                                                                  | 原技能投影、inventory、三方合并                                   |
+| 提示词     | `prompts.PromptSpec`                                                                                | PromptManager，真实 priority 排序                                 |
+| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`                       | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
+| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                                         | 原 PawApp 聚合、身份与标准能力路由                                |
+| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`                          | 真实 Workspace.stream_query 和审批状态变更                        |
+| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                                          | 原 custody 及生命周期清理账本                                     |
+| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                                               | 所有权限定的持久配置/数据/实际文件预览                            |
+| 测试       | `testing.PluginTestHost`、公开测试结果类型                                                          | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
 
 根模块原有 `PluginApi/PluginLoader/PluginRegistry/PluginLifecycle` 导出仍保留，
 但属于 **legacy 兼容**，不进入新 SDK 白名单。`qwenpaw.pawapp.PawApp.sdk(...)`
