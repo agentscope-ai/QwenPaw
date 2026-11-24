@@ -1068,10 +1068,12 @@ def test_plugin_provider_explicit_target_normalizes_id(
 
 
 @pytest.mark.parametrize("require_api_key", [False, True])
+@pytest.mark.parametrize("online", [False, True])
 def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
     tmp_path,
     monkeypatch,
     require_api_key,
+    online,
 ):
     import json
 
@@ -1127,6 +1129,30 @@ def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
     }
     path.write_text(json.dumps(raw))
     monkeypatch.setattr(pcmd, "_manager", lambda: manager)
+    if online:
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from qwenpaw.app.routers.providers import router
+        from qwenpaw.cli import http
+
+        app = FastAPI()
+        app.state.provider_manager = manager
+        app.include_router(router)
+
+        class Client(TestClient):
+            def put(self, url, **kwargs):
+                response = super().put(url, **kwargs)
+                assert response.status_code == 200
+                assert response.json()["api_key"] == "******"
+                return response
+
+        monkeypatch.setattr(http, "local_runtime_url", lambda: "http://app")
+        monkeypatch.setattr(
+            http,
+            "client",
+            lambda url: Client(app, base_url=url),
+        )
     result = CliRunner().invoke(
         pcmd.models_group,
         ["config-key", "EXAMPLE"],

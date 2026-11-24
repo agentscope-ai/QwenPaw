@@ -1003,7 +1003,7 @@ def test_channel_install_resolves_only_declared_host_capability_groups(
     path = source / "plugin.json"
     manifest = json.loads(path.read_text())
     manifest["sdk"] = {
-        "version": "1.1.0",
+        "version": "1.2.0",
         "capabilities": ["cli", "extensions", "dependencies"],
     }
     manifest["optional_dependencies"] = {
@@ -1059,7 +1059,7 @@ def test_optional_dependency_syntax_is_checked_without_loading_code(
                 "version": "1",
                 "entry": {"backend": "main.py"},
                 "sdk": {
-                    "version": "1.1.0",
+                    "version": "1.2.0",
                     "capabilities": ["cli", "dependencies"],
                 },
                 "optional_dependencies": {"transport": [declaration]},
@@ -1085,7 +1085,7 @@ def test_optional_dependency_extras_use_supported_manifest_syntax():
             "id": "example",
             "version": "1",
             "entry": {"backend": "main.py"},
-            "sdk": {"version": "1.1.0", "capabilities": ["dependencies"]},
+            "sdk": {"version": "1.2.0", "capabilities": ["dependencies"]},
             "optional_dependencies": {"transport": ["pkg[extra]>=1"]},
         },
     )
@@ -1115,7 +1115,7 @@ def test_extensions_require_named_unique_contributions(declarations):
                 "version": "1",
                 "entry": {"backend": "main.py"},
                 "sdk": {
-                    "version": "1.1.0",
+                    "version": "1.2.0",
                     "capabilities": ["extensions"],
                 },
                 "extensions": declarations,

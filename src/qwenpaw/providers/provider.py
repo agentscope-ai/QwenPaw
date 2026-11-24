@@ -337,6 +337,16 @@ class ProviderInfo(BaseModel):
                 model.source = "user"
         return self
 
+    def masked_api_key(self) -> str:
+        """Show a configured key in provider API responses without its value."""
+        if not self.api_key:
+            return ""
+        prefix = next(
+            (p for p in self.api_key_prefixes if self.api_key.startswith(p)),
+            self.api_key_prefix,
+        )
+        return prefix + "*" * 6
+
 
 class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     """Represents a provider instance with its configuration."""
@@ -1534,23 +1544,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         include_candidates: bool,
     ) -> ProviderInfo:
         """Serialize a provider without retaining runtime clients."""
-        if mock_secret and self.api_key:
-            # Determine which prefix to show in the masked key.
-            # If api_key_prefixes is set, pick the one matching the
-            # actual key; otherwise fall back to api_key_prefix.
-            prefix_for_mask = self.api_key_prefix
-            if self.api_key_prefixes:
-                prefix_for_mask = next(
-                    (
-                        p
-                        for p in self.api_key_prefixes
-                        if self.api_key.startswith(p)
-                    ),
-                    self.api_key_prefix,
-                )
-            api_key = prefix_for_mask + "*" * 6
-        else:
-            api_key = self.api_key
+        api_key = self.masked_api_key() if mock_secret else self.api_key
         removed = set(self.removed_model_ids)
 
         serialized_cards: dict[str, dict[str, Any]] = {}

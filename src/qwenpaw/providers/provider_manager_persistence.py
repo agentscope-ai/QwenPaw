@@ -97,19 +97,24 @@ class ProviderManagerPersistenceMixin(
         self,
         provider_id: str,
         values: dict,
-    ) -> bool:
+    ) -> ProviderInfo | None:
         """Update retained settings without registering an executable provider.
 
         Re-read under the path lock so concurrent edits and fields from a
         newer plugin survive. Connection changes invalidate endpoint metadata.
+        Return the saved settings, or None when no snapshot matches the ID.
         """
-        if self._normalize_provider_id(provider_id) in self.plugin_providers:
+        provider_key = self._normalize_provider_id(provider_id)
+        if provider_key in self.plugin_providers:
             raise ProviderError(
                 message="Use the active provider update operation.",
             )
         path = self._provider_path_for_kind("plugin", provider_id)
         with get_sync_path_lock(path):
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                return None
             current = decrypt_dict_fields(raw, PROVIDER_SECRET_FIELDS)
             updates = {
                 key: value
@@ -117,6 +122,8 @@ class ProviderManagerPersistenceMixin(
                 if value is not None
             }
             before = ProviderInfo.model_validate(current)
+            if self._normalize_provider_id(before.id) != provider_key:
+                return None
             candidate = ProviderInfo.model_validate({**current, **updates})
             changed = {
                 key
@@ -147,7 +154,7 @@ class ProviderManagerPersistenceMixin(
                 {**raw, **secured},
                 path,
             )
-        return True
+        return candidate
 
     async def _mutate_provider_async(
         self,

@@ -14,6 +14,43 @@ from qwenpaw.plugins.provision import inventory_path, record_tool_factory
 from qwenpaw.plugins.source_usage import source_writer
 
 
+def test_unreadable_plugin_does_not_block_builtin_commands(
+    tmp_path,
+    monkeypatch,
+):
+    from pathlib import Path
+
+    from qwenpaw import constant
+    from qwenpaw.config import utils
+    from qwenpaw.plugins.discovery import discover_plugins
+
+    plugins = tmp_path / "plugins"
+    unreadable = plugins / "unreadable" / "plugin.json"
+    unreadable.parent.mkdir(parents=True)
+    good = plugins / "good" / "plugin.json"
+    good.parent.mkdir()
+    good.write_text('{"id": "good", "version": "1.0.0"}', encoding="utf-8")
+    exists = Path.exists
+
+    def check(path):
+        if path == unreadable:
+            raise PermissionError("Cannot read plugin directory")
+        return exists(path)
+
+    monkeypatch.setattr(Path, "exists", check)
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+    discovered = discover_plugins([plugins])
+    assert [manifest.id for manifest, _ in discovered.plugins] == ["good"]
+    assert [issue.source_path for issue in discovered.issues] == [
+        unreadable.parent,
+    ]
+    for args in (["--help"], ["models", "--help"], ["models", "list"]):
+        result = CliRunner().invoke(cli, args)
+        assert result.exit_code == 0, (result.output, result.exception)
+
+
 def test_local_commands_use_plugin_ownership_and_existing_model_files(
     tmp_path,
     monkeypatch,
@@ -347,7 +384,7 @@ def test_capability_dependencies_are_admitted_before_implementation(
         "version": "1.0.0",
         "entry": {"backend": "main.py"},
         "sdk": {
-            "version": "1.1.0",
+            "version": "1.2.0",
             "capabilities": ["cli", "extensions", "dependencies"],
         },
         "optional_dependencies": {
@@ -641,7 +678,7 @@ def test_plugin_command_registers_runs_and_cleans_up(
                 "version": "1.0.0",
                 "entry": {"backend": "main.py"},
                 "sdk": {
-                    "version": "1.1.0",
+                    "version": "1.2.0",
                     "capabilities": ["cli", "tools", "skills", "resources"],
                 },
                 "cli": [
@@ -880,7 +917,7 @@ def test_cli_cleanup_keeps_memory_implementations_unloaded(tmp_path):
                 "id": plugin.name,
                 "version": "1.0.0",
                 "entry": {"backend": "main.py"},
-                "sdk": {"version": "1.1.0", "capabilities": ["cli"]},
+                "sdk": {"version": "1.2.0", "capabilities": ["cli"]},
                 "cli": [{"id": "status", "path": ["example"]}],
             },
         ),
@@ -1052,7 +1089,7 @@ def test_doctor_handles_check_errors_and_click_control_flow(
                 "id": source.name,
                 "version": "1.0.0",
                 "entry": {"backend": "main.py"},
-                "sdk": {"version": "1.1.0", "capabilities": ["extensions"]},
+                "sdk": {"version": "1.2.0", "capabilities": ["extensions"]},
                 "extensions": [
                     {"point": "qwenpaw.doctor", "id": "stop"},
                     {"point": "qwenpaw.doctor", "id": "next"},

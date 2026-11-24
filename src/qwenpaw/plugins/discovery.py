@@ -89,23 +89,23 @@ def discover_plugins(
             continue
         logger.info("Scanning plugin directory: %s", directory)
         for source in sources:
-            if not source.is_dir():
-                continue
-            if is_disabled_plugin_dir(source):
-                logger.info(
-                    "Skipping disabled/hidden plugin directory: %s",
-                    source.name,
-                )
-                continue
-            manifest_path = source / "plugin.json"
-            if not manifest_path.exists():
-                continue
             try:
+                if not source.is_dir():
+                    continue
+                if is_disabled_plugin_dir(source):
+                    logger.info(
+                        "Skipping disabled/hidden plugin directory: %s",
+                        source.name,
+                    )
+                    continue
+                manifest_path = source / "plugin.json"
+                if not manifest_path.exists():
+                    continue
                 manifest = load_manifest(manifest_path)
             except Exception as exc:  # noqa: BLE001
                 issues.append(DiscoveryIssue(source, str(exc)))
                 logger.error(
-                    "Failed to load manifest from %s: %s",
+                    "Cannot discover plugin source %s: %s",
                     source,
                     exc,
                     exc_info=True,

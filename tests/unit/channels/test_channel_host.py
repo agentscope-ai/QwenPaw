@@ -98,7 +98,7 @@ def public_contributions(source, events, sdk=False):
     manifest = json.loads(path.read_text())
     manifest["entry"]["backend"] = "main.py"
     manifest["sdk"] = {
-        "version": "1.1.0",
+        "version": "1.2.0",
         "capabilities": ["cli", "tools", "resources", "dependencies"],
     }
     manifest["cli"] = [{"id": "status", "path": ["channel-status"]}]
@@ -677,7 +677,7 @@ async def test_channel_catalog_admission_preserves_config_without_runtime(
         path = source / "plugin.json"
         manifest = json.loads(path.read_text())
         manifest["entry"]["backend"] = "main.py"
-        manifest["sdk"] = {"version": "1.1.0", "capabilities": ["cli"]}
+        manifest["sdk"] = {"version": "1.2.0", "capabilities": ["cli"]}
         manifest["cli"] = [{"id": "status", "path": ["channel-status"]}]
         path.write_text(json.dumps(manifest), encoding="utf-8")
         (source / "main.py").write_text(

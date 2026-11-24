@@ -53,7 +53,10 @@ def update_provider_config(manager, provider_id, values, saved=None):
             response.raise_for_status()
             return True
     if saved is not None:
-        return manager.update_saved_plugin_provider(provider_id, values)
+        return (
+            manager.update_saved_plugin_provider(provider_id, values)
+            is not None
+        )
     return manager.update_provider(provider_id, values)
 
 
