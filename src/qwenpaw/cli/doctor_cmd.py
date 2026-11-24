@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
-import asyncio
 import json
 import os
 import sys
@@ -59,6 +58,7 @@ from .doctor_checks import (
 )
 from .doctor_connectivity import collect_deep_channel_connectivity_notes
 from .doctor_registry import DoctorRunContext, run_extension_contributions
+from .plugin_session import session_for
 from .http import resolve_base_url
 
 
@@ -443,6 +443,7 @@ def run_doctor_checks(
     deep: bool,
 ) -> None:
     """Run read-only ``qwenpaw doctor`` checks (no disk mutations)."""
+    session = session_for(ctx, include_channel_descriptors=deep)
     base = resolve_base_url(ctx, None).rstrip("/")
     failed = False
 
@@ -611,7 +612,11 @@ def run_doctor_checks(
 
         if deep:
             click.echo("\n=== Channels (connectivity, --deep) ===")
-            conn_notes = collect_deep_channel_connectivity_notes(cfg, timeout)
+            conn_notes = collect_deep_channel_connectivity_notes(
+                cfg,
+                timeout,
+                session,
+            )
             if conn_notes:
                 click.echo(
                     click.style("Note:", fg="yellow")
@@ -848,14 +853,7 @@ def run_doctor_checks(
             )
 
     click.echo("\n=== Active LLM ===")
-    from .plugin_session import session_for
-
-    run = (
-        session_for(ctx).run
-        if "plugin_session" in ctx.find_root().meta
-        else asyncio.run
-    )
-    llm_ok, llm_detail, llm_notes = run(
+    llm_ok, llm_detail, llm_notes = session.run(
         _check_active_llm(llm_timeout, deep),
     )
     if llm_ok is None:
@@ -877,7 +875,7 @@ def run_doctor_checks(
 
     if config_ok:
         click.echo("\n=== Models (per agent) ===")
-        aok, lines, extra_notes = run(
+        aok, lines, extra_notes = session.run(
             check_enabled_agents_model_connections(
                 cfg,
                 timeout=llm_timeout,

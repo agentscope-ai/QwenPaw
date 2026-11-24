@@ -12,7 +12,12 @@ import subprocess
 import sys
 import threading
 import tempfile
-from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
+from contextlib import (
+    AsyncExitStack,
+    ExitStack,
+    asynccontextmanager,
+    nullcontext,
+)
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -84,7 +89,7 @@ from .safe_fs import safe_remove, same_location
 from .registry import PluginRegistry
 from .install_receipts import INSTALL_COMMIT, write_install_commit
 from .ownership import RuntimeKey, RuntimeSourceBusyError, RuntimeStopReceipt
-from .source_usage import mutates_source
+from .source_usage import source_writers
 
 logger = logging.getLogger(__name__)
 
@@ -2277,26 +2282,39 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         manifest: PluginManifest,
         source_path: Path,
         config: Optional[Dict] = None,
+        include_descriptor: bool = False,
     ) -> PluginRecord:
         """Load the public registration entry for a host consumer.
 
-        A public Python entry is loaded independently of its channel driver.
-        Descriptor-only plugins retain passive discovery. Dependency checks
-        use installed packages; startup hooks and installation commits remain
-        separate from registration loading.
+        A consumer that also needs channel management can register the
+        descriptor alongside the public entry without activating the driver.
         """
         from ..utils.io_utils import run_sync_io
         from .dependency_maintenance import lease_environment
 
         binding = None
         if manifest.entry.backend:
-            binding = await run_sync_io(
-                self.backend_resolver.resolve_registration,
-                source_path,
-                manifest,
-            )
+            if include_descriptor and manifest.entry.descriptor:
+                try:
+                    binding = await run_sync_io(
+                        self.backend_resolver.resolve,
+                        source_path,
+                        manifest,
+                    )
+                except (OSError, ValueError) as exc:
+                    logger.warning(
+                        "Invalid descriptor for %s: %s",
+                        manifest.id,
+                        exc,
+                    )
+            if binding is None:
+                binding = await run_sync_io(
+                    self.backend_resolver.resolve_registration,
+                    source_path,
+                    manifest,
+                )
             targets = await self._python_backend.prepare_dependency_targets(
-                binding.description,
+                (binding.registration or binding).description,
             )
             await run_sync_io(lease_environment, targets.targets)
             targets.validate()
@@ -2887,7 +2905,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Resolve and load ``plugin.json`` under *source_path* (sync I/O)."""
         return self.read_source_manifest(source_path)
 
-    @mutates_source
     async def reload_plugin_unlocked(
         self,
         plugin_id: str,
@@ -2902,8 +2919,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         interrupt_tasks: bool = False,
     ) -> ReloadReport:
         """Reload one plugin while preventing new SDK invocations."""
-        async with self.lifecycle.activity(plugin_id).mutation(
-            interrupt_tasks=interrupt_tasks,
+        async with (
+            self._source_mutation(plugin_id),
+            self.lifecycle.activity(plugin_id).mutation(
+                interrupt_tasks=interrupt_tasks,
+            ),
         ):
             return await self._reload_plugin_body(
                 plugin_id,
@@ -3840,18 +3860,25 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 _bundled_seed=True,
             )
 
+    def _install_location(
+        self,
+        plugin_id: str,
+        install_dir: Path | None,
+    ) -> Tuple[Path, Path]:
+        if install_dir is None:
+            if not self.plugin_dirs:
+                raise RuntimeError("No plugin directories configured")
+            install_dir = self.plugin_dirs[0]
+        base = Path(install_dir).resolve()
+        return base, (base / plugin_id).resolve()
+
     def _install_paths(
         self,
         plugin_id: str,
         install_dir: Path | None,
     ) -> Tuple[Path, Path]:
         """Resolve and validate the installation target before side effects."""
-        if install_dir is None:
-            if not self.plugin_dirs:
-                raise RuntimeError("No plugin directories configured")
-            install_dir = self.plugin_dirs[0]
-        base = Path(install_dir).resolve()
-        target = (base / plugin_id).resolve()
+        base, target = self._install_location(plugin_id, install_dir)
         if target == base or not target.is_relative_to(base):
             raise ValueError(
                 f"Plugin id '{plugin_id}' does not resolve to a safe child "
@@ -3859,7 +3886,28 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         return base, target
 
-    @mutates_source
+    @asynccontextmanager
+    async def _source_mutation(self, plugin_id, install_dir=None):
+        """Protect the installed source and any distinct installation target."""
+        from ..utils.io_utils import run_sync_io
+
+        record = self.get_loaded_plugin(plugin_id)
+        installed = (
+            record.source_path
+            if record is not None
+            else await run_sync_io(self.find_installed_plugin_dir, plugin_id)
+        )
+        paths = [Path(installed)] if installed is not None else []
+        if install_dir is not None or self.plugin_dirs:
+            _, target = await run_sync_io(
+                self._install_location,
+                plugin_id,
+                install_dir,
+            )
+            paths.append(target)
+        async with source_writers(plugin_id, paths):
+            yield
+
     async def install_plugin_files(
         self,
         source_path: Path,
@@ -3879,7 +3927,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 self._read_source_manifest,
                 source_path,
             )
-            async with self.plugin_lifecycle(manifest.id):
+            async with (
+                self._source_mutation(manifest.id),
+                self.plugin_lifecycle(manifest.id),
+            ):
                 self._require_recovered(manifest.id)
                 if not self.lifecycle.delegate.owns_commit(manifest.id):
                     raise RuntimeError(
@@ -3982,7 +4033,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             origin,
         )
 
-    @mutates_source
     async def load_plugin_from_path(
         self,
         source_path: Path,
@@ -4037,15 +4087,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # pylint: disable=too-many-branches
         async with self._dependency_install_scope(Path(source_path)):
             source_path = await asyncio.to_thread(Path(source_path).resolve)
-            _manifest_path, manifest = await asyncio.to_thread(
+            _, manifest = await asyncio.to_thread(
                 self._read_source_manifest,
                 source_path,
             )
-            del _manifest_path
             plugin_id = manifest.id
-            async with self.plugin_lifecycle(
-                plugin_id,
-                dependency_force=force,
+            async with (
+                self._source_mutation(plugin_id, install_dir),
+                self.plugin_lifecycle(plugin_id, dependency_force=force),
             ):
                 await self._retry_plugin_recovery_unlocked(plugin_id)
                 startup_blocked = plugin_id in self.startup_blocked_plugins
@@ -4689,7 +4738,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     prepared=True,
                 )
 
-    @mutates_source
     async def unload_plugin_with_mode(
         self,
         plugin_id: str,
@@ -4703,13 +4751,18 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         Caller must hold the per-plugin lifecycle lock.
         """
-        return await self._unload_plugin_unlocked(
-            plugin_id,
-            delete_files,
-            mode=mode,
-            interrupt_tasks=interrupt_tasks,
-            instance=instance,
-        )
+        async with (
+            self._source_mutation(plugin_id)
+            if mode is UnloadMode.UNINSTALL or delete_files
+            else nullcontext()
+        ):
+            return await self._unload_plugin_unlocked(
+                plugin_id,
+                delete_files,
+                mode=mode,
+                interrupt_tasks=interrupt_tasks,
+                instance=instance,
+            )
 
     async def _unload_plugin_unlocked(
         self,

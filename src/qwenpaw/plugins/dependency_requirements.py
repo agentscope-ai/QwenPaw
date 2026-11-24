@@ -27,9 +27,6 @@ def validate_optional_dependencies(groups) -> None:
         normalize_package_requirements(values)
 
 
-# TODO: Add a separate resolver for live plugin-service prerequisites. Reuse
-# contract identities and owned scopes, tracking provider readiness, in-flight
-# calls and dependent revocation. Service IDs are not package requirements.
 def resolve_optional_dependencies(groups, requires) -> tuple[str, ...]:
     """Resolve a capability's named requirements from its owner's manifest.
 
@@ -52,9 +49,6 @@ def resolve_optional_dependencies(groups, requires) -> tuple[str, ...]:
 
 def host_requirements(manifest) -> tuple[str, ...]:
     """Select packages for declared host contributions during installation."""
-    # TODO: Extend the same requires resolution/admission to Tool and Skill
-    # declarations. Preserve their existing package-level dependencies when
-    # adding optional per-capability prerequisites; do not duplicate a resolver.
     requires = []
     for declaration in (
         *manifest.get("cli", ()),

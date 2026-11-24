@@ -6,9 +6,6 @@ settings and host-version policy before admission. Invalid manifests are
 reported independently so one broken installation does not hide its peers.
 """
 
-# TODO: Reuse a host-owned installed-package inventory when one exists;
-# keep source enumeration separate from runtime service discovery.
-
 from __future__ import annotations
 
 import json

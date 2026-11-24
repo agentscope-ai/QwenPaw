@@ -5,18 +5,10 @@ Readers exclude guarded source replacement until teardown has completed.
 These locks do not restrict direct filesystem access by plugin code.
 """
 
-# TODO: Move Loader operation selection out of this lock module, then integrate
-# process-shared source leases with RuntimeOwners. Preserve source exclusion
-# until invocations and teardown finish; locks alone do not model service
-# dependencies or enforce filesystem isolation.
-
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from functools import wraps
 import hashlib
-import inspect
 import os
-from pathlib import Path
 from uuid import uuid4
 
 from .install_lock import (
@@ -120,52 +112,13 @@ async def _async_writer(source):
             _writers.reset(token)
 
 
-def mutates_source(method):
-    """Guard source transactions before teardown or persistent changes."""
-    signature = inspect.signature(method)
-
-    @wraps(method)
-    async def guarded(self, *args, **kwargs):
-        from ..utils.io_utils import run_sync_io
-
-        params = signature.bind(self, *args, **kwargs).arguments
-        if method.__name__ == "unload_plugin_with_mode":
-            from .lifecycle import UnloadMode
-
-            if params["mode"] is not UnloadMode.UNINSTALL and not params.get(
-                "delete_files",
-            ):
-                return await method(self, *args, **kwargs)
-        plugin_id = params.get("plugin_id")
-        if plugin_id is None:
-            _, manifest = await run_sync_io(
-                self._read_source_manifest,
-                Path(params["source_path"]),
-            )
-            plugin_id = manifest.id
-        record = self.get_loaded_plugin(plugin_id)
-        installed = (
-            record.source_path
-            if record is not None
-            else await run_sync_io(self.find_installed_plugin_dir, plugin_id)
-        )
-        destination = params.get("install_dir") or (
-            self.plugin_dirs[0] if self.plugin_dirs else None
-        )
-        target = (
-            Path(destination) / plugin_id
-            if destination is not None
-            else installed
-        )
-        if target is None:
-            return await method(self, *args, **kwargs)
-        async with AsyncExitStack() as stack:
-            try:
-                roots = {Path(installed or target), target}
-                for root in sorted(roots):
-                    await stack.enter_async_context(_async_writer(root))
-            except (RuntimeSourceBusyError, InstallLockError) as exc:
-                raise SourceBusyError(plugin_id) from exc
-            return await method(self, *args, **kwargs)
-
-    return guarded
+@asynccontextmanager
+async def source_writers(plugin_id, paths):
+    """Exclude readers of all affected source directories for one transaction."""
+    async with AsyncExitStack() as locks:
+        try:
+            for path in sorted(set(paths)):
+                await locks.enter_async_context(_async_writer(path))
+        except (RuntimeSourceBusyError, InstallLockError) as exc:
+            raise SourceBusyError(plugin_id) from exc
+        yield

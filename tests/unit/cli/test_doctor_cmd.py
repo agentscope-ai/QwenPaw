@@ -53,11 +53,12 @@ class _Resp:
         return self._json
 
 
-def _ctx(host="127.0.0.1", port=8088):
-    return click.Context(
+def _run_checks(deep):
+    with click.Context(
         click.Command("doctor"),
-        obj={"host": host, "port": port},
-    )
+        obj={"host": "127.0.0.1", "port": 8088},
+    ) as ctx:
+        dc.run_doctor_checks(ctx, 1.0, 1.0, deep=deep)
 
 
 # ---------------------------------------------------------------------------
@@ -718,7 +719,7 @@ class _OkPatch:
             ),
             "enabled_channel_notes": lambda cfg: [],
             "run_extension_contributions": lambda ctx: [],
-            "collect_deep_channel_connectivity_notes": lambda cfg, t: [],
+            "collect_deep_channel_connectivity_notes": lambda cfg, t, session: [],
             "mcp_client_notes": lambda cfg: [],
             "skill_layout_notes": lambda cfg: [],
             "security_baseline_notes": lambda cfg: [],
@@ -769,7 +770,7 @@ def _async(fn):
 class TestRunDoctorChecks:
     def test_all_ok_no_exit(self, monkeypatch, capsys):
         with _OkPatch(monkeypatch):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "=== Environment ===" in out
         assert "=== Config ===" in out
@@ -812,7 +813,7 @@ class TestRunDoctorChecks:
             ),
         ):
             with pytest.raises(SystemExit) as error:
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=deep)
+                _run_checks(deep=deep)
         assert error.value.code == 1
         captured = capsys.readouterr()
         assert f"provider not found: {provider_id!r}" in captured.err
@@ -829,7 +830,7 @@ class TestRunDoctorChecks:
             strict_validate_config_file=lambda: (False, "config broken"),
         ):
             with pytest.raises(SystemExit) as exc:
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert exc.value.code == 1
         combined = capsys.readouterr()
         assert "config broken" in combined.err
@@ -841,7 +842,7 @@ class TestRunDoctorChecks:
             check_agent_profile_workspaces=lambda cfg: (False, "ws bad"),
         ):
             with pytest.raises(SystemExit) as exc:
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert exc.value.code == 1
         assert "ws bad" in capsys.readouterr().err
 
@@ -851,7 +852,7 @@ class TestRunDoctorChecks:
             check_agent_json_profiles=lambda cfg: (False, "aj bad"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "aj bad" in capsys.readouterr().err
 
     def test_enabled_agents_fail_exits(self, monkeypatch, capsys):
@@ -863,7 +864,7 @@ class TestRunDoctorChecks:
             ),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "acl bad" in capsys.readouterr().err
 
     def test_cron_fail_exits(self, monkeypatch, capsys):
@@ -872,7 +873,7 @@ class TestRunDoctorChecks:
             check_cron_jobs_files=lambda cfg: (False, "cron bad"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "cron bad" in capsys.readouterr().err
 
     def test_active_llm_fail_exits(self, monkeypatch, capsys):
@@ -881,7 +882,7 @@ class TestRunDoctorChecks:
             _check_active_llm=_async(lambda t, d: (False, "llm bad", [])),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "llm bad" in capsys.readouterr().err
 
     def test_model_connections_fail_exits(self, monkeypatch, capsys):
@@ -896,7 +897,7 @@ class TestRunDoctorChecks:
             ),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         combined = capsys.readouterr()
         assert "some enabled agents unreachable" in combined.err
 
@@ -911,7 +912,7 @@ class TestRunDoctorChecks:
                 ),
             ),
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert (
             "enabled-agent model checks completed" in capsys.readouterr().out
         )
@@ -922,7 +923,7 @@ class TestRunDoctorChecks:
             _check_api_health=lambda base, t: (False, None),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
 
     def test_version_not_reachable_exits(self, monkeypatch, capsys):
         calls = {"n": 0}
@@ -933,13 +934,13 @@ class TestRunDoctorChecks:
 
         with _OkPatch(monkeypatch, _http_get=http_get):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "version not reachable" in capsys.readouterr().err
 
     def test_version_non_200_exits(self, monkeypatch, capsys):
         with _OkPatch(monkeypatch, _http_get=lambda u, **kw: _Resp(500)):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "version HTTP 500" in capsys.readouterr().err
 
     def test_version_mismatch_notes(self, monkeypatch, capsys):
@@ -952,7 +953,7 @@ class TestRunDoctorChecks:
             ),
             __version__="9.9.9",
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "different installs or upgrade" in capsys.readouterr().out
 
     def test_console_root_fail_exits(self, monkeypatch, capsys):
@@ -964,7 +965,7 @@ class TestRunDoctorChecks:
             ),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "console broken" in capsys.readouterr().err
 
     def test_console_get_raises_exits(self, monkeypatch, capsys):
@@ -985,24 +986,24 @@ class TestRunDoctorChecks:
             _http_get=http_get,
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "could not GET /" in capsys.readouterr().err
 
     def test_deep_runs_connectivity_section(self, monkeypatch, capsys):
         with _OkPatch(
             monkeypatch,
-            collect_deep_channel_connectivity_notes=lambda cfg, t: [
+            collect_deep_channel_connectivity_notes=lambda cfg, t, session: [
                 "telegram unreachable",
             ],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+            _run_checks(deep=True)
         out = capsys.readouterr().out
         assert "Channels (connectivity, --deep)" in out
         assert "telegram unreachable" in out
 
     def test_deep_no_connectivity_issues(self, monkeypatch, capsys):
         with _OkPatch(monkeypatch):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+            _run_checks(deep=True)
         assert "no connectivity warnings" in capsys.readouterr().out
 
     def test_unknown_config_keys_note(self, monkeypatch, capsys):
@@ -1011,7 +1012,7 @@ class TestRunDoctorChecks:
             load_raw_config_dict=lambda: {"legacy_key": 1},
             scan_unknown_config_keys=lambda raw: ["legacy_key"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "unknown keys" in out
         assert "legacy_key" in out
@@ -1023,7 +1024,7 @@ class TestRunDoctorChecks:
                 ("ext1", ["note a", "note b"]),
             ],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "[ext1]" in out
         assert "note a" in out
@@ -1045,10 +1046,10 @@ class TestRunDoctorChecks:
         ):
             if status == "FAIL":
                 with pytest.raises(SystemExit) as error:
-                    dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+                    _run_checks(deep=True)
                 assert error.value.code == 1
             else:
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+                _run_checks(deep=True)
         captured = capsys.readouterr()
         assert f"{status} — binary check" in captured.out + captured.err
 
@@ -1057,7 +1058,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             legacy_single_agent_workspace_note=lambda cfg: "legacy note",
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "Multi-agent / workspace" in out
         assert "legacy note" in out
@@ -1067,7 +1068,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             enabled_channel_notes=lambda cfg: ["chan warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "chan warn" in capsys.readouterr().out
 
     def test_api_target_mismatch_note(self, monkeypatch, capsys):
@@ -1075,7 +1076,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             api_target_mismatch_note=lambda cfg, base: "target differs",
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "API target" in out
         assert "target differs" in out
@@ -1089,7 +1090,7 @@ class TestRunDoctorChecks:
                 "venv mismatch detected"
             ),
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "venv mismatch detected" in capsys.readouterr().out
 
     def test_windows_environment_lines_printed(self, monkeypatch, capsys):
@@ -1097,7 +1098,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             windows_environment_lines=lambda: ["WIN line 1"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "=== Windows environment ===" in out
         assert "WIN line 1" in out
@@ -1107,7 +1108,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             mcp_client_notes=lambda cfg: ["mcp warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "mcp warn" in capsys.readouterr().out
 
     def test_skill_notes_printed(self, monkeypatch, capsys):
@@ -1115,7 +1116,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             skill_layout_notes=lambda cfg: ["skill warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "skill warn" in capsys.readouterr().out
 
     def test_security_notes_printed(self, monkeypatch, capsys):
@@ -1123,7 +1124,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             security_baseline_notes=lambda cfg: ["sec warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         out = capsys.readouterr().out
         assert "review security posture" in out
         assert "sec warn" in out
@@ -1133,7 +1134,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             memory_embedding_notes=lambda cfg: ["mem warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "mem warn" in capsys.readouterr().out
 
     def test_hygiene_notes_printed(self, monkeypatch, capsys):
@@ -1141,7 +1142,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             workspace_hygiene_notes=lambda cfg: ["hygiene warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "hygiene warn" in capsys.readouterr().out
 
     def test_config_invalid_deep_lists_connectivity_in_skip(
@@ -1154,7 +1155,7 @@ class TestRunDoctorChecks:
             strict_validate_config_file=lambda: (False, "broken"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=True)
+                _run_checks(deep=True)
         assert "--deep connectivity" in capsys.readouterr().out
 
     def test_working_dir_fail_exits_and_skips_startup_paths(
@@ -1167,7 +1168,7 @@ class TestRunDoctorChecks:
             _check_working_dir=lambda: (False, "missing: /wd"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         combined = capsys.readouterr()
         assert "missing: /wd" in combined.err
         assert "=== Startup paths ===" in combined.out
@@ -1179,7 +1180,7 @@ class TestRunDoctorChecks:
             check_app_log_writable=lambda: (False, "log locked"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "log locked" in capsys.readouterr().err
 
     def test_workspace_writable_fail_exits(self, monkeypatch, capsys):
@@ -1188,7 +1189,7 @@ class TestRunDoctorChecks:
             check_agent_workspace_writable=lambda cfg: (False, "ws locked"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "ws locked" in capsys.readouterr().err
 
     def test_volume_disk_notes_printed(self, monkeypatch, capsys):
@@ -1196,7 +1197,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             startup_extra_volume_disk_notes=lambda cfg: ["disk note"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "disk note" in capsys.readouterr().out
 
     def test_console_static_fail_exits(self, monkeypatch, capsys):
@@ -1205,7 +1206,7 @@ class TestRunDoctorChecks:
             _check_console_static_files=lambda: (False, "no bundle"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "no bundle" in capsys.readouterr().err
 
     def test_console_static_notes_negative_styled_as_note(
@@ -1219,7 +1220,7 @@ class TestRunDoctorChecks:
                 "npm on PATH: not found",
             ],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "npm on PATH: not found" in capsys.readouterr().out
 
     def test_web_auth_fail_exits(self, monkeypatch, capsys):
@@ -1228,7 +1229,7 @@ class TestRunDoctorChecks:
             _check_web_auth=lambda base: (False, "no account"),
         ):
             with pytest.raises(SystemExit):
-                dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+                _run_checks(deep=False)
         assert "no account" in capsys.readouterr().err
 
     def test_provider_overview_exception_handled(self, monkeypatch, capsys):
@@ -1236,7 +1237,7 @@ class TestRunDoctorChecks:
             raise RuntimeError("registry down")
 
         with _OkPatch(monkeypatch, provider_overview_notes=boom):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "could not list providers" in capsys.readouterr().out
 
     def test_provider_overview_notes_printed(self, monkeypatch, capsys):
@@ -1244,7 +1245,7 @@ class TestRunDoctorChecks:
             monkeypatch,
             provider_overview_notes=lambda: ["custom provider warn"],
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "custom provider warn" in capsys.readouterr().out
 
     def test_llm_notes_printed(self, monkeypatch, capsys):
@@ -1254,7 +1255,7 @@ class TestRunDoctorChecks:
                 lambda t, d: (True, "llm ok", ["llm deep note"]),
             ),
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "llm deep note" in capsys.readouterr().out
 
     def test_version_json_unparseable_no_server_version(
@@ -1271,7 +1272,7 @@ class TestRunDoctorChecks:
                 headers={"content-type": "application/json"},
             ),
         ):
-            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+            _run_checks(deep=False)
         assert "version (" in capsys.readouterr().out
 
 

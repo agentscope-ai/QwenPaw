@@ -4,7 +4,6 @@
 from copy import copy
 from dataclasses import dataclass
 from functools import wraps
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,25 +31,19 @@ def canonical(path):
 
 def read_settings():
     """Read plugin intent without config migration, writes or app startup."""
-    from ..config.utils import get_config_path
+    from ..config.utils import get_config_path, parse_config_data
 
     path = get_config_path()
     try:
-        if not path.exists():
-            return {}
-        raw = path.read_text(encoding="utf-8")
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            from json_repair import repair_json
-
-            data = repair_json(raw, return_objects=True)
-        if not isinstance(data, dict) or not isinstance(
-            data.get("plugins", {}),
-            dict,
-        ):
+        data, issue = parse_config_data(path.read_bytes())
+        if data is None:
+            raise ValueError(issue)
+        settings = data.get("plugins", {})
+        if not isinstance(settings, dict):
             raise ValueError("plugins must be an object")
-        return data.get("plugins", {})
+        return settings
+    except FileNotFoundError:
+        return {}
     except (OSError, ValueError) as exc:
         raise click.ClickException(
             f"Cannot read plugin settings: {exc}",
@@ -172,10 +165,9 @@ class ExtensibleGroup(click.Group):
         return super().get_command(ctx, name)
 
     def list_commands(self, ctx):
-        return sorted(
-            set(self._list_builtin_commands(ctx))
-            | catalog_for(ctx).children(command_path(ctx)),
-        )
+        native = self._list_builtin_commands(ctx)
+        added = catalog_for(ctx).children(command_path(ctx)).difference(native)
+        return [*native, *sorted(added)]
 
     def get_command(self, ctx, name):
         command = self._get_builtin_command(ctx, name)

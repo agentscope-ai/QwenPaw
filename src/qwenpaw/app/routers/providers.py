@@ -40,6 +40,7 @@ from ...providers.model_pool import (
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
+    provider_identity_key,
     validate_custom_provider_id,
 )
 from ...providers.provider_discovery_policy import (
@@ -219,6 +220,7 @@ class CreateCustomProviderRequest(BaseModel):
 class AddModelRequest(BaseModel):
     model_type: ModelType = "chat"
     template_id: str | None = None
+    max_input_length_auto_detected: int | None = Field(default=None, ge=1)
     id: str = Field(...)
     name: str = Field(...)
     is_free: bool = Field(
@@ -374,6 +376,35 @@ async def preview_model_info(
         model,
         provider.get_discovered_model_info(model_id),
     )
+
+
+@router.get(
+    "/{provider_id}/config",
+    response_model=ProviderInfo,
+    response_model_include={
+        "id",
+        "name",
+        "base_url",
+        "api_key",
+        "api_key_prefix",
+        "api_key_prefixes",
+        "freeze_url",
+        "require_api_key",
+        "is_custom",
+    },
+)
+async def get_provider_config(
+    provider_id: str,
+    manager: ProviderManager = Depends(get_provider_manager),
+):
+    """Read the editable connection settings, including for an offline plugin."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        saved = await run_sync_io(manager.saved_plugin_provider_infos)
+        provider = saved.get(provider_identity_key(provider_id))
+    if provider is None:
+        raise HTTPException(404, f"Provider '{provider_id}' not found")
+    return provider.model_copy(update={"api_key": provider.masked_api_key()})
 
 
 @router.put(
@@ -733,18 +764,7 @@ async def add_model_endpoint(
     body: AddModelRequest = Body(...),
 ) -> ProviderInfo:
     try:
-        model_payload = {"id": body.id, "name": body.name}
-        for field in (
-            "model_type",
-            "supports_multimodal",
-            "supports_image",
-            "supports_video",
-            "probe_source",
-            "is_free",
-            f"template_id",
-        ):
-            if field in body.model_fields_set:
-                model_payload[field] = getattr(body, field)
+        model_payload = body.model_dump(exclude_unset=True)
         if "model_type" in body.model_fields_set:
             model_payload["config_overrides"] = ["model_type"]
         provider = await manager.add_model_to_provider(

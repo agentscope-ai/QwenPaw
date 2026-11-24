@@ -1356,11 +1356,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         return get_cli(self, plugin_id, contribution_id)
 
-    def get_extensions(self, point):
+    def get_extensions(self, point, plugin_id=None):
         """Return revocable host references for one supported contract."""
         from ._contributions import get_extensions
 
-        return get_extensions(self, point)
+        return get_extensions(self, point, plugin_id=plugin_id)
 
     def leftover_registrations(self, plugin_id: str) -> List[str]:
         """Ledgered rows that are still present after teardown."""

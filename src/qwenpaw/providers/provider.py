@@ -337,6 +337,17 @@ class ProviderInfo(BaseModel):
                 model.source = "user"
         return self
 
+    def all_models(self) -> List[ModelInfo]:
+        """Return persisted model records, including unselected defaults."""
+        removed = set(self.removed_model_ids)
+        return list(
+            {
+                model.id: model
+                for model in self.models + self.extra_models
+                if model.id not in removed
+            }.values(),
+        )
+
     def masked_api_key(self) -> str:
         """Show a configured key in provider API responses without its value."""
         if not self.api_key:
@@ -716,17 +727,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self.removed_model_ids = self._normalize_model_id_list(
             config.get("removed_model_ids"),
             self.removed_model_ids,
-        )
-
-    def all_models(self) -> List[ModelInfo]:
-        """Return persisted model records, including unselected defaults."""
-        removed = set(self.removed_model_ids)
-        return list(
-            {
-                model.id: model
-                for model in self.models + self.extra_models
-                if model.id not in removed
-            }.values(),
         )
 
     def configured_models(self) -> List[ModelInfo]:

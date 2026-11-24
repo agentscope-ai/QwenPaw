@@ -17,7 +17,8 @@ class PluginSession:
     Cleanup must finish before source leases and the Runner are released.
     """
 
-    def __init__(self):
+    def __init__(self, include_channel_descriptors=False):
+        self.include_channel_descriptors = include_channel_descriptors
         self.runner = asyncio.Runner()
         self.sources = ExitStack()
         self.loader = None
@@ -68,32 +69,33 @@ class PluginSession:
                 pass
             raise click.Abort() from None
 
-    async def _loader(self):
+    def get_loader(self):
+        """Share one loader and event loop for the lifetime of the command."""
+        if self.loader is not None:
+            return self.loader
+        from fastapi import FastAPI
+
         from ..config.utils import get_plugins_dir
+        from ..plugins.channel_bootstrap import resolve_default_channel_runtime
         from ..plugins.loader import PluginLoader
+        from ..plugins.registry import PluginRegistry
 
-        if self.loader is None:
-            # TODO: Extract shared interpreter and dependency-site selection
-            # into common runtime bootstrap. CLI currently reuses channel
-            # runtime settings without consuming channel send policy.
-            from ..plugins.channel_bootstrap import (
-                resolve_default_channel_runtime,
-            )
-            from ..utils.io_utils import run_sync_io
-
-            runtime = await run_sync_io(
-                resolve_default_channel_runtime,
-                load_send_policy=False,
-            )
-            loader = await PluginLoader.create(
-                [get_plugins_dir()],
-                channel_runtime=runtime,
-            )
-            if loader.registry.get_plugin_http_app() is None:
-                from fastapi import FastAPI
-
-                loader.registry.set_plugin_http_app(FastAPI())
-            self.loader = loader
+        runtime = PluginRegistry().channel_runtime
+        if runtime is None:
+            try:
+                runtime = resolve_default_channel_runtime(
+                    load_send_policy=False,
+                )
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                # Passive descriptor discovery also works without a channel runtime.
+                if not self.include_channel_descriptors:
+                    raise
+        loader = self.run(
+            PluginLoader.create([get_plugins_dir()], channel_runtime=runtime),
+        )
+        if loader.registry.get_plugin_http_app() is None:
+            loader.registry.set_plugin_http_app(FastAPI())
+        self.loader = loader
         return self.loader
 
     def load_registration(self, manifest, source, settings=None):
@@ -108,17 +110,11 @@ class PluginSession:
         key = manifest.id
         if key in self.records:
             return self.records[key]
-        from ..plugins.source_usage import source_reader
-
-        self.sources.enter_context(source_reader(source))
-        result = self.run(self._load_registration(manifest, source, settings))
-        self.records[key] = result
-        return result
-
-    async def _load_registration(self, manifest, source, settings):
         from ..plugins.discovery import read_manifest
+        from ..plugins.source_usage import source_reader
         from .plugin_cli import read_settings
 
+        self.sources.enter_context(source_reader(source))
         fresh = read_manifest(source / "plugin.json")
         if fresh != manifest:
             raise click.ClickException("Plugin source changed; retry command")
@@ -127,16 +123,20 @@ class PluginSession:
             if settings is None
             else settings
         )
-        loader = await self._loader()
-        record = await loader.load_registration(
-            fresh,
-            source,
-            settings,
+        loader = self.get_loader()
+        record = self.run(
+            loader.load_registration(
+                fresh,
+                source,
+                settings,
+                include_descriptor=self.include_channel_descriptors,
+            ),
         )
         if record.status == "failed":
             raise click.ClickException(
                 f"Plugin '{manifest.id}': " + "; ".join(record.diagnostics),
             )
+        self.records[key] = record
         return record
 
     def context(self, plugin_id, click_ctx):
@@ -169,7 +169,7 @@ class PluginSession:
             local_runtime_api,
         )
 
-    def execute(self, plugin_id, reference, callback, /, *args, **kwargs):
+    def execute(self, plugin_id, reference, callback):
         from .plugin_cli import read_settings
 
         if plugin_id not in self.admitted:
@@ -205,7 +205,7 @@ class PluginSession:
             # Own that task through the same cleanup as the command callback.
             self.run(enter())
             self.admitted.add(plugin_id)
-            return callback(*args, **kwargs)
+            return callback()
         finally:
             if task is not None:
 
@@ -253,10 +253,10 @@ class PluginSession:
         _retained_sessions.discard(self)
 
 
-def session_for(ctx):
+def session_for(ctx, include_channel_descriptors=False):
     root = ctx.find_root()
     if "plugin_session" not in root.meta:
-        session = PluginSession()
+        session = PluginSession(include_channel_descriptors)
         root.meta["plugin_session"] = session
         root.call_on_close(session.close)
     return root.meta["plugin_session"]

@@ -79,14 +79,25 @@ async def test_interrupted_download_waits_for_worker_cancellation(
             timeout=0 if timeout else 60,
         ),
     )
-    await started.wait()
-    if interruption == "startup":
-        task.cancel()
-    release.set()
-    if not timeout:
-        if interruption == "polling":
-            await polling.wait()
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if interruption == "startup":
             task.cancel()
-    with pytest.raises(TimeoutError if timeout else asyncio.CancelledError):
-        await task
+        release.set()
+        if interruption == "polling":
+            await asyncio.wait_for(polling.wait(), timeout=5)
+            task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=5)
+        assert task in done, "download did not finish after interruption"
+        expected = TimeoutError if timeout else asyncio.CancelledError
+        with pytest.raises(expected):
+            task.result()
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.wait({task}, timeout=5)
+        assert task.done(), "download did not stop during cleanup"
+        if not task.cancelled():
+            task.exception()
     assert closed == [True]

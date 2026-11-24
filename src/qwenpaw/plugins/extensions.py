@@ -6,11 +6,6 @@ from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
-# TODO: Add plugin-owned contract publication and consumers beyond the CLI
-# when those integrations exist. Current points are host-defined; supporting
-# plugin-to-plugin services also requires provider lifetime and dependent
-# revocation, beyond the contract identity represented here.
-
 
 @dataclass(frozen=True)
 class ExtensionPoint(Generic[T]):

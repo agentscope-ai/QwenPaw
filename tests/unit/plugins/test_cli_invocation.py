@@ -66,12 +66,13 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
     import httpx
 
     from qwenpaw import constant
-    from qwenpaw.cli.plugin_resources import doctor_contributions
+    from qwenpaw.cli.doctor_registry import doctor_contributions
     from qwenpaw.config import utils
     from qwenpaw.plugins.local_model_legacy import bundled_local_source
     from qwenpaw.utils import runtime_api
 
     # Model a legal installation without importing or downloading either SDK.
+    monkeypatch.syspath_prepend(str(bounded_dependency_environment))
     for package, version in (
         ("huggingface_hub", "0.20.0"),
         ("modelscope-hub", "0.7.1"),
@@ -294,7 +295,10 @@ plugin = Plugin()
     assert fresh_registry.get_provider("doctor-provider") is None
 
 
-@pytest.mark.parametrize("args", [[], ["status"], ["status", "--help"]])
+@pytest.mark.parametrize(
+    "args",
+    [[], ["--help"], ["status"], ["status", "--help"]],
+)
 def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
     from types import SimpleNamespace
 
@@ -319,6 +323,9 @@ def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
             ctx.meta["custom_parser"] = True
             return super().parse_args(ctx, args)
 
+        def list_commands(self, ctx):
+            return list(self.commands)
+
         def invoke(self, ctx):
             assert ctx.meta["custom_parser"]
             click.echo(self.message)
@@ -334,6 +341,8 @@ def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
     def status():
         click.echo("ready")
 
+    group.add_command(click.Command("inspect"))
+
     runner = CliRunner()
     native = runner.invoke(group, args)
     mounted_group = plugin_cli.overlay(group)
@@ -343,33 +352,12 @@ def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
     assert mounted.exit_code == native.exit_code == 0
     assert mounted.output == native.output
     assert type(group) is CustomGroup
-    assert group.commands == {"status": status}
+    assert list(group.commands) == ["status", "inspect"]
 
 
-@pytest.mark.parametrize(
-    "channel,requirement,available",
-    [
-        (False, "lifecycle-fixture==1.0", True),
-        (False, "qwenpaw-missing-cli-sdk==1.0", False),
-        (True, "lifecycle-fixture==1.0", True),
-        (True, "qwenpaw-missing-cli-sdk==1.0", False),
-    ],
-)
-def test_capability_dependencies_are_admitted_before_implementation(
-    tmp_path,
-    monkeypatch,
-    fresh_registry,
-    bounded_dependency_environment,
-    requirement,
-    available,
-    channel,
-):
-    import threading
-    from types import SimpleNamespace
-    import click
+def _install_capability_plugin(tmp_path, monkeypatch, requirement, channel):
     from qwenpaw import constant
     from qwenpaw.config import utils
-    from qwenpaw.cli.plugin_resources import doctor_contributions
     from qwenpaw.plugins.doctor import DOCTOR
 
     plugins = tmp_path / "plugins"
@@ -411,9 +399,6 @@ def test_capability_dependencies_are_admitted_before_implementation(
     }
     if channel:
         from pathlib import Path
-        from qwenpaw.app.channels.catalog import (
-            get_configurable_channel_catalog,
-        )
 
         manifest["type"] = "channel"
         manifest["entry"]["descriptor"] = "channel.json"
@@ -424,6 +409,9 @@ def test_capability_dependencies_are_admitted_before_implementation(
             ).read_text(),
         )
         descriptor.pop("requirements_file")
+        descriptor["capabilities"] = sorted(
+            [*descriptor["capabilities"], "channel.management.verify.v1"],
+        )
         descriptor.update(
             schema_version=3,
             requires=["transport"],
@@ -465,20 +453,20 @@ plugin = Plugin()
         encoding="utf-8",
     )
     (source / "light.py").write_text(
-        """
+        f"""
 from pathlib import Path
 import click
-Path(__file__).with_name('light-imported').touch()
+Path({str(tmp_path / "light-imported")!r}).touch()
 def build(call):
     return click.Command('status', callback=lambda: click.echo('ready'))
 """,
         encoding="utf-8",
     )
     (source / "heavy.py").write_text(
-        """
+        f"""
 from pathlib import Path
 import click
-Path(__file__).with_name('imported').touch()
+Path({str(tmp_path / "imported")!r}).touch()
 def build(call):
     return click.Command('send', callback=lambda: click.echo('sent'))
 def check(call):
@@ -486,23 +474,59 @@ def check(call):
 """,
         encoding="utf-8",
     )
+    return source
+
+
+@pytest.mark.parametrize(
+    "channel,requirement,available",
+    [
+        (False, "lifecycle-fixture==1.0", True),
+        (False, "qwenpaw-missing-cli-sdk==1.0", False),
+        (True, "lifecycle-fixture==1.0", True),
+        (True, "qwenpaw-missing-cli-sdk==1.0", False),
+    ],
+)
+def test_capability_dependencies_are_admitted_before_implementation(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+    requirement,
+    available,
+    channel,
+):
+    import threading
+    from types import SimpleNamespace
+    import click
+    from qwenpaw.cli.doctor_registry import doctor_contributions
+
+    source = _install_capability_plugin(
+        tmp_path,
+        monkeypatch,
+        requirement,
+        channel,
+    )
     if channel:
+        from qwenpaw.app.channels.catalog import (
+            get_configurable_channel_catalog,
+        )
+
         catalog = get_configurable_channel_catalog()
         assert "dependency-example" in catalog
         assert not fresh_registry.get_channel_catalog()
-        assert not (source / "imported").exists()
+        assert not (tmp_path / "imported").exists()
     runner = CliRunner()
     threads = set(threading.enumerate())
     for args in (["--help"], ["example", "--help"], ["example", "status"]):
         result = runner.invoke(cli, args)
         assert result.exit_code == 0, (result.output, result.exception)
-        assert not (source / "imported").exists()
-        assert (source / "light-imported").exists() is (args[-1] == "status")
+        assert not (tmp_path / "imported").exists()
+        assert (tmp_path / "light-imported").exists() is (args[-1] == "status")
     assert result.output == "ready\n"
     for tail in (["--help"], []):
         result = runner.invoke(cli, ["example", "send", *tail])
         assert result.exit_code == (0 if available else 1), result.output
-        assert (source / "imported").exists() is available
+        assert (tmp_path / "imported").exists() is available
         if not available:
             assert "DEPENDENCY_UNSATISFIED" in result.output
             assert "Traceback" not in result.output
@@ -539,6 +563,95 @@ def check(call):
     )
     result = runner.invoke(cli, ["example", "status"])
     assert result.exit_code == 2, result.output
+
+
+@pytest.mark.parametrize(
+    "condition, reason",
+    [
+        ("ready", "PLATFORM_REJECTED"),
+        ("no runtime", "CHANNEL_UNAVAILABLE"),
+        ("invalid descriptor", None),
+    ],
+)
+def test_deep_doctor_mixed_channel_registration(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+    condition,
+    reason,
+):
+    from unittest.mock import AsyncMock
+    import click
+    from qwenpaw.app.channels.management import ChannelProcess
+    from qwenpaw.channel_protocol.management import (
+        ManagementRequest,
+        management_result,
+    )
+    from qwenpaw.cli.doctor_connectivity import (
+        collect_deep_channel_connectivity_notes,
+    )
+    from qwenpaw.cli.doctor_registry import (
+        DoctorRunContext,
+        doctor_contributions,
+    )
+    from qwenpaw.cli.plugin_session import session_for
+    from qwenpaw.config import load_config
+    from qwenpaw.config.config import AgentProfileRef, ChannelConfig
+    from qwenpaw.plugins.doctor import DOCTOR
+
+    source = _install_capability_plugin(
+        tmp_path,
+        monkeypatch,
+        "lifecycle-fixture==1.0",
+        True,
+    )
+    if condition == "invalid descriptor":
+        (source / "channel.json").write_text("{}")
+    elif condition == "no runtime":
+
+        def unavailable(**kwargs):
+            raise OSError("Missing channel runtime")
+
+        monkeypatch.setattr(
+            "qwenpaw.plugins.channel_bootstrap.resolve_default_channel_runtime",
+            unavailable,
+        )
+    cfg = load_config()
+    cfg.channels = ChannelConfig.model_validate(
+        {source.name: {"enabled": True}},
+    )
+    cfg.agents.profiles = {
+        "review": AgentProfileRef(id="review", workspace_dir=str(tmp_path)),
+    }
+    context = DoctorRunContext(cfg, {}, "http://127.0.0.1:1", 2, True)
+
+    async def verify(_process, _method, packet, timeout):
+        request = ManagementRequest.from_mapping(packet)
+        assert request.operation == "connection.verify"
+        return management_result(
+            request,
+            reason="PLATFORM_REJECTED",
+        ).to_mapping()
+
+    monkeypatch.setattr(ChannelProcess, "start_management", AsyncMock())
+    monkeypatch.setattr(ChannelProcess, "call", verify)
+    with click.Context(cli) as ctx:
+        session = session_for(ctx, include_channel_descriptors=True)
+        outcomes = dict(doctor_contributions(context))
+        assert outcomes[source.name + ":config"] == ["config ok"]
+        assert outcomes[source.name + ":sdk"] == ["sdk ok"]
+        refs = fresh_registry.get_extensions(DOCTOR)
+        notes = collect_deep_channel_connectivity_notes(cfg, 2, session)
+        if reason:
+            assert notes == [f"review: {source.name}: reachability — {reason}"]
+        else:
+            assert any(source.name in note for note in notes)
+        assert fresh_registry.get_extensions(DOCTOR) == refs
+    assert not fresh_registry.cli_contributions
+    assert not fresh_registry.extensions
+    assert not fresh_registry.get_channel_catalog()
+    assert not fresh_registry.runtime_owners.leases()
 
 
 def test_missing_parent_reports_plugin_path_without_loading_entry(
@@ -792,15 +905,15 @@ plugin = Plugin()
     execute_calls = []
     execute = PluginSession.execute
 
-    def track_execution(session, plugin_id, registration, callback, *a, **kw):
+    def track_execution(session, plugin_id, registration, callback):
         execute_calls.append(plugin_id)
 
-        def guarded(*args, **kwargs):
+        def guarded():
             instance = session.loader.lifecycle.get_instance(plugin_id)
             assert instance.activity.tasks
-            return callback(*args, **kwargs)
+            return callback()
 
-        return execute(session, plugin_id, registration, guarded, *a, **kw)
+        return execute(session, plugin_id, registration, guarded)
 
     monkeypatch.setattr(PluginSession, "execute", track_execution)
     runner = CliRunner()
@@ -1073,7 +1186,7 @@ def test_doctor_handles_check_errors_and_click_control_flow(
     import click
 
     from qwenpaw import constant
-    from qwenpaw.cli.plugin_resources import doctor_contributions
+    from qwenpaw.cli.doctor_registry import doctor_contributions
     from qwenpaw.config import utils
 
     plugins = tmp_path / "plugins"

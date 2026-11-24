@@ -42,10 +42,6 @@ class _Contribution:
             self.admitted = True
 
 
-# TODO: Consider ctx.when(service, callback) registration scopes for live
-# plugin-service prerequisites. A scope must own its contributions, coordinate
-# in-flight calls on revocation and restore registrations when services return.
-# Keep package prerequisites statically discoverable for installation.
 def _store(context, spec, table, key, kind, requires):
     if requires:
         _require(context, "dependencies")
@@ -200,11 +196,11 @@ def get_cli(registry, plugin_id, contribution_id):
     )
 
 
-def get_extensions(registry, point):
+def get_extensions(registry, point, plugin_id=None):
     """Snapshot host references without loading or activating any provider."""
     point = _resolve_point(registry, point)
     return tuple(
         _ContributionReference(registry.extensions, key, entry, "Extension")
         for key, entry in registry.extensions.items()
-        if key[0] == point.id
+        if key[0] == point.id and (plugin_id is None or key[1] == plugin_id)
     )

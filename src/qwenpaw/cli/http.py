@@ -46,8 +46,8 @@ def resolve_base_url(ctx: click.Context, base_url: Optional[str]) -> str:
     return str(httpx.URL(scheme="http", host=host.strip("[]"), port=port))
 
 
-def selected_runtime_url(ctx: click.Context | None) -> str | None:
-    """Return the explicit or running App that owns CLI mutations."""
+def explicit_runtime_url(ctx: click.Context | None) -> str | None:
+    """Return the App explicitly selected with --host or --port."""
     if ctx is None:
         return None
     root = ctx.find_root()
@@ -58,7 +58,12 @@ def selected_runtime_url(ctx: click.Context | None) -> str | None:
     )
     if explicit:
         return resolve_base_url(root, None)
-    return local_runtime_url()
+    return None
+
+
+def selected_runtime_url(ctx: click.Context | None) -> str | None:
+    """Return the explicit or running App that owns CLI mutations."""
+    return explicit_runtime_url(ctx) or (local_runtime_url() if ctx else None)
 
 
 def local_runtime_url() -> str | None:

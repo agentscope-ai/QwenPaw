@@ -298,8 +298,7 @@ class TestConfigureProviderApiKeyInteractive:
         monkeypatch.setattr(pcmd.click, "prompt", lambda *a, **kw: "")
         got = pcmd.configure_provider_api_key_interactive("builtin-one")
         assert got == "builtin-one"
-        # base_url=None means "keep existing"
-        assert manager.updated[-1][1]["base_url"] is None
+        assert manager.updated == []
 
     def test_update_failure_exits(self, manager, monkeypatch):
         p = FakeProvider("p1", api_key="old")
@@ -707,8 +706,8 @@ class TestConfigureProvidersInteractive:
         added = []
         monkeypatch.setattr(
             pcmd,
-            "_add_models_interactive",
-            lambda pid: added.append(pid),
+            "_prompt_add_models",
+            lambda pid, provider, api: added.append(pid),
         )
         monkeypatch.setattr(pcmd.click, "confirm", lambda *a, **kw: False)
         activated = []
@@ -1014,57 +1013,205 @@ class TestSimpleDelegatingCmds:
         assert called == [True]
 
 
-@pytest.mark.parametrize("require_api_key", [False, True])
-def test_plugin_provider_explicit_target_normalizes_id(
+@pytest.mark.parametrize(
+    "require_api_key,answers,expected",
+    [
+        (True, "\n\n", {}),
+        (True, "http://new-base\n\n", {"base_url": "http://new-base"}),
+        (True, "\nprobe-key\n", {"api_key": "probe-key"}),
+        (True, "\n******\n", {}),
+        (False, "http://new-base\n", {"base_url": "http://new-base"}),
+    ],
+)
+def test_config_key_reads_and_writes_the_explicit_target(
     monkeypatch,
     require_api_key,
+    answers,
+    expected,
 ):
-    from contextlib import contextmanager
+    import httpx
 
+    from qwenpaw.cli.main import cli
     from qwenpaw.cli import http
-    from qwenpaw.config import utils
 
     calls = []
-    provider = FakeProvider("example", require_api_key=require_api_key)
-    manager = SimpleNamespace(
-        plugin_providers={"example": {}},
-        get_provider=lambda provider_id: provider,
+    monkeypatch.setattr(
+        pcmd,
+        "_manager",
+        lambda: pytest.fail("read local settings"),
     )
-    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
-    monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
+
+    def respond(request):
+        import json
+
+        assert (
+            str(request.url) == "http://remote:8123/api/models/example/config"
+        )
+        calls.append(
+            (
+                request.method,
+                json.loads(request.content) if request.content else None,
+            ),
+        )
+        return httpx.Response(
+            200,
+            json={
+                "id": "example",
+                "name": "Example",
+                "base_url": "http://remote-base",
+                "api_key": "******",
+                "require_api_key": require_api_key,
+            },
+        )
+
     monkeypatch.setattr(
         http,
-        "resolve_base_url",
-        lambda *args: "http://remote:8123",
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
     )
-
-    @contextmanager
-    def client(url):
-        assert url == "http://remote:8123"
-
-        def put(path, json):
-            calls.append((path, json))
-            return SimpleNamespace(raise_for_status=lambda: None)
-
-        yield SimpleNamespace(put=put)
-
-    monkeypatch.setattr(http, "client", client)
-
-    @click.command()
-    @click.option("--host", default="127.0.0.1")
-    def command(host):
-        pcmd.configure_provider_api_key_interactive("EXAMPLE")
 
     result = CliRunner().invoke(
-        command,
-        ["--host", "remote"],
-        input="http://new-base\nprobe-key\n",
+        cli,
+        [
+            "--host",
+            "remote",
+            "--port",
+            "8123",
+            "models",
+            "config-key",
+            "EXAMPLE",
+        ],
+        input=answers,
     )
     assert result.exit_code == 0, (result.output, result.exception)
-    values = {"base_url": "http://new-base"}
-    if require_api_key:
-        values["api_key"] = "probe-key"
-    assert calls == [("models/example/config", values)]
+    assert "http://remote-base" in result.output
+    assert calls == [("GET", None)] + ([("PUT", expected)] if expected else [])
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_config_wizard_uses_selected_app_through_activation(
+    monkeypatch,
+    manager,
+    shared,
+):
+    import json
+    import httpx
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
+    pid = "example"
+    if shared:
+        manager._providers[pid] = FakeProvider(
+            pid,
+            require_api_key=False,
+            models=[ModelInfo(id="local", name="Local")],
+        )
+    provider = {
+        "id": pid,
+        "name": "Example",
+        "base_url": "http://old",
+        "require_api_key": False,
+        "models": [],
+    }
+    writes = []
+
+    def respond(request):
+        assert request.url.host == "selected"
+        path = request.url.path
+        if request.method == "GET":
+            if path == "/api/models":
+                return httpx.Response(200, json=[provider])
+            if path == "/api/models/active":
+                assert request.url.params["scope"] == "global"
+                return httpx.Response(200, json={"active_llm": None})
+            assert path == "/api/models/example/config"
+            return httpx.Response(200, json=provider)
+        payload = json.loads(request.content)
+        writes.append((request.method, path, payload))
+        if path == "/api/models/example/models":
+            provider["models"].append(payload)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    monkeypatch.setattr(
+        pcmd,
+        "prompt_choice",
+        lambda prompt_text, options, default: options[0],
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["--host", "selected", "models", "config"],
+        input="http://new\ny\nremote-model\nRemote model\nn\nn\n",
+    )
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert writes == [
+        ("PUT", "/api/models/example/config", {"base_url": "http://new"}),
+        (
+            "POST",
+            "/api/models/example/models",
+            {"id": "remote-model", "name": "Remote model"},
+        ),
+        (
+            "PUT",
+            "/api/models/active",
+            {"provider_id": pid, "model": "remote-model", "scope": "global"},
+        ),
+    ]
+    assert not manager.activated and not manager.saved
+
+
+@pytest.mark.parametrize("listed", [True, False])
+def test_config_key_with_an_app_that_only_lists_providers(monkeypatch, listed):
+    import httpx
+
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
+    provider = {
+        "id": "remote-only",
+        "name": "Remote",
+        "base_url": "http://remote-base",
+    }
+
+    def respond(request):
+        assert request.method == "GET"
+        if request.url.path.endswith("/config"):
+            return httpx.Response(405)
+        assert request.url.path == "/api/models"
+        return httpx.Response(200, json=[provider] if listed else [])
+
+    monkeypatch.setattr(
+        pcmd,
+        "_manager",
+        lambda: pytest.fail("read local settings"),
+    )
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["--host", "remote", "models", "config-key", "remote-only"],
+        input="\n\n",
+    )
+    assert result.exit_code == (0 if listed else 1), result.exception
+    assert (
+        "configuration unchanged" if listed else "unavailable"
+    ) in result.output
 
 
 @pytest.mark.parametrize("require_api_key", [False, True])
@@ -1141,6 +1288,15 @@ def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
         app.include_router(router)
 
         class Client(TestClient):
+            def get(self, url, **kwargs):
+                response = super().get(url, **kwargs)
+                data = response.json()
+                assert response.status_code == 200
+                assert data["api_key"] == "******"
+                assert data["base_url"] == "https://old.invalid"
+                assert "custom_headers" not in data
+                return response
+
             def put(self, url, **kwargs):
                 response = super().put(url, **kwargs)
                 assert response.status_code == 200

@@ -9,7 +9,6 @@ common). Built-in probes live here; custom channels can override
 from __future__ import annotations
 
 import socket
-import asyncio
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -272,31 +271,15 @@ def _channel_enabled(sub: Any) -> bool:
     return bool(getattr(sub, "enabled", False))
 
 
-async def _managed_connectivity_notes(cfg, timeout):
+async def _managed_connectivity_notes(cfg, timeout, loader):
     """Probe installed descriptors without starting message runtimes."""
     from ..app.channels.management import (
         ChannelManagementService,
         ManagementError,
     )
     from ..channel_protocol.management import MANAGEMENT_CAPABILITIES
-    from ..config.utils import get_plugins_dir
-    from ..plugins.loader import PluginLoader
-    from ..plugins.registry import PluginRegistry
-    from ..plugins.official_channels import resolve_default_channel_runtime
-
-    from ..utils.io_utils import run_sync_io
 
     handled, notes = set(), []
-    try:
-        runtime = PluginRegistry().channel_runtime or await run_sync_io(
-            resolve_default_channel_runtime,
-        )
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
-        runtime = None
-    loader = await PluginLoader.create(
-        [get_plugins_dir()],
-        channel_runtime=runtime,
-    )
     service = ChannelManagementService(loader)
     controls = service.private_config_fields()
     try:
@@ -356,13 +339,15 @@ async def _managed_connectivity_notes(cfg, timeout):
 def collect_deep_channel_connectivity_notes(
     cfg: Config,
     timeout: float,
+    session,
 ) -> list[str]:
     """Run reachability probes for each enabled channel (per agent profile)."""
-    managed, notes = asyncio.run(_managed_connectivity_notes(cfg, timeout))
+    loader = session.get_loader()
+    managed, notes = session.run(
+        _managed_connectivity_notes(cfg, timeout, loader),
+    )
     reg = get_channel_registry()
-    from ..plugins.registry import PluginRegistry
-
-    catalog = PluginRegistry().get_channel_catalog()
+    catalog = loader.registry.get_channel_catalog()
 
     for agent_id, ref in cfg.agents.profiles.items():
         raw = _read_workspace_agent_json(ref)
