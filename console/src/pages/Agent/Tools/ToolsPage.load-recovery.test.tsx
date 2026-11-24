@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ToolInfo } from "../../../api/modules/tools";
 
@@ -9,7 +15,12 @@ const harness = vi.hoisted(() => ({
   updateAsyncExecution: vi.fn(),
   updateToolConfig: vi.fn(),
   getToolConfig: vi.fn(),
-  message: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    destroy: vi.fn(),
+  },
   t: (key: string, fallback?: unknown) =>
     typeof fallback === "string" ? fallback : key,
 }));
@@ -27,7 +38,10 @@ vi.mock("../../../api", () => ({
 vi.mock("../../../stores/agentStore", () => {
   const useAgentStore = Object.assign(
     () => ({ selectedAgent: harness.selectedAgent }),
-    { getState: () => ({ selectedAgent: harness.selectedAgent }) },
+    {
+      getState: () => ({ selectedAgent: harness.selectedAgent }),
+      subscribe: () => () => {},
+    },
   );
   return { useAgentStore };
 });
@@ -39,6 +53,12 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: harness.t }),
 }));
+
+// Use the real antd form methods through Vitest's module interop.
+vi.mock("@agentscope-ai/design", async (importOriginal) => {
+  const { Form, Input, Select } = await import("antd");
+  return { ...(await importOriginal<object>()), Form, Input, Select };
+});
 
 import ToolsPage from "./index";
 
@@ -52,6 +72,25 @@ const POPULATED: ToolInfo[] = [
     source_plugin_id: "plugin-a",
   },
 ];
+
+const configurableTool: ToolInfo = {
+  ...POPULATED[0],
+  requires_config: true,
+  config_fields: [
+    { name: "api_key", label: "API Key", type: "password", required: true },
+  ],
+};
+
+async function openPluginConfig() {
+  render(<ToolsPage />);
+  const configure = await screen.findByRole("button", {
+    name: "tools.configure plugin_tool",
+  });
+  await act(async () => {
+    fireEvent.click(configure);
+  });
+  return screen.getByLabelText("API Key");
+}
 
 describe("ToolsPage load recovery", () => {
   beforeEach(() => {
@@ -113,4 +152,113 @@ describe("ToolsPage load recovery", () => {
       expect(harness.updateToolConfig).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps the password form open while refreshing tools after a save", async () => {
+    let finishRefresh!: (tools: ToolInfo[]) => void;
+    const refresh = new Promise<ToolInfo[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    harness.listTools
+      .mockResolvedValueOnce([configurableTool])
+      .mockReturnValueOnce(refresh);
+    harness.getToolConfig.mockResolvedValue({ api_key: "***" });
+
+    render(<ToolsPage />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "tools.configure plugin_tool",
+      }),
+    );
+    const password = await screen.findByDisplayValue("***");
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(password, { target: { value: "new-key" } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(harness.listTools).toHaveBeenCalledTimes(2);
+    expect(harness.updateToolConfig).toHaveBeenCalledExactlyOnceWith(
+      "plugin_tool",
+      { api_key: "new-key" },
+      "agent-a",
+    );
+    expect(screen.getByLabelText("API Key")).toBe(password);
+
+    finishRefresh([{ ...configurableTool, config_values: { api_key: "***" } }]);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("tools.requiresConfig"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("API Key")).toBe(password);
+    expect(harness.getToolConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes after saving without waiting for the list refresh", async () => {
+    let finishRefresh!: (tools: ToolInfo[]) => void;
+    const refresh = new Promise<ToolInfo[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    harness.listTools
+      .mockResolvedValueOnce([configurableTool])
+      .mockReturnValueOnce(refresh);
+    harness.getToolConfig.mockResolvedValue({});
+
+    const password = await openPluginConfig();
+    fireEvent.change(password, { target: { value: "new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(harness.listTools).toHaveBeenCalledTimes(2));
+    expect(harness.updateToolConfig).toHaveBeenCalledExactlyOnceWith(
+      "plugin_tool",
+      { api_key: "new-key" },
+      "agent-a",
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await act(async () => {
+      finishRefresh([
+        { ...configurableTool, config_values: { api_key: "***" } },
+      ]);
+    });
+    expect(screen.queryByText("tools.requiresConfig")).toBeNull();
+  });
+
+  it("retries a failed refresh without resaving or losing the tool list", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const disabledTool = { ...configurableTool, enabled: false };
+    const configured = { ...disabledTool, config_values: { api_key: "***" } };
+    harness.listTools
+      .mockResolvedValueOnce([disabledTool])
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce([configured]);
+    harness.getToolConfig.mockResolvedValue({});
+    harness.toggleTool.mockResolvedValue({ ...configured, enabled: true });
+
+    const password = await openPluginConfig();
+    fireEvent.change(password, { target: { value: "new-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    const retry = await screen.findByRole("button", { name: "common.retry" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("alert")).toHaveTextContent("tools.loadError");
+    expect(screen.getByText("tools.requiresConfig")).toBeInTheDocument();
+    expect(screen.getByRole("switch")).not.toBeChecked();
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText("tools.requiresConfig")).toBeNull();
+    expect(harness.listTools).toHaveBeenNthCalledWith(3, "agent-a");
+    expect(harness.updateToolConfig).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("switch", { name: "common.enable plugin_tool" }),
+    );
+    expect(harness.toggleTool).toHaveBeenCalledWith("plugin_tool");
+    expect(await screen.findByRole("switch")).toBeChecked();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
