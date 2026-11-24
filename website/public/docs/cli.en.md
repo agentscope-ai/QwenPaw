@@ -797,7 +797,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
 | `qwenpaw auth`      | `reset-password`                                                                     |        No        |
-| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate` · [`dependency-upgrade`](./plugins#Plugin-Management) |        No        |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate` · `dependency-upgrade`        |        No        |
 | `qwenpaw acp`       | —                                                                                    |        No        |
 | `qwenpaw clean`     | —                                                                                    |        No        |
 | `qwenpaw shutdown`  | —                                                                                    |        No        |
@@ -814,6 +814,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 - [Console](./console) — Web-based management UI
 - [Channels](./channels) — DingTalk, Feishu, iMessage, Discord, QQ setup
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
+- [Plugin management](./plugins#Plugin-Management) — Install plugins and confirm shared package upgrades
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
 - [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
