@@ -831,3 +831,16 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* The vendor header floats over the transcript with `background:
+ * transparent; backdrop-filter: blur(10px)`. A backdrop-filter that overlaps a
+ * scrolling area makes Chrome re-rasterize everything underneath it on every
+ * scroll frame, which reads as dropped frames while reading long replies. The
+ * solid surface keeps the sticky/overlay behaviour but drops the per-frame
+ * backdrop pass. */
+.chatMessagesArea :global {
+  .qwenpaw-chat-anywhere-layout-right-header {
+    background: var(--app-surface, #ffffff) !important;
+    backdrop-filter: none !important;
+  }
+}
