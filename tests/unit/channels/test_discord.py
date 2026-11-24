@@ -234,7 +234,25 @@ def test_chunk_text_boundary_fence_respects_message_limit():
     chunk_text = module("discord", "formatting").chunk_text
     text = "a" * 1998 + "\n```python\nx = 1\n```"
 
-    chunks = chunk_text(text)
+    assert chunk_text(text) == [f"a" * 1998, f"```python\nx = 1\n```"]
 
-    assert chunks == ["a" * 1998, "```python\nx = 1\n```"]
-    assert all(len(chunk) <= 2000 for chunk in chunks)
+
+@pytest.mark.parametrize(f"sizes", [(1986,), (1986, 4), (1986, 1986, 128)])
+def test_chunk_text_splits_long_line_within_code_fence(sizes):
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    code_char = f"x"
+    line = code_char * sum(sizes)
+    text = f"```python\nx = 1\n{line}\n```"
+
+    assert chunk_text(text) == [
+        f"```python\nx = 1\n```",
+        *(f"```python\n{code_char * size}\n```" for size in sizes),
+    ]
+
+
+def test_chunk_text_padded_closing_fence_respects_message_limit():
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    closing_fence = f"```" + f" " * 1990
+    text = f"```python\nx = 1\n{closing_fence}"
+
+    assert chunk_text(text) == [f"```python\nx = 1\n```", closing_fence]
