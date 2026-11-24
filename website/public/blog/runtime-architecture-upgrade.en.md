@@ -182,13 +182,13 @@ The previous pain points were hardcoded tools in the agent class and scattered p
 
 `AgentBuilder` (`src/qwenpaw/runtime/builder.py`) is responsible for constructing a complete `QwenPawAgent` for each request. It integrates:
 
-| Component         | Source                                           | Description                                                                    |
-| ----------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ |
-| **Toolkit**       | `local_workspace.list_tools()`                   | Internally uses `ToolRegistry` for declarative filtering by mode/skill/feature |
-| **System Prompt** | `PromptManager.build_sync()`                     | Pluggable prompt contributors assembled by priority                            |
-| **Model**         | `ProviderManager` + model factory                | LLM model + formatter                                                          |
-| **Middlewares**   | `ToolCoordinatorMiddleware` + plugin middlewares | Onion-model middleware                                                         |
-| **Governor**      | `ResourceGovernor`                               | Governance policy layer (sandbox, permissions)                                 |
+| Component         | Source                                                       | Description                                                                    |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| **Toolkit**       | `local_workspace.list_tools()`                               | Internally uses `ToolRegistry` for declarative filtering by mode/skill/feature |
+| **System Prompt** | `PromptManager.build_sync()`                                 | Pluggable prompt contributors assembled by priority                            |
+| **Model**         | `ProviderManager` + model factory                            | LLM model + formatter                                                          |
+| **Middlewares**   | `ToolCoordinatorMiddleware` + plugin middlewares             | Onion-model middleware                                                         |
+| **Governor**      | `ResourceGovernor`                                           | Governance policy layer (sandbox, permissions)                                 |
 | **Session State** | `ctx.session_state` (loaded during core session preparation) | Session state restoration                                                      |
 
 Key improvement: **Tools are no longer hardcoded in the agent class.** They are obtained via the workspace's `list_tools()`, which internally uses `ToolRegistry` (tools registered via the `@tool_descriptor` decorator) to filter per-request based on active modes, skills, and features.

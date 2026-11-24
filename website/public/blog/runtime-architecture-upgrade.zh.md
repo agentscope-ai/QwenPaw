@@ -246,7 +246,7 @@ class HookBase:
 | -------------------------- | --------------- | -------- | ------------------------------------------------------------ |
 | `ContextVarsSetupHook`     | PRE_DISPATCH    | 10       | 注入 per-request ContextVars（workspace_dir, session_id 等） |
 | `CronContextHook`          | PRE_DISPATCH    | 5        | 标记 cron 来源请求                                           |
-| `SessionPrepareHook`       | PRE_AGENT_BUILD | 10       | 准备重新生成消息所需的历史，修复失效媒体引用                  |
+| `SessionPrepareHook`       | PRE_AGENT_BUILD | 10       | 准备重新生成消息所需的历史，修复失效媒体引用                 |
 | `MediaProcessHook`         | PRE_EXECUTE     | 5        | 处理输入消息中的文件/媒体块                                  |
 | `CronMemoryIsolateHook`    | PRE_EXECUTE     | 10       | 快照并清空 agent 上下文（cron 隔离）                         |
 | `LangfuseTraceHook`        | PRE_EXECUTE     | 12       | 开启 Langfuse root trace span                                |
