@@ -109,8 +109,17 @@
   }
 }
 
-// Native selection keeps prose/code layout while omitting their UI controls.
+/* Fix #8811: this wrapper sits between the SDK bubble content and the
+ * markdown root. The bubble content sizes itself intrinsically, and a flex
+ * child defaults to min-width: auto, so without these constraints the
+ * max-content width of wide tables and code blocks widens the wrapper
+ * instead of scrolling inside the block - the bubble then clips the
+ * overflow silently on both desktop and mobile. */
 .quoteResponse {
+  min-width: 0;
+  max-width: 100%;
+
+  // Native selection keeps prose/code layout while omitting their UI controls.
   button,
   [role="button"],
   input,
