@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,58 @@ class ServerJob:
                 ctypes.get_last_error(),
             )
 
+    def assign_pid(self, pid: int) -> None:
+        """Put an already-running server in the job, by pid.
+
+        Adopting a server left behind by an earlier run means there is no
+        ``Popen`` to take a handle from, so the handle is opened by pid
+        instead. Without this the adopted process stays outside the job and
+        the protection this class exists for does not cover it: it would
+        outlive the next crash just like the original orphan did.
+        """
+        if os.name != "nt" or pid <= 0:
+            return
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        process_set_quota = 0x0100
+        process_terminate = 0x0001
+        handle = kernel32.OpenProcess(
+            process_set_quota | process_terminate,
+            False,
+            pid,
+        )
+        if not handle:
+            logger.warning(
+                "Could not open the adopted llama-server (pid %s) to bind it "
+                "to its job; it may outlive a crash: %s",
+                pid,
+                ctypes.get_last_error(),
+            )
+            return
+        try:
+            if self._handle is None and not self._create():
+                return
+            if not _KERNEL32.AssignProcessToJobObject(
+                self._handle,
+                wintypes.HANDLE(handle),
+            ):
+                logger.warning(
+                    "Could not put the adopted llama-server (pid %s) in its "
+                    "job; it may outlive a crash: %s",
+                    pid,
+                    ctypes.get_last_error(),
+                )
+        finally:
+            kernel32.CloseHandle(handle)
+
     def close(self) -> None:
         """Close the job. On Windows this terminates every member."""
         if self._handle is None:
@@ -278,6 +331,106 @@ def stop_server(
             return
         except subprocess.TimeoutExpired:
             pass
+    raise RuntimeError("llama.cpp did not exit")
+
+
+def pid_is_alive(pid):
+    """Say whether *pid* still names a running process.
+
+    ``os.kill(pid, 0)`` is the POSIX idiom but on Windows it *terminates* the
+    target regardless of the signal, so this checks the handle's exit code
+    there instead.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_server_by_pid(
+    pid,
+    graceful_timeout=SERVER_GRACE_SECONDS,
+    kill_timeout=SERVER_KILL_SECONDS,
+):
+    """Reap a server this process holds no ``Popen`` for.
+
+    The adopted case: the pid came from a record written by an earlier run, so
+    there is nothing to ``wait`` on. Signalling the bare pid rather than a group
+    is deliberate — the record cannot prove the process still leads the group it
+    was started in, and signalling a recycled group id could reach unrelated
+    processes.
+    """
+    if pid <= 0:
+        raise ValueError(f"refusing to stop an invalid pid: {pid}")
+
+    def wait_gone(timeout):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not pid_is_alive(pid):
+                return True
+            time.sleep(0.1)
+        return not pid_is_alive(pid)
+
+    for sig, timeout in (
+        (signal.SIGTERM, graceful_timeout),
+        (signal.SIGKILL if os.name != "nt" else None, kill_timeout),
+    ):
+        if not pid_is_alive(pid):
+            return
+        if os.name != "nt":
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                return
+        else:
+            subprocess.run(  # noqa: S603,S607 - fixed argv, no shell
+                ["taskkill", "/PID", str(pid), "/F"],
+                capture_output=True,
+                check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        if wait_gone(timeout):
+            return
     raise RuntimeError("llama.cpp did not exit")
 
 
