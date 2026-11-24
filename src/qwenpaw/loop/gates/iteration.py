@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
 """IterationGate — universal iteration limiter.
 
-Tracks per-session iteration count.  Returns TERMINATE when
-``max_iterations`` is reached.
+Tracks per-session iteration count.  Returns TERMINATE when the count
+exceeds ``max_iterations``.
+
+The off-by-one vs a ``>=`` check is intentional: AgentScope's ReAct loop
+reserves one forced finalization call at ``cur_iter == max_iters``
+(tool_choice=none).  When this gate shares that limit (the default), a
+``>=`` stop would defer TERMINATE on the last tool-call round and then
+abort the next ``_reasoning`` via ``check_pending_gates``, so the
+finalization call never runs and ``EXCEED_MAX_ITERS`` is never emitted.
+Allowing exactly ``max_iterations`` BYPASS rounds leaves that slot free.
 """
 from __future__ import annotations
 
@@ -70,7 +78,8 @@ class IterationGate(LoopGate):
             state.max_iterations,
         )
 
-        if state.iteration >= state.max_iterations:
+        # Strict greater-than: see module docstring (AgentScope finalization).
+        if state.iteration > state.max_iterations:
             self.deactivate()
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
