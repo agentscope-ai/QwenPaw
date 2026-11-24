@@ -1,0 +1,1 @@
+function r(r){if(Array.isArray(r))return r;if(r&&"object"==typeof r){const t=r;if(Array.isArray(t.records))return t.records;if(Array.isArray(t.data))return t.data;if(Array.isArray(t.content))return t.content}return[]}function t(r){if(r&&"object"==typeof r){const t=r;if("number"==typeof t.total)return t.total}return 0}export{t as e,r as n};

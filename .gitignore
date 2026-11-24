@@ -98,6 +98,8 @@ Desktop.ini
 *.py[cod]
 *$py.class
 uv.lock
+# Pin the coordinated Data runtime candidate and its host dependencies.
+!/uv.lock
 venv/
 .venv/
 providers.json
@@ -154,3 +156,7 @@ docs-site/
 # Local review notes
 docs/reviews/
 tmp/
+
+# lavish temp
+.lavish/
+.artifacts/

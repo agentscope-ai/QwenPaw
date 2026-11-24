@@ -1,0 +1,1 @@
+import{a as t}from"./request-Ubm5bXn_.js";const e="/system/channel-config";const o={get:o=>t(`${e}/`,{signal:o}),update:(o,s)=>{return t(`${e}/${o}`,(n=s,{method:"PUT",body:JSON.stringify(n)}));var n},test:o=>t(`${e}/${o}/test`,{method:"POST"}),getQrcode:o=>t(`${e}/${o}/qrcode`),getQrcodeStatus:(o,s)=>t(`${e}/${o}/qrcode/status?token=${encodeURIComponent(s)}`)};export{o as c};

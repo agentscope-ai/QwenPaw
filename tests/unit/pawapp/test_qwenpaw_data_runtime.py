@@ -54,16 +54,16 @@ def test_runtime_packages_available_probes_service_entrypoints(
     monkeypatch,
 ) -> None:
     runtime = _load_runtime_module()
-    imported: list[str] = []
+    checked: list[str] = []
 
-    def import_module(name: str) -> object:
-        imported.append(name)
+    def find_spec(name: str) -> object:
+        checked.append(name)
         return object()
 
-    monkeypatch.setattr(runtime.importlib, "import_module", import_module)
+    monkeypatch.setattr(runtime, "find_spec", find_spec)
 
     assert runtime.runtime_packages_available()
-    assert imported == [
+    assert checked == [
         "context_manager.api.server",
         "qwenpaw_data.host.core.api.app",
     ]
@@ -74,12 +74,12 @@ def test_runtime_packages_unavailable_when_engine_entrypoint_is_missing(
 ) -> None:
     runtime = _load_runtime_module()
 
-    def import_module(name: str) -> object:
+    def find_spec(name: str) -> object | None:
         if name == "qwenpaw_data.host.core.api.app":
-            raise ImportError(name)
+            return None
         return object()
 
-    monkeypatch.setattr(runtime.importlib, "import_module", import_module)
+    monkeypatch.setattr(runtime, "find_spec", find_spec)
 
     assert not runtime.runtime_packages_available()
 

@@ -1,0 +1,1 @@
+import{j as o,O as t}from"./index-KHiSGKUd.js";function a({mask:a=!0,rootClassName:e,rootStyle:r,...s}){return o.jsx(t,{...s,getContainer:!1,mask:a,rootClassName:["qwenpaw-data-route-drawer",e].filter(Boolean).join(" "),rootStyle:{...r,position:"absolute"}})}export{a as R};

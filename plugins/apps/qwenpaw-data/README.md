@@ -86,20 +86,19 @@ that do not opt in receive no additional chat, storage, toast, or notify routes.
 
 ## Quick start: installed app and Python runtime
 
-App **1.0.3** targets QwenPaw **2.2.2** and was validated with QwenPaw-Data
-runtime **0.3.3**. The app ZIP and the Python runtime are separate installations.
+This branch uses QwenPaw-Data **0.4.1** for the managed services and the
+embedded Console. Install the app ZIP and the Python runtime separately.
 
 1. Install or update the QwenPaw-Data app in QwenPaw's app manager.
 2. Install the runtime into the Python environment used by QwenPaw. For the
    validated runtime versions:
 
    ```bash
-   python -m pip install "qwenpaw-data-context==0.3.3" "qwenpaw-data-host-core[service]==0.3.3" "qwenpaw-data-cli==0.3.3" "qwenpaw-data-skills==0.3.3"
+   python -m pip install "qwenpaw-data-context==0.4.1" "qwenpaw-data-host-core[service]==0.4.1" "qwenpaw-data-cli==0.4.1" "qwenpaw-data-skills==0.4.1"
    ```
 
    Alternatively, from a QwenPaw source checkout run
-   `./plugins/apps/qwenpaw-data/scripts/setup-pypi.sh`. This installs the
-   compatible range `>=0.3.3,<0.4`, rather than pinning exactly 0.3.3.
+   `./plugins/apps/qwenpaw-data/scripts/setup-pypi.sh` to install the same versions.
    If using a separate runtime environment, set
    `QWENPAW_DATA_CONTEXT_PYTHON` to its Python executable before starting
    QwenPaw. The interpreter must be available to the QwenPaw process.
@@ -109,12 +108,8 @@ runtime **0.3.3**. The app ZIP and the Python runtime are separate installations
    qwenpaw app
    ```
 
-4. Configure a provider and workspace default model in Main Chat. Data
-   analysis inherits that model; summaries and DataBridge follow the analysis
-   model. Overrides are optional.
-5. Configure DataBridge's Neo4j connection and embedding service, then register
-   and test your SQL datasource. Open `/apps/qwenpaw-data`, select the source,
-   reload datasets, and send a question.
+4. Choose a workspace model in Main Chat. Analysis uses that model and summaries follow analysis.
+5. In the Data Console, configure a provider for DataBridge and select its LLM and embedding model. Provision a graph for the Data workspace, then register and test the SQL datasource. Open `/apps/qwenpaw-data`, select the source, reload datasets, and send a question.
 
 In managed mode, the app starts the Context service and analysis engine on
 private loopback ports. Neo4j and your database server must be available
@@ -124,7 +119,7 @@ metadata are separate setup steps.
 ## Local infrastructure with Docker Compose
 
 From a QwenPaw source checkout, the bundled Compose file can start just Neo4j
-and PostgreSQL while the app manages the **0.3.3** Context and Engine services:
+and PostgreSQL while the app manages the **0.4.1** Context and Engine services:
 
 ```bash
 cd plugins/apps/qwenpaw-data
@@ -142,47 +137,43 @@ apply when QwenPaw runs on the same host as the published Docker ports.
 This starts infrastructure only; it does **not** seed GAAP rows or import
 semantic definitions. Existing databases can be registered directly. For
 sample assets and semantic import/weave instructions, see the
-[QwenPaw-Data examples](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.3.3/examples)
-and [CLI guide](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.3.3/packages/qwenpaw-data-cli/README.md).
+[QwenPaw-Data examples](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.4.1/examples)
+and [CLI guide](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.4.1/packages/qwenpaw-data-cli/README.md).
 
-The bundled `context` and `seed` Dockerfiles still pin **0.3.0**. They are a
-legacy demo, not the supported 1.0.3 runtime setup. An unqualified
-`docker compose up -d` also builds the `qwenpaw` service; it is not optional
-unless you explicitly select services. Updating and validating the full demo
-stack is separate from this README and packaging change.
+The bundled `context` and `seed` images pin Context and CLI to **0.4.1**.
 
-For an externally managed Context service compatible with runtime 0.3.3,
-set `QWENPAW_DATA_CONTEXT_MODE=external`, `QWENPAW_DATA_CONTEXT_URL`, and
-`QWENPAW_DATA_CONTEXT_TOKEN` before starting QwenPaw. The service must expose
-runtime model bindings; the app reports an error for incompatible services.
-The analysis engine still needs its own runtime unless separately configured
-as an external service.
+For external services, configure both Engine and Context to use the same
+control plane and provision the delegated workspace identities. Set both service modes to `external` and set `QWENPAW_DATA_ENGINE_URL` and `QWENPAW_DATA_CONTEXT_URL`. Set `QWENPAW_DATA_AUTH_URL` to the Auth base URL and `QWENPAW_DATA_SERVICE_SECRET` to its server-side exchange secret. See the [integration guide](../../../docs/qwenpaw-data-040-integration.md).
 
 ## Development from source
 
 Run these commands from the QwenPaw repository root, with a compatible
-QwenPaw-Data checkout available. For release reproduction, use its `v0.3.3`
+QwenPaw-Data checkout available. For release reproduction, use its `v0.4.1`
 tag. The scripts require Bash, Python, uv, Node.js, and npm.
 
 ```bash
 export QWENPAW_DATA_SOURCE_DIR="$HOME/dev/QwenPaw-Data"
 cd plugins/apps/qwenpaw-data
 ./scripts/setup-dev.sh
-./scripts/sync-context-ui.sh
 (cd ui && npm ci && npm run build)
 ```
 
 `setup-dev.sh` runs `uv sync --all-packages` in that checkout and creates
 ignored links to its isolated `.venv`, source, and skills. It does not build
-or install the app UI. `sync-context-ui.sh` builds the public Context console
-before the app UI build copies it into `ui/dist/`.
+or install the app UI. The UI build includes a compatibility entry for older
+Context bookmarks that opens the same route in the released Console.
 
 The Data console is a reviewed snapshot tracked under `ui/public/data-console/`.
-Normal builds use this snapshot and require no QwenPaw-Data-Cloud checkout.
-Maintainers refresh it with `scripts/update-data-console.sh` and review the
-resulting diff.
+Normal builds use this snapshot and require no QwenPaw-Data checkout. It is the
+embed build (`static/chat-embed`) extracted from a published
+`qwenpaw-data-console` wheel; maintainers refresh it with
+`QWENPAW_DATA_CONSOLE_VERSION=<version> scripts/update-data-console.sh` (or
+`QWENPAW_DATA_CONSOLE_WHEEL=/path/to.whl`) and review the resulting diff. No
+Cloud checkout, integration patch, or local npm build is involved. The upgrade
+flow and compatibility matrix are documented upstream in the
+[Console embed upgrade record](https://github.com/agentscope-ai/QwenPaw-Data/blob/main/docs/design/2026-11-23-console-embed-upgrade.md).
 
-After building the Context console, `./scripts/dev.sh` builds, stages, and
+For local source development, `./scripts/dev.sh` builds, stages, and
 hot-installs the app into an **already running** local QwenPaw instance. Set
 `QWENPAW_HOST` and `QWENPAW_PORT` for that instance (defaults:
 `127.0.0.1:8089`), and set `QWENPAW_WORKING_DIR` when it uses a custom data
@@ -198,21 +189,19 @@ opens Data settings with **Models** and **Agent behavior** tabs. The separate
 | What to configure | Where to configure it |
 | --- | --- |
 | Provider credentials and workspace default model | Main Chat model settings |
-| Data analysis, summaries, and DataBridge model overrides | **Settings → Agent Configuration → Models** |
+| Data analysis and summaries | Main Chat workspace default or a saved PawApp model override |
+| Workspace DataBridge LLM and embedding | Configure a Data provider and select models in the official Data Console |
 | DataBridge semantic-service LLM, embedding model, and Neo4j graph store | **Settings → DataBridge Configuration** in the Data Console |
 | Agent iteration and model-retry settings | **Settings → Agent Configuration → Agent behavior** |
 | SQL datasources such as PostgreSQL and MySQL | **Data Bridge → Data Sources** in the linked Context console |
 
 DataBridge Configuration includes **Test connection**, **Save**, and
 **Save & restart Context service**. Its LLM is used for semantic weaving and
-document ingestion. Data analysis inherits the workspace model by default;
-summaries and DataBridge inherit the analysis model. Choose an override only
-when needed. Embeddings remain a separate shared data-service setting, also
-available under **Models → Embedding & data index**.
+document ingestion. New workspaces use the Main Chat model for analysis and summaries. DataBridge uses its own workspace provider selections. The integration guide covers earlier host-model overrides.
 
 Register SQL connection details in Data Sources, test the connection, and
 select the registered datasource when starting an analysis. DataBridge stores
-these credentials in its semantic-config registry (`semantic_config.db`),
+these credentials in the workspace's semantic configuration,
 managed through `/api/semantic-config/datasource`. Saving Neo4j or model
 settings does not create a SQL datasource or write SQL credentials to `.env`.
 
@@ -235,9 +224,7 @@ the authenticated user and workspace. Main Chat provider credentials are
 resolved for each new turn and never copied into those references. Advanced
 app-specific connections use the Engine preferences API.
 On each managed Context service start, the PawApp regenerates `.env` and
-`models.json` from `config.json`. Model changes are also sent to a running
-Context service; use **Save & restart Context service** to apply Neo4j changes
-in managed mode. External service restarts are handled by their operator.
+`models.json` from `config.json`. Restart managed services to apply process settings. Use the official Data Console for live workspace model changes. External service restarts are handled by their operator.
 
 When **Reuse the model configured in QwenPaw** is enabled for DataBridge,
 saving or starting the managed Context service refreshes the snapshot from
@@ -285,10 +272,7 @@ Check the following after configuration:
 3. Register and test a SQL datasource through Data Sources. Verify the
    registration persists after a Context service restart, then select it in
    the Data Console and run a read-only query against a test database.
-4. In **Agent Configuration → Models**, verify that Analysis uses the Main
-   Chat model and Summaries/DataBridge use the analysis model. Change the
-   workspace default and verify a new turn uses it; a running turn keeps its
-   existing model.
+4. Change the Main Chat workspace default and start a new analysis. Verify the new turn uses that model and the DataBridge settings retain their selected provider.
 
 The older expectation that saving Neo4j/LLM settings also generates SQL
 datasource variables in `.env` does not apply to this configuration contract.
@@ -309,9 +293,7 @@ datasource variables in `.env` does not apply to this configuration contract.
   service owner.
 
 Missing or unsupported analysis model choices return HTTP 409 before a turn
-is submitted. An unavailable Context service or one without runtime model
-bindings returns HTTP 503. Check the model settings and service status rather
-than treating these failures as missing database data.
+is submitted. A saved DataBridge host-model override also returns HTTP 409. Switch the DataBridge source to `local` and select a provider in the Data Console. An unavailable service returns HTTP 503.
 
 The app also opts into App-private dependency status and lifecycle tools. They
 let the QwenPaw-Data agent inspect the same control plane as the UI and request
@@ -374,7 +356,7 @@ conversations to the same engine through the channel bridge.
 
 ## Standalone app 1.0.3 release
 
-This release targets stable QwenPaw 2.2.2 and QwenPaw-Data runtime 0.3.3.
+The published 1.0.3 app targeted QwenPaw 2.2.2 and Data runtime 0.3.3.
 See [the release boundary and validation guide](RELEASE.md). The app uses
 the Engine native console API and inherits Main Chat models on the stable
 platform. Its declared compatibility range is `>=2.2.2,<2.2.3`.

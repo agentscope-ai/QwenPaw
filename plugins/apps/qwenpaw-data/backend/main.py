@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -19,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
@@ -159,6 +159,82 @@ async def _on_before_start() -> None:
     await on_before_start()
 
 
+# Engine and Context share the control plane, but retain separate service tokens.
+ENGINE_HOME = APP_DATA_DIR / "engine"
+_DATA_AUTH_HOME = APP_DATA_DIR / "data-auth"
+_DATA_DB_URL = f"sqlite+aiosqlite:///{(_DATA_AUTH_HOME / 'control_plane.db').as_posix()}"
+_data_service_secret = secrets.token_urlsafe(48)
+# Shared signing material lets Engine-issued short-lived workspace tokens work
+# in Context. Only the server-side managed children receive it.
+_data_auth_secret = secrets.token_urlsafe(48)
+_identity_lock = asyncio.Lock()
+
+
+async def _workspace_access_token(identity: str | None) -> str:
+    if _engine_service.is_external != _context_service.is_external:
+        raise HTTPException(503, "Engine and Context must share an identity plane")
+    if _context_service.is_external:
+        auth_url = os.getenv("QWENPAW_DATA_AUTH_URL", "").rstrip("/")
+        secret = os.getenv("QWENPAW_DATA_SERVICE_SECRET", "")
+        if not auth_url or not secret:
+            raise HTTPException(503, "Configure the external Data Auth URL and service secret")
+    else:
+        try:
+            auth_url = _context_service.base_url
+        except RuntimeError as exc:
+            raise HTTPException(503, "Data Auth is not ready") from exc
+        secret = _data_service_secret
+
+    # Only server-side tools request the original local service identity.
+    scope = (
+        {"tenant_id": "pawapp", "user_id": identity, "workspace_id": identity}
+        if identity is not None else
+        {"tenant_id": "default", "user_id": "__default__", "workspace_id": "default"}
+    )
+    async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+        async def exchange():
+            return await client.post(
+                f"{auth_url}/api/auth/temporary-access",
+                headers={"X-QwenPaw-Data-Service-Secret": secret},
+                json=scope,
+            )
+
+        try:
+            response = await exchange()
+            if response.status_code == 404 and identity is not None and not _context_service.is_external:
+                await _provision_workspace(identity)
+                response = await exchange()
+        except httpx.RequestError as exc:
+            raise HTTPException(503, "Data Auth service is unavailable") from exc
+    if response.status_code in (401, 403, 404):
+        raise HTTPException(403, "Data workspace access denied")
+    if response.status_code != 200:
+        raise HTTPException(503, "Data Auth could not issue a workspace token")
+    token = response.json().get("access_token")
+    if not isinstance(token, str) or not token:
+        raise HTTPException(503, "Data Auth returned no workspace token")
+    return token
+
+
+async def _provision_workspace(identity: str) -> None:
+    async with _identity_lock:
+        process = await asyncio.create_subprocess_exec(
+            str(context_python()), str(Path(__file__).with_name("delegated_identity.py")),
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            await asyncio.wait_for(process.communicate(json.dumps({
+                "home": str(_DATA_AUTH_HOME), "identity": identity,
+            }).encode()), timeout=30)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise HTTPException(503, "Data workspace identity initialization timed out")
+        if process.returncode:
+            raise HTTPException(403, "Data workspace identity is unavailable")
+
+
 _context_service = managed_service(
     app,
     "context",
@@ -166,7 +242,10 @@ _context_service = managed_service(
         str(context_python()),
         "-m",
         "uvicorn",
-        "context_manager.api.server:app",
+        "--app-dir",
+        str(Path(__file__).parent),
+        "--factory",
+        "managed_context:create_app",
         "--host",
         "{host}",
         "--port",
@@ -196,6 +275,11 @@ _context_service = managed_service(
     ),
     env={
         "QWENPAW_DATA_API_TOKEN": _context_token,
+        "QWENPAW_DATA_HOME": str(ENGINE_HOME),
+        "QWENPAW_DATA_AUTH_MODE": "multi-user",
+        "QWENPAW_DATA_DB_URL": _DATA_DB_URL,
+        "QWENPAW_DATA_SERVICE_SECRET": _data_service_secret,
+        "QWENPAW_DATA_AUTH_SECRET": _data_auth_secret,
         "QWENPAW_DATA_CLIENT_API_TOKEN": _context_token,
     },
     env_factory=context_service_env,
@@ -212,10 +296,9 @@ _context_service = managed_service(
         "QWENPAW_DATA_CONTEXT_TOKEN"
     ),
 )
-_gateway = ContextGateway(_context_service, _context_token)
+_gateway = ContextGateway(_context_service, _context_token, workspace_token=_workspace_access_token)
 
 _engine_token = secrets.token_urlsafe(32)
-ENGINE_HOME = APP_DATA_DIR / "engine"
 
 
 def _engine_context_connection() -> tuple[str, str]:
@@ -249,6 +332,7 @@ def _engine_env() -> dict[str, str]:
     cm_url, cm_token = _engine_context_connection()
     if cm_url:
         environment["QWENPAW_DATA_CM_BASE_URL"] = cm_url
+        environment["QWENPAW_DATA_AUTH_URL"] = cm_url
         environment["QWENPAW_DATA_CLIENT_API_TOKEN"] = cm_token
     config = load_config()
     if config.llm.model and config.llm.api_key:
@@ -285,6 +369,7 @@ _engine_service = managed_service(
         "DOCKER_CONFIG",
         "DOCKER_TLS_VERIFY",
         "DOCKER_CERT_PATH",
+        "QWENPAW_DATA_WORKSPACE_BACKEND",
         "QWENPAW_DATA_STORE",
         "QWENPAW_DATA_FOLLOWUP_ENABLED",
         "QWENPAW_DATA_BIZ_TRACE_ENABLED",
@@ -296,6 +381,10 @@ _engine_service = managed_service(
     env={
         "QWENPAW_DATA_API_TOKEN": _engine_token,
         "QWENPAW_DATA_HOME": str(ENGINE_HOME),
+        "QWENPAW_DATA_AUTH_MODE": "multi-user",
+        "QWENPAW_DATA_DB_URL": _DATA_DB_URL,
+        "QWENPAW_DATA_SERVICE_SECRET": _data_service_secret,
+        "QWENPAW_DATA_AUTH_SECRET": _data_auth_secret,
     },
     env_factory=_engine_env,
     external_url_env="QWENPAW_DATA_ENGINE_URL",
@@ -312,10 +401,10 @@ _engine_service = managed_service(
         "QWENPAW_DATA_ENGINE_TOKEN"
     ),
 )
-_engine_gateway = EngineGateway(_engine_service, _engine_token)
+_engine_gateway = EngineGateway(_engine_service, _engine_token, workspace_token=_workspace_access_token)
 
 
-def _engine_endpoint() -> tuple[str, str]:
+async def _engine_endpoint() -> tuple[str, str]:
     """Resolve the engine base URL + bearer token for server-side calls.
 
     Mirrors the gateway's managed/external token selection; ``base_url``
@@ -325,7 +414,7 @@ def _engine_endpoint() -> tuple[str, str]:
     token = (
         os.getenv("QWENPAW_DATA_ENGINE_TOKEN", "").strip()
         if _engine_service.is_external
-        else _engine_token
+        else await _workspace_access_token(None)
     )
     return _engine_service.base_url, token
 
@@ -335,24 +424,18 @@ _model_settings = ModelSettingsService(APP_DATA_DIR / "model-bindings")
 
 async def _runtime_models(scope):
     models = await _model_settings.runtime(scope)
-    if any(
-        models.get(role) is None
-        for role in ("analysis", "lightweight", "databridge")
-    ):
+    if models.get("databridge") or "databridge" in models["inherit_analysis"]:
+        raise HTTPException(
+            409,
+            "Set databridge.source to 'local' in PawApp model-settings and "
+            "select the workspace provider in the Data Console.",
+        )
+    local_roles = [role for role in ("analysis", "lightweight") if models.get(role) is None]
+    if local_roles:
         effective = (await _describe_models(scope))["effective"]
-        for role, model in effective.items():
-            if not model["configured"]:
+        for role in local_roles:
+            if not effective[role]["configured"]:
                 raise HTTPException(409, f"{role}_model_missing")
-    if models.get("databridge") is not None or "databridge" in models.get(
-        "inherit_analysis",
-        [],
-    ):
-        try:
-            health = await _gateway.json("GET", "/api/health")
-        except HTTPException as exc:
-            raise HTTPException(503, "context_unavailable") from exc
-        if health.get("runtime_model_bindings") is not True:
-            raise HTTPException(503, "context_model_bindings_unsupported")
     return models
 
 
@@ -587,7 +670,7 @@ def _source_probe(source_id: str):
         try:
             await _gateway.json(
                 "POST",
-                "/api/v1/cm/execute_sql",
+                "/api/v1/rdb/execute_sql",
                 body={
                     "sql": "SELECT 1 AS qwenpaw_data_health_check",
                     "datasource_id": source_id,
@@ -709,7 +792,7 @@ async def _describe_models(scope):
             choice = result["settings"][role]
             if role == "databridge" and choice["source"] == "local":
                 config = (
-                    await _gateway.json("GET", "/api/system/model-config/")
+                    await _gateway.json("GET", "/api/system/model-config/", user_id=identity)
                 )["llm"]
                 model = config.get("model")
                 provider = None
@@ -797,6 +880,30 @@ async def status() -> dict[str, Any]:
     }
 
 
+@router.get("/identity/api/auth/status")
+async def embedded_auth_status(request: Request) -> dict:
+    await console_scope(request)
+    return {"enabled": True, "sso_enabled": False, "sso_login_path": ""}
+
+
+@router.get("/identity/api/auth/me")
+async def embedded_auth_me(request: Request) -> dict:
+    scope = await console_scope(request)
+    result = await _engine_gateway.json("GET", "/api/v1/console/identity",
+        user_id=identity_namespace(scope))
+    result["display_name"] = scope.principal_id
+    result["active_workspace_name"] = scope.workspace_id
+    return result
+
+
+@router.post("/identity/api/auth/refresh")
+async def embedded_auth_refresh(request: Request) -> dict:
+    # The outer host has already verified its current token. Confirm Data's
+    # current membership too; never manufacture a browser Data credential.
+    await embedded_auth_me(request)
+    return {"ok": True}
+
+
 @router.get("/context/api/auth/status")
 async def context_auth_status() -> dict[str, Any]:
     """Report that the embedded console needs no client-side login.
@@ -829,7 +936,8 @@ async def _proxy_set_active_datasource(
         payload = json.loads(await request.body() or b"{}")
     except ValueError:
         payload = None
-    response = await _gateway.proxy(path, request)
+    response = await _gateway.proxy(path, request,
+        user_id=identity_namespace(await console_scope(request)))
     if response.status_code < 400 and isinstance(payload, dict):
         config = load_config()
         config.datasources.active_id = str(
@@ -844,7 +952,8 @@ async def _proxy_delete_datasource(
     request: Request,
 ) -> Response:
     """Forward a datasource deletion and drop a stale active selection."""
-    response = await _gateway.proxy(path, request)
+    response = await _gateway.proxy(path, request,
+        user_id=identity_namespace(await console_scope(request)))
     if response.status_code < 400:
         deleted_id = path.rstrip("/").rsplit("/", 1)[-1]
         config = load_config()
@@ -876,21 +985,8 @@ async def context_proxy(path: str, request: Request) -> Any:
         return await _proxy_set_active_datasource(path, request)
     if request.method == "DELETE" and _DATASOURCE_ITEM_RE.search(path):
         return await _proxy_delete_datasource(path, request)
-    binding = None
-    if "system/model-config" not in path:
-        _, effective = _model_settings.resolve(await console_scope(request))
-        model, _ = effective["databridge"]
-        if model is not None:
-            binding = base64.urlsafe_b64encode(
-                json.dumps(
-                    {
-                        "model": model["model_id"],
-                        "base_url": model["base_url"],
-                        "api_key": model["api_key"],
-                    },
-                ).encode(),
-            ).decode()
-    return await _gateway.proxy(path, request, model_binding=binding)
+    scope = await console_scope(request)
+    return await _gateway.proxy(path, request, user_id=identity_namespace(scope))
 
 
 @router.api_route(
@@ -925,35 +1021,6 @@ async def engine_proxy(path: str, request: Request) -> Any:
 async def get_config() -> dict[str, Any]:
     """Return the current unified plugin configuration."""
     return load_config().to_dict()
-
-
-async def _push_model_config(config: DataAppConfig) -> None:
-    """Push model settings to the running context service, if any."""
-    if not _context_service.is_ready:
-        return
-    try:
-        await _gateway.json(
-            "PUT",
-            "/api/system/model-config/llm",
-            body={
-                "provider": config.llm.provider,
-                "base_url": config.llm.base_url,
-                "model": config.llm.model,
-                "api_key": config.llm.api_key,
-            },
-        )
-        await _gateway.json(
-            "PUT",
-            "/api/system/model-config/embedding",
-            body={
-                "base_url": config.embedding.base_url or config.llm.base_url,
-                "model": config.embedding.model,
-                "api_key": config.embedding.api_key or config.llm.api_key,
-                "dim": config.embedding.dim,
-            },
-        )
-    except HTTPException:
-        logger.exception("Failed to push model config to context service")
 
 
 async def _restore_active_datasource() -> None:
@@ -995,9 +1062,8 @@ async def set_config(payload: dict[str, Any]) -> dict[str, Any]:
     # saving while reuse is enabled also follows host model switches.
     _sync_reuse_from_host(config)
     save_config(config)
-    # If the context service is already running, push the new model
-    # configuration so it takes effect without a manual restart.
-    await _push_model_config(config)
+    # These are managed process defaults. The released Console updates
+    # workspace model selections through the scoped Data APIs.
     return config.to_dict()
 
 
@@ -1105,7 +1171,6 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     if reuse:
         _sync_reuse_from_host(config, strict=True)
     save_config(config)
-    await _push_model_config(config)
     return config.to_dict()
 
 
@@ -1128,11 +1193,8 @@ async def test_config_target(
 ) -> dict[str, Any]:
     """Test connectivity for one configured subsystem.
 
-    LLM and embedding endpoints are probed by the context service itself
-    (``/api/system/model-config/{llm,embedding}/test``): it owns the
-    credentials and dials with the same client the app will use, so its
-    verdict is authoritative. Neo4j is probed from this process because
-    the context service exposes no graph-store test endpoint.
+    Context probes saved provider selections. The host probes explicit draft
+    credentials from the legacy operator form before they are saved.
     """
     if target not in {"llm", "embedding", "neo4j"}:
         raise HTTPException(
@@ -1163,11 +1225,33 @@ async def test_config_target(
     if target == "neo4j":
         return _test_neo4j(payload.get("neo4j", {}))
 
+    draft = payload.get(target, {})
+    if draft.get("api_key"):
+        from openai import AsyncOpenAI, OpenAIError
+
+        if not draft.get("base_url") or not draft.get("model"):
+            return {"ok": False, "error": "Enter the provider URL and model to test this key."}
+        try:
+            async with AsyncOpenAI(
+                api_key=draft["api_key"], base_url=draft["base_url"],
+                http_client=httpx.AsyncClient(follow_redirects=False), timeout=15, max_retries=0,
+            ) as client:
+                if target == "embedding":
+                    result = await client.embeddings.create(model=draft["model"], input=["test"])
+                    return {"ok": True, "error": None, "detected_dim": len(result.data[0].embedding)}
+                await client.chat.completions.create(
+                    model=draft["model"], messages=[{"role": "user", "content": "Reply OK."}],
+                    max_tokens=8,
+                )
+                return {"ok": True, "error": None, "detected_dim": None}
+        except (OpenAIError, ValueError, IndexError, httpx.HTTPError) as exc:
+            return {"ok": False, "error": f"Provider test failed ({type(exc).__name__})"}
+
     try:
         result = await _gateway.json(
             "POST",
             f"/api/system/model-config/{target}/test",
-            body=payload.get(target, {}),
+            body={key: draft[key] for key in ("provider_id", "model", "dim", "base_url") if key in draft},
         )
     except HTTPException as exc:
         # Covers the sidecar startup window and transport failures; the
@@ -1192,12 +1276,17 @@ async def qwenpaw_data_search_context(
     datasource_id: str = "",
     domain: str = "",
 ) -> Any:
-    body: dict[str, Any] = {"query": query, "stream": False}
-    if datasource_id:
-        body["datasource_id"] = datasource_id
-    if domain:
-        body["scope"] = {"domain": domain}
-    return await _gateway.json("POST", "/api/v1/cm/search_context", body=body)
+    """Find metadata evidence; this does not perform graph/entity research."""
+    # 0.4 exposes metadata retrieval separately from research/graph exploration.
+    # Keep datasource/domain filters explicit; do not replace them with a prompt.
+    params = {"query": query, "datasource_id": datasource_id, "domain": domain}
+    metrics = await _gateway.json("GET", "/api/v1/cm/search-metrics", params=params)
+    dimensions = await _gateway.json("GET", "/api/v1/cm/dimensions", params={
+        "name": query, "datasource_id": datasource_id, "domain": domain,
+    })
+    return {"kind": "metadata_context", "metrics": metrics, "dimensions": dimensions,
+            "scope": {"datasource_id": datasource_id, "domain": domain}}
+
 
 
 async def qwenpaw_data_list_domains(datasource_id: str = "") -> Any:
@@ -1210,23 +1299,26 @@ async def qwenpaw_data_explore_entity(
     datasource_id: str = "",
     domain: str = "",
 ) -> Any:
-    body: dict[str, Any] = {"entity_name": entity_name}
-    if datasource_id:
-        body["datasource_id"] = datasource_id
-    if domain:
-        body["domain"] = domain
-    return await _gateway.json("POST", "/api/v1/cm/explore_entity", body=body)
+    result = await qwenpaw_data_search_context(entity_name, datasource_id, domain)
+    return {**result, "entity_name": entity_name,
+            "limitation": "Metadata lookup only; relationship traversal and deep entity research are not provided by this compatibility tool."}
+
 
 
 async def qwenpaw_data_execute_sql(
     sql: str,
     datasource_id: str = "",
-    max_rows: int = 2000,
+    max_rows: int = 1000,
 ) -> Any:
+    if not 1 <= max_rows <= 1000:
+        raise HTTPException(422, "max_rows must be between 1 and 1000")
+    datasource_id = datasource_id.strip() or load_config().datasources.active_id
+    if not datasource_id:
+        raise HTTPException(422, "Select a datasource before executing SQL")
     body: dict[str, Any] = {"sql": sql, "max_rows": max_rows}
     if datasource_id:
         body["datasource_id"] = datasource_id
-    return await _gateway.json("POST", "/api/v1/cm/execute_sql", body=body)
+    return await _gateway.json("POST", "/api/v1/rdb/execute_sql", body=body)
 
 
 plugin = app

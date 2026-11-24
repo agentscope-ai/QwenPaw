@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DataBridge</title>
+<script>
+  const target = new URL("../data-console/index.html", location.href);
+  target.search = location.search;
+  target.hash = !location.hash || location.hash === "#/" ? "/data-source" : location.hash;
+  location.replace(target.href);
+</script>

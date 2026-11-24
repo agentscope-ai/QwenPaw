@@ -1,0 +1,1 @@
+import{r as e,R as a}from"./index-KHiSGKUd.js";function l(l,s){const[t,n]=e.useState(!1),[o,u]=e.useState(s),r=e.useCallback(e=>{u({...e??{}}),n(!0)},[s]),c=e.useCallback(()=>{n(!1)},[]);return{modal:t?a.createElement(l,{...o,visible:t,onCancel:c}):null,showModal:r}}export{l as u};

@@ -44,9 +44,10 @@ _SSE_PATH_RE = re.compile(r"/api/v1/sessions/[^/]+/chats/[^/]+/events/?\Z")
 class EngineGateway:
     """Proxy for the engine's session/chat API, including SSE streams."""
 
-    def __init__(self, service: ManagedService, managed_token: str):
+    def __init__(self, service: ManagedService, managed_token: str, *, workspace_token=None):
         self._service = service
         self._managed_token = managed_token
+        self._workspace_token = workspace_token
         self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
@@ -74,7 +75,7 @@ class EngineGateway:
             path,
             json=body,
             params=params,
-            headers={"X-User-Id": user_id} if user_id else {},
+            headers=await self._user_headers(user_id),
         )
         try:
             response.raise_for_status()
@@ -105,7 +106,7 @@ class EngineGateway:
                 if exc.status_code == 404:
                     raise HTTPException(
                         503,
-                        "Update the Data Engine runtime to 0.3.3 or later",
+                        "Install the 0.4.1 Data Engine runtime",
                     ) from None
                 raise
             if (
@@ -117,8 +118,7 @@ class EngineGateway:
             return await self._stream(upstream_path, request, user_id=user_id)
         body = await request.body()
         headers = self._request_headers(request)
-        if user_id is not None:
-            headers["X-User-Id"] = user_id
+        headers.update(await self._user_headers(user_id))
         response = await self._request(
             request.method,
             upstream_path,
@@ -141,8 +141,7 @@ class EngineGateway:
         user_id: str | None = None,
     ) -> StreamingResponse:
         headers = self._request_headers(request)
-        if user_id is not None:
-            headers["X-User-Id"] = user_id
+        headers.update(await self._user_headers(user_id))
         upstream_request = self._build_request(
             "GET",
             path,
@@ -201,6 +200,13 @@ class EngineGateway:
                 detail="Engine service is unavailable",
             ) from exc
 
+    async def _user_headers(self, user_id: str | None) -> dict[str, str]:
+        if user_id is None:
+            return {}
+        if self._workspace_token is None:
+            raise HTTPException(503, "Engine delegated identity is not configured")
+        return {"Authorization": f"Bearer {await self._workspace_token(user_id)}"}
+
     def _build_request(
         self,
         method: str,
@@ -216,7 +222,7 @@ class EngineGateway:
         )
         headers = dict(kwargs.pop("headers", {}) or {})
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            headers.setdefault("Authorization", f"Bearer {token}")
         try:
             base_url = self._service.base_url
         except RuntimeError as exc:

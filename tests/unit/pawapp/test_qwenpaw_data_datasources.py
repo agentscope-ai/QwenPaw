@@ -136,8 +136,6 @@ async def test_reuse_host_model_copies_llm_from_active(monkeypatch) -> None:
     config = module.DataAppConfig()
     monkeypatch.setattr(module, "load_config", lambda: config)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
-    push = AsyncMock()
-    monkeypatch.setattr(module, "_push_model_config", push)
 
     result = await module.reuse_host_model({"target": "llm", "reuse": True})
 
@@ -149,7 +147,6 @@ async def test_reuse_host_model_copies_llm_from_active(monkeypatch) -> None:
     assert result["llm"]["model"] == "qwen3-max"
     assert result["llm"]["api_key"] == "sk-host"
     assert result["llm"]["host_provider_name"] == "DashScope"
-    push.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -176,7 +173,6 @@ async def test_reuse_host_model_embedding_keeps_local_model(
     config.embedding.dim = 768
     monkeypatch.setattr(module, "load_config", lambda: config)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
-    monkeypatch.setattr(module, "_push_model_config", AsyncMock())
 
     result = await module.reuse_host_model(
         {"target": "embedding", "reuse": True},
@@ -206,7 +202,6 @@ async def test_reuse_host_model_disable_keeps_snapshot(monkeypatch) -> None:
     config.llm.host_provider_name = "Old"
     monkeypatch.setattr(module, "load_config", lambda: config)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
-    monkeypatch.setattr(module, "_push_model_config", AsyncMock())
 
     result = await module.reuse_host_model({"target": "llm", "reuse": False})
 
@@ -300,7 +295,6 @@ async def test_set_config_resyncs_reused_models_from_host(monkeypatch) -> None:
     )
     _patch_manager(monkeypatch, manager)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
-    monkeypatch.setattr(module, "_push_model_config", AsyncMock())
 
     payload = module.DataAppConfig().to_dict()
     payload["llm"] = {
@@ -341,7 +335,6 @@ async def test_set_config_keeps_manual_values_without_reuse(
     )
     _patch_manager(monkeypatch, manager)
     monkeypatch.setattr(module, "save_config", lambda cfg: None)
-    monkeypatch.setattr(module, "_push_model_config", AsyncMock())
 
     payload = module.DataAppConfig().to_dict()
     payload["llm"] = {
@@ -464,7 +457,10 @@ async def test_proxy_set_active_persists_selection(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert saved and saved[-1].datasources.active_id == "pg-demo"
-    proxy.assert_awaited_once_with("datasources/active", request)
+    scope = await module.console_scope(request)
+    proxy.assert_awaited_once_with(
+        "datasources/active", request, user_id=module.identity_namespace(scope),
+    )
 
 
 @pytest.mark.asyncio
@@ -536,11 +532,7 @@ async def test_config_test_forwards_to_context_service() -> None:
     result = await module.test_config_target(
         "llm",
         {
-            "llm": {
-                "base_url": "https://example.com/v1",
-                "api_key": "sk-test",
-                "model": "qwen3-max",
-            },
+            "llm": {"provider_id": "dashscope", "model": "qwen3-max"},
         },
     )
 
@@ -549,11 +541,7 @@ async def test_config_test_forwards_to_context_service() -> None:
     gateway.assert_awaited_once_with(
         "POST",
         "/api/system/model-config/llm/test",
-        body={
-            "base_url": "https://example.com/v1",
-            "api_key": "sk-test",
-            "model": "qwen3-max",
-        },
+        body={"provider_id": "dashscope", "model": "qwen3-max"},
     )
 
 

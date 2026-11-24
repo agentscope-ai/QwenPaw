@@ -1,0 +1,1 @@
+import{a5 as a,a4 as s,aG as e,r as n,j as o,an as t,a9 as r,aH as i}from"./index-KHiSGKUd.js";function l(){const l=a(),{t:c}=s(),f=e();return n.useEffect(()=>{f&&(i()?l(f,{replace:!0}):window.location.replace(f))},[f,l]),f?o.jsx(t,{}):o.jsx(r.Alert,{showIcon:!0,type:"warning",message:c("modelConfig.hostUnavailable")})}export{l as default};

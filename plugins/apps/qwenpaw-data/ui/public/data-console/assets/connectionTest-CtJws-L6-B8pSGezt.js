@@ -1,0 +1,1 @@
+function e(e){const s=e&&"object"==typeof e?e:{},t=s.data&&"object"==typeof s.data?s.data:s;return{success:!0===t.success,message:"string"==typeof t.message?t.message:"",tables_found:"number"==typeof t.tables_found?t.tables_found:null,elapsed_ms:"number"==typeof t.elapsed_ms?t.elapsed_ms:0}}export{e as u};

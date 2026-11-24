@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Install the context service and its CLI companion from PyPI.
 RUN pip install --no-cache-dir \
-    qwenpaw-data-context==0.3.0 \
-    qwenpaw-data-cli==0.3.0
+    qwenpaw-data-context==0.4.1 \
+    qwenpaw-data-cli==0.4.1
 
 EXPOSE 8765
 

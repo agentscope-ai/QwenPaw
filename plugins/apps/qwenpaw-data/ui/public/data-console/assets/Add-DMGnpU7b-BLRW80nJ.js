@@ -1,0 +1,1 @@
+import{a5 as a,r as s,ak as e,j as t,an as n}from"./index-KHiSGKUd.js";function r(){const r=a();return s.useEffect(()=>{r(`${e.DATA_CONNECTION}?action=add`,{replace:!0})},[r]),t.jsx(n,{})}export{r as default};
