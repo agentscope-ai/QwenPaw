@@ -160,6 +160,7 @@ async def create_chat_service(
         cm = ChatManager(
             repo=chat_repo,
             on_session_closed=close_browser_session,
+            shell_workspace_id=ws.agent_id,
         )
         publish(cm)
         logger.info(f"ChatManager created: {chats_path}")

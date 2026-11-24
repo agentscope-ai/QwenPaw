@@ -42,7 +42,6 @@ from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
-from ...utils.logging import sanitize_log_value
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -327,8 +326,7 @@ class BaseChannel(ABC):
                 [],
             ).extend(content_parts)
             logger.debug(
-                "channel debounce: no text, buffered session_id=%s",
-                session_id[:24] if session_id else "",
+                f"{self.channel} buffered {len(content_parts)} non-text parts",
             )
             return (False, [])
         pending = self._pending_content_by_session.pop(session_id, [])
@@ -462,18 +460,13 @@ class BaseChannel(ABC):
                 [TextContent(type=ContentType.TEXT, text=deny_msg)],
                 meta,
             )
-        except Exception:
+        except Exception as exc:
             logger.debug(
-                "%s access control: failed to send deny to %s",
-                self.channel,
-                sender_id[:20] if sender_id else "?",
+                f"{self.channel} access denial notice could not be sent "
+                f"({type(exc).__name__})",
             )
 
-        logger.info(
-            "%s access control blocked: sender=%s",
-            self.channel,
-            sender_id,
-        )
+        logger.info(f"{self.channel} access control blocked a sender")
         return True
 
     def _check_group_mention(
@@ -545,8 +538,7 @@ class BaseChannel(ABC):
             return "New Chat"
         except Exception as e:
             logger.warning(
-                f"Failed to extract chat name from payload: {e}",
-                exc_info=True,
+                f"Failed to extract channel chat name ({type(e).__name__})",
             )
             return "New Chat"
 
@@ -577,8 +569,7 @@ class BaseChannel(ABC):
         )
 
         logger.info(
-            f"_consume_with_tracker: chat_id={chat.id} "
-            f"session={sanitize_log_value(session_id[:30])}",
+            f"{self.channel} consuming tracked chat: chat_id={chat.id}",
         )
 
         # Refresh updated_at so the session list surfaces this chat as the
@@ -586,11 +577,10 @@ class BaseChannel(ABC):
         # existing chat unchanged, so without this the timestamp stays stale.
         try:
             await self._workspace.chat_manager.touch_chat(chat.id)
-        except Exception:  # pylint: disable=broad-except
+        except Exception as exc:  # pylint: disable=broad-except
             logger.debug(
-                "failed to touch chat updated_at: chat_id=%s",
-                chat.id,
-                exc_info=True,
+                f"Failed to touch chat updated_at: chat_id={chat.id} "
+                f"({type(exc).__name__})",
             )
 
         queue, is_new = await self._workspace.task_tracker.attach_or_start(
@@ -612,16 +602,13 @@ class BaseChannel(ABC):
                     pass
             except asyncio.CancelledError:
                 logger.info(
-                    f"Task cancelled: chat_id={chat.id} "
-                    f"session={sanitize_log_value(session_id[:30])}",
+                    f"{self.channel} task cancelled: chat_id={chat.id}",
                 )
                 raise
         else:
             logger.warning(
                 f"Message ignored (task already running): "
-                f"chat_id={chat.id} "
-                f"session={sanitize_log_value(session_id[:30])}. "
-                f"This should not happen with UnifiedQueueManager.",
+                f"channel={self.channel} chat_id={chat.id}",
             )
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
@@ -885,6 +872,16 @@ class BaseChannel(ABC):
                 parts.append(text)
         return "".join(parts)
 
+    def _with_bot_prefix(self, send_meta: Dict[str, Any]) -> Dict[str, Any]:
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            return {**send_meta, "bot_prefix": bot_prefix}
+        return send_meta
+
     async def _stream_with_tracker(
         self,
         payload: Any,
@@ -904,13 +901,7 @@ class BaseChannel(ABC):
         else:
             send_meta = getattr(request, "channel_meta", None) or {}
 
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+        send_meta = self._with_bot_prefix(send_meta)
 
         to_handle = self.get_to_handle_from_request(request)
         session_id = getattr(request, "session_id", "") or ""
@@ -1028,19 +1019,14 @@ class BaseChannel(ABC):
                 await self._on_reply_sent(self.channel, *args)
 
         except asyncio.CancelledError:
-            raw_session = getattr(request, "session_id", "")
-            logger.info(
-                "channel task cancelled: session="
-                f"{sanitize_log_value(raw_session)[:34]}",
-            )
+            logger.debug(f"{self.channel} tracked channel stream cancelled")
             self._clear_session_turn_usage(session_id)
             raise
 
         except Exception as e:
-            logger.exception(
-                f"channel _stream_with_tracker failed: {e}, "
-                f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
-                f"agent={to_handle}",
+            logger.error(
+                f"{self.channel} _stream_with_tracker failed: "
+                f"{type(e).__name__}",
             )
             self._clear_session_turn_usage(session_id)
             if not flush_cleanup_attempted:
@@ -1206,8 +1192,8 @@ class BaseChannel(ABC):
 
         except Exception as err:
             logger.warning(
-                "Event JSON serialization failed; using safe fallback: %s",
-                err,
+                f"Event JSON serialization failed ({type(err).__name__}); "
+                f"using fallback",
             )
             try:
                 if hasattr(event, "model_dump"):
@@ -1221,8 +1207,8 @@ class BaseChannel(ABC):
                 return json.dumps(payload, ensure_ascii=True, default=str)
             except Exception as fallback_err:
                 logger.error(
-                    "Fallback event serialization failed: %s",
-                    fallback_err,
+                    f"Fallback event serialization failed "
+                    f"({type(fallback_err).__name__})",
                 )
                 return json.dumps(
                     {
@@ -1517,7 +1503,7 @@ class BaseChannel(ABC):
         if self._workspace is not None and self._command_registry is not None:
             query_text = self._extract_query_from_payload(payload)
             logger.debug(
-                f"base _consume_one_request: query={query_text[:50]}",
+                f"Channel request: query_chars={len(query_text)}",
             )
             is_control = self._command_registry.is_control_command(
                 query_text,
@@ -1560,13 +1546,7 @@ class BaseChannel(ABC):
                 send_meta["session_webhook"] = payload["session_webhook"]
         else:
             send_meta = getattr(request, "channel_meta", None) or {}
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+        send_meta = self._with_bot_prefix(send_meta)
         logger.info(
             "base _consume_one_request: send_meta has_session_webhook=%s",
             bool((send_meta or {}).get("session_webhook")),
@@ -1636,14 +1616,14 @@ class BaseChannel(ABC):
                 args = self.get_on_reply_sent_args(request, to_handle)
                 await self._on_reply_sent(self.channel, *args)
         except asyncio.CancelledError:
-            logger.info(
-                "channel task cancelled: session=%s",
-                getattr(request, "session_id", "")[:30],
-            )
+            logger.info(f"{self.channel} direct channel task cancelled")
             self._clear_session_turn_usage(session_id)
             raise
-        except Exception:
-            logger.exception("channel consume_one failed")
+        except Exception as exc:
+            logger.error(
+                f"{self.channel} channel consume_one failed "
+                f"({type(exc).__name__})",
+            )
             self._clear_session_turn_usage(session_id)
             await self._on_consume_error(
                 request,
@@ -1720,7 +1700,10 @@ class BaseChannel(ABC):
     def _stream_flush_done(self, task: asyncio.Task[None]) -> None:
         self._stream_flush_tasks.discard(task)
         if not task.cancelled() and task.exception() is not None:
-            logger.warning("streaming delta failed", exc_info=task.exception())
+            logger.warning(
+                f"{self.channel} streaming delta failed "
+                f"({type(task.exception()).__name__})",
+            )
 
     async def _await_stream_flush(self, send_meta, stream_type) -> None:
         from ...plugins.custody import TASK_STOP_SECONDS
@@ -2014,11 +1997,10 @@ class BaseChannel(ABC):
                 session_id,
             )
         # Intentional boundary: provider cleanup cannot fail a channel reply.
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "browser response-cycle cleanup failed for session=%s",
-                session_id[:30],
-                exc_info=True,
+                f"{self.channel} browser response-cycle cleanup failed "
+                f"({type(exc).__name__})",
             )
 
     @staticmethod
@@ -2054,6 +2036,13 @@ class BaseChannel(ABC):
             if turn is None and ctx is None:
                 return []
             self._on_turn_usage_ready(turn, ctx)
+            if turn:
+                logger.info(
+                    f"{self.channel} turn usage: "
+                    f"prompt_tokens={turn.get('prompt_tokens', 0)} "
+                    f"completion_tokens={turn.get('completion_tokens', 0)} "
+                    f"total_tokens={turn.get('total_tokens', 0)}",
+                )
             if not emit_sse:
                 return []
             payload: Dict[str, Any] = {
@@ -2065,8 +2054,8 @@ class BaseChannel(ABC):
             return [
                 f"data: {json.dumps(payload, ensure_ascii=False)}\n\n",
             ]
-        except Exception:
-            logger.warning("turn usage commit skipped", exc_info=True)
+        except Exception as exc:
+            logger.warning(f"Turn usage commit skipped ({type(exc).__name__})")
             return []
 
     def _on_turn_usage_ready(
@@ -2135,13 +2124,10 @@ class BaseChannel(ABC):
         """
         parts = self._message_to_content_parts(message)
         if not parts:
-            logger.debug(
-                f"channel send_message_content: no parts for to_handle="
-                f"{to_handle}, skip send",
-            )
+            logger.debug(f"{self.channel} skipping send without content parts")
             return
         logger.debug(
-            f"channel send_message_content: to_handle={to_handle} "
+            f"{self.channel} sending message content: "
             f"parts_count={len(parts)} "
             f"part_types={[getattr(p, 'type', None) for p in parts]}",
         )
@@ -2176,6 +2162,7 @@ class BaseChannel(ABC):
         tool_name = data.get("name") or "tool"
         chunks: List[str] = []
         seen_chunks: set[str] = set()
+        used = 0
         for block in output:
             if not isinstance(block, dict):
                 continue
@@ -2183,15 +2170,27 @@ class BaseChannel(ABC):
             raw_text = ""
             if block_type == "text":
                 raw_text = str(block.get("text") or "")
-            elif block_type == "thinking":
+            elif (
+                block_type == "thinking" and self._display_config.show_thinking
+            ):
                 raw_text = str(block.get("thinking") or "")
             if not raw_text.strip():
                 continue
-            preview = self._truncate_stream_tool_chunk(raw_text)
+            if not self._display_config.show_tool_details:
+                return f"⌛️ **{tool_name}**:\n`...`"
+            configured_limit = self._display_config.tool_result_max_length
+            remaining = configured_limit - used
+            if configured_limit and remaining <= 0:
+                break
+            preview = self._truncate_stream_tool_chunk(
+                raw_text,
+                min(72, remaining) if configured_limit else 72,
+            )
             if not preview or preview in seen_chunks:
                 continue
             seen_chunks.add(preview)
             chunks.append(preview)
+            used += len(preview)
         if not chunks:
             return None
         return f"⌛️ **{tool_name}**:\n" + "\n".join(
@@ -2243,9 +2242,8 @@ class BaseChannel(ABC):
                 body += "\n[Audio]"
         if body.strip():
             logger.debug(
-                f"channel send_content_parts: to_handle={to_handle} "
-                f"body_len={len(body)} preview="
-                f"{body[:120] + '...' if len(body) > 120 else body}",
+                f"{self.channel} send_content_parts: "
+                f"body_len={len(body)} media_parts={len(media_parts)}",
             )
             await self.send(to_handle, body.strip(), meta)
         for m in media_parts:
@@ -2422,13 +2420,7 @@ class BaseChannel(ABC):
         send_meta: Dict[str, Any] = dict(channel_meta or {})
         send_meta.setdefault("session_id", session_id)
         send_meta.setdefault("user_id", user_id)
-        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self,
-            "_bot_prefix",
-            "",
-        )
-        if bot_prefix and "bot_prefix" not in send_meta:
-            send_meta["bot_prefix"] = bot_prefix
+        send_meta = self._with_bot_prefix(send_meta)
 
         event = Event(
             object="message",

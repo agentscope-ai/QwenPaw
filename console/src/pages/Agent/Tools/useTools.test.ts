@@ -103,6 +103,120 @@ describe("useTools", () => {
     expect(result.current.ready).toBe(true);
   });
 
+  it("takes server switch values on a background refresh without local edits", async () => {
+    const tool = makeTool({ enabled: true, async_execution: false });
+    const updated = { ...tool, enabled: false, async_execution: true };
+    apiMocks.listTools
+      .mockResolvedValueOnce([tool])
+      .mockResolvedValueOnce([updated]);
+
+    const { result } = renderToolsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      await result.current.loadTools({ background: true });
+    });
+
+    expect(result.current.tools).toEqual([updated]);
+  });
+
+  it.each([
+    { field: "enabled", order: "before", start: "during" },
+    { field: "enabled", order: "after", start: "during" },
+    { field: "enabled", order: "before", start: "before" },
+    { field: "async_execution", order: "before", start: "during" },
+    { field: "async_execution", order: "after", start: "before" },
+  ] as const)(
+    "protects $field when the toggle starts $start and resolves $order the refresh",
+    async ({ field, order, start }) => {
+      const tool = makeTool();
+      const otherTool = makeTool({ name: "other-tool" });
+      const otherField = field === "enabled" ? "async_execution" : "enabled";
+      const configValues = { api_key: "***" };
+      const refresh = deferred<ToolInfo[]>();
+      const toggle = deferred<ToolInfo>();
+      const refreshedTools = [
+        { ...tool, [otherField]: true, config_values: configValues },
+        { ...otherTool, [field]: true },
+      ];
+      apiMocks.listTools
+        .mockResolvedValueOnce([tool, otherTool])
+        .mockReturnValueOnce(refresh.promise)
+        .mockResolvedValueOnce(refreshedTools);
+      const operation =
+        field === "enabled" ? "toggleEnabled" : "toggleAsyncExecution";
+      const apiCall =
+        field === "enabled"
+          ? apiMocks.toggleTool
+          : apiMocks.updateAsyncExecution;
+      apiCall.mockReturnValueOnce(toggle.promise);
+
+      const { result } = renderToolsHook();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      act(() => {
+        if (start === "before") void result.current[operation](tool);
+        void result.current.loadTools({ background: true });
+        if (start === "during") void result.current[operation](tool);
+      });
+
+      const finishRefresh = () => {
+        refresh.resolve(refreshedTools);
+      };
+      const finishToggle = () => {
+        toggle.resolve({ ...tool, config_values: {}, [field]: true });
+      };
+      const steps =
+        order === "before"
+          ? [finishToggle, finishRefresh]
+          : [finishRefresh, finishToggle];
+      for (const finish of steps) {
+        await act(async () => finish());
+        expect(result.current.tools[0][field]).toBe(true);
+      }
+      expect(result.current.tools).toEqual([
+        { ...refreshedTools[0], [field]: true },
+        refreshedTools[1],
+      ]);
+
+      await act(async () => {
+        await result.current.loadTools({ background: true });
+      });
+      expect(result.current.tools).toEqual(refreshedTools);
+    },
+  );
+
+  it.each(["enableAll", "disableAll"] as const)(
+    "%s protects only the enabled field of tools it actually toggles",
+    async (operation) => {
+      const enabled = operation === "enableAll";
+      const target = makeTool({ name: "target", enabled: !enabled });
+      const untouched = makeTool({ name: "untouched", enabled });
+      const refreshed = [
+        { ...target, async_execution: true },
+        { ...untouched, enabled: !enabled },
+      ];
+      const refresh = deferred<ToolInfo[]>();
+      const toggle = deferred<ToolInfo>();
+      apiMocks.listTools
+        .mockResolvedValueOnce([target, untouched])
+        .mockReturnValueOnce(refresh.promise);
+      apiMocks.toggleTool.mockReturnValueOnce(toggle.promise);
+
+      const { result } = renderToolsHook();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      act(() => {
+        void result.current[operation]();
+        void result.current.loadTools({ background: true });
+      });
+      await act(async () => refresh.resolve(refreshed));
+      expect(apiMocks.toggleTool).toHaveBeenCalledExactlyOnceWith("target");
+      const expected = [{ ...refreshed[0], enabled }, refreshed[1]];
+      expect(result.current.tools).toEqual(expected);
+
+      await act(async () => toggle.resolve({ ...target, enabled }));
+      expect(result.current.tools).toEqual(expected);
+    },
+  );
+
   it("keeps the latest agent tools when an older request finishes last", async () => {
     const agentARequest = deferred<ToolInfo[]>();
     const agentBRequest = deferred<ToolInfo[]>();
@@ -387,7 +501,7 @@ describe("useTools", () => {
     expect(result.current.batchLoading).toBe(false);
   });
 
-  it("enableAll with disabled tools calls Promise.all(toggleTool) and shows enableAllSuccess", async () => {
+  it("enableAll toggles all disabled tools and shows enableAllSuccess", async () => {
     const t1 = makeTool({ name: "a", enabled: false });
     const t2 = makeTool({ name: "b", enabled: false });
     apiMocks.listTools.mockResolvedValue([t1, t2]);
@@ -410,6 +524,36 @@ describe("useTools", () => {
     expect(apiMocks.toggleTool).toHaveBeenCalledWith("b");
     expect(messageMock.success).toHaveBeenCalledWith("tools.enableAllSuccess");
     expect(result.current.tools.every((t) => t.enabled)).toBe(true);
+  });
+
+  it("reloads after all requests settle when a batch only partially succeeds", async () => {
+    const failed = makeTool({ name: "failed" });
+    const succeeded = makeTool({ name: "succeeded", enabled: true });
+    const pending = deferred<ToolInfo>();
+    apiMocks.listTools
+      .mockResolvedValueOnce([failed, { ...succeeded, enabled: false }])
+      .mockResolvedValueOnce([failed, succeeded]);
+    apiMocks.toggleTool
+      .mockRejectedValueOnce(new Error("fail"))
+      .mockReturnValueOnce(pending.promise);
+
+    const { result } = renderToolsHook();
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    let batch!: Promise<void>;
+    await act(async () => {
+      batch = result.current.enableAll();
+    });
+    expect(apiMocks.listTools).toHaveBeenCalledTimes(1);
+    expect(result.current.batchLoading).toBe(true);
+
+    await act(async () => {
+      pending.resolve(succeeded);
+      await batch;
+    });
+    expect(apiMocks.listTools).toHaveBeenCalledTimes(2);
+    expect(result.current.tools).toEqual([failed, succeeded]);
+    expect(result.current.batchLoading).toBe(false);
+    expect(messageMock.error).toHaveBeenCalledWith("tools.toggleError");
   });
 
   it("saveToolConfig succeeds silently for autosave", async () => {

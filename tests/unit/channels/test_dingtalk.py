@@ -230,7 +230,12 @@ async def send(rt, handle, text="answer", **fields):
 
 
 @pytest.mark.parametrize("group", [False, True])
-async def test_dm_and_group_mention_parse_and_reply_webhook(native, group):
+async def test_dm_and_group_mention_parse_and_reply_webhook(
+    native,
+    group,
+    caplog,
+):
+    caplog.set_level(f"INFO")
     rt = native
     if group:
         await ingress(rt, message("ignored", group=True, mentioned=False))
@@ -239,6 +244,8 @@ async def test_dm_and_group_mention_parse_and_reply_webhook(native, group):
     assert event["acl_sender_id"] == "ding1234"
     assert event["conversation"]["type"] == ("group" if group else "dm")
     assert event["content_parts"] == [{"type": "text", "text": "hello"}]
+    assert f"DingTalk received message: text_chars=5" in caplog.text
+    assert f"hello" not in caplog.text
     assert (await send(rt, event["response_handle"]))[
         "state"
     ] == "acknowledged"

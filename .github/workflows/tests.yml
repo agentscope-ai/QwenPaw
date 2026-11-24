@@ -23,6 +23,11 @@ on:
     branches: [main, master, dev, develop, "release/**"]
   workflow_dispatch:
     inputs:
+      sdk_contracts:
+        description: 'Run focused SDK contracts instead of the full test tiers'
+        required: false
+        default: false
+        type: boolean
       integration_marker:
         description: >-
           Pytest marker expression for the integration tier. Leave blank
@@ -92,7 +97,8 @@ jobs:
     needs: approval-gate
     if: |
       always() &&
-      needs.approval-gate.result == 'success'
+      needs.approval-gate.result == 'success' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.sdk_contracts)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -196,7 +202,8 @@ jobs:
     needs: approval-gate
     if: |
       always() &&
-      needs.approval-gate.result == 'success'
+      needs.approval-gate.result == 'success' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.sdk_contracts)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -262,7 +269,8 @@ jobs:
     needs: [approval-gate]
     if: |
       always() &&
-      needs.approval-gate.result == 'success'
+      needs.approval-gate.result == 'success' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.sdk_contracts)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -444,9 +452,72 @@ jobs:
             exit "$PYTEST_RC"
           fi
 
+  sdk-contracts:
+    name: SDK Contracts - ${{ matrix.os }}
+    needs: approval-gate
+    if: |
+      always() &&
+      needs.approval-gate.result == 'success' &&
+      github.event_name == 'workflow_dispatch' && inputs.sdk_contracts
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux isolation dependency
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns \
+            >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+          python -m pip install -e ".[dev,test,full]"
+      - name: Verify focused contracts
+        shell: bash
+        run: |
+          cases=(tests/unit/plugins/test_sdk_resource_extensions.py::test_cancelled_run_sync_keeps_lock_until_write_finishes)
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cases=(
+              tests/unit/plugins/test_sdk_resource_extensions.py
+              tests/unit/plugins/test_sdk_workspace_contract.py
+              tests/unit/plugins/test_sdk_context_lifecycle.py
+              tests/unit/plugins/test_sdk_member_versions.py
+              tests/integration/test_legacy_plugin_subprocess.py
+            )
+          fi
+          printf 'Commit: `%s`\n\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Test: `%s`\n' "${cases[@]}" >> "$GITHUB_STEP_SUMMARY"
+          python -m pytest "${cases[@]}" -q --timeout=120 \
+            --junitxml=sdk-contract-results.xml
+      - name: Upload focused SDK results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-contracts-${{ matrix.os }}
+          path: sdk-contract-results.xml
+          if-no-files-found: warn
+          retention-days: 7
+
   test-summary:
-    name: Test Summary
-    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests]
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk_contracts && 'SDK Focused Summary' || 'Test Summary' }}
+    needs: [changes, approval-gate, unit-tests, contract-tests, integrated-tests, sdk-contracts]
     # Fail-closed gate. This job ALWAYS runs (no path condition) so the
     # required-check context can never be satisfied by an accidental skip.
     # Four-state decision:
@@ -479,6 +550,14 @@ jobs:
           # Phase-1 item 1-4: the PR gate no longer runs a coverage-report
           # job; coverage is collected and threshold-gated in the nightly
           # full run instead.
+
+          # Focused dispatch has a distinct check name and cannot stand in
+          # for the complete PR gate. It still requires maintainer approval.
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.sdk_contracts }}" = "true" ]; then
+            test "${{ needs.approval-gate.result }}" = "success" &&
+              test "${{ needs.sdk-contracts.result }}" = "success"
+            exit $?
+          fi
 
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "❌ Change detection did not succeed (${{ needs.changes.result }}) — gate closed, refusing untested merge"

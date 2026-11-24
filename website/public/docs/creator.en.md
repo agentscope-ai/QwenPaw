@@ -19,11 +19,16 @@ Creator natively supports [Qwen-MM-Plugins](https://github.com/QwenLM/Qwen-MM-Pl
 
 ### 1. Open Creator
 
-Creator is installed and opened from **Apps** in QwenPaw. Start QwenPaw and open the console (default `http://127.0.0.1:8088/`), select **Apps** in the left navigation, find **QwenPaw Creator**, and choose Install. After installation, open it from the same Apps page.
+In the Console, open **Extension → Apps → Official Apps**, find **QwenPaw Creator**, and install it. Open it from **My Apps** after installation. If it is already there, open it directly.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01gEoPuRRY0KE4fX2q_!!6000000002947-2-tps-2300-1520.png" alt="The Apps navigation and QwenPaw Creator card on the QwenPaw Apps page" />
-  <figcaption>Find QwenPaw Creator in Apps, install it, and open it from the same page.</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i4/O1CN01cAjDVL4oVDJ3FPfU_!!6000000002124-2-tps-1600-1000.png" alt="Install button on the QwenPaw Creator card in Official Apps" />
+  <figcaption>Find QwenPaw Creator in Official Apps and select Install on its card.</figcaption>
+</figure>
+
+<figure class="creator-figure">
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i4/O1CN017KGKcIqvyWB3FPfU_!!6000000002416-2-tps-1600-1000.png" alt="Open app button on the installed QwenPaw Creator card in My Apps" />
+  <figcaption>After installation, switch to My Apps and select Open app to launch Creator.</figcaption>
 </figure>
 
 ### 2. Configure models
@@ -56,7 +61,7 @@ The current model matrix is grouped by capability:
 4. Select **Launch Agent**. The Agent starts planning and opens the workbench.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01z4vG56cEgTB3thAe_!!6000000006487-2-tps-1920-1080.png" alt="The Creator home composer with goal, source import, creation type, aspect ratio, and model controls" />
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i4/O1CN01L15ZKgRlMTD3FPfU_!!6000000000236-2-tps-1600-1000.png" alt="The Creator home composer with goal, source import, creation type, aspect ratio, and model controls" />
   <figcaption>One composer holds the goal, sources, and constraints. It starts the project; the uploaded material then becomes structured project data.</figcaption>
 </figure>
 
@@ -67,8 +72,8 @@ The current model matrix is grouped by capability:
 Creator’s agentic capability is not a separate layer floating beside the editor: **project content itself is actionable Agent context**. The currently selected clip / subtitle / motion / transition / asset appears as a linked object above the AgentDock composer. Timeline points, time ranges, and highlighted text can be inserted through the selection action. You can also use `@` to reference additional objects. Describe the intended change and the Agent works against those exact objects.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01mOyx2tu7UMD3thAe_!!6000000004154-2-tps-1920-1080.png" alt="Creator workbench with element details open and the timeline plus multiple project elements linked in the AgentDock composer" />
-  <figcaption>The current project element is linked in AgentDock, while an exact time range enters the composer as a structured selection. Refine either through natural language or continue editing manually.</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i2/O1CN01DS7npT4mXUC3FPfU_!!6000000007763-2-tps-1600-1000.png" alt="The first clip selected in the timeline with its details open on the right" />
+  <figcaption>Select the first clip in the timeline to see its time range (0 to 10 seconds) and description on the right.</figcaption>
 </figure>
 
 | What you select                                          | How it becomes Agent context                                                   | What remains manually editable                                               |
@@ -137,19 +142,19 @@ Before a paid image or video generation call, the Agent presents a **production 
 
 ## Preview, manage, and export
 
-- **Preview the film**: use “Video Preview” in the workbench, or “Preview” on a card in My Projects;
+- **Preview the film**: play the film above the workbench timeline, or “Preview” on a card in My Projects;
 - **Compose and export**: use “Compose Final Cut” at the upper right, then “Download / Export” to save the finished video;
 - **Manage projects**: My Projects shows creation type, aspect ratio, resolution, and update time, with sorting controls.
 
 <figure class="creator-figure">
-  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i1/O1CN01vnCiZG2Z3DH3thAe_!!6000000005181-2-tps-1920-1080.png" alt="Full Creator project-management page with the complete film preview dialog open" />
-  <figcaption>My Projects brings project status and creation settings together; open Preview to inspect the finished film in a complete dialog.</figcaption>
+  <img class="creator-shot" src="https://img.alicdn.com/imgextra/i4/O1CN01uCV3AyuLcAE3FPfU_!!6000000001092-2-tps-1600-1000.png" alt="The finished sample film playing above the Creator timeline with captions visible" />
+  <figcaption>Play the 63-second sample film above the timeline to check the picture against its clip and caption tracks.</figcaption>
 </figure>
 
 ---
 
 ## Appendix: installation and runtime
 
-Open **Apps** in the QwenPaw console, find **QwenPaw Creator**, and select Install. After installation, open Creator directly from Apps.
+Install from **Extension → Apps → Official Apps**; launch the installed Creator from **My Apps**.
 
 Creator uses a few local tools without changing your system installation: `ffmpeg` handles media processing and composition (set `CREATOR_FFMPEG_PATH`, otherwise it falls back to system `ffmpeg` or `imageio-ffmpeg`); `jq` supports structured Agent edits to project files (`CREATOR_JQ_PATH` or `PATH`). If a dependency is missing, Creator starts in degraded mode; inspect `GET /api/qwenpaw-creator/health` for details.

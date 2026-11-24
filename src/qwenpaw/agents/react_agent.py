@@ -1804,7 +1804,9 @@ class QwenPawAgent(Agent):
         )
         from ..plugins.registry import PluginRegistry
 
-        agent_id = get_current_agent_id()
+        agent_id = (self._request_context or {}).get(
+            "agent_id",
+        ) or get_current_agent_id()
         handlers = PluginRegistry.get_stop_handlers(
             agent_id=agent_id,
         )

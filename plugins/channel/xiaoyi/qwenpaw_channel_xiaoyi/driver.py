@@ -59,6 +59,7 @@ class XiaoYiDriver(SharedResponseDriver):
         self._stopping = False
         await self._restore_responses()
         if not self._config.get("enabled", False):
+            logger.debug(f"XiaoYi startup skipped: channel disabled")
             await self._state_changed("disconnected")
             return
         self._platform = XiaoYiPlatform(
@@ -102,6 +103,7 @@ class XiaoYiDriver(SharedResponseDriver):
             or self._platform is None
             or not self._platform.connected
         ):
+            logger.debug(f"XiaoYi operation requires a connection")
             raise ValueError("NOT_CONNECTED")
         return self._platform
 
@@ -388,6 +390,11 @@ class XiaoYiDriver(SharedResponseDriver):
         handle = snapshot.response_handle
         route = dict(snapshot.route_refs[0].attributes)
         if not route.get("session_id") or not route.get("task_id"):
+            logger.warning(
+                f"XiaoYi completion route incomplete: "
+                f"has_session={bool(route.get('session_id'))} "
+                f"has_task={bool(route.get('task_id'))}",
+            )
             return snapshot
         outcome = snapshot.outcome
         state = (
@@ -409,6 +416,10 @@ class XiaoYiDriver(SharedResponseDriver):
                 if prior_state == f"acknowledged":
                     continue
                 if prior_state == f"unknown":
+                    logger.warning(
+                        f"XiaoYi completion frame not retried: step={step} "
+                        f"reason=previous_result_unknown",
+                    )
                     raise RuntimeError("XIAOYI_FINISH_RESULT_UNKNOWN")
             platform = self._require_connected()
             attributes = {
@@ -423,6 +434,10 @@ class XiaoYiDriver(SharedResponseDriver):
             try:
                 await platform.send_finish_step(route, step, state)
             except XiaoYiDeliveryError as exc:
+                logger.warning(
+                    f"XiaoYi completion frame failed: step={step} "
+                    f"reason={exc.reason_code}",
+                )
                 attributes.update(
                     state="unknown" if exc.side_effect_possible else "failed",
                     reason_code=exc.reason_code,

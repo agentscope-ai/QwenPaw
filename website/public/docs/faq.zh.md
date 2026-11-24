@@ -247,13 +247,13 @@ QwenPaw 已开源，官方仓库地址：
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://qwenpaw.agentscope.io/docs/models)：
 
 - 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商）。
-- 本地模型：支持 `llama.cpp`，LM Studio 和 Ollama。
+- 本地模型：使用可选的 QwenPaw Local 插件，或连接已启动的 Ollama、LM Studio 服务。
 
-配置好模型后，可在模型页面最上方的 **默认 LLM** 中选择目标提供商和目标模型，保存后即为全局默认模型。
+在 **设置 → 模型 → 默认模型** 中选择 **对话模型**，选择后自动保存。**决策模型** 是独立配置，不是第二个对话模型。
 
-如果想为不同智能体配置单独的模型，可以在控制台页面左上角切换智能体，并在 **聊天** 页面右上角为当前智能体选择单独的模型。
+要为某个会话单独选模，请使用聊天输入区的模型选择器。清除会话选择后会重新继承智能体的模型；不会修改智能体或全局默认值。
 
-命令行也可使用 `qwenpaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → qwenpaw models](https://qwenpaw.agentscope.io/docs/cli#qwenpaw-models)。
+在终端配置提供商凭据或切换默认模型，见 [CLI：qwenpaw models](./cli#qwenpaw-models)。
 
 ### 如何使用 QwenPaw-Flash 系列模型
 
@@ -261,13 +261,9 @@ QwenPaw-Flash 是 QwenPaw 官方根据 QwenPaw 的应用场景专门调优的系
 
 QwenPaw-Flash 模型目前已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 以及 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，你可以直接从这两个平台下载使用。
 
-QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
-
 #### QwenPaw Local (llama.cpp)
 
-直接在 QwenPaw Local 的模型界面中选择下载 QwenPaw-Flash 模型并启动即可。
-
-![Start Model](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
+按[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)中的步骤启用插件、安装引擎并启动 Flash GGUF 模型。若看不到提供商卡片，应先检查插件状态，而不是重新下载权重。
 
 > QwenPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
 > 如果无法正常使用 QwenPaw Local，建议先使用 Ollama 或 LM Studio 部署 QwenPaw-Flash 模型。
@@ -311,7 +307,7 @@ PARAMETER top_p 0.95
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. 在 QwenPaw 的模型配置中选择 Ollama 提供商，并在模型页面中自动获取模型即可。
+4. 在 QwenPaw 打开 Ollama 的模型列表，点击 **更新模型列表**，再启用已导入的模型。
 
 #### LM Studio
 
@@ -325,7 +321,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-4. 在 QwenPaw 的模型配置中选择 LM Studio 提供商，并在模型页面中自动获取模型即可。
+4. 在 QwenPaw 打开 LM Studio 的模型列表，点击 **更新模型列表**，再启用已导入的模型。
 
 ### 使用 Ollama / LM Studio 部署的模型时，为什么 QwenPaw 无法完成多轮交互、复杂工具调用，或记不住之前的指令？
 
@@ -361,7 +357,7 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 在控制台进入 **控制 → 定时任务** ，在这里可以创建和管理定时任务。
 
-![cron](https://img.alicdn.com/imgextra/i2/O1CN018UMwzM1stRomiHjJt_!!6000000005824-2-tps-3822-2064.png)
+![cron](https://img.alicdn.com/imgextra/i4/O1CN01o2Be8K5IeUL3FPfU_!!6000000003887-2-tps-1600-1000.png)
 
 最方便的定时任务创建方式是，在你想要获取定时任务返回结果的频道，与QwenPaw对话，让QwenPaw帮你创建一个定时任务。例如，可以直接与QwenPaw对话：“帮我创建一个定时任务，每隔五分钟提醒我喝水。”之后可以在控制台中看到状态为已启用的定时任务。
 
@@ -371,27 +367,29 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 2. 定时任务的 **启用状态** 是否为 **已启动**。
 
-   ![enable](https://img.alicdn.com/imgextra/i2/O1CN01K16c611eHWOs6GKlQ_!!6000000003846-2-tps-3236-888.png)
+   ![enable](https://img.alicdn.com/imgextra/i4/O1CN01o2Be8K5IeUL3FPfU_!!6000000003887-2-tps-1600-1000.png)
 
 3. 定时任务的 **DispatchChannel** 是否被正确地设置为了想要获取返回结果的频道，如 console、dingtalk、feishu、discord、imessage 等。
 
-   ![channel](https://img.alicdn.com/imgextra/i3/O1CN01G55gOc1YvveHrxqTY_!!6000000003122-2-tps-3234-876.png)
+   ![channel](https://img.alicdn.com/imgextra/i3/O1CN01jEfBHZybRRC3FPfU_!!6000000002276-2-tps-1600-1000.png)
 
 4. **DispatchTargetUserID** 和 **DispatchTargetSessionID** 的值是否设置正确。
 
-   ![id](https://img.alicdn.com/imgextra/i1/O1CN01iohIk41N0G0CN6sVq_!!6000000001507-2-tps-3234-874.png)
+   ![id](https://img.alicdn.com/imgextra/i3/O1CN01jEfBHZybRRC3FPfU_!!6000000002276-2-tps-1600-1000.png)
 
    核查方式为，在控制台进入 **控制 → 会话**，找到刚刚创建定时任务的会话。如果想要定时任务返回到这个会话中，需要核查 **UserID** 和 **SessionID** 是否与定时任务的 **DispatchTargetUserID** 和 **DispatchTargetSessionID** 相同。
 
-   ![id](https://img.alicdn.com/imgextra/i1/O1CN01svdDS41a2d3fqShLx_!!6000000003272-2-tps-3236-1068.png)
+   ![id](https://img.alicdn.com/imgextra/i4/O1CN01H32SkeANxUJ3FPfU_!!6000000004818-2-tps-1600-1000.png)
 
 5. 如果觉得定时任务的触发间隔时间不对，需要确认一下定时任务的 **执行时间（Cron）**是否正确。
 
-   ![cron](https://img.alicdn.com/imgextra/i3/O1CN01BtYIqK1Xb1xdYmcai_!!6000000002941-2-tps-3242-892.png)
+   ![cron](https://img.alicdn.com/imgextra/i2/O1CN01Pj3ugYsGeiD3FPfU_!!6000000000723-2-tps-1600-1000.png)
 
 6. 排查结束后，如果想确认一下定时任务是否创建成功，且能成功触发，可以点击 **立即执行**，若成功创建，则可在对应频道收到回复。或者也可以直接与 QwenPaw 对话：“帮我触发一下刚刚创建的提醒喝水定时任务”。
 
-   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01a1IIsY1PhQZ5YXlCe_!!6000000001872-2-tps-3232-890.png)
+   打开任务的 **执行记录**，可查看这次手动触发的时间和结果。
+
+   ![执行记录中手动触发成功的任务](https://img.alicdn.com/imgextra/i3/O1CN01H6ge5gfEBCL3FPfU_!!6000000007924-2-tps-1600-1000.png)
 
 ### 如何管理Skill
 

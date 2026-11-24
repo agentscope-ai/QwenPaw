@@ -3485,6 +3485,7 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    local_model_plugin_migrated: bool = False
     skill_paths: List[str] = Field(
         default_factory=list,
         description="Additional read-only skill pool roots, scanned after "
@@ -4053,7 +4054,11 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 )
 
                 invalidate_agent_migration(workspace_dir)
-            write_json_atomic(agent_config_path, payload)
+            write_json_atomic(
+                agent_config_path,
+                payload,
+                retry_windows_replace=True,
+            )
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:

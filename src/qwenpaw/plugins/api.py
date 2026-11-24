@@ -809,7 +809,17 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     current = getattr(agent, "agent_id", None)
                     if current is not None and current != self._agent_id:
                         return None
-                return self._provider(agent)
+                return self._provider(
+                    (
+                        ctx
+                        if getattr(
+                            self._provider,
+                            "_sdk_request_prompt",
+                            False,
+                        )
+                        else agent
+                    ),
+                )
 
         def extra_teardown():
             if self._registry is not None:

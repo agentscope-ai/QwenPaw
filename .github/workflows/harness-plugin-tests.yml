@@ -75,6 +75,7 @@ jobs:
         run: >-
           python -m pytest -q
           tests/unit/plugins/test_sdk_harness.py
+          tests/unit/plugins/test_sdk_harness_host.py
           tests/unit/runtime/backends/test_harness_runtime.py
           tests/unit/plugins/test_generate_plugin_metadata.py
           tests/unit/plugins/test_download_catalog.py

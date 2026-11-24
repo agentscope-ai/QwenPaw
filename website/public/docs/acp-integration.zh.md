@@ -34,7 +34,7 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 命令行侧准备完成后，你可以在 QwenPaw 中配置自定义 runner，或直接使用内置 runner 与其协作。
 
-外部 runner 需要先在 **Workspace → ACP** 页面中完成配置并启用，之后才能被 `delegate_external_agent` 调用。
+在 **设置 → ACP** 为当前智能体配置并启用 runner。如果页面提示 MCP 插件不可用，请先按提示安装、启用或修复官方 MCP 插件。预设只提供启动配置，不会替你安装外部程序。
 
 当前 ACP 配置页支持为每个 runner 设置以下字段：
 
@@ -54,15 +54,15 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 对于 Linux/macOS，`command` 一般填写外部 agent 以 ACP 模式启动时使用的命令，例如 `opencode`、`qwen`，或者相应 ACP 插件的启动命令，例如 `npx`；`args` 则填写后续参数，例如 `--acp`、`-y` 等。**注意每个参数都需要单独占一行**。源码中默认内置了这些 runner 示例：`opencode`、`qwen_code`、`claude_code`、`codex`。你也可以在 ACP 页面中添加自定义 runner，只要它能够以 ACP 方式运行并被正确配置即可。
 
-![config_mac](https://gw.alicdn.com/imgextra/i3/O1CN01pskmLt29VwyFGhO1r_!!6000000008074-2-tps-1224-472.png)
+![config_mac](https://img.alicdn.com/imgextra/i4/O1CN01Sb9DZIny6qB3FPfU_!!6000000003269-2-tps-1600-1000.png)
 
-对于 Windows，在确保外部 agent 可以在命令行中正常启动和使用后，`command` 字段填写 `cmd`，`args` 的第一行填写 `/c`，后续再逐行填写真正要执行的命令及参数。**注意每个参数都需要单独占一行**。示例如下：
+Windows 上使用 runner 实际安装的启动方式。如果需要通过 `cmd` 调用命令脚本，将 `command` 设为 `cmd`，在 `args` 中依次填写 `/c`、启动命令及其参数，每项一行。原生可执行文件可直接作为 `command`；不要把整条命令粘贴进一个参数。
 
 ![config_win](https://gw.alicdn.com/imgextra/i3/O1CN01BDYXdk22Zt4726sHa_!!6000000007135-2-tps-1608-792.png)
 
-配置完成后，在工具栏中启用 `delegate_external_agent` 工具。
+配置完成后，在当前智能体的 **设置 → 工具** 中启用 `delegate_external_agent` 工具。
 
-![config](https://gw.alicdn.com/imgextra/i1/O1CN01xNZfYc1OM4UFIR79S_!!6000000001690-2-tps-1224-696.png)
+![config](https://img.alicdn.com/imgextra/i3/O1CN01XgncX0JC3SI3FPfU_!!6000000005041-2-tps-1600-1000.png)
 
 随后，你就可以在对话中明确指定要与哪个外部 agent 进行协作。
 
@@ -72,10 +72,10 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 一个典型的委托式 ACP 工作流如下：
 
-1. 在 **Workspace → ACP** 页面中配置并启用一个 runner。
+1. 在 **设置 → ACP** 页面中配置并启用一个 runner。
 2. 在会话中调用 `delegate_external_agent(action="start", runner="...", message="...")`，为该 runner 启动一条新的委托会话。
 3. 如果需要继续协作，调用 `delegate_external_agent(action="message", runner="...", message="...")`，向已开启的 runner 会话发送后续消息。
-4. 如果外部 runner 发起权限请求，先由用户从界面展示的选项中做出选择，再调用 `delegate_external_agent(action="respond", runner="...", message="<exact option id>")` 恢复执行。这里的 `message` 必须是权限请求中返回的**精确 option id**。
+4. 如果委托因权限请求暂停，先由用户从界面展示的选项中做出选择，再调用 `delegate_external_agent(action="respond", runner="...", message="<exact option id>")` 恢复执行。这里的 `message` 必须是权限请求中返回的**精确 option id**。
 5. 委托任务完成后，调用 `delegate_external_agent(action="close", runner="...")` 关闭该 runner 会话。
 
 你也可以在 `start` 或 `message` 时传入类似“请分析当前工作目录结构”或“请把你的自我介绍写入一个 Markdown 文件”这样的任务说明，但底层流程始终对应上述四种 action：`start`、`message`、`respond`、`close`。
@@ -93,15 +93,7 @@ QwenPaw 对 **ACP（Agent Client Protocol）** 提供两种互补的支持方式
 
 ### 权限处理
 
-当外部 ACP runner 请求权限时，QwenPaw **不会替用户做决定**。
-
-相反，它会：
-
-- 暂停当前委托流程
-- 展示权限详情和可选项
-- 等待用户明确选择如何继续
-
-这样可以让委托式 ACP 执行与 QwenPaw 其他能力保持一致的用户可控安全模型。
+需要逐次审批时，请关闭该 runner 的 **可信执行**。此时遇到需要审批的请求，委托会暂停，并显示可选操作。启用可信执行后，符合条件的请求可自动批准，不一定出现弹窗；两种设置下，命中安全硬拦截的请求都会被取消。
 
 ### 什么时候使用 ACP as Tool
 

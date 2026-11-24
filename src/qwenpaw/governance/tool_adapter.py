@@ -131,6 +131,13 @@ class PolicyGuardedTool:
                 from ..plugins._tool_adapter import sdk_function_call
 
                 sdk_methods["call"] = sdk_function_call
+            else:
+                from ..agents.tools.shell import execute_shell_command
+
+                if func is execute_shell_command:
+                    from ..plugins._shell import function_call
+
+                    sdk_methods["call"] = function_call
             real_cls = type(
                 "PolicyGuardedTool",
                 (FunctionTool,),

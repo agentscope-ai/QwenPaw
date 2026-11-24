@@ -1,0 +1,9 @@
+{
+  "id": "example-sdk-mailbox",
+  "name": "SDK Local Mailbox Example",
+  "version": "0.1.0",
+  "type": "channel",
+  "entry": {"descriptor": "channel.json"},
+  "sdk": {"version": "1.2.0", "capabilities": ["channels", "resources", "storage", "logging"]},
+  "publish": false
+}

@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -41,6 +42,8 @@ from .formatting import (
 )
 from .media import QQMedia
 
+logger = logging.getLogger(__name__)
+
 OP_DISPATCH, OP_HEARTBEAT, OP_IDENTIFY = 0, 1, 2
 OP_RESUME, OP_RECONNECT, OP_INVALID_SESSION = 6, 7, 9
 OP_HELLO, OP_HEARTBEAT_ACK = 10, 11
@@ -57,6 +60,7 @@ RATE_LIMIT_DELAY, QUICK_DISCONNECT_THRESHOLD, MAX_QUICK_DISCONNECT_COUNT = (
 )
 DEFAULT_API_BASE = "https://api.sgroup.qq.com"
 TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
+_IP_WHITELIST_ERROR_CODES = {11298, 40023002}
 _MESSAGE_EVENT_SPECS = {
     "C2C_MESSAGE_CREATE": ("c2c", ("user_openid", "id"), ()),
     "GROUP_AT_MESSAGE_CREATE": (
@@ -88,6 +92,30 @@ def _get_api_base():
 
 def _get_token_url():
     return os.getenv("QQ_TOKEN_URL", TOKEN_URL)
+
+
+def _log_api_failure(operation, status, data):
+    fields = data if isinstance(data, dict) else {}
+    code, err_code = fields.get(f"code"), fields.get(f"err_code")
+    code = code if type(code) is int else None
+    err_code = err_code if type(err_code) is int else None
+    message = fields.get(f"message")
+    ip_rejected = bool(_IP_WHITELIST_ERROR_CODES & {code, err_code})
+    if isinstance(message, str):
+        ip_rejected |= f"接口访问源IP不在白名单" in f"".join(message.split()).upper()
+    hint = f" 接口访问源 IP 不在 QQ 开放平台白名单，请检查公网出口 IP。" if ip_rejected else f""
+    trace = fields.get(f"trace_id")
+    trace_hint = f""
+    if (
+        isinstance(trace, str)
+        and len(trace) == 32
+        and all(char in f"0123456789abcdefABCDEF" for char in trace)
+    ):
+        trace_hint = f", trace_id={trace}"
+    logger.warning(
+        f"QQ {operation} failed: HTTP {status}, "
+        f"code={code}, err_code={err_code}{trace_hint}.{hint}",
+    )
 
 
 def _is_recoverable_ws_os_error(exc):
@@ -148,8 +176,11 @@ class _HeartbeatController:
                         {"op": OP_HEARTBEAT, "d": self._state.last_seq},
                     ),
                 )
-        except Exception:
-            pass
+                logger.debug(f"QQ heartbeat sent")
+        except Exception as exc:
+            logger.warning(
+                f"QQ heartbeat send failed ({type(exc).__name__})",
+            )
         finally:
             self._schedule()
 
@@ -330,6 +361,9 @@ class QQPlatform:
         except QQDeliveryError:
             raise
         except httpx.RequestError as exc:
+            logger.debug(
+                f"QQ {method} transport failed ({type(exc).__name__})",
+            )
             raise QQDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -351,12 +385,18 @@ class QQPlatform:
         except ValueError:
             data = {}
         if response.status_code >= 400:
+            _log_api_failure(f"API {method}", response.status_code, data)
             raise QQApiError(path=path, status=response.status_code, data=data)
         if not isinstance(data, dict):
             raise QQDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
             )
+        if any(
+            type(data.get(field)) is int and data[field] != 0
+            for field in (f"code", f"err_code")
+        ):
+            _log_api_failure(f"API {method}", response.status_code, data)
         plan = self._plan.get()
         if plan is not None and method not in {"GET", "HEAD"}:
             plan.effected = True
@@ -394,8 +434,21 @@ class QQPlatform:
                 "clientSecret": self.config["client_secret"],
             },
         )
-        response.raise_for_status()
-        return self._save_token(response.json())
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        if (
+            not response.is_success
+            or not isinstance(data, dict)
+            or not data.get(f"access_token")
+        ):
+            raise QQApiError(
+                path=f"getAppAccessToken",
+                status=response.status_code,
+                data=data,
+            )
+        return self._save_token(data)
 
     async def _get_access_token_async(self):
         token = self._cached_token()
@@ -413,10 +466,33 @@ class QQPlatform:
                 },
             )
             if response.status_code >= 400:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = {}
+                _log_api_failure(
+                    f"access token request",
+                    response.status_code,
+                    data,
+                )
                 raise QQDeliveryError("QQ_TOKEN_REJECTED")
+            data = {}
             try:
-                return self._save_token(response.json())
+                data = response.json()
+                return self._save_token(data)
+            except QQDeliveryError:
+                _log_api_failure(
+                    f"access token result",
+                    response.status_code,
+                    data,
+                )
+                raise
             except (ValueError, TypeError, AttributeError) as exc:
+                _log_api_failure(
+                    f"access token result",
+                    response.status_code,
+                    data,
+                )
                 raise QQDeliveryError("QQ_TOKEN_INVALID") from exc
         finally:
             self._plan.reset(plan_token)
@@ -484,19 +560,32 @@ class QQPlatform:
             return await self._dispatch_text(route, text, markdown)
         except QQApiError as exc:
             if exc.side_effect_possible:
+                logger.warning(
+                    f"QQ text delivery may have succeeded; skipping fallback",
+                )
                 raise
             if markdown and not _should_plaintext_fallback_from_markdown(exc):
+                logger.debug(f"QQ Markdown rejection has no safe fallback")
                 raise
             if markdown:
-                plain, _ = _sanitize_qq_text(text)
+                logger.info(f"QQ retrying rejected Markdown as plain text")
+                plain, changed = _sanitize_qq_text(text)
+                logger.debug(f"QQ fallback adjusted links={changed}")
                 try:
                     return await self._dispatch_text(route, plain, False)
                 except QQApiError as second:
                     exc = second
             if 400 <= exc.status < 500 and _is_url_content_error(exc):
+                logger.info(f"QQ retrying after URL content rejection")
                 plain, _ = _aggressive_sanitize_qq_text(text)
                 return await self._dispatch_text(route, plain, False)
             raise exc
+        except QQDeliveryError as exc:
+            if exc.side_effect_possible:
+                logger.warning(
+                    f"QQ text delivery may be uncertain; skipping fallback",
+                )
+            raise
 
     @staticmethod
     def _stream_path(route):
@@ -645,7 +734,9 @@ class QQPlatform:
         inline = []
         if source == "direct":
             if not markdown:
-                body, _ = _sanitize_qq_text(body)
+                body, changed = _sanitize_qq_text(body)
+                if changed:
+                    logger.debug(f"QQ adjusted links for plain text")
             inline = _IMAGE_TAG_PATTERN.findall(body)
             body = _IMAGE_TAG_PATTERN.sub("", body).strip()
         ids = []
@@ -720,6 +811,7 @@ class QQPlatform:
             or isinstance(native_id, bool)
             or not str(native_id)
         ):
+            logger.warning(f"QQ approval card send returned no receipt")
             raise QQDeliveryError(
                 "APPROVAL_SOURCE_UNKNOWN",
                 side_effect_possible=True,
@@ -736,6 +828,7 @@ class QQPlatform:
             identity.generation,
         )
         self._staged_cards[params.delivery_id] = binding
+        logger.info(f"QQ approval card accepted by platform")
         return self._receipt(route, [str(native_id)])
 
     def complete_card_delivery(self, delivery_id, acknowledged):
@@ -757,6 +850,7 @@ class QQPlatform:
 
     async def _ack_interaction(self, interaction_id, code=0):
         if not interaction_id:
+            logger.debug(f"QQ card ACK skipped: interaction ID is missing")
             return
         try:
             await self._api_request_async(
@@ -765,7 +859,9 @@ class QQPlatform:
                 {"code": code},
             )
         except QQDeliveryError:
-            pass
+            logger.debug(f"QQ card ACK failed: code={code}")
+        else:
+            logger.debug(f"QQ card ACK sent: code={code}")
 
     def _native_callback_route(self, event, actor):
         if event.get("group_openid"):
@@ -796,6 +892,7 @@ class QQPlatform:
     async def _handle_approval(self, event, parsed):
         actor = self._operator(event)
         if not actor:
+            logger.warning(f"QQ card action rejected: operator is missing")
             await self._ack_interaction(str(event.get("id") or ""), 4)
             return False
         nonce = str(parsed["session_ctx"].get("bid") or "")
@@ -828,6 +925,7 @@ class QQPlatform:
                 if native_mid and str(native_mid) != binding.message_id:
                     valid = False
         if valid and nonce in self._cards._processed_requests:
+            logger.debug(f"QQ already processed card action skipped")
             await self._ack_interaction(str(event.get("id") or ""), 3)
             return True
         await self._ack_interaction(str(event.get("id") or ""))
@@ -835,6 +933,7 @@ class QQPlatform:
             try:
                 route = self._native_callback_route(event, actor)
             except ValueError:
+                logger.warning(f"QQ card action has no route")
                 return False
         meta = {
             **route,
@@ -861,7 +960,18 @@ class QQPlatform:
         }
         if valid:
             value.update(approval_binding_id=nonce, approval_actor_id=actor)
-        return await self.on_callback(value)
+        try:
+            accepted = await self.on_callback(value)
+        except Exception as exc:
+            logger.warning(
+                f"QQ card callback admission failed ({type(exc).__name__})",
+            )
+            raise
+        action = parsed["action"]
+        logger.info(
+            f"QQ card action {action}: bound={valid} admitted={accepted}",
+        )
+        return accepted
 
     async def resolve_approval(self, route, params):
         result = params.approval_resolution
@@ -888,6 +998,9 @@ class QQPlatform:
                 )
             )
         if not valid or result.outcome.value not in {"approved", "denied"}:
+            logger.debug(
+                f"QQ approval result uses ordinary reply: bound={valid}",
+            )
             return await self.send_parts(
                 route,
                 params.content_parts,
@@ -906,11 +1019,19 @@ class QQPlatform:
             route.get("operator_display") or result.actor_user_id[-6:],
         )
         # The decision stays committed even if this separate presentation is unknown.
-        return await self.send_parts(
-            {**source, "response_handle": params.to_handle},
-            [{"type": "text", "text": text}],
-            ContentSource.DIRECT,
-        )
+        try:
+            reply = await self.send_parts(
+                {**source, "response_handle": params.to_handle},
+                [{"type": "text", "text": text}],
+                ContentSource.DIRECT,
+            )
+        except QQDeliveryError as exc:
+            logger.warning(
+                f"QQ approval result reply failed: reason={exc.reason_code}",
+            )
+            raise
+        logger.info(f"QQ approval result reply acknowledged: action={action}")
+        return reply
 
     async def _message(self, event_type, data, epoch):
         self._check_epoch(epoch)
@@ -941,6 +1062,7 @@ class QQPlatform:
             )
         )
         if event_id in self._seen_event_ids:
+            logger.debug(f"QQ replayed {event_type} message skipped")
             return True
         self_mentions = [
             mention
@@ -972,6 +1094,10 @@ class QQPlatform:
         if quoted is not None:
             quoted_text = (quoted.get("content") or "").strip()
             attachments = quoted.get("attachments") or []
+            logger.debug(
+                f"QQ quoted message: has_text={bool(quoted_text)} "
+                f"attachments={len(attachments)}",
+            )
             if quoted_text:
                 texts.insert(0, f"[quoted message: {quoted_text}]")
             if attachments:
@@ -1038,7 +1164,9 @@ class QQPlatform:
         self._ack_tasks.discard(task)
         self._cancelled_tasks.discard(task)
         if not task.cancelled():
-            task.exception()
+            error = task.exception()
+            if error is not None:
+                logger.debug(f"QQ message ACK failed ({type(error).__name__})")
 
     def _check_epoch(self, epoch):
         if self._stopping or self._stop_event.is_set() or epoch != self._epoch:
@@ -1089,9 +1217,11 @@ class QQPlatform:
             and state.last_seq is not None
             and seq <= state.last_seq
         ):
+            logger.debug(f"QQ replayed gateway dispatch skipped")
             return None
         if op == OP_HELLO:
             if state.session_id and state.last_seq is not None:
+                logger.info(f"QQ resuming gateway session")
                 ws.send(
                     json.dumps(
                         {
@@ -1113,6 +1243,7 @@ class QQPlatform:
                 )
                 if state.identify_fail_count < 3:
                     intents |= INTENT_DIRECT_MESSAGE | INTENT_GROUP_AND_C2C
+                logger.debug(f"QQ identifying with intents={intents}")
                 ws.send(
                     json.dumps(
                         {
@@ -1134,7 +1265,9 @@ class QQPlatform:
                 state.identify_fail_count = state.reconnect_attempts = 0
                 state.last_connect_time = time.time()
                 self._bridge(self.on_state("connected"), epoch)
+                logger.info(f"QQ gateway event {event_type}")
             elif event_type == "INTERACTION_CREATE":
+                logger.info(f"QQ gateway event INTERACTION_CREATE")
                 ident = (data or {}).get("id")
                 event_id = (
                     "interaction:" + str(ident)
@@ -1157,7 +1290,10 @@ class QQPlatform:
                     )
                     if accepted:
                         self._seen_event_ids.append(event_id)
+                else:
+                    logger.debug(f"QQ replayed card interaction skipped")
             elif event_type in _MESSAGE_EVENT_SPECS:
+                logger.info(f"QQ gateway event {event_type}")
                 # Permanent Core rejections consume the sequence; retryable
                 # admission failures raise and retain the previous sequence.
                 self._bridge(
@@ -1170,12 +1306,19 @@ class QQPlatform:
                 )
             self._check_epoch(epoch)
             if not accepted:
+                logger.warning(
+                    f"QQ gateway event admission failed; reconnecting",
+                )
                 return "break"
             if seq is not None:
                 state.last_seq = seq
+        elif op == OP_HEARTBEAT_ACK:
+            logger.debug(f"QQ heartbeat acknowledged")
         elif op == OP_RECONNECT:
+            logger.info(f"QQ server requested reconnect")
             return "break"
         elif op == OP_INVALID_SESSION:
+            logger.warning(f"QQ invalid session: can_resume={bool(data)}")
             if not data:
                 state.session_id = state.last_seq = None
                 state.identify_fail_count += 1
@@ -1192,6 +1335,9 @@ class QQPlatform:
         if elapsed is not None and elapsed < QUICK_DISCONNECT_THRESHOLD:
             state.quick_disconnect_count += 1
             if state.quick_disconnect_count >= MAX_QUICK_DISCONNECT_COUNT:
+                logger.warning(
+                    f"QQ gateway disconnected repeatedly; backing off",
+                )
                 state.session_id = state.last_seq = None
                 state.should_refresh_token = True
                 state.quick_disconnect_count = 0
@@ -1213,7 +1359,11 @@ class QQPlatform:
         state.reconnect_attempts += 1
         maximum = self.config.get("max_reconnect_attempts", 100)
         if maximum != -1 and state.reconnect_attempts >= maximum:
+            logger.error(f"QQ max reconnect attempts reached ({maximum})")
             return False
+        logger.info(
+            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}",
+        )
         return not self._stop_event.wait(delay)
 
     def _ws_connect_once(self, state, websocket):
@@ -1231,17 +1381,38 @@ class QQPlatform:
                     "Content-Type": "application/json",
                 },
             )
-            response.raise_for_status()
-            url = response.json().get("url")
-            if not url:
-                raise ValueError("QQ_GATEWAY_INVALID")
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            url = data.get(f"url")
+            if not response.is_success or not url:
+                raise QQApiError(
+                    path=f"/gateway",
+                    status=response.status_code,
+                    data=data,
+                )
+            logger.info(f"QQ connecting to gateway")
             ws = websocket.create_connection(
                 url,
                 timeout=15,
                 enable_multithread=True,
             )
             ws.settimeout(1)
-        except Exception:
+        except QQApiError as exc:
+            operation = (
+                f"gateway lookup"
+                if exc.path == f"/gateway"
+                else f"access token request"
+            )
+            _log_api_failure(operation, exc.status, exc.data)
+            return self._wait_and_check_reconnect(state)
+        except Exception as exc:
+            logger.warning(
+                f"QQ gateway connection failed ({type(exc).__name__})",
+            )
             return self._wait_and_check_reconnect(state)
         self._epoch += 1
         epoch = self._epoch
@@ -1269,17 +1440,21 @@ class QQPlatform:
                 ):
                     break
         except websocket.WebSocketConnectionClosedException:
-            pass
+            logger.info(f"QQ gateway connection closed")
         except OSError as exc:
             if (
                 not self._stop_event.is_set()
                 and not _is_recoverable_ws_os_error(exc)
             ):
                 raise
-        except Exception:
+            if not self._stop_event.is_set():
+                logger.warning(
+                    f"QQ gateway connection lost ({type(exc).__name__})",
+                )
+        except Exception as exc:
             # Admission failure fences the rest of this connection. Resume from
             # the last committed disposition; never skip the failed sequence.
-            pass
+            logger.warning(f"QQ gateway receive failed ({type(exc).__name__})")
         finally:
             try:
                 hb.join()
@@ -1304,7 +1479,11 @@ class QQPlatform:
         state.reconnect_attempts += 1
         maximum = self.config.get("max_reconnect_attempts", 100)
         if maximum != -1 and state.reconnect_attempts >= maximum:
+            logger.error(f"QQ max reconnect attempts reached ({maximum})")
             return False
+        logger.info(
+            f"QQ reconnecting in {delay}s, attempt {state.reconnect_attempts}",
+        )
         return not self._stop_event.wait(delay)
 
     def _run_ws_forever(self):
@@ -1316,6 +1495,15 @@ class QQPlatform:
                 pass
         except Exception as exc:
             self._thread_error = exc
+            if (
+                isinstance(exc, ModuleNotFoundError)
+                and exc.name == f"websocket"
+            ):
+                logger.error(f"QQ gateway requires the websocket-client SDK")
+            else:
+                logger.error(
+                    f"QQ gateway thread failed ({type(exc).__name__})",
+                )
         finally:
             if self._sync_http is not None:
                 try:
@@ -1328,6 +1516,7 @@ class QQPlatform:
                 except Exception:
                     pass
             self._stop_event.set()
+            logger.info(f"QQ gateway thread stopped")
 
     async def stop(self):
         if self._stop_task is None or (

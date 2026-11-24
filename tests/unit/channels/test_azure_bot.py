@@ -239,7 +239,7 @@ async def test_group_requires_native_mention_and_uses_shared_group_identity(
         assert kwargs["allow_redirects"] is False
 
 
-async def test_invalid_audience_or_service_binding_never_admits(azure):
+async def test_invalid_audience_or_service_binding_never_admits(azure, caplog):
     _, peer, _, private, _ = azure
     assert (
         await post(azure, activity(), token(private, aud="foreign-app")) == 401
@@ -253,6 +253,9 @@ async def test_invalid_audience_or_service_binding_never_admits(azure):
         == 403
     )
     assert not peer.batches
+    assert f"Azure Bot activity authentication failed" in caplog.text
+    assert f"Azure Bot activity authorization failed" in caplog.text
+    assert f"foreign-app" not in caplog.text
 
 
 async def test_stop_releases_webhook_watchdog_and_unregisters_endpoint(azure):
