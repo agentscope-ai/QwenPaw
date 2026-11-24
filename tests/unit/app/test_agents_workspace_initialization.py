@@ -93,7 +93,9 @@ def test_initialize_agent_workspace_applies_md_template_with_language(
     )
 
     assert recorded_calls == [(language, tmp_path, "qa")]
-    heartbeat_lines = (tmp_path / "HEARTBEAT.md").read_text().splitlines()
+    heartbeat_lines = (
+        (tmp_path / "HEARTBEAT.md").read_text(encoding="utf-8").splitlines()
+    )
     assert heartbeat_lines[0] == "# Heartbeat checklist"
     assert all(line.startswith("- ") for line in heartbeat_lines[1:])
 

@@ -2074,11 +2074,9 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(
     expected_config = json.loads(config_before)
     if public_entry:
         expected_config["tools"]["builtin_tools"].pop("channel_example_send")
-    assert json.loads(user_config.read_text()) == expected_config
-    assert (
-        json.loads(user_config.read_text())["channels"][KEY]["app_secret"]
-        == "local-only"
-    )
+    actual_config = json.loads(user_config.read_bytes())
+    assert actual_config == expected_config
+    assert actual_config["channels"][KEY]["app_secret"] == "local-only"
 
 
 @pytest.mark.asyncio
