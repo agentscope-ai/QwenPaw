@@ -105,6 +105,7 @@ class WeChatMessageParser:
                 ).decode()
             label = ("quoted " if quoted else "") + name
             if not encrypted:
+                logger.warning(f"WeChat {label} missing media locator")
                 add(f"[{label}: no url]")
                 return
             filename = media_item.get("file_name") or default_name
@@ -138,7 +139,8 @@ class WeChatMessageParser:
             digest = hashlib.md5((encrypted or url).encode()).hexdigest()[:8]
             path = self.media_dir / f"wechat_{digest}_{safe_name}"
             path.write_bytes(data)
+            logger.debug(f"WeChat media saved: bytes={len(data)}")
             return str(path)
-        except Exception:
-            logger.warning("WeChat media download failed")
+        except Exception as exc:
+            logger.warning(f"WeChat media error ({type(exc).__name__})")
             return None

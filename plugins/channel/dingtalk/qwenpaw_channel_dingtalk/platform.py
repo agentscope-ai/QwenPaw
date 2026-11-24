@@ -26,13 +26,13 @@ import certifi
 
 from qwenpaw.exceptions import ChannelError
 from qwenpaw.app.channels.utils import file_url_to_local_path
+from . import markdown as dingtalk_markdown
 from .ai_card import ActiveAICard, FAILED, FINISHED, PROCESSING, INPUTING
 from .constants import (
     AI_CARD_RECOVERY_FINAL_TEXT,
     AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS,
     DINGTALK_TOKEN_TTL_SECONDS,
 )
-from .content_utils import session_param_from_webhook_url
 from .utils import guess_suffix_from_file_content
 
 logger = logging.getLogger(__name__)
@@ -281,8 +281,8 @@ class DingTalkPlatform:
         on success.
         """
         msgtype = payload.get("msgtype", "?")
-        session_in_url = session_param_from_webhook_url(session_webhook)
-        logger.debug("DingTalk webhook send: msgtype=%s", msgtype)
+        logger.debug(f"DingTalk webhook send: msgtype={msgtype}")
+        status = None
         try:
             async with self._http.post(
                 session_webhook,
@@ -291,6 +291,7 @@ class DingTalkPlatform:
                     "Content-Type": "application/json; charset=utf-8",
                 },
             ) as resp:
+                status = resp.status
                 body_text = await resp.text()
                 body_json = json.loads(body_text)
                 if (
@@ -302,16 +303,10 @@ class DingTalkPlatform:
                 ):
                     raise ValueError("DingTalk response has no valid errcode")
                 errcode = body_json["errcode"]
-                errmsg = body_json.get("errmsg", "")
                 if errcode != 0:
                     logger.warning(
-                        "dingtalk sessionWebhook POST API error: msgtype=%s "
-                        "session_from_url=%s errcode=%s errmsg=%s body=%s",
-                        msgtype,
-                        session_in_url,
-                        errcode,
-                        errmsg,
-                        body_text[:300],
+                        f"DingTalk sessionWebhook rejected: msgtype={msgtype} "
+                        f"HTTP {resp.status}, errcode={errcode}",
                     )
                     return False
                 if not 200 <= resp.status < 300:
@@ -329,6 +324,10 @@ class DingTalkPlatform:
         except (TimeoutError, aiohttp.ClientError, ValueError) as exc:
             # Once POST begins, absent or unreadable acknowledgement cannot
             # establish rejection. Never let it trigger another delivery.
+            logger.warning(
+                f"DingTalk sessionWebhook acknowledgement unavailable: "
+                f"msgtype={msgtype} HTTP={status} error={type(exc).__name__}",
+            )
             raise TimeoutError("DingTalk delivery outcome is unknown") from exc
 
     @owned_io
@@ -394,14 +393,15 @@ class DingTalkPlatform:
             )
             return True
         except (TimeoutError, aiohttp.ClientConnectionError):
+            logger.warning(
+                f"DingTalk {caller} result unavailable: msg_key={msg_key}",
+            )
             raise
         except Exception as exc:
             self._sdk.raise_uncertain(exc)
-            logger.exception(
-                "dingtalk %s failed: is_group=%s msg_key=%s",
-                caller,
-                is_group,
-                msg_key,
+            logger.warning(
+                f"DingTalk {caller} failed: group={is_group} "
+                f"msg_key={msg_key} error={type(exc).__name__}",
             )
             return False
 
@@ -415,10 +415,7 @@ class DingTalkPlatform:
     ) -> Optional[str]:
         """Upload media via DingTalk Open API and return media_id."""
         logger.info(
-            "dingtalk upload_media: type=%s size=%s filename=%s",
-            media_type,
-            len(data),
-            filename or "(none)",
+            f"DingTalk media upload: type={media_type} bytes={len(data)}",
         )
         token = await self._get_access_token()
         # Use oapi media upload (api.dingtalk.com upload returns 404).
@@ -431,7 +428,6 @@ class DingTalkPlatform:
         )
         ext = "jpg" if media_type == "image" else "bin"
         name = filename or f"upload.{ext}"
-        logger.info(f"dingtalk upload_media: name={name}")
         form = aiohttp.FormData()
         form.add_field(
             "media",
@@ -445,12 +441,15 @@ class DingTalkPlatform:
             async with self._http.post(url, data=form) as resp:
                 result = await resp.json(content_type=None)
                 if resp.status >= 400:
+                    code = (
+                        result.get(f"errcode")
+                        if isinstance(result, dict)
+                        else None
+                    )
+                    safe_code = code if type(code) is int else None
                     logger.warning(
-                        "dingtalk upload_media failed: type=%s status=%s "
-                        "body=%s",
-                        media_type,
-                        resp.status,
-                        result,
+                        f"DingTalk {media_type} upload failed: "
+                        f"HTTP {resp.status}, errcode={safe_code}",
                     )
                     return None
                 errcode = result.get("errcode", 0)
@@ -468,26 +467,15 @@ class DingTalkPlatform:
                     or (result.get("result") or {}).get("mediaId")
                 )
                 if media_id:
-                    mid_preview = (
-                        media_id[:32] + "..."
-                        if len(media_id) > 32
-                        else media_id
-                    )
-                    logger.info(
-                        "dingtalk upload_media ok: type=%s media_id=%s",
-                        media_type,
-                        mid_preview,
-                    )
+                    logger.info(f"DingTalk {media_type} upload acknowledged")
                 else:
                     logger.warning(
                         "dingtalk upload_media: no media_id in response",
                     )
                 return media_id
-        except Exception:
-            logger.exception(
-                "dingtalk upload_media failed: type=%s filename=%s",
-                media_type,
-                filename,
+        except Exception as exc:
+            logger.warning(
+                f"DingTalk {media_type} upload failed ({type(exc).__name__})",
             )
             return None
 
@@ -497,10 +485,8 @@ class DingTalkPlatform:
 
         Supports http(s):// and file:// URLs. file:// is read from local disk.
         """
-        logger.info(
-            "dingtalk fetch_bytes_from_url: url=%s",
-            url[:80] + "..." if len(url) > 80 else url,
-        )
+        local = url.strip().lower().startswith(f"file:")
+        logger.debug(f"DingTalk loading media: file_url={local}")
         try:
             path = file_url_to_local_path(url)
             if path is not None:
@@ -510,11 +496,8 @@ class DingTalkPlatform:
                     len(data),
                 )
                 return data
-            if url.strip().lower().startswith("file:"):
-                logger.warning(
-                    f"dingtalk fetch_bytes_from_url: empty file path for "
-                    f"url={url[:80]}",
-                )
+            if local:
+                logger.warning(f"DingTalk media has no usable file path")
                 return None
             async with self._http.get(url) as resp:
                 if resp.status >= 400:
@@ -529,10 +512,10 @@ class DingTalkPlatform:
                     len(data),
                 )
                 return data
-        except Exception:
-            logger.exception(
-                "dingtalk fetch_bytes_from_url failed: url=%s",
-                url[:80],
+        except Exception as exc:
+            logger.warning(
+                f"DingTalk media loading failed: file_url={local} "
+                f"error={type(exc).__name__}",
             )
             return None
 
@@ -685,6 +668,7 @@ class DingTalkPlatform:
     def _update_connection_state(self) -> None:
         if not self._active or self._client is None:
             return
+        previous = self._state
         if self._is_websocket_open(self._client.websocket):
             self._state = "running"
             self._last_error = None
@@ -693,6 +677,8 @@ class DingTalkPlatform:
             if self._state == "running" or error:
                 self._state = "reconnecting"
             self._last_error = error
+        if self._state != previous:
+            logger.info(f"DingTalk Stream state: {previous} -> {self._state}")
 
     async def health_check(self) -> Dict[str, Any]:
         """Actively verify the DingTalk Stream WebSocket connection."""
@@ -1111,7 +1097,7 @@ class DingTalkPlatform:
             out_track_id=card.card_instance_id,
             guid=str(uuid4()),
             key=self.card_template_key,
-            content=content,
+            content=dingtalk_markdown.ensure_table_spacing(content),
             is_full=True,
             is_finalize=finalize,
             is_error=False,
@@ -1125,11 +1111,8 @@ class DingTalkPlatform:
             )
             runtime = self._sdk.tea_util_models.RuntimeOptions()
             logger.debug(
-                "dingtalk stream ai card: conversation_id=%s finalize=%s "
-                "content_len=%s",
-                card.conversation_id,
-                finalize,
-                len(content),
+                f"DingTalk card update: final={finalize} "
+                f"text_chars={len(content)}",
             )
             await self._card_sdk.streaming_update_with_options_async(
                 request,
@@ -1181,11 +1164,7 @@ class DingTalkPlatform:
                     message=f"stream ai card failed: {first_exc}",
                 ) from first_exc
 
-        logger.debug(
-            "dingtalk stream ai card ok: conversation_id=%s finalize=%s",
-            card.conversation_id,
-            finalize,
-        )
+        logger.debug(f"DingTalk card update acknowledged: final={finalize}")
 
         card.last_streamed_content = content
         card.last_updated = int(time.time() * 1000)
@@ -1296,7 +1275,7 @@ class DingTalkPlatform:
         if not body:
             logger.warning("messageFiles/download: empty response body")
             return None
-        logger.debug("messageFiles/download response body=%s", body)
+        logger.debug(f"DingTalk messageFiles/download returned metadata")
         return getattr(body, "download_url", None)
 
     @owned_io

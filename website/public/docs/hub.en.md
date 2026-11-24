@@ -8,7 +8,7 @@ If you only use QwenPaw on your own computer, keep using the desktop App. Deploy
 
 > Hub 2.2.0 is an early release intended only for internal teams whose members trust one another. Even with HTTPS and remote access configured, do not operate the current version as a public multi-tenant service for unknown users.
 
-![Hub sign-in page and Terms dialog](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
+![Hub sign-in page and Terms dialog](https://img.alicdn.com/imgextra/i1/O1CN01ekXDHk6VliD3FPfU_!!6000000004647-2-tps-1600-1000.png)
 
 ## When to use Hub
 
@@ -107,7 +107,7 @@ Changing the backend, image, or limits does not interrupt a running runtime. Res
 
 The current Docker limits are one administrator-defined policy applied to all containers. Hub does not yet support different quotas per user, resource-usage accounting, multi-node capacity scheduling, or autoscaling. Local also does not provide the same resource controls as containers.
 
-![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
+![Local/Docker backend selector in System Settings](https://img.alicdn.com/imgextra/i1/O1CN01EVgTK8l0AZJ3FPfU_!!6000000006132-2-tps-1600-1000.png)
 
 ## Give a trusted team remote access
 
@@ -176,9 +176,13 @@ Administrators can see each user's runtime and perform these actions:
 | Docker rebuild | Recreates the container with the current image policy    |
 | Delete         | Removes the runtime record but preserves data on disk    |
 
-Users can restart a failed or normally stopped runtime from their personal page. After an administrator disables startup, only an administrator can restore it.
+Select your account in the lower-left corner of the Console, then open **Account → Personal runtime → Restart runtime**.
 
-![Personal runtime status and restart action](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
+![Restart runtime in the Personal runtime section of a Hub member’s Account dialog](https://img.alicdn.com/imgextra/i2/O1CN01toRFWdvzfvK3FPfU_!!6000000002454-2-tps-1600-1000.png)
+
+If the runtime has failed or was stopped normally and the Console cannot open, the startup status page also offers a restart. If an administrator disabled startup, there is no retry button; contact the administrator.
+
+![Startup status page showing Restart runtime after an administrator stopped the process](https://img.alicdn.com/imgextra/i4/O1CN01SEY0x4Q0fNF3FPfU_!!6000000006044-2-tps-1600-1000.png)
 
 ## Where Hub stores data
 
@@ -234,7 +238,7 @@ Enter the complete `Repository:Tag` shown by `docker image ls` and set the pull 
 
 ### Sign-in succeeds, but the personal QwenPaw does not open
 
-Open **Runtimes** and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.
+As an administrator, open **Runtimes** in the admin panel and inspect the user's state and latest error. Confirm that the selected Local or Docker backend is available, then try restarting the runtime.
 
 ### The page opens, but chat does not keep streaming
 

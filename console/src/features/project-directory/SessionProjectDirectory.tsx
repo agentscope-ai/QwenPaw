@@ -91,7 +91,14 @@ interface SessionProjectDirectoryProps {
   compact?: boolean;
   className?: string;
   showFullPath?: boolean;
-  beforeChange?: () => boolean | Promise<boolean>;
+  /**
+   * Consulted before a change is written to the server. `next` is the
+   * directory list the save is about to persist, or `undefined` for flows
+   * that carry no list (clearing it, the legacy single-path field), so a
+   * caller can gate the write itself instead of reacting to it afterwards —
+   * by the time `onChanged` fires the server has already moved.
+   */
+  beforeChange?: (next?: ProjectDirEntry[]) => boolean | Promise<boolean>;
   onChanged?: () => void;
   /** Drive the panel from outside. Omit to keep the built-in open state. */
   open?: boolean;
@@ -572,7 +579,7 @@ export default function SessionProjectDirectory({
    *  normalises every entry and rejects non-directories — the text input is
    *  only another way to name a directory, never a wider permission. */
   const commitSessionList = async (entries: ProjectDirEntry[]) => {
-    if (beforeChange && !(await beforeChange())) return;
+    if (beforeChange && !(await beforeChange(entries))) return;
     const payload: ProjectDirPayloadEntry[] = entries
       .filter((entry) => entry.path.trim())
       .map((entry) => ({
@@ -1288,21 +1295,29 @@ export default function SessionProjectDirectory({
       {!compact && (
         <>
           {showFullPath ? (
-            <span className={styles.triggerIdentity}>
+            <span
+              className={styles.triggerIdentity}
+              data-composer-collapse-content
+            >
               <strong>{basename}</strong>
               <small>{info?.project_dir}</small>
             </span>
           ) : (
-            <span>{basename}</span>
+            <span data-composer-collapse-content>{basename}</span>
           )}
           {/* Extra roots are not listed here; the count signals that
               more than the primary is bound. Driven by the applied list
               so an abandoned edit never shows up as bound. */}
           {isListScope && appliedCount > 1 && (
-            <em title={t("projectDirectory.countTitle")}>·{appliedCount}</em>
+            <em
+              data-composer-collapse-content
+              title={t("projectDirectory.countTitle")}
+            >
+              ·{appliedCount}
+            </em>
           )}
           {!showFullPath && (
-            <em>
+            <em data-composer-collapse-content>
               {t(
                 info?.source === "session"
                   ? "projectDirectory.sessionSource"
@@ -1310,7 +1325,7 @@ export default function SessionProjectDirectory({
               )}
             </em>
           )}
-          <ChevronDown size={12} />
+          <ChevronDown data-composer-collapse-content size={12} />
         </>
       )}
     </button>

@@ -503,6 +503,14 @@ class SharedEndpointService:
                 self.forwarder.fence_endpoint(self)
             self._revision += 1
             self._reference = None
+        if self.forwarder is not None:
+            residual = await self.forwarder.drain(self)
+            if residual:
+                raise RpcError(
+                    RPC_LIFECYCLE_ERROR,
+                    "Channel ingress is still closing",
+                    data={"reason_code": "INGRESS_CLEANUP_INCOMPLETE"},
+                )
         return {"status": "unregistered", "generation": identity.generation}
 
     def pause(self):

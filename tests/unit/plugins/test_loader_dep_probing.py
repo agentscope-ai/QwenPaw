@@ -24,6 +24,253 @@ from qwenpaw.plugins.execution.dependencies import canonical_environment_path
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "outcome",
+    [
+        "complete",
+        "damaged",
+        "partial",
+        "cold",
+        "tampered",
+        "rollback",
+        "busy",
+        "missing_dependency",
+        "maintenance",
+        "no_bootstrap",
+        "runtime_changed",
+        "runtime_boot",
+        "legacy",
+    ],
+)
+async def test_interrupted_additions_require_verified_recovery(
+    tmp_path,
+    monkeypatch,
+    outcome,
+):
+    import asyncio
+    import json
+    import os
+    from packaging.tags import sys_tags
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+    from qwenpaw.plugins.dependency_gate import _publish_additions
+
+    monkeypatch.setattr(maintenance, "_STATE_ROOT", tmp_path / "state")
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    (site / "unrelated.txt").write_text("keep")
+    files = {
+        "sample.py": b"VALUE = 42\n",
+        "sample-1.0.dist-info/METADATA": b"Name: sample\nVersion: 1.0\n",
+        "sample-1.0.dist-info/RECORD": b"sample.py,,\n",
+    }
+    context = {
+        "plugin_id": "sample-plugin",
+        "python_executable": sys.executable,
+        "support_root": str(Path(__file__).resolve().parents[3] / "src"),
+        "sites": list(dict.fromkeys([str(site), *sys.path])),
+        "requirements": ["sample==1.0"],
+        "providers": {"sample": str(site / "sample-1.0.dist-info")},
+        "interpreter": {
+            "executable": sys.executable,
+            "prefix": sys.prefix,
+            "supported_tags": [str(tag) for tag in sys_tags()],
+        },
+    }
+    if outcome == "runtime_changed":
+        context["interpreter"]["prefix"] += "/old-runtime"
+    if outcome == "missing_dependency":
+        context["requirements"].append("absent-recovery-dependency>=1")
+    if outcome == "no_bootstrap":
+        host_package = Path(context["support_root"]) / "qwenpaw"
+        support = tmp_path / "support"
+        package = support / "qwenpaw/plugins"
+        package.mkdir(parents=True)
+        (package.parent / "__init__.py").write_text(
+            "raise AssertionError('Recovery must not restart host bootstrap')\n",
+        )
+        (package / "__init__.py").write_text(
+            "from qwenpaw import __path__ as host_path\n"
+            f"host_path.append({str(host_package)!r})\n"
+            f"__path__ = {[str(host_package / 'plugins')]!r}\n",
+            encoding="utf-8",
+        )
+        context["support_root"] = str(support)
+
+    async def audit():
+        raise TimeoutError("post-publication verification timed out")
+
+    async def evaluate(_snapshot):
+        raise AssertionError("The failed audit must not reach evaluation")
+
+    with pytest.raises(TimeoutError):
+        await _publish_additions(
+            audit,
+            evaluate,
+            site,
+            files,
+            recovery=context,
+        )
+    from qwenpaw.plugins.dependency_recovery import recover_additions
+
+    marker = maintenance.repair_marker(site)
+    assert (
+        marker.exists()
+        and (site / "sample.py").read_bytes() == files["sample.py"]
+    )
+    operation_path = next(
+        (tmp_path / "state/additions").glob("*/operation.json"),
+    )
+    operation = json.loads(operation_path.read_text())
+    assert operation["phase"] == "verification_failed"
+    assert operation["error"]["type"] == "TimeoutError"
+    if outcome == "damaged":
+        (site / "sample.py").write_bytes(b"changed by another operation\n")
+    elif outcome in {"partial", "rollback"}:
+        (site / "sample.py").unlink()
+    elif outcome == "tampered":
+        operation["plan"]["requirements"] = []
+        operation_path.write_text(json.dumps(operation))
+    elif outcome == "legacy":
+        marker.write_text("Dependency verification failed; repair required.\n")
+    before = {p: p.read_bytes() for p in site.rglob("*") if p.is_file()}
+    if outcome in {"cold", "rollback"}:
+        environment = dict(os.environ)
+        environment["QWENPAW_DEPENDENCY_STATE_DIR"] = str(tmp_path / "state")
+        if outcome == "cold":
+            command = [
+                sys.executable,
+                "-I",
+                "-c",
+                "import sys,json;sys.path[:0]=json.loads(sys.argv[1]);"
+                "import qwenpaw;print('COLD_IMPORT_OK')",
+                json.dumps([context["support_root"], *context["sites"]]),
+            ]
+        else:
+            command = [
+                sys.executable,
+                "-I",
+                "-S",
+                str(operation_path.parent / "worker/dependency_recovery.py"),
+                str(site),
+                "--rollback",
+            ]
+        result = await asyncio.to_thread(
+            subprocess.run,
+            command,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert not marker.exists()
+        if outcome == "rollback":
+            assert list(site.iterdir()) == [site / "unrelated.txt"]
+            return
+        assert "COLD_IMPORT_OK" in result.stdout
+    elif outcome == "runtime_boot":
+        from qwenpaw.__version__ import __version__
+        from qwenpaw.plugins.channel_adapter import ChannelRuntimeSettings
+        from qwenpaw.plugins.registry import PluginRegistry
+
+        monkeypatch.setattr(PluginRegistry, "_instance", None)
+        try:
+            await PluginLoader.create(
+                [tmp_path / "plugins"],
+                channel_runtime=ChannelRuntimeSettings(
+                    python_executable=sys.executable,
+                    support_root=Path(context["support_root"]),
+                    qwenpaw_version=__version__,
+                    dependency_paths=(site,),
+                ),
+            )
+            assert not marker.exists()
+        finally:
+            lease = maintenance._READERS.pop(
+                str(maintenance.canonical(site)),
+                None,
+            )
+            if lease is not None:
+                os.close(lease[0])
+                lease[1].unlink(missing_ok=True)
+    elif outcome in {"complete", "no_bootstrap"}:
+        await asyncio.to_thread(recover_additions, (site,))
+        assert not marker.exists()
+        maintenance.check_admission(site)
+    elif outcome == "maintenance":
+        maintenance.marker(site).write_text(
+            json.dumps(
+                {
+                    "id": "another-operation",
+                    "token_hash": "unrelated",
+                },
+            ),
+        )
+        plan = operation["plan"]
+        token = maintenance.capability_context.set(
+            plan["id"] + ":" + plan["capability"],
+        )
+        try:
+            assert not maintenance.authorized(site)
+            with pytest.raises(
+                RuntimeError,
+                match="DEPENDENCY_MAINTENANCE_REQUIRED",
+            ):
+                maintenance.check_admission(site)
+        finally:
+            maintenance.capability_context.reset(token)
+        assert marker.exists()
+    elif outcome == "busy":
+        with maintenance.file_lock(maintenance._gate(site)):
+            with pytest.raises(
+                RuntimeError,
+                match="DEPENDENCY_ENVIRONMENT_BUSY",
+            ):
+                recover_additions((site,), timeout=0)
+        assert marker.exists()
+    else:
+        with pytest.raises(RuntimeError, match="DEPENDENCY_REPAIR_REQUIRED"):
+            recover_additions((site,))
+        assert marker.exists()
+    assert {
+        p: p.read_bytes() for p in site.rglob("*") if p.is_file()
+    } == before
+
+
+@pytest.mark.asyncio
+async def test_additions_record_failure_does_not_poison_environment(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+    from qwenpaw.plugins import dependency_recovery
+    from qwenpaw.plugins.dependency_gate import (
+        _publish_additions,
+        SharedDependencyError,
+    )
+
+    monkeypatch.setattr(maintenance, "_STATE_ROOT", tmp_path / "state")
+    site = tmp_path / "site"
+    site.mkdir()
+
+    def unavailable(*args):
+        raise OSError("Cannot retain recovery evidence")
+
+    monkeypatch.setattr(dependency_recovery, "begin_additions", unavailable)
+    with pytest.raises(SharedDependencyError):
+        await _publish_additions(
+            None,
+            None,
+            site,
+            {"new.py": b"new"},
+            recovery={},
+        )
+    assert not maintenance.repair_marker(site).exists()
+    assert list(site.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "change",
     ["already-installed", "unrelated", "retired-root"],
 )
@@ -459,7 +706,7 @@ async def test_certifi_floor_refuses_old_immutable_provider_before_download(
         side_effect=RuntimeError("protected certifi needs desktop update"),
     )
     context = SimpleNamespace(
-        immutable_providers=lambda: {"certifi": certifi},
+        immutable_providers=lambda *_args, **_kwargs: {"certifi": certifi},
         refuse_immutable_provider=refuse,
     )
     resolver, guard = Mock(), Mock()
@@ -496,7 +743,7 @@ async def test_immutable_installer_without_pip_never_runs_ensurepip(
     resolver = Mock()
     guard = Mock(return_value=False)
     context = SimpleNamespace(
-        immutable_providers=lambda: {},
+        immutable_providers=lambda *_args, **_kwargs: {},
         runtime_identity={"protocol": 1},
     )
     monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", resolver)
@@ -1300,6 +1547,80 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
         importlib.invalidate_caches()
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unrelated",
+        "required",
+        "transitive",
+        "also_installed",
+        "versionless_egg",
+        "ambiguous_name",
+    ],
+)
+@pytest.mark.parametrize("parser", ["stdlib", "backport"])
+def test_missing_metadata_preserves_audit_boundaries(
+    tmp_path,
+    monkeypatch,
+    case,
+    parser,
+):
+    from importlib import metadata
+    from qwenpaw.plugins.execution import dependencies as deps
+
+    site, source = tmp_path / "site", tmp_path / "plugin"
+    source.mkdir()
+    broken = site / {
+        "versionless_egg": "qoder_agent_sdk.egg-info",
+        "ambiguous_name": "qoder-agent-sdk-1.0.9.dist-info",
+    }.get(case, "qoder_agent_sdk-1.0.9.dist-info")
+    (broken / "licenses").mkdir(parents=True)
+    healthy = site / "torch-2.0.dist-info"
+    healthy.mkdir()
+    (healthy / "METADATA").write_text(
+        "Name: torch\nVersion: 2.0\n"
+        + ("Requires-Dist: qoder-agent-sdk\n" if case == "transitive" else ""),
+    )
+    distributions = [
+        metadata.PathDistribution(healthy),
+        metadata.PathDistribution(broken)
+        if parser == "stdlib"
+        else SimpleNamespace(_path=broken, metadata=None),
+    ]
+    if case == "also_installed":
+        installed = site / "qoder_agent_sdk-2.0.dist-info"
+        installed.mkdir()
+        (installed / "METADATA").write_text(
+            "Name: qoder-agent-sdk\nVersion: 2.0\n",
+        )
+        distributions.append(metadata.PathDistribution(installed))
+    monkeypatch.setattr(
+        deps.metadata,
+        "distributions",
+        lambda **kwargs: iter(distributions),
+    )
+    packet = {
+        "code_root": source,
+        "_audit_sites": (site,),
+        "_requirements": [
+            "torch"
+            if case in {"unrelated", "transitive", "ambiguous_name"}
+            else "qoder-agent-sdk",
+        ],
+    }
+    if case != "unrelated":
+        with pytest.raises(
+            deps.ProtocolValidationError,
+            match="DEPENDENCY_METADATA_INVALID",
+        ):
+            deps.observe_dependencies(packet)
+    else:
+        snapshot = deps.observe_dependencies(packet)
+        assert snapshot.distributions["torch"]["version"] == "2.0"
+        assert "qoder-agent-sdk" not in snapshot.distributions
+    assert (broken / "licenses").is_dir()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "layout",
@@ -1985,9 +2306,10 @@ async def test_frozen_dependency_path_preparation_and_loop_publication(
 
     root = tmp_path / "runtime"
     bucket = root / "python"
-    target = bucket / "bundle-new" / "site"
+    target = bucket / "site"
     old = bucket / "bundle-old" / "site"
-    paths = [str(old), str(bucket / "site"), str(tmp_path / "host")]
+    old.mkdir(parents=True)
+    paths = [str(tmp_path / "host")]
     monkeypatch.setattr(sys, "path", paths[:])
     monkeypatch.setenv("QWENPAW_PLUGIN_SITE", "before")
     monkeypatch.setattr(loader_mod, "_is_frozen", lambda: True)
@@ -2034,6 +2356,7 @@ async def test_frozen_dependency_path_preparation_and_loop_publication(
         await asyncio.wait_for(pending, 5)
         assert len(publications) == 1
         assert sys.path == [str(target), str(tmp_path / "host")]
+        assert str(old) not in sys.path
         assert os.environ["QWENPAW_PLUGIN_SITE"] == str(target)
 
 
@@ -2193,3 +2516,265 @@ sys.stdout.buffer.flush()
         record = records["publication-probe"]
         assert record.status == "active", record.diagnostics
         await following.unload_plugin("publication-probe")
+
+
+@pytest.mark.parametrize(
+    ("shadows_loaded_module", "file_backed_record"),
+    [(False, False), (True, False), (False, True)],
+)
+async def test_additions_keep_dependency_inspection_scope_stable(
+    tmp_path,
+    monkeypatch,
+    shadows_loaded_module,
+    file_backed_record,
+):
+    """A newly reachable dependency is inspected equally before/after writes."""
+    import hashlib
+    import zipfile
+
+    from qwenpaw.plugins.dependency_gate import (
+        SharedDependencyError,
+        prepare_shared_dependencies,
+    )
+    from qwenpaw.plugins.dependency_usage import HostModuleFact
+    from qwenpaw.plugins.execution.dependencies import (
+        observe_dependencies,
+        repair_marker,
+    )
+    from qwenpaw.plugins.wheel_additions import WheelAddition
+    from .test_manifest_dependencies import write_wheel
+
+    if file_backed_record:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.wheel_additions._IN_MEMORY_BYTES",
+            128,
+        )
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "audit-owner",
+        payload={
+            "audit-owner-extra.pth": "# Existing file, discovered by a deeper audit\n",
+            "audit_owner/_vendor/loaded_external.py": "VALUE = 'embedded'\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    before = {
+        str(p.relative_to(site)): p.read_bytes()
+        for p in site.rglob("*")
+        if p.is_file()
+    }
+    wheel = write_wheel(
+        tmp_path,
+        "audit-request",
+        metadata_headers="Requires-Dist: audit-owner>=1\n",
+        payload={"loaded_external.py": "VALUE = 'public'\n"}
+        if shadows_loaded_module
+        else {},
+    )
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("audit-request==1.0\n")
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["audit-request==1.0"],
+    }
+    initial = observe_dependencies(packet)
+    assert initial.distributions["audit-owner"]["top_level"] == (
+        "audit_owner",
+    )
+    facts = tuple(
+        HostModuleFact(name, 1, str(site / path), (), ())
+        for name, path in (
+            ("audit_owner", "audit_owner/__init__.py"),
+            ("loaded_external", "audit_owner/_vendor/loaded_external.py"),
+        )
+    )
+    use = SimpleNamespace(
+        origin="host",
+        plugin_id="running-hub",
+        host_modules=facts,
+        snapshot=None,
+        read_admitted=False,
+        environment=SimpleNamespace(sites=(str(site),)),
+    )
+    usage = SimpleNamespace(
+        snapshot=lambda *args, **kwargs: SimpleNamespace(uses=(use,)),
+    )
+
+    async def audit(_spec):
+        return SimpleNamespace(snapshot=observe_dependencies(packet))
+
+    install = prepare_shared_dependencies(
+        SimpleNamespace(audit=audit),
+        SimpleNamespace(
+            python_executable=sys.executable,
+            support_root=Path(__file__).resolve().parents[3] / "src",
+        ),
+        plugin_id="incoming",
+        requirements_file=requirements,
+        usage_registry=usage,
+        install_target=site,
+        wheels=(
+            WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    if shadows_loaded_module:
+        with pytest.raises(
+            SharedDependencyError,
+            match="audit-request.*shadows",
+        ):
+            await install
+        assert not (site / "audit_request").exists()
+    else:
+        result = await install
+        assert result.distributions["audit-request"]["version"] == "1.0"
+        assert (
+            "audit-owner-extra"
+            in result.distributions["audit-owner"]["top_level"]
+        )
+        assert (site / "audit_request/__init__.py").is_file()
+    assert all(
+        (site / path).read_bytes() == content
+        for path, content in before.items()
+    )
+    assert not repair_marker(site).exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["validation_cancel", "audit_error", "audit_cancel"],
+)
+async def test_shared_install_closes_mapping_at_cancellation_boundaries(
+    tmp_path,
+    monkeypatch,
+    failure,
+):
+    import asyncio
+    import hashlib
+    import mmap
+    import threading
+
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.dependency_gate import prepare_shared_dependencies
+    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.install_lock import (
+        environment_install_lock_path,
+        plugin_install_lock,
+    )
+    from .test_manifest_dependencies import write_wheel
+
+    wheel = write_wheel(
+        tmp_path,
+        "close-probe",
+        payload={"close_probe/data.bin": b"x" * 8192},
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original_map = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original_map(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    site = tmp_path / "site"
+    site.mkdir()
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("close-probe==1.0\n")
+    ready, release = threading.Event(), threading.Event()
+    stopped_in_validation = threading.Event()
+    original_digest = wheels._record_digest
+
+    def digest(content, cancel):
+        if failure == "validation_cancel" and len(content) > 4096:
+            ready.set()
+            assert release.wait(5)
+        try:
+            return original_digest(content, cancel)
+        except asyncio.CancelledError:
+            stopped_in_validation.set()
+            raise
+
+    monkeypatch.setattr(wheels, "_record_digest", digest)
+
+    async def audit(_spec):
+        if (site / "close_probe/data.bin").exists():
+            ready.set()
+            if failure == "audit_error":
+                raise RuntimeError("audit failed")
+            await asyncio.Event().wait()
+        return SimpleNamespace(
+            snapshot=observe_dependencies(
+                {
+                    "code_root": str(tmp_path / "candidate"),
+                    "_audit_sites": [str(site)],
+                    "_requirements": ["close-probe==1.0"],
+                },
+            ),
+        )
+
+    loader = PluginLoader([tmp_path / "plugins"])
+
+    async def prepare():
+        async with loader._dependency_install_scope(tmp_path):
+            await prepare_shared_dependencies(
+                SimpleNamespace(audit=audit),
+                SimpleNamespace(
+                    python_executable=sys.executable,
+                    support_root=Path(__file__).resolve().parents[3] / "src",
+                ),
+                plugin_id="close-probe",
+                requirements_file=requirements,
+                usage_registry=SimpleNamespace(
+                    snapshot=lambda *a, **k: SimpleNamespace(uses=()),
+                ),
+                install_target=site,
+                wheels=(
+                    wheels.WheelAddition(
+                        wheel,
+                        hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                    ),
+                ),
+            )
+
+    task = asyncio.create_task(prepare())
+    shutdown = None
+    try:
+        assert await asyncio.to_thread(ready.wait, 5)
+        if failure == "validation_cancel":
+            shutdown = asyncio.create_task(loader.stop_dependency_installs())
+            await asyncio.sleep(0)
+            assert loader._dependency_installs[task].is_set()
+        elif failure == "audit_cancel":
+            task.cancel()
+        release.set()
+        expected = (
+            RuntimeError
+            if failure == "audit_error"
+            else asyncio.CancelledError
+        )
+        with pytest.raises(expected) as error:
+            await task
+        assert error.value.__traceback__ is not None
+        assert mappings and all(value.closed for value in mappings)
+        if failure == "validation_cancel":
+            assert stopped_in_validation.is_set()
+            assert not (site / "close_probe/data.bin").exists()
+            with plugin_install_lock(
+                environment_install_lock_path(site),
+                timeout=0,
+            ) as acquired:
+                assert acquired
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if shutdown is not None:
+            await shutdown

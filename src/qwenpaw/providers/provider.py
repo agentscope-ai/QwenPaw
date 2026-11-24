@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 import re
 from uuid import uuid4
@@ -396,6 +396,16 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         if model is not None and model.model_type != "chat":
             raise ProviderError(
                 message=f"Model '{model_id}' is not a chat model",
+            )
+
+    def validate_chat_model_override(self, model_id: str) -> None:
+        """Require a configured, available model for an explicit chat override."""
+        self.validate_model_selection(model_id)
+        model = self.resolve_model_info(model_id)
+        if not self.model_available(model):
+            reason = model.availability_message or "model is unavailable"
+            raise ProviderError(
+                message=f"Model '{model_id}' cannot be used: {reason}",
             )
 
     def model_protocol(self, model_id: str) -> str:
@@ -1470,6 +1480,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         raise ProviderError(
             message=f"Provider '{self.id}' has no chat model adapter",
         )
+
+    @asynccontextmanager
+    async def _multimodal_probe(self, _model_id: str):
+        """Prepare the connection and yield a probe for a provider snapshot."""
+
+        async def probe(provider, model_id, **options):
+            return await provider.probe_model_multimodal(model_id, **options)
+
+        yield probe
 
     async def probe_model_multimodal(
         self,

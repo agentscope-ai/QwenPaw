@@ -46,7 +46,7 @@
 
 ## 第二步：配置心跳
 
-![heartbeat](https://img.alicdn.com/imgextra/i2/O1CN0197MAPx2002prwqU5N_!!6000000006786-2-tps-3822-2070.png)
+![heartbeat](https://img.alicdn.com/imgextra/i1/O1CN01Qq47daBj4GH3FPfU_!!6000000002660-2-tps-1600-1000.png)
 
 推荐在 console 的 **心跳**页面进行配置。如果想通过修改agent.json实现，参考以下内容。
 

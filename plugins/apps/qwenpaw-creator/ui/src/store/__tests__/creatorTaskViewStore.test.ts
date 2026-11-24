@@ -48,8 +48,17 @@ describe("creator task view refresh ordering", () => {
       }),
     );
 
-    const olderRefresh = useCreatorTaskViewStore.getState().refresh("p1");
-    const newerRefresh = useCreatorTaskViewStore.getState().refresh("p1");
+    // dedupe: false because this case needs two genuinely separate responses
+    // to arrive out of order. Production cannot produce that shape -- two
+    // overlapping reads of one path are served by one shared request now --
+    // but refreshes seconds apart still race, which is what the generation
+    // guard below protects.
+    const olderRefresh = useCreatorTaskViewStore
+      .getState()
+      .refresh("p1", { dedupe: false });
+    const newerRefresh = useCreatorTaskViewStore
+      .getState()
+      .refresh("p1", { dedupe: false });
 
     const terminalRuns: SpecialistRunListResponse = {
       items: [

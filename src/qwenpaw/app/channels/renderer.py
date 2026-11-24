@@ -41,6 +41,7 @@ class SemanticContentPart:
 
     part: _OutgoingPart
     role: str
+    mime_type: str = ""
 
 
 @dataclass
@@ -240,66 +241,6 @@ class MessageRenderer:
                 out.append(TextContent(text=text))
             return out
 
-        def _blocks_to_parts(blocks: list) -> List[_OutgoingPart]:
-            result: List[_OutgoingPart] = []
-            for b in blocks:
-                if hasattr(b, "model_dump"):
-                    b = b.model_dump()
-                if not isinstance(b, dict):
-                    continue
-                btype = b.get("type")
-                if btype == "data":
-                    src = b.get("source") or {}
-                    mt = (
-                        src.get("media_type", "")
-                        if isinstance(src, dict)
-                        else ""
-                    )
-                    for prefix in ("image", "audio", "video"):
-                        if mt.startswith(f"{prefix}/"):
-                            btype = prefix
-                            break
-                    else:
-                        btype = "file"
-                if btype == "text" and b.get("text"):
-                    result.append(TextContent(text=b["text"]))
-                    continue
-                if btype in ("image", "audio", "video", "file"):
-                    src = b.get("source") or {}
-                    stype = src.get("type")
-                    url = None
-                    if stype == "url" and src.get("url"):
-                        url = src["url"]
-                    elif stype == "base64" and src.get("data"):
-                        mt = (
-                            src.get("media_type") or "application/octet-stream"
-                        )
-                        url = f"data:{mt};base64,{src['data']}"
-                    if url:
-                        if btype == "image":
-                            result.append(ImageContent(image_url=url))
-                        elif btype == "video":
-                            result.append(VideoContent(video_url=url))
-                        elif btype == "audio":
-                            result.append(
-                                AudioContent(
-                                    data=url,
-                                    format=b.get("media_type"),
-                                ),
-                            )
-                        else:
-                            result.append(
-                                FileContent(
-                                    file_url=url,
-                                    filename=b.get("filename")
-                                    or b.get("name"),
-                                ),
-                            )
-                if btype == "thinking" and b.get("thinking"):
-                    if s.display_config.show_thinking:
-                        result.append(TextContent(text=b["thinking"]))
-            return result
-
         def _parts_for_tool_output(content_list: list) -> List[_OutgoingPart]:
             out: List[_OutgoingPart] = []
             for c in content_list:
@@ -315,7 +256,13 @@ class MessageRenderer:
                     pass
 
                 if isinstance(output, list):
-                    block_parts = _blocks_to_parts(output)
+                    block_parts = [
+                        item.part
+                        for item in blocks_to_semantic_parts(
+                            output,
+                            s.display_config,
+                        )
+                    ]
                     media_types = (
                         ContentType.IMAGE,
                         ContentType.AUDIO,
@@ -557,3 +504,71 @@ class MessageRenderer:
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 body += "\n[Audio]"
         return body.strip()
+
+
+def blocks_to_semantic_parts(
+    blocks: list,
+    display: ChannelDisplayConfig,
+) -> List[SemanticContentPart]:
+    result: List[SemanticContentPart] = []
+
+    def append(
+        part: _OutgoingPart,
+        role: str = "message",
+        mime_type: str = "",
+    ) -> None:
+        result.append(SemanticContentPart(part, role, mime_type))
+
+    for b in blocks:
+        if hasattr(b, "model_dump"):
+            b = b.model_dump()
+        if not isinstance(b, dict):
+            continue
+        btype = b.get("type")
+        if btype == "data":
+            src = b.get("source") or {}
+            mt = src.get("media_type", "") if isinstance(src, dict) else ""
+            for prefix in ("image", "audio", "video"):
+                if mt.startswith(f"{prefix}/"):
+                    btype = prefix
+                    break
+            else:
+                btype = "file"
+        if btype == "text" and b.get("text"):
+            append(TextContent(text=b["text"]))
+            continue
+        if btype in ("image", "audio", "video", "file"):
+            src = b.get("source") or {}
+            stype = src.get("type")
+            mime_type = src.get("media_type") or b.get("media_type") or ""
+            url = None
+            if stype == "url" and src.get("url"):
+                url = src["url"]
+            elif stype == "base64" and src.get("data"):
+                mt = src.get("media_type") or "application/octet-stream"
+                url = f"data:{mt};base64,{src['data']}"
+            if url:
+                if btype == "image":
+                    append(ImageContent(image_url=url), mime_type=mime_type)
+                elif btype == "video":
+                    append(VideoContent(video_url=url), mime_type=mime_type)
+                elif btype == "audio":
+                    append(
+                        AudioContent(
+                            data=url,
+                            format=b.get("media_type"),
+                        ),
+                        mime_type=mime_type,
+                    )
+                else:
+                    append(
+                        FileContent(
+                            file_url=url,
+                            filename=b.get("filename") or b.get("name"),
+                        ),
+                        mime_type=mime_type,
+                    )
+        if btype == "thinking" and b.get("thinking"):
+            if display.show_thinking:
+                append(TextContent(text=b["thinking"]), "reasoning")
+    return result

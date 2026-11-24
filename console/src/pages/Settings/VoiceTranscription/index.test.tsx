@@ -1,14 +1,23 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ConfigProvider, Modal } from "antd";
 
 const api = vi.hoisted(() => ({
   getAudioMode: vi.fn(),
   getTranscriptionProviderType: vi.fn(),
   getTranscriptionProviders: vi.fn(),
+  getTranscriptionModel: vi.fn(),
   getLocalWhisperStatus: vi.fn(),
   updateAudioMode: vi.fn(),
   updateTranscriptionProviderType: vi.fn(),
   updateTranscriptionProvider: vi.fn(),
+  updateTranscriptionModel: vi.fn(),
 }));
 const app = vi.hoisted(() => ({
   selectedAgent: "agent-a",
@@ -23,7 +32,8 @@ vi.mock("../../../stores/agentStore", () => ({
   }),
 }));
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: app.t }),
 }));
 
@@ -34,6 +44,7 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 vi.mock("../../../api", () => ({ default: api }));
 
 import VoiceTranscriptionPage from ".";
+import { MemoryRouter } from "react-router-dom";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -45,15 +56,98 @@ function deferred<T>() {
 
 describe("VoiceTranscriptionPage initial load", () => {
   beforeEach(() => {
+    ConfigProvider.config({ theme: { token: { motion: false } } });
     vi.clearAllMocks();
     app.selectedAgent = "agent-a";
     api.updateAudioMode.mockResolvedValue(undefined);
     api.updateTranscriptionProviderType.mockResolvedValue(undefined);
     api.updateTranscriptionProvider.mockResolvedValue(undefined);
+    api.getTranscriptionModel.mockResolvedValue({
+      transcription_model: "whisper-1",
+    });
+    api.updateTranscriptionModel.mockResolvedValue(undefined);
   });
-  afterEach(() => {
+  afterEach(async () => {
+    Modal.destroyAll();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    ConfigProvider.config({ theme: { token: { motion: true } } });
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
+
+  it.each([true, false])(
+    "uses the shared confirmation dialog (approve=%s)",
+    async (approve) => {
+      const operation = {
+        id: "whisper-upgrade",
+        plugin_id: "local-whisper",
+        status: "needs_confirmation",
+        changes: [{ name: "torch", current_version: "1", target_version: "2" }],
+        affected_instances: [],
+        requires_restart: false,
+        message: "Confirm dependency changes",
+      };
+      api.getAudioMode.mockResolvedValue({ audio_mode: "auto" });
+      api.getTranscriptionProviderType.mockResolvedValue({
+        transcription_provider_type: "local_whisper",
+      });
+      api.getTranscriptionProviders.mockResolvedValue({
+        providers: [],
+        configured_provider_id: "",
+      });
+      api.getLocalWhisperStatus.mockResolvedValue({
+        available: false,
+        plugin_installed: false,
+        plugin_enabled: false,
+        plugin_status: "missing",
+        state: "needs_confirmation",
+        ffmpeg_installed: true,
+        whisper_installed: false,
+        dependency_upgrade: operation,
+      });
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ...operation,
+          status: approve ? "succeeded" : "cancelled",
+          result: { id: "local-whisper" },
+        }),
+      });
+      vi.stubGlobal("fetch", fetch);
+      render(
+        <MemoryRouter>
+          <VoiceTranscriptionPage />
+        </MemoryRouter>,
+      );
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "voiceTranscription.localWhisperReview",
+        }),
+      );
+      expect(await screen.findByText("torch: 1 → 2")).toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalled();
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: approve
+            ? "pluginManager.dependencyUpgrade.confirm"
+            : "common.cancel",
+        }),
+      );
+      await waitFor(() =>
+        expect(fetch).toHaveBeenCalledExactlyOnceWith(
+          expect.stringContaining(
+            `/plugins/dependency-upgrades/whisper-upgrade${
+              approve ? "/apply" : ""
+            }`,
+          ),
+          expect.objectContaining({ method: approve ? "POST" : "DELETE" }),
+        ),
+      );
+      await waitFor(() =>
+        expect(api.getLocalWhisperStatus.mock.calls.length).toBeGreaterThan(1),
+      );
+    },
+  );
 
   it("blocks edits until retry restores the persisted settings", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -75,7 +169,11 @@ describe("VoiceTranscriptionPage initial load", () => {
       whisper_installed: true,
     });
 
-    render(<VoiceTranscriptionPage />);
+    render(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
 
     const retry = await screen.findByRole("button", { name: "common.retry" });
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -94,6 +192,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
 
     loadFails = false;
     fireEvent.click(retry);
@@ -115,6 +214,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
   });
 
   it("hides agent A controls while agent B settings are loading", async () => {
@@ -148,7 +248,11 @@ describe("VoiceTranscriptionPage initial load", () => {
       })
       .mockReturnValueOnce(bWhisper.promise);
 
-    const { rerender } = render(<VoiceTranscriptionPage />);
+    const { rerender } = render(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
     expect(
       await screen.findByRole("radio", {
         name: "voiceTranscription.modeAuto",
@@ -156,7 +260,11 @@ describe("VoiceTranscriptionPage initial load", () => {
     ).toBeChecked();
 
     app.selectedAgent = "agent-b";
-    rerender(<VoiceTranscriptionPage />);
+    rerender(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
 
     expect(
       screen.queryByRole("radiogroup", {
@@ -166,6 +274,7 @@ describe("VoiceTranscriptionPage initial load", () => {
     expect(api.updateAudioMode).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProviderType).not.toHaveBeenCalled();
     expect(api.updateTranscriptionProvider).not.toHaveBeenCalled();
+    expect(api.updateTranscriptionModel).not.toHaveBeenCalled();
 
     bMode.resolve({ audio_mode: "native" });
     bProviderType.resolve({ transcription_provider_type: "local_whisper" });

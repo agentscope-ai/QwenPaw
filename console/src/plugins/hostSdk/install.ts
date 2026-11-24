@@ -11,6 +11,7 @@
  */
 import type React from "react";
 import { chatExtensions } from "../registry/chatExtensions";
+import { harnessNamespace } from "../harnesses";
 import { auditStore } from "../registry/audit";
 import { pluginSystem } from "../hostExternals";
 import { combineDisposables } from "../registry/types";
@@ -45,6 +46,8 @@ import {
 } from "./hooks";
 import { hostFetch } from "./fetch";
 import { submitChat } from "./chatSubmit";
+import { composer } from "./composer";
+import { selectAgent } from "./selectAgent";
 import { openExternalLink } from "../../utils/openExternalLink";
 import type { ChatCodeBlockProps, ChatSubmitInput } from "../types/qwenpaw";
 
@@ -123,6 +126,7 @@ interface ResponsePartial {
 }
 
 export interface QwenPawChatNamespace {
+  composer: typeof composer;
   codeBlock(
     pluginId: string,
     language: string,
@@ -419,6 +423,7 @@ function makeChatNamespace(): QwenPawChatNamespace {
     codeBlock: (pid, language, component) =>
       chatExtensions.addCodeBlock(pid, language, component),
     submit: submitChat,
+    composer,
     toolRender: (pid, toolName, render) => {
       // Mirror to existing pluginSystem.toolRenderers so the old
       // `usePlugins().toolRenderConfig` path keeps producing the same map.
@@ -443,6 +448,7 @@ export function installHostSdk(): void {
   if (typeof window === "undefined") return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ns = (window.QwenPaw as any) ?? ((window as any).QwenPaw = {});
+  ns.harnesses = harnessNamespace;
 
   if (!ns.chat) {
     ns.chat = makeChatNamespace();
@@ -464,6 +470,7 @@ export function installHostSdk(): void {
   if (!host.useSelectedAgent) host.useSelectedAgent = useHostSelectedAgent;
   if (!host.useCurrentSession) host.useCurrentSession = useHostCurrentSession;
   if (!host.getSelectedAgentId) host.getSelectedAgentId = getSelectedAgentId;
+  if (!host.selectAgent) host.selectAgent = selectAgent;
   if (!host.getCurrentSessionId) host.getCurrentSessionId = getCurrentSessionId;
   if (!host.fetch) host.fetch = hostFetch;
   if (!host.openExternalLink) host.openExternalLink = openExternalLink;

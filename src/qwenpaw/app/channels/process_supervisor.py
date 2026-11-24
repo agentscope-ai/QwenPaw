@@ -2,12 +2,16 @@
 """Channel handshake adapter over the public plugin process component."""
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 from copy import deepcopy
-from ...channel_protocol.artifacts import code_root_digest
 from dataclasses import dataclass, field, replace
+import logging
+import os
 from pathlib import Path
 from typing import Any
+
+from ...channel_protocol.artifacts import code_root_digest
 from ...plugins.execution.bootstrap import validate_private_environment
 from ...plugins.execution.process import (  # pylint: disable=unused-import
     PluginProcess,
@@ -58,6 +62,9 @@ class LaunchSpec:
     workspace_id: str | None = None
     private_env: Mapping[str, str] = field(default_factory=dict, repr=False)
     send_timeout: float = DEFAULT_SEND_TIMEOUT
+    sdk_storage_root: Path | None = None
+    sdk_media_root: Path | None = None
+    sdk_workspace_id: str | None = None
 
     def __post_init__(self):
         validate_send_timeout(self.send_timeout)
@@ -85,6 +92,18 @@ class ChannelProcess(PluginProcess):
     connecting_state = "connecting"
     component_states = {"connecting", "connected", "disconnected", "failed"}
     failed_reason = "PLATFORM_START_FAILED"
+
+    def _launch_environment(self) -> dict[str, str]:
+        """Project this runtime's resolved paths into channel workers only."""
+        from ...constant import WORKING_DIR
+
+        environment = super()._launch_environment()
+        environment["QWENPAW_WORKING_DIR"] = str(WORKING_DIR)
+        if os.name != "nt" and (home := os.environ.get("HOME")):
+            environment["HOME"] = str(Path(home).absolute())
+        if runtime_id := os.environ.get("QWENPAW_RUNTIME_ID"):
+            environment["QWENPAW_RUNTIME_ID"] = runtime_id
+        return environment
 
     def endpoint_observation(self) -> dict[str, Any]:
         """Read current run/handshake custody without exposing launch secrets."""
@@ -304,11 +323,18 @@ class ChannelProcess(PluginProcess):
         )
         packet["config"] = dict(spec.config)
         packet["private_env"] = spec.private_env
-        if self._mode == "manage":
-            packet.update(
-                plugin_id=spec.plugin_id,
-                workspace_id=spec.workspace_id,
-            )
+        packet.update(
+            plugin_id=spec.plugin_id,
+            workspace_id=spec.workspace_id,
+            sdk_workspace_id=spec.sdk_workspace_id,
+        )
+        for name in ("sdk_storage_root", "sdk_media_root"):
+            value = getattr(spec, name)
+            packet[name] = str(value) if value is not None else None
+        if self._mode in {"run", "manage"}:
+            packet["channel_log_level"] = logging.getLogger(
+                "qwenpaw",
+            ).getEffectiveLevel()
         return self._encode_packet(packet)
 
     def _worker_path(self, spec):

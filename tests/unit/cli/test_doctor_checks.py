@@ -1443,95 +1443,6 @@ class TestActiveLlmLocalFailureHint:
 
 
 # ---------------------------------------------------------------------------
-# qwenpaw_local_llm_deep_notes
-# ---------------------------------------------------------------------------
-
-
-class TestQwenpawLocalLlmDeepNotes:
-    def _patch_manager(self, monkeypatch, manager):
-        monkeypatch.setattr(
-            "qwenpaw.local_models.manager.LocalModelManager",
-            manager,
-        )
-
-    def test_all_ok(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                return True, "found"
-
-            def get_llamacpp_server_status(self):
-                return {
-                    "running": True,
-                    "port": 8080,
-                    "model_name": "m",
-                    "pid": 1,
-                }
-
-            def is_llamacpp_server_transitioning(self):
-                return True
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("binary: OK" in n for n in notes)
-        assert any("running=True" in n for n in notes)
-        assert any("transitioning" in n for n in notes)
-
-    def test_missing_binary_and_errors(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                return False, ""
-
-            def get_llamacpp_server_status(self):
-                raise RuntimeError("no status")
-
-            def is_llamacpp_server_transitioning(self):
-                raise RuntimeError("no")
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("missing or not installed" in n for n in notes)
-        assert any("server status failed" in n for n in notes)
-
-    def test_manager_get_instance_fails(self, monkeypatch):
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                raise RuntimeError("boom")
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert len(notes) == 1
-        assert "LocalModelManager" in notes[0]
-
-    def test_install_check_exception(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                raise RuntimeError("check exploded")
-
-            def get_llamacpp_server_status(self):
-                return {}
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("install check failed" in n for n in notes)
-
-
-# ---------------------------------------------------------------------------
 # model slot resolution / connection checks
 # ---------------------------------------------------------------------------
 
@@ -1897,6 +1808,56 @@ class TestCheckEnabledAgentsModelConnections:
         assert any("unreachable" in line for line in lines)
         assert any("ollama serve" in line for line in lines)
 
+    @pytest.mark.parametrize("cloud_ok", [True, False])
+    def test_local_skip_preserves_cloud_check(self, monkeypatch, cloud_ok):
+        checked = []
+
+        async def check(model, timeout=None):
+            checked.append(model)
+            return cloud_ok, "" if cloud_ok else "cloud unreachable"
+
+        provider = SimpleNamespace(
+            is_local=False,
+            base_url="http://cloud.test",
+            require_api_key=False,
+            check_model_connection=check,
+        )
+
+        class _Mgr:
+            def get_active_model(self):
+                return None
+
+            def get_provider(self, pid):
+                return provider if pid == "cloud" else None
+
+        self._patch_pm(monkeypatch, _Mgr())
+        monkeypatch.setattr(
+            dc,
+            "load_agent_config",
+            lambda aid: SimpleNamespace(
+                active_model=SimpleNamespace(
+                    provider_id="qwenpaw-local" if aid == "local" else "cloud",
+                    model=aid,
+                ),
+            ),
+        )
+        cfg = _make_config(
+            {aid: _profile_ref(aid, "/x") for aid in ("local", "cloud")},
+        )
+        ok, lines, _ = asyncio.run(
+            dc.check_enabled_agents_model_connections(
+                cfg,
+                timeout=1.0,
+                deep=False,
+            ),
+        )
+        assert checked == ["cloud"]
+        assert ok is cloud_ok
+        assert any("local: SKIP" in line for line in lines)
+        assert any(
+            f"cloud: {'OK' if cloud_ok else 'FAIL'}" in line for line in lines
+        )
+
     def test_check_exception_treated_as_failure(self, monkeypatch):
         class _Provider:
             is_local = False
@@ -1930,45 +1891,6 @@ class TestCheckEnabledAgentsModelConnections:
         )
         assert ok is False
         assert any("boom" in line for line in lines)
-
-    def test_deep_local_provider_adds_notes(self, monkeypatch):
-        class _Provider:
-            is_local = True
-            base_url = "http://127.0.0.1:8080"
-            require_api_key = False
-            support_connection_check = True
-
-            async def check_model_connection(self, model, timeout=None):
-                return True, ""
-
-        class _Mgr:
-            def get_active_model(self):
-                return SimpleNamespace(provider_id="qwenpaw-local", model="m")
-
-            def get_provider(self, pid):
-                return _Provider()
-
-        self._patch_pm(monkeypatch, _Mgr())
-        agent_cfg = SimpleNamespace(
-            active_model=None,
-            llm_routing=SimpleNamespace(enabled=False),
-        )
-        monkeypatch.setattr(dc, "load_agent_config", lambda aid: agent_cfg)
-        monkeypatch.setattr(
-            dc,
-            "qwenpaw_local_llm_deep_notes",
-            lambda: ["llama.cpp binary: OK"],
-        )
-        cfg = _make_config({"a": _profile_ref("a", "/x")})
-        ok, lines, notes = asyncio.run(
-            dc.check_enabled_agents_model_connections(
-                cfg,
-                timeout=1.0,
-                deep=True,
-            ),
-        )
-        assert ok is True
-        assert notes == ["llama.cpp binary: OK"]
 
 
 # ---------------------------------------------------------------------------

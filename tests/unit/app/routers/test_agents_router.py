@@ -289,7 +289,7 @@ async def test_get_agent_loads_config_off_event_loop(monkeypatch):
     assert calls[0][1] == ("bot",)
 
 
-def test_update_backend_settings_from_chat(client):
+def test_update_backend_settings_from_chat(client, installed_router_harnesses):
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -320,7 +320,10 @@ def test_update_backend_settings_from_chat(client):
     assert len(calls) == 1
 
 
-def test_backend_settings_patch_preserves_absent_fields(client):
+def test_backend_settings_patch_preserves_absent_fields(
+    client,
+    installed_router_harnesses,
+):
     """A field missing from the PATCH body must not be cleared."""
     cfg = AgentProfileConfig(
         id="bot",
@@ -346,7 +349,10 @@ def test_backend_settings_patch_preserves_absent_fields(client):
     }
 
 
-def test_backend_settings_patch_explicit_null_clears_field(client):
+def test_backend_settings_patch_explicit_null_clears_field(
+    client,
+    installed_router_harnesses,
+):
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -566,7 +572,7 @@ def test_get_agent_returns_404_for_app_base_exception(client):
 
 @pytest.mark.parametrize(
     ("backend", "expected_status"),
-    [("missing", 400), ("claude", 409)],
+    [("missing", 409), ("claude", 409)],
 )
 def test_create_agent_rejects_unavailable_backend(
     client,
@@ -579,6 +585,11 @@ def test_create_agent_rejects_unavailable_backend(
     )
 
     assert response.status_code == expected_status
+    assert response.json()["detail"] == {
+        "code": "backend_unavailable",
+        "backend_id": backend,
+        "status": "missing",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2169,3 +2180,61 @@ def test_copy_agent_optional_assets_match_request_flags(
         assert not (new_ws / "jobs.json").exists()
 
     manager_mock.schedule_agent_startup.assert_called_once_with(agent_id)
+
+
+# ---------------------------------------------------------------------------
+# Skill copy skips installer-owned directories (review: Leirunlin, 2026-11-20)
+# ---------------------------------------------------------------------------
+
+
+def test_a_skill_copy_skips_the_installer_owned_directories(tmp_path: Path):
+    """Copying an agent's skills must not walk rollback churn.
+
+    Retired trees and rollback backup roots belong to the installer and can
+    disappear while the copy is reading them. Ordinary hidden entries — a
+    dotfile inside a skill, or an unrelated dotted skill — are content and
+    have to survive.
+    """
+    from types import SimpleNamespace
+
+    from qwenpaw.app.routers.agents import _copy_selected_workspace_files
+
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    skills = source / "skills"
+    (skills / "demo").mkdir(parents=True)
+    (skills / "demo" / "SKILL.md").write_text("body", encoding="utf-8")
+    (skills / "demo" / ".env").write_text("secret", encoding="utf-8")
+    (skills / ".hidden-skill").mkdir()
+    (skills / ".hidden-skill" / "SKILL.md").write_text(
+        "hidden",
+        encoding="utf-8",
+    )
+    (skills / ".demo.retired-abc123").mkdir()
+    (skills / ".demo.retired-abc123" / "old.txt").write_text(
+        "old",
+        encoding="utf-8",
+    )
+    (skills / ".qwenpaw_skill_rollback_demo_1").mkdir()
+    (skills / ".qwenpaw_skill_rollback_demo_1" / "backup.txt").write_text(
+        "backup",
+        encoding="utf-8",
+    )
+    target.mkdir()
+
+    _copy_selected_workspace_files(
+        request=SimpleNamespace(
+            copy_md_files=False,
+            copy_skills=True,
+            copy_jobs=False,
+        ),
+        source_workspace=source,
+        workspace_dir=target,
+    )
+
+    copied = target / "skills"
+    assert (copied / "demo" / "SKILL.md").is_file()
+    assert (copied / "demo" / ".env").is_file()
+    assert (copied / ".hidden-skill" / "SKILL.md").is_file()
+    assert not (copied / ".demo.retired-abc123").exists()
+    assert not (copied / ".qwenpaw_skill_rollback_demo_1").exists()

@@ -26,6 +26,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...installation_origin import InstallationOrigin, validated_origin
 from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
@@ -39,6 +40,10 @@ from ...agents.skill_system import (
     refresh_pool_automation,
     run_pool_auto_sync,
 )
+
+# The rollback root naming rule lives with the store that creates those
+# directories, so the copy path and the installer cannot drift apart.
+from ...agents.skill_system.store import ROLLBACK_ROOT_PREFIX
 from ...agents.skill_system.registry import (
     BUILTIN_SKILL_LANGUAGES,
     get_pool_builtin_sync_status,
@@ -68,6 +73,7 @@ from ...agents.skill_system.store import (
     with_cancel_checker,
 )
 from ...security.skill_scanner import SkillScanError
+from ...utils.io_utils import rename_or_copy_directory
 from ..inbox_store import append_event as append_inbox_event
 from ..utils import check_upload_size, schedule_agent_reload
 
@@ -256,6 +262,7 @@ class SkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
@@ -280,6 +287,7 @@ class PoolSkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     external: bool = False
     external_path: str = ""
@@ -622,6 +630,10 @@ def _workspace_dir_for_agent(agent_id: str) -> Path:
     )
 
 
+_ROLLBACK_ROOT_PREFIX = ROLLBACK_ROOT_PREFIX
+_RESTORE_FAILED_MARKER = ".restore_failed"
+
+
 def _snapshot_workspace_skill(
     workspace_dir: Path,
     skill_name: str,
@@ -631,11 +643,29 @@ def _snapshot_workspace_skill(
     skill_dir = workspace_dir / "skills" / skill_name
     backup_dir: Path | None = None
     if skill_dir.exists():
-        backup_root = Path(
-            tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
-        )
-        backup_dir = backup_root / skill_name
-        shutil.copytree(skill_dir, backup_dir)
+        # Backups live beside the skill under ``skills/`` so a restore is a
+        # sibling rename rather than a second copy; the dotted name keeps them
+        # out of skill scans. Directory creation and the copy are one attempt:
+        # the workspace can accept the directory and still refuse the copy,
+        # and only then does the system temp directory get a turn.
+        prefix = f"{_ROLLBACK_ROOT_PREFIX}{skill_name}_"
+        backup_dir = None
+        last_error: OSError | None = None
+        for parent in (skill_dir.parent, None):
+            backup_root: Path | None = None
+            try:
+                backup_root = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+                candidate = backup_root / skill_name
+                shutil.copytree(skill_dir, candidate)
+                backup_dir = candidate
+                break
+            except OSError as exc:  # try the system temp directory next
+                last_error = exc
+                if backup_root is not None:
+                    shutil.rmtree(backup_root, ignore_errors=True)
+        else:
+            if last_error is not None:
+                raise last_error
     return {
         "workspace_dir": workspace_dir,
         "skill_name": skill_name,
@@ -651,10 +681,41 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     backup_dir = snapshot.get("backup_dir")
     entry = snapshot.get("entry")
 
-    if skill_dir.exists():
-        shutil.rmtree(skill_dir)
-    if backup_dir is not None and Path(backup_dir).exists():
-        shutil.copytree(Path(backup_dir), skill_dir)
+    # A replay must not start by deleting the target: the first pass consumed
+    # the backup by renaming it back, so there would be nothing to restore.
+    # The manifest write and cleanup still run, since those are what a retry
+    # can still fail on.
+    if not snapshot.get("files_restored"):
+        if backup_dir is None:
+            # Nothing to put back: the skill did not exist before the install,
+            # so undoing it means removing what was copied in.
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+            snapshot["files_restored"] = True
+        elif Path(backup_dir).exists():
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+            skill_dir.parent.mkdir(parents=True, exist_ok=True)
+            # Rollback must finish even after the request was cancelled, so
+            # the copy fallback here is the plain one, not the cancellable
+            # install copy.
+            rename_or_copy_directory(
+                Path(backup_dir),
+                skill_dir,
+                copy_directory=shutil.copytree,
+            )
+            snapshot["files_restored"] = True
+        else:
+            # The backup is gone and nothing else proves the files are back.
+            # A pass of this same snapshot sets ``files_restored`` before it
+            # returns, so a replay never reaches here; what does reach here is
+            # a process killed between consuming the backup and recording it.
+            # The workspace may still hold the new version, so keep it as it
+            # is and report the files step instead of a successful rollback.
+            raise RuntimeError(
+                f"Rollback backup {backup_dir} is missing; cannot confirm "
+                f"{skill_name} was restored",
+            )
 
     def _restore(payload: dict[str, Any]) -> None:
         payload.setdefault("skills", {})
@@ -669,8 +730,122 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
         _restore,
     )
     reconcile_workspace_manifest(workspace_dir)
-    if backup_dir is not None:
-        shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
+
+
+def _mark_retained_backup(snapshot: dict[str, Any]) -> None:
+    """Mark a backup the batch kept, for whoever inspects the workspace.
+
+    The backup of a target whose restore failed is the only copy of the
+    previous version left on disk. The batch keeps the root because the
+    snapshot says the restore failed; the marker is not read by any cleanup
+    path any more. It is written so someone looking at the directory can tell
+    why it was left behind instead of having to guess from its name.
+    """
+    backup_dir = snapshot.get("backup_dir")
+    if backup_dir is None:
+        return
+    marker = Path(backup_dir).parent / _RESTORE_FAILED_MARKER
+    try:
+        marker.write_text("restore_failed\n", encoding="utf-8")
+    except OSError:
+        logger.warning("Could not mark the retained backup %s", marker.parent)
+
+
+_RESTORE_STEP_FILES = "files"
+_RESTORE_STEP_MANIFEST = "manifest"
+
+
+def _restore_failure(
+    rollback: dict[str, Any],
+    step: str,
+    exc: Exception,
+) -> dict[str, str]:
+    """One workspace whose rollback could not finish, and where it stopped."""
+    return {
+        "workspace_id": str(rollback.get("workspace_id", "")),
+        "workspace_dir": str(rollback.get("workspace_dir", "")),
+        "step": step,
+        "error": f"{type(exc).__name__}: {exc}",
+    }
+
+
+def _restore_workspace_skills(
+    entered_targets: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Undo every entered target in reverse order, continuing past errors.
+
+    *entered_targets* holds only the targets whose install had started. A
+    target that was never reached still owns a snapshot, but undoing it would
+    replace content nobody changed; the batch cleanup, which sees the whole
+    plan, is what releases those.
+
+    A single failure used to leave the loop and strand the remaining
+    workspaces on the new content while the caller removed their backups.
+
+    A target whose files are already back but whose manifest write failed is
+    retried once: the retry skips the files, which the earlier pass restored,
+    and repeats only the manifest step. Anything still failing is returned
+    with the workspace and the step that failed, so the caller can report
+    which workspace still needs attention instead of only the original
+    install error.
+
+    A snapshot that could not be put back is marked ``restore_failed`` so the
+    caller's cleanup keeps its backup: after a failed restore that backup is
+    the only copy of the previous version left on disk.
+    """
+    failures: list[dict[str, str]] = []
+    for rollback in reversed(entered_targets):
+        snapshot = rollback["snapshot"]
+        try:
+            _restore_workspace_skill(snapshot)
+            continue
+        except Exception as exc:
+            # Before the files are back nothing else can be retried: the
+            # manifest write is only meaningful once they are.
+            if not snapshot.get("files_restored"):
+                snapshot["restore_failed"] = True
+                failures.append(
+                    _restore_failure(rollback, _RESTORE_STEP_FILES, exc),
+                )
+                continue
+        try:
+            _restore_workspace_skill(snapshot)
+        except Exception as exc:
+            snapshot["restore_failed"] = True
+            failures.append(
+                _restore_failure(rollback, _RESTORE_STEP_MANIFEST, exc),
+            )
+    return failures
+
+
+def _report_restore_failures(
+    cause: BaseException,
+    failures: list[dict[str, str]],
+) -> None:
+    """Surface every workspace that still needs attention.
+
+    Reporting only the install error hides a rollback that could not put a
+    workspace back. The same list is attached to the raised detail so the
+    caller of the endpoint sees it too, not just the log.
+    """
+    if not failures:
+        return
+    for failure in failures:
+        logger.error(
+            "Rollback left %s needing attention (%s): %s",
+            failure["workspace_id"],
+            failure["step"],
+            failure["error"],
+        )
+    if isinstance(cause, HTTPException):
+        detail = cause.detail
+        if isinstance(detail, dict):
+            cause.detail = {**detail, "restore_failures": failures}
+        else:
+            cause.detail = {
+                "detail": detail,
+                "restore_failures": failures,
+            }
 
 
 async def _request_workspace_dir(request: Request) -> Path:
@@ -867,6 +1042,7 @@ async def _run_hub_install_task(
                     "enabled": False,
                     "source_url": result.source_url,
                     "installed_from": result.installed_from,
+                    "installation_origin": result.installation_origin,
                 },
             )
             return
@@ -879,6 +1055,7 @@ async def _run_hub_install_task(
                 "enabled": result.enabled,
                 "source_url": result.source_url,
                 "installed_from": result.installed_from,
+                "installation_origin": result.installation_origin,
             },
         )
     except SkillImportCancelled:
@@ -952,6 +1129,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
@@ -1000,6 +1180,9 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
                     external_path=str(skill_dir) if is_external else "",
@@ -1052,6 +1235,7 @@ def _build_workspace_skill_detail(
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
@@ -1095,6 +1279,7 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
         external_path=str(skill_dir) if is_external else "",
@@ -1488,6 +1673,7 @@ async def import_skill_pool_from_hub(
         "enabled": False,
         "source_url": result.source_url,
         "installed_from": result.installed_from,
+        "installation_origin": result.installation_origin,
     }
 
 
@@ -1569,37 +1755,48 @@ def _build_download_plan(
     targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
-    """Build execution plan with rollback snapshots."""
+    """Build the execution plan, taking ownership of each rollback snapshot.
+
+    The stack holds every backup until the plan is complete: the download
+    loop's ``finally`` has not started yet and would leave them behind.
+    """
     plan: list[dict[str, Any]] = []
-    for target in targets:
-        snapshot = _snapshot_workspace_skill(
-            target.workspace_dir,
-            str(skill_name),
-        )
-        plan.append(
-            {
-                "workspace_id": target.workspace_id,
-                "workspace_dir": target.workspace_dir,
-                "snapshot": snapshot,
-            },
-        )
+    with ExitStack() as stack:
+        for target in targets:
+            snapshot = _snapshot_workspace_skill(
+                target.workspace_dir,
+                str(skill_name),
+            )
+            backup_dir = snapshot.get("backup_dir")
+            if backup_dir is not None:
+                stack.callback(
+                    shutil.rmtree,
+                    Path(backup_dir).parent,
+                    ignore_errors=True,
+                )
+            plan.append(
+                {
+                    "workspace_id": target.workspace_id,
+                    "workspace_dir": target.workspace_dir,
+                    "snapshot": snapshot,
+                },
+            )
+        stack.pop_all()
     return plan
 
 
 def _download_one_or_raise(
     hub_service: SkillPoolService,
     plan: dict[str, Any],
-    execution_plan: list[dict[str, Any]],
     *,
     skill_name: str,
     overwrite: bool,
 ) -> dict[str, str]:
-    """Download into one workspace; on failure roll back all and raise.
+    """Download into one workspace, or raise for the batch to roll back.
 
     A missing pool skill is a target-independent 404; any other failure is
-    a per-target 409 conflict. ``SkillImportCancelled`` from the copy is not
-    caught here: it falls through to the caller's rollback, which puts every
-    target back the way it was.
+    a per-target 409 conflict. The rollback belongs to the batch, so this
+    function only reports which download failed.
     """
     result = hub_service.download_to_workspace(
         skill_name=skill_name,
@@ -1607,8 +1804,6 @@ def _download_one_or_raise(
         overwrite=overwrite,
     )
     if not result.get("success"):
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
         if result.get("reason") == "not_found":
             raise HTTPException(status_code=404, detail=result)
         raise HTTPException(
@@ -1698,31 +1893,41 @@ def _download_pool_skill_locked(
     execution_plan = _build_download_plan(targets, body.skill_name)
 
     downloaded: list[dict[str, str]] = []
+    entered: list[dict[str, Any]] = []
     try:
         for plan in execution_plan:
+            # An install can fail after it has replaced the files, so a
+            # target counts as entered before the call, not after it.
+            entered.append(plan)
             downloaded.append(
                 _download_one_or_raise(
                     hub_service,
                     plan,
-                    execution_plan,
                     skill_name=body.skill_name,
                     overwrite=body.overwrite,
                 ),
             )
-    except HTTPException:
-        raise
-    except Exception:
-        # A scan rejection, a cancellation and any copy error all leave the
-        # same cleanup: put every target back the way it was, then re-raise
-        # so the caller can report which one it was.
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
+    except Exception as cause:
+        # The batch owns rollback and cleanup: every entered target is undone
+        # in reverse, and a workspace that could not be put back is reported
+        # next to the original error instead of replacing it.
+        failures = _restore_workspace_skills(entered)
+        _report_restore_failures(cause, failures)
         raise
     finally:
+        # The batch owns cleanup for the whole plan. A target that was never
+        # entered still holds a snapshot, and the target whose restore failed
+        # keeps its backup, since that backup is then the only copy of the
+        # previous version left on disk.
         for plan in execution_plan:
-            backup_dir = plan["snapshot"].get("backup_dir")
-            if backup_dir is not None:
-                shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
+            snapshot = plan["snapshot"]
+            backup_dir = snapshot.get("backup_dir")
+            if backup_dir is None:
+                continue
+            if snapshot.get("restore_failed"):
+                _mark_retained_backup(snapshot)
+                continue
+            shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
 
     return {"downloaded": downloaded}
 

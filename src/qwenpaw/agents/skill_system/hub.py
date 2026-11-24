@@ -31,6 +31,7 @@ from ...exceptions import (  # pylint: disable=unused-import
     SkillsError,
 )
 from ...constant import EnvVarLoader
+from ...installation_origin import origin_from_platform_url
 from .pool_service import SkillPoolService
 
 # ``_cancel_checker_ctx`` is re-exported: callers and tests reach the
@@ -41,6 +42,7 @@ from .store import (  # pylint: disable=unused-import
     suggest_conflict_name,
     with_cancel_checker as _with_cancel_checker,
 )
+from .store import extract_version
 from .workspace_service import SkillService
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,7 @@ class HubInstallResult:
     enabled: bool
     source_url: str
     installed_from: InstallOrigin = ""
+    installation_origin: dict[str, Any] | None = None
 
 
 def _build_hub_conflict(name: str) -> dict[str, Any]:
@@ -2256,6 +2259,43 @@ class _InstallPayload:
     extra_files: dict[str, Any]
     source_url: str
     installed_from: InstallOrigin
+    installation_origin: dict[str, Any] | None = None
+
+
+@asynccontextmanager
+async def _cancel_pending_download():
+    """Interrupt a stalled fetch, but never cancel a disk-writing thread."""
+    if _cancel_checker_ctx.get() is None:
+        yield
+        return
+    owner = asyncio.current_task()
+    assert owner is not None
+    cancelled_here = False
+
+    async def watch():
+        nonlocal cancelled_here
+        while True:
+            await asyncio.sleep(0.1)
+            try:
+                _ensure_not_cancelled()
+            except SkillImportCancelled:
+                if not owner.cancelling():
+                    cancelled_here = True
+                    owner.cancel()
+                return
+
+    watcher = asyncio.create_task(watch(), name="skill-download-cancel")
+    try:
+        yield
+        _ensure_not_cancelled()
+    except asyncio.CancelledError:
+        if not cancelled_here or owner.cancelling() > 1:
+            raise
+        owner.uncancel()
+        raise SkillImportCancelled("Skill import cancelled by user") from None
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
 
 
 async def _prepare_install_payload(
@@ -2276,17 +2316,23 @@ async def _prepare_install_payload(
             message="bundle_url must be a valid http(s) URL",
         )
     _ensure_not_cancelled()
-    if provider is None:
-        data, source_url = await _resolve_bundle_from_url(bundle_url, version)
-        installed_from = _classify_install_origin(bundle_url)
-    else:
-        if not provider.matches_url(bundle_url):
-            raise ValueError(f"URL does not belong to Hub {provider.key!r}")
-        data, source_url = await provider.fetch_bundle(
-            bundle_url,
-            requested_version=version,
-        )
-        installed_from = provider.key
+    async with _cancel_pending_download():
+        if provider is None:
+            data, source_url = await _resolve_bundle_from_url(
+                bundle_url,
+                version,
+            )
+            installed_from = _classify_install_origin(bundle_url)
+        else:
+            if not provider.matches_url(bundle_url):
+                raise ValueError(
+                    f"URL does not belong to Hub {provider.key!r}",
+                )
+            data, source_url = await provider.fetch_bundle(
+                bundle_url,
+                requested_version=version,
+            )
+            installed_from = provider.key
     name, content, references, scripts, extra_files = _normalize_bundle(data)
     if not name:
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
@@ -2304,6 +2350,11 @@ async def _prepare_install_payload(
         extra_files=extra_files,
         source_url=source_url,
         installed_from=installed_from,
+        installation_origin=origin_from_platform_url(
+            bundle_url,
+            "skill",
+            extract_version(frontmatter.loads(content)),
+        ),
     )
 
 
@@ -2343,6 +2394,7 @@ async def install_skill_from_hub(
             scripts=payload.scripts,
             extra_files=payload.extra_files,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
         if not created:
             raise SkillConflictError(_build_hub_conflict(payload.name))
@@ -2366,6 +2418,7 @@ async def install_skill_from_hub(
             enabled=enabled,
             source_url=payload.source_url,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
 
 
@@ -2401,6 +2454,7 @@ async def import_pool_skill_from_hub(
             scripts=payload.scripts,
             extra_files=payload.extra_files,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )
         if not created:
             raise SkillConflictError(_build_hub_conflict(payload.name))
@@ -2410,4 +2464,5 @@ async def import_pool_skill_from_hub(
             enabled=False,
             source_url=payload.source_url,
             installed_from=payload.installed_from,
+            installation_origin=payload.installation_origin,
         )

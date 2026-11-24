@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import queue
 import threading
 from typing import Awaitable, Callable, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class STTStreamEngine(Protocol):
@@ -69,6 +72,7 @@ class AliyunSTTStream:
             except queue.Full:
                 fatal("STT_TRANSCRIPT_BACKPRESSURE")
                 return
+            logger.debug(f"SIP ASR sentence ready: chars={len(text)}")
             self._loop.call_soon_threadsafe(self._wake.set)
 
         def partial(text):
@@ -79,6 +83,7 @@ class AliyunSTTStream:
                 and not self._failed.is_set()
             ):
                 self._speaking = True
+                logger.debug(f"SIP ASR speech started")
                 self._loop.call_soon_threadsafe(speech)
 
         def speech():
@@ -97,6 +102,7 @@ class AliyunSTTStream:
             on_partial=partial,
         )
         await self._asr.__aenter__()
+        logger.debug(f"SIP ASR stream started")
         self._dispatch_task = asyncio.create_task(self._dispatch_transcripts())
 
     def _notify_failure(self):
@@ -107,6 +113,7 @@ class AliyunSTTStream:
             self._error_task = asyncio.create_task(self._dispatch_failure())
 
     async def _dispatch_failure(self):
+        logger.error(f"SIP ASR stream failed: reason={self._error_reason}")
         if self.on_error:
             await self.on_error(self._error_reason)
         else:
@@ -164,4 +171,7 @@ class AliyunSTTStream:
             if closed:
                 self._asr = None
         if failures:
+            logger.warning(
+                f"SIP ASR stream cleanup failed: errors={len(failures)}",
+            )
             raise RuntimeError("SIP_STT_STOP_INCOMPLETE") from failures[0]

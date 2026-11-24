@@ -1,11 +1,15 @@
+import type { InstallationOrigin } from "./community";
+
 export type SkillSyncStatus =
   | "-"
   | "synced"
   | "outdated"
+  | "removed"
   | "not_synced"
   | "conflict";
 
 export interface SkillSpec {
+  installation_origin?: InstallationOrigin | null;
   name: string;
   description?: string;
   version_text?: string;
@@ -32,6 +36,7 @@ export interface SkillRequirements {
 }
 
 export interface PoolSkillSpec {
+  installation_origin?: InstallationOrigin | null;
   name: string;
   description?: string;
   version_text?: string;

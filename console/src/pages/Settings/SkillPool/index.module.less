@@ -77,6 +77,10 @@
   min-width: 108px;
 }
 
+.builtinUpdateBadge > button {
+  width: 100%;
+}
+
 .builtinNoticeSummary {
   display: grid;
   gap: 10px;
@@ -335,7 +339,13 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1;
+}
+.cardFeedback {
+  display: flex;
+  justify-content: flex-end;
+  flex-basis: 100%;
 }
 
 /* Status badge: dot + text */

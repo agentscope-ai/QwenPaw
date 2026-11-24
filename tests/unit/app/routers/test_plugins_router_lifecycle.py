@@ -71,6 +71,7 @@ def _record(plugin_id: str = "plug", meta: dict | None = None) -> Any:
         description="desc",
         author="auth",
         plugin_type="general",
+        sdk={},
         entry=SimpleNamespace(frontend="ui/index.js"),
         meta=meta if meta is not None else {},
     )
@@ -116,7 +117,7 @@ def _loader_stub(
     *,
     record: Any = None,
     registry: Any = None,
-    load_result: Any = "LOADED",
+    load_result: Any = None,
 ) -> MagicMock:
     """A PluginLoader stand-in recording lifecycle and load calls."""
     loader = MagicMock(name="PluginLoader")
@@ -140,7 +141,7 @@ def _loader_stub(
             f"before={kwargs.get('before_force_unload') is not None}:"
             f"after={kwargs.get('after_force_unload') is not None}",
         )
-        return load_result
+        return load_result if load_result is not None else _record()
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
     loader.retains_preparation_source.return_value = False
@@ -382,7 +383,9 @@ class TestListPluginsRoute:
                 "loaded": False,
                 "plugin_type": "general",
                 "frontend_entry": None,
+                "sdk_harnesses": False,
                 "market_id": None,
+                "installation_origin": None,
             },
         ]
 
@@ -406,6 +409,7 @@ class TestListPluginsRoute:
                 "plugin_type": "general",
                 "frontend_entry": "ui/index.js",
                 "market_id": None,
+                "installation_origin": None,
             },
         ]
 
@@ -612,7 +616,7 @@ class TestInstallPluginSource:
                 force=True,
                 reload_agents=False,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
         kwargs = loader.load_plugin_from_path.call_args.kwargs
         assert kwargs["source_path"] == tmp_path
         assert kwargs["force"] is True
@@ -651,7 +655,7 @@ class TestInstallPluginSource:
             seen_at_load["manifest"] = (source / "plugin.json").read_text(
                 encoding="utf-8",
             )
-            return "LOADED"
+            return _record("p")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
         with (
@@ -668,10 +672,11 @@ class TestInstallPluginSource:
                 side_effect=_mkdtemp,
             ),
         ):
-            await install_plugin_source(
+            result = await install_plugin_source(
                 "https://example.test/p.zip",
                 app=_app(loader),
             )
+        assert result.manifest.id == "p"
         assert urls == ["https://example.test/p.zip"]
         # the ZIP was extracted into the temp dir and that dir handed to
         # the loader as the install source
@@ -933,6 +938,7 @@ class TestInstallPluginRoute:
             "enabled": True,
             "diagnostics": diagnostics,
             "message": "Plugin 'plug display name' installation: active.",
+            "installation_origin": None,
         }
 
     @pytest.mark.parametrize(
@@ -1620,7 +1626,12 @@ class TestPublicPluginAndFileContracts:
             f"/api/{endpoint}/ghost/files/main.js",
         )
         assert response.status_code == 404
-        assert "not found" in response.text.lower()
+        if endpoint == "frontend_plugin":
+            assert (
+                response.json()["detail"] == "Plugin frontend is unavailable"
+            )
+        else:
+            assert "not found" in response.text.lower()
 
     def test_existing_plugin_file_guards(self, tmp_path):
         from qwenpaw.plugins.architecture import PluginManifest

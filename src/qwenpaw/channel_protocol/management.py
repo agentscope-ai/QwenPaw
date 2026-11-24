@@ -103,6 +103,20 @@ def management_credential_keys(
     schema: Mapping,
 ) -> frozenset[str]:
     """Derive authority from trusted metadata, never an RPC allowlist."""
+    if "x-qwenpaw-authorization-fields" in schema:
+        fields = schema["x-qwenpaw-authorization-fields"]
+        properties = schema.get("properties", {})
+        if not isinstance(fields, (list, tuple)) or any(
+            not isinstance(name, str)
+            or not isinstance(properties.get(name), Mapping)
+            or properties[name].get("type") != "string"
+            for name in fields
+        ):
+            raise ProtocolValidationError(
+                "invalid authorization field declaration",
+                reason_code="MANAGEMENT_INVALID_REQUEST",
+            )
+        return frozenset(fields)
     return frozenset(
         {
             name

@@ -61,6 +61,11 @@ CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
+def _effective_max_concurrency(_job: CronJobSpec) -> int:
+    """Return the enforced concurrency for a cron job."""
+    return 1
+
+
 @dataclass
 class _Runtime:
     sem: asyncio.Semaphore
@@ -206,12 +211,18 @@ class CronManager(ManagerBase):
                 name="cron-keepalive",
             )
 
-    def handoff_from(self, old: CronManager | None) -> None:
+    def handoff_from(
+        self,
+        old: CronManager | None,
+        *,
+        resume: bool = True,
+    ) -> None:
         """Transfer scheduling without cancelling submitted work."""
         # Same-class handoff deliberately transfers private scheduler state.
         # pylint: disable=protected-access
         if old is None:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
             return
         for job in self._scheduler.get_jobs():
             previous = old._scheduler.get_job(job.id)
@@ -240,11 +251,16 @@ class CronManager(ManagerBase):
         )
         old._scheduler.pause()
         try:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
         except BaseException:
             old._scheduler.resume()
             raise
         old._successor = self
+
+    def resume_scheduling(self) -> None:
+        """Release a prepared scheduler once workspace services are ready."""
+        self._scheduler.resume()
 
     def snapshot_active_tasks(self) -> dict[str, asyncio.Future]:
         tasks = self._scheduler_executor.snapshot_active_tasks()
@@ -735,25 +751,9 @@ class CronManager(ManagerBase):
             declared_ids.add(job_id)
 
             try:
-                parts = declaration.cron.split()
-                if len(parts) != 5:
-                    raise ValueError("cron must have exactly 5 fields")
-                minute, hour, day, month, day_of_week = parts
-                trigger = CronTrigger(
-                    minute=minute,
-                    hour=hour,
-                    day=day,
-                    month=month,
-                    day_of_week=day_of_week,
-                    timezone=self._scheduler.timezone,
-                    jitter=declaration.jitter_seconds or None,
-                )
-                self._scheduler.add_job(
-                    self._run_service_job,
-                    trigger=trigger,
-                    id=job_id,
-                    args=[source, declaration],
-                    misfire_grace_time=declaration.misfire_grace_seconds,
+                self.register_service_job(
+                    source,
+                    declaration,
                     replace_existing=True,
                 )
                 logger.info(
@@ -779,6 +779,41 @@ class CronManager(ManagerBase):
                 "source/key must be non-empty and cannot contain ':'",
             )
         return f"{SERVICE_JOB_ID_PREFIX}{source}:{key}"
+
+    def register_service_job(
+        self,
+        source: str,
+        declaration: ServiceCronJob,
+        *,
+        replace_existing: bool = False,
+    ):
+        """Schedule a service job and return the exact registration."""
+        job_id = self._service_job_id(source, declaration.key)
+        if (
+            not replace_existing
+            and self._scheduler.get_job(job_id) is not None
+        ):
+            raise ValueError(f"Service job already registered: {job_id}")
+        trigger = CronTrigger.from_crontab(
+            declaration.cron,
+            timezone=declaration.timezone or self._scheduler.timezone,
+        )
+        trigger.jitter = declaration.jitter_seconds or None
+        return self._scheduler.add_job(
+            self._run_service_job,
+            trigger=trigger,
+            id=job_id,
+            args=[source, declaration],
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=declaration.misfire_grace_seconds,
+            replace_existing=replace_existing,
+        )
+
+    def unregister_service_job(self, job) -> None:
+        """Do not revoke a replacement owned by another generation."""
+        if self._scheduler.get_job(job.id) is job:
+            self._scheduler.remove_job(job.id)
 
     async def run_job(self, job_id: str) -> None:
         """Trigger a job to run in the background (fire-and-forget).
@@ -902,7 +937,7 @@ class CronManager(ManagerBase):
         error_msg = (
             f"skipped scheduled run at {scheduled_text}: "
             f"maximum running instances reached "
-            f"({job.runtime.max_concurrency})"
+            f"({_effective_max_concurrency(job)})"
         )
         await self._record_skipped(job, error_msg)
 
@@ -964,6 +999,7 @@ class CronManager(ManagerBase):
             id=spec.id,
             args=[spec.id],
             misfire_grace_time=spec.runtime.misfire_grace_seconds,
+            max_instances=_effective_max_concurrency(spec),
             replace_existing=True,
             **add_job_kwargs,
         )
@@ -978,7 +1014,7 @@ class CronManager(ManagerBase):
         # registration.  add_job(replace_existing=True) preserves the old job
         # if construction/validation fails.
         self._rt[spec.id] = _Runtime(
-            sem=asyncio.Semaphore(spec.runtime.max_concurrency),
+            sem=asyncio.Semaphore(_effective_max_concurrency(spec)),
         )
 
         # update next_run
@@ -1127,7 +1163,11 @@ class CronManager(ManagerBase):
     ) -> None:
         """Run a service-contributed job with common scheduler behavior."""
         try:
-            await declaration.callback()
+            result = await declaration.callback()
+            if result is not None and not result.success:
+                raise RuntimeError(
+                    result.text[:65536] or "Service job reported failure",
+                )
             logger.debug(
                 "%s cron job executed successfully: %s",
                 source,
@@ -1160,7 +1200,9 @@ class CronManager(ManagerBase):
         self._assert_review_complete(job)
         rt = self._rt.get(job.id)
         if not rt:
-            rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))
+            rt = _Runtime(
+                sem=asyncio.Semaphore(_effective_max_concurrency(job)),
+            )
             self._rt[job.id] = rt
 
         async with rt.sem:
@@ -1188,8 +1230,11 @@ class CronManager(ManagerBase):
                     st.last_status = "success"
                     st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s "
+                    "execution_status=success delivery_status=%s",
                     job.id,
+                    st.last_status,
+                    execution_result.get("delivery_status", "success"),
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"

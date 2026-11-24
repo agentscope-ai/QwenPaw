@@ -7,22 +7,18 @@ import {
   CreatorFeatureIcon,
   DataFeatureIcon,
   ExtensionsFeatureIcon,
-  HubFeatureIcon,
-  MailFeatureIcon,
   ModelRoutingFeatureIcon,
   ReliabilityFeatureIcon,
   type ReleaseFeatureIcon,
 } from "./ReleaseFeatureIcons";
 
 type CardKey =
-  | "hub"
-  | "mail"
-  | "data"
-  | "creator"
-  | "modelRouting"
-  | "backgroundWork"
-  | "extensions"
-  | "reliability";
+  | "advisor"
+  | "codeMode"
+  | "piccolo"
+  | "channels"
+  | "memory"
+  | "console";
 
 type CardConfig = {
   key: CardKey;
@@ -33,49 +29,38 @@ type CardConfig = {
 
 const cards: CardConfig[] = [
   {
-    key: "hub",
-    icon: HubFeatureIcon,
-    href: "/docs/hub",
-  },
-  {
-    key: "mail",
-    icon: MailFeatureIcon,
-    href: "/blog/qwenpaw-mailbox",
-  },
-  {
-    key: "data",
-    icon: DataFeatureIcon,
-    href: "https://github.com/agentscope-ai/QwenPaw-Data",
-    external: true,
-  },
-  {
-    key: "creator",
-    icon: CreatorFeatureIcon,
-    href: "/docs/creator",
-  },
-  {
-    key: "modelRouting",
+    key: "advisor",
     icon: ModelRoutingFeatureIcon,
-    href: "/docs/models",
+    href: "/docs/advisor-mode",
   },
   {
-    key: "backgroundWork",
-    icon: BackgroundWorkFeatureIcon,
+    key: "codeMode",
+    icon: DataFeatureIcon,
     href: "/release-notes",
   },
   {
-    key: "extensions",
+    key: "piccolo",
+    icon: ReliabilityFeatureIcon,
+    href: "/release-notes",
+  },
+  {
+    key: "channels",
     icon: ExtensionsFeatureIcon,
     href: "/docs/plugins",
   },
   {
-    key: "reliability",
-    icon: ReliabilityFeatureIcon,
-    href: "/release-notes",
+    key: "memory",
+    icon: BackgroundWorkFeatureIcon,
+    href: "/docs/memory",
+  },
+  {
+    key: "console",
+    icon: CreatorFeatureIcon,
+    href: "/docs/console",
   },
 ];
 
-const CARDS_PER_PAGE = 4;
+const CARDS_PER_PAGE = 3;
 const pageCount = Math.ceil(cards.length / CARDS_PER_PAGE);
 const pages = Array.from({ length: pageCount }, (_, page) => page);
 const AUTO_ROTATE_MS = 5000;
@@ -252,7 +237,7 @@ export function WorksForYou() {
               {pages.map((page) => (
                 <div
                   key={page}
-                  className="grid w-full min-w-full shrink-0 basis-full snap-start grid-cols-1 gap-x-6 gap-y-0 sm:grid-cols-4 sm:gap-x-8 md:gap-x-10"
+                  className="grid w-full min-w-full shrink-0 basis-full snap-start grid-cols-1 gap-x-6 gap-y-0 sm:grid-cols-3 sm:gap-x-8 md:gap-x-10"
                 >
                   {cards
                     .slice(page * CARDS_PER_PAGE, (page + 1) * CARDS_PER_PAGE)

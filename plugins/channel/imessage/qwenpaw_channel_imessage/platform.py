@@ -86,6 +86,8 @@ class IMessagePlatform:
             ).fetchone()[0]
             self._conn.execute(_QUERY, (self._last_rowid,)).fetchall()
         except sqlite3.Error as exc:
+            reason = getattr(exc, f"sqlite_errorname", type(exc).__name__)
+            logger.warning(f"iMessage database setup failed: {reason}")
             # Keep any opened connection for explicit stop/retry custody.
             raise RuntimeError(
                 "IMESSAGE_DATABASE_UNREADABLE: check Messages database "
@@ -95,6 +97,9 @@ class IMessagePlatform:
         self._http = httpx.AsyncClient(timeout=30, follow_redirects=True)
         self._stopping = False
         await self.on_state("connected")
+        logger.info(
+            f"iMessage database watcher started: interval_s={self.poll_sec:g}",
+        )
         self._watcher = asyncio.create_task(
             self._watch(),
             name="imessage-sqlite-watcher",
@@ -106,9 +111,10 @@ class IMessagePlatform:
                 await self._poll_once()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception(
-                    "iMessage poll/admission failed; row retained",
+            except Exception as exc:
+                logger.warning(
+                    f"iMessage poll/admission failed ({type(exc).__name__}), "
+                    f"row retained",
                 )
             await asyncio.sleep(self.poll_sec)
 
@@ -123,6 +129,8 @@ class IMessagePlatform:
         try:
             rows = self._conn.execute(_QUERY, (self._last_rowid,)).fetchall()
         except sqlite3.Error as exc:
+            reason = getattr(exc, f"sqlite_errorname", type(exc).__name__)
+            logger.warning(f"iMessage database read failed: {reason}")
             await self.on_state("failed")
             raise RuntimeError("IMESSAGE_DATABASE_READ_FAILED") from exc
         await self.on_state("connected")
@@ -153,6 +161,7 @@ class IMessagePlatform:
             # exceptions/unknown retain the cursor and stable native event ID.
             self._pending = value
             await self.on_event(value)
+            logger.debug(f"iMessage row processed: text_chars={len(text)}")
             self._last_rowid = row["ROWID"]
             self._pending = None
 
@@ -222,6 +231,7 @@ class IMessagePlatform:
             self._commands[process] = result
             done, _ = await asyncio.wait((result,), timeout=COMMAND_TIMEOUT)
             if not done:
+                logger.warning(f"imsg send timed out")
                 raise IMessageDeliveryError(
                     "IMESSAGE_COMMAND_TIMEOUT",
                     side_effect_possible=True,
@@ -229,15 +239,17 @@ class IMessagePlatform:
             code, _, stderr = result.result()
             self._commands.pop(process, None)
             if code:
+                detail = stderr.lower()
+                denied = b"permission" in detail or b"not permitted" in detail
                 logger.warning(
-                    "imsg exited %s: %s",
-                    code,
-                    stderr.decode(errors="replace"),
+                    f"imsg send failed: exit_code={code} "
+                    f"permission_denied={denied}",
                 )
                 raise IMessageDeliveryError(
                     "IMESSAGE_COMMAND_FAILED",
                     side_effect_possible=True,
                 )
+            logger.debug(f"imsg send acknowledged: media={bool(file_path)}")
         except asyncio.CancelledError:
             if process is not None:
                 await self._settle_command(process, result)
@@ -247,6 +259,9 @@ class IMessagePlatform:
                 await self._settle_command(process, result)
             raise
         except OSError as exc:
+            logger.warning(
+                f"iMessage command start failed ({type(exc).__name__})",
+            )
             raise IMessageDeliveryError(
                 "IMESSAGE_COMMAND_START_FAILED",
                 side_effect_possible=process is not None,
@@ -277,6 +292,9 @@ class IMessagePlatform:
         text = "\n".join(value for value in texts if value)
         if origin != "direct":
             text = (prefix + text).strip()
+        logger.debug(
+            f"iMessage outbound: text_chars={len(text)} parts={len(parts)}",
+        )
         sent = False
         try:
             if text:
@@ -296,6 +314,10 @@ class IMessagePlatform:
                         await self._send_command(target, "", path)
                         sent = True
                 except IMessageDeliveryError as exc:
+                    logger.warning(
+                        f"iMessage media send failed: "
+                        f"reason={exc.reason_code}",
+                    )
                     if exc.side_effect_possible or origin == "media":
                         raise
                     _, _, kind = extract_url_and_filename(part)
@@ -376,3 +398,4 @@ class IMessagePlatform:
                 "IMESSAGE_STOP_UNCONFIRMED:" + ",".join(failures),
             )
         await self.on_state("disconnected")
+        logger.info(f"iMessage database watcher stopped")

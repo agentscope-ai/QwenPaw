@@ -169,20 +169,10 @@ class SlackEventHandler:
 
         # 4a. Channel-level mute: honour dm_disabled / group_disabled
         if is_dm and getattr(self._platform, "dm_disabled", False):
-            logger.debug(
-                "slack handler: dropping DM message (dm_disabled) "
-                "channel=%s user=%s",
-                channel_id,
-                user_id,
-            )
+            logger.debug(f"Slack DM ignored because DM intake is disabled")
             return
         if is_group and getattr(self._platform, "group_disabled", False):
-            logger.debug(
-                "slack handler: dropping group message (group_disabled) "
-                "channel=%s user=%s",
-                channel_id,
-                user_id,
-            )
+            logger.debug(f"Slack group message ignored by channel policy")
             return
 
         # 5. @mention gate (group channels only)
@@ -395,18 +385,15 @@ class SlackEventHandler:
                             await asyncio.sleep(1.5 * (attempt + 1))
                             continue
                         logger.warning(
-                            "slack handler: download status=%s for %s",
-                            resp.status,
-                            filename,
+                            f"Slack media download rejected: "
+                            f"HTTP {resp.status}",
                         )
                         return None
 
                     ct = resp.headers.get("content-type", "")
                     if "text/html" in ct:
                         logger.warning(
-                            "slack handler: HTML response for %s "
-                            "(auth issue?)",
-                            filename,
+                            f"Slack media download returned HTML",
                         )
                         return None
 
@@ -416,22 +403,19 @@ class SlackEventHandler:
                 last_exc = exc
                 if attempt < 2:
                     logger.debug(
-                        "slack handler: retry %d/2 for %s",
-                        attempt + 1,
-                        filename,
+                        f"Slack media download retry={attempt + 1}/2 "
+                        f"error={type(exc).__name__}",
                     )
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
-                logger.exception(
-                    "slack handler: download failed for %s",
-                    filename,
+                logger.warning(
+                    f"Slack media download failed ({type(exc).__name__})",
                 )
                 return None
         else:
             logger.error(
-                "slack handler: exhausted retries for %s: %s",
-                filename,
-                last_exc,
+                f"Slack media download attempts exhausted "
+                f"({type(last_exc).__name__})",
             )
             return None
 
@@ -443,12 +427,7 @@ class SlackEventHandler:
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(data)
 
-        logger.debug(
-            "slack handler: cached %s → %s (%d bytes)",
-            filename,
-            path,
-            len(data),
-        )
+        logger.debug(f"Slack media download cached: bytes={len(data)}")
         return path
 
     # ── Deduplication ──
@@ -514,12 +493,9 @@ class SlackEventHandler:
                 limit=30,
                 inclusive=True,
             )
-        except Exception:
+        except Exception as exc:
             logger.debug(
-                "slack handler: conversations_replies failed "
-                "channel=%s thread=%s",
-                channel_id,
-                thread_ts,
+                f"Slack thread history lookup failed ({type(exc).__name__})",
             )
             return ""
 
@@ -588,10 +564,9 @@ class SlackEventHandler:
                 if name:
                     self._cache_user_name(user_id, name)
                     return name
-        except Exception:
+        except Exception as exc:
             logger.debug(
-                "slack handler: users_info failed for %s",
-                user_id,
+                f"Slack user lookup failed ({type(exc).__name__})",
             )
         self._cache_user_name(user_id, "")
         return ""

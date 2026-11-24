@@ -8,10 +8,19 @@ const h = vi.hoisted(() => ({
   getAudioMode: vi.fn(),
   getTranscriptionProviderType: vi.fn(),
   getTranscriptionProviders: vi.fn(),
+  getTranscriptionModel: vi.fn(),
   getLocalWhisperStatus: vi.fn(),
+  installLocalWhisper: vi.fn(),
+  enableLocalWhisper: vi.fn(),
+  reviewDependencyUpgrade: vi.fn(),
   updateAudioMode: vi.fn(),
   updateTranscriptionProviderType: vi.fn(),
   updateTranscriptionProvider: vi.fn(),
+  updateTranscriptionModel: vi.fn(),
+}));
+
+vi.mock("../PluginManager/dependencyUpgrade", () => ({
+  reviewDependencyUpgrade: h.reviewDependencyUpgrade,
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
@@ -33,10 +42,14 @@ vi.mock("../../../api", () => ({
     getAudioMode: h.getAudioMode,
     getTranscriptionProviderType: h.getTranscriptionProviderType,
     getTranscriptionProviders: h.getTranscriptionProviders,
+    getTranscriptionModel: h.getTranscriptionModel,
     getLocalWhisperStatus: h.getLocalWhisperStatus,
+    installLocalWhisper: h.installLocalWhisper,
+    enableLocalWhisper: h.enableLocalWhisper,
     updateAudioMode: h.updateAudioMode,
     updateTranscriptionProviderType: h.updateTranscriptionProviderType,
     updateTranscriptionProvider: h.updateTranscriptionProvider,
+    updateTranscriptionModel: h.updateTranscriptionModel,
   },
 }));
 
@@ -50,7 +63,11 @@ const PROVIDERS = [
   { id: "p2", name: "Two", available: false },
 ];
 const WHISPER_STATUS = {
-  available: true,
+  available: false,
+  plugin_installed: false,
+  plugin_enabled: false,
+  plugin_status: "missing",
+  state: "missing",
   ffmpeg_installed: true,
   whisper_installed: false,
 };
@@ -74,6 +91,9 @@ function mockFetchOnce(overrides: Record<string, unknown> = {}) {
     providers: PROVIDERS,
     configured_provider_id: "p1",
   });
+  h.getTranscriptionModel.mockResolvedValue({
+    transcription_model: "whisper-1",
+  });
   h.getLocalWhisperStatus.mockResolvedValue(WHISPER_STATUS);
   for (const [k, v] of Object.entries(overrides)) {
     (
@@ -92,6 +112,7 @@ beforeEach(() => {
   h.updateAudioMode.mockResolvedValue(undefined);
   h.updateTranscriptionProviderType.mockResolvedValue(undefined);
   h.updateTranscriptionProvider.mockResolvedValue(undefined);
+  h.updateTranscriptionModel.mockResolvedValue(undefined);
 });
 
 describe("useVoiceTranscription agent ownership", () => {
@@ -258,11 +279,12 @@ describe("useVoiceTranscription initial load", () => {
     expect(result.current.localWhisperStatus).toEqual(WHISPER_STATUS);
   });
 
-  it("fetches all four settings in parallel on mount", async () => {
+  it("fetches all five settings in parallel on mount", async () => {
     renderHook(() => useVoiceTranscription());
     await waitFor(() => expect(h.getAudioMode).toHaveBeenCalledTimes(1));
     expect(h.getTranscriptionProviderType).toHaveBeenCalledTimes(1);
     expect(h.getTranscriptionProviders).toHaveBeenCalledTimes(1);
+    expect(h.getTranscriptionModel).toHaveBeenCalledTimes(1);
     expect(h.getLocalWhisperStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -271,12 +293,14 @@ describe("useVoiceTranscription initial load", () => {
       getAudioMode: {},
       getTranscriptionProviderType: {},
       getTranscriptionProviders: {},
+      getTranscriptionModel: {},
     });
     const { result } = renderHook(() => useVoiceTranscription());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.audioMode).toBe("auto");
     expect(result.current.providerType).toBe("disabled");
     expect(result.current.selectedProviderId).toBe("");
+    expect(result.current.transcriptionModel).toBe("whisper-1");
   });
 
   it("reports a load failure and still leaves the loading flag false", async () => {
@@ -401,6 +425,39 @@ describe("useVoiceTranscription handleSave", () => {
     expect(h.updateTranscriptionProvider).toHaveBeenCalledWith("p1");
   });
 
+  it("also persists the transcription model for the whisper_api type", async () => {
+    mockFetchOnce({
+      getTranscriptionProviderType: {
+        transcription_provider_type: "whisper_api",
+      },
+    });
+    const { result } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => {
+      result.current.setTranscriptionModel("FunAudioLLM/SenseVoiceSmall");
+    });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(h.updateTranscriptionModel).toHaveBeenCalledWith(
+      "FunAudioLLM/SenseVoiceSmall",
+    );
+  });
+
+  it("does not persist a transcription model for the local_whisper type", async () => {
+    mockFetchOnce({
+      getTranscriptionProviderType: {
+        transcription_provider_type: "local_whisper",
+      },
+    });
+    const { result } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(h.updateTranscriptionModel).not.toHaveBeenCalled();
+  });
+
   it("does not persist a provider id for the local_whisper type", async () => {
     mockFetchOnce({
       getTranscriptionProviderType: {
@@ -470,9 +527,11 @@ describe("useVoiceTranscription handleSave", () => {
     expect(Object.keys(result.current).sort()).toEqual([
       "audioMode",
       "availableProviders",
+      "enableLocalWhisper",
       "error",
       "fetchSettings",
       "handleSave",
+      "installLocalWhisper",
       "isLocalWhisper",
       "isWhisperApi",
       "loading",
@@ -484,7 +543,161 @@ describe("useVoiceTranscription handleSave", () => {
       "setAudioMode",
       "setProviderType",
       "setSelectedProviderId",
+      "setTranscriptionModel",
       "showProviderSection",
+      "transcriptionModel",
     ]);
   });
 });
+
+describe("local Whisper installation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.selectedAgent = "agent-a";
+    mockFetchOnce();
+  });
+
+  it("coalesces clicks and preserves an unsaved provider selection", async () => {
+    const install = deferred<typeof WHISPER_STATUS>();
+    h.installLocalWhisper.mockReturnValue(install.promise);
+    const { result } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setProviderType("whisper_api"));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.installLocalWhisper();
+      void result.current.installLocalWhisper();
+    });
+    expect(h.installLocalWhisper).toHaveBeenCalledTimes(1);
+    expect(result.current.localWhisperStatus?.state).toBe("installing");
+    await act(async () => {
+      install.resolve(WHISPER_STATUS);
+      await pending;
+    });
+    expect(result.current.providerType).toBe("whisper_api");
+    expect(h.updateTranscriptionProviderType).not.toHaveBeenCalled();
+    expect(h.updateAudioMode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["offline", "offline"],
+    [
+      "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+      "pluginManager.dependencyErrors.ambiguous",
+    ],
+  ])(
+    "keeps the selected backend after an install failure: %s",
+    async (error, explanation) => {
+      h.installLocalWhisper.mockRejectedValueOnce(new Error(error));
+      const { result } = renderHook(() => useVoiceTranscription());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      act(() => result.current.setProviderType("local_whisper"));
+      await act(() => result.current.installLocalWhisper());
+      expect(result.current.providerType).toBe("local_whisper");
+      expect(result.current.localWhisperStatus?.state).toBe("failed");
+      expect(result.current.localWhisperStatus?.error).toBe(explanation);
+      const ready = {
+        ...WHISPER_STATUS,
+        state: "ready",
+        available: true,
+        whisper_installed: true,
+        plugin_installed: true,
+        plugin_enabled: true,
+        plugin_status: "active",
+      };
+      h.installLocalWhisper.mockResolvedValueOnce(ready);
+      h.getLocalWhisperStatus.mockResolvedValue(ready);
+      await act(() => result.current.installLocalWhisper());
+      expect(result.current.localWhisperStatus?.state).toBe("ready");
+    },
+  );
+});
+
+it("refreshes uninstall status without overwriting unsaved voice choices", async () => {
+  vi.clearAllMocks();
+  h.selectedAgent = "agent-a";
+  mockFetchOnce();
+  const { result } = renderHook(() => useVoiceTranscription());
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => {
+    result.current.setProviderType("local_whisper");
+    result.current.setAudioMode("native");
+  });
+  const missing = {
+    ...WHISPER_STATUS,
+    available: false,
+    state: "missing",
+    plugin_installed: false,
+    plugin_enabled: false,
+    plugin_status: "missing",
+    whisper_installed: true,
+  };
+  h.getLocalWhisperStatus.mockResolvedValue(missing);
+  await act(async () => {
+    window.dispatchEvent(new Event("qwenpaw:plugins-changed"));
+  });
+  expect(result.current.localWhisperStatus).toEqual(missing);
+  expect(result.current.providerType).toBe("local_whisper");
+  expect(result.current.audioMode).toBe("native");
+  expect(h.updateTranscriptionProviderType).not.toHaveBeenCalled();
+});
+
+it("enables through the framework API and refreshes availability", async () => {
+  vi.clearAllMocks();
+  h.selectedAgent = "agent-a";
+  mockFetchOnce();
+  const { result } = renderHook(() => useVoiceTranscription());
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  h.enableLocalWhisper.mockResolvedValue({ enabled: true });
+  const ready = {
+    ...WHISPER_STATUS,
+    available: true,
+    state: "ready",
+    plugin_installed: true,
+    plugin_enabled: true,
+    plugin_status: "active",
+    whisper_installed: true,
+  };
+  h.getLocalWhisperStatus.mockResolvedValue(ready);
+  await act(() => result.current.enableLocalWhisper());
+  expect(h.enableLocalWhisper).toHaveBeenCalledOnce();
+  expect(h.installLocalWhisper).not.toHaveBeenCalled();
+  expect(result.current.localWhisperStatus).toEqual(ready);
+});
+
+it.each(["ready", "error"])(
+  "keeps the latest status when an older refresh returns %s",
+  async (olderResult) => {
+    const ready = {
+      ...WHISPER_STATUS,
+      available: true,
+      state: "ready",
+      plugin_installed: true,
+      plugin_enabled: true,
+      plugin_status: "active",
+      whisper_installed: true,
+    };
+    mockFetchOnce({
+      getTranscriptionProviderType: {
+        transcription_provider_type: "local_whisper",
+      },
+      getLocalWhisperStatus: ready,
+    });
+    const { result } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const older = deferred<typeof WHISPER_STATUS>();
+    h.getLocalWhisperStatus
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce(WHISPER_STATUS);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () =>
+      window.dispatchEvent(new Event("qwenpaw:plugins-changed")),
+    );
+    expect(result.current.localWhisperStatus).toEqual(WHISPER_STATUS);
+    await act(async () => {
+      if (olderResult === "error") older.reject(new Error("old request"));
+      else older.resolve(ready);
+    });
+    expect(result.current.localWhisperStatus).toEqual(WHISPER_STATUS);
+  },
+);

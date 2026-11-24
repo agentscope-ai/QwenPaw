@@ -112,7 +112,8 @@ def atomic_json(path, value):
 
 
 def _hash(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def environment_fingerprint(snapshot):
@@ -397,7 +398,11 @@ def prepare_payload(
             raise RuntimeError(
                 "DEPENDENCY_PLAN_UNVERIFIED: shared installed ownership.",
             )
-    from .wheel_additions import _check_installed_tree, _directories
+    from .wheel_additions import (
+        _check_installed_tree,
+        _directories,
+        decode_wheel_record,
+    )
     from .execution.errors import ProtocolValidationError
 
     try:
@@ -452,6 +457,8 @@ def prepare_payload(
                 canonical(prefix / "Scripts").parts,
             }
         }
+        record_path = f"{info}/RECORD"
+        record_text = decode_wheel_record(files[record_path])
         relocated = set()
         if external_scripts:
             # pip-generated launchers are outside site-packages. Preserve them
@@ -464,10 +471,7 @@ def prepare_payload(
                 if old_entrypoints.is_file()
                 else b""
             )
-            record_path = f"{info}/RECORD"
-            record_rows = list(
-                csv.reader(files[record_path].decode().splitlines()),
-            )
+            record_rows = list(csv.reader(record_text.splitlines()))
             for path, evidence in external_scripts.items():
                 script = Path(path)
                 relative = (
@@ -521,13 +525,9 @@ def prepare_payload(
 
             rows = io.StringIO(newline="")
             csv.writer(rows, lineterminator="\n").writerows(record_rows)
-            files[record_path] = rows.getvalue().encode()
-        owned_paths = {
-            row[0]
-            for row in csv.reader(
-                files[f"{info}/RECORD"].decode("utf-8").splitlines(),
-            )
-        }
+            record_text = rows.getvalue()
+            files[record_path] = record_text.encode("utf-8")
+        owned_paths = {row[0] for row in csv.reader(record_text.splitlines())}
         for relative, content in files.items():
             if relative in relocated or relative not in owned_paths:
                 continue
@@ -820,7 +820,21 @@ def _source_files(root):
     return files
 
 
+def _copy_source_file(source, target):
+    if os.name != "nt":
+        return shutil.copy2(source, target)
+    shutil.copyfile(source, target)
+    # Acquire write access before preserving a source's read-only attributes.
+    with open(target, "r+b") as stream:
+        shutil.copystat(source, target)
+        os.fsync(stream.fileno())
+    return target
+
+
 def _sync_source(root):
+    if os.name == "nt":
+        # Each copy was already synced through its writable file handle.
+        return
     for path in root.rglob("*"):
         if path.is_file():
             with path.open("rb") as stream:
@@ -846,7 +860,7 @@ def backup_source(directory, target):
         backup = directory / "previous_source"
         if backup.exists():
             shutil.rmtree(backup)
-        shutil.copytree(target, backup)
+        shutil.copytree(target, backup, copy_function=_copy_source_file)
         if _source_files(backup) != before["files"]:
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: plugin source changed during backup.",
@@ -870,7 +884,7 @@ def restore_source(directory, operation):
         staging = directory / "restored_source"
         if staging.exists():
             shutil.rmtree(staging)
-        shutil.copytree(backup, staging)
+        shutil.copytree(backup, staging, copy_function=_copy_source_file)
         _sync_source(staging)
     if target.is_symlink():
         raise RuntimeError(

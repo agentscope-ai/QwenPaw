@@ -29,3 +29,4 @@ class CommandSpec:
     ]
     aliases: tuple[str, ...] = ()
     help_text: str = ""
+    control: bool = False

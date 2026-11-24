@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from apscheduler.events import EVENT_JOB_MAX_INSTANCES
+from apscheduler.schedulers.base import STATE_PAUSED
 
 from qwenpaw.app.crons.contracts import ServiceCronJob
 
@@ -96,6 +97,81 @@ def cron_workspace(tmp_path, monkeypatch):
         return workspace, repo, channels
 
     return make
+
+
+@pytest.mark.parametrize("cancel_reload", [False, True])
+async def test_reload_resumes_crons_only_after_driver_activation(
+    cron_workspace,
+    monkeypatch,
+    cancel_reload,
+):
+    old, _, _ = cron_workspace("old")
+    new, _, _ = cron_workspace("new")
+    activating, release, fired = (
+        asyncio.Event(),
+        asyncio.Event(),
+        asyncio.Event(),
+    )
+    ready = False
+    observed = []
+
+    async def activate():
+        nonlocal ready
+        activating.set()
+        await release.wait()
+        ready = True
+
+    async def due_job():
+        observed.append(ready)
+        fired.set()
+
+    start = new.start
+
+    async def start_candidate():
+        await start()
+        new._service_manager.services["driver_manager"] = SimpleNamespace(
+            activate_registered_protocols=activate,
+        )
+        new.cron_manager._scheduler.add_job(due_job, "date", id="due")
+
+    new.start = start_candidate
+    manager = MultiAgentManager()
+    manager.agents[old.agent_id] = old
+    manager._create_workspace = MagicMock(return_value=new)
+    manager._setup_workspace_plugins = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                profiles={
+                    old.agent_id: SimpleNamespace(
+                        workspace_dir=str(new.workspace_dir),
+                    ),
+                },
+            ),
+        ),
+    )
+    await old.start()
+    pending = asyncio.create_task(manager.reload_agent(old.agent_id))
+    try:
+        await asyncio.wait_for(activating.wait(), 5)
+        assert manager.agents[old.agent_id] is new
+        assert new.cron_manager._scheduler.state == STATE_PAUSED
+        assert not fired.is_set()
+        if cancel_reload:
+            pending.cancel()
+        release.set()
+        if cancel_reload:
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            assert await pending
+        await asyncio.wait_for(fired.wait(), 5)
+        assert observed == [True]
+    finally:
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await manager.stop_all()
 
 
 @pytest.mark.asyncio
@@ -325,20 +401,23 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
 
     first.stream_query = producer(0)
     second.stream_query = producer(1)
-    job = CronJobSpec(
-        id="running",
-        name="running",
-        schedule={"cron": "0 0 1 1 *"},
-        request={"input": "test"},
-        dispatch={
-            "silent": True,
-            "target": {"user_id": "u", "session_id": "s"},
-        },
-        runtime={"max_concurrency": 2},
-        save_result_to_inbox=False,
-    )
-    await first_repo.upsert_job(job)
-    await second_repo.upsert_job(job)
+    jobs = [
+        CronJobSpec(
+            id=f"running-{index}",
+            name=f"running-{index}",
+            schedule={"cron": "0 0 1 1 *"},
+            request={"input": "test"},
+            dispatch={
+                "silent": True,
+                "target": {"user_id": "u", "session_id": "s"},
+            },
+            save_result_to_inbox=False,
+        )
+        for index in range(2)
+    ]
+    for repo in (first_repo, second_repo):
+        for job in jobs:
+            await repo.upsert_job(job)
     manager = MultiAgentManager()
     manager.agents["agent-1"] = first
     manager._create_workspace = MagicMock(side_effect=[second, third])
@@ -358,13 +437,11 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
     try:
         await first.start()
         for index, workspace in enumerate((first, second)):
-            # This test intentionally allows two runs to check owner isolation.
             workspace.cron_manager._scheduler.add_job(
                 workspace.cron_manager._scheduled_callback,
                 "date",
-                args=[job.id],
-                id="run-now",
-                max_instances=2,
+                args=[jobs[index].id],
+                id=f"run-now-{index}",
             )
             await asyncio.wait_for(entered[index].wait(), 3)
             assert await manager.reload_agent("agent-1")
@@ -385,7 +462,11 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
         await asyncio.wait_for(asyncio.gather(*pending), 3)
         assert not second._started
         assert third._started
-        history = await first_repo.get_history(job.id)
+        history = [
+            record
+            for job in jobs
+            for record in await first_repo.get_history(job.id or "")
+        ]
         assert len(history) == 2
         assert all(record.status == "success" for record in history)
     finally:
@@ -394,6 +475,77 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
         await manager.cancel_all_cleanup_tasks()
         for workspace in (first, second, third):
             await workspace.stop()
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_shared_session_conflict_records_error(cron_workspace):
+    """A second job sharing an active chat is recorded as an error."""
+    workspace, repo, _ = cron_workspace("shared-session-conflict")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    chat_manager = AsyncMock()
+    chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="shared-chat",
+    )
+    workspace._service_manager.services["chat_manager"] = chat_manager
+
+    async def stream(_request):
+        entered.set()
+        await release.wait()
+        yield None
+
+    workspace.stream_query = stream
+    jobs = [
+        CronJobSpec(
+            id=f"shared-{index}",
+            name=f"shared-{index}",
+            schedule={"cron": "0 0 1 1 *"},
+            request={"input": "test"},
+            dispatch={
+                "silent": True,
+                "target": {"user_id": "u", "session_id": "shared"},
+            },
+            runtime={"share_session": True},
+            save_result_to_inbox=False,
+        )
+        for index in range(2)
+    ]
+    for job in jobs:
+        await repo.upsert_job(job)
+
+    await workspace.start()
+    first_run = asyncio.create_task(
+        workspace.cron_manager._execute_once(
+            jobs[0],
+            trigger="scheduled",
+        ),
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        with pytest.raises(
+            RuntimeError,
+            match="already running for this cron chat",
+        ):
+            await asyncio.wait_for(
+                workspace.cron_manager._execute_once(
+                    jobs[1],
+                    trigger="scheduled",
+                ),
+                3,
+            )
+
+        assert not first_run.done()
+        state = workspace.cron_manager.get_state(jobs[1].id or "")
+        history = await repo.get_history(jobs[1].id or "")
+        assert state.last_status == "error"
+        assert len(history) == 1
+        assert history[0].status == "error"
+        assert "already running for this cron chat" in (history[0].error or "")
+    finally:
+        release.set()
+        await first_run
+        await workspace.stop()
         await asyncio.sleep(0)
 
 
@@ -737,6 +889,7 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
             stop=AsyncMock(),
             prepare_stop=AsyncMock(return_value=False),
             set_enqueue=MagicMock(),
+            set_workspace=MagicMock(),
             send_event=AsyncMock(),
         )
 
@@ -746,6 +899,16 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
     new_channels = ChannelManager([new_transport])
     old, repo, _ = cron_workspace("old-owner", old_channels)
     new, _, _ = cron_workspace("new-owner", new_channels)
+    # Production binds channels to the workspace and registers cron runs by
+    # chat ID. Both are required to exercise the tracker drain during handoff.
+    old_channels.set_workspace(old)
+    new_channels.set_workspace(new)
+    old._service_manager.services["chat_manager"] = SimpleNamespace(
+        get_or_create_chat=AsyncMock(
+            return_value=SimpleNamespace(id="owner-handoff-chat"),
+        ),
+        mark_chat_finished=AsyncMock(),
+    )
     entered, release = asyncio.Event(), asyncio.Event()
     yielded = asyncio.Event()
     handoff_entered, finish_handoff = asyncio.Event(), asyncio.Event()

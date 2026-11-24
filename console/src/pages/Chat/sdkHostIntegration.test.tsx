@@ -14,6 +14,7 @@ import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { LongTextPasteInput } from "./LongTextPaste";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import { composer } from "@/plugins/hostSdk/composer";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
 import {
@@ -436,6 +437,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
+  useBackendCapabilities: vi.fn(() => undefined),
 }));
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
@@ -491,11 +493,11 @@ vi.mock("./components/ApprovalLevelToggle", () => ({
   default: () => <div data-testid="approval-toggle" />,
 }));
 
-vi.mock("./components/HarnessApprovalToggle", () => ({
+vi.mock("./components/BackendApprovalToggle", () => ({
   default: () => <div data-testid="harness-approval" />,
 }));
 
-vi.mock("./components/HarnessModelSelector", () => ({
+vi.mock("./components/BackendModelSelector", () => ({
   default: () => <div data-testid="harness-model" />,
 }));
 
@@ -3102,6 +3104,43 @@ describe("ChatPage coverage", () => {
     }
     return textarea;
   }
+
+  it("binds the visible draft to SDK snapshots and rejects a result after more typing", async () => {
+    localStorage.clear();
+    const utils = await import("./utils");
+    const actual = await vi.importActual<typeof utils>("./utils");
+    vi.mocked(utils.getActiveSenderTextarea).mockImplementation(
+      actual.getActiveSenderTextarea,
+    );
+    vi.mocked(utils.setTextareaValue).mockImplementation(
+      actual.setTextareaValue,
+    );
+    const rendered = renderWithProviders(<ComposerHarness />, {
+      initialEntries: ["/chat"],
+    });
+    await screen.findByTestId("chat-ui");
+    const textarea = composerTextarea();
+    textarea.focus();
+    textarea.value = "original draft";
+    fireEvent.input(textarea);
+    const snapshot = composer.read();
+    expect(snapshot).toMatchObject({
+      agentId: "default",
+      text: "original draft",
+      chatId: null,
+    });
+    textarea.value = "continued typing";
+    fireEvent.input(textarea);
+    expect(composer.replace(snapshot!, "old result")).toBe(false);
+    expect(textarea.value).toBe("continued typing");
+    expect(composer.replace(composer.read()!, "accepted result")).toBe(true);
+    expect(textarea.value).toBe("accepted result");
+    rendered.unmount();
+    expect(composer.read()).toBeNull();
+    vi.mocked(utils.getActiveSenderTextarea).mockImplementation(() => null);
+    vi.mocked(utils.setTextareaValue).mockReset();
+    localStorage.clear();
+  });
 
   it("does not restore a legacy per-agent draft into a new chat", async () => {
     localStorage.clear();

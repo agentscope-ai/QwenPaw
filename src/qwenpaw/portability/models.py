@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..harnesses.events import HarnessHistoryItem
+from ..plugins.harnesses import HarnessHistoryItem
 
 
 class SourceLocation(BaseModel):
