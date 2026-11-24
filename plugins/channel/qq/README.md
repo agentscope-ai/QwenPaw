@@ -7,7 +7,25 @@ the normal plugin installer. Starting the channel never installs packages.
 
 The worker uses websocket-client, HTTPX and AESGCM. The host retains Agent
 execution, sessions, ACL and approval decisions. SDKs and gateway/media/Portal
-I/O run in the worker. The plugin does not stream, type or edit messages.
+I/O run in the worker. With `streaming_enabled` the worker streams C2C replies
+through the official `stream_messages` API (`input_mode=replace`, `input_state`
+1 → 10, incrementing `index`, server-issued `stream_msg_id`). Group, guild and
+guild-DM targets keep the completed-message path because QQ documents streaming
+for single chat only. The plugin never types, edits or recalls messages.
+
+Streaming covers both `message` and `reasoning` response streams; each response
+stream owns its own stream message and the `stream_type` recorded at
+`stream.start` is validated on later slices. The worker reserves each update
+index before sending so an unknown result cannot cause index reuse. The shared
+cleanup hooks close an open stream with a final `input_state=10` slice. If the
+outcome of a closing slice is unknown, cleanup preserves the delivery evidence.
+
+The first slice with real text opens the QQ stream. QQ rejects `replace`
+slices that change the delivered prefix (`40007`), so the worker keeps that
+prefix when Scroll headline removal changes whitespace. Empty replies finish
+locally. When QQ explicitly rejects opening the stream, the host sends the
+complete reply as a regular message. The descriptor declares the `streaming`
+capability so the host can enable the streaming policy.
 
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary

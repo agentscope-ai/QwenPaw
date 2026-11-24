@@ -439,11 +439,10 @@ class ConsoleChannel(BaseChannel):
                     )
                     if touched_chat is not None:
                         notification_session_id = touched_chat.id
-            except Exception:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 logger.debug(
-                    "failed to touch chat updated_at for session=%s",
-                    session_id[:30],
-                    exc_info=True,
+                    f"Console could not touch chat updated_at "
+                    f"({type(exc).__name__})",
                 )
 
         try:
@@ -619,11 +618,10 @@ class ConsoleChannel(BaseChannel):
         finally:
             try:
                 await self._on_response_cycle_end(session_id)
-            except Exception:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 logger.warning(
-                    "console response-cycle cleanup failed for session=%s",
-                    session_id[:30],
-                    exc_info=True,
+                    f"Console response-cycle cleanup failed "
+                    f"({type(exc).__name__})",
                 )
 
     async def _on_response_cycle_end(self, session_id: str) -> None:

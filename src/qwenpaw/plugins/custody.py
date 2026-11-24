@@ -111,6 +111,7 @@ class ConnectionCloser:
         self,
         client: Any,
         desc: str,
+        timeout: float | None = None,
         *,
         cancel_on_interrupt: bool = True,
     ) -> None:
@@ -119,6 +120,7 @@ class ConnectionCloser:
         self.task: asyncio.Future[Any] | None = None
         self._cancel_on_interrupt = cancel_on_interrupt
         self._cancel_task = cancel_on_interrupt
+        self._timeout = timeout
 
     @staticmethod
     def _observe(task: asyncio.Future[Any]) -> None:
@@ -161,10 +163,13 @@ class ConnectionCloser:
             return
 
         task = self.task
+        timeout = (
+            CONNECTION_STOP_SECONDS if self._timeout is None else self._timeout
+        )
         try:
             _, pending = await asyncio.wait(
                 {task},
-                timeout=CONNECTION_STOP_SECONDS,
+                timeout=timeout,
             )
         except asyncio.CancelledError:
             if (
@@ -185,7 +190,7 @@ class ConnectionCloser:
                 task.cancel()
             raise TimeoutError(
                 f"connection {self.desc!r} did not fully close "
-                f"in {CONNECTION_STOP_SECONDS:g}s",
+                f"in {timeout:g}s",
             )
         if task.cancelled():
             self.task = None

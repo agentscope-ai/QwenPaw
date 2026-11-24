@@ -42,7 +42,9 @@ export interface ModuleRegistry {
 }
 
 class ModuleRegistryImpl implements ModuleRegistry {
-  private modules = new Map<string, Record<string, unknown>>();
+  // Plugins keep registration handles here between frontend evaluations.
+  readonly modules: Record<string, Record<string, unknown>> =
+    Object.create(null);
 
   register(key: string, module: Record<string, unknown>): void {
     // Safely copy module exports, avoiding ES Module namespace special properties
@@ -71,7 +73,7 @@ class ModuleRegistryImpl implements ModuleRegistry {
         }
       }
 
-      this.modules.set(key, safeCopy);
+      this.modules[key] = safeCopy;
     } catch (err) {
       if (console && console.error) {
         console.error(
@@ -83,7 +85,7 @@ class ModuleRegistryImpl implements ModuleRegistry {
   }
 
   get(moduleKey: string, exportName: string): unknown {
-    const mod = this.modules.get(moduleKey);
+    const mod = this.modules[moduleKey];
     if (!mod) {
       console.warn(`[moduleRegistry] Module not found: ${moduleKey}`);
       return undefined;
@@ -92,7 +94,7 @@ class ModuleRegistryImpl implements ModuleRegistry {
   }
 
   getOptional(moduleKey: string, exportName: string): unknown {
-    return this.modules.get(moduleKey)?.[exportName];
+    return this.modules[moduleKey]?.[exportName];
   }
 
   call(moduleKey: string, exportName: string, ...args: unknown[]): unknown {
@@ -107,22 +109,11 @@ class ModuleRegistryImpl implements ModuleRegistry {
   }
 
   keys(): string[] {
-    return Array.from(this.modules.keys());
+    return Object.keys(this.modules);
   }
 
   getModule(key: string): Record<string, unknown> | undefined {
-    return this.modules.get(key);
-  }
-
-  /**
-   * Get all modules (for window.QwenPaw.modules)
-   */
-  getAllModules(): Record<string, Record<string, unknown>> {
-    const result: Record<string, Record<string, unknown>> = {};
-    for (const [key, mod] of this.modules) {
-      result[key] = mod;
-    }
-    return result;
+    return this.modules[key];
   }
 }
 
@@ -135,11 +126,8 @@ if (typeof window !== "undefined") {
     (window as any).QwenPaw = {};
   }
 
-  // Use Proxy for dynamic access, ensuring plugins always get latest module state
   Object.defineProperty(window.QwenPaw, "modules", {
-    get() {
-      return (moduleRegistry as any).getAllModules();
-    },
+    value: moduleRegistry.modules,
     configurable: true,
     enumerable: true,
   });

@@ -172,10 +172,10 @@ describe("console font-size coverage", () => {
     expect(chatStyles).toContain("font-size: var(--app-font-body) !important");
     const root = chatStyles.slice(0, chatStyles.indexOf(".filesPreviewOpen"));
     expect(root).toMatch(/-sender-content-bottom[\s\S]*flex-wrap:\s*wrap/);
-    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 1 max-content/);
+    expect(root).toMatch(/-sender-prefix[\s\S]*flex:\s*1 0 max-content/);
     expect(root).toMatch(/> div \{\s*flex-wrap:\s*nowrap;/);
     expect(root).toMatch(
-      /-sender-actions-list[\s\S]*flex:\s*0 0 auto;[\s\S]*flex-wrap:\s*nowrap/,
+      /-sender-actions-list[\s\S]*flex:\s*1 0 max-content;[\s\S]*flex-wrap:\s*nowrap/,
     );
     expect(chatStyles).not.toMatch(/flex:\s*1 1 100%/);
     expect(chatStyles).toContain(".senderProjectControl");

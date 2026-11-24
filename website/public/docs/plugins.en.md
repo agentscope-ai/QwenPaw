@@ -55,6 +55,11 @@ host does not migrate them automatically. Historical exports of `PluginApi`,
 `PluginLoader`, `PluginRegistry`, and `PluginLifecycle` remain for compatibility.
 New SDK plugins must not depend on those exports or underscore-prefixed internals.
 
+SDK and legacy plugins share the framework's dependency checks, installation, and
+post-install verification. The `sdk` declaration does not select a separate dependency
+installer or protection policy. See [Dependency Management](#dependency-management)
+for the shared installation rules and timeout configuration.
+
 ## Write a tool
 
 Save this as `hello-sdk/main.py`:
@@ -90,6 +95,131 @@ plugin = Plugin()
 The host supplies configuration, logging, models, and storage in the call context.
 Registration and activation callbacks are not generally moved to worker threads; avoid
 blocking work there and await storage operations from async activation callbacks.
+
+## SDK 1.2: driver protocols
+
+SDK `1.2.0` adds the `drivers` capability and `DriverProtocolSpec`. SDK 1.0
+plugins remain loadable. A plugin declaring `drivers` must require SDK 1.2;
+an older host rejects the declaration before importing its backend entry.
+
+Every `DriverCapabilitySpec.input_schema` must declare `type: "object"` and an
+object-valued `properties` at the top level. A tool with no parameters uses:
+
+```json
+{ "type": "object", "properties": {} }
+```
+
+An empty `properties` object declares no named parameters. Set
+`additionalProperties: false` to reject extra arguments. The SDK checks the
+shape when the capability is constructed, and the host validates arguments
+against the declared schema at invocation time.
+
+Create `echo-driver/plugin.json` and `echo-driver/main.py` from the two blocks
+below. This complete example uses a local fake protocol and only public SDK imports:
+
+```json
+{
+  "id": "echo-driver",
+  "name": "Echo Driver",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
+}
+```
+
+```python
+from qwenpaw.plugins import PluginContext, SDKError
+from qwenpaw.plugins.drivers import (
+    DriverCallResult, DriverCapabilitySpec, DriverProtocolSpec,
+)
+from qwenpaw.plugins.messages import ContentBlock
+
+class EchoConnection:
+    def __init__(self, context, source):
+        self.context = context
+
+    async def open(self):
+        pass
+
+    async def discover(self, request):
+        request.check_cancelled()
+        return (DriverCapabilitySpec(
+            name="echo", description="Echo text",
+            input_schema={"type": "object", "properties": {
+                "text": {"type": "string"}}, "required": ["text"],
+                "additionalProperties": False},
+        ),)
+
+    async def invoke(self, name, arguments, request):
+        request.check_cancelled()
+        if name != "echo":
+            raise SDKError("Unknown capability")
+        return DriverCallResult(content=(ContentBlock(text=arguments["text"]),))
+
+    async def close(self):
+        pass
+
+
+def validate(source):
+    if source.protocol != "echo":
+        raise SDKError("Expected echo protocol")
+
+class Plugin:
+    def register(self, context: PluginContext):
+        context.register_driver_protocol(DriverProtocolSpec(
+            protocol="echo", validate=validate, create=EchoConnection,
+        ))
+
+plugin = Plugin()
+```
+
+Run `python -m qwenpaw.plugins.check ./echo-driver --runtime`, then run this
+standalone author probe from the parent directory:
+
+```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from qwenpaw.plugins.testing import PluginTestHost
+
+async def main():
+    with TemporaryDirectory() as directory:
+        async with PluginTestHost(Path(directory)) as host:
+            await host.load(Path("echo-driver"))
+            await host.open_driver({
+                "name": "echo-source", "protocol": "echo",
+                "endpoint": {}, "enabled": True,
+                "policy": {"default_effect": "allow"},
+            })
+            capabilities = await host.list_driver_capabilities("echo-source")
+            assert capabilities
+            result = await host.call_driver("echo-source", "echo", {"text": "hello"})
+            assert result.content[0].text == "hello"
+            await host.close_driver("echo-source")
+
+asyncio.run(main())
+```
+
+The test host uses the production adapter, DriverManager and governance path.
+`open_driver` accepts a DriverCard-shaped JSON mapping; `policy.default_effect`
+is explicitly `allow` in this local example. Production sources retain their
+allow/deny/ask policy and tool whitelist; an empty `tools` list denies all tools.
+
+`validate` is synchronous and checks an immutable `DriverSource`; `create`
+constructs a connection without opening it. The host calls `open`, `discover`,
+`invoke`, and `close` and owns their lifecycle. Use `DriverContext.resources`
+for background tasks and cleanup, `credentials` for declared source-scoped aliases,
+and `subprocess_environment()` for a managed child process environment. Never
+import host managers, credential stores, or internal registry modules in a plugin.
+The host validates workspace/source identity, schema, policy and cancellation;
+`DriverRequestContext` carries the workspace instance, session, user and deadline.
+Do not swallow cancellation or report successful close while resources still run.
+After a reconnect changes discovered capabilities, call
+`context.invalidate_capabilities()` to refresh the host cache.
+
+The official `qwenpaw-mcp` plugin registers protocol `mcp` through this same
+contract. Its management UI is at `/mcp`. See [the MCP guide](./mcp.en.md) for
+connection and configuration examples.
 
 ## Asynchronous storage and ownership
 
@@ -214,6 +344,31 @@ interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeo
 unreleased resource still prevents replacement; retry public lifecycle operations after
 the fault is resolved. Old contexts cannot write or register resources for a new generation.
 
+## Model providers
+
+`ctx.register_provider(spec)` returns a `ProviderHandle` scoped to that provider.
+Import `ProviderSpec` and `ProviderHandle` from `qwenpaw.plugins.providers`.
+
+Declare `generate` for custom inference, or `protocol="openai-chat"` for the host's
+OpenAI-compatible transport. Optional `connect(ctx, model_id)` returns an async
+context manager yielding the base URL. The host enters it before each call and
+exits when that call ends or its stream closes. The plugin remains in use until
+the owning turn ends. In `connect`, `ctx.connection_purpose` identifies inference
+(`inference`), a connectivity check (`check`), or a multimodal capability probe (`probe`).
+
+Read `handle.published_model_ids` for the current IDs saved by `update(models=...)`.
+
+Await the following handle methods:
+
+- `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields;
+  `None` leaves a field unchanged. `models` replaces the published list while
+  retaining saved settings for matching model IDs.
+- `select(model_id, model_type="chat")` selects this provider's default for a
+  type: `chat` or `decision`. The type must match the published `ModelInfo.model_type`.
+- `clear_selection(model_type="chat")` clears that type's default if it uses this provider
+  and returns whether it was cleared. Agent overrides remain unchanged.
+- `close()` revokes the registration. Old handles become invalid after reload.
+
 ## Public capabilities
 
 | Capability                                          | Public entry                                                                               |
@@ -225,7 +380,8 @@ the fault is resolved. Old contexts cannot write or register resources for a new
 | Messages, attachments, run and approval observation | `qwenpaw.plugins.messages`, `qwenpaw.plugins.events`                                       |
 | Commands, hooks, modes, prompts                     | `commands`, `hooks`, `modes`, `prompts`                                                    |
 | Channels and applications                           | `channels`, `apps`                                                                         |
-| Model providers, memory, markets, skills            | `providers`, `memory`, `markets`, `skills`                                                 |
+| Model providers                                     | `providers.ProviderSpec`, `providers.ProviderHandle`                                       |
+| Memory, markets, skills                             | `memory`, `markets`, `skills`                                                              |
 | Resources, results, testing                         | `resources`, `results`, `testing`                                                          |
 | Exceptions                                          | Import public exceptions such as `SDKError` and `StaleContextError` from `qwenpaw.plugins` |
 
@@ -381,6 +537,13 @@ my-plugin/
 | `entry_point`     | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                                                    |
 
 \* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
+
+Local Whisper has a one-time migration for existing users. On first startup,
+if the saved transcription provider is `local_whisper`, the plugin is absent,
+and its configuration allows it, QwenPaw starts a background installation that
+can install missing Python dependencies. A failed or interrupted migration
+requires an explicit retry in Voice Transcription settings. Later startups
+do not reinstall an uninstalled plugin.
 
 ##### `type` values
 
@@ -2185,15 +2348,26 @@ install dependencies.
 Directly declared requirements that conflict with protected host packages are refused;
 restart the backend and prepare the dependency environment first. SDK plugins report
 this as `SDKRestartRequiredError`. After acquiring the installation lock, the framework
-rechecks whether requirements are satisfied, then uses the shared pip / uv flow
-if dependencies are still missing. Desktop
-builds use the bundled Python interpreter and shared plugin dependency directory.
+rechecks whether requirements are satisfied. Missing dependencies are prepared as
+wheels with pip, constrained by the observed installed versions, then validated
+and published through the shared dependency gate. Desktop builds use the bundled
+Python interpreter and shared plugin dependency directory.
 The plugin loads only after its requirements pass post-install verification.
 
-The framework does not audit the entire environment for duplicate package versions,
-pin all installed versions, or preview the complete installation plan. It does not
-guarantee that replacements caused by transitive dependencies will be blocked, and
-does not provide atomic rollback of the shared dependency environment.
+The shared gate audits dependency evidence and permits validated additions;
+incompatible replacements require explicit environment maintenance. This does not
+provide general atomic rollback of the shared dependency environment.
+
+Both SDK and legacy plugins can set `meta.dependency_install_timeout` to control the
+installation timeout and the time limit for waiting for the installation lock.
+The value is in seconds, from 300 to 3600, with a default of 300. Local Whisper sets
+it to 1800 seconds to allow time for large package downloads.
+
+When the backend shuts down or an installation request is cancelled, the framework
+stops waiting for the installation lock or terminates the running dependency
+installer. It releases the lock after installation has stopped. After restarting,
+users can explicitly install or repair again; already written shared dependencies
+are not rolled back.
 
 #### Using Custom PyPI Index
 
@@ -2202,7 +2376,7 @@ does not provide atomic rollback of the shared dependency environment.
 my-package>=1.0.0
 ```
 
-Use `--index-url URL` or `--index-url=URL` on its own line. pip / uv receives the
+Use `--index-url URL` or `--index-url=URL` on its own line. pip receives the
 index setting; package version and host-package checks still apply. Other options,
 nested `-r` files, extras, and direct URL requirements are not supported yet.
 Index settings belong only in `requirements.txt`. Each manifest dependency must

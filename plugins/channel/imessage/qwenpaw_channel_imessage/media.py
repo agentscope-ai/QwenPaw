@@ -4,17 +4,22 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import stat
 import tempfile
 from pathlib import Path
 
+import httpx
+
 from qwenpaw.app.channels.utils import (
     MediaDataError,
     file_url_to_local_path,
     parse_data_url,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def sanitize_filename(filename):
@@ -104,6 +109,7 @@ class IMessageMedia:
         try:
             resolved = path.resolve(strict=True)
         except (FileNotFoundError, NotADirectoryError):
+            logger.warning(f"iMessage local media file unavailable")
             return None
         except (OSError, RuntimeError) as exc:
             raise self.error("MEDIA_FILE_UNREADABLE") from exc
@@ -113,6 +119,7 @@ class IMessageMedia:
             # Resolve legal symlinks first, then open the canonical path
             # without following any replaced directory or final symlink.
             if not resolved.is_file():
+                logger.warning(f"iMessage local media must be a regular file")
                 return None
             descriptor = _open_local_file(resolved)
             with os.fdopen(descriptor, "rb") as source:
@@ -124,10 +131,15 @@ class IMessageMedia:
                 filename = (
                     "local_" + digest + "_" + sanitize_filename(path.name)
                 )
-                return self._write(
+                saved = self._write(
                     filename,
                     iter(lambda: source.read(65536), b""),
                 )
+                logger.debug(
+                    f"iMessage local media prepared: "
+                    f"file_url={value.startswith('file://')}",
+                )
+                return saved
         except OSError as exc:
             raise self.error("MEDIA_FILE_UNREADABLE") from exc
 
@@ -136,9 +148,11 @@ class IMessageMedia:
             # Legacy strict Base64 rejects whitespace, unlike the shared
             # MIME-oriented helper's whitespace normalization.
             if "base64," not in value:
+                logger.warning(f"iMessage media data URL is missing Base64")
                 return None
             encoded = value.split(",", 1)[1]
             if any(character.isspace() for character in encoded):
+                logger.warning(f"iMessage media Base64 contains whitespace")
                 return None
             if encoded:
                 media = parse_data_url(value, max_bytes=self.max_decoded_size)
@@ -148,7 +162,11 @@ class IMessageMedia:
             else:
                 # Legacy permits a valid zero-byte Base64 attachment.
                 data = b""
-        except (IndexError, MediaDataError):
+        except MediaDataError as exc:
+            logger.warning(f"iMessage media rejected: {exc}")
+            return None
+        except IndexError:
+            logger.warning(f"iMessage media data URL is malformed")
             return None
         extension = {
             "image": ".png" if "image/png" in value else ".jpg",
@@ -157,7 +175,9 @@ class IMessageMedia:
         }.get(kind, ".bin")
         digest = hashlib.md5(encoded.encode()).hexdigest()[:16]
         filename = sanitize_filename(filename_hint) + "_" + digest + extension
-        return self._write(filename, (data,))
+        saved = self._write(filename, (data,))
+        logger.debug(f"iMessage media decoded: bytes={len(data)}")
+        return saved
 
     async def remote_url(self, client, value, kind, filename_hint):
         digest = hashlib.md5(value.encode()).hexdigest()[:16]
@@ -176,8 +196,18 @@ class IMessageMedia:
                         output.write(chunk)
             destination = self.directory / filename
             os.replace(temporary, destination)
+            logger.debug(f"iMessage remote media downloaded")
             return str(destination)
-        except Exception:
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                f"iMessage media download rejected: "
+                f"HTTP {exc.response.status_code}",
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                f"iMessage media download failed ({type(exc).__name__})",
+            )
             return None
         finally:
             Path(temporary).unlink(missing_ok=True)
@@ -185,6 +215,7 @@ class IMessageMedia:
     async def resolve(self, client, part):
         value, hint, kind = extract_url_and_filename(part)
         if not isinstance(value, str) or not value:
+            logger.warning(f"iMessage media locator missing")
             return None
         if value.startswith(("http://", "https://")):
             return await self.remote_url(client, value, kind, hint)

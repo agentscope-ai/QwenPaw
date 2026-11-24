@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Form } from "antd";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import {
   installPlugin,
   uploadPlugin,
@@ -124,9 +125,9 @@ export function useInstallModal(
       setLocalSel(null);
       await onSuccess(result);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("pluginManager.installFailed");
-      message.error(msg);
+      message.error(
+        pluginErrorMessage(err, t("pluginManager.installFailed"), t),
+      );
     } finally {
       setLocalInstalling(false);
     }
@@ -149,9 +150,9 @@ export function useInstallModal(
       form.resetFields();
       await onSuccess(result);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("pluginManager.installFailed");
-      message.error(msg);
+      message.error(
+        pluginErrorMessage(err, t("pluginManager.installFailed"), t),
+      );
     } finally {
       setUrlInstalling(false);
     }

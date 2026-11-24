@@ -30,6 +30,16 @@ from qwenpaw.app.routers.mail_access_control import (
     update_remark,
 )
 
+
+@pytest.fixture(autouse=True)
+def _available_mcp(monkeypatch):
+    """The mailbox domain fixtures run with an available host protocol."""
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: True,
+    )
+
+
 AGENT = "agent-1"
 
 

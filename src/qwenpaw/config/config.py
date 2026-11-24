@@ -462,6 +462,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
@@ -635,6 +636,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
@@ -2689,11 +2691,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "
@@ -3487,6 +3485,7 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    local_model_plugin_migrated: bool = False
     skill_paths: List[str] = Field(
         default_factory=list,
         description="Additional read-only skill pool roots, scanned after "
@@ -4055,7 +4054,11 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 )
 
                 invalidate_agent_migration(workspace_dir)
-            write_json_atomic(agent_config_path, payload)
+            write_json_atomic(
+                agent_config_path,
+                payload,
+                retry_windows_replace=True,
+            )
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:

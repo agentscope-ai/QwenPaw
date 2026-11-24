@@ -17,6 +17,8 @@ from qwenpaw.providers.model_selection import (
     runtime_model_context,
 )
 from qwenpaw.runtime.prompt_contributors import MultimodalHintContributor
+from qwenpaw.runtime.provider_turn import ProviderTurn
+from qwenpaw.runtime.turn_context import current_provider_turn
 from qwenpaw.utils.io_utils import run_sync_io
 
 
@@ -116,14 +118,23 @@ def test_prompt_capability_uses_explicit_config_over_parent_model(models):
 @pytest.mark.parametrize("media_type", ["image", "video"])
 async def test_capability_probe_targets_executing_model(models, media_type):
     _config, manager = models
-    with runtime_model_context(SimpleNamespace(model_key="unknown:new")):
+    turn = ProviderTurn()
+    observed = []
+
+    async def probe(provider_id, model_id, image_only=False):
+        observed.append((provider_id, model_id, current_provider_turn.get()))
+        return {"supports_image": True, "supports_video": True}
+
+    manager.probe_model_multimodal = probe
+    model = SimpleNamespace(model_key="unknown:new")
+    with runtime_model_context(model), turn.bind():
         assert await view_media._probe_multimodal_if_needed(media_type) is True
-        await asyncio.sleep(0)
-    assert manager.probe_model_multimodal.await_args_list
-    assert all(
-        call.args == ("unknown", "new")
-        for call in manager.probe_model_multimodal.await_args_list
-    )
+    await turn.close()
+    await asyncio.sleep(0)
+    expected = [("unknown", "new", turn)]
+    if media_type == "image":
+        expected.append(("unknown", "new", None))
+    assert observed == expected
 
 
 @pytest.mark.parametrize("known", [False, True])

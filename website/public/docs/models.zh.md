@@ -2,7 +2,7 @@
 
 在使用 QwenPaw 之前，您需要配置至少一个可用模型，QwenPaw 支持多种模型提供商，您可以在页面左侧边栏的 **设置 -> 模型** 页面进行配置和管理。
 
-![设置模型](https://img.alicdn.com/imgextra/i4/O1CN01fCY3MW1R3F46MQWCk_!!6000000002055-2-tps-3810-2064.png)
+![全局默认模型与云端提供商](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 QwenPaw 支持多种 LLM 提供商：
 
@@ -16,7 +16,7 @@ QwenPaw 当前支持的本地供应商包括：
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-其中 QwenPaw Local (llama.cpp) 内置在 QwenPaw 中，无需额外安装其他软件，Ollama 和 LM Studio 需要用户提前安装好对应的软件。
+QwenPaw Local 由可选插件提供。Ollama 和 LM Studio 需要单独安装。
 
 QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包含 2B、4B 和 9B 三个版本；除原始模型外，还提供 4 bit 和 8 bit 量化版本，适合不同的显存环境和性能需求。这些模型已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 和 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，下面分别介绍如何在三种本地供应商中使用 QwenPaw-Flash。
 
@@ -24,33 +24,31 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 > QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
 
-QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
+全新安装时，**设置 → 模型 → 本地 & 自定义** 中有 Ollama 和 LM Studio，它们连接的是你单独运行的服务。如果希望由 QwenPaw 管理 llama.cpp 和 GGUF 文件，请按以下步骤操作：
 
-![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
+![安装 QwenPaw Local 之前的本地提供商列表](https://img.alicdn.com/imgextra/i4/O1CN01knTfR9R1sgL3FPfU_!!6000000004916-2-tps-1600-1000.png)
 
-初次配置 QwenPaw Local 时，您需要先下载 llama.cpp 运行库，点击 **下载 llama.cpp** 按钮，QwenPaw 会自动下载并配置好 llama.cpp 运行库，下载完成后您就可以使用 QwenPaw Local 提供商了。
+1. 打开 **设置 → 扩展 → 插件 → 官方插件**，安装 **QwenPaw Local**（`local-llamacpp`）。如果已经安装，在 **已安装插件** 中确认已启用。
+2. 回到 **模型 → 本地 & 自定义**，打开 **QwenPaw Local** 卡片的模型管理窗口。若缺少推理引擎，点击 **安装 llama.cpp**。安装插件本身不会下载引擎或模型。
+3. 下载推荐模型，或选择 ModelScope、Hugging Face 并填写 GGUF 仓库 ID。如果已有权重，可以[手动导入 GGUF](./models#本地模型)，不必重复下载。
+4. 点击已下载模型旁的 **启动**。Flash 会成为默认对话模型，Piccolo 会成为默认决策模型。两者共用一个服务，切换前请等待当前请求完成。**停止** 只关闭服务，不删除权重。
 
-![下载 llama.cpp](https://img.alicdn.com/imgextra/i2/O1CN01zN4QFs1RGyvkxM8lE_!!6000000002085-2-tps-1550-1308.png)
+重启 QwenPaw 时，如果启用的智能体仍选用已启动过的本地模型，QwenPaw 会尝试恢复该模型。只使用云模型时，llama.cpp 不会随 App 启动。
 
-QwenPaw 团队专门训练了一系列适合本地部署的小模型（QwenPaw-Flash 系列），会自动根据您当前的设备（CPU / NVIDIA GPU / Apple M 系列芯片）为您推荐适合的模型版本。如果您希望使用 QwenPaw-Flash，直接在这里选择合适的版本下载并启动即可；如果您希望使用其他模型，也可以通过填写 _模型仓库 ID_ 以及 _下载源_ 来添加其他模型，模型仓库 ID 是指模型在 ModelScope / Hugging Face 等模型仓库中的标识，例如 `Qwen/Qwen3-0.6B-GGUF`，下载源是指下载模型的途径，目前支持 ModelScope 和 Hugging Face 两种下载源。
+### 使用本地 Piccolo 决策模型
 
-![下载模型](https://img.alicdn.com/imgextra/i2/O1CN01io6OUC1kBvFn3RA8U_!!6000000004646-2-tps-1346-1694.png)
+在 QwenPaw Local 的 **决策模型** 列表中，按机器内存选择推荐的 BF16 或 Q8_0 版本，下载后点击 **启动**。如需 Q4_K_M，可在自定义下载中填写 GGUF 仓库 ID，例如 Hugging Face 的 `agentscope-ai/Piccolo-4B-Q4_K_M` 或 ModelScope 的 `AgentScope/Piccolo-4B-Q4_K_M`。
 
-模型下载完成后就可以点击 **启动** 按钮来启动该模型，不同大小的模型启动耗时可能有差异，请耐心等待，启动后 QwenPaw 会自动将全局默认模型切换为该模型。同一时刻只能启动一个模型，启动其他模型时会自动关闭当前正在运行的模型。
+在 **模型 → 默认模型 → 决策模型** 确认已选中 Piccolo，再按用途配置智能体：
 
-![启动模型](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
-
-在暂时不需要使用模型时，您可以选择 **停止** 模型来停止该模型的服务。
-
-![停止模型](https://img.alicdn.com/imgextra/i4/O1CN01u6zmTW1lCfW2lsXAh_!!6000000004783-2-tps-1354-1796.png)
-
-QwenPaw Local 会自动记录模型启动状态，如果您在关闭 QwenPaw 进程时，QwenPaw Local 模型正在运行，下次打开时会自动尝试重新启动上次使用的模型，从而无需每次启动 QwenPaw 后都手动启动模型。
+- **工具审查**：在智能体的安全设置中选择 **决策模型模式**，并在对话中开启工具审查。
+- **上下文压缩**：在智能体的上下文设置中开启自动上下文压缩，再打开 **启用决策模型压缩**。
 
 ## Ollama 配置
 
 在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
 
-![Ollama 设置](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
+![Ollama 设置](https://img.alicdn.com/imgextra/i4/O1CN01qO1GW7AMDYH3FPfU_!!6000000006595-2-tps-1600-1000.png)
 
 为了验证 Ollama 是否能够正常使用，可以进入 QwenPaw Ollama 提供商的 **设置** 页面，点击 **测试连接** 按钮来验证 QwenPaw 是否能够连接到 Ollama 服务。
 
@@ -91,11 +89,7 @@ PARAMETER top_p 0.95
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. 回到 QwenPaw 的 Ollama 提供商模型页面，点击 **自动获取模型** 即可将该模型加入 QwenPaw。
-
-Ollama 安装配置完成后，可以进入 QwenPaw Ollama 提供商的 **模型** 页面，点击 **自动获取模型** 按钮以获得当前可用的 Ollama 模型列表，获取完成后可以进一步点击 **测试连接** 来验证模型是否能够正常使用。
-
-![Ollama 模型列表](https://img.alicdn.com/imgextra/i3/O1CN01cxqKOB1siui8vYlvp_!!6000000005801-2-tps-1504-1720.png)
+4. 打开 Ollama 卡片的模型列表，点击刷新图标 **更新模型列表**，再启用要使用的模型。同步目录不会把模型权重下载到 QwenPaw。
 
 ## LM Studio 配置
 
@@ -135,9 +129,7 @@ hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-3. 回到 QwenPaw 的 LM Studio 提供商模型页面，点击 **自动获取模型** 即可将该模型加入 QwenPaw。
-
-后续流程与 Ollama 相同，点击 **测试连接** 按钮来验证 QwenPaw 是否能够连接到 LM Studio 服务，如果连接成功，就可以进入 LM Studio 模型管理页面，点击 **自动获取模型** 来获取当前 LM Studio 中可用的模型列表，获取完成后可以进一步点击 **测试连接** 来验证模型是否能够正常使用。
+3. 保持 LM Studio 服务运行，在 QwenPaw 打开它的模型列表，点击 **更新模型列表**，再启用要使用的模型。
 
 > 对于将 QwenPaw 部署在 Docker 容器中的用户，如果 LM Studio 安装在宿主机上，请确保 Docker 的网络配置允许容器访问宿主机的 LM Studio 服务（在 `docker run` 命令中添加 `--add-host=host.docker.internal:host-gateway`），并将 API 地址设置为 `http://host.docker.internal:1234/v1` 来实现连接。
 
@@ -169,23 +161,23 @@ QwenPaw 当前支持的云提供商包括：
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
 
-![云供应商列表](https://img.alicdn.com/imgextra/i4/O1CN01AvAWdy1GGYoDlNecN_!!6000000000595-2-tps-3810-2064.png)
+![云供应商列表](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 为了激活云供应商，你需要进入供应商的配置页面进行配置，大部分云供应商都已经提前配置了 API 域名，您只需要输入 API Key 即可。
 
-![配置 API Key](https://img.alicdn.com/imgextra/i1/O1CN01dIMlx51XuizaWQOqA_!!6000000002984-2-tps-1170-862.png)
+![配置 API Key](https://img.alicdn.com/imgextra/i1/O1CN01YQFnwvTvL5B3FPfU_!!6000000007650-2-tps-1600-1000.png)
 
-填入 API Key 后，点击 **测试连接** 按钮，系统会自动验证 API Key 是否正确（仅部分供应商支持）。
+若提供商设置中有 **测试连接**，点击它可用当前表单的地址和凭据检查连接。连接失败不一定是密钥有误，也应检查服务地址及网络。提供商检查通过，不代表账号有权使用其所有模型。
 
-![测试连接结果](https://img.alicdn.com/imgextra/i3/O1CN01PCK2ai1fpFBDiqPAp_!!6000000004055-2-tps-1218-1060.png)
+![Kilo Code 提供商设置中的连接测试成功提示](https://img.alicdn.com/imgextra/i4/O1CN015ymitubzuwJ3FPfU_!!6000000004194-2-tps-1600-1000.png)
 
-云供应商配置完成后可以进一步检测模型是否能够使用，云供应商内已经预设了一系列常用模型，你可以点击供应商的模型管理页面中某个具体模型的 **测试连接** 按钮，系统会自动验证模型是否能够正常使用。
+要检查某个模型，请先保存提供商设置，再打开它的模型列表，点击目标模型对应的 **测试连接**。这次检查针对所选模型 ID，与提供商级检查不同。
 
-![模型连接测试结果](https://img.alicdn.com/imgextra/i3/O1CN01fmAwzz1l0lDanBi4b_!!6000000004757-2-tps-1278-1394.png)
+![模型库中 Kilo Auto 免费模型的连接测试结果](https://img.alicdn.com/imgextra/i2/O1CN012nMBTYT0yFG3FPfU_!!6000000005975-2-tps-1600-1000.png)
 
 如果预设的模型无法满足需求，您也可以在模型管理页面选择 **添加模型** 来添加增加新的模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识，通常可以从提供商文档中获得）以及 **模型名称** （用于在界面中展示）。手动添加的模型同样可以通过 **测试连接** 来验证是否能够正常使用。
 
-![添加模型](https://img.alicdn.com/imgextra/i1/O1CN014GTNqr1t4tipsb3OF_!!6000000005849-2-tps-1260-1588.png)
+![添加模型](https://img.alicdn.com/imgextra/i2/O1CN01yYjwwEcsEZJ3FPfU_!!6000000001862-2-tps-1600-1000.png)
 
 ## 自定义供应商配置
 
@@ -193,15 +185,15 @@ QwenPaw 当前支持的云提供商包括：
 
 ### 添加提供商
 
-您可以使用 **设置 -> 模型 -> 提供商** 右上角的 **添加提供商** 来添加一个新的提供商，添加时需要提供 **提供商 ID**（用于 QwenPaw 内部索引）以及 **提供商名称** （用于在界面中展示），并选择该供应商的 API 兼容模式（目前支持 OpenAI `chat.completions` 以及 Anthropic `messages` 两种）。添加完成后您可以像云提供商一样在该提供商下添加模型，并且在聊天等场景中选择使用该提供商的模型。
+点击 **设置 → 模型 → 添加提供商**，填写提供商 ID、显示名称和基础 URL，按服务要求填写 API Key。选择端点实际使用的协议：OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages。保存后，在该提供商的模型列表中添加模型。
 
-![添加提供商](https://img.alicdn.com/imgextra/i4/O1CN0109IMbU1x9FyG248X2_!!6000000006400-2-tps-3810-2064.png)
+![添加提供商](https://img.alicdn.com/imgextra/i2/O1CN01745rhA69jSC3FPfU_!!6000000002896-2-tps-1600-1000.png)
 
 ### 配置供应商
 
 供应商添加完成后，您可以进入该供应商的 **设置** 页面来配置该供应商的 API 访问信息，包括 _基础 URL_ 以及 _API 秘钥_ 。
 
-![自定义供应商设置](https://img.alicdn.com/imgextra/i1/O1CN01qwzsQy1ch3FTHnNaq_!!6000000003631-2-tps-3826-2076.png)
+![自定义供应商设置](https://img.alicdn.com/imgextra/i4/O1CN0131q7xruKgpF3FPfU_!!6000000002386-2-tps-1600-1000.png)
 
 ### 添加模型
 
@@ -211,13 +203,13 @@ QwenPaw 当前支持的云提供商包括：
 
 ## 选择模型
 
-配置好的模型供应商以及模型会显示在 **设置 -> 模型 -> 默认 LLM** 的列表中，您可以选择一个模型作为全局默认模型，点击模型右侧的 **保存** 按钮即可，在该页面设置的模型会作为全局默认模型被 QwenPaw 使用，如果您在某些场景（例如聊天）中没有指定模型，QwenPaw 就会使用这里设置的默认模型。
+在 **设置 → 模型 → 默认模型** 中选择 **对话模型**，选择后自动保存。**决策模型** 是独立配置，不是第二个对话模型。
 
-![默认模型设置](https://img.alicdn.com/imgextra/i4/O1CN01hczGZs1OH290Y4JAG_!!6000000001679-2-tps-3810-2064.png)
+![全局对话模型选择器](https://img.alicdn.com/imgextra/i3/O1CN01zlN7yTjh7hB3FPfU_!!6000000002887-2-tps-1600-1000.png)
 
-由于不同任务所需的模型能力存在差别，QwenPaw 也支持在不同聊天中使用不同的模型，你可以在 **聊天** 页面右上角的下拉菜单中选择合适的供应商和模型，但该设置仅对当前使用的智能体以及聊天生效。如果没有在聊天页面配置供应商或者模型，QwenPaw 就会使用全局默认模型。
+要为某个会话单独选模，请使用聊天输入区的模型选择器。清除会话选择后会重新继承智能体的模型；不会修改智能体或全局默认值。
 
-![聊天模型设置](https://img.alicdn.com/imgextra/i2/O1CN01YhPlMl1ONRgnMBj7i_!!6000000001693-2-tps-3810-2064.png)
+![聊天输入区的会话模型选择器](https://img.alicdn.com/imgextra/i1/O1CN01eNUg5R1qLmG3FPfU_!!6000000002950-2-tps-1600-1000.png)
 
 ## 模型配置进阶
 
@@ -227,11 +219,17 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 ### 本地模型
 
-如果使用了 QwenPaw Local (llama.cpp) 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）中保存 llama.cpp 相关的运行库、模型文件以及运行日志，其中
+手动导入 GGUF 时，先找到插件的数据目录。下表中的相对路径以 `$QWENPAW_WORKING_DIR`（默认 `~/.qwenpaw`）为起点。
 
-- **运行库**保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，包含了 llama.cpp 的可执行文件以及相关的动态链接库，这些文件由 QwenPaw 自动下载和配置，如果用户对 llama.cpp 有特殊需求（例如需要使用特定硬件的加速能力），也可以自行编译 llama.cpp 并直接替换该目录下的文件。
-- **下载的模型**会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件以及一些模型元信息文件，如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 GGUF 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）。
-- **日志文件**保存在 `$QWENPAW_WORKING_DIR/local_models/logs` 目录下，启动 llama.cpp 后日志文件会自动保存在该目录下的 `llama-server.log` 文件中。
+| 使用情况                 | 数据目录                              |
+| ------------------------ | ------------------------------------- |
+| 首次使用本地插件         | `plugin-data/local-llamacpp/runtime/` |
+| 从旧版升级，已有本地模型 | 沿用原目录，默认为 `local_models/`    |
+| 已配置插件的 `data_dir`  | 使用该配置指定的目录                  |
+
+在数据目录中创建 `models/组织名/模型名/`，将 GGUF 放进去。例如 `models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`。刷新 QwenPaw Local 模型列表后，即可启动该模型。
+
+同一数据目录下，`bin/` 存放 llama.cpp 运行库，`logs/llama-server.log` 记录服务日志。
 
 ### 生成参数
 
@@ -247,4 +245,4 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 配置完成后点击 **保存**，QwenPaw 就会在使用该供应商的模型进行生成时自动带上这些参数配置了。
 
-![生成参数](https://img.alicdn.com/imgextra/i2/O1CN01XreaTi1VPSj9sMQtp_!!6000000002645-2-tps-1170-1476.png)
+![生成参数](https://img.alicdn.com/imgextra/i1/O1CN01B6plEcVl8SE3FPfU_!!6000000003566-2-tps-1600-1000.png)

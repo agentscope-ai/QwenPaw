@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 from threading import Lock
+from types import SimpleNamespace
 
 import pytest
 
@@ -208,6 +209,45 @@ def test_successful_save_updates_model_version(
 
     persisted = json.loads(agent_path.read_text(encoding="utf-8"))
     assert persisted["description"] == "second"
+
+
+@pytest.mark.parametrize("refusals", [1, 3])
+def test_agent_config_windows_replace_retry(tmp_path, monkeypatch, refusals):
+    """Retry a brief refusal and keep the old file if all attempts fail."""
+    agent_path, _raw = _prepare_agent(tmp_path, monkeypatch)
+    loaded = load_agent_config("agent")
+    loaded.name = "New"
+    attempts = []
+    replace = os.replace
+    denied = PermissionError("agent.json is busy")
+    denied.winerror = 5
+
+    def replace_when_available(source, target):
+        assert target == agent_path
+        attempts.append(source)
+        if len(attempts) <= refusals:
+            raise denied
+        replace(source, target)
+
+    monkeypatch.setattr(
+        "qwenpaw.utils.io_utils.sys",
+        SimpleNamespace(platform="win32"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.utils.io_utils.os.replace",
+        replace_when_available,
+    )
+    if refusals == 1:
+        config_module.save_agent_config("agent", loaded)
+        assert load_agent_config("agent").name == "New"
+        assert len(attempts) == 2
+    else:
+        with pytest.raises(PermissionError, match="agent.json is busy"):
+            config_module.save_agent_config("agent", loaded)
+        assert load_agent_config("agent").name == "Old"
+        assert len(attempts) == 3
+    assert len(set(attempts)) == 1
+    assert not list(agent_path.parent.glob(".agent.json.*.tmp"))
 
 
 def test_last_dispatch_migration_publishes_state_then_removes_legacy(

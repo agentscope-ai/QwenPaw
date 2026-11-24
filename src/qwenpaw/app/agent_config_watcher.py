@@ -111,6 +111,7 @@ class AgentConfigWatcher:
     async def stop(self) -> None:
         """Stop the polling task (no-op if already disabled)."""
         if self._disabled:
+            self._task = None
             logger.info(
                 f"AgentConfigWatcher already disabled for agent "
                 f"{self._agent_id}, skipping cancel",
@@ -232,14 +233,25 @@ class AgentConfigWatcher:
             f"(channels: {old_channels_hash} -> {new_channels_hash}, "
             f"heartbeat: {old_heartbeat_hash} -> {new_heartbeat_hash})",
         )
+        reloaded = False
         try:
             # The on-disk config changed: bump the generation so a
             # reload already mid-build cannot re-install the pre-change
             # snapshot after this one delivers the fresh state.
             manager.note_agent_config_changed(self._agent_id)
-            await manager.reload_agent(self._agent_id)
+            reloaded = await manager.reload_agent(self._agent_id)
         except Exception:
             logger.exception(
                 f"AgentConfigWatcher ({self._agent_id}): "
                 f"reload_agent failed",
             )
+        if (
+            not reloaded
+            and self._task is asyncio.current_task()
+            and manager.get_loaded_agent(self._agent_id) is self._workspace
+        ):
+            # The failed candidate never took ownership. Keep observing the
+            # next disk edit against the settings last applied by this owner.
+            self._last_channels_hash = old_channels_hash
+            self._last_heartbeat_hash = old_heartbeat_hash
+            self._disabled = False

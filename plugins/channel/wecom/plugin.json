@@ -1,7 +1,7 @@
 {
   "id": "wecom",
   "name": "WeCom",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "channel",
   "description": "WeCom AI Bot WebSocket messaging and QR authorization.",
   "author": "QwenPaw Team",
