@@ -1778,7 +1778,8 @@ def update_single_builtin(
     try:
         copy_skill_dir(variant.skill_dir, staged_target)
         try:
-            return mutate_pool_manifest(_update) or {}
+            result = mutate_pool_manifest(_update)
+            return result or {}
         except Exception:
             if target_replaced or backup_target.exists():
                 _rollback_target()
