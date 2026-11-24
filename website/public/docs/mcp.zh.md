@@ -46,7 +46,7 @@ node --version  # 检查版本
 3. 切换到 **JSON 导入**，粘贴 MCP 客户端配置
 4. 点击 **创建** 完成导入
 
-![创建客户端弹窗中通过 JSON 导入 filesystem 配置](https://img.alicdn.com/imgextra/i4/O1CN015mFfkpty1aH1chr0_!!6000000003625-2-tps-800-578.png)
+![MCP 客户端列表及右上角的创建客户端按钮](https://img.alicdn.com/imgextra/i1/O1CN011336iqi7wpB3FPfU_!!6000000002674-2-tps-1600-1000.png)
 
 ---
 

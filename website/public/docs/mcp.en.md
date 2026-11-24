@@ -46,7 +46,7 @@ node --version  # Check version
 3. Open **JSON Import** and paste your MCP client configuration
 4. Click **Create** to import
 
-![JSON Import tab in the Create Client dialog with a filesystem configuration](https://img.alicdn.com/imgextra/i4/O1CN018sB4NL9MBFG1chr0_!!6000000006886-2-tps-800-578.png)
+![MCP Clients list with the Create Client button in the upper right](https://img.alicdn.com/imgextra/i4/O1CN01NeffbT6Yg2D3FPfU_!!6000000007368-2-tps-1600-1000.png)
 
 ---
 
