@@ -111,6 +111,16 @@
 
 // Native selection keeps prose/code layout while omitting their UI controls.
 .quoteResponse {
+  // The bubble content wrapper is `display:flex; flex-direction:column` with
+  // `align-items:flex-start`, so this block is sized shrink-to-fit. A wide
+  // Markdown table makes that fit-content width larger than the bubble, and the
+  // table's own `max-width:100%` (pages/Chat/index.module.less) then resolves
+  // against the oversized parent — the table overflows and gets clipped by the
+  // bubble list's `overflow-x:hidden`. Clamping here restores the intended
+  // per-table horizontal scroll without touching table layout.
+  max-width: 100%;
+  min-width: 0;
+
   button,
   [role="button"],
   input,

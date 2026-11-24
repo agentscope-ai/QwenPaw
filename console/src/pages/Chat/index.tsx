@@ -196,7 +196,6 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -3888,29 +3887,6 @@ export default function ChatPage() {
       mutationObserver.disconnect();
     };
   }, [i18n.language, isMobile]);
-
-  useEffect(() => {
-    const root = chatMessagesAreaRef.current;
-    if (!root) return;
-
-    const handleMessagesWheel = (event: WheelEvent) => {
-      const handled = scrollReverseMessageList(
-        root,
-        event.target,
-        event.deltaY,
-        event.deltaMode,
-      );
-      if (handled) event.preventDefault();
-    };
-
-    root.addEventListener("wheel", handleMessagesWheel, {
-      capture: true,
-      passive: false,
-    });
-    return () => {
-      root.removeEventListener("wheel", handleMessagesWheel, true);
-    };
-  }, []);
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
