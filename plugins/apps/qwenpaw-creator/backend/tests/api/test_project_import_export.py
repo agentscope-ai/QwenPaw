@@ -10,6 +10,7 @@ import json
 import logging
 import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -838,9 +839,13 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
         ProjectCommitRecoveryCoordinator,
     )
 
-    original = ProjectStore(tmp_path / "original")
     project = Project.new(project_id="project-archive", name="Archive")
     uri = "assets/source-intelligence/source:camera/index.json"
+    windows_uri = "assets/source-intelligence/source_camera/index.json"
+    original = ProjectStore(
+        tmp_path / "original",
+        asset_uri_rewrites={uri: windows_uri},
+    )
     project.assets.files_by_id["sidecar"] = IndexedFile(
         file_id="sidecar",
         kind="source_intelligence",
@@ -851,7 +856,8 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
         created_at=project.created_at,
     )
     base = original.create(project)
-    source = original.project_root(project.project_id) / uri
+    project_root = original.project_root(project.project_id)
+    source = project_root / windows_uri
     source.parent.mkdir(parents=True)
     source.write_bytes(b"{}")
     boundary = ProjectCommitBoundary(original)
@@ -879,12 +885,27 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
             commit()
     else:
         commit()
+    archived_etag = original.read(project.project_id).etag
     zip_path = tmp_path / "bundle.zip"
-    project_archive.write_project_archive(
-        original.project_root(project.project_id),
-        original.read(project.project_id).project,
-        zip_path,
-    )
+    # Preserve the old Project and journal, with the POSIX name stored in
+    # the ZIP member so the fixture itself works on every filesystem.
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in project_root.rglob("*"):
+            member = (
+                f"{project.project_id}/{uri}"
+                if path == source
+                else path.relative_to(project_root.parent).as_posix()
+            )
+            archive.write(path, member)
+
+    native_lstat = Path.lstat
+
+    def windows_lstat(path):
+        if "source:camera" in path.parts:
+            raise OSError("Windows cannot represent this asset path")
+        return native_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", windows_lstat)
     destination = tmp_path / "expanded"
     monkeypatch.setattr(
         project_archive,
@@ -899,14 +920,16 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
     assert recovered.ok
     snapshot = imported.read(project.project_id)
     assert snapshot.project.description == "Existing edit"
-    assert snapshot.project.assets.files_by_id[
-        "sidecar"
-    ].relative_uri == uri.replace("source:camera", "source_camera")
-    journal = (
-        imported.project_root(project.project_id)
-        / "runtime"
-        / "transactions"
-        / "archive-edit"
-        / "journal.json"
+    assert (
+        snapshot.project.assets.files_by_id["sidecar"].relative_uri
+        == windows_uri
     )
-    assert json.loads(journal.read_text())["state"] == "RUNTIME_FINALIZED"
+    imported_root = imported.project_root(project.project_id)
+    assert (imported_root / windows_uri).read_bytes() == b"{}"
+    journal = json.loads(
+        (
+            imported_root / "runtime/transactions/archive-edit/journal.json"
+        ).read_text(encoding="utf-8"),
+    )
+    assert journal["state"] == "RUNTIME_FINALIZED"
+    assert journal["final_etag"] == archived_etag

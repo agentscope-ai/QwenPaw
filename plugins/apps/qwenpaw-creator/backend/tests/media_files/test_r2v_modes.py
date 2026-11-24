@@ -291,20 +291,23 @@ def _run_video(
             poll_interval_seconds=0.01,
             poll_lease_seconds=0.1,
         )
-        dispatched = await worker.dispatch(
-            project_id=PROJECT_ID,
-            target_ref=f"element:{element_id}",
-            arguments=arguments,
-            idempotency_key=idempotency_key,
-            s2v=s2v,
-        )
-        task = await worker.wait_for_task(
-            PROJECT_ID,
-            dispatched.task_id,
-            timeout_seconds=5,
-        )
-        await worker.shutdown()
-        return task
+        try:
+            dispatched = await worker.dispatch(
+                project_id=PROJECT_ID,
+                target_ref=f"element:{element_id}",
+                arguments=arguments,
+                idempotency_key=idempotency_key,
+                s2v=s2v,
+            )
+            # The provider is immediate, but the durable publish and
+            # journal writes can take several seconds on Windows runners.
+            return await worker.wait_for_task(
+                PROJECT_ID,
+                dispatched.task_id,
+                timeout_seconds=30,
+            )
+        finally:
+            await worker.shutdown()
 
     return asyncio.run(scenario())
 

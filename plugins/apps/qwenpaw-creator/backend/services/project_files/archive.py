@@ -111,6 +111,7 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
     if not isinstance(files_by_id, dict):
         return 0
     changed = 0
+    uri_rewrites: dict[str, str] = {}
     for entry in files_by_id.values():
         if not isinstance(entry, dict):
             continue
@@ -122,6 +123,7 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
         )
         if rewritten != uri:
             entry["relative_uri"] = rewritten
+            uri_rewrites[uri] = rewritten
             changed += 1
     if not changed:
         return 0
@@ -137,7 +139,10 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
         from .store import ProjectStore
 
         try:
-            store = ProjectStore(project_json.parent.parent.resolve())
+            store = ProjectStore(
+                project_json.parent.parent.resolve(),
+                asset_uri_rewrites=uri_rewrites,
+            )
             project_id = project_json.parent.name
             original = store.read(project_id)
             if original.project.project_id != project_id:
