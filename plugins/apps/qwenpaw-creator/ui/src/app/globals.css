@@ -193,6 +193,49 @@ a {
   background: var(--color-bg-secondary);
 }
 
+/* Strong-dependency action (e.g. "confirm script and continue"): the accent
+   fill marks the one button a blocked flow needs, plus a single outline breath
+   when it appears so it is noticed without a persistent distraction. */
+.btn-decision {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  background: var(--color-accent);
+  border: none;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  animation: btn-decision-pulse 1.6s ease 1;
+}
+
+.btn-decision:hover:not(:disabled) {
+  background: var(--color-accent-hover) !important;
+}
+
+.btn-decision:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+}
+
+@keyframes btn-decision-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  40% {
+    box-shadow:
+      0 0 0 2px var(--color-accent-soft),
+      0 0 0 3px var(--color-accent);
+  }
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -593,7 +636,8 @@ a {
   .decision-tray-dot-urgent,
   .decision-tray-flash,
   .decision-tray-card-in,
-  .agent-dock-handle-toast {
+  .agent-dock-handle-toast,
+  .btn-decision {
     animation: none;
   }
 }
@@ -1305,7 +1349,8 @@ a {
   transition: opacity 120ms;
 }
 .creator-image-lightbox-frame:hover .creator-image-lightbox-image-close,
-.creator-image-lightbox-frame:has(:focus-visible) .creator-image-lightbox-image-close {
+.creator-image-lightbox-frame:has(:focus-visible)
+  .creator-image-lightbox-image-close {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1626,11 +1671,21 @@ a {
   --agent-overview-cap: min(144px, 20%);
 }
 [data-agent-dock] > [data-decision-tray] {
+  --decision-tray-cap: min(220px, 26vh);
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-  max-height: min(220px, 26vh);
+  max-height: var(--decision-tray-cap);
   overflow: hidden;
+}
+/* A dragged height replaces the automatic cap but still leaves the dock
+   header, composer and a sliver of conversation room — mirrors the creation
+   overview so the tray resizes as a real flex item (an inline max-height can
+   never grow a flex child). */
+[data-agent-dock] > [data-decision-tray][data-resized="true"] {
+  --decision-tray-cap: min(var(--decision-tray-height), calc(100% - 280px));
+  flex-basis: var(--decision-tray-height);
 }
 [data-agent-dock] > [data-decision-tray] > button {
   flex-shrink: 0;
@@ -1639,6 +1694,12 @@ a {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* The drag handle is a direct-child div too: keep it a fixed, non-scrolling
+   grip instead of inheriting the content area's scroll behaviour. */
+[data-agent-dock] > [data-decision-tray] > .decision-tray-resize {
+  flex-shrink: 0;
+  overflow: visible;
 }
 [data-agent-dock] [data-decision-tray] .agent-decision-scroll {
   max-height: none;
@@ -1653,7 +1714,7 @@ a {
     --agent-overview-cap: min(104px, 17%);
   }
   [data-agent-dock] > [data-decision-tray] {
-    max-height: min(160px, 22vh);
+    --decision-tray-cap: min(160px, 22vh);
   }
 }
 .agent-progress-header {

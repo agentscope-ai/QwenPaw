@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 
 from services.project_files.edit_impact import (
     apply_frontend_edit_impacts,
@@ -166,12 +167,19 @@ def test_overlay_copy_edit_invalidates_only_timeline_render() -> None:
     ]
 
 
-def test_r2v_video_prompt_invalidates_video_and_final_but_not_storyboard() -> (
-    None
-):
+@pytest.mark.parametrize("mode", ["r2v", "t2v", "i2v"])
+@pytest.mark.parametrize("field", ["video_prompt", "generate_audio"])
+def test_video_input_invalidates_video_and_final_but_not_storyboard(
+    mode,
+    field,
+) -> None:
+    document = _project()
+    document["timelines"]["items"]["timeline:main"]["elements_by_id"]["r2v-1"][
+        "creation"
+    ]["type"] = mode
     project, impact = apply_frontend_edit_impacts(
-        _project(),
-        [_element_pointer("r2v-1", "creation", "video_prompt")],
+        document,
+        [_element_pointer("r2v-1", "creation", field)],
     )
 
     versions = project["assets"]["artifact_versions_by_id"]

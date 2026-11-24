@@ -4,12 +4,19 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from threading import Event
 
 import pytest
 
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
+from services.project_files.models import (
+    ElementLocation,
+    R2VCreation,
+    TimelineElement,
+    TimelineSpan,
+)
 from services.project_files.review import (
     ProjectReviewService,
     ReviewDecisionConflict,
@@ -32,6 +39,7 @@ from services.runtime_files.models import (
 from .conftest import (
     make_pending_review,
     make_store,
+    read_review,
     read_round,
     read_state,
     review_boundary,
@@ -662,3 +670,434 @@ def test_decision_still_rejects_unreadable_existing_journal(tmp_path) -> None:
 
     with pytest.raises(ReviewDecisionConflict, match="inconsistent"):
         _decide(service, review, [_item(_operation(review, "/name"))])
+
+
+def _seed_element(store, base):
+    """Give ``project-1`` one R2V element carrying no artifacts yet."""
+    project = base.project.model_copy(deep=True)
+    element = TimelineElement(
+        element_id="el-1",
+        label="猫追老鼠",
+        span=TimelineSpan(start_tick=0, duration_tick=4_000),
+        location=ElementLocation(),
+        creation=R2VCreation(
+            narrative="猫发现老鼠后追逐",
+            storyboard_prompt="动画分镜",
+            video_prompt="动画，猫追逐老鼠",
+        ),
+    )
+    project.timelines.items["timeline:main"].elements_by_id["el-1"] = element
+    return (
+        ProjectCommitBoundary(store)
+        .commit(
+            base=base,
+            candidate=project.model_dump(mode="json"),
+            origin="runtime_task",
+        )
+        .snapshot
+    )
+
+
+def _commit_artifact_round(store, base, *, round_id, seq):
+    """A review-gated round that introduces artifact version ``av-1``."""
+    candidate = base.project.model_dump(mode="json")
+    created_at = datetime.now(UTC).isoformat()
+    checksum = "a" * 64
+    assets = candidate["assets"]
+    assets["files_by_id"]["file-1"] = {
+        "file_id": "file-1",
+        "kind": "artifact_payload",
+        "relative_uri": "assets/artifacts/sb-1.png",
+        "sha256": checksum,
+        "size_bytes": 1024,
+        "media_type": "image/png",
+        "created_at": created_at,
+    }
+    assets["artifact_versions_by_id"]["av-1"] = {
+        "version_id": "av-1",
+        "slot_id": "slot-1",
+        "kind": "r2v_storyboard_image",
+        "owner_ref": "element:el-1",
+        "name": "分镜图 1",
+        "file_id": "file-1",
+        "checksum": checksum,
+        "based_on_generation": 0,
+        "created_at": created_at,
+    }
+    assets["artifact_slots_by_id"]["slot-1"] = {
+        "slot_id": "slot-1",
+        "kind": "r2v_storyboard_image",
+        "owner_ref": "element:el-1",
+        "version_ids": ["av-1"],
+        "selected_version_id": "av-1",
+    }
+    return ProjectCommitBoundary(store).commit(
+        base=base,
+        candidate=candidate,
+        round_id=round_id,
+        **review_commit_kwargs(review_boundary(base, seq=seq)),
+    )
+
+
+def _main_element(candidate):
+    return candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "el-1"
+    ]
+
+
+def test_reject_prunes_a_later_round_reference_to_its_artifact(
+    tmp_path,
+) -> None:
+    """Issue #8592: rejecting a round that created an artifact version must
+    also drop the references later pending rounds added to it.
+
+    Both rounds legitimately stay pending (commit.py allows that).  The old
+    compensation only reverted the rejected round's own operations, so the
+    surviving reference made Project validation fail; the decision was never
+    published and every retry returned the same opaque 422 forever.
+    """
+    store, base = make_store(tmp_path, name="Initial")
+    seeded = _seed_element(store, base)
+    artifact_round = _commit_artifact_round(
+        store,
+        seeded,
+        round_id="round-artifact",
+        seq=2,
+    )
+    review = artifact_round.review
+    assert review is not None
+
+    candidate = artifact_round.snapshot.project.model_dump(mode="json")
+    _main_element(candidate)["creation"][
+        "storyboard_reference_version_ids"
+    ] = ["av-1"]
+    reference_round = ProjectCommitBoundary(store).commit(
+        base=artifact_round.snapshot,
+        candidate=candidate,
+        round_id="round-reference",
+        **review_commit_kwargs(
+            review_boundary(artifact_round.snapshot, seq=3),
+        ),
+    )
+    assert reference_round.review is not None
+
+    # A newer round rotates the pending Review's decision token, exactly as
+    # the UI re-reads it before deciding.
+    review = read_review(store, "round-artifact")
+    resolved = _decide(
+        ProjectReviewService(store),
+        review,
+        [_item(operation) for operation in review.operations],
+    )
+
+    assert resolved.status is ReviewStatus.RESOLVED
+    project = store.read("project-1").project
+    assert "av-1" not in project.assets.artifact_versions_by_id
+    assert "slot-1" not in project.assets.artifact_slots_by_id
+    element = project.timelines.items["timeline:main"].elements_by_id["el-1"]
+    assert element.creation.storyboard_reference_version_ids == []
+
+
+def test_reject_reports_a_structural_reference_instead_of_an_empty_422(
+    tmp_path,
+) -> None:
+    """A render binding cannot be pruned without destroying accepted work.
+
+    The rejection must fail with the element the user has to resolve and
+    leave the Review decidable, instead of publishing nothing and returning
+    the bare pydantic 422 (``details: {}``) issue #8592 reported.
+    """
+    store, base = make_store(tmp_path, name="Initial")
+    seeded = _seed_element(store, base)
+    artifact_round = _commit_artifact_round(
+        store,
+        seeded,
+        round_id="round-artifact",
+        seq=2,
+    )
+    review = artifact_round.review
+    assert review is not None
+
+    candidate = artifact_round.snapshot.project.model_dump(mode="json")
+    _main_element(candidate)["render_source"] = {
+        "type": "artifact_version",
+        "version_id": "av-1",
+    }
+    ProjectCommitBoundary(store).commit(
+        base=artifact_round.snapshot,
+        candidate=candidate,
+        round_id="round-render",
+        **review_commit_kwargs(
+            review_boundary(artifact_round.snapshot, seq=3),
+        ),
+    )
+
+    review = read_review(store, "round-artifact")
+    generation_before_decision = store.read("project-1").generation
+    with pytest.raises(ReviewDecisionConflict) as excinfo:
+        _decide(
+            ProjectReviewService(store),
+            review,
+            [_item(operation) for operation in review.operations],
+        )
+
+    assert "无法回滚" in str(excinfo.value)
+    assert "el-1" in str(excinfo.value)
+    # Nothing durable was published, so a different decision still works.
+    assert store.read("project-1").generation == generation_before_decision
+
+
+def _seed_element_output(store, base):
+    """Give ``el-1`` a named output slot holding an unselected ``av-2``.
+
+    A slot may legally keep versions without selecting one, so restoring
+    this state leaves an ``element_output`` render source pointing at a
+    slot whose selection is gone.
+    """
+    candidate = base.project.model_dump(mode="json")
+    created_at = datetime.now(UTC).isoformat()
+    checksum = "b" * 64
+    assets = candidate["assets"]
+    assets["files_by_id"]["file-2"] = {
+        "file_id": "file-2",
+        "kind": "artifact_payload",
+        "relative_uri": "assets/artifacts/video-2.mp4",
+        "sha256": checksum,
+        "size_bytes": 1024,
+        "media_type": "video/mp4",
+        "created_at": created_at,
+    }
+    assets["artifact_versions_by_id"]["av-2"] = {
+        "version_id": "av-2",
+        "slot_id": "slot-out",
+        "kind": "element_video",
+        "owner_ref": "element:el-1",
+        "name": "已接受视频",
+        "file_id": "file-2",
+        "checksum": checksum,
+        "based_on_generation": 0,
+        "created_at": created_at,
+        "duration_seconds": 4.0,
+    }
+    assets["artifact_slots_by_id"]["slot-out"] = {
+        "slot_id": "slot-out",
+        "kind": "element_video",
+        "owner_ref": "element:el-1",
+        "version_ids": ["av-2"],
+        "selected_version_id": None,
+    }
+    _main_element(candidate)["outputs"] = {"main": {"slot_id": "slot-out"}}
+    return (
+        ProjectCommitBoundary(store)
+        .commit(
+            base=base,
+            candidate=candidate,
+            origin="runtime_task",
+        )
+        .snapshot
+    )
+
+
+def _commit_version_next_to_accepted(store, base, *, round_id, seq):
+    """A review-gated round that selects a new ``av-1`` in ``slot-out``."""
+    candidate = base.project.model_dump(mode="json")
+    created_at = datetime.now(UTC).isoformat()
+    checksum = "d" * 64
+    assets = candidate["assets"]
+    assets["files_by_id"]["file-1"] = {
+        "file_id": "file-1",
+        "kind": "artifact_payload",
+        "relative_uri": "assets/artifacts/video-1.mp4",
+        "sha256": checksum,
+        "size_bytes": 1024,
+        "media_type": "video/mp4",
+        "created_at": created_at,
+    }
+    assets["artifact_versions_by_id"]["av-1"] = {
+        "version_id": "av-1",
+        "slot_id": "slot-out",
+        "kind": "element_video",
+        "owner_ref": "element:el-1",
+        "name": "新视频",
+        "file_id": "file-1",
+        "checksum": checksum,
+        "based_on_generation": 0,
+        "created_at": created_at,
+        "duration_seconds": 4.0,
+    }
+    slot = assets["artifact_slots_by_id"]["slot-out"]
+    slot["version_ids"].append("av-1")
+    slot["selected_version_id"] = "av-1"
+    return ProjectCommitBoundary(store).commit(
+        base=base,
+        candidate=candidate,
+        round_id=round_id,
+        **review_commit_kwargs(review_boundary(base, seq=seq)),
+    )
+
+
+def test_reject_prunes_i2v_and_s2v_exact_version_inputs(tmp_path) -> None:
+    """Issue #8592: i2v/s2v take exact ArtifactVersion inputs, not lists.
+
+    Project validation never checks them, so a leftover id after a rollback
+    would stay invisible until the Element renders and fails on a version
+    that no longer exists.
+    """
+    store, base = make_store(tmp_path, name="Initial")
+    seeded = _seed_element(store, base)
+    artifact_round = _commit_artifact_round(
+        store,
+        seeded,
+        round_id="round-artifact",
+        seq=2,
+    )
+    assert artifact_round.review is not None
+
+    candidate = artifact_round.snapshot.project.model_dump(mode="json")
+    elements = candidate["timelines"]["items"]["timeline:main"][
+        "elements_by_id"
+    ]
+    elements["el-1"]["creation"] = {
+        "type": "i2v",
+        "narrative": "猫发现老鼠",
+        "video_prompt": "动画，猫追老鼠",
+        "first_frame_version_id": "av-1",
+    }
+    elements["el-2"] = {
+        "element_id": "el-2",
+        "span": {"start_tick": 5_000, "duration_tick": 4_000},
+        "location": {},
+        "creation": {
+            "type": "s2v",
+            "portrait_version_id": "av-1",
+            "audio_version_id": "av-1",
+        },
+    }
+    ProjectCommitBoundary(store).commit(
+        base=artifact_round.snapshot,
+        candidate=candidate,
+        round_id="round-exact-refs",
+        **review_commit_kwargs(
+            review_boundary(artifact_round.snapshot, seq=3),
+        ),
+    )
+
+    review = read_review(store, "round-artifact")
+    resolved = _decide(
+        ProjectReviewService(store),
+        review,
+        [_item(operation) for operation in review.operations],
+    )
+
+    assert resolved.status is ReviewStatus.RESOLVED
+    project = store.read("project-1").project
+    elements = project.timelines.items["timeline:main"].elements_by_id
+    assert "av-1" not in project.assets.artifact_versions_by_id
+    assert elements["el-1"].creation.first_frame_version_id is None
+    assert elements["el-2"].creation.portrait_version_id is None
+    assert elements["el-2"].creation.audio_version_id is None
+
+
+def test_reject_refuses_an_overlay_whose_payload_is_the_artifact(
+    tmp_path,
+) -> None:
+    """A text-free overlay uses the artifact as its only payload.
+
+    Pruning that reference would leave a document Project validation
+    rejects, so the decision names the Element the user has to fill in.
+    """
+    store, base = make_store(tmp_path, name="Initial")
+    seeded = _seed_element(store, base)
+    artifact_round = _commit_artifact_round(
+        store,
+        seeded,
+        round_id="round-artifact",
+        seq=2,
+    )
+    assert artifact_round.review is not None
+
+    candidate = artifact_round.snapshot.project.model_dump(mode="json")
+    _main_element(candidate)["creation"] = {
+        "type": "overlay",
+        "reference_version_ids": ["av-1"],
+    }
+    ProjectCommitBoundary(store).commit(
+        base=artifact_round.snapshot,
+        candidate=candidate,
+        round_id="round-overlay",
+        **review_commit_kwargs(
+            review_boundary(artifact_round.snapshot, seq=3),
+        ),
+    )
+
+    review = read_review(store, "round-artifact")
+    generation_before_decision = store.read("project-1").generation
+    with pytest.raises(ReviewDecisionConflict) as excinfo:
+        _decide(
+            ProjectReviewService(store),
+            review,
+            [_item(operation) for operation in review.operations],
+        )
+
+    message = str(excinfo.value)
+    assert "无法回滚" in message
+    assert "el-1" in message
+    assert "唯一素材" in message
+    assert store.read("project-1").generation == generation_before_decision
+
+
+def test_reject_refuses_a_render_whose_slot_loses_its_selection(
+    tmp_path,
+) -> None:
+    """The slot keeps another version, but the rendered one is rolled back.
+
+    ``element_output`` then has no selected version at all; the rejection
+    must name that element and slot instead of failing with a bare
+    pydantic message.
+    """
+    store, base = make_store(tmp_path, name="Initial")
+    seeded = _seed_element(store, base)
+    seeded = _seed_element_output(store, seeded)
+    artifact_round = _commit_version_next_to_accepted(
+        store,
+        seeded,
+        round_id="round-artifact",
+        seq=2,
+    )
+    assert artifact_round.review is not None
+
+    candidate = artifact_round.snapshot.project.model_dump(mode="json")
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "el-2"
+    ] = {
+        "element_id": "el-2",
+        "span": {"start_tick": 5_000, "duration_tick": 4_000},
+        "location": {},
+        "creation": {"type": "r2v", "video_prompt": "复用上一段视频"},
+        "render_source": {
+            "type": "element_output",
+            "element_id": "el-1",
+            "output_name": "main",
+        },
+    }
+    ProjectCommitBoundary(store).commit(
+        base=artifact_round.snapshot,
+        candidate=candidate,
+        round_id="round-render-output",
+        **review_commit_kwargs(
+            review_boundary(artifact_round.snapshot, seq=3),
+        ),
+    )
+
+    review = read_review(store, "round-artifact")
+    with pytest.raises(ReviewDecisionConflict) as excinfo:
+        _decide(
+            ProjectReviewService(store),
+            review,
+            [_item(operation) for operation in review.operations],
+        )
+
+    message = str(excinfo.value)
+    assert "无法回滚" in message
+    assert "el-2" in message
+    assert "slot-out" in message

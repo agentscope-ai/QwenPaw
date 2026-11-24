@@ -258,6 +258,7 @@ def test_legacy_document_etag_survives_in_memory_schema_migration():
     # one of the fields a migration adds in memory, so the source document the
     # historical runtime hashed cannot have carried it.
     raw.pop("interactive_presentation", None)
+    raw.pop("name_source")  # The v3 writer predated title provenance.
     del raw["visual"]["entities"]["items"]["char:hero"]["required_variant_ids"]
     # Legacy documents predate the character voice field entirely.
     del raw["visual"]["entities"]["items"]["char:hero"]["voice"]

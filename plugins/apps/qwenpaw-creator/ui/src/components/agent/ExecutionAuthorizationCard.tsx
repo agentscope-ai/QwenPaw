@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { message } from "antd";
-import { ClipboardCheck, Eye, Pencil, PlayCircle } from "lucide-react";
+import {
+  ClipboardCheck,
+  Eye,
+  ListChecks,
+  Pencil,
+  PlayCircle,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   ExecutionAuthorizationApproval,
@@ -21,6 +28,8 @@ import {
   type ProjectPointerRead,
 } from "@/lib/projectJsonPointer";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { useDecisionFocusStore } from "@/store/decisionFocusStore";
 import { CreatorHttpError } from "@/api/creator/client";
 import i18n from "@/i18n";
 
@@ -28,6 +37,16 @@ const BUTTON_BASE =
   "rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50";
 const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-text-primary)] text-[var(--color-bg-primary)] hover:opacity-90`;
 const BUTTON_GHOST = `${BUTTON_BASE} border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`;
+
+/** Structured 409 feedback rendered inline instead of a truncated toast. */
+interface ExecutionInlineError {
+  message: string;
+  blocker: string;
+  reviewIds: string[];
+  reviewBlocked: boolean;
+  promptSyncRequired: boolean;
+  targetRef: string;
+}
 
 export function authorizationApprovalPayload(
   authorization: ExecutionAuthorizationView,
@@ -309,6 +328,40 @@ export default function ExecutionAuthorizationCard({
     null,
   );
   const [saving, setSaving] = useState(false);
+  const snapshotEtag = useProjectSnapshotStore((state) => state.etag);
+  const [inlineError, setInlineError] = useState<ExecutionInlineError | null>(
+    null,
+  );
+  // The 409 handler itself refreshes the snapshot, so a bare etag change does
+  // not prove the blocker is gone. A review block only drops after the review
+  // poll watched every blocking review leave the pending list (keeping them is
+  // what unblocks Continue). Prompt-sync gates and snapshot conflicts stay
+  // visible until the user dismisses them or an approval succeeds, so the
+  // guidance cannot flash away right after the failed click that raised it.
+  const reviewSyncLoaded = useFileProjectReviewStore(
+    (state) => state.projectId === projectId && state.lastGoodAt !== null,
+  );
+  const pendingReviewKey = useFileProjectReviewStore((state) =>
+    state.projectId === projectId
+      ? state.reviews.map((review) => review.review_id).join("|")
+      : "",
+  );
+  useEffect(() => {
+    setInlineError((current) => {
+      if (!current) return current;
+      if (current.promptSyncRequired) return current;
+      if (!current.reviewBlocked || current.reviewIds.length === 0) {
+        // Non-blocking feedback (e.g. a snapshot CAS conflict) is resolved by
+        // the refreshed snapshot itself.
+        return reviewSyncLoaded ? null : current;
+      }
+      const pending = new Set(pendingReviewKey.split("|").filter(Boolean));
+      return reviewSyncLoaded &&
+        !current.reviewIds.some((reviewId) => pending.has(reviewId))
+        ? null
+        : current;
+    });
+  }, [pendingReviewKey, reviewSyncLoaded, snapshotEtag]);
   if (authorization.status !== "PENDING") return null;
 
   const parameterSummary = authorizationParameterSummary(authorization);
@@ -376,6 +429,26 @@ export default function ExecutionAuthorizationCard({
     });
   };
 
+  const blockedByReview = Boolean(inlineError?.reviewBlocked);
+  const viewBlockingReviews = () => {
+    useDecisionFocusStore.getState().focusReviews(inlineError?.reviewIds ?? []);
+  };
+  const openPromptSyncGap = () => {
+    if (!projectId) return;
+    const elementId =
+      inlineError?.targetRef?.startsWith("element:") === true
+        ? inlineError.targetRef.slice("element:".length)
+        : "";
+    navigateToLocator(
+      projectId,
+      resolveCreatorLocator(
+        elementId ? { page: "element", elementId } : { page: "plan" },
+        project,
+      ),
+      { description: t("executionAuth.promptSyncRequired"), review: true },
+    );
+  };
+
   const continueRun = async () => {
     if (promptDirty || promptChanged || saving || patching || busy) return;
     setBusy(true);
@@ -410,7 +483,30 @@ export default function ExecutionAuthorizationCard({
       );
     } catch (error) {
       if (error instanceof CreatorHttpError && error.status === 409) {
-        message.warning(error.userMessage);
+        const details = error.details ?? {};
+        const blocker =
+          typeof details.blocker === "string" ? details.blocker : "";
+        const reviewIds = Array.isArray(details.blockingReviewIds)
+          ? details.blockingReviewIds.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : [];
+        // The toast truncated this text; keep the full actionable guidance
+        // inside the card, and surface structured blockers as actions.
+        setInlineError({
+          message: error.userMessage,
+          blocker,
+          reviewIds,
+          reviewBlocked: blocker === "WAITING_REVIEW",
+          promptSyncRequired: details.promptSyncRequired === true,
+          targetRef:
+            typeof details.targetRef === "string" ? details.targetRef : "",
+        });
+        // Let the tray hoist the reviews that block this authorization above
+        // it without stealing focus yet (that waits for the user's click).
+        useDecisionFocusStore
+          .getState()
+          .noteBlockingReviews(blocker === "WAITING_REVIEW" ? reviewIds : []);
         if (projectId) {
           void useProjectSnapshotStore.getState().pollOnce(projectId);
         }
@@ -572,14 +668,74 @@ export default function ExecutionAuthorizationCard({
           </div>
         </div>
       )}
+      {inlineError && (
+        <div
+          role="alert"
+          data-execution-auth-error={authorization.id}
+          data-execution-auth-blocker={inlineError.blocker || undefined}
+          className="mt-2 rounded-md border border-[var(--color-warning)]/50 bg-[var(--color-warning-soft)]/70 p-2"
+        >
+          <div className="flex items-start gap-1.5">
+            <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] leading-4 text-[var(--color-text-primary)]">
+              {inlineError.message}
+            </p>
+            <button
+              type="button"
+              aria-label={t("executionAuth.dismissError")}
+              title={t("executionAuth.dismissError")}
+              onClick={() => setInlineError(null)}
+              className="shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {inlineError.reviewBlocked && (
+              <button
+                type="button"
+                data-execution-auth-view-reviews=""
+                onClick={viewBlockingReviews}
+                className="flex items-center gap-1 text-[11px] font-medium text-[var(--color-accent)] hover:underline"
+              >
+                <ListChecks className="h-3 w-3" />
+                {t("executionAuth.viewPendingReviews")}
+              </button>
+            )}
+            {inlineError.promptSyncRequired && (
+              <button
+                type="button"
+                data-execution-auth-prompt-sync=""
+                onClick={openPromptSyncGap}
+                className="flex items-center gap-1 text-[11px] font-medium text-[var(--color-accent)] hover:underline"
+              >
+                <PlayCircle className="h-3 w-3" />
+                {t("executionAuth.openWorkbench")}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          disabled={busy || saving || patching || promptDirty || promptChanged}
+          disabled={
+            busy ||
+            saving ||
+            patching ||
+            promptDirty ||
+            promptChanged ||
+            blockedByReview
+          }
+          title={
+            blockedByReview ? t("executionAuth.needReviewFirstHint") : undefined
+          }
+          data-execution-auth-continue=""
           onClick={() => void continueRun()}
-          className={`flex-1 ${BUTTON_PRIMARY}`}
+          className="btn-decision flex-1"
         >
-          {t("executionAuth.continue")}
+          {blockedByReview
+            ? t("executionAuth.needReviewFirst")
+            : t("executionAuth.continue")}
         </button>
         <button
           type="button"

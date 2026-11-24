@@ -13,6 +13,26 @@ import {
 } from "@/components/creator/ProjectImportExport";
 
 /**
+ * Filesystem-safe download stem, mirroring the backend rule: neutralize
+ * characters illegal on Windows/macOS/Linux or URL-corrupting (`#`/`%`) while
+ * keeping the title legible (single spaces and CJK are valid in a filename);
+ * slice by code points so an emoji is never cut in half; and guard Windows
+ * reserved names (CON/NUL/COM1…) that fail even with an extension.
+ */
+const WINDOWS_RESERVED = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i;
+
+function safeFileName(value: string): string {
+  const cleaned = value
+    .normalize("NFKC")
+    .replace(/[\\/:*?"<>|#%\u0000-\u001f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[ ._]+|[ ._]+$/g, "");
+  const clipped = Array.from(cleaned).slice(0, 80).join("");
+  return WINDOWS_RESERVED.test(clipped) ? `_${clipped}` : clipped;
+}
+
+/**
  * Project-level export home (design 83:13383 plan header): a 下载/导出
  * dropdown (final cut + project export) plus, on branching projects, the
  * highlighted 导出互动包 button.
@@ -46,9 +66,9 @@ export default function ProjectExportActions({
   const downloadFilm = async (film: (typeof films)[number]) => {
     if (!film.versionId) return;
     const url = getArtifactVersionMediaUrl(film.versionId);
-    const filename = `${
-      film.name || project.name || t("blueprint.finalCut")
-    }.mp4`;
+    const base =
+      safeFileName(film.name || project.name || "") || t("blueprint.finalCut");
+    const filename = `${base}.mp4`;
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

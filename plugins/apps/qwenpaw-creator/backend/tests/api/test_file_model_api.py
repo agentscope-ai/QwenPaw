@@ -225,6 +225,24 @@ def test_load_drops_unknown_persisted_fields_instead_of_500(
     assert "speed" not in persisted["tts"]
 
 
+def test_model_settings_save_preserves_agent_runtime_limits(
+    config_path,
+) -> None:
+    payload = _config()
+    payload["agent_runtime"] = {
+        "media_parallelism": 2,
+        "mainline_max_model_turns": 8,
+        "specialist_max_model_turns": 6,
+    }
+    _write(config_path, payload)
+
+    model_routes.save_model_config(ModelConfigData.model_validate(_config()))
+
+    assert model_config.get_media_parallelism() == 2
+    assert model_config.get_mainline_max_model_turns() == 8
+    assert model_config.get_specialist_max_model_turns() == 6
+
+
 def test_load_surfaces_invalid_persisted_value_as_validation_error(
     config_path,
 ) -> None:
