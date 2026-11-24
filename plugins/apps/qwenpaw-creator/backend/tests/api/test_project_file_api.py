@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -346,6 +347,97 @@ def test_same_field_stale_patch_returns_cas_conflict(
     assert second.status_code == 409
     assert second.json()["code"] == "CAS_CONFLICT"
     assert second.json()["details"]["conflicts"][0]["pointer"] == "/name"
+
+
+def _rewrite_project_source(services, mutate) -> None:
+    """Rewrite project-1's on-disk source JSON in place.
+
+    Stages a legacy/imported Project whose persisted document is *not*
+    yet model-normalized while staying perfectly readable.
+    """
+
+    path = services.projects.project_path("project-1")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    mutate(raw)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def _drop_approval_fingerprint(raw: dict) -> None:
+    raw["settings"].pop("script_approval_fingerprint", None)
+
+
+def _offset_utc_timestamps(raw: dict) -> None:
+    for key in ("created_at", "updated_at"):
+        raw[key] = raw[key].replace("Z", "+00:00")
+
+
+def _drop_generation(raw: dict) -> None:
+    raw.pop("generation", None)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            _drop_approval_fingerprint,
+            id="missing-optional-approval-fingerprint",
+        ),
+        pytest.param(
+            _offset_utc_timestamps,
+            id="offset-utc-timestamps",
+        ),
+        pytest.param(
+            _drop_generation,
+            id="missing-defaulted-generation",
+        ),
+    ],
+)
+def test_unnormalized_legacy_source_still_accepts_a_plain_user_edit(
+    tmp_path,
+    run_scenario,
+    mutate,
+) -> None:
+    """An ordinary save on a readable-but-unnormalized Project must be 200.
+
+    Regression guard: ``base.json`` must stay the raw source so recovery
+    can re-hash it against ``journal.base_etag``, but the user-edit diff,
+    protected-pointer checks and the merge must run on the migrated
+    ``model_dump``. If the raw source is the diff base, every defaulted
+    field (a missing optional approval fingerprint), timestamp
+    canonicalisation (``+00:00`` -> ``Z``) and generation fill surfaces as
+    a protected or user-only pointer change, so a legitimate edit of an
+    older or imported Project is rejected with 422.
+    """
+
+    app, services, _base = _app(tmp_path)
+    _rewrite_project_source(services, mutate)
+
+    # Re-read so the snapshot carries the un-normalized source and its ETag,
+    # exactly like an imported/legacy project read back from disk.
+    base = services.projects.read("project-1")
+    assert base.source_document is not None
+    # The staged source must genuinely differ from the migrated model, so
+    # this really exercises the normalization gap.
+    assert base.source_document != base.project.model_dump(mode="json")
+
+    payload = _patch_payload(
+        "legacy-save",
+        "Renamed",
+        base,
+        session="edit-legacy",
+    )
+
+    async def scenario(client):
+        return await client.patch(
+            PROJECT_URL,
+            headers={"Idempotency-Key": "legacy-save"},
+            json=payload,
+        )
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200, response.text
+    assert response.json()["project"]["name"] == "Renamed"
+    assert services.projects.read("project-1").project.name == "Renamed"
 
 
 def test_invalid_external_project_keeps_last_good_and_reports_sync_error(

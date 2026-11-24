@@ -125,7 +125,7 @@ ACP as Tool 和 MCP 解决的问题并不相同：
 
 ## QwenPaw as ACP Server
 
-在这种模式下，QwenPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/nicholasgasior/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 QwenPaw，并以编程方式与之交互。
+在这种模式下，QwenPaw 会通过 stdio JSON-RPC 将自己暴露为一个符合 [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) 规范的智能体服务。外部客户端，如 [Zed](https://zed.dev)、[OpenCode](https://github.com/anomalyco/opencode) 或任何兼容 ACP 的编辑器，都可以通过 `qwenpaw acp` 命令连接到 QwenPaw，并以编程方式与之交互。
 
 ### 快速开始
 
@@ -147,6 +147,8 @@ qwenpaw acp --agent-mode goal
 ```
 
 进程通过 stdin/stdout 使用 ACP JSON-RPC 协议通信，stderr 用于日志输出。
+
+`--agent-mode code` 为每个请求启用 Python 工具编排，包括加载和恢复的会话。它暴露 `run_code`，不添加斜杠命令前缀，也不修改已保存的 agent 配置。worker 遵循全局 `security.sandbox_enabled` 设置，默认为 `false`；启用 Code Mode 不会自动开启沙箱。
 
 `--agent-mode MODE_ID` 使用与 Console 相同的工作区 loop 目录（`GET /api/loops`）。内置 ID 包括 `default`、`goal`、`mission`；已配置的自定义模式使用 `custom:<id>`，插件模式使用 `plugin:<name>`。
 

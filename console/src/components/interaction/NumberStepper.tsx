@@ -13,6 +13,7 @@ export function NumberStepper({
   step = 1,
   disabled,
   style,
+  rootClassName,
   ...props
 }: InputNumberProps<number>) {
   const { t } = useTranslation();
@@ -25,7 +26,7 @@ export function NumberStepper({
   };
   return (
     <div
-      className={styles.stepper}
+      className={`${styles.stepper} ${rootClassName ?? ""}`}
       style={style}
       data-disabled={disabled || undefined}
     >

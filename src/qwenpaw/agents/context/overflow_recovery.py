@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""One-shot overflow recovery across model calls and stream consumption.
+"""One recovery boundary across model calls and stream consumption.
 
 The agent supplies recovery that classifies the error, compacts context,
 rebuilds input, and calls the model again. This module owns the retry boundary
-and stream lifecycle; the recovery response is never wrapped for retry again.
+and stream lifecycle; it does not rewrap the recovery response. A caller may
+return an already wrapped retry with a shared budget for multiple attempts.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from contextlib import aclosing
 from typing import Any
 
 from ...providers.stream_progress import has_meaningful_stream_content
+from ...runtime.turn_context import current_run_streams
 
 
 async def call_with_overflow_recovery(
@@ -25,9 +27,13 @@ async def call_with_overflow_recovery(
     try:
         response = await call_model(**kwargs)
     except Exception as exc:
-        return await recover(exc)
+        response = await recover(exc)
+    else:
+        if inspect.isasyncgen(response):
+            response = _stream_with_overflow_recovery(response, recover)
     if inspect.isasyncgen(response):
-        return _stream_with_overflow_recovery(response, recover)
+        if owned := current_run_streams.get():
+            owned.retain(response)
     return response
 
 

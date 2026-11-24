@@ -85,6 +85,8 @@ async def _call_openai(
         "messages": messages,
         "temperature": temperature,
     }
+    if model_config.chat_temperature(model_name, temperature) is None:
+        body.pop("temperature", None)
     # Free-tier gateways (e.g. OpenCode Zen ``*-free``) accept requests
     # without an Authorization header; an empty Bearer value would be
     # rejected as an invalid key.
@@ -99,6 +101,23 @@ async def _call_openai(
                 headers=headers,
                 json=body,
             )
+            # A gateway may reject the sampling temperature for a model this
+            # build has not seen before. Learn it, drop the field, and retry
+            # once so the same turn recovers instead of surfacing a failure.
+            if (
+                response.status_code >= 400
+                and "temperature" in body
+                and model_config.is_temperature_unsupported_error(
+                    response.text,
+                )
+            ):
+                model_config.learn_temperature_unsupported(model_name)
+                body.pop("temperature", None)
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=body,
+                )
     if response.status_code >= 400:
         raise _http_error(
             response,

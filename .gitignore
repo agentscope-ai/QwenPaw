@@ -42,6 +42,9 @@ src/qwenpaw/console/
 # Docs bundled at build time (copied from website/public/docs/)
 src/qwenpaw/docs/
 
+# Official channel bundles generated for editable installs
+src/qwenpaw/official_channels/
+
 # frontend (website)
 website/node_modules/
 website/.vite/
@@ -116,6 +119,7 @@ CLAUDE.md
 *.tmp
 
 # Build cache
+console/dist-tauri/
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
 
 # Hypothesis test cache
@@ -154,9 +158,14 @@ local-docs/
 docs-site/
 
 # Local review notes
+docs/
+.local-review/
 docs/reviews/
 tmp/
 
 # lavish temp
 .lavish/
 .artifacts/
+
+# Local Harness acceptance reports and raw measurements
+/docs/research/harness-*

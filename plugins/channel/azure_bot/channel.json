@@ -1,0 +1,527 @@
+{
+  "schema_version": 2,
+  "channel_key": "azure_bot",
+  "label": {
+    "en": "Azure Bot",
+    "zh": "Azure Bot"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_azure_bot.driver",
+    "qualname": "AzureBotDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "type": "object",
+    "title": "Azure Bot configuration",
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean",
+        "x-ui": {
+          "name": "require_mention",
+          "label": {
+            "zh-CN": "需要 @提及",
+            "en-US": "Require @Mention",
+            "ja-JP": "@メンション必須",
+            "ru-RU": "Требовать @упоминание",
+            "pt-BR": "Exigir @Menção",
+            "vi-VN": "Yêu cầu @Đề cập",
+            "id-ID": "Wajib @Sebut"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，群聊中仅在被 @提及 时才会回复",
+            "en-US": "When enabled, bot only responds in group chats when explicitly @mentioned",
+            "ja-JP": "有効にすると、グループチャットでは明示的に@メンションされた場合のみ応答します",
+            "ru-RU": "Бот отвечает в групповых чатах только при явном @упоминании",
+            "pt-BR": "Quando ativado, o bot só responde em chats de grupo quando explicitamente @mencionado",
+            "vi-VN": "Khi bật, bot chỉ trả lời trong nhóm chat khi được @đề cập rõ ràng",
+            "id-ID": "Saat diaktifkan, bot hanya merespons di chat grup saat secara eksplisit di-@sebut"
+          }
+        }
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean",
+        "x-ui": {
+          "name": "access_control_dm",
+          "label": {
+            "zh-CN": "私聊访问控制",
+            "en-US": "DM Access Control",
+            "ja-JP": "DM アクセス制御",
+            "ru-RU": "Контроль доступа в ЛС",
+            "pt-BR": "Controle de Acesso em DM",
+            "vi-VN": "Kiểm soát truy cập DM",
+            "id-ID": "Kontrol Akses DM"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，只有白名单用户可以通过私聊与机器人互动",
+            "en-US": "When enabled, only whitelisted users can interact with the bot in direct messages",
+            "ja-JP": "有効にすると、ホワイトリストのユーザーのみDMでBotと対話できます",
+            "ru-RU": "При включении только пользователи из белого списка могут общаться с ботом в личных сообщениях",
+            "pt-BR": "Quando ativado, apenas usuários na lista branca podem interagir com o bot em mensagens diretas",
+            "vi-VN": "Khi bật, chỉ người dùng trong danh sách trắng mới có thể tương tác với bot trong tin nhắn trực tiếp",
+            "id-ID": "Saat diaktifkan, hanya pengguna dalam daftar putih yang dapat berinteraksi dengan bot di pesan langsung"
+          }
+        }
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean",
+        "x-ui": {
+          "name": "access_control_group",
+          "label": {
+            "zh-CN": "群聊访问控制",
+            "en-US": "Group Access Control",
+            "ja-JP": "グループ アクセス制御",
+            "ru-RU": "Контроль доступа в группах",
+            "pt-BR": "Controle de Acesso em Grupo",
+            "vi-VN": "Kiểm soát truy cập nhóm",
+            "id-ID": "Kontrol Akses Grup"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，只有白名单用户可以在群聊中与机器人互动",
+            "en-US": "When enabled, only whitelisted users can interact with the bot in group chats",
+            "ja-JP": "有効にすると、ホワイトリストのユーザーのみグループチャットでBotと対話できます",
+            "ru-RU": "При включении только пользователи из белого списка могут общаться с ботом в групповых чатах",
+            "pt-BR": "Quando ativado, apenas usuários na lista branca podem interagir com o bot em chats de grupo",
+            "vi-VN": "Khi bật, chỉ người dùng trong danh sách trắng mới có thể tương tác với bot trong nhóm chat",
+            "id-ID": "Saat diaktifkan, hanya pengguna dalam daftar putih yang dapat berinteraksi dengan bot di chat grup"
+          }
+        }
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "app_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "title": "App Id",
+        "x-ui": {
+          "name": "app_id",
+          "label": "App ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+      },
+      "app_password": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "title": "App Password",
+        "x-ui": {
+          "name": "app_password",
+          "label": "App Password",
+          "type": "password",
+          "required": true,
+          "placeholder": "App Password (Client Secret)"
+        }
+      },
+      "tenant_id": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "title": "Tenant Id",
+        "x-ui": {
+          "name": "tenant_id",
+          "label": "Tenant ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+      },
+      "http_host": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "title": "Http Host",
+        "x-ui": {
+          "name": "http_host",
+          "label": "HTTP Host",
+          "type": "text",
+          "required": false,
+          "placeholder": "0.0.0.0",
+          "default": "0.0.0.0"
+        },
+        "default": "0.0.0.0"
+      },
+      "http_port": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "title": "Http Port",
+        "x-ui": {
+          "name": "http_port",
+          "label": "HTTP Port",
+          "type": "number",
+          "required": false,
+          "placeholder": "3978",
+          "default": 3978
+        },
+        "default": 3978
+      },
+      "media_dir": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "title": "Media Dir",
+        "x-ui": {
+          "name": "media_dir",
+          "label": {
+            "zh-CN": "媒体文件目录",
+            "en-US": "Media Directory",
+            "ja-JP": "メディアディレクトリ",
+            "ru-RU": "Директория медиафайлов",
+            "pt-BR": "Diretório de Mídia",
+            "vi-VN": "Thư mục media",
+            "id-ID": "Direktori Media"
+          },
+          "type": "text",
+          "required": false,
+          "help": {
+            "zh-CN": "默认为当前 agent 工作区下的 media 目录（workspaces/<agent_id>/media）。",
+            "en-US": "Defaults to the current agent's workspace media directory (workspaces/<agent_id>/media).",
+            "ja-JP": "デフォルトは現在のエージェントのワークスペース内の media ディレクトリ（workspaces/<agent_id>/media）です。",
+            "ru-RU": "По умолчанию — каталог media рабочей области текущего агента (workspaces/<agent_id>/media).",
+            "pt-BR": "Padrão: diretório media do espaço de trabalho do agente atual (workspaces/<agent_id>/media).",
+            "vi-VN": "Mặc định là thư mục media trong workspace của agent hiện tại (workspaces/<agent_id>/media).",
+            "id-ID": "Default-nya adalah direktori media pada workspace agen saat ini (workspaces/<agent_id>/media)."
+          }
+        }
+      },
+      "share_session_in_group": {
+        "type": [
+          "boolean",
+          "null"
+        ],
+        "title": "Share Session In Group",
+        "x-ui": {
+          "name": "share_session_in_group",
+          "label": {
+            "zh-CN": "群聊共享上下文",
+            "en-US": "Share Context in Group",
+            "ja-JP": "グループでコンテキスト共有",
+            "ru-RU": "Общий контекст в группе",
+            "pt-BR": "Compartilhar Contexto em Grupo",
+            "vi-VN": "Chia sẻ ngữ cảnh trong nhóm",
+            "id-ID": "Bagikan Konteks dalam Grup"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "启用时，群内所有成员共享同一会话上下文；禁用时，每位成员维护各自独立的会话。",
+            "en-US": "When enabled, all group members share the same conversation context. When disabled, each member has their own independent context.",
+            "ja-JP": "有効にすると、グループの全メンバーが同じ会話コンテキストを共有します。無効にすると、各メンバーが独立したコンテキストを持ちます。",
+            "ru-RU": "Если включено, все участники группы используют общий контекст разговора. Если выключено, у каждого участника независимый контекст.",
+            "pt-BR": "Quando ativado, todos os membros do grupo compartilham o mesmo contexto de conversa. Quando desativado, cada membro tem seu próprio contexto independente.",
+            "vi-VN": "Khi bật, tất cả thành viên nhóm chia sẻ cùng một ngữ cảnh hội thoại. Khi tắt, mỗi thành viên có ngữ cảnh độc lập riêng.",
+            "id-ID": "Saat diaktifkan, semua anggota grup berbagi konteks percakapan yang sama. Saat dinonaktifkan, setiap anggota memiliki konteks independennya sendiri."
+          }
+        },
+        "default": false
+      }
+    },
+    "x-ui": {
+      "label": "Azure Bot",
+      "description": "Azure Bot Service (Bot Framework) integration",
+      "icon": "https://img.alicdn.com/imgextra/i2/O1CN01eo8rBj1pCuCWPQRrz_!!6000000005325-2-tps-3000-3000.png",
+      "doc_url": {
+        "zh": "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Azure-BotMicrosoft-机器人服务",
+        "en": "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Azure-Bot-Microsoft-Bot-Service"
+      },
+      "config_fields": [
+        {
+          "name": "app_id",
+          "label": "App ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        {
+          "name": "app_password",
+          "label": "App Password",
+          "type": "password",
+          "required": true,
+          "placeholder": "App Password (Client Secret)"
+        },
+        {
+          "name": "tenant_id",
+          "label": "Tenant ID",
+          "type": "text",
+          "required": true,
+          "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        {
+          "name": "http_host",
+          "label": "HTTP Host",
+          "type": "text",
+          "required": false,
+          "placeholder": "0.0.0.0",
+          "default": "0.0.0.0"
+        },
+        {
+          "name": "http_port",
+          "label": "HTTP Port",
+          "type": "number",
+          "required": false,
+          "placeholder": "3978",
+          "default": 3978
+        },
+        {
+          "name": "media_dir",
+          "label": {
+            "zh-CN": "媒体文件目录",
+            "en-US": "Media Directory",
+            "ja-JP": "メディアディレクトリ",
+            "ru-RU": "Директория медиафайлов",
+            "pt-BR": "Diretório de Mídia",
+            "vi-VN": "Thư mục media",
+            "id-ID": "Direktori Media"
+          },
+          "type": "text",
+          "required": false,
+          "help": {
+            "zh-CN": "默认为当前 agent 工作区下的 media 目录（workspaces/<agent_id>/media）。",
+            "en-US": "Defaults to the current agent's workspace media directory (workspaces/<agent_id>/media).",
+            "ja-JP": "デフォルトは現在のエージェントのワークスペース内の media ディレクトリ（workspaces/<agent_id>/media）です。",
+            "ru-RU": "По умолчанию — каталог media рабочей области текущего агента (workspaces/<agent_id>/media).",
+            "pt-BR": "Padrão: diretório media do espaço de trabalho do agente atual (workspaces/<agent_id>/media).",
+            "vi-VN": "Mặc định là thư mục media trong workspace của agent hiện tại (workspaces/<agent_id>/media).",
+            "id-ID": "Default-nya adalah direktori media pada workspace agen saat ini (workspaces/<agent_id>/media)."
+          }
+        },
+        {
+          "name": "share_session_in_group",
+          "label": {
+            "zh-CN": "群聊共享上下文",
+            "en-US": "Share Context in Group",
+            "ja-JP": "グループでコンテキスト共有",
+            "ru-RU": "Общий контекст в группе",
+            "pt-BR": "Compartilhar Contexto em Grupo",
+            "vi-VN": "Chia sẻ ngữ cảnh trong nhóm",
+            "id-ID": "Bagikan Konteks dalam Grup"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "启用时，群内所有成员共享同一会话上下文；禁用时，每位成员维护各自独立的会话。",
+            "en-US": "When enabled, all group members share the same conversation context. When disabled, each member has their own independent context.",
+            "ja-JP": "有効にすると、グループの全メンバーが同じ会話コンテキストを共有します。無効にすると、各メンバーが独立したコンテキストを持ちます。",
+            "ru-RU": "Если включено, все участники группы используют общий контекст разговора. Если выключено, у каждого участника независимый контекст.",
+            "pt-BR": "Quando ativado, todos os membros do grupo compartilham o mesmo contexto de conversa. Quando desativado, cada membro tem seu próprio contexto independente.",
+            "vi-VN": "Khi bật, tất cả thành viên nhóm chia sẻ cùng một ngữ cảnh hội thoại. Khi tắt, mỗi thành viên có ngữ cảnh độc lập riêng.",
+            "id-ID": "Saat diaktifkan, semua anggota grup berbagi konteks percakapan yang sama. Saat dinonaktifkan, setiap anggota memiliki konteks independennya sendiri."
+          }
+        },
+        {
+          "name": "access_control_dm",
+          "label": {
+            "zh-CN": "私聊访问控制",
+            "en-US": "DM Access Control",
+            "ja-JP": "DM アクセス制御",
+            "ru-RU": "Контроль доступа в ЛС",
+            "pt-BR": "Controle de Acesso em DM",
+            "vi-VN": "Kiểm soát truy cập DM",
+            "id-ID": "Kontrol Akses DM"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，只有白名单用户可以通过私聊与机器人互动",
+            "en-US": "When enabled, only whitelisted users can interact with the bot in direct messages",
+            "ja-JP": "有効にすると、ホワイトリストのユーザーのみDMでBotと対話できます",
+            "ru-RU": "При включении только пользователи из белого списка могут общаться с ботом в личных сообщениях",
+            "pt-BR": "Quando ativado, apenas usuários na lista branca podem interagir com o bot em mensagens diretas",
+            "vi-VN": "Khi bật, chỉ người dùng trong danh sách trắng mới có thể tương tác với bot trong tin nhắn trực tiếp",
+            "id-ID": "Saat diaktifkan, hanya pengguna dalam daftar putih yang dapat berinteraksi dengan bot di pesan langsung"
+          }
+        },
+        {
+          "name": "access_control_group",
+          "label": {
+            "zh-CN": "群聊访问控制",
+            "en-US": "Group Access Control",
+            "ja-JP": "グループ アクセス制御",
+            "ru-RU": "Контроль доступа в группах",
+            "pt-BR": "Controle de Acesso em Grupo",
+            "vi-VN": "Kiểm soát truy cập nhóm",
+            "id-ID": "Kontrol Akses Grup"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，只有白名单用户可以在群聊中与机器人互动",
+            "en-US": "When enabled, only whitelisted users can interact with the bot in group chats",
+            "ja-JP": "有効にすると、ホワイトリストのユーザーのみグループチャットでBotと対話できます",
+            "ru-RU": "При включении только пользователи из белого списка могут общаться с ботом в групповых чатах",
+            "pt-BR": "Quando ativado, apenas usuários na lista branca podem interagir com o bot em chats de grupo",
+            "vi-VN": "Khi bật, chỉ người dùng trong danh sách trắng mới có thể tương tác với bot trong nhóm chat",
+            "id-ID": "Saat diaktifkan, hanya pengguna dalam daftar putih yang dapat berinteraksi dengan bot di chat grup"
+          }
+        },
+        {
+          "name": "require_mention",
+          "label": {
+            "zh-CN": "需要 @提及",
+            "en-US": "Require @Mention",
+            "ja-JP": "@メンション必須",
+            "ru-RU": "Требовать @упоминание",
+            "pt-BR": "Exigir @Menção",
+            "vi-VN": "Yêu cầu @Đề cập",
+            "id-ID": "Wajib @Sebut"
+          },
+          "type": "switch",
+          "required": false,
+          "default": false,
+          "help": {
+            "zh-CN": "开启后，群聊中仅在被 @提及 时才会回复",
+            "en-US": "When enabled, bot only responds in group chats when explicitly @mentioned",
+            "ja-JP": "有効にすると、グループチャットでは明示的に@メンションされた場合のみ応答します",
+            "ru-RU": "Бот отвечает в групповых чатах только при явном @упоминании",
+            "pt-BR": "Quando ativado, o bot só responde em chats de grupo quando explicitamente @mencionado",
+            "vi-VN": "Khi bật, bot chỉ trả lời trong nhóm chat khi được @đề cập rõ ràng",
+            "id-ID": "Saat diaktifkan, bot hanya merespons di chat grup saat secara eksplisit di-@sebut"
+          }
+        }
+      ]
+    }
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "app_id",
+    "app_password",
+    "tenant_id",
+    "http_host",
+    "http_port",
+    "media_dir",
+    "share_session_in_group"
+  ],
+  "capabilities": [
+    "channel.generic.v1",
+    "ingress_endpoint",
+    "media",
+    "send.content_source.v1"
+  ]
+}

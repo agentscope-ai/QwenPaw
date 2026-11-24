@@ -1,17 +1,17 @@
 import { AgentGallery } from "./components/AgentGallery";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { Button, Form } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { Plus as PlusOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
-import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
 import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentModal, CopyAgentModal } from "./components";
 import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
 
@@ -28,6 +28,10 @@ export default function AgentsPage() {
   } = useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
+  const [mcpCheck, setMcpCheck] = useState<{
+    id: string;
+    revision: number;
+  } | null>(null);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
   const [copyModalVisible, setCopyModalVisible] = useState(false);
   const [copyingAgent, setCopyingAgent] = useState<AgentSummary | null>(null);
@@ -36,7 +40,6 @@ export default function AgentsPage() {
   const orderSaving = useRef(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
 
   const handleCreate = () => {
@@ -50,15 +53,12 @@ export default function AgentsPage() {
       backend: "qwenpaw",
     });
     setSelectedSkills([]);
-    installedSkillsRef.current = [];
     setModalVisible(true);
   };
 
   const handleEdit = async (agent: AgentSummary) => {
     try {
       setSelectedSkills([]);
-      installedSkillsRef.current = [];
-      invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
       const { mail, ...configRest } = config;
@@ -119,6 +119,18 @@ export default function AgentsPage() {
     setCopying(true);
     try {
       const result = await agentsApi.copyAgent(copyingAgent.id, body);
+      // Copy is already committed; a read-only recovery check must not turn
+      // a successful copy into an error or encourage a duplicate retry.
+      void agentsApi
+        .getAgent(result.id)
+        .then((copied) => {
+          if (copied.mail)
+            setMcpCheck((previous) => ({
+              id: result.id,
+              revision: (previous?.revision ?? 0) + 1,
+            }));
+        })
+        .catch(() => {});
       message.success(`${t("agent.copySuccess")} (ID: ${result.id})`);
       setCopyModalVisible(false);
       setCopyingAgent(null);
@@ -154,10 +166,6 @@ export default function AgentsPage() {
       // Error already handled in hook
     }
   };
-
-  const handleInstalledSkillsLoaded = useCallback((skills: string[]) => {
-    installedSkillsRef.current = skills;
-  }, []);
 
   const handleSubmit = async () => {
     try {
@@ -251,29 +259,9 @@ export default function AgentsPage() {
         mail,
       };
 
+      let savedAgentId = editingAgent?.id;
       if (editingAgent) {
-        const previousInstalledSkills = installedSkillsRef.current;
-        const newSkills =
-          values.backend === "qwenpaw"
-            ? selectedSkills.filter(
-                (skill) => !previousInstalledSkills.includes(skill),
-              )
-            : [];
-
-        for (const skill of newSkills) {
-          await skillApi.downloadSkillPoolSkill({
-            skill_name: skill,
-            targets: [{ workspace_id: editingAgent.id }],
-          });
-        }
         await agentsApi.updateAgent(editingAgent.id, payload);
-        installedSkillsRef.current = [
-          ...previousInstalledSkills,
-          ...newSkills.filter(
-            (skill) => !previousInstalledSkills.includes(skill),
-          ),
-        ];
-        invalidateSkillCache({ agentId: editingAgent.id });
         message.success(t("agent.updateSuccess"));
       } else {
         const result = await agentsApi.createAgent({
@@ -281,16 +269,21 @@ export default function AgentsPage() {
           language: i18n.language,
           skill_names: values.backend === "qwenpaw" ? selectedSkills : [],
         });
+        savedAgentId = result.id;
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
       setModalVisible(false);
+      if (payload.mail && savedAgentId) {
+        const id = savedAgentId;
+        setMcpCheck((previous) => ({
+          id,
+          revision: (previous?.revision ?? 0) + 1,
+        }));
+      }
       await loadAgents();
     } catch (error: unknown) {
       console.error("Failed to save agent:", error);
-      if (editingAgent) {
-        invalidateSkillCache({ agentId: editingAgent.id });
-      }
       message.error(
         error instanceof Error ? error.message : t("agent.saveFailed"),
       );
@@ -336,6 +329,12 @@ export default function AgentsPage() {
 
   return (
     <div className={styles.agentsPage}>
+      {mcpCheck && (
+        <MCPFeatureStatus
+          key={`${mcpCheck.id}:${mcpCheck.revision}`}
+          agentId={mcpCheck.id}
+        />
+      )}
       <PageHeader
         current={t("agent.agents")}
         extra={
@@ -371,7 +370,6 @@ export default function AgentsPage() {
         form={form}
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
-        onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
       />

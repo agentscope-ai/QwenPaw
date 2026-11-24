@@ -162,12 +162,40 @@
     background: var(--app-fill-subtle);
   }
   &:focus-visible {
-    outline: 2px solid var(--app-accent);
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
   }
   &:disabled {
     cursor: default;
   }
 }
+.switchButton,
+.renameForm button {
+  min-width: var(--app-hit-desktop);
+  min-height: var(--app-hit-desktop);
+}
+
+@media (any-pointer: coarse) {
+  .switchButton,
+  .renameForm button {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
+}
+
+@media (max-width: 768px) {
+  .titleEdit,
+  .switchButton,
+  .renameForm button {
+    min-height: var(--app-hit-touch);
+  }
+
+  .switchButton,
+  .renameForm button {
+    min-width: var(--app-hit-touch);
+  }
+}
+
 .titleEdit {
   min-width: 0;
   margin-left: -6px;

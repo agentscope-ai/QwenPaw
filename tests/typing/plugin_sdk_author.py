@@ -1,0 +1,404 @@
+# -*- coding: utf-8 -*-
+"""Strict external-author typing: returned streams can always be closed."""
+
+from pathlib import Path
+from typing import Any, AsyncGenerator, assert_type
+
+from qwenpaw.plugins.harnesses import HarnessBackend, HarnessCallContext
+
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
+from qwenpaw.plugins.drivers import DriverContext, DriverRequestContext
+from qwenpaw.plugins.events import ChatEvent
+from qwenpaw.plugins.providers import ModelChunk
+from qwenpaw.plugins.testing import PluginTestHost, TestModel
+from qwenpaw.plugins.tools import ToolEvent, ToolContext
+
+
+async def close_streams(
+    app: AppContext,
+    host: PluginTestHost,
+    model: TestModel,
+) -> None:
+    chat = assert_type(
+        app.chat_stream(ChatRequest("hello")),
+        AsyncGenerator[ChatEvent, None],
+    )
+    task = assert_type(
+        app.task_stream("owned-run"),
+        AsyncGenerator[TaskSnapshot, None],
+    )
+    tool = assert_type(
+        host.stream_tool("echo", {}),
+        AsyncGenerator[ToolEvent, None],
+    )
+    host_chat = assert_type(
+        host.stream_chat("hello"),
+        AsyncGenerator[ChatEvent, None],
+    )
+    model_chat = assert_type(
+        model.stream(()),
+        AsyncGenerator[ModelChunk, None],
+    )
+    for stream in (chat, task, tool, host_chat, model_chat):
+        await stream.aclose()
+
+
+async def delegate_workspace(app: AppContext) -> None:
+    from qwenpaw.plugins.apps import WorkspaceSummary
+
+    workspaces = assert_type(
+        await app.workspaces(),
+        tuple[WorkspaceSummary, ...],
+    )
+    for workspace in workspaces:
+        assert_type(workspace.id, str)
+        assert_type(workspace.name, str)
+        assert_type(workspace.enabled, bool)
+        async with app.for_workspace(workspace.id) as scoped:
+            assert_type(scoped, AppContext)
+            assert_type(scoped.workspace_id, str)
+
+
+async def channel_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.channels import (
+        ChannelHealth,
+        ChannelMessage,
+        ChannelRunEvent,
+        ChannelStreamEvent,
+        OutgoingMessage,
+    )
+    from qwenpaw.plugins.messages import ContentBlock
+
+    incoming = ChannelMessage(
+        "display-sender",
+        (ContentBlock(text="hello"),),
+        session_id="conversation",
+        acl_sender_id="platform-sender",
+        message_id="platform-message",
+        session_scope="group",
+        is_group=True,
+    )
+    assert_type(incoming.message_id, str)
+    await host.receive_channel("example", incoming)
+    await host.set_channel_access("example", "platform-sender", allowed=True)
+    await host.send_channel(
+        "example",
+        "outgoing",
+        user_id="user",
+        session_id="session",
+        require_delivery=True,
+    )
+    assert_type(await host.health_channel("example"), ChannelHealth)
+
+    def correlate(  # pylint: disable=unused-variable
+        event: ChannelRunEvent,
+        streamed: ChannelStreamEvent,
+        sent: OutgoingMessage,
+    ) -> None:
+        assert_type(event.message_ids, tuple[str, ...])
+        assert_type(event.run_id, str)
+        assert_type(streamed.run_id, str)
+        assert_type(sent.run_id, str)
+        assert_type(sent.require_delivery, bool)
+
+
+async def context_services(call: "ToolContext") -> None:
+    from qwenpaw.plugins.logging import PluginLogger
+    from qwenpaw.plugins.models import ModelService
+    from qwenpaw.plugins.messages import ContentBlock, Message
+    from qwenpaw.plugins.providers import ModelToolChoice
+
+    logger = assert_type(call.logger, PluginLogger)
+    logger.info("author operation", fields={"stage": "begin", "count": 1})
+    models = assert_type(call.models, ModelService)
+    messages = (Message("user", (ContentBlock(text="question"),)),)
+    result = assert_type(
+        await models.complete(messages, options={"temperature": 0.2}),
+        ModelChunk,
+    )
+    assert_type(result.is_last, bool)
+    stream = assert_type(
+        models.stream(
+            messages,
+            provider_id="example",
+            model_id="example-model",
+            tool_choice=ModelToolChoice("auto"),
+            timeout=2.0,
+        ),
+        AsyncGenerator[ModelChunk, None],
+    )
+    await stream.aclose()
+
+
+def custom_workspace_host(root: Path) -> PluginTestHost:
+    return PluginTestHost(
+        root,
+        workspace_dirs={
+            "sales": "sales/shared",
+            "support": Path("support/shared"),
+        },
+    )
+
+
+async def async_storage(call: ToolContext) -> None:
+    from qwenpaw.plugins.messages import Attachment
+
+    assert_type(await call.storage.aread_bytes("data.bin"), bytes)
+    assert_type(await call.storage.aread_json("state.json", {}), Any)
+    await call.storage.awrite_bytes("data.bin", b"data")
+    await call.storage.awrite_json("state.json", {"count": 1})
+    await call.storage.adelete("state.json")
+    assert_type(await call.media.awrite("result.txt", b"result"), Attachment)
+
+
+async def driver_contract(
+    plugin: "PluginContext",
+    app: AppContext,
+    context: "DriverContext",
+    request: "DriverRequestContext",
+) -> None:
+    from collections.abc import Mapping
+    from contextlib import AbstractAsyncContextManager
+    from qwenpaw.plugins.drivers import (
+        DriverCallResult,
+        DriverCapabilitySpec,
+        DriverConnection,
+        DriverCredential,
+        DriverCredentialAccess,
+        DriverProtocolSpec,
+        DriverSource,
+    )
+    from qwenpaw.plugins.events import JSONValue
+    from qwenpaw.plugins.resources import Registration
+
+    class Connection:
+        async def open(self) -> None:
+            pass
+
+        async def discover(
+            self,
+            request: "DriverRequestContext",
+        ) -> tuple[DriverCapabilitySpec, ...]:
+            assert_type(request.workspace_id, str)
+            return (
+                DriverCapabilitySpec(
+                    name="echo",
+                    description="Echo",
+                    input_schema={"type": "object", "properties": {}},
+                ),
+            )
+
+        async def invoke(
+            self,
+            name: str,
+            arguments: Mapping[str, JSONValue],
+            request: "DriverRequestContext",
+        ) -> DriverCallResult:
+            assert_type(name, str)
+            assert_type(request.session_id, str)
+            return DriverCallResult(structured_content=arguments)
+
+        async def close(self) -> None:
+            pass
+
+    def validate(source: DriverSource) -> None:
+        assert_type(source.endpoint, Mapping[str, JSONValue])
+        assert_type(source.config, Mapping[str, JSONValue])
+
+    def create(
+        context: "DriverContext",
+        source: DriverSource,
+    ) -> DriverConnection:
+        assert_type(context.source_id, str)
+        assert_type(source.protocol, str)
+        return Connection()
+
+    spec = DriverProtocolSpec(
+        protocol="example",
+        validate=validate,
+        create=create,
+    )
+    registration = assert_type(
+        plugin.register_driver_protocol(spec),
+        Registration,
+    )
+    connection = assert_type(
+        spec.create(context, context.source),
+        DriverConnection,
+    )
+    await connection.open()
+    capabilities = assert_type(
+        await connection.discover(request),
+        tuple[DriverCapabilitySpec, ...],
+    )
+    result = assert_type(
+        await connection.invoke(capabilities[0].name, {}, request),
+        DriverCallResult,
+    )
+    assert_type(result.structured_content, JSONValue)
+    assert_type(request.workspace_instance_id, str)
+    assert_type(request.user_id, str)
+    assert_type(request.channel, str)
+    assert_type(request.deadline, float | None)
+    assert_type(request.cancelled, bool)
+    request.check_cancelled()
+    assert_type(context.plugin_id, str)
+    assert_type(context.generation, int)
+    assert_type(context.workspace_id, str)
+    assert_type(context.workspace_instance_id, str)
+    assert_type(context.source_id, str)
+    assert_type(context.source_revision, int)
+    assert_type(context.session_scope, str)
+    assert_type(context.credentials, DriverCredentialAccess)
+    assert_type(context.credentials.aliases, tuple[str, ...])
+    assert_type(
+        await context.credentials.resolve_runtime("oauth"),
+        Mapping[str, JSONValue],
+    )
+    assert_type(await context.subprocess_environment(), Mapping[str, str])
+    credential = assert_type(
+        await context.credentials.resolve("oauth"),
+        DriverCredential,
+    )
+    assert_type(credential.revision, int)
+    assert_type(credential.public, Mapping[str, JSONValue])
+    assert_type(credential.secrets, Mapping[str, JSONValue])
+    await context.credentials.update(
+        "oauth",
+        expected_revision=credential.revision,
+        public={"scope": "tools"},
+        secrets={"token": "author-test-token"},
+    )
+    context.invalidate_capabilities()
+    scope = assert_type(
+        app.driver_source("example", "configured-source"),
+        AbstractAsyncContextManager["DriverContext"],
+    )
+    async with scope as managed:
+        assert_type(managed, DriverContext)
+    await connection.close()
+    await registration.close()
+
+
+async def transcription_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.transcription import (
+        TranscriptionResult,
+        TranscriptionStatus,
+    )
+
+    assert_type(
+        await host.transcribe("local_whisper", "/audio.wav"),
+        TranscriptionResult,
+    )
+    assert_type(
+        await host.transcription_status("local_whisper"),
+        TranscriptionStatus,
+    )
+
+
+async def harness_contract(
+    plugin: PluginContext,
+    backend: HarnessBackend,
+    call: HarnessCallContext,
+) -> None:
+    from collections.abc import AsyncIterator
+    from qwenpaw.plugins.harnesses import (
+        HarnessCapabilities,
+        HarnessContext,
+        HarnessEvent,
+        HarnessHistoryItem,
+        HarnessModel,
+        HarnessRunRequest,
+        HarnessSpec,
+        HarnessStatus,
+    )
+    from qwenpaw.plugins.resources import Registration
+
+    def create(
+        context: HarnessContext,
+        settings: dict[str, Any],
+    ) -> HarnessBackend:
+        assert_type(context.workspace_id, str)
+        assert_type(settings, dict[str, Any])
+        return backend
+
+    spec = HarnessSpec(
+        "author-example",
+        "Example",
+        create,
+        HarnessCapabilities(),
+        instance_settings_keys=("binary",),
+    )
+    assert_type(spec.instance_settings_keys, tuple[str, ...])
+    handle = assert_type(
+        plugin.register_harness(spec),
+        Registration,
+    )
+    assert_type(await backend.status(call), HarnessStatus)
+    assert_type(await backend.models(call), tuple[HarnessModel, ...])
+    assert_type(await backend.history(call), tuple[HarnessHistoryItem, ...])
+    events = assert_type(
+        backend.run_turn(call, HarnessRunRequest("hello")),
+        AsyncIterator[HarnessEvent],
+    )
+    async for event in events:
+        assert_type(event.text, str)
+    await handle.close()
+
+
+async def harness_author_host(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.harnesses import HarnessRunRequest, HarnessStatus
+
+    assert_type(host.list_harnesses(), tuple[dict[str, Any], ...])
+    assert_type(
+        await host.harness_status("author-example", workspace_id="one"),
+        HarnessStatus,
+    )
+    events = assert_type(
+        host.run_harness(
+            "author-example",
+            HarnessRunRequest("hello"),
+            workspace_id="one",
+            session_id="session",
+            user_id="user",
+            channel="console",
+        ),
+        AsyncGenerator[ChatEvent, None],
+    )
+    await events.aclose()
+
+
+async def native_provider(context: "PluginContext") -> None:
+    from contextlib import asynccontextmanager
+    from qwenpaw.plugins.providers import (
+        ModelInfo,
+        ProviderContext,
+        ProviderHandle,
+        ProviderSpec,
+    )
+
+    @asynccontextmanager
+    async def connect(
+        call: ProviderContext,
+        model_id: str,
+    ) -> AsyncGenerator[str, None]:
+        assert_type(call.base_url, str)
+        assert_type(model_id, str)
+        yield "http://127.0.0.1:8080/v1"
+
+    provider = assert_type(
+        context.register_provider(
+            ProviderSpec(
+                "example",
+                "Example",
+                protocol="openai-chat",
+                connect=connect,
+            ),
+        ),
+        ProviderHandle,
+    )
+    await provider.update(models=(ModelInfo("model", "Model"),))
+    assert_type(await provider.select("model"), None)
+    assert_type(await provider.clear_selection(), bool)
+    assert_type(context.storage.path("native.bin"), Path)

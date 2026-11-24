@@ -27,6 +27,7 @@ export default defineConfig(({ command, mode }) => {
   // while `vite build --mode test` is a real build that needs real CSS.
   const isVitest = command === "serve" && mode === "test";
   const env = loadEnv(mode, process.cwd(), "");
+  const desktop = mode === "tauri";
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
@@ -34,17 +35,36 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     // Preserve root asset URLs for existing root and /console deployments.
-    base: consoleBasename
-      ? `${normalizeConsoleBasename(consoleBasename)}/`
-      : "/",
+    base:
+      !desktop && consoleBasename
+        ? `${normalizeConsoleBasename(consoleBasename)}/`
+        : "/",
     define: {
-      VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
+      VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
     plugins: [
       react(),
       startupMonitorPlugin(),
+      ...(desktop
+        ? [
+            {
+              name: "desktop-document",
+              configureServer(server) {
+                server.middlewares.use((req, _res, next) => {
+                  // Keep reloads and login redirects in the desktop client in dev.
+                  if (
+                    req.headers.accept?.includes("text/html") &&
+                    !req.url?.startsWith("/api/")
+                  )
+                    req.url = "/tauri.html";
+                  next();
+                });
+              },
+            } satisfies Plugin,
+          ]
+        : []),
       ...(isVitest ? [cssStubPlugin] : []),
     ],
     css: {
@@ -68,7 +88,9 @@ export default defineConfig(({ command, mode }) => {
       port: 5173,
       proxy: {
         "/api": {
-          target: "http://localhost:8088",
+          target: /^https?:\/\//i.test(apiBaseUrl)
+            ? apiBaseUrl
+            : "http://localhost:8088",
           changeOrigin: false,
         },
       },
@@ -86,6 +108,26 @@ export default defineConfig(({ command, mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: [
+        // Shared optional-plugin sources resolve dependencies from this test
+        // installation, even when neither plugin has its own node_modules.
+        {
+          find: /^react$/,
+          replacement: path.resolve(__dirname, "node_modules/react/index.js"),
+        },
+        {
+          find: /^lucide-react$/,
+          replacement: path.resolve(
+            __dirname,
+            "node_modules/lucide-react/dist/esm/lucide-react.js",
+          ),
+        },
+        {
+          find: /^@qwenpaw\/plugin-sdk$/,
+          replacement: path.resolve(
+            __dirname,
+            "../src/qwenpaw/plugins/frontend/index.js",
+          ),
+        },
         // Resolve the beta's real ESM entry for Vitest, without masking SDK subpaths.
         {
           find: /^@agentscope-ai\/chat$/,
@@ -142,24 +184,37 @@ export default defineConfig(({ command, mode }) => {
       include: ["diff"],
     },
     build: {
+      ...(desktop ? { outDir: "dist-tauri" } : {}),
       // Output to QwenPaw's console directory,
       // so we don't need to copy files manually after build.
       // outDir: path.resolve(__dirname, "../src/qwenpaw/console"),
       // emptyOutDir: true,
       cssCodeSplit: true,
-      sourcemap: mode !== "production",
+      manifest: !desktop,
+      sourcemap: mode !== "production" && !desktop,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
+        ...(desktop ? { input: path.resolve(__dirname, "tauri.html") } : {}),
         output: {
+          onlyExplicitManualChunks: true,
           manualChunks(id) {
-            // Charts and the UI's Markdown renderer share D3 and preload helpers.
-            // Keep those in the UI chunk so lazy trends cannot create a cycle.
+            // Automatic splitting keeps the small desktop shell independent
+            // of the console's UI vendor bundle.
+            if (desktop) return;
+            // A shared runtime must not land in a lazy consumer that its
+            // vendor imports back (for example Monaco and TabbedEditor).
             if (
-              id.includes("node_modules/d3-") ||
-              id.includes("node_modules/d3/") ||
+              id.includes("commonjsHelpers.js") ||
               id.includes("vite/preload-helper")
             ) {
-              return "ui-vendor";
+              return "runtime-vendor";
+            }
+            // Share D3 between lazy charts and maps without hoisting it into UI.
+            if (
+              id.includes("node_modules/d3-") ||
+              id.includes("node_modules/d3/")
+            ) {
+              return "d3-vendor";
             }
             // React core
             if (
@@ -178,7 +233,8 @@ export default defineConfig(({ command, mode }) => {
             }
             if (
               id.includes("node_modules/monaco-editor/") ||
-              id.includes("node_modules/@monaco-editor/")
+              id.includes("node_modules/@monaco-editor/") ||
+              id.includes("node_modules/state-local/")
             ) {
               return "editor-vendor";
             }
@@ -194,25 +250,9 @@ export default defineConfig(({ command, mode }) => {
                 return "chat-vendor";
               }
             }
-            // XMarkdown is also lazy-only. Do not let the broad @ant-design
-            // rule below merge it into the initial UI vendor chunk.
-            if (id.includes("node_modules/@ant-design/x-markdown/")) {
-              return;
-            }
-            // Ant Design + AgentScope design system (merged to avoid circular deps)
-            if (
-              id.includes("node_modules/antd/") ||
-              id.includes("node_modules/antd-style/") ||
-              id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@babel/runtime/") ||
-              id.includes("node_modules/clsx/") ||
-              id.includes("node_modules/dompurify/") ||
-              id.includes("node_modules/lucide-react/") ||
-              (id.includes("node_modules/@agentscope-ai/") &&
-                !id.includes(chatPackageRoot))
-            ) {
-              return "ui-vendor";
-            }
+            // Let Rollup split UI exports by actual use. Merging every antd
+            // export here would pull deferred plugin components and icons
+            // back into the entry.
             // i18n
             if (
               id.includes("node_modules/i18next/") ||

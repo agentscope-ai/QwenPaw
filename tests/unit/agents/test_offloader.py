@@ -9,18 +9,22 @@ without touching a real agent runtime.
 # pylint: disable=protected-access,redefined-outer-name
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from agentscope.message import Msg
 from agentscope.message._block import TextBlock, ToolResultBlock
 
 from qwenpaw.agents.offloader import QwenPawOffloader
+from qwenpaw.utils.io_utils import run_sync_io
 
 
 def _msg(text: str, created_at: str | None = None) -> Msg:
@@ -348,6 +352,142 @@ class TestOffloadToolResult:
         assert nested.is_dir()
         assert Path(path).parent == nested
 
+    async def test_deduplication_reuses_complete_archive(
+        self,
+        offloader,
+        monkeypatch,
+    ):
+        from qwenpaw.agents import offloader as module
+
+        write = Mock(wraps=module.write_text_atomic)
+        monkeypatch.setattr(module, "write_text_atomic", write)
+        paths = await asyncio.gather(
+            *(
+                offloader.offload_tool_result(
+                    "s1",
+                    _tool_result("same"),
+                    deduplicate=True,
+                )
+                for _ in range(3)
+            ),
+        )
+        assert len(set(paths)) == 1
+        assert Path(paths[0]).read_text(encoding="utf-8") == "same"
+        write.assert_called_once()
+        Path(paths[0]).unlink()
+        restored = await offloader.offload_tool_result(
+            "s1",
+            _tool_result("same"),
+            deduplicate=True,
+        )
+        assert restored == paths[0]
+        assert Path(restored).read_text(encoding="utf-8") == "same"
+
+    async def test_deduplication_distinguishes_session_call_and_content(
+        self,
+        offloader,
+    ):
+        original = _tool_result("first")
+        changed_call = _tool_result("first")
+        changed_call.id = "call-2"
+        paths = [
+            await offloader.offload_tool_result(
+                session,
+                result,
+                deduplicate=True,
+            )
+            for session, result in (
+                ("s1", original),
+                ("s2", original),
+                ("s1", changed_call),
+                ("s1", _tool_result("changed")),
+            )
+        ]
+        assert len(set(paths)) == 4
+        assert Path(paths[0]).read_text(encoding="utf-8") == "first"
+
+    @pytest.mark.parametrize("age_days", [29, 31])
+    async def test_reused_archive_gets_a_full_retention_window(
+        self,
+        offloader,
+        age_days,
+        monkeypatch,
+    ):
+        from qwenpaw.agents import offloader as module
+
+        path = Path(
+            await offloader.offload_tool_result(
+                "s1",
+                _tool_result("recoverable"),
+                deduplicate=True,
+            ),
+        )
+        _age_file(path, days=age_days)
+        write = Mock(wraps=module.write_text_atomic)
+        monkeypatch.setattr(module, "write_text_atomic", write)
+
+        reused = await offloader.offload_tool_result(
+            "s1",
+            _tool_result("recoverable"),
+            deduplicate=True,
+        )
+
+        assert reused == str(path)
+        write.assert_not_called()
+        assert offloader.cleanup_expired(retention_days=30) == 0
+        assert path.read_text(encoding="utf-8") == "recoverable"
+        _age_file(path, days=29)
+        assert offloader.cleanup_expired(retention_days=30) == 0
+        _age_file(path, days=31)
+        assert offloader.cleanup_expired(retention_days=30) == 1
+        assert not path.exists()
+
+    async def test_reuse_racing_cleanup_keeps_a_complete_archive(
+        self,
+        offloader,
+        monkeypatch,
+    ):
+        path = Path(
+            await offloader.offload_tool_result(
+                "s1",
+                _tool_result("recoverable"),
+                deduplicate=True,
+            ),
+        )
+        _age_file(path, days=31)
+        deleting, release = threading.Event(), threading.Event()
+        unlink = Path.unlink
+
+        def paused_unlink(target, *args, **kwargs):
+            if target == path:
+                deleting.set()
+                assert release.wait(5)
+            return unlink(target, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", paused_unlink)
+        cleanup = asyncio.create_task(
+            run_sync_io(offloader.cleanup_expired, retention_days=30),
+        )
+        reuse = None
+        try:
+            assert await run_sync_io(deleting.wait, 5)
+            reuse = asyncio.create_task(
+                offloader.offload_tool_result(
+                    "s1",
+                    _tool_result("recoverable"),
+                    deduplicate=True,
+                ),
+            )
+            # Give reuse a chance to overlap the stale deletion decision.
+            await asyncio.wait({reuse}, timeout=0.1)
+        finally:
+            release.set()
+            await cleanup
+        assert reuse is not None
+        assert await reuse == str(path)
+        assert path.read_text(encoding="utf-8") == "recoverable"
+        assert offloader.cleanup_expired(retention_days=30) == 0
+
 
 # ---------------------------------------------------------------------------
 # cleanup_expired
@@ -358,30 +498,6 @@ def _age_file(path: Path, days: float) -> None:
     """Backdate the file timestamps the retention check reads."""
     stamp = time.time() - days * 86400
     os.utime(path, (stamp, stamp))
-
-
-@pytest.fixture(name="posix_clock", autouse=True)
-def _posix_clock(monkeypatch):
-    """Pin ``sys.platform`` so retention reads mtime on every OS.
-
-    ``cleanup_expired`` picks its timestamp by platform:
-
-        ts = st.st_ctime if sys.platform == "win32" else
-             getattr(st, "st_birthtime", st.st_mtime)
-
-    On Windows ``st_ctime`` is the *creation* time, and ``os.utime`` cannot
-    write it -- there is no portable way to age a file's creation stamp.
-    So on a real Windows runner every file looks brand new, the retention
-    window never trips, and the deletion tests would assert 0 deleted
-    while the logic they target is fine.
-
-    Pinning the platform makes these tests exercise the mtime branch
-    identically on all three CI runners.  Nothing is lost: the win32
-    branch has its own dedicated test below
-    (``test_windows_platform_uses_ctime``), which patches the platform the
-    other way round.
-    """
-    monkeypatch.setattr(sys, "platform", "linux")
 
 
 class TestCleanupExpired:
@@ -509,20 +625,40 @@ class TestCleanupExpired:
         assert four.exists()
         assert not six.exists()
 
-    def test_windows_platform_uses_ctime(self, tmp_path):
-        """On Windows the creation time (st_ctime) drives retention."""
+    @pytest.mark.parametrize(
+        ("mtime_days", "creation_days", "deleted"),
+        [(10, 0, 1), (0, 10, 0)],
+    )
+    def test_retention_uses_mtime_instead_of_creation_time(
+        self,
+        tmp_path,
+        monkeypatch,
+        mtime_days,
+        creation_days,
+        deleted,
+    ):
+        """Creation timestamps must not override the latest reference time."""
         tools = tmp_path / "tools"
         tools.mkdir()
-        target = tools / "win.txt"
+        target = tools / "archive.txt"
         target.write_text("x", encoding="utf-8")
-        # Backdate only mtime; ctime stays "now" so the file must survive.
-        old_stamp = time.time() - 30 * 86400
-        os.utime(target, (old_stamp, old_stamp))
+        _age_file(target, days=mtime_days)
         off = QwenPawOffloader(str(tmp_path / "dialog"), str(tools))
+        real_stat = os.stat
+        creation = time.time() - creation_days * 86400
 
-        from unittest.mock import patch
+        def _stat(path, *args, **kwargs):
+            st = real_stat(path, *args, **kwargs)
+            if Path(path) == target:
+                return SimpleNamespace(
+                    st_mtime=st.st_mtime,
+                    st_ctime=creation,
+                    st_birthtime=creation,
+                )
+            return st
 
-        with patch.object(sys, "platform", "win32"):
-            assert off.cleanup_expired(retention_days=5) == 0
+        with monkeypatch.context() as patcher:
+            patcher.setattr(os, "stat", _stat)
+            assert off.cleanup_expired(retention_days=5) == deleted
 
-        assert target.exists()
+        assert target.exists() is (deleted == 0)

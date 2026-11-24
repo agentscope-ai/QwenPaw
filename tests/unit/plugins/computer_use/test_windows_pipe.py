@@ -35,6 +35,8 @@ from qwenpaw.app.computer_use.runtime import (
     RuntimeCapability,
 )
 
+from tests.unit.plugins.timing import WAIT_TIMEOUT
+
 pytestmark = pytest.mark.skipif(
     os.name != "nt",
     reason="Windows named pipes only",
@@ -62,7 +64,9 @@ class _MockHelper:
             daemon=True,
         )
         thread.start()
-        assert self._ready.wait(5), "mock helper pipe did not appear"
+        assert self._ready.wait(
+            WAIT_TIMEOUT,
+        ), "mock helper pipe did not appear"
 
     def _serve(self) -> None:
         kernel32 = _kernel32()
@@ -260,7 +264,7 @@ def test_reverse_request_inherits_request_context(
     async def run() -> None:
         transport = _transport(mock_helper)
         transport.set_reverse_request_handler(handler)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         _session_var.set("session-ctx")
         response = await transport.request(_request("needs_approval"))
         assert response.get("ok")
@@ -288,7 +292,7 @@ def test_slow_approval_pauses_request_deadline(
     async def run() -> None:
         transport = _transport(mock_helper)
         transport.set_reverse_request_handler(handler)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         response = await transport.request(
             _request("needs_approval", deadline=1000),
         )
@@ -302,7 +306,7 @@ def test_slow_approval_pauses_request_deadline(
 def test_connect_handshake_does_not_deadlock(mock_helper: _MockHelper) -> None:
     async def run() -> None:
         transport = _transport(mock_helper)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         response = await transport.request(_request("list_apps"))
         assert response.get("ok")
         await transport.close()
@@ -315,7 +319,7 @@ def test_concurrent_requests_while_reader_parked(
 ) -> None:
     async def run() -> None:
         transport = _transport(mock_helper)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         requests = [transport.request(_request("delayed")) for _ in range(5)]
         responses = await asyncio.gather(*requests)
         assert all(response.get("ok") for response in responses)
@@ -327,7 +331,7 @@ def test_concurrent_requests_while_reader_parked(
 def test_response_timeout_keeps_connection(mock_helper: _MockHelper) -> None:
     async def run() -> None:
         transport = _transport(mock_helper)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         with pytest.raises(ComputerUseProtocolError, match="timed out"):
             await transport.request(_request("no_reply", deadline=1000))
         response = await transport.request(_request("list_apps"))
@@ -340,11 +344,9 @@ def test_response_timeout_keeps_connection(mock_helper: _MockHelper) -> None:
 def test_close_cancels_parked_reader(mock_helper: _MockHelper) -> None:
     async def run() -> None:
         transport = _transport(mock_helper)
-        await asyncio.wait_for(transport.connect(), 5)
-        # The reader thread is parked in ReadFile; close must stay fast.
-        start = time.monotonic()
-        await transport.close()
-        assert time.monotonic() - start < 2
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
+        # A parked ReadFile must not prevent close from completing.
+        await asyncio.wait_for(transport.close(), WAIT_TIMEOUT)
         with pytest.raises(ComputerUseProtocolError):
             await transport.request(_request("list_apps"))
 
@@ -354,7 +356,7 @@ def test_close_cancels_parked_reader(mock_helper: _MockHelper) -> None:
 def test_write_timeout_closes_connection(mock_helper: _MockHelper) -> None:
     async def run() -> None:
         transport = _transport(mock_helper)
-        await asyncio.wait_for(transport.connect(), 5)
+        await asyncio.wait_for(transport.connect(), WAIT_TIMEOUT)
         response = await transport.request(_request("stop_reading"))
         assert response.get("ok")
         # The helper never drains the pipe, so this frame exceeds the

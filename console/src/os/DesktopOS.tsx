@@ -27,7 +27,6 @@ import { useOsPlugins } from "./osPluginStore";
 import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
-import { useOsNotifyPoller } from "./useOsNotifyPoller";
 import { isAgentAvailableInChat } from "../utils/agentVisibility";
 import { purgeAppState, removePluginAppState } from "./osCleanup";
 import WindowFrame from "./WindowFrame";
@@ -47,7 +46,7 @@ import SettingsApp from "./SettingsApp";
 import MissionControl from "./MissionControl";
 import NotificationCenter from "./NotificationCenter";
 import BootScreen from "./BootScreen";
-import ConsolePollService from "../components/ConsolePollService";
+import DesktopPollingServices from "./DesktopPollingServices";
 import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
@@ -129,9 +128,6 @@ export default function DesktopOS() {
       /* storage unavailable — splash will just replay next mount */
     }
   }, []);
-
-  // Poll approvals + unread inbox events → macOS-style notifications.
-  useOsNotifyPoller();
 
   // Load agents once so Mission Control can list them as spaces.
   useEffect(() => {
@@ -520,10 +516,8 @@ export default function DesktopOS() {
 
       <NotificationCenter />
 
-      {/* Global approval/message feed (same as MainLayout). Populates the
-          shared ApprovalContext so the Inbox + Chat windows show pending
-          tool approvals inside the OS, matching the browser layout. */}
-      <ConsolePollService />
+      {/* One push-message owner plus the independent OS inbox feed. */}
+      <DesktopPollingServices />
 
       <SpacesPanel visible={topHot} />
       <MenuBar hidden={isMobile} />
@@ -534,7 +528,7 @@ export default function DesktopOS() {
           open
           trigger={[]}
           placement="bottomLeft"
-          overlayClassName={styles.desktopContextMenu}
+          rootClassName={styles.desktopContextMenu}
           menu={{ items: desktopMenuItems }}
           popupRender={(menu) => (
             <div

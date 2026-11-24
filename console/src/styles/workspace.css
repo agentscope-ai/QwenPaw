@@ -18,8 +18,8 @@ select {
 }
 button:focus-visible,
 [role="button"]:focus-visible {
-  outline: 2px solid var(--app-focus-ring);
-  outline-offset: 3px;
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+  outline-offset: var(--app-focus-ring-offset);
 }
 svg.lucide {
   flex-shrink: 0;
@@ -57,6 +57,18 @@ h3 {
   justify-content: center;
   gap: 6px;
   font-weight: 500;
+  transition:
+    color var(--app-motion-fast) var(--app-easing-standard),
+    background-color var(--app-motion-fast) var(--app-easing-standard),
+    border-color var(--app-motion-fast) var(--app-easing-standard),
+    box-shadow var(--app-motion-fast) var(--app-easing-standard);
+}
+:is(.ant-btn, .qwenpaw-btn):disabled {
+  cursor: not-allowed;
+}
+:is(.ant-btn, .qwenpaw-btn):focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+  outline-offset: var(--app-focus-ring-offset);
 }
 :is(.ant-btn-primary, .qwenpaw-btn-primary):not(:disabled) {
   box-shadow: 0 2px 5px var(--app-accent-soft);
@@ -68,7 +80,7 @@ h3 {
   max-width: 100%;
 }
 :is(.ant-modal, .qwenpaw-modal) {
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - var(--app-space-8));
 }
 
 @keyframes workspace-spin {
@@ -80,7 +92,7 @@ svg[data-spinning="true"],
 svg.lucide-loader-circle {
   animation: workspace-spin 1s linear infinite;
 }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   :is(.ant-btn, .qwenpaw-btn):not(.ant-btn-sm, .qwenpaw-btn-sm) {
     min-height: 44px;
   }

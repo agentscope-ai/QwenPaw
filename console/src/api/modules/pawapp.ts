@@ -1,7 +1,11 @@
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
+import { responseErrorMessage } from "../error";
+import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
 export interface PawAppInfo {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   version: string;
@@ -81,18 +85,21 @@ export const pawappApi = {
    * Uninstall a PawApp by ID (deletes its directory under ~/.copaw/apps).
    */
   async uninstall(appId: string): Promise<void> {
-    const res = await fetch(
-      getApiUrl(`/pawapps/${encodeURIComponent(appId)}`),
-      {
-        method: "DELETE",
-        headers: buildAuthHeaders(),
-      },
+    const res = await requestWithPluginBusyConfirmation(
+      (interruptTasks) =>
+        fetch(
+          getApiUrl(
+            `/pawapps/${encodeURIComponent(appId)}${
+              interruptTasks ? "?interrupt_tasks=true" : ""
+            }`,
+          ),
+          { method: "DELETE", headers: buildAuthHeaders() },
+        ),
+      "uninstall",
     );
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       throw new Error(
-        (body as { detail?: string }).detail ??
-          `Uninstall failed (${res.status})`,
+        await responseErrorMessage(res, `Uninstall failed (${res.status})`),
       );
     }
   },

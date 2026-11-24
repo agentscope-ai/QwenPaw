@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..app.chats.models import ChatSpec
-from ..harnesses.session import HarnessSessionBridge
+from ..agents.context.scroll.sync import import_session_history
+from ..utils.io_utils import run_sync_io
 from .import_support import (
     _chat_id,
     _progress_milestone,
@@ -42,6 +43,8 @@ async def import_conversations(
     state: ConversationState,
 ) -> None:
     """Import readable root chats and archive old imported internals."""
+    from ..runtime.backends.session import HarnessSessionBridge
+
     bridge = HarnessSessionBridge(workspace.session)
     if inventory.ignored_session_ids:
         await _report(progress, "正在整理此前误导入的内部执行轨迹…")
@@ -81,6 +84,7 @@ async def import_conversations(
                         existing.id,
                         project_dir,
                     )
+            await _sync_imported_history(workspace, existing)
             state.skipped.append(session.source_id)
             await report_session(index)
             continue
@@ -144,6 +148,7 @@ async def import_conversations(
             state.skipped.append(session.source_id)
             await report_session(index)
             continue
+        await _sync_imported_history(workspace, spec)
         existing_by_source[source_key] = spec
         state.imported.append(session.source_id)
         await report_session(index)
@@ -152,3 +157,19 @@ async def import_conversations(
         progress,
         "聊天记录阶段完成；开始迁移并检查工具和设置…",
     )
+
+
+async def _sync_imported_history(workspace: Any, chat: ChatSpec) -> None:
+    """Publish imported history immediately and retry incomplete imports."""
+    if workspace.history_store is not None:
+        lcc = workspace.config.running.light_context_config
+        await run_sync_io(
+            import_session_history,
+            workspace.history_store,
+            workspace.workspace_dir,
+            workspace.agent_id,
+            chat.session_id,
+            chat.user_id,
+            chat.channel,
+            lcc.scroll_config.history_retention_days,
+        )

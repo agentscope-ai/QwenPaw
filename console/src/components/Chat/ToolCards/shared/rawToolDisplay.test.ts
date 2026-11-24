@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { formatRawToolValue } from "./rawToolDisplay";
 
 describe("formatRawToolValue", () => {
@@ -70,4 +70,74 @@ describe("formatRawToolValue", () => {
   it("keeps non-JSON strings unchanged", () => {
     expect(formatRawToolValue("command completed")).toBe("command completed");
   });
+
+  it("truncates oversized JSON strings before parsing them", () => {
+    const parseSpy = vi.spyOn(JSON, "parse");
+    const value = `{"data":"${"x".repeat(100_001)}"}`;
+
+    const formatted = formatRawToolValue(value);
+    const parseCalls = parseSpy.mock.calls.length;
+    parseSpy.mockRestore();
+
+    expect(parseCalls).toBe(0);
+    expect(formatted.length).toBeLessThanOrEqual(100_500);
+    expect(formatted).toContain("Raw value truncated");
+    expect(formatted.match(/Raw value truncated/g) ?? []).toHaveLength(1);
+    expect(formatted).not.toContain("…[truncated");
+    expect(formatted).toContain("Switch to Current view for the full value");
+  });
+
+  it("keeps structure while truncating oversized object graphs", () => {
+    const value = {
+      head: "small",
+      blob: "y".repeat(120_000),
+      tail: { nested: "z".repeat(60_000) },
+    };
+
+    const formatted = formatRawToolValue(value);
+    const parsed = JSON.parse(formatted) as {
+      head: string;
+      blob: string;
+      tail: { nested: string };
+    };
+
+    expect(parsed.head).toBe("small");
+    expect(parsed.blob.startsWith("y")).toBe(true);
+    expect(parsed.blob).toContain("[truncated");
+    expect(parsed.tail.nested).toContain("[truncated");
+    expect(formatted.length).toBeLessThanOrEqual(100_500);
+  });
+
+  it("rejects oversized object graphs before copying or stringifying", () => {
+    const stringifySpy = vi.spyOn(JSON, "stringify");
+    const value = Array.from({ length: 2_001 }, () => null);
+
+    const formatted = formatRawToolValue(value);
+    const stringifyCalls = stringifySpy.mock.calls.length;
+    stringifySpy.mockRestore();
+
+    expect(stringifyCalls).toBe(0);
+    expect(formatted).toContain("Raw value omitted");
+    expect(formatted).toContain("node display budget");
+  });
+
+  it.each([1, 5, 20])(
+    "bounds synchronous formatting for a %dMB fixture",
+    (sizeMb) => {
+      const value = "x".repeat(sizeMb * 1024 * 1024);
+      let calls = 0;
+      const startedAt = performance.now();
+      calls += 1;
+      const formatted = formatRawToolValue(value);
+      const elapsedMs = performance.now() - startedAt;
+
+      console.info(
+        `raw-format-benchmark size=${sizeMb}MB calls=${calls} ` +
+          `elapsedMs=${elapsedMs.toFixed(3)}`,
+      );
+      expect(calls).toBe(1);
+      expect(formatted).toContain("Raw value truncated");
+      expect(formatted.length).toBeLessThanOrEqual(100_500);
+    },
+  );
 });

@@ -8,14 +8,81 @@ improve testability and code organization.
 
 import asyncio
 import logging
+import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_async_to_completion, run_sync_io
+from ...agents.context.scroll.sync import (
+    invalidate_agent_migration,
+    migrate_agent_history,
+)
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
+
+
+def history_service_path(ws: "Workspace") -> Path | None:
+    """Resolve the sink only for runtimes that write Scroll history."""
+    from ...config.history_path import resolve_history_db_path
+
+    lcc = ws.config.running.light_context_config
+    if not ws.config.uses_scroll_history:
+        return None
+    return resolve_history_db_path(
+        ws.workspace_dir,
+        lcc.scroll_config.db_filename,
+    )
+
+
+def create_history_service(ws: "Workspace") -> "HistoryStore | None":
+    """Open one workspace-owned connection, offloaded by ServiceManager."""
+    from ...agents.context import create_scroll_history
+
+    path = history_service_path(ws)
+    if path is None:
+        invalidate_agent_migration(ws.workspace_dir)
+        return None
+    return create_scroll_history(path)
+
+
+async def prepare_history_service(ws, history, _publish) -> None:
+    """Migrate before channels start, then maintain history independently."""
+    if history is None:
+        return
+    scroll_config = ws.config.running.light_context_config.scroll_config
+    stop = threading.Event()
+    task = asyncio.create_task(
+        run_sync_io(
+            migrate_agent_history,
+            history,
+            ws.workspace_dir,
+            ws.agent_id,
+            scroll_config.history_retention_days,
+            stop,
+        ),
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        stop.set()
+        try:
+            await run_async_to_completion(task)
+        except (asyncio.CancelledError, Exception):
+            pass
+        raise
+
+
+def history_service_reuse_compatible(
+    ws: "Workspace",
+    history: "HistoryStore",
+) -> bool:
+    """Keep the old store only for the same enabled, unchanged database."""
+    path = history_service_path(ws)
+    return path is not None and history.matches_path(path)
 
 
 async def create_driver_service(
@@ -23,26 +90,16 @@ async def create_driver_service(
     _service,
     publish: Callable[[Any], None],
 ):
-    """Create and initialize the per-workspace DriverManager.
-
-    DriverManager is the runtime for external capabilities.  MCP is wired as
-    the first concrete Driver protocol; legacy MCP config is migrated into
-    DriverCard storage and is not exposed through the old MCP runtime path.
-    """
+    """Publish lightweight storage before starting available sources."""
     # pylint: disable=protected-access
-    from ...drivers.adapters.mcp_legacy_config import (
-        migrate_legacy_mcp_if_needed,
-    )
-    from ...drivers.credentials.store import AsyncCredentialStore
-    from ...drivers.handlers import MCPDriverHandler
-    from ...drivers.handlers.mcp import validate_mcp_endpoint
-    from ...drivers.manager import DriverManager
-    from ..approvals.driver_gate import QwenPawDriverApprovalGate
+    from ..driver_runtime_service import LazyDriverService
     from ..mail.driver_config import (
         is_managed_qwenpawmail_card,
         sync_qwenpawmail_driver_card,
     )
 
+    service = LazyDriverService(ws)
+    publish(service)
     # Upgrade legacy qwenpawmail cards before DriverManager can launch them.
     # ``load_agent_config`` has already hydrated the in-memory secrets from the
     # encrypted store at this point.
@@ -66,60 +123,8 @@ async def create_driver_service(
             ws.agent_id,
         )
 
-    credential_store = AsyncCredentialStore(
-        ws.workspace_dir / "credentials.yaml",
-    )
-    driver_manager = DriverManager(
-        ws.workspace_dir / "drivers",
-        credential_store,
-        approval_gate=QwenPawDriverApprovalGate(),
-    )
-    driver_manager.register_handler_type(
-        "mcp",
-        MCPDriverHandler,
-        endpoint_validator=validate_mcp_endpoint,
-    )
-    # Publish immediately after construction and before migration/start can
-    # suspend.  Cancellation can then always find and shut down the manager.
-    publish(driver_manager)
-    # Future Driver protocols should be registered here together with their
-    # endpoint validator and tests.  This PR intentionally keeps the concrete
-    # runtime surface to MCP while leaving DriverManager protocol-neutral.
-    await migrate_legacy_mcp_if_needed(ws, driver_manager)
-    await driver_manager.start()
-    logger.debug(
-        "DriverManager external capability runtime initialized for agent: %s",
-        ws.agent_id,
-    )
-    return driver_manager
-    # pylint: enable=protected-access
-
-
-async def create_driver_config_watcher(
-    ws: "Workspace",
-    _service,
-    publish: Callable[[Any], None],
-):
-    """Create watcher for manual DriverCard edits.
-
-    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
-    immediately.  This watcher covers the manual-edit path and works for all
-    Driver protocols instead of only MCP.
-    """
-    # pylint: disable=protected-access
-    driver_manager = ws._service_manager.services.get("driver_manager")
-    if driver_manager is None:
-        return None
-
-    from ..driver_config_watcher import DriverConfigWatcher
-
-    watcher = DriverConfigWatcher(
-        driver_manager,
-        ws.workspace_dir / "drivers",
-    )
-    publish(watcher)
-    return watcher
-    # pylint: enable=protected-access
+    await service.start()
+    return service
 
 
 async def create_chat_service(
@@ -217,12 +222,18 @@ async def create_channel_service(
             agent_id=ws.agent_id,
         )
 
+    def process(request, *args, **kwargs):
+        """Resolve the current entrypoint without wrapping its iterator."""
+        return ws.stream_query(request, *args, **kwargs)
+
     cm = ChannelManager.from_config(
-        process=ws.stream_query,
+        process=process,
         config=temp_config,
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
+        defer_process_channels=True,
     )
+    cm._defer_channel_start = getattr(ws, "_defer_channel_start", False)
     publish(cm)
 
     cm.set_workspace(ws)
@@ -269,6 +280,17 @@ async def create_mail_monitor_service(
         return None
     credential = mail.credential
     if not credential.name or not credential.auth_code:
+        return None
+
+    from ..mcp.feature_gate import is_mcp_ready, mcp_unavailable_reason
+
+    if not is_mcp_ready(workspace_id=ws.agent_id):
+        logger.info(
+            "Mail monitoring skipped in workspace %r: MCP %s",
+            ws.agent_id,
+            mcp_unavailable_reason(workspace_id=ws.agent_id)
+            or "runtime_not_ready",
+        )
         return None
 
     from ..mail.monitor import MailMonitorService

@@ -1,30 +1,21 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fs::File;
 
-/// Guards against concurrent update operations (check/download/install). Each
-/// of the public commands acquires this before spawning work and releases it
-/// when the work finishes, so repeated clicks can't race on the cache dir.
-static UPDATE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+use fs2::FileExt;
+use tauri::{AppHandle, Manager};
 
-/// RAII token: holding it means an update operation is in flight; dropping it
-/// (including on early returns / errors) clears the flag.
-pub(super) struct InFlightGuard;
-
-impl InFlightGuard {
-    fn try_acquire() -> Option<Self> {
-        UPDATE_IN_FLIGHT
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| InFlightGuard)
-    }
+/// All desktop processes share the cache, including separate app copies.
+/// Keep this OS lease across download, confirmation, and installation.
+pub(super) struct InFlightGuard {
+    _lease: File,
 }
 
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        UPDATE_IN_FLIGHT.store(false, Ordering::Release);
-    }
-}
-
-pub(super) fn begin_update() -> Result<InFlightGuard, String> {
-    InFlightGuard::try_acquire()
-        .ok_or_else(|| "an update operation is already in progress".to_string())
+pub(super) fn begin_update(app: &AppHandle) -> Result<InFlightGuard, String> {
+    let directory = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let lease = super::coordination::open_lock(&directory.join("update.lock"))?;
+    lease
+        .try_lock_exclusive()
+        .map_err(|_| "Another QwenPaw window is already updating. Please wait.".to_string())?;
+    super::coordination::check_installers(&directory)?;
+    Ok(InFlightGuard { _lease: lease })
 }

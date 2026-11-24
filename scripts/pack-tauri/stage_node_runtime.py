@@ -13,8 +13,20 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-DEFAULT_NODE_VERSION = "v22.20.0"
 NODE_DIST_URL = "https://nodejs.org/dist"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NODE_VERSION_FILE = REPO_ROOT / f".nvmrc"
+
+
+def _read_default_node_version() -> str:
+    """Read the bundled Node version from the repository pin."""
+    version = NODE_VERSION_FILE.read_text(encoding=f"utf-8").strip()
+    if not version:
+        raise SystemExit(f"empty Node version in {NODE_VERSION_FILE}")
+    return version if version.startswith(f"v") else f"v{version}"
+
+
+DEFAULT_NODE_VERSION = _read_default_node_version()
 
 
 def _target() -> tuple[str, str, str]:

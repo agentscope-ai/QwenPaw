@@ -2,12 +2,14 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Form } from "antd";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import {
   installPlugin,
   uploadPlugin,
   type InstallPluginResult,
 } from "@/api/modules/plugin";
 import { readDirEntry, type LocalSelection } from "../utils";
+import { runPluginInstall } from "../dependencyUpgrade";
 
 export function useInstallModal(
   onSuccess: (result: InstallPluginResult) => void | Promise<void>,
@@ -116,15 +118,16 @@ export function useInstallModal(
         });
       }
 
-      const result = await uploadPlugin(uploadFile);
+      const result = await runPluginInstall(() => uploadPlugin(uploadFile), t);
+      if (result === null) return;
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       setLocalSel(null);
       await onSuccess(result);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("pluginManager.installFailed");
-      message.error(msg);
+      message.error(
+        pluginErrorMessage(err, t("pluginManager.installFailed"), t),
+      );
     } finally {
       setLocalInstalling(false);
     }
@@ -140,15 +143,16 @@ export function useInstallModal(
     const source = values.source.trim();
     setUrlInstalling(true);
     try {
-      const result = await installPlugin(source);
+      const result = await runPluginInstall(() => installPlugin(source), t);
+      if (result === null) return;
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       form.resetFields();
       await onSuccess(result);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("pluginManager.installFailed");
-      message.error(msg);
+      message.error(
+        pluginErrorMessage(err, t("pluginManager.installFailed"), t),
+      );
     } finally {
       setUrlInstalling(false);
     }

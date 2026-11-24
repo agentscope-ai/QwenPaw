@@ -48,7 +48,10 @@ async def test_gateway_prepares_catalog_and_thinking_on_worker():
             f"usage": {f"prompt_tokens": 1, f"completion_tokens": 1},
         },
     )
-    instance = gateway.ModelGateway(SimpleNamespace(store=None), None)
+    store = SimpleNamespace(
+        settings=lambda: {f"gateway_timeout_seconds": 600},
+    )
+    instance = gateway.ModelGateway(SimpleNamespace(store=store), None)
     with (
         patch.object(gateway, f"GatewayRequest", return_value=attempt),
         patch.object(gateway.ModelGateway, f"_prepare", side_effect=prepare),

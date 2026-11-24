@@ -38,6 +38,12 @@ class GuardedFunctionTool:
         from agentscope.tool import FunctionTool
 
         if cls is GuardedFunctionTool:
+            sdk_methods = {}
+            func = args[0] if args else kwargs.get("func")
+            if hasattr(func, "_qwenpaw_sdk_schema"):
+                from ..plugins._tool_adapter import sdk_function_call
+
+                sdk_methods["call"] = sdk_function_call
             real_cls = type(
                 "GuardedFunctionTool",
                 (FunctionTool,),
@@ -48,6 +54,7 @@ class GuardedFunctionTool:
                     ),
                     "check_permissions": _guarded_tool_check_permissions,
                     "__doc__": cls.__doc__,
+                    **sdk_methods,
                 },
             )
             return real_cls(*args, **kwargs)
@@ -64,6 +71,10 @@ def _guarded_tool_init(
 ) -> None:
     from agentscope.tool import FunctionTool
 
+    if hasattr(func, "_qwenpaw_sdk_schema"):
+        # Host bridge reads the SDK adapter's private schema marker.
+        # pylint: disable-next=protected-access
+        kwargs.setdefault("input_schema", func._qwenpaw_sdk_schema)
     FunctionTool.__init__(self, func, **kwargs)
     self._qp_tool_func = func  # pylint: disable=protected-access
     self._qp_agent_id = agent_id  # pylint: disable=protected-access

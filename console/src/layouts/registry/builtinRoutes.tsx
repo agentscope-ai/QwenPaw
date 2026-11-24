@@ -12,7 +12,7 @@
  * Naming convention mirrors builtinMenu: `core.<key>`.
  */
 import { Suspense } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import i18next from "../../i18n";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { routeRegistry } from "../../plugins/registry/store";
@@ -46,6 +46,7 @@ const EnvironmentsPage = lazyImportWithRetry(
 const OffloadPolicyPage = lazyImportWithRetry(
   "../../pages/Settings/OffloadPolicy",
 );
+const CommunityPage = lazyImportWithRetry("../../pages/Settings/Community");
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
 const AgentStatsPage = lazyImportWithRetry("../../pages/Settings/AgentStats");
@@ -70,7 +71,18 @@ function DefaultRedirect() {
 
 /** Synonym for /acp. Kept for plugins / external links that reference uppercase. */
 function ACPRedirect() {
-  return <Navigate to="/acp" replace />;
+  const location = useLocation();
+
+  return (
+    <Navigate
+      to={{
+        pathname: "/acp",
+        search: location.search,
+        hash: location.hash,
+      }}
+      replace
+    />
+  );
 }
 
 function routeMeta(
@@ -201,6 +213,7 @@ export const BUILTIN_ROUTES: Route[] = [
   {
     id: "core.acp",
     path: "/acp",
+    caseSensitive: true,
     component: ACPPage,
     meta: routeMeta("nav.acp", "ACP", "workspace", "agent"),
   },
@@ -312,6 +325,19 @@ export const BUILTIN_ROUTES: Route[] = [
     path: "/agent-stats",
     component: AgentStatsPage,
     meta: routeMeta("nav.agentStats", "Agent Statistics", "workspace", "agent"),
+  },
+  {
+    id: "core.community",
+    path: "/community-settings",
+    component: CommunityPage,
+    meta: routeMeta(
+      "community.title",
+      "Community",
+      "settings",
+      "global",
+      "standard",
+      "settings",
+    ),
   },
   {
     id: "core.voice-transcription",

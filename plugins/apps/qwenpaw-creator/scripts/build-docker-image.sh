@@ -23,6 +23,7 @@
 #
 # Build args (optional, via environment):
 #   QWENPAW_BASE_IMAGE                      - Base QwenPaw image (default: ACR latest)
+#   NODE_IMAGE                              - Node build image (default: pinned official)
 #   QWENPAW_DISABLED_CHANNELS               - Channels to disable (default: "imessage")
 #   QWENPAW_ENABLED_CHANNELS                - Channels whitelist (default: empty)
 
@@ -36,7 +37,7 @@ IMAGE_NAME="${1:-qwenpaw-creator:latest}"
 
 # Optional build args.
 QWENPAW_BASE_IMAGE="${QWENPAW_BASE_IMAGE:-agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw:latest}"
-NODE_IMAGE="${NODE_IMAGE:-agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim}"
+NODE_IMAGE="${NODE_IMAGE:-node:22.23.4-slim}"
 
 # Read version from source for the runtime boundary label.
 QWENPAW_VERSION=""

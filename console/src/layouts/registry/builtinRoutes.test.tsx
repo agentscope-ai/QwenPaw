@@ -28,6 +28,7 @@ const EXPECTED_ROUTES = [
   ["core.security", "/security"],
   ["core.token-usage", "/token-usage"],
   ["core.agent-stats", "/agent-stats"],
+  ["core.community", "/community-settings"],
   ["core.voice-transcription", "/voice-transcription"],
   ["core.debug", "/debug"],
   ["core.backups", "/backups"],
@@ -57,6 +58,12 @@ describe("BUILTIN_ROUTES", () => {
         ),
       });
     }
+  });
+
+  it("keeps the canonical ACP route case-sensitive", () => {
+    const canonicalRoute = BUILTIN_ROUTES.find(({ id }) => id === "core.acp");
+
+    expect(canonicalRoute?.caseSensitive).toBe(true);
   });
 
   it("resolves titles with the requested locale", async () => {

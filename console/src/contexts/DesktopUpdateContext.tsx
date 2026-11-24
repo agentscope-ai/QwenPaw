@@ -15,9 +15,11 @@ import {
   installDesktopUpdate,
   installDownloadedUpdate,
   onUpdateEvent,
+  type UpdateConfirmationRequest,
   type UpdateError,
   type UpdateProgress,
 } from "../tauri/desktopUpdate";
+import UpdateConfirmation from "../tauri/UpdateConfirmation";
 import { isDesktopApp } from "../tauri/backendRuntime";
 
 export type UpdatePhase =
@@ -57,6 +59,8 @@ function toErrorMessage(err: unknown): string {
 }
 
 export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
+  const [confirmation, setConfirmation] =
+    useState<UpdateConfirmationRequest | null>(null);
   const [phase, setPhase] = useState<UpdatePhase>("idle");
   const [isBackground, setIsBackground] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
@@ -138,12 +142,28 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
     onUpdateEvent({
       onCheckStart: () => setPhase("checking"),
       onDownloadProgress: handleProgress,
-      onInstallStart: () => setPhase("installing"),
+      onConfirmation: (request) => {
+        setPhase("downloaded");
+        setIsBackground(true);
+        setConfirmation(request);
+      },
+      onCancelled: () => {
+        setConfirmation(null);
+        setPhase("downloaded");
+        setIsBackground(true);
+      },
+      onInstallStart: () => {
+        setConfirmation(null);
+        setIsBackground(false);
+        setPhase("installing");
+      },
       onDownloadDone: (payload) => {
         setPhase("downloaded");
         setVersion(payload.version);
       },
       onError: (err) => {
+        setConfirmation(null);
+        if (err.stage === "install") setIsBackground(false);
         setPhase("failed");
         setError(err);
       },
@@ -157,9 +177,9 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
     };
   }, [handleProgress]);
 
-  // "Install and Restart" immediate full takeover path.
+  // Download while the workspace stays usable; confirm before installation.
   const startInstall = useCallback(async () => {
-    beginUpdate(false);
+    beginUpdate(true);
     try {
       await installDesktopUpdate();
     } catch (err) {
@@ -181,8 +201,8 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
 
   // Install a previously downloaded update.
   const installDownloadedFn = useCallback(async () => {
-    setIsBackground(false);
-    setPhase("installing");
+    setIsBackground(true);
+    setPhase("checking");
     setError(null);
     try {
       await installDownloadedUpdate();
@@ -242,6 +262,12 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
   return (
     <DesktopUpdateContext.Provider value={value}>
       {children}
+      {confirmation && (
+        <UpdateConfirmation
+          key={confirmation.requestId}
+          request={confirmation}
+        />
+      )}
     </DesktopUpdateContext.Provider>
   );
 }

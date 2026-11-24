@@ -6,7 +6,7 @@
  * under test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { Link } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -15,6 +15,7 @@ import { renderWithProviders } from "@/test/common_setup";
 
 const mocks = vi.hoisted(() => ({
   inboxData: null as unknown,
+  inboxOptions: null as unknown,
   pendingCount: 0,
   newArrival: false,
   approvals: [] as unknown[],
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   stopChat: vi.fn(),
   getRealIdForSession: vi.fn((id: string) => id),
   getInboxTrace: vi.fn(),
+  getInboxEvents: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -33,7 +35,24 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("./hooks/useInboxData", () => ({
-  useInboxData: () => mocks.inboxData,
+  useInboxData: (options: unknown) => {
+    mocks.inboxOptions = options;
+    return mocks.inboxData;
+  },
+  mapEventToPushMessage: (event: { id: string; read: boolean }) => event,
+}));
+
+vi.mock("../../api/modules/console", () => ({
+  consoleApi: {
+    getInboxEvents: (...args: unknown[]) => mocks.getInboxEvents(...args),
+  },
+}));
+
+vi.mock("@/api/modules/community", () => ({
+  communityConnectionApi: {
+    status: () =>
+      Promise.resolve({ status: "disconnected", sync_enabled: false }),
+  },
 }));
 
 vi.mock("./hooks/useMailPendingCount", () => ({
@@ -285,12 +304,17 @@ function makeInboxData(messages: PushMessage[], summaryUnread = 0) {
     deleteMessages: vi.fn().mockResolvedValue(0),
     triggerHarvest: vi.fn(),
     refreshPushMessages: vi.fn(),
+    pushMessagesLoading: false,
+    pushMessagesError: null,
   };
   return mocks.inboxData as {
+    pushMessagesLoading: boolean;
+    pushMessagesError: Error | null;
     markMessageAsRead: ReturnType<typeof vi.fn>;
     markAllMessagesAsRead: ReturnType<typeof vi.fn>;
     deleteMessage: ReturnType<typeof vi.fn>;
     deleteMessages: ReturnType<typeof vi.fn>;
+    refreshPushMessages: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -304,6 +328,115 @@ beforeEach(() => {
 // ---- Tests -----------------------------------------------------------------
 
 describe("InboxPage", () => {
+  it("opens a notification event even when it is outside the loaded list", async () => {
+    const data = makeInboxData([]);
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [{ id: "older-event", read: false }],
+    });
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?tab=messages&event=older-event"],
+    });
+    await waitFor(() =>
+      expect(data.markMessageAsRead).toHaveBeenCalledWith("older-event"),
+    );
+    expect(mocks.getInboxEvents).toHaveBeenCalledWith({
+      event_id: "older-event",
+      limit: 1,
+    });
+  });
+
+  it("keeps local cards visible with an explicit retryable community source error", () => {
+    makeInboxData([pushMsg("local")]);
+    const data = mocks.inboxData as {
+      pushMessagesError?: Error;
+      refreshPushMessages: ReturnType<typeof vi.fn>;
+    };
+    data.pushMessagesError = new Error("community_history_unavailable");
+    renderWithProviders(<InboxPage />);
+    expect(screen.getByTestId("push-card-local")).toBeInTheDocument();
+    expect(
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(data.refreshPushMessages).toHaveBeenCalled();
+  });
+
+  it("does not present broken community history as an empty community inbox", () => {
+    makeInboxData([]);
+    (mocks.inboxData as { pushMessagesError?: Error }).pushMessagesError =
+      new Error("community_history_unavailable");
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
+    });
+    expect(
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("communityInbox.empty")).not.toBeInTheDocument();
+  });
+
+  it("opens the community source from a deep link and disables the Agent filter", async () => {
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText("communityInbox.connectHint"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("combobox", { name: "inbox.filterByAgent" }),
+    ).toBeDisabled();
+    expect(mocks.inboxOptions).toEqual({
+      sourceType: "community",
+      agentId: undefined,
+      page: 1,
+      pageSize: 5,
+      unreadOnly: false,
+    });
+    expect(screen.getByText("communityInbox.markAllRead")).toBeInTheDocument();
+  });
+
+  it("requests a different server page while retaining the server total", async () => {
+    makeInboxData([pushMsg("m1")]);
+    (
+      mocks.inboxData as { summary: { pushMessages: { total: number } } }
+    ).summary.pushMessages.total = 405;
+    renderWithProviders(<InboxPage />);
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({ page: 2, pageSize: 5 }),
+      ),
+    );
+  });
+
+  it("selects community in an already open Inbox when an OS notification is clicked", async () => {
+    localStorage.setItem("qwenpaw.inbox.activeTab", "approvals");
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />);
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("qwenpaw:inbox-open", {
+          detail: { tab: "messages", sourceType: "community" },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({
+          sourceType: "community",
+          agentId: undefined,
+          page: 1,
+        }),
+      ),
+    );
+    expect(screen.getByTestId("inbox-tab-messages")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+  });
+
   it("renders the messages tab with push cards", async () => {
     makeInboxData([pushMsg("m1"), pushMsg("m2")]);
     renderWithProviders(<InboxPage />);
@@ -313,12 +446,74 @@ describe("InboxPage", () => {
     });
   });
 
+  it("toggles the unreadOnly filter and passes it to the hook", async () => {
+    makeInboxData([pushMsg("m1")]);
+    renderWithProviders(<InboxPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("push-card-m1")).toBeTruthy();
+    });
+    // Initially unreadOnly is false
+    expect(mocks.inboxOptions).toEqual(
+      expect.objectContaining({ unreadOnly: false }),
+    );
+    // Toggle the checkbox
+    const toggle = screen.getByRole("checkbox", { name: "inbox.unreadOnly" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({ unreadOnly: true, page: 1 }),
+      ),
+    );
+  });
+
   it("shows the empty state when there are no messages", async () => {
     makeInboxData([]);
     renderWithProviders(<InboxPage />);
     await waitFor(() => {
       expect(screen.getByTestId("inbox-empty")).toBeTruthy();
     });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows loading instead of an empty result during the initial fetch", () => {
+    const data = makeInboxData([]);
+    data.pushMessagesLoading = true;
+    renderWithProviders(<InboxPage />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("common.loading");
+    expect(screen.queryByTestId("inbox-empty")).toBeNull();
+  });
+
+  it("retries an empty-cache failure and renders the recovered message", async () => {
+    const data = makeInboxData([]);
+    data.pushMessagesError = new Error("offline");
+    const { rerender } = renderWithProviders(<InboxPage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("inbox.loadFailed");
+    expect(screen.queryByTestId("inbox-empty")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(data.refreshPushMessages).toHaveBeenCalledTimes(1);
+
+    makeInboxData([pushMsg("recovered")]);
+    rerender(<InboxPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("push-card-recovered")).toBeTruthy();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps stale rows visible with a non-destructive retry affordance", () => {
+    const data = makeInboxData([pushMsg("stale")]);
+    data.pushMessagesError = new Error("offline");
+    renderWithProviders(<InboxPage />);
+
+    expect(screen.getByTestId("push-card-stale")).toBeTruthy();
+    expect(screen.getByRole("alert")).toHaveTextContent("inbox.loadFailed");
+    expect(screen.queryByTestId("inbox-empty")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(data.refreshPushMessages).toHaveBeenCalledTimes(1);
   });
 
   it("persists the active tab to localStorage and restores it", async () => {

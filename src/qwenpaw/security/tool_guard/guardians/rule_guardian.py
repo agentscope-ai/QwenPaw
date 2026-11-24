@@ -35,6 +35,7 @@ from typing import Any
 import yaml
 
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
+from ..outbound_shell import search_rule_pattern
 from ..safety_checks import (
     classify_destructive_command,
     is_path_outside_boundary,
@@ -472,7 +473,7 @@ class GuardRule:
             return None, None
 
         for pattern in self.compiled_patterns:
-            m = pattern.search(value)
+            m = search_rule_pattern(pattern, value)
             if m:
                 return m, pattern.pattern
         return None, None

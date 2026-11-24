@@ -8,6 +8,7 @@ import {
   Copy,
   Pencil,
   Power,
+  PowerOff,
   Trash2,
   ChevronRight,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useTranslation } from "react-i18next";
 import { SharedModal } from "@/components/interaction/SharedModal";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
+import { resolveAgentStatus } from "@/components/AgentStatusIndicator/status";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { AgentSummary } from "@/api/types/agents";
 import styles from "./AgentGallery.module.less";
@@ -71,7 +73,12 @@ const AgentTile = memo(function AgentTile({
   const locked =
     disabled ||
     agent.id === "default" ||
-    ["pending", "starting"].includes(agent.startup_status ?? "");
+    (agent.enabled &&
+      ["pending", "starting"].includes(agent.startup_status ?? ""));
+  const effectiveStatus = resolveAgentStatus(
+    agent.startup_status,
+    agent.enabled,
+  );
   const sortable = useSortable({
     id: agent.id,
     disabled: disabled || agent.id === "default",
@@ -81,6 +88,7 @@ const AgentTile = memo(function AgentTile({
       <article
         className={styles.card}
         style={{ borderRadius: 12 }}
+        data-agent-status={effectiveStatus}
         data-dragging={sortable.isDragging || undefined}
       >
         <div className={styles.top}>
@@ -164,7 +172,9 @@ const AgentTile = memo(function AgentTile({
             <Button
               type="text"
               disabled={locked}
-              icon={<Power size={16} />}
+              icon={
+                agent.enabled ? <PowerOff size={16} /> : <Power size={16} />
+              }
               aria-label={t(agent.enabled ? "common.disable" : "common.enable")}
               title={t(agent.enabled ? "common.disable" : "common.enable")}
             />
@@ -175,6 +185,7 @@ const AgentTile = memo(function AgentTile({
     [
       agent,
       disabled,
+      effectiveStatus,
       locked,
       onCopy,
       onEdit,
@@ -228,8 +239,9 @@ export function AgentGallery(props: AgentGalleryProps) {
   const locked =
     !agent ||
     agent.id === "default" ||
-    agent.startup_status === "pending" ||
-    agent.startup_status === "starting";
+    (agent.enabled &&
+      (agent.startup_status === "pending" ||
+        agent.startup_status === "starting"));
   return (
     <>
       <Spin spinning={loading}>
@@ -325,7 +337,12 @@ export function AgentGallery(props: AgentGalleryProps) {
                 onConfirm={() => onToggle(agent.id, agent.enabled)}
                 disabled={locked}
               >
-                <Button disabled={locked} icon={<Power size={16} />}>
+                <Button
+                  disabled={locked}
+                  icon={
+                    agent.enabled ? <PowerOff size={16} /> : <Power size={16} />
+                  }
+                >
                   {t(agent.enabled ? "common.disable" : "common.enable")}
                 </Button>
               </Popconfirm>

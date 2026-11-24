@@ -9,7 +9,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useTheme } from "../../../contexts/ThemeContext";
 import {
   selectTasksForSession,
   useBackgroundTasksStore,
@@ -65,7 +64,6 @@ export default function BackgroundTaskPanel({
   showFinished: showFinishedProp,
 }: BackgroundTaskPanelProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
   const tasks = useBackgroundTasksStore((s) => s.tasks);
   const removeTask = useBackgroundTasksStore((s) => s.removeTask);
   const removeTasks = useBackgroundTasksStore((s) => s.removeTasks);
@@ -206,33 +204,32 @@ export default function BackgroundTaskPanel({
   if (sessionTasks.length === 0) return null;
 
   const hasRunning = runningTasks.length > 0;
-  const borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+  const borderColor = "var(--app-border-subtle)";
   const badgeBg = hasRunning
-    ? isDark
-      ? "rgba(250,173,20,0.2)"
-      : "rgba(250,173,20,0.15)"
-    : isDark
-    ? "rgba(114,46,209,0.25)"
-    : "rgba(114,46,209,0.12)";
-  const badgeColor = hasRunning ? "#d48806" : "#722ed1";
+    ? "var(--app-warning-bg)"
+    : "var(--app-accent-soft)";
+  const badgeColor = hasRunning
+    ? "var(--app-warning-text)"
+    : "var(--app-accent-text)";
   const badgeCount = hasRunning
     ? runningTasks.length
     : showFinished
     ? finishedTasks.length
     : 0;
+  // Mask colors contribute alpha only; they are not rendered theme colors.
   const listMask =
     listOverflow.canScrollUp && listOverflow.canScrollDown
-      ? "linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 28px), transparent)"
+      ? "linear-gradient(to bottom, transparent, black 20px, black calc(100% - 28px), transparent)"
       : listOverflow.canScrollDown
-      ? "linear-gradient(to bottom, #000 0, #000 calc(100% - 28px), transparent)"
+      ? "linear-gradient(to bottom, black 0, black calc(100% - 28px), transparent)"
       : listOverflow.canScrollUp
-      ? "linear-gradient(to bottom, transparent, #000 20px, #000 100%)"
+      ? "linear-gradient(to bottom, transparent, black 20px, black 100%)"
       : undefined;
   const actionBtnStyle: CSSProperties = {
     border: `1px solid ${borderColor}`,
-    background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+    background: "var(--app-fill-faint)",
     cursor: batchBusy ? "not-allowed" : "pointer",
-    color: isDark ? "#bbb" : "#555",
+    color: "var(--app-text-secondary)",
     fontSize: 11,
     padding: "2px 8px",
     borderRadius: 4,
@@ -247,7 +244,7 @@ export default function BackgroundTaskPanel({
         alignItems: "center",
         gap: 4,
         fontSize: 11,
-        color: isDark ? "#bbb" : "#555",
+        color: "var(--app-text-secondary)",
         cursor: "pointer",
         userSelect: "none",
         whiteSpace: "nowrap",
@@ -312,11 +309,7 @@ export default function BackgroundTaskPanel({
         padding: embedded ? 0 : "8px 12px",
         marginBottom: embedded ? 0 : 4,
         borderRadius: embedded ? 0 : 8,
-        background: embedded
-          ? "transparent"
-          : isDark
-          ? "rgba(255,255,255,0.02)"
-          : "rgba(0,0,0,0.01)",
+        background: embedded ? "transparent" : "var(--app-fill-faint)",
         border: embedded ? "none" : `1px solid ${borderColor}`,
       }}
     >
@@ -339,7 +332,7 @@ export default function BackgroundTaskPanel({
               background: "transparent",
               cursor: "pointer",
               padding: 0,
-              color: isDark ? "#bbb" : "#555",
+              color: "var(--app-text-secondary)",
               fontSize: 12,
               fontWeight: 500,
               flex: 1,
@@ -399,7 +392,7 @@ export default function BackgroundTaskPanel({
                 <div
                   style={{
                     fontSize: 12,
-                    color: isDark ? "#888" : "#999",
+                    color: "var(--app-text-tertiary)",
                     padding: "6px 8px",
                   }}
                 >
@@ -460,19 +453,11 @@ export default function BackgroundTaskPanel({
                       padding: "6px 8px",
                       borderRadius: 6,
                       border: `2px solid ${
-                        isExpanded
-                          ? isDark
-                            ? "rgba(179,127,235,0.7)"
-                            : "rgba(179,127,235,0.85)"
-                          : "transparent"
+                        isExpanded ? "var(--app-accent-border)" : "transparent"
                       }`,
                       background: isExpanded
-                        ? isDark
-                          ? "rgba(114,46,209,0.16)"
-                          : "rgba(114,46,209,0.06)"
-                        : isDark
-                        ? "rgba(255,255,255,0.04)"
-                        : "rgba(0,0,0,0.02)",
+                        ? "var(--app-accent-soft)"
+                        : "var(--app-fill-faint)",
                       cursor: "pointer",
                       fontSize: 12,
                     }}
@@ -483,10 +468,10 @@ export default function BackgroundTaskPanel({
                         height: 8,
                         borderRadius: "50%",
                         background: isRunning
-                          ? "#722ed1"
+                          ? "var(--app-accent)"
                           : task.status === "cancelled"
-                          ? "#8c8c8c"
-                          : "#52c41a",
+                          ? "var(--app-status-idle)"
+                          : "var(--app-success)",
                         flexShrink: 0,
                       }}
                     />
@@ -496,7 +481,7 @@ export default function BackgroundTaskPanel({
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
-                        color: isDark ? "#ddd" : "#333",
+                        color: "var(--app-text)",
                       }}
                       title={task.toolName}
                     >
@@ -504,7 +489,7 @@ export default function BackgroundTaskPanel({
                     </span>
                     <span
                       style={{
-                        color: isDark ? "#888" : "#999",
+                        color: "var(--app-text-tertiary)",
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -518,21 +503,13 @@ export default function BackgroundTaskPanel({
                       }}
                       style={{
                         border: `1px solid ${
-                          isRunning
-                            ? isDark
-                              ? "rgba(255,77,79,0.45)"
-                              : "rgba(255,77,79,0.35)"
-                            : borderColor
+                          isRunning ? "var(--app-error-border)" : borderColor
                         }`,
                         background: "transparent",
                         cursor: "pointer",
                         color: isRunning
-                          ? isDark
-                            ? "#ff7875"
-                            : "#cf1322"
-                          : isDark
-                          ? "#aaa"
-                          : "#666",
+                          ? "var(--app-error-text)"
+                          : "var(--app-text-secondary)",
                         fontSize: 11,
                         padding: "1px 8px",
                         borderRadius: 4,
@@ -561,11 +538,10 @@ export default function BackgroundTaskPanel({
                   gap: 4,
                   height: 28,
                   fontSize: 11,
-                  color: isDark ? "#bbb" : "#666",
+                  color: "var(--app-text-secondary)",
                   pointerEvents: "none",
-                  background: isDark
-                    ? "linear-gradient(to top, rgba(20,20,20,0.92), rgba(20,20,20,0.45), transparent)"
-                    : "linear-gradient(to top, rgba(255,255,255,0.96), rgba(255,255,255,0.55), transparent)",
+                  background:
+                    "linear-gradient(to top, var(--app-surface), transparent)",
                 }}
               >
                 <ChevronDown size={12} aria-hidden />
@@ -584,10 +560,10 @@ export default function BackgroundTaskPanel({
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
-                background: isDark ? "var(--app-bg)" : "#fafafa",
+                background: "var(--app-surface-sunken)",
                 border: `1px solid ${borderColor}`,
                 borderRadius: 6,
-                color: isDark ? "var(--app-text)" : "#333",
+                color: "var(--app-text)",
               }}
             >
               {(expandedTask.status === "running"

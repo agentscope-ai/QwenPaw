@@ -32,8 +32,9 @@ function pendingEntry(path: string, label: string | null): ProjectDirEntry {
 }
 
 /**
- * Resolve the session's bound directories: the chat's persisted list, else the
- * pending pick a brand-new chat holds locally, else the agent default.
+ * Resolve the session's bound directories: an unconfirmed local selection,
+ * else the chat's persisted list, else the agent default. A new Chat already
+ * has an ID before its first message persists the selected directories.
  *
  * The returned list always has at least one entry. When nothing is configured
  * that entry is the agent workspace (with `source: "workspace_fallback"`), so
@@ -45,6 +46,15 @@ export async function loadSessionProjectDirs(
   sessionId: string,
   chatId?: string,
 ): Promise<SessionProjectDirsSnapshot> {
+  const pending = getPendingProjectDirs(agentId, sessionId);
+  if (pending) {
+    return {
+      dirs: pending.dirs.map((entry) => pendingEntry(entry.path, entry.label)),
+      source: "session",
+      agentProjectDir: null,
+    };
+  }
+
   if (chatId) {
     const next = await chatProjectDirectoryApi.getProjectDirs(chatId, agentId);
     if (next.project_dirs.length > 0) {
@@ -72,16 +82,6 @@ export async function loadSessionProjectDirs(
       ],
       source: next.source,
       agentProjectDir: next.agent_project_dir,
-    };
-  }
-
-  // Brand-new chat: no server id yet, so the pick lives in sessionStorage.
-  const pending = getPendingProjectDirs(agentId, sessionId);
-  if (pending) {
-    return {
-      dirs: pending.dirs.map((entry) => pendingEntry(entry.path, entry.label)),
-      source: "session",
-      agentProjectDir: null,
     };
   }
 

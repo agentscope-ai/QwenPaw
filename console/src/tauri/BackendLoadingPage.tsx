@@ -1,7 +1,7 @@
 import { Progress } from "antd";
 import { useTranslation } from "react-i18next";
 import styles from "./BackendLoadingPage.module.less";
-import { type BackendReadyStatus } from "./useBackendReadyPolling";
+type BackendReadyStatus = "checking" | "ready" | "timeout" | "error";
 
 interface BackendLoadingPageProps {
   status: BackendReadyStatus;

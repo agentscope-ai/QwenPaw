@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "backend"
-description = "Allows the bootstrap page to monitor and restart the bundled backend sidecar."
-commands.allow = ["backend_port", "backend_startup_error", "restart_backend"]
+description = "Allows desktop clients to observe and restart the Agent Host."
+commands.allow = ["agent_host_state", "restart_backend"]

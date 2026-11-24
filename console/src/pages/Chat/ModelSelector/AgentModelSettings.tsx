@@ -25,6 +25,7 @@ import type {
 } from "@/api/types";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useSettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 import styles from "./index.module.less";
 
@@ -105,6 +106,7 @@ export function AgentModelSettings({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<AgentProfileConfig | null>(null);
+  const searchRequest = useSettingsSearchRequest("agent-config");
   const [fallbackEnabled, setFallbackEnabled] = useState(true);
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
@@ -443,7 +445,9 @@ export function AgentModelSettings({
                   />
                 ))}
               <div className={styles.settingLine}>
-                <span>{t("modelSelector.subagentModel")}</span>
+                <span data-settings-target="modelSelector.subagentModel">
+                  {t("modelSelector.subagentModel")}
+                </span>
                 <ModelChoice
                   ariaLabel={t("modelSelector.subagentModel")}
                   value={slotByKey.get(subagentKey)}
@@ -474,7 +478,9 @@ export function AgentModelSettings({
               </div>
               {decisionProviders && (
                 <div className={styles.settingLine}>
-                  <span>{t("models.defaultDecisionModel")}</span>
+                  <span data-settings-target="models.defaultDecisionModel">
+                    {t("models.defaultDecisionModel")}
+                  </span>
                   <ModelChoice
                     ariaLabel={t("models.defaultDecisionModel")}
                     modelType="decision"
@@ -499,7 +505,9 @@ export function AgentModelSettings({
                 </div>
               )}
               <div className={styles.settingLine}>
-                <span>{t("modelSelector.enableFallback")}</span>
+                <span data-settings-target="modelSelector.enableFallback">
+                  {t("modelSelector.enableFallback")}
+                </span>
                 <Switch
                   aria-label={t("modelSelector.enableFallback")}
                   size="small"
@@ -512,34 +520,52 @@ export function AgentModelSettings({
                   }}
                 />
               </div>
-              {fallbackEnabled &&
-                (fallbackKeys.length ? fallbackKeys : [EMPTY_KEY]).map(
-                  (key, index) => (
-                    <div className={styles.settingLine} key={index}>
-                      <span>{t("modelSelector.chooseFallback")}</span>
-                      <ModelChoice
-                        ariaLabel={t("modelSelector.chooseFallback")}
-                        value={slotByKey.get(key)}
-                        label={
-                          optionByKey.get(key)?.label ??
-                          (key || t("modelSelector.chooseFallback"))
-                        }
-                        disabled={saving}
-                        onChange={(slot) => {
-                          const keys = [...fallbackKeys];
-                          keys[index] = pickSlot(slot);
-                          setFallbackKeys(keys);
-                          setFallbackEnabled(true);
-                          notifyDraft({
-                            fallbackKeys: keys,
-                            fallbackEnabled: true,
-                          });
-                          schedulePersistence();
-                        }}
-                      />
-                    </div>
-                  ),
+              {!fallbackEnabled &&
+                searchRequest?.targetId === "modelSelector.chooseFallback" && (
+                  <p
+                    role="status"
+                    data-settings-target="modelSelector.chooseFallback"
+                  >
+                    {t(
+                      "settingsCenter.searchEnableFallback",
+                      "Enable fallback models to configure the fallback list.",
+                    )}
+                  </p>
                 )}
+              <div
+                data-settings-target={
+                  fallbackEnabled ? "modelSelector.chooseFallback" : undefined
+                }
+              >
+                {fallbackEnabled &&
+                  (fallbackKeys.length ? fallbackKeys : [EMPTY_KEY]).map(
+                    (key, index) => (
+                      <div className={styles.settingLine} key={index}>
+                        <span>{t("modelSelector.chooseFallback")}</span>
+                        <ModelChoice
+                          ariaLabel={t("modelSelector.chooseFallback")}
+                          value={slotByKey.get(key)}
+                          label={
+                            optionByKey.get(key)?.label ??
+                            (key || t("modelSelector.chooseFallback"))
+                          }
+                          disabled={saving}
+                          onChange={(slot) => {
+                            const keys = [...fallbackKeys];
+                            keys[index] = pickSlot(slot);
+                            setFallbackKeys(keys);
+                            setFallbackEnabled(true);
+                            notifyDraft({
+                              fallbackKeys: keys,
+                              fallbackEnabled: true,
+                            });
+                            schedulePersistence();
+                          }}
+                        />
+                      </div>
+                    ),
+                  )}
+              </div>
               {agentId && !autoSave && (
                 <button
                   type="button"

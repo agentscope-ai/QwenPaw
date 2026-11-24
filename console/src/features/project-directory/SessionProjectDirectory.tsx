@@ -38,8 +38,14 @@ import styles from "./SessionProjectDirectory.module.less";
 import InlineHelp from "../../components/InlineHelp";
 import { setPendingProjectDirectory } from "./pendingProjectDirectory";
 import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
-import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
-import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
+import {
+  filesWorkspaceScopeKey,
+  type FilesWorkspaceScope,
+} from "../files-workspace/filesWorkspaceScope";
+import {
+  listenForProjectDirectoryChanges,
+  notifyProjectDirectoryChanged,
+} from "./projectDirectoryChangeEvent";
 
 /** Mirrors the server's MAX_PROJECT_DIRS: the whole list is capped at 10. */
 const MAX_PROJECT_DIRS = 10;
@@ -85,7 +91,14 @@ interface SessionProjectDirectoryProps {
   compact?: boolean;
   className?: string;
   showFullPath?: boolean;
-  beforeChange?: () => boolean | Promise<boolean>;
+  /**
+   * Consulted before a change is written to the server. `next` is the
+   * directory list the save is about to persist, or `undefined` for flows
+   * that carry no list (clearing it, the legacy single-path field), so a
+   * caller can gate the write itself instead of reacting to it afterwards —
+   * by the time `onChanged` fires the server has already moved.
+   */
+  beforeChange?: (next?: ProjectDirEntry[]) => boolean | Promise<boolean>;
   onChanged?: () => void;
   /** Drive the panel from outside. Omit to keep the built-in open state. */
   open?: boolean;
@@ -118,6 +131,8 @@ export default function SessionProjectDirectory({
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const isAgentScope = scope.kind === "agent";
   const isListScope = !isAgentScope || multiAgentDefault;
+  const scopeKey = filesWorkspaceScopeKey(scope);
+  const refreshSeq = useRef(0);
   const [info, setInfo] = useState<EffectiveProjectDirectory | null>(null);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
@@ -160,6 +175,10 @@ export default function SessionProjectDirectory({
   // What the server holds. Restored when the panel closes, so an abandoned
   // edit never leaves the trigger advertising directories that are not bound.
   const [appliedDirs, setAppliedDirs] = useState<ProjectDirEntry[]>([]);
+  const hasDirectoryEditsRef = useRef(false);
+  // Applied lists share an array; local edits replace only `dirs`.
+  // Read the latest edit state when a confirmation request finishes.
+  hasDirectoryEditsRef.current = open && dirs !== appliedDirs;
   // A folder the user single-clicked and has not bound yet. Deliberately not
   // `draft`: navigating (double click, home, parent) must not queue anything.
   const [pendingPath, setPendingPath] = useState("");
@@ -186,9 +205,10 @@ export default function SessionProjectDirectory({
     (
       next: ProjectDirEntry[],
       snapshot: Pick<ChatProjectDirs, "source" | "agent_project_dir">,
+      preserveEdits = false,
     ) => {
       const primary = next[0];
-      setDirs(next);
+      if (!preserveEdits || !hasDirectoryEditsRef.current) setDirs(next);
       setAppliedDirs(next);
       setInfo({
         project_dir: primary?.path ?? "",
@@ -202,64 +222,85 @@ export default function SessionProjectDirectory({
     [],
   );
 
-  const refresh = useCallback(async () => {
-    if (multiAgentDefault) {
-      const next = await projectDirectoryApi.getDirs();
-      applyList(
-        next.project_dirs.length
-          ? next.project_dirs
-          : [
-              {
-                path: next.workspace_dir,
-                label: null,
-                exists: next.workspace_exists ?? true,
-                nested_with: null,
-                is_workspace: true,
-              },
-            ],
-        {
-          source: next.source,
-          agent_project_dir: next.project_dirs[0]?.path ?? null,
-        },
+  const refresh = useCallback(
+    async (preserveEdits = false) => {
+      const seq = ++refreshSeq.current;
+      if (multiAgentDefault) {
+        const next = await projectDirectoryApi.getDirs();
+        if (seq !== refreshSeq.current) return;
+        applyList(
+          next.project_dirs.length
+            ? next.project_dirs
+            : [
+                {
+                  path: next.workspace_dir,
+                  label: null,
+                  exists: next.workspace_exists ?? true,
+                  nested_with: null,
+                  is_workspace: true,
+                },
+              ],
+          {
+            source: next.source,
+            agent_project_dir: next.project_dirs[0]?.path ?? null,
+          },
+        );
+        return;
+      }
+      if (isAgentScope) {
+        const next = await projectDirectoryApi.get();
+        if (seq !== refreshSeq.current) return;
+        const fallback: EffectiveProjectDirectory = {
+          project_dir: next.path,
+          source: next.is_workspace_default ? "workspace_fallback" : "agent",
+          agent_project_dir: next.is_workspace_default ? null : next.path,
+          exists: next.exists ?? true,
+        };
+        setInfo(fallback);
+        updateDraft(fallback.project_dir);
+        return;
+      }
+      // Shared with the Files navigator so the panel and the tree can never
+      // disagree about which directories the session is bound to.
+      const snapshot = await loadSessionProjectDirs(
+        selectedAgent,
+        sessionId,
+        chatId,
       );
-      return;
-    }
-    if (isAgentScope) {
-      const next = await projectDirectoryApi.get();
-      const fallback: EffectiveProjectDirectory = {
-        project_dir: next.path,
-        source: next.is_workspace_default ? "workspace_fallback" : "agent",
-        agent_project_dir: next.is_workspace_default ? null : next.path,
-        exists: next.exists ?? true,
-      };
-      setInfo(fallback);
-      updateDraft(fallback.project_dir);
-      return;
-    }
-    // Shared with the Files navigator so the panel and the tree can never
-    // disagree about which directories the session is bound to.
-    const snapshot = await loadSessionProjectDirs(
+      if (seq !== refreshSeq.current) return;
+      applyList(
+        snapshot.dirs,
+        {
+          source: snapshot.source,
+          agent_project_dir: snapshot.agentProjectDir,
+        },
+        preserveEdits,
+      );
+    },
+    [
+      applyList,
+      chatId,
+      isAgentScope,
+      multiAgentDefault,
       selectedAgent,
       sessionId,
-      chatId,
-    );
-    applyList(snapshot.dirs, {
-      source: snapshot.source,
-      agent_project_dir: snapshot.agentProjectDir,
-    });
-  }, [
-    applyList,
-    chatId,
-    isAgentScope,
-    multiAgentDefault,
-    selectedAgent,
-    sessionId,
-    updateDraft,
-  ]);
+      updateDraft,
+    ],
+  );
 
   useEffect(() => {
+    const sequence = refreshSeq;
+    const unsubscribe = listenForProjectDirectoryChanges(
+      (changedScopeKey, options) => {
+        if (changedScopeKey === scopeKey) void refresh(options.preserveTabs);
+      },
+    );
     void refresh();
-  }, [refresh]);
+    return () => {
+      unsubscribe();
+      sequence.current++;
+    };
+  }, [refresh, scopeKey]);
 
   useEffect(() => {
     updateSyncAsAgentDefault(false);
@@ -538,7 +579,7 @@ export default function SessionProjectDirectory({
    *  normalises every entry and rejects non-directories — the text input is
    *  only another way to name a directory, never a wider permission. */
   const commitSessionList = async (entries: ProjectDirEntry[]) => {
-    if (beforeChange && !(await beforeChange())) return;
+    if (beforeChange && !(await beforeChange(entries))) return;
     const payload: ProjectDirPayloadEntry[] = entries
       .filter((entry) => entry.path.trim())
       .map((entry) => ({
@@ -612,6 +653,7 @@ export default function SessionProjectDirectory({
         chatId,
         payload,
       );
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       applyList(saved.project_dirs, saved);
       setPendingPath("");
       updateSyncAsAgentDefault(false);
@@ -747,6 +789,7 @@ export default function SessionProjectDirectory({
     setListError(null);
     try {
       await chatProjectDirectoryApi.clearProjectDirs(chatId);
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       // Re-read rather than applying the response: dropping the override
       // usually leaves an empty list, and refresh() knows how to fall back
       // to the effective directory instead of showing an empty panel.
@@ -1252,21 +1295,29 @@ export default function SessionProjectDirectory({
       {!compact && (
         <>
           {showFullPath ? (
-            <span className={styles.triggerIdentity}>
+            <span
+              className={styles.triggerIdentity}
+              data-composer-collapse-content
+            >
               <strong>{basename}</strong>
               <small>{info?.project_dir}</small>
             </span>
           ) : (
-            <span>{basename}</span>
+            <span data-composer-collapse-content>{basename}</span>
           )}
           {/* Extra roots are not listed here; the count signals that
               more than the primary is bound. Driven by the applied list
               so an abandoned edit never shows up as bound. */}
           {isListScope && appliedCount > 1 && (
-            <em title={t("projectDirectory.countTitle")}>·{appliedCount}</em>
+            <em
+              data-composer-collapse-content
+              title={t("projectDirectory.countTitle")}
+            >
+              ·{appliedCount}
+            </em>
           )}
           {!showFullPath && (
-            <em>
+            <em data-composer-collapse-content>
               {t(
                 info?.source === "session"
                   ? "projectDirectory.sessionSource"
@@ -1274,7 +1325,7 @@ export default function SessionProjectDirectory({
               )}
             </em>
           )}
-          <ChevronDown size={12} />
+          <ChevronDown data-composer-collapse-content size={12} />
         </>
       )}
     </button>
@@ -1335,7 +1386,7 @@ export default function SessionProjectDirectory({
         open={open}
         onOpenChange={handleOpenChange}
         placement={isAgentScope ? "rightTop" : "topRight"}
-        overlayClassName={styles.desktopPopover}
+        classNames={{ root: styles.desktopPopover }}
       >
         <span className={styles.hiddenAnchor} aria-hidden="true" />
       </Popover>
@@ -1349,7 +1400,7 @@ export default function SessionProjectDirectory({
       open={open}
       onOpenChange={handleOpenChange}
       placement={isAgentScope ? "rightTop" : "topRight"}
-      overlayClassName={styles.desktopPopover}
+      classNames={{ root: styles.desktopPopover }}
     >
       {trigger}
     </Popover>

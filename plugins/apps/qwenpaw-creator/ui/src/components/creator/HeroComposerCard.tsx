@@ -8,7 +8,7 @@ import {
   PictureOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
-import { ArrowUp, X } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import addFileIcon from "@/assets/design/icon-add-file.svg";
 import addFolderIcon from "@/assets/design/icon-add-folder.svg";
 import addLinkIcon from "@/assets/design/icon-add-link.svg";
@@ -18,10 +18,11 @@ import {
   SCENARIO_OPTIONS,
   SCENARIO_TERMS,
   CONTENT_TYPE_OPTIONS,
-  chipLabel,
   useProjectLaunch,
 } from "./useProjectLaunch";
+import AttachmentChip from "./AttachmentChip";
 import ModelConfigModal from "./ModelConfigModal";
+import SubtitleSettingsPicker from "./SubtitleSettingsPicker";
 import VideoTemplatePicker from "./VideoTemplatePicker";
 import { useRecreateStore } from "@/store/recreateStore";
 
@@ -63,10 +64,19 @@ export default function HeroComposerCard() {
     setAspectRatio,
     selectedTemplateId,
     setSelectedTemplateId,
+    subtitlePolicy,
+    setSubtitlePolicy,
+    subtitleTemplate,
+    setSubtitleTemplate,
+    subtitleStyle,
+    setSubtitleStyle,
+    subtitleAnimation,
+    setSubtitleAnimation,
     attachments,
     addFiles,
     addUrl,
     removeAttachment,
+    toggleAttachmentScript,
     urlDraft,
     setUrlDraft,
     launching,
@@ -110,6 +120,9 @@ export default function HeroComposerCard() {
       listItem: "!text-sm !text-[var(--color-text-primary)]",
     },
   } as const;
+
+  // The subtitle pill is the policy dropdown; picking 自动 opens the window
+  // that holds the style packs and the overrides.
 
   return (
     <div
@@ -162,28 +175,14 @@ export default function HeroComposerCard() {
 
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-4 pb-2">
-              {attachments.map((att) => {
-                const { tag, name } = chipLabel(att);
-                return (
-                  <span
-                    key={att.id}
-                    className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 pl-2 pr-1 text-[11px] text-[var(--color-text-secondary)]"
-                  >
-                    <b className="shrink-0 text-[10px] text-[var(--color-accent)]">
-                      {tag}
-                    </b>
-                    <span className="min-w-0 truncate">{name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(att.id)}
-                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
-                      aria-label={t("home.removeAttachment")}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                );
-              })}
+              {attachments.map((att) => (
+                <AttachmentChip
+                  key={att.id}
+                  att={att}
+                  onToggleScript={toggleAttachmentScript}
+                  onRemove={removeAttachment}
+                />
+              ))}
             </div>
           )}
 
@@ -388,6 +387,17 @@ export default function HeroComposerCard() {
               variant="borderless"
               className="!h-8 !w-auto min-w-[84px] !rounded-full !bg-[rgba(43,27,0,0.04)] dark:!bg-white/5"
               classNames={pillSelectClassNames}
+            />
+            <SubtitleSettingsPicker
+              policy={subtitlePolicy}
+              onPolicyChange={setSubtitlePolicy}
+              template={subtitleTemplate}
+              onTemplateChange={setSubtitleTemplate}
+              style={subtitleStyle}
+              onStyleChange={setSubtitleStyle}
+              animation={subtitleAnimation}
+              onAnimationChange={setSubtitleAnimation}
+              selectClassNames={pillSelectClassNames}
             />
           </>
         )}

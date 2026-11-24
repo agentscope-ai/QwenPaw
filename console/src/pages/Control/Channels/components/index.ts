@@ -1,5 +1,6 @@
 export { ChannelCard } from "./ChannelCard";
 export { ChannelDrawer } from "./ChannelDrawer";
+export { ChannelFormDrawer } from "./ChannelFormDrawer";
 export { AccessControlDrawer } from "./AccessControlDrawer";
 export { PendingApprovalsDrawer } from "./PendingApprovalsDrawer";
 export { useChannels } from "../useChannels";

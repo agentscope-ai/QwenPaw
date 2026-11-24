@@ -301,6 +301,38 @@ class TestProcessLocalImageDataBlock:
     """Local Console image blocks are frozen before entering context."""
 
     @pytest.mark.asyncio
+    async def test_large_image_original_survives_request_byte_limit(
+        self,
+        tmp_path,
+    ):
+        image_path = tmp_path / "large.png"
+        Image.new("RGB", (1000, 1000), color="red").save(
+            image_path,
+            compress_level=0,
+        )
+        original = image_path.read_bytes()
+        assert len(original) > 2 * 1024 * 1024
+        message = Msg(
+            name="user",
+            role="user",
+            content=[
+                DataBlock(
+                    source=URLSource(
+                        url=image_path.as_uri(),
+                        media_type="image/png",
+                    ),
+                ),
+            ],
+        )
+        await process_file_and_media_blocks_in_message(message)
+        image_path.unlink()
+        source = message.content[0].source
+        assert isinstance(source, Base64Source)
+        import base64
+
+        assert base64.b64decode(source.data) == original
+
+    @pytest.mark.asyncio
     async def test_overwritten_path_preserves_first_version(self, tmp_path):
         image_path = tmp_path / "upload.png"
         Image.new("RGB", (2, 2), color="red").save(image_path)

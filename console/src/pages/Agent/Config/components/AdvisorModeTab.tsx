@@ -1,4 +1,5 @@
-import { Form, InputNumber, Select, Switch } from "@agentscope-ai/design";
+import { Form, Select, Switch } from "@agentscope-ai/design";
+import { NumberStepper as InputNumber } from "@/components/interaction/NumberStepper";
 import {
   Bot,
   HelpCircle,

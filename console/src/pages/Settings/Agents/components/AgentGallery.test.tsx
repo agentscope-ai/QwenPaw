@@ -114,4 +114,63 @@ describe("AgentGallery", () => {
     expect(firstCopy).not.toHaveBeenCalled();
     expect(nextCopy).toHaveBeenCalledWith(agent);
   });
+
+  it("distinguishes enabled and disabled cards and actions", () => {
+    const agents = [
+      {
+        id: "enabled",
+        name: "Enabled",
+        enabled: true,
+        startup_status: "running",
+      },
+      {
+        id: "disabled",
+        name: "Disabled",
+        enabled: false,
+        startup_status: "starting",
+      },
+    ].map(
+      (agent) =>
+        ({
+          ...agent,
+          description: "",
+          workspace_dir: "",
+          backend: "qwenpaw",
+        }) as AgentSummary,
+    );
+
+    renderWithProviders(
+      <AgentGallery
+        agents={agents}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(
+      document.querySelector('[data-agent-status="running"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-agent-status="disabled"]'),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "common.disable" })
+        .querySelector(".lucide-power-off"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "common.enable" })
+        .querySelector(".lucide-power"),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "common.enable" }),
+    ).not.toBeDisabled();
+  });
 });

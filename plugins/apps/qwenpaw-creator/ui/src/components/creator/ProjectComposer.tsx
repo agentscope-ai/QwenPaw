@@ -21,9 +21,9 @@ import {
   SCENARIO_OPTIONS,
   SCENARIO_TERMS,
   CONTENT_TYPE_OPTIONS,
-  chipLabel,
   useProjectLaunch,
 } from "./useProjectLaunch";
+import AttachmentChip from "./AttachmentChip";
 import ModelConfigModal from "./ModelConfigModal";
 
 const { TextArea } = Input;
@@ -55,6 +55,7 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
     addFiles,
     addUrl,
     removeAttachment,
+    toggleAttachmentScript,
     urlDraft,
     setUrlDraft,
     launching,
@@ -246,28 +247,15 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
 
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-4 pb-2">
-              {attachments.map((att) => {
-                const { tag, name } = chipLabel(att);
-                return (
-                  <span
-                    key={att.id}
-                    className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 pl-2 pr-1 text-[11px] text-[var(--color-text-secondary)]"
-                  >
-                    <b className="shrink-0 text-[10px] text-[var(--color-accent)]">
-                      {tag}
-                    </b>
-                    <span className="min-w-0 truncate">{name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(att.id)}
-                      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-[var(--color-border)]"
-                      aria-label={t("home.removeAttachment")}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                );
-              })}
+              {attachments.map((att) => (
+                <AttachmentChip
+                  key={att.id}
+                  att={att}
+                  onToggleScript={toggleAttachmentScript}
+                  onRemove={removeAttachment}
+                  maxWidthClass="max-w-[220px]"
+                />
+              ))}
             </div>
           )}
 

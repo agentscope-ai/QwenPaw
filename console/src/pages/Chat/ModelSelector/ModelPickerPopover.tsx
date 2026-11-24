@@ -96,7 +96,7 @@ export function ModelPickerPopover({
         placement={layout.above ? "topLeft" : "bottomLeft"}
         transitionName="qwenpaw-picker-fade"
         autoAdjustOverflow
-        overlayClassName={styles.pickerOverlay}
+        classNames={{ root: styles.pickerOverlay }}
         destroyOnHidden
         content={panel}
       >

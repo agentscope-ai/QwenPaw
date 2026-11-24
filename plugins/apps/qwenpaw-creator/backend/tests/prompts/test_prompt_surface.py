@@ -104,6 +104,27 @@ def _visual_asset_design_skill() -> str:
     )
 
 
+def test_medium_rule_keeps_the_storyboard_medium_exception() -> None:
+    """A project-wide medium must not overwrite a stage-specific one.
+
+    The rule used to ask ``storyboard_prompt`` to declare the project medium
+    too, which the same file's storyboard rules contradict: a user-specified
+    rough-pencil or charcoal stage sheet stays that medium and must not pick up
+    photo-real wording, while the finished cut stays photographic.
+    """
+    prompt = load_file_agent_prompt("creator_agent.system")
+    rule = next(
+        line
+        for line in prompt.splitlines()
+        if line.startswith("- **渲染媒介必须写进 prompt")
+    )
+
+    assert "`storyboard_prompt` 是中间分镜" in rule
+    assert "粗铅笔" in rule and "炭笔" in rule
+    assert "只补足用户没有指明的目标" in rule
+    assert "storyboard_prompt 与 video_prompt 都要显式声明本项目的渲染媒介" not in rule
+
+
 def test_creator_duration_is_injected_from_the_active_video_model(
     monkeypatch,
 ) -> None:
@@ -303,6 +324,31 @@ def test_model_with_system_voices_presents_design_as_optional(
     assert "Cherry" in editing
 
 
+def test_native_voice_is_the_default_and_synthesis_the_exception(
+    monkeypatch,
+) -> None:
+    """Narration was advertised as a TTS capability first; that is reversed.
+
+    Synthesis stays offered for a timbre the user supplied, and for carriers
+    that cannot speak (motion overlays, edits, s2v driving audio).
+    """
+    _tts(monkeypatch, model="qwen3-tts-flash")
+    delegator = render_creator_system_prompt(
+        project_id="project-guidance-test",
+        workspace_schema="SCHEMA",
+    )
+    assert "台词与旁白优先由视频模型原生生成" in delegator
+    assert "只有两种例外才允许 TTS" in delegator
+    assert "用户提供了自己的音色音频文件" in delegator
+    assert "s2v 数字人" in delegator
+    # The old invitation promised synthesis whatever the user supplied.
+    assert "不需要用户提供音频文件" not in delegator
+    assert "具备旁白生成能力" not in delegator
+    editing = _specialist_prompt(SpecialistRole.AI_EDITING_DIRECTOR)
+    assert "先判画面能不能自己发声" in editing
+    assert "不要用系统音色硬凑" in editing
+
+
 def test_model_without_system_voices_makes_design_a_prerequisite(
     monkeypatch,
 ) -> None:
@@ -350,6 +396,30 @@ def test_scenario_steers_how_the_voice_is_used(monkeypatch) -> None:
     assert "tts_generation" not in other
 
 
+@pytest.mark.unit
+def test_voice_lists_are_summarised_not_dumped_into_the_prompt(
+    monkeypatch,
+) -> None:
+    """One model publishes 88 system voices. The prompt states the count and
+    samples a few names: a transcript-sized enum teaches the agent to guess at
+    near-identical names instead of omitting the parameter."""
+
+    _tts(monkeypatch, model="qwen-audio-3.1-tts-flash")
+    editing = _specialist_prompt(SpecialistRole.AI_EDITING_DIRECTOR)
+    assert "共 88 个" in editing
+    assert "longanhuan_v3.1" in editing
+    # The line samples the first six names, so pin the boundary itself: a
+    # revert to the whole table then moves two assertions instead of the one
+    # vacuous check a name no model publishes would always have passed.
+    assert "qiaoxiaojiao_v3.1" in editing
+    assert "xiaxiaochen_v3.1" not in editing
+    # The delegator never hears the names, only what the model can do.
+    delegator = render_creator_system_prompt(
+        project_id="project-guidance-test",
+    )
+    assert "longanhuan_v3.1" not in delegator
+
+
 @pytest.mark.parametrize(
     ("video_model", "backend", "supports_reference_voice"),
     [
@@ -364,7 +434,9 @@ def test_native_dialogue_voice_guidance_matches_video_capability(
     backend,
     supports_reference_voice,
 ) -> None:
-    _tts(monkeypatch, model="qwen-audio-3.0-tts-flash")
+    # A model that publishes no system voices: the case this guards. The
+    # Qwen-Audio models all ship lists now, so CosyVoice stands in.
+    _tts(monkeypatch, model="cosyvoice-v3.5-plus")
     monkeypatch.setattr(
         model_config,
         "get_video_model_name",

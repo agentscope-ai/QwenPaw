@@ -664,8 +664,7 @@ def media_ref(bd: dict) -> str | None:
     ``[image: <url>]`` / ``[file: <name> — <url>]`` so a media-bearing turn
     still lands in ``content`` (and its FTS index) and comes back through
     recall — which is text-only and would otherwise see an empty string. A
-    base64 source NEVER inlines its payload: only ``name``/``media_type`` is
-    shown, so ``content`` stays small even when the block carries raw bytes.
+    base64 source or data URL is represented by name and media type.
     """
     if not isinstance(bd, dict) or bd.get("type") != "data":
         return None
@@ -674,9 +673,10 @@ def media_ref(bd: dict) -> str | None:
     kind = media_type.split("/", 1)[0] if "/" in media_type else "file"
     if kind not in ("image", "audio", "video"):
         kind = "file"
+    url = src.get("url")
     ref = (
-        src.get("url")
-        if src.get("type") == "url"
+        url
+        if src.get("type") == "url" and str(url)[:5].lower() != "data:"
         else f"<{media_type or 'binary'}>"
     )
     name = bd.get("name")

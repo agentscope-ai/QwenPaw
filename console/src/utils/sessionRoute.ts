@@ -1,6 +1,11 @@
 export function getSessionIdFromPath(pathname: string): string | undefined {
   const match = pathname.match(/^\/chat\/(.+)$/);
-  return match?.[1];
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }
 
 export const CHAT_BASE_PATH = "/chat";

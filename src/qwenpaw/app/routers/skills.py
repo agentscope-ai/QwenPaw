@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import Enum
@@ -25,6 +26,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...installation_origin import InstallationOrigin, validated_origin
 from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
@@ -38,6 +40,10 @@ from ...agents.skill_system import (
     refresh_pool_automation,
     run_pool_auto_sync,
 )
+
+# The rollback root naming rule lives with the store that creates those
+# directories, so the copy path and the installer cannot drift apart.
+from ...agents.skill_system.store import ROLLBACK_ROOT_PREFIX
 from ...agents.skill_system.registry import (
     BUILTIN_SKILL_LANGUAGES,
     get_pool_builtin_sync_status,
@@ -64,8 +70,10 @@ from ...agents.skill_system.store import (
     resolve_pool_skill_dir,
     safe_skill_dir,
     suggest_conflict_name,
+    with_cancel_checker,
 )
 from ...security.skill_scanner import SkillScanError
+from ...utils.io_utils import rename_or_copy_directory
 from ..inbox_store import append_event as append_inbox_event
 from ..utils import check_upload_size, schedule_agent_reload
 
@@ -254,6 +262,7 @@ class SkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
@@ -278,6 +287,7 @@ class PoolSkillSpec(BaseModel):
     description: str = ""
     version_text: str = ""
     source: str
+    installation_origin: InstallationOrigin | None = None
     emoji: str = ""
     external: bool = False
     external_path: str = ""
@@ -473,6 +483,69 @@ _ALLOWED_ZIP_TYPES = {
     "application/octet-stream",
 }
 
+
+class PoolDownloadState(str, Enum):
+    """What a pool download job reports; nothing in between.
+
+    There is deliberately no progress state. A client shows "downloading"
+    from its own request and ``CANCELLING`` once it has asked to cancel.
+    ``RUNNING`` and ``CANCELLING`` are both non-terminal, so a client keeps
+    polling through either one until the worker writes the real outcome.
+    """
+
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PoolDownloadJob(BaseModel):
+    """The handle a client polls instead of holding one request open.
+
+    ``job_id`` is opaque and carries no progress information: there is no
+    percentage, no file count and no total to render as a progress bar.
+    ``error`` is set only when the job failed, so a client can report why
+    without a second endpoint for it. ``result`` keeps the structured payload
+    that came with that outcome (scan findings for a rejected install, or the
+    downloaded workspaces for a completed one), so the console can show the
+    same detail the blocking endpoint returns in its response body.
+    """
+
+    job_id: str
+    state: PoolDownloadState = PoolDownloadState.RUNNING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+
+
+class _PoolDownloadJob(BaseModel):
+    """Server-side record of one job, richer than the handle it hands out."""
+
+    job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    skill_name: str
+    workspace_ids: list[str] = Field(default_factory=list)
+    state: PoolDownloadState = PoolDownloadState.RUNNING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
+
+
+_pool_download_jobs: dict[str, _PoolDownloadJob] = {}
+_pool_download_runtime_jobs: dict[str, asyncio.Task] = {}
+_pool_download_cancel_events: dict[str, threading.Event] = {}
+_pool_download_jobs_lock = asyncio.Lock()
+
+_POOL_DOWNLOAD_JOB_TTL_SECONDS = 10 * 60
+_POOL_DOWNLOAD_JOB_MAX_HISTORY = 100
+_POOL_DOWNLOAD_TERMINAL_STATES = frozenset(
+    {
+        PoolDownloadState.COMPLETED,
+        PoolDownloadState.FAILED,
+        PoolDownloadState.CANCELLED,
+    },
+)
+
 # ``POST /pool/download`` runs its blocking body in a worker thread. Before
 # that change a copy held the event loop for its whole run, so two downloads
 # could never overlap; offloading the copy opens that door. Preflight +
@@ -557,6 +630,10 @@ def _workspace_dir_for_agent(agent_id: str) -> Path:
     )
 
 
+_ROLLBACK_ROOT_PREFIX = ROLLBACK_ROOT_PREFIX
+_RESTORE_FAILED_MARKER = ".restore_failed"
+
+
 def _snapshot_workspace_skill(
     workspace_dir: Path,
     skill_name: str,
@@ -566,11 +643,29 @@ def _snapshot_workspace_skill(
     skill_dir = workspace_dir / "skills" / skill_name
     backup_dir: Path | None = None
     if skill_dir.exists():
-        backup_root = Path(
-            tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
-        )
-        backup_dir = backup_root / skill_name
-        shutil.copytree(skill_dir, backup_dir)
+        # Backups live beside the skill under ``skills/`` so a restore is a
+        # sibling rename rather than a second copy; the dotted name keeps them
+        # out of skill scans. Directory creation and the copy are one attempt:
+        # the workspace can accept the directory and still refuse the copy,
+        # and only then does the system temp directory get a turn.
+        prefix = f"{_ROLLBACK_ROOT_PREFIX}{skill_name}_"
+        backup_dir = None
+        last_error: OSError | None = None
+        for parent in (skill_dir.parent, None):
+            backup_root: Path | None = None
+            try:
+                backup_root = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+                candidate = backup_root / skill_name
+                shutil.copytree(skill_dir, candidate)
+                backup_dir = candidate
+                break
+            except OSError as exc:  # try the system temp directory next
+                last_error = exc
+                if backup_root is not None:
+                    shutil.rmtree(backup_root, ignore_errors=True)
+        else:
+            if last_error is not None:
+                raise last_error
     return {
         "workspace_dir": workspace_dir,
         "skill_name": skill_name,
@@ -586,10 +681,41 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     backup_dir = snapshot.get("backup_dir")
     entry = snapshot.get("entry")
 
-    if skill_dir.exists():
-        shutil.rmtree(skill_dir)
-    if backup_dir is not None and Path(backup_dir).exists():
-        shutil.copytree(Path(backup_dir), skill_dir)
+    # A replay must not start by deleting the target: the first pass consumed
+    # the backup by renaming it back, so there would be nothing to restore.
+    # The manifest write and cleanup still run, since those are what a retry
+    # can still fail on.
+    if not snapshot.get("files_restored"):
+        if backup_dir is None:
+            # Nothing to put back: the skill did not exist before the install,
+            # so undoing it means removing what was copied in.
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+            snapshot["files_restored"] = True
+        elif Path(backup_dir).exists():
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+            skill_dir.parent.mkdir(parents=True, exist_ok=True)
+            # Rollback must finish even after the request was cancelled, so
+            # the copy fallback here is the plain one, not the cancellable
+            # install copy.
+            rename_or_copy_directory(
+                Path(backup_dir),
+                skill_dir,
+                copy_directory=shutil.copytree,
+            )
+            snapshot["files_restored"] = True
+        else:
+            # The backup is gone and nothing else proves the files are back.
+            # A pass of this same snapshot sets ``files_restored`` before it
+            # returns, so a replay never reaches here; what does reach here is
+            # a process killed between consuming the backup and recording it.
+            # The workspace may still hold the new version, so keep it as it
+            # is and report the files step instead of a successful rollback.
+            raise RuntimeError(
+                f"Rollback backup {backup_dir} is missing; cannot confirm "
+                f"{skill_name} was restored",
+            )
 
     def _restore(payload: dict[str, Any]) -> None:
         payload.setdefault("skills", {})
@@ -604,8 +730,122 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
         _restore,
     )
     reconcile_workspace_manifest(workspace_dir)
-    if backup_dir is not None:
-        shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
+
+
+def _mark_retained_backup(snapshot: dict[str, Any]) -> None:
+    """Mark a backup the batch kept, for whoever inspects the workspace.
+
+    The backup of a target whose restore failed is the only copy of the
+    previous version left on disk. The batch keeps the root because the
+    snapshot says the restore failed; the marker is not read by any cleanup
+    path any more. It is written so someone looking at the directory can tell
+    why it was left behind instead of having to guess from its name.
+    """
+    backup_dir = snapshot.get("backup_dir")
+    if backup_dir is None:
+        return
+    marker = Path(backup_dir).parent / _RESTORE_FAILED_MARKER
+    try:
+        marker.write_text("restore_failed\n", encoding="utf-8")
+    except OSError:
+        logger.warning("Could not mark the retained backup %s", marker.parent)
+
+
+_RESTORE_STEP_FILES = "files"
+_RESTORE_STEP_MANIFEST = "manifest"
+
+
+def _restore_failure(
+    rollback: dict[str, Any],
+    step: str,
+    exc: Exception,
+) -> dict[str, str]:
+    """One workspace whose rollback could not finish, and where it stopped."""
+    return {
+        "workspace_id": str(rollback.get("workspace_id", "")),
+        "workspace_dir": str(rollback.get("workspace_dir", "")),
+        "step": step,
+        "error": f"{type(exc).__name__}: {exc}",
+    }
+
+
+def _restore_workspace_skills(
+    entered_targets: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Undo every entered target in reverse order, continuing past errors.
+
+    *entered_targets* holds only the targets whose install had started. A
+    target that was never reached still owns a snapshot, but undoing it would
+    replace content nobody changed; the batch cleanup, which sees the whole
+    plan, is what releases those.
+
+    A single failure used to leave the loop and strand the remaining
+    workspaces on the new content while the caller removed their backups.
+
+    A target whose files are already back but whose manifest write failed is
+    retried once: the retry skips the files, which the earlier pass restored,
+    and repeats only the manifest step. Anything still failing is returned
+    with the workspace and the step that failed, so the caller can report
+    which workspace still needs attention instead of only the original
+    install error.
+
+    A snapshot that could not be put back is marked ``restore_failed`` so the
+    caller's cleanup keeps its backup: after a failed restore that backup is
+    the only copy of the previous version left on disk.
+    """
+    failures: list[dict[str, str]] = []
+    for rollback in reversed(entered_targets):
+        snapshot = rollback["snapshot"]
+        try:
+            _restore_workspace_skill(snapshot)
+            continue
+        except Exception as exc:
+            # Before the files are back nothing else can be retried: the
+            # manifest write is only meaningful once they are.
+            if not snapshot.get("files_restored"):
+                snapshot["restore_failed"] = True
+                failures.append(
+                    _restore_failure(rollback, _RESTORE_STEP_FILES, exc),
+                )
+                continue
+        try:
+            _restore_workspace_skill(snapshot)
+        except Exception as exc:
+            snapshot["restore_failed"] = True
+            failures.append(
+                _restore_failure(rollback, _RESTORE_STEP_MANIFEST, exc),
+            )
+    return failures
+
+
+def _report_restore_failures(
+    cause: BaseException,
+    failures: list[dict[str, str]],
+) -> None:
+    """Surface every workspace that still needs attention.
+
+    Reporting only the install error hides a rollback that could not put a
+    workspace back. The same list is attached to the raised detail so the
+    caller of the endpoint sees it too, not just the log.
+    """
+    if not failures:
+        return
+    for failure in failures:
+        logger.error(
+            "Rollback left %s needing attention (%s): %s",
+            failure["workspace_id"],
+            failure["step"],
+            failure["error"],
+        )
+    if isinstance(cause, HTTPException):
+        detail = cause.detail
+        if isinstance(detail, dict):
+            cause.detail = {**detail, "restore_failures": failures}
+        else:
+            cause.detail = {
+                "detail": detail,
+                "restore_failures": failures,
+            }
 
 
 async def _request_workspace_dir(request: Request) -> Path:
@@ -678,6 +918,69 @@ async def _hub_task_finish_runtime(task_id: str) -> None:
         _hub_task_cleanup_locked()
 
 
+async def _pool_download_job_set_state(
+    job_id: str,
+    state: PoolDownloadState,
+    *,
+    error: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    async with _pool_download_jobs_lock:
+        job = _pool_download_jobs.get(job_id)
+        if job is None:
+            return
+        job.state = state
+        job.updated_at = time.time()
+        if error is not None:
+            job.error = error
+        if result is not None:
+            job.result = result
+
+
+async def _pool_download_job_get(job_id: str) -> _PoolDownloadJob | None:
+    async with _pool_download_jobs_lock:
+        _pool_download_jobs_cleanup_locked()
+        return _pool_download_jobs.get(job_id)
+
+
+def _pool_download_jobs_cleanup_locked(*, now: float | None = None) -> None:
+    """Remove expired/excess finished jobs while the registry lock is held."""
+    current_time = time.time() if now is None else now
+    finished = [
+        job
+        for job_id, job in _pool_download_jobs.items()
+        if job.state in _POOL_DOWNLOAD_TERMINAL_STATES
+        and job_id not in _pool_download_runtime_jobs
+    ]
+
+    expired_ids = {
+        job.job_id
+        for job in finished
+        if current_time - job.updated_at > _POOL_DOWNLOAD_JOB_TTL_SECONDS
+    }
+    retained = [job for job in finished if job.job_id not in expired_ids]
+    excess = max(0, len(retained) - _POOL_DOWNLOAD_JOB_MAX_HISTORY)
+    if excess:
+        retained.sort(key=lambda job: (job.updated_at, job.created_at))
+        expired_ids.update(job.job_id for job in retained[:excess])
+
+    for expired_id in expired_ids:
+        _pool_download_jobs.pop(expired_id, None)
+        _pool_download_cancel_events.pop(expired_id, None)
+
+
+async def _pool_download_job_finish_runtime(job_id: str) -> None:
+    async with _pool_download_jobs_lock:
+        _pool_download_runtime_jobs.pop(job_id, None)
+        _pool_download_cancel_events.pop(job_id, None)
+        job = _pool_download_jobs.get(job_id)
+        if job is not None and job.state in _POOL_DOWNLOAD_TERMINAL_STATES:
+            # Retention starts when the worker actually stops, which can be
+            # later than the cancel response that asked it to.
+            job.updated_at = time.time()
+        _pool_download_jobs_cleanup_locked()
+
+
 async def _read_validated_zip_upload(file: UploadFile) -> bytes:
     if file.content_type and file.content_type not in _ALLOWED_ZIP_TYPES:
         raise HTTPException(
@@ -739,6 +1042,7 @@ async def _run_hub_install_task(
                     "enabled": False,
                     "source_url": result.source_url,
                     "installed_from": result.installed_from,
+                    "installation_origin": result.installation_origin,
                 },
             )
             return
@@ -751,6 +1055,7 @@ async def _run_hub_install_task(
                 "enabled": result.enabled,
                 "source_url": result.source_url,
                 "installed_from": result.installed_from,
+                "installation_origin": result.installation_origin,
             },
         )
     except SkillImportCancelled:
@@ -824,6 +1129,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
@@ -872,6 +1180,9 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     description=str(metadata.get("description", "") or ""),
                     version_text=metadata["version_text"],
                     source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
                     emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
                     external_path=str(skill_dir) if is_external else "",
@@ -924,6 +1235,7 @@ def _build_workspace_skill_detail(
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         enabled=bool(entry.get("enabled", False)),
         channels=entry.get("channels") or ["all"],
@@ -967,6 +1279,7 @@ def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
         version_text=metadata["version_text"],
         requirements=SkillRequirements(**metadata["requirements"]),
         source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
         emoji=str(metadata.get("emoji", "") or ""),
         external=is_external,
         external_path=str(skill_dir) if is_external else "",
@@ -1360,6 +1673,7 @@ async def import_skill_pool_from_hub(
         "enabled": False,
         "source_url": result.source_url,
         "installed_from": result.installed_from,
+        "installation_origin": result.installation_origin,
     }
 
 
@@ -1441,35 +1755,48 @@ def _build_download_plan(
     targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
-    """Build execution plan with rollback snapshots."""
+    """Build the execution plan, taking ownership of each rollback snapshot.
+
+    The stack holds every backup until the plan is complete: the download
+    loop's ``finally`` has not started yet and would leave them behind.
+    """
     plan: list[dict[str, Any]] = []
-    for target in targets:
-        snapshot = _snapshot_workspace_skill(
-            target.workspace_dir,
-            str(skill_name),
-        )
-        plan.append(
-            {
-                "workspace_id": target.workspace_id,
-                "workspace_dir": target.workspace_dir,
-                "snapshot": snapshot,
-            },
-        )
+    with ExitStack() as stack:
+        for target in targets:
+            snapshot = _snapshot_workspace_skill(
+                target.workspace_dir,
+                str(skill_name),
+            )
+            backup_dir = snapshot.get("backup_dir")
+            if backup_dir is not None:
+                stack.callback(
+                    shutil.rmtree,
+                    Path(backup_dir).parent,
+                    ignore_errors=True,
+                )
+            plan.append(
+                {
+                    "workspace_id": target.workspace_id,
+                    "workspace_dir": target.workspace_dir,
+                    "snapshot": snapshot,
+                },
+            )
+        stack.pop_all()
     return plan
 
 
 def _download_one_or_raise(
     hub_service: SkillPoolService,
     plan: dict[str, Any],
-    execution_plan: list[dict[str, Any]],
     *,
     skill_name: str,
     overwrite: bool,
 ) -> dict[str, str]:
-    """Download into one workspace; on failure roll back all and raise.
+    """Download into one workspace, or raise for the batch to roll back.
 
     A missing pool skill is a target-independent 404; any other failure is
-    a per-target 409 conflict.
+    a per-target 409 conflict. The rollback belongs to the batch, so this
+    function only reports which download failed.
     """
     result = hub_service.download_to_workspace(
         skill_name=skill_name,
@@ -1477,8 +1804,6 @@ def _download_one_or_raise(
         overwrite=overwrite,
     )
     if not result.get("success"):
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
         if result.get("reason") == "not_found":
             raise HTTPException(status_code=404, detail=result)
         raise HTTPException(
@@ -1507,11 +1832,24 @@ async def download_pool_skill_to_workspaces(
     Concurrent downloads into the same workspace are serialized end to end
     (preflight included), so a second request cannot slip in behind a first
     request's successful install and then undo it on rollback.
+
+    A rejected scan stays a 422 here. The job worker needs the exception
+    itself — treating a scan rejection as a value is what let a blocked
+    install be reported as ``completed`` — so the blocking body raises, and
+    only this endpoint turns that into the established response.
     """
-    return await asyncio.to_thread(_download_pool_skill, body)
+    try:
+        return await asyncio.to_thread(_download_pool_skill, body)
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
 
 
-def _download_pool_skill(body: DownloadFromPoolRequest) -> dict[str, Any]:
+def _download_pool_skill(
+    body: DownloadFromPoolRequest,
+    *,
+    targets: list[_ResolvedDownloadTarget] | None = None,
+    cancel_checker: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
     """Blocking body of ``POST /pool/download``; see the route docstring.
 
     The target list is resolved once and then drives everything: the lock
@@ -1519,14 +1857,24 @@ def _download_pool_skill(body: DownloadFromPoolRequest) -> dict[str, Any]:
     under those locks — preflight has to be inside them, or two overlapping
     requests would both pass against the same untouched workspace and then
     fight over it.
+
+    *targets* lets a caller that already resolved the list (the job endpoint,
+    which reports the workspace ids back to the client) hand it over instead
+    of letting it be resolved a second time here.
+
+    *cancel_checker* is armed for the whole body, so the copies inside pick it
+    up through the shared checker rather than every call in between having to
+    forward it. ``SkillImportCancelled`` leaves through the rollback below.
+    Unarmed — the plain endpoint — nothing behaves differently.
     """
-    targets = _resolve_download_targets(body)
+    if targets is None:
+        targets = _resolve_download_targets(body)
     if not targets:
         raise HTTPException(
             status_code=400,
             detail="No workspace targets provided",
         )
-    with ExitStack() as stack:
+    with with_cancel_checker(cancel_checker), ExitStack() as stack:
         for key in _pool_download_lock_keys(targets):
             stack.enter_context(_pool_download_lock(key))
         result = _download_pool_skill_locked(body, targets)
@@ -1545,34 +1893,260 @@ def _download_pool_skill_locked(
     execution_plan = _build_download_plan(targets, body.skill_name)
 
     downloaded: list[dict[str, str]] = []
+    entered: list[dict[str, Any]] = []
     try:
         for plan in execution_plan:
+            # An install can fail after it has replaced the files, so a
+            # target counts as entered before the call, not after it.
+            entered.append(plan)
             downloaded.append(
                 _download_one_or_raise(
                     hub_service,
                     plan,
-                    execution_plan,
                     skill_name=body.skill_name,
                     overwrite=body.overwrite,
                 ),
             )
-    except HTTPException:
-        raise
-    except SkillScanError as exc:
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
-        return _scan_error_response(exc)
-    except Exception:
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
+    except Exception as cause:
+        # The batch owns rollback and cleanup: every entered target is undone
+        # in reverse, and a workspace that could not be put back is reported
+        # next to the original error instead of replacing it.
+        failures = _restore_workspace_skills(entered)
+        _report_restore_failures(cause, failures)
         raise
     finally:
+        # The batch owns cleanup for the whole plan. A target that was never
+        # entered still holds a snapshot, and the target whose restore failed
+        # keeps its backup, since that backup is then the only copy of the
+        # previous version left on disk.
         for plan in execution_plan:
-            backup_dir = plan["snapshot"].get("backup_dir")
-            if backup_dir is not None:
-                shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
+            snapshot = plan["snapshot"]
+            backup_dir = snapshot.get("backup_dir")
+            if backup_dir is None:
+                continue
+            if snapshot.get("restore_failed"):
+                _mark_retained_backup(snapshot)
+                continue
+            shutil.rmtree(Path(backup_dir).parent, ignore_errors=True)
 
     return {"downloaded": downloaded}
+
+
+async def _run_pool_download_job(
+    *,
+    job_id: str,
+    body: DownloadFromPoolRequest,
+    targets: list[_ResolvedDownloadTarget],
+    cancel_event: threading.Event,
+) -> None:
+    """Worker thread wrapper for one pool download job.
+
+    Nothing here knows how to install a skill: the job runs the very same
+    blocking body as ``POST /pool/download``, which is also what takes the
+    per-workspace locks. The locks therefore live exactly as long as the job
+    does, and a job and a direct download stay mutually exclusive.
+    """
+    try:
+        result = await asyncio.to_thread(
+            _download_pool_skill,
+            body,
+            targets=targets,
+            cancel_checker=cancel_event.is_set,
+        )
+    except SkillImportCancelled:
+        # Only a cancellation that reached a file boundary lands here. One
+        # that arrives later never reaches a check, the copy finishes, and
+        # completion wins — as the cancel endpoint documents.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.CANCELLED,
+        )
+    except asyncio.CancelledError:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.CANCELLED,
+        )
+        raise
+    except HTTPException as exc:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc.detail),
+            result=exc.detail if isinstance(exc.detail, dict) else None,
+        )
+    except SkillScanError as exc:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc),
+            result=_scan_error_payload(exc),
+        )
+    except Exception as exc:
+        # A validation error and an unexpected failure mean the same thing
+        # to a job: nothing was installed, and there is no structured payload
+        # to keep. Only the HTTP and scan cases above carry one.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc),
+        )
+    else:
+        # Written after any cancel request that got this far, so a cancel
+        # that landed too late cannot downgrade a finished download.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.COMPLETED,
+            result=result,
+        )
+    finally:
+        await _pool_download_job_finish_runtime(job_id)
+
+
+@router.post(
+    "/pool/downloads",
+    response_model=PoolDownloadJob,
+    status_code=202,
+)
+async def start_pool_download(
+    body: DownloadFromPoolRequest,
+) -> PoolDownloadJob:
+    """Start a pool download and hand back its job id.
+
+    The copy keeps running after this response, so a client polls the job
+    instead of holding one request open for the whole download. The download
+    itself is unchanged: the job runs the same blocking body as
+    ``POST /pool/download``, which is also what takes the per-workspace
+    locks, so a job and a direct download can never interleave.
+
+    Targets are resolved here rather than in the worker so that a bad target
+    is still a synchronous error, and so the job holds the locks for the
+    workspaces this response is about.
+    """
+    targets = _resolve_download_targets(body)
+    if not targets:
+        raise HTTPException(
+            status_code=400,
+            detail="No workspace targets provided",
+        )
+    job = _PoolDownloadJob(
+        skill_name=body.skill_name,
+        workspace_ids=[target.workspace_id for target in targets],
+    )
+    cancel_event = threading.Event()
+    async with _pool_download_jobs_lock:
+        _pool_download_jobs_cleanup_locked()
+        _pool_download_jobs[job.job_id] = job
+        _pool_download_cancel_events[job.job_id] = cancel_event
+        runtime_job = asyncio.create_task(
+            _run_pool_download_job(
+                job_id=job.job_id,
+                body=body,
+                targets=targets,
+                cancel_event=cancel_event,
+            ),
+            name=f"skill-pool-download-{job.job_id}",
+        )
+        _pool_download_runtime_jobs[job.job_id] = runtime_job
+    return PoolDownloadJob(job_id=job.job_id, state=job.state)
+
+
+@router.get("/pool/{skill_name}/config")
+async def get_pool_skill_config(skill_name: str) -> dict[str, Any]:
+    manifest = read_skill_pool_manifest()
+    entry = manifest.get("skills", {}).get(skill_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Pool skill not found")
+    return {"config": entry.get("config", {})}
+
+
+@router.put("/pool/{skill_name}/config")
+async def update_pool_skill_config(
+    skill_name: str,
+    body: SkillConfigRequest,
+) -> dict[str, Any]:
+    def _update(payload: dict[str, Any]) -> bool:
+        entry = payload.get("skills", {}).get(skill_name)
+        if entry is None:
+            return False
+        entry["config"] = dict(body.config)
+        return True
+
+    updated = mutate_pool_manifest(_update)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Pool skill not found")
+    return {"updated": True}
+
+
+@router.delete("/pool/{skill_name}/config")
+async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
+    def _update(payload: dict[str, Any]) -> bool:
+        entry = payload.get("skills", {}).get(skill_name)
+        if entry is None:
+            return False
+        entry.pop("config", None)
+        return True
+
+    updated = mutate_pool_manifest(_update)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Pool skill not found")
+    return {"cleared": True}
+
+
+@router.get("/pool/downloads/{job_id}", response_model=PoolDownloadJob)
+async def get_pool_download_job(job_id: str) -> PoolDownloadJob:
+    """Report one job's state.
+
+    ``running`` and ``cancelling`` are both non-terminal: keep polling until
+    this answers something else, then stop.
+    """
+    job = await _pool_download_job_get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="download job not found")
+    return PoolDownloadJob(
+        job_id=job.job_id,
+        state=job.state,
+        error=job.error,
+        result=job.result,
+    )
+
+
+@router.delete("/pool/downloads/{job_id}", response_model=PoolDownloadJob)
+async def cancel_pool_download(job_id: str) -> PoolDownloadJob:
+    """Ask a running download to stop at its next file boundary.
+
+    The state that comes back is ``cancelling``, not ``cancelled``: the
+    worker is still holding the workspace locks and may still be rolling
+    back, so the terminal state is the worker's to write. A client keeps
+    polling through ``cancelling`` until the state call reports something
+    else.
+
+    Cancellation is best-effort. It is observed at file boundaries, and the
+    workspace is not touched until the last of those boundaries passes, so a
+    cancellation that lands in time leaves the previous skill and its
+    settings exactly as they were. The worker restores the workspace changes
+    it made and only then reports ``cancelled``. One that lands too late
+    loses and the download completes.
+    """
+    async with _pool_download_jobs_lock:
+        job = _pool_download_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404,
+                detail="download job not found",
+            )
+        if job.state in _POOL_DOWNLOAD_TERMINAL_STATES:
+            return PoolDownloadJob(
+                job_id=job_id,
+                state=job.state,
+                error=job.error,
+                result=job.result,
+            )
+        cancel_event = _pool_download_cancel_events.get(job_id)
+        if cancel_event is not None:
+            cancel_event.set()
+        job.state = PoolDownloadState.CANCELLING
+        job.updated_at = time.time()
+        return PoolDownloadJob(job_id=job_id, state=job.state)
 
 
 @router.post("/pool/import-builtin")
@@ -1636,48 +2210,6 @@ async def delete_pool_skill(skill_name: str) -> dict[str, Any]:
             detail="Skill pool entry cannot be deleted",
         )
     return {"deleted": True}
-
-
-@router.get("/pool/{skill_name}/config")
-async def get_pool_skill_config(skill_name: str) -> dict[str, Any]:
-    manifest = read_skill_pool_manifest()
-    entry = manifest.get("skills", {}).get(skill_name)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="Pool skill not found")
-    return {"config": entry.get("config", {})}
-
-
-@router.put("/pool/{skill_name}/config")
-async def update_pool_skill_config(
-    skill_name: str,
-    body: SkillConfigRequest,
-) -> dict[str, Any]:
-    def _update(payload: dict[str, Any]) -> bool:
-        entry = payload.get("skills", {}).get(skill_name)
-        if entry is None:
-            return False
-        entry["config"] = dict(body.config)
-        return True
-
-    updated = mutate_pool_manifest(_update)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Pool skill not found")
-    return {"updated": True}
-
-
-@router.delete("/pool/{skill_name}/config")
-async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
-    def _update(payload: dict[str, Any]) -> bool:
-        entry = payload.get("skills", {}).get(skill_name)
-        if entry is None:
-            return False
-        entry.pop("config", None)
-        return True
-
-    updated = mutate_pool_manifest(_update)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Pool skill not found")
-    return {"cleared": True}
 
 
 def _validate_tags(tags: list[str]) -> list[str]:

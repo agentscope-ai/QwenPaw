@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import hashlib
 import json
+import logging
 import zipfile
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -450,15 +451,240 @@ def test_archive_paths_do_not_silently_rename_or_collide(
         assert (
             destination / "project-1/source_a/file.json"
         ).read_text() == "underscore"
-    # Windows must reject an unrepresentable archive instead of returning
-    # success with dangling references or overwriting one colliding file.
+    # A Windows extraction may rename an unrepresentable member, but a
+    # pair that folds onto the same target is real corruption and has to
+    # be refused rather than silently overwrite one of the two files.
     monkeypatch.setattr(
         project_archive,
         "sys",
         SimpleNamespace(platform="win32"),
     )
-    with pytest.raises(BadRequestError, match="not supported on Windows"):
+    with pytest.raises(
+        BadRequestError,
+        match="collide after Windows sanitization",
+    ):
         extract(path, tmp_path / "windows")
+
+
+@pytest.mark.parametrize(
+    "extract",
+    [_extract_example_archive, _extract_archive_sanitized],
+)
+def test_windows_extraction_renames_illegal_member_and_rewrites_registry(
+    tmp_path,
+    extract,
+    monkeypatch,
+):
+    """One sidecar cannot kill the whole bundle: rename it and keep going.
+
+    Regression for #8547: the bundled ``cat-perspective-0803`` example
+    carries ``assets/source-intelligence/source:cat_cam_1/*.json`` and
+    previously the whole 122 MiB archive failed to open on Windows.
+    """
+    project_json = {
+        "assets": {
+            "files_by_id": {
+                "file-colon": {
+                    "file_id": "file-colon",
+                    "relative_uri": (
+                        "assets/source-intelligence/"
+                        "source:cat_cam_1/index.json"
+                    ),
+                    "sha256": "a" * 64,
+                },
+                "file-plain": {
+                    "file_id": "file-plain",
+                    "relative_uri": "assets/clip.mp4",
+                    "sha256": "b" * 64,
+                },
+            },
+        },
+        "sources": {
+            "items": {
+                "source:cat_cam_1": {
+                    "source_id": "source:cat_cam_1",
+                    "order": ["source:cat_cam_1"],
+                },
+            },
+        },
+    }
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "project-1/project.json",
+            json.dumps(project_json, ensure_ascii=False),
+        )
+        archive.writestr(
+            "project-1/assets/source-intelligence/source:cat_cam_1/"
+            "index.json",
+            "{}",
+        )
+        archive.writestr("project-1/assets/clip.mp4", "binary")
+
+    monkeypatch.setattr(
+        project_archive,
+        "sys",
+        SimpleNamespace(platform="win32"),
+    )
+    destination = tmp_path / "out"
+    extract(path, destination)
+
+    assert (
+        destination
+        / "project-1/assets/source-intelligence/source_cat_cam_1/index.json"
+    ).is_file()
+    assert not (
+        destination / "project-1/assets/source-intelligence/source:cat_cam_1"
+    ).exists()
+    assert (destination / "project-1/assets/clip.mp4").read_text() == (
+        "binary"
+    )
+    restored = json.loads(
+        (destination / "project-1/project.json").read_text(encoding="utf-8"),
+    )
+    files = restored["assets"]["files_by_id"]
+    assert files["file-colon"]["relative_uri"] == (
+        "assets/source-intelligence/source_cat_cam_1/index.json"
+    )
+    assert files["file-plain"]["relative_uri"] == "assets/clip.mp4"
+    # Logical identifiers stay as authored; only on-disk paths move.
+    assert restored["sources"]["items"] == project_json["sources"]["items"]
+
+
+def test_windows_extraction_skips_registry_rewrite_for_skill_bundles(
+    tmp_path,
+    monkeypatch,
+):
+    """A SKILL.md bundle has no project.json; sanitization still works."""
+    path = tmp_path / "skill.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("my:skill/SKILL.md", "# hello")
+    monkeypatch.setattr(
+        project_archive,
+        "sys",
+        SimpleNamespace(platform="win32"),
+    )
+    destination = tmp_path / "out"
+    project_archive.extract_archive(path, destination)
+    assert (destination / "my_skill/SKILL.md").read_text() == "# hello"
+
+
+def test_windows_registry_rewrite_is_atomic_and_canonical(
+    tmp_path,
+    monkeypatch,
+):
+    """CR feedback: the rewrite must publish atomically in canonical form.
+
+    A truncated project.json left behind by a crash mid-rewrite would be
+    published by the example flow, which only checks ``is_file()``. The
+    on-disk bytes also have to match the canonical pretty form (indent 2
+    plus a final newline) so tooling diffing project.json stays quiet.
+    """
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "project-1/project.json",
+            json.dumps(
+                {
+                    "assets": {
+                        "files_by_id": {
+                            "f": {
+                                "relative_uri": "assets/source:a/x.json",
+                            },
+                        },
+                    },
+                },
+            ),
+        )
+        archive.writestr("project-1/assets/source:a/x.json", "{}")
+    monkeypatch.setattr(
+        project_archive,
+        "sys",
+        SimpleNamespace(platform="win32"),
+    )
+    destination = tmp_path / "out"
+    project_archive.extract_archive(path, destination)
+
+    project_dir = destination / "project-1"
+    raw = (project_dir / "project.json").read_text(encoding="utf-8")
+    assert raw.endswith("}\n")
+    assert (
+        json.loads(raw)["assets"]["files_by_id"]["f"]["relative_uri"]
+        == "assets/source_a/x.json"
+    )
+    # The temp file used for the atomic replace never survives.
+    assert not list(project_dir.glob("*.tmp"))
+
+
+def test_windows_registry_rewrite_skip_is_logged_not_fatal(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    """CR feedback: substitutions with an unreadable registry must warn.
+
+    The rename already happened on disk; silently returning would leave
+    dangling relative_uris with nothing in creator.log to explain them.
+    """
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("project-1/project.json", "not json at all")
+        archive.writestr("project-1/assets/source:a/x.json", "{}")
+    monkeypatch.setattr(
+        project_archive,
+        "sys",
+        SimpleNamespace(platform="win32"),
+    )
+    destination = tmp_path / "out"
+    # Creator loggers stop propagating at the ``qwenpaw.creator`` family,
+    # so caplog's root handler never sees them; attach it directly.
+    archive_logger = logging.getLogger(
+        "qwenpaw.creator.project_files.archive",
+    )
+    archive_logger.addHandler(caplog.handler)
+    try:
+        project_archive.extract_archive(path, destination)
+    finally:
+        archive_logger.removeHandler(caplog.handler)
+
+    assert any(
+        "skipped Windows relative_uri rewrite" in record.getMessage()
+        for record in caplog.records
+    )
+    # Extraction still succeeds and the corrupt registry is left as-is.
+    assert (destination / "project-1/assets/source_a/x.json").is_file()
+    assert (
+        destination / "project-1/project.json"
+    ).read_text() == "not json at all"
+
+
+def test_sanitize_windows_part_is_idempotent_and_total():
+    """Legal names pass through, illegal ones fold onto a stable safe form."""
+    for name in (
+        "assets",
+        "source-intelligence",
+        "file-abc.json",
+        "clip.mp4",
+    ):
+        assert project_archive._sanitize_windows_part(name) == name
+    assert (
+        project_archive._sanitize_windows_part("source:cat_cam_1")
+        == "source_cat_cam_1"
+    )
+    assert project_archive._sanitize_windows_part("CON") == "_CON"
+    assert project_archive._sanitize_windows_part("NUL.txt") == "_NUL.txt"
+    assert project_archive._sanitize_windows_part("trail ") == "trail"
+    assert project_archive._sanitize_windows_part("trail.") == "trail"
+    assert project_archive._sanitize_windows_part(":") == "_"
+    # Applying the sanitizer twice must not resanitize the already-safe name.
+    for name in (
+        "source:cat",
+        "CON",
+        "trail ",
+        ":",
+    ):
+        once = project_archive._sanitize_windows_part(name)
+        assert project_archive._sanitize_windows_part(once) == once
 
 
 def test_export_rejects_directory_redirects(tmp_path, directory_link):
@@ -488,3 +714,114 @@ def test_validator_accepts_windows_reserved_chars(app, api_runtime_root):
     archive_path.write_bytes(payload.getvalue())
 
     project_routes._validate_import_archive(archive_path)
+
+
+def test_archive_budget_is_per_call_and_resolved_when_used(monkeypatch):
+    """A caller's caps replace the Project ones; the defaults still follow.
+
+    Skills import through the same extractor with a far smaller payload, so
+    the budget has to be per call. The defaults are read when the limits are
+    built rather than bound as argument defaults, because the import tests
+    above move a cap by patching the module constant.
+    """
+
+    assert project_archive.archive_limits() == (
+        project_archive.MAX_ARCHIVE_BYTES,
+        project_archive.MAX_EXTRACTED_BYTES,
+        project_archive.MAX_MEMBERS,
+        None,
+    )
+    monkeypatch.setattr(project_archive, "MAX_EXTRACTED_BYTES", 8)
+    assert project_archive.archive_limits().extracted_bytes == 8
+    assert project_archive.archive_limits(max_extracted_bytes=4)[1] == 4
+
+
+def test_extract_archive_honours_a_caller_supplied_budget(tmp_path):
+    """Every field of a caller budget is enforced, and a refusal is clean."""
+
+    path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("one/SKILL.md", "a" * 8)
+        archive.writestr("two/SKILL.md", "b" * 8)
+    destination = tmp_path / "out"
+    limits = project_archive.archive_limits
+
+    with pytest.raises(BadRequestError, match="more than 1 entries"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_members=1),
+        )
+    with pytest.raises(BadRequestError, match="expands beyond"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_extracted_bytes=8),
+        )
+    with pytest.raises(BadRequestError, match="byte limit"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_archive_bytes=8),
+        )
+    assert not list(destination.rglob("SKILL.md"))
+
+    # A per-member cap is reached only while copying: the declared total is
+    # inside the budget, so the member that overruns it has to be refused
+    # mid-write and its partial file removed.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive.extract_archive(
+            path,
+            destination,
+            limits=limits(max_member_bytes=4),
+        )
+    assert not (destination / "one" / "SKILL.md").exists()
+
+    project_archive.extract_archive(path, destination, limits=limits())
+    assert (destination / "one" / "SKILL.md").read_text() == "a" * 8
+    assert (destination / "two" / "SKILL.md").read_text() == "b" * 8
+
+
+def test_copy_member_counts_written_bytes_not_declared_ones(tmp_path):
+    """The budget stops the byte that would exceed it, before it lands.
+
+    ``validate_archive`` can only read the sizes an archive declares. The
+    stream here stands in for a member carrying more than it declared -- one
+    that ignores the declared size -- so what is refused is the copy's own
+    counter, and the partial file it had opened does not survive.
+    """
+
+    info = SimpleNamespace(filename="project-1/member.txt")
+    archive = SimpleNamespace(open=lambda _info: io.BytesIO(b"x" * 64))
+
+    kept = tmp_path / "kept.txt"
+    written = project_archive._copy_member(
+        archive,
+        info,
+        kept,
+        remaining=64,
+        member_bytes=None,
+    )
+    assert written == 64
+    assert kept.read_bytes() == b"x" * 64
+
+    refused = tmp_path / "refused.txt"
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=16,
+            member_bytes=None,
+        )
+    assert not refused.exists()
+    # A per-member cap refuses inside a larger remaining budget too.
+    with pytest.raises(BadRequestError, match="beyond its budget"):
+        project_archive._copy_member(
+            archive,
+            info,
+            refused,
+            remaining=1024,
+            member_bytes=16,
+        )
+    assert not refused.exists()

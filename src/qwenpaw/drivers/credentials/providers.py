@@ -109,8 +109,9 @@ async def _post_oauth_token_with_retry(
     token_endpoint: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    last_error: Exception | None = None
-    for attempt in range(1, _OAUTH_TOKEN_MAX_ATTEMPTS + 1):
+    attempt = 0
+    while True:
+        attempt += 1
         try:
             response = await client.post(token_endpoint, data=payload)
             response.raise_for_status()
@@ -120,16 +121,10 @@ async def _post_oauth_token_with_retry(
                 attempt >= _OAUTH_TOKEN_MAX_ATTEMPTS
             ):
                 raise
-            last_error = exc
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
+        except (httpx.TimeoutException, httpx.TransportError):
             if attempt >= _OAUTH_TOKEN_MAX_ATTEMPTS:
                 raise
-            last_error = exc
         await asyncio.sleep(_OAUTH_RETRY_BASE_DELAY_SECONDS * attempt)
-
-    if last_error is not None:
-        raise last_error
-    raise DriverCredentialProviderError("OAuth token exchange failed")
 
 
 def _is_transient_oauth_status(exc: httpx.HTTPStatusError) -> bool:

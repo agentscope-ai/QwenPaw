@@ -6,14 +6,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from qwenpaw.app.routers.plugins import (
-    _finish_plugin_install_after_load,
-    _tool_names_from_meta,
-)
 from qwenpaw.governance.tool_registry import (
     DEFAULT_REGISTRY,
     register_tool_governance,
@@ -33,109 +28,6 @@ from qwenpaw.plugins.loader import (
     resolved_plugin_manifest_path,
 )
 from qwenpaw.plugins.registry import PluginRegistry
-
-
-def test_tool_names_from_meta_supports_legacy_and_multi():
-    assert _tool_names_from_meta({"tool_name": "a"}) == ["a"]
-    assert _tool_names_from_meta(
-        {"tools": [{"name": "b"}, {"name": "c"}, {"other": 1}]},
-    ) == ["b", "c"]
-    assert _tool_names_from_meta(
-        {"tool_name": "a", "tools": [{"name": "b"}]},
-    ) == ["a", "b"]
-
-
-def test_tool_names_from_meta_tolerates_malformed_tools():
-    """``meta.tools`` must never raise — install runs this post-load."""
-    for bad_tools in (None, "not-a-list", {"name": "x"}):
-        names = _tool_names_from_meta({"tools": bad_tools})
-        assert isinstance(names, list)
-        assert not names
-    assert _tool_names_from_meta(
-        {
-            "tool_name": " legacy ",
-            "tools": [
-                {"name": "a"},
-                None,
-                "skip",
-                {"name": 123},
-                {"name": "  a  "},
-                {"name": "b"},
-                {"name": ""},
-                {"name": "   "},
-            ],
-        },
-    ) == ["legacy", "a", "b"]
-
-
-def test_force_reinstall_removed_tools_are_old_minus_new():
-    """Only tools dropped by the new manifest should be cleaned up."""
-    old_tools = set(
-        _tool_names_from_meta(
-            {"tools": [{"name": "old_tool"}, {"name": "shared"}]},
-        ),
-    )
-    new_tools = set(
-        _tool_names_from_meta(
-            {"tools": [{"name": "shared"}, {"name": "new_tool"}]},
-        ),
-    )
-    assert sorted(old_tools - new_tools) == ["old_tool"]
-
-
-@pytest.mark.asyncio
-async def test_force_reinstall_removes_obsolete_tools_before_reload():
-    """Agent reload must not run before obsolete tool configs are deleted."""
-    order: list[str] = []
-
-    async def _fake_post_load(_request, _plugin_id):
-        order.append("post_load_setup")
-
-    def _fake_remove(plugin_id, tool_names):
-        del plugin_id
-        order.append(f"remove:{','.join(tool_names)}")
-
-    async def _fake_reload(_request):
-        order.append("schedule_reload")
-
-    record = MagicMock()
-    record.manifest.id = "plug"
-    record.manifest.meta = {
-        "tools": [{"name": "shared"}, {"name": "new_tool"}],
-    }
-
-    with (
-        patch(
-            "qwenpaw.app.routers.plugins._post_load_setup",
-            new=AsyncMock(side_effect=_fake_post_load),
-        ),
-        patch(
-            "qwenpaw.app.routers.plugins._remove_named_tools_from_agents",
-            side_effect=_fake_remove,
-        ),
-        patch(
-            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
-            new=AsyncMock(side_effect=_fake_reload),
-        ),
-        patch(
-            "qwenpaw.app.routers.plugins.asyncio.to_thread",
-            new=AsyncMock(
-                side_effect=lambda fn, *args: fn(*args),
-            ),
-        ),
-    ):
-        await _finish_plugin_install_after_load(
-            MagicMock(),
-            record,
-            force=True,
-            old_tools={"old_tool", "shared"},
-        )
-
-    assert order == [
-        "post_load_setup",
-        "remove:old_tool",
-        "schedule_reload",
-    ]
 
 
 def test_norm_realpath_applies_normcase(tmp_path: Path):

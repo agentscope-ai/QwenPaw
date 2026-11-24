@@ -19,6 +19,7 @@ from: it auto-skips when the owning mode's ``is_active(ctx)`` returns
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 from ..runtime.hooks import HookBase, HookContext, HookResult
@@ -39,6 +40,7 @@ class AgentMode:
     """
 
     name: str
+    owner_plugin_id: str = ""
     loop_entry: str | None = None
 
     def describe_loop(self, workspace: Any) -> LoopModeInfo | None:
@@ -71,14 +73,54 @@ class AgentMode:
         ``Workspace`` class is defined in a higher layer — by duck-typing
         on ``workspace.plugins`` subclasses stay stable.
         """
+        self._registered: list[tuple[str, object]] = []
         for spec in self.commands():
+            if self.owner_plugin_id:
+                spec = replace(spec, owner_plugin_id=self.owner_plugin_id)
             workspace.plugins.slash_command_registry.register(spec)
+            self._registered.append(("command", spec))
         for desc in self.tools():
             workspace.plugins.tool_registry.register(desc)
+            self._registered.append(("tool", desc))
         for hook in self.hooks():
             workspace.plugins.hook_registry.register(hook)
+            self._registered.append(("hook", hook))
         for contributor in self.prompt_contributors():
             workspace.plugins.prompt_manager.register(contributor)
+            self._registered.append(("prompt", contributor))
+
+    def teardown(self, workspace: object) -> None:
+        """Remove every contribution this instance successfully registered.
+
+        Safe to call when some of those names were never registered
+        (partial ``setup`` failure). Subclasses that append extra
+        state (stop handlers, etc.) should override and call ``super``.
+        """
+        plugins = getattr(workspace, "plugins", None)
+        if plugins is None:
+            return
+        for kind, obj in reversed(getattr(self, "_registered", [])):
+            if kind == "command":
+                plugins.slash_command_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "tool":
+                plugins.tool_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "hook":
+                plugins.hook_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "prompt":
+                plugins.prompt_manager.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+        self._registered = []
 
     def commands(self) -> list["CommandSpec"]:
         return []

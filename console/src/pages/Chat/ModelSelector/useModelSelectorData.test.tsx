@@ -41,9 +41,12 @@ describe("useModelSelectorData", () => {
       } as ProviderInfo,
     ];
     vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
-      (_agent, _source, _session, onProviders) => {
+      (_agent, _source, _session, onProviders, onActiveModels) => {
         onProviders?.(providers);
-        return initial.promise;
+        return initial.promise.then((result) => {
+          if (result.activeModels) onActiveModels?.(result.activeModels);
+          return result;
+        });
       },
     );
     vi.mocked(modelSelectorApi.loadActiveModels).mockResolvedValue(refreshed);
@@ -79,14 +82,22 @@ it("restores the selected session model and discards late previous results", asy
       Awaited<ReturnType<typeof modelSelectorApi.loadModelSelectorData>>
     >();
   vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
-    (_agent, _source, scope) =>
-      scope?.sessionId === "one"
-        ? old.promise
-        : Promise.resolve({
-            providers: [],
-            loadError: false,
-            activeModels: { active_llm: { provider_id: "p", model: "second" } },
-          }),
+    (_agent, _source, scope, _onProviders, onActiveModels) => {
+      const response =
+        scope?.sessionId === "one"
+          ? old.promise
+          : Promise.resolve({
+              providers: [],
+              loadError: false,
+              activeModels: {
+                active_llm: { provider_id: "p", model: "second" },
+              },
+            });
+      return response.then((result) => {
+        if (result.activeModels) onActiveModels?.(result.activeModels);
+        return result;
+      });
+    },
   );
   const onActiveModels = vi.fn();
   const { result, rerender } = renderHook(

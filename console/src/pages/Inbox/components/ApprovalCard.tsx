@@ -44,7 +44,7 @@ export function ApprovalCard({
         styles[`priority-${approval.priority}`]
       }`}
       hoverable
-      bodyStyle={{ padding: 14 }}
+      styles={{ body: { padding: 14 } }}
     >
       <div className={styles.cardHeader}>
         <div className={styles.typeInfo}>

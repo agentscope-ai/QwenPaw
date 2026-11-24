@@ -61,7 +61,7 @@ export function CopyAgentModal({
       confirmLoading={confirmLoading}
       okText={t("common.confirm")}
       cancelText={t("common.cancel")}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <div>

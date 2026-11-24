@@ -7,6 +7,7 @@ StopHandlerResult dataclass.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -43,6 +44,8 @@ class StopHandlerResult:
     continuation_metadata: dict[str, Any] | None = None
     final_message: Any = None
     inject_on_tool_call: bool = False
+    # For prompts that require I/O, invoked only if this gate is selected.
+    prepare_continuation: Callable[[Any], Awaitable[str]] | None = None
 
 
 @dataclass
@@ -62,6 +65,7 @@ class StopHandlerRegistration:
     name: str = ""
     scope: str = ""
     is_active: Callable[[], bool] | None = None
+    owner_plugin_id: str = ""
 
 
 class StopGate(ABC):
@@ -70,9 +74,9 @@ class StopGate(ABC):
     Lifecycle per evaluation (driven by StopHandler):
     1. check(ctx) returns action + reason + reset_peers
     2. TERMINATE -> stop immediately
-    3. INTERRUPT_AND_CONTINUE -> handler calls
-       build_continuation() to get the message,
-       then injects it as a new user turn
+    3. INTERRUPT_AND_CONTINUE -> if selected, the handler uses the result's
+       prepare_continuation(ctx) or the gate's build_continuation()
+       to produce the next user message
     4. BYPASS / None -> gate idle, no action
 
     Subclasses MUST implement:
@@ -104,8 +108,7 @@ class StopGate(ABC):
 
         Returns:
             TERMINATE -> agent stops.
-            INTERRUPT_AND_CONTINUE -> handler calls
-                build_continuation() for the message.
+            INTERRUPT_AND_CONTINUE -> propose a continuation.
             BYPASS or None -> gate idle / no opinion.
         """
 

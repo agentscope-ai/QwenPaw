@@ -534,3 +534,64 @@ def test_live_operation_defaults_on_and_persisted_disable_wins(
         assert config.get_live_operation_enabled() is False
     finally:
         config._clear_user_config_cache()
+
+
+def test_chat_temperature_drops_seeded_and_learned_models() -> None:
+    """A seeded model omits temperature up front; any other model omits it
+    only after a provider refusal has been learned at runtime."""
+    # pylint: disable=protected-access
+    from models.model_capability_cache import get_capability_cache
+
+    cache = get_capability_cache()
+    key = config._temperature_capability_key("brand-new-model")
+    cache.clear(key)
+    try:
+        # Seeded: the whole Kimi K2/K3 family is dropped without any prior
+        # request, and the match tolerates whitespace and letter case.
+        for seeded in (
+            "kimi-k3",
+            "kimi-k2.6",
+            "kimi-k2.7",
+            "kimi-k2.7-code",
+            " Kimi-K2.5 ",
+        ):
+            assert config.chat_temperature(seeded, 0.2) is None, seeded
+        # An unknown model keeps the sampling default until it is learned.
+        assert config.chat_temperature("brand-new-model", 0.2) == 0.2
+        config.learn_temperature_unsupported("brand-new-model")
+        assert config.chat_temperature("brand-new-model", 0.2) is None
+        # Learning is per-model: an unrelated model is untouched.
+        assert config.chat_temperature("qwen3.7-plus", 0.2) == 0.2
+    finally:
+        cache.clear(key)
+
+
+def test_is_temperature_unsupported_error_matches_provider_refusals() -> None:
+    assert config.is_temperature_unsupported_error(
+        "Parameter 'temperature'=0.2 is not supported for kimi-k3 model",
+    )
+    assert config.is_temperature_unsupported_error(
+        "temperature is unsupported by this endpoint",
+    )
+    # Moonshot direct calls phrase the refusal as an invalid temperature.
+    assert config.is_temperature_unsupported_error(
+        "Invalid temperature: this model uses a fixed sampling temperature",
+    )
+    # Mentions temperature but is not a refusal of the parameter itself.
+    assert not config.is_temperature_unsupported_error(
+        "temperature must be a positive number",
+    )
+    # Unrelated failures must not be misclassified.
+    assert not config.is_temperature_unsupported_error(
+        "429 Too Many Requests: rate limit exceeded",
+    )
+    # ``invalid_request_error`` is a generic 400 wrapper: one that merely
+    # echoes ``temperature`` (or pairs it with an unrelated ``invalid``) must
+    # not be learned as a refusal, or the model silently loses temperature.
+    assert not config.is_temperature_unsupported_error(
+        '{"error": {"type": "invalid_request_error", '
+        '"message": "temperature must be <= 2.0"}}',
+    )
+    assert not config.is_temperature_unsupported_error(
+        "temperature is fine but your max_tokens is invalid",
+    )

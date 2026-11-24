@@ -60,6 +60,7 @@ from ...utils.io_utils import run_sync_io, write_json_atomic
 from ..channels.schema import DEFAULT_CHANNEL
 from ..inbox_store import append_event as append_inbox_event
 from ..inbox_trace_store import read_session_messages
+from .driver_config import mail_login_address
 from .mail_access_control import (
     get_mail_access_control_store,
     validate_acl_address,
@@ -944,6 +945,9 @@ async def wake_agent_for_mail(
 
     Shared by MailMonitorService and the approve endpoint.
     """
+    from ..mcp.feature_gate import require_mcp_ready
+
+    require_mcp_ready(agent_id)
     prompt = build_wake_prompt(
         sender=sender,
         subject=subject,
@@ -1093,7 +1097,10 @@ class MailMonitorService:
             mail_config.push or AgentMailPushConfig()
         )
         credential = mail_config.credential
-        self.email_address = f"{credential.name}@{credential.domain}"
+        self.email_address = mail_login_address(
+            credential.name,
+            credential.domain,
+        )
         self.auth_code = credential.auth_code
         self.domain = (credential.domain or "").strip().lower()
         self.provider = (credential.provider or "").strip().lower()
@@ -1162,6 +1169,13 @@ class MailMonitorService:
 
     async def start(self) -> None:
         """Start the background monitoring task (no-op when disabled)."""
+        from ..mcp.feature_gate import is_mcp_ready
+
+        if not is_mcp_ready(workspace_id=self.agent_id):
+            return
+        if not getattr(self.workspace, "_started", True):
+            # The published workspace activates Drivers before producers.
+            return
         if self.push.mode == "off":
             return
         if self.host is None:
@@ -1544,6 +1558,9 @@ class MailMonitorService:
 
     def _connect(self) -> imaplib.IMAP4_SSL:
         """LOGIN (+ RFC 2971 ID for NetEase) then SELECT INBOX."""
+        from ..mcp.feature_gate import require_mcp_ready
+
+        require_mcp_ready(self.agent_id)
         if self.host is None:
             raise imaplib.IMAP4.error(
                 f"no IMAP host for domain {self.domain!r}",
@@ -1862,6 +1879,10 @@ class MailMonitorService:
 
     def _check_new_messages(self, conn: imaplib.IMAP4_SSL) -> None:
         """Detect new UIDs above last_uid and run the pipeline on each."""
+        from ..mcp.feature_gate import is_mcp_ready
+
+        if not is_mcp_ready(workspace_id=self.agent_id):
+            return
         self._resume_event.clear()
         uids = self._search_uids(conn)
         if self._establish_uid_baseline(conn, uids):
@@ -2027,7 +2048,12 @@ class MailMonitorService:
         envelope: dict[str, str],
     ) -> None:
         # pylint: disable=too-many-branches,too-many-statements
-        if self._processing_guard.get_pause():
+        from ..mcp.feature_gate import is_mcp_ready
+
+        if (
+            not is_mcp_ready(workspace_id=self.agent_id)
+            or self._processing_guard.get_pause()
+        ):
             raise _MailProcessingPaused
         # Admit this one message BEFORE rules can move it out of INBOX. If
         # replay pauses concurrently, finish this already-started message;
@@ -2498,6 +2524,10 @@ class MailMonitorService:
         attempts: dict[tuple[str, int], int],
     ) -> Optional[bool]:
         """Handle one outbox message; return whether it still needs retry."""
+        from ..mcp.feature_gate import is_mcp_ready
+
+        if not is_mcp_ready(workspace_id=self.agent_id):
+            return None
         uid = _replay_uid(message)
         if self._stop_event.is_set() or not uid:
             return False

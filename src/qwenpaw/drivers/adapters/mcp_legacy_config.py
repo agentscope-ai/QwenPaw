@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -38,8 +39,10 @@ from ..contracts import (
     PolicyTarget,
 )
 from ..credentials.types import CredentialRecord
+from ..errors import DriverCardError
 from ..manager import DriverManager
-from ..storage import load_card
+
+logger = logging.getLogger(__name__)
 
 # Schema version of the legacy-MCP -> DriverCard migration, persisted on
 # ``MCPConfig.migration_version`` (agent.json) as a one-shot watermark that
@@ -94,6 +97,8 @@ class LegacyMCPUpgradeReport:
 async def migrate_legacy_mcp_if_needed(
     ws: Any,
     driver_manager: DriverManager,
+    *,
+    clients: dict | None = None,
 ) -> LegacyMCPMigrationReport:
     """Run the one-shot, versioned migration of legacy MCP config.
 
@@ -116,7 +121,16 @@ async def migrate_legacy_mcp_if_needed(
         # v0 -> v1: move legacy mcp.clients into DriverCard storage.  The
         # per-client "card exists" guard in _migrate_one_client is now only
         # an in-run idempotency / crash-rerun guard, not the judgement.
-        clients = dict(getattr(mcp, "clients", None) or {})
+        saved_clients = dict(getattr(mcp, "clients", None) or {})
+        if clients is None:
+            clients = saved_clients
+        elif any(
+            saved_clients.get(name) != client
+            for name, client in clients.items()
+        ):
+            raise RuntimeError(
+                "Agent MCP configuration changed during migration",
+            )
         for client_key, config in clients.items():
             await _migrate_one_client(
                 str(client_key),
@@ -167,7 +181,7 @@ async def _migrate_one_client(
         )
         return
 
-    if _args_may_contain_secret(list(getattr(config, "args", []) or [])):
+    if args_may_contain_secret(list(getattr(config, "args", []) or [])):
         report.warnings.append(
             LegacyMCPMigrationWarning(
                 client_key=client_key,
@@ -292,6 +306,11 @@ def legacy_mcp_client_to_driver(
         config={
             "display_name": str(getattr(config, "name", "") or client_key),
             "description": str(getattr(config, "description", "") or ""),
+            **(
+                {"tools": list(config.tools)}
+                if getattr(config, "tools", None) is not None
+                else {}
+            ),
         },
         enabled=bool(getattr(config, "enabled", True)),
         policy=DriverPolicy(
@@ -384,7 +403,7 @@ def _legacy_credential_refs(
     return {alias: CredentialRef(kind=credential.kind, ref=credential.ref)}
 
 
-def _args_may_contain_secret(args: list[str]) -> bool:
+def args_may_contain_secret(args: list[str]) -> bool:
     markers = ("api-key", "apikey", "token", "secret", "password", "auth")
     return any(
         any(marker in str(arg).lower() for marker in markers) for arg in args
@@ -415,7 +434,11 @@ async def upgrade_legacy_mcp_credentials(
     """
     report = LegacyMCPUpgradeReport()
     for path in await driver_manager.card_store.list_paths():
-        card = await asyncio.to_thread(load_card, path)
+        try:
+            card = await driver_manager.card_store.load_path(path)
+        except (DriverCardError, ValueError):
+            logger.warning("Skipping unreadable DriverCard during MCP upgrade")
+            continue
         if card.protocol != PROTOCOL_MCP:
             continue
         await _upgrade_one_card(card, driver_manager, report)

@@ -643,7 +643,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 ### 工作原理
 
-- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.qwenpaw/wechat_bot_token`），后续启动无需重复扫码。
+- **登录方式**：控制台扫码后把 Bot Token 保存到当前智能体的 `agent.json`。如果配置和 token 文件里都没有凭据，渠道会在启动时发起扫码，成功后把 token 写入文件。
 - **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
 - **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
 
@@ -663,7 +663,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
   "enabled": true,
   "bot_prefix": "[BOT]",
   "bot_token": "your_bot_token",
-  "bot_token_file": "~/.qwenpaw/wechat_bot_token",
+  "bot_token_file": "",
   "base_url": "",
   "media_dir": "~/.qwenpaw/media",
   "dm_policy": "open",
@@ -673,12 +673,14 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **微信个人专属字段说明：**
 
-| 字段             | 类型   | 默认值                        | 说明                                                |
-| ---------------- | ------ | ----------------------------- | --------------------------------------------------- |
-| `bot_token`      | string | `""`                          | 扫码登录后获取的 Bearer Token；留空则启动时引导扫码 |
-| `bot_token_file` | string | `~/.qwenpaw/wechat_bot_token` | Token 持久化路径，下次启动自动读取                  |
-| `base_url`       | string | 官方默认地址                  | iLink API 地址，一般留空使用默认值                  |
-| `media_dir`      | string | `~/.qwenpaw/media`            | 接收到的图片、文件保存目录                          |
+| 字段             | 类型   | 默认值                                | 说明                                                            |
+| ---------------- | ------ | ------------------------------------- | --------------------------------------------------------------- |
+| `bot_token`      | string | `""`                                  | 扫码授权后得到的 Bearer Token，启动时优先使用                   |
+| `bot_token_file` | string | `<workspace>/wechat/wechat_bot_token` | 配置未填写 Bot Token 时读取的文件，也是启动扫码成功后的保存位置 |
+| `base_url`       | string | 官方默认地址                          | iLink API 地址，一般留空使用默认值                              |
+| `media_dir`      | string | `~/.qwenpaw/media`                    | 接收到的图片、文件保存目录                                      |
+
+回复缓存固定保存在各自工作区的 `wechat/wechat_context_tokens.json`。如果升级前只依赖数据根目录下的 `wechat_bot_token`，可以重新扫码，或将旧文件的完整路径填入对应智能体的 `bot_token_file`。收到新消息后会建立新的回复缓存。
 
 ### 环境变量方式
 
@@ -687,7 +689,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 ```bash
 WECHAT_CHANNEL_ENABLED=1
 WECHAT_BOT_TOKEN=your_bot_token
-WECHAT_BOT_TOKEN_FILE=~/.qwenpaw/wechat_bot_token
+WECHAT_BOT_TOKEN_FILE=
 WECHAT_MEDIA_DIR=~/.qwenpaw/media
 WECHAT_DM_POLICY=open
 WECHAT_GROUP_POLICY=open
@@ -928,6 +930,10 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 - Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
 - 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
 - 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+- 使用密码认证时，重启会先向服务器验证并复用已保存的会话。修改服务器、登录身份、设备或密码后会重新登录；会话过期时才回退到密码登录。
+- 启用加密后，启动时会检查服务器上的设备密钥，并用现有本地加密存储恢复丢失的密钥。启动时临时的密钥查询失败最多尝试三次，每次查询超时为十秒。连接后每分钟独立探测一次健康状态，同步与发送流程继续执行常规密钥维护。渠道健康状态会报告密钥缺失、冲突或启动失败。重启时请保留实例的 `channel_state/matrix` 目录，以保留机器人的加密身份和会话。
+- 旧版全局 Matrix 状态会在用户和设备一致时自动复制到当前工作区，原文件保持不变；身份不一致时会跳过旧状态并创建独立状态。同一设备同时只能由一个 Agent 运行，停止后锁会自动释放；不同 Agent 可配置不同的 `device_id`。
+- Matrix 默认安装 matrix-nio 0.26 系列及 vodozemac 等 E2EE 依赖，无需手动安装；`encryption` 配置仍默认关闭。如果运行环境缺少必要后端，频道会记录错误并按原有行为降级为 `encryption=False`，可修复依赖后重新启用加密。
 - 群聊默认共享会话，以保持旧版本行为。将 `share_session_in_group` 设为 `false` 后，每位群成员拥有独立的对话上下文。私聊继续沿用原有的房间会话标识。
 
 ---

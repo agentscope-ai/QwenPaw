@@ -30,8 +30,24 @@ export function formatApiError(payload: unknown, fallback: string): string {
     if (messages.length) return messages.join("; ");
   }
   if (detail && typeof detail === "object") {
-    const message = validationIssueMessage(detail as ValidationIssue);
-    if (message) return message;
+    const error = detail as ValidationIssue & {
+      message?: unknown;
+      errors?: unknown;
+    };
+    const message =
+      typeof error.message === "string" && error.message
+        ? error.message
+        : validationIssueMessage(error);
+    const errors = Array.isArray(error.errors)
+      ? error.errors.filter(
+          (item): item is string =>
+            typeof item === "string" &&
+            Boolean(item) &&
+            !message?.includes(item),
+        )
+      : [];
+    const messages = [...new Set([message, ...errors].filter(Boolean))];
+    if (messages.length) return messages.join("; ");
   }
   return fallback;
 }

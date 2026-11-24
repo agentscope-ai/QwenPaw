@@ -116,4 +116,7 @@ export interface ConnectionTestResponse {
   error?: string | null;
   detail?: string | null;
   suggestion?: string | null;
+  /** False when only a free read-only probe ran: the key works, the
+   *  modality was never exercised. Absent means the backend could not tell. */
+  capability_verified?: boolean | null;
 }

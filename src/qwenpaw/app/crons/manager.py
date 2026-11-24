@@ -61,6 +61,11 @@ CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
+def _effective_max_concurrency(_job: CronJobSpec) -> int:
+    """Return the enforced concurrency for a cron job."""
+    return 1
+
+
 @dataclass
 class _Runtime:
     sem: asyncio.Semaphore
@@ -206,12 +211,18 @@ class CronManager(ManagerBase):
                 name="cron-keepalive",
             )
 
-    def handoff_from(self, old: CronManager | None) -> None:
+    def handoff_from(
+        self,
+        old: CronManager | None,
+        *,
+        resume: bool = True,
+    ) -> None:
         """Transfer scheduling without cancelling submitted work."""
         # Same-class handoff deliberately transfers private scheduler state.
         # pylint: disable=protected-access
         if old is None:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
             return
         for job in self._scheduler.get_jobs():
             previous = old._scheduler.get_job(job.id)
@@ -240,11 +251,16 @@ class CronManager(ManagerBase):
         )
         old._scheduler.pause()
         try:
-            self._scheduler.resume()
+            if resume:
+                self.resume_scheduling()
         except BaseException:
             old._scheduler.resume()
             raise
         old._successor = self
+
+    def resume_scheduling(self) -> None:
+        """Release a prepared scheduler once workspace services are ready."""
+        self._scheduler.resume()
 
     def snapshot_active_tasks(self) -> dict[str, asyncio.Future]:
         tasks = self._scheduler_executor.snapshot_active_tasks()
@@ -902,7 +918,7 @@ class CronManager(ManagerBase):
         error_msg = (
             f"skipped scheduled run at {scheduled_text}: "
             f"maximum running instances reached "
-            f"({job.runtime.max_concurrency})"
+            f"({_effective_max_concurrency(job)})"
         )
         await self._record_skipped(job, error_msg)
 
@@ -964,6 +980,7 @@ class CronManager(ManagerBase):
             id=spec.id,
             args=[spec.id],
             misfire_grace_time=spec.runtime.misfire_grace_seconds,
+            max_instances=_effective_max_concurrency(spec),
             replace_existing=True,
             **add_job_kwargs,
         )
@@ -978,7 +995,7 @@ class CronManager(ManagerBase):
         # registration.  add_job(replace_existing=True) preserves the old job
         # if construction/validation fails.
         self._rt[spec.id] = _Runtime(
-            sem=asyncio.Semaphore(spec.runtime.max_concurrency),
+            sem=asyncio.Semaphore(_effective_max_concurrency(spec)),
         )
 
         # update next_run
@@ -1160,7 +1177,9 @@ class CronManager(ManagerBase):
         self._assert_review_complete(job)
         rt = self._rt.get(job.id)
         if not rt:
-            rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))
+            rt = _Runtime(
+                sem=asyncio.Semaphore(_effective_max_concurrency(job)),
+            )
             self._rt[job.id] = rt
 
         async with rt.sem:
@@ -1188,8 +1207,11 @@ class CronManager(ManagerBase):
                     st.last_status = "success"
                     st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s "
+                    "execution_status=success delivery_status=%s",
                     job.id,
+                    st.last_status,
+                    execution_result.get("delivery_status", "success"),
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"

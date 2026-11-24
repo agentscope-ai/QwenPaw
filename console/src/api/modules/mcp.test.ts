@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mcpApi } from "./mcp";
 import { request } from "../request";
 
@@ -6,6 +6,16 @@ vi.mock("../request", () => ({ request: vi.fn() }));
 
 describe("mcpApi policy endpoints", () => {
   afterEach(() => vi.clearAllMocks());
+
+  it("lists MCP clients for the captured agent", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+
+    await mcpApi.listMCPClients("agent-a");
+
+    expect(request).toHaveBeenCalledWith("/mcp", {
+      headers: { "X-Agent-Id": "agent-a" },
+    });
+  });
 
   it("gets MCP policy from the policy endpoint", async () => {
     vi.mocked(request).mockResolvedValue({

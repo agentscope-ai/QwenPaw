@@ -22,6 +22,7 @@ export function SharedModal({
     <Modal
       centered
       {...props}
+      width={props.width ?? "var(--app-overlay-modal-width)"}
       className={`${styles.modal} ${className ?? ""}`}
       open={!!open || visible}
       transitionName=""
@@ -31,7 +32,10 @@ export function SharedModal({
         mask: {
           ...modalStyles?.mask,
           opacity: open ? 1 : 0,
-          transition: reduced || open ? "none" : "opacity 120ms ease-out",
+          transition:
+            reduced || open
+              ? "none"
+              : "opacity var(--app-motion-fast) var(--app-easing-standard)",
         },
       }}
       modalRender={(node) => (
@@ -53,7 +57,10 @@ export function SharedModal({
                 damping: 38,
                 opacity: { duration: 0.12 },
               }}
-              style={{ borderRadius: 24, background: "var(--app-surface)" }}
+              style={{
+                borderRadius: "var(--app-radius-panel)",
+                background: "var(--app-surface)",
+              }}
             >
               {node}
             </motion.div>

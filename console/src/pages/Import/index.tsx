@@ -195,6 +195,8 @@ function ImportWorkflow() {
     selectedAgent,
     loading,
     error,
+    requirement,
+    detectError,
     detect,
     scan,
     start,
@@ -202,6 +204,12 @@ function ImportWorkflow() {
     cancel,
     reset,
   } = useImportJob();
+  const manageHarness = (pluginId: string, state: string) =>
+    navigate(
+      `/market?tab=plugins&view=${
+        state === "missing" ? "official" : "installed"
+      }&plugin=${encodeURIComponent(pluginId)}`,
+    );
   const [sourceSelections, setSourceSelections] = useState<
     Record<string, ImportSource[]>
   >({});
@@ -243,14 +251,30 @@ function ImportWorkflow() {
     void detect().catch(() => undefined);
   }, [detect]);
   useEffect(() => {
-    if (!job && sources.length && !sourceSelections[selectedAgent]) {
+    if (
+      !job &&
+      !loading &&
+      !detectError &&
+      sources.length &&
+      !sourceSelections[selectedAgent]
+    ) {
       updateSources(() =>
         sources
-          .filter((source) => source.detected)
+          .filter(
+            (source) => source.detected && source.plugin_state === "available",
+          )
           .map((source) => source.source),
       );
     }
-  }, [job, selectedAgent, sourceSelections, sources, updateSources]);
+  }, [
+    detectError,
+    job,
+    loading,
+    selectedAgent,
+    sourceSelections,
+    sources,
+    updateSources,
+  ]);
   useEffect(() => {
     if (
       job?.state !== "awaiting_selection" ||
@@ -274,7 +298,11 @@ function ImportWorkflow() {
     setPluginConfirmed(false);
   }, [selectionKey]);
 
-  const current = !job ? 0 : job.state === "awaiting_selection" ? 1 : 2;
+  const current = !job
+    ? 0
+    : ["scanning", "awaiting_selection"].includes(job.state)
+    ? 1
+    : 2;
   const isDone = Boolean(
     job &&
       ["completed", "completed_with_issues", "failed", "interrupted"].includes(
@@ -282,6 +310,7 @@ function ImportWorkflow() {
       ),
   );
   const isCancelling = job?.state === "cancelling";
+  const sourceDetectionFailed = !job && Boolean(detectError);
   const percent = useMemo(() => completion(job?.providers ?? []), [job]);
 
   const updateSelection = (
@@ -511,7 +540,34 @@ function ImportWorkflow() {
             </span>
           </div>
         </section>
-        {error && <Alert type="error" showIcon message={error} />}
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message={sourceDetectionFailed ? detectError : error}
+            action={
+              requirement ? (
+                <Button
+                  onClick={() =>
+                    manageHarness(requirement.plugin_id, requirement.state)
+                  }
+                >
+                  {t(
+                    requirement.state === "missing"
+                      ? "pluginManager.installBtn"
+                      : requirement.state === "failed"
+                      ? "pluginManager.repair"
+                      : "common.enable",
+                  )}
+                </Button>
+              ) : sourceDetectionFailed ? (
+                <Button onClick={() => void detect().catch(() => undefined)}>
+                  {t("common.retry")}
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
         {job && !isDone && (
           <div className={styles.actions}>
             <Button
@@ -527,7 +583,7 @@ function ImportWorkflow() {
           </div>
         )}
 
-        {!job && (
+        {!job && !sourceDetectionFailed && (
           <section className={styles.section}>
             <div className={styles.sectionHeading}>
               <h3>
@@ -547,7 +603,9 @@ function ImportWorkflow() {
                   <Card key={source.source} className={styles.sourceCard}>
                     <Checkbox
                       checked={selectedSources.includes(source.source)}
-                      disabled={!source.detected}
+                      disabled={
+                        !source.detected || source.plugin_state !== "available"
+                      }
                       onChange={(event) =>
                         updateSources((selected) =>
                           event.target.checked
@@ -558,6 +616,31 @@ function ImportWorkflow() {
                     >
                       <strong>{source.name}</strong>
                     </Checkbox>
+                    {source.plugin_state !== "available" && (
+                      <div>
+                        <p>
+                          {t("portabilityImport.harnessRequired", {
+                            plugin: source.plugin_id,
+                            state: t(
+                              `portabilityImport.pluginStates.${source.plugin_state}`,
+                            ),
+                          })}
+                        </p>
+                        <Button
+                          onClick={() =>
+                            manageHarness(source.plugin_id, source.plugin_state)
+                          }
+                        >
+                          {t(
+                            source.plugin_state === "missing"
+                              ? "pluginManager.installBtn"
+                              : source.plugin_state === "failed"
+                              ? "pluginManager.repair"
+                              : "common.enable",
+                          )}
+                        </Button>
+                      </div>
+                    )}
                     <Tag color={source.detected ? "success" : "default"}>
                       {t(
                         source.detected

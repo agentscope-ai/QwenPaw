@@ -29,6 +29,13 @@ env:
   IMAGE: agentscope/qwenpaw
 
 jobs:
+  plugin-versions:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/plugin-release-guard.yml
+    secrets: inherit
+
   # ── Stage 1: Verify Docker image boots correctly ───────────────────────────
   verify-docker:
     uses: ./.github/workflows/release-verify.yml
@@ -38,7 +45,7 @@ jobs:
 
   # ── Stage 2: Build multi-arch and push ─────────────────────────────────────
   build-and-push:
-    needs: [verify-docker]
+    needs: [verify-docker, plugin-versions]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,7 +109,7 @@ jobs:
           if [ "${IS_PRERELEASE}" != "true" ]; then
             TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
           fi
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          docker buildx build --pull --no-cache --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
             --build-arg \

@@ -8,10 +8,10 @@ text files.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
-import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,10 +20,21 @@ from typing import TYPE_CHECKING
 import aiofiles
 import aiofiles.os
 
+from ..utils.io_utils import get_sync_path_lock, run_sync_io, write_text_atomic
+
 if TYPE_CHECKING:
     from agentscope.message import Msg, ToolResultBlock
 
 logger = logging.getLogger(__name__)
+
+
+def _write_or_refresh_archive(path: Path, content: str) -> None:
+    """Publish or renew an archive without racing retention cleanup."""
+    with get_sync_path_lock(path.parent):
+        if path.exists():
+            os.utime(path, None)
+        else:
+            write_text_atomic(path, content)
 
 
 class QwenPawOffloader:
@@ -104,21 +115,17 @@ class QwenPawOffloader:
 
     async def offload_tool_result(
         self,
-        session_id: str,  # pylint: disable=unused-argument
+        session_id: str,
         tool_result: "ToolResultBlock",
+        *,
+        deduplicate: bool = False,
     ) -> str:
         """Persist a truncated tool result to a text file.
 
-        ``session_id`` unused — same rationale as
-        :meth:`offload_context`.
+        Decision compaction may reuse an archive for the same session, call,
+        and text, renewing its retention window each time. The default
+        AgentScope offloading behavior uses a fresh file.
         """
-        await aiofiles.os.makedirs(self._tool_results_dir, exist_ok=True)
-
-        filepath = os.path.join(
-            self._tool_results_dir,
-            f"{uuid.uuid4().hex}.txt",
-        )
-
         output = getattr(tool_result, "output", None) or ""
         if isinstance(output, list):
             parts = []
@@ -132,6 +139,22 @@ class QwenPawOffloader:
         else:
             content = str(output)
 
+        if deduplicate:
+            archive_id = hashlib.sha256(
+                json.dumps(
+                    [session_id, tool_result.id, content],
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+            ).hexdigest()
+            path = Path(self._tool_results_dir) / f"{archive_id}.txt"
+            await run_sync_io(_write_or_refresh_archive, path, content)
+            return str(path)
+
+        await aiofiles.os.makedirs(self._tool_results_dir, exist_ok=True)
+        filepath = os.path.join(
+            self._tool_results_dir,
+            f"{uuid.uuid4().hex}.txt",
+        )
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
             await f.write(content)
 
@@ -139,8 +162,9 @@ class QwenPawOffloader:
         return filepath
 
     def cleanup_expired(self, retention_days: int = 5) -> int:
-        """Delete tool-result files older than *retention_days*.
+        """Delete tool-result files unreferenced for *retention_days*.
 
+        Modification time records the latest publication or archive reuse.
         Returns the number of files deleted.
         """
         tool_dir = Path(self._tool_results_dir)
@@ -150,21 +174,17 @@ class QwenPawOffloader:
         cutoff = datetime.now() - timedelta(days=retention_days)
         deleted = failed = 0
 
-        for fp in tool_dir.glob("*.txt"):
-            try:
-                st = os.stat(fp)
-                if sys.platform == "win32":
-                    ts = st.st_ctime
-                else:
-                    ts = getattr(st, "st_birthtime", st.st_mtime)
-                if datetime.fromtimestamp(ts) < cutoff:
-                    fp.unlink()
-                    deleted += 1
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                failed += 1
-                logger.warning("Failed to delete %s: %s", fp, e)
+        with get_sync_path_lock(tool_dir):
+            for fp in tool_dir.glob("*.txt"):
+                try:
+                    if datetime.fromtimestamp(os.stat(fp).st_mtime) < cutoff:
+                        fp.unlink()
+                        deleted += 1
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    failed += 1
+                    logger.warning("Failed to delete %s: %s", fp, e)
 
         if deleted or failed:
             logger.info(

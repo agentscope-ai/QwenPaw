@@ -9,6 +9,7 @@ vi.mock("../authHeaders", () => ({
 }));
 
 import { request } from "../request";
+import { buildAuthHeaders } from "../authHeaders";
 import { skillApi, invalidateSkillCache } from "./skill";
 
 // ---------------------------------------------------------------------------
@@ -175,8 +176,15 @@ describe("skillApi.createSkill", () => {
 
   it("sends POST with name, content, config and enable", async () => {
     vi.mocked(request).mockResolvedValue({ created: true, name: "myskill" });
-    await skillApi.createSkill("myskill", "# content", { key: "val" }, true);
+    await skillApi.createSkill(
+      "myskill",
+      "# content",
+      { key: "val" },
+      true,
+      "agent-1",
+    );
     expect(request).toHaveBeenCalledWith("/skills", {
+      headers: new Headers({ "X-Agent-Id": "agent-1" }),
       method: "POST",
       body: JSON.stringify({
         name: "myskill",
@@ -196,8 +204,9 @@ describe("skillApi.enableSkill", () => {
 
   it("sends POST to /skills/<encoded>/enable", async () => {
     vi.mocked(request).mockResolvedValue(undefined);
-    await skillApi.enableSkill("my skill");
+    await skillApi.enableSkill("my skill", "agent-1");
     expect(request).toHaveBeenCalledWith("/skills/my%20skill/enable", {
+      headers: new Headers({ "X-Agent-Id": "agent-1" }),
       method: "POST",
     });
   });
@@ -208,8 +217,9 @@ describe("skillApi.disableSkill", () => {
 
   it("sends POST to /skills/<encoded>/disable", async () => {
     vi.mocked(request).mockResolvedValue(undefined);
-    await skillApi.disableSkill("special/skill");
+    await skillApi.disableSkill("special/skill", "agent-1");
     expect(request).toHaveBeenCalledWith("/skills/special%2Fskill/disable", {
+      headers: new Headers({ "X-Agent-Id": "agent-1" }),
       method: "POST",
     });
   });
@@ -223,8 +233,9 @@ describe("skillApi.deleteSkill", () => {
 
   it("sends DELETE to /skills/<encoded>", async () => {
     vi.mocked(request).mockResolvedValue({ deleted: true });
-    const result = await skillApi.deleteSkill("rm-me");
+    const result = await skillApi.deleteSkill("rm-me", "agent-1");
     expect(request).toHaveBeenCalledWith("/skills/rm-me", {
+      headers: new Headers({ "X-Agent-Id": "agent-1" }),
       method: "DELETE",
     });
     expect(result).toEqual({ deleted: true });
@@ -290,8 +301,9 @@ describe("skillApi.batchDeleteSkills", () => {
     vi.mocked(request).mockResolvedValue({
       results: { "skill-a": { success: true } },
     });
-    const result = await skillApi.batchDeleteSkills(["skill-a"]);
+    const result = await skillApi.batchDeleteSkills(["skill-a"], "agent-1");
     expect(request).toHaveBeenCalledWith("/skills/batch-delete", {
+      headers: new Headers({ "X-Agent-Id": "agent-1" }),
       method: "POST",
       body: JSON.stringify(["skill-a"]),
     });
@@ -680,6 +692,31 @@ describe("skillApi zip uploads", () => {
     expect(String(url)).toContain("rename_map=");
     expect((init as RequestInit).method).toBe("POST");
     expect((init as RequestInit).body).toBeInstanceOf(FormData);
+  });
+
+  it("posts once with auth, captured agent, and the requested file", async () => {
+    vi.mocked(buildAuthHeaders).mockReturnValue({
+      Authorization: "Bearer test-token",
+      "X-Agent-Id": "stale-agent",
+    });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(okJson({ imported: ["skill"], count: 1 }));
+    const file = new File(["zipdata"], "captured.zip");
+
+    await skillApi.uploadSkill(file, { enable: true }, "captured-agent");
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, init] = vi.mocked(global.fetch).mock.calls[0];
+    const headers = (init as RequestInit).headers as Headers;
+    expect(headers).toBeInstanceOf(Headers);
+    expect(headers.get("Authorization")).toBe("Bearer test-token");
+    expect(headers.get("X-Agent-Id")).toBe("captured-agent");
+    expect(
+      [...headers.keys()].filter((name) => name.toLowerCase() === "x-agent-id"),
+    ).toHaveLength(1);
+    const body = (init as RequestInit).body as FormData;
+    expect(body.get("file")).toBe(file);
   });
 
   it("omits the query string when no options given (pool zip)", async () => {

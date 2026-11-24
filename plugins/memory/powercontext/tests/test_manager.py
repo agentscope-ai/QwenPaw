@@ -650,22 +650,11 @@ async def test_auto_search_bounds_total_multibyte_context(tmp_path):
     assert POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE in result["text"]
     assert result["text"].endswith("… [truncated]")
     synthetic = result["msg"][-1]
-    total_injected_bytes = sum(
-        len(str(getattr(block, "text", "")).encode("utf-8"))
-        + len(str(getattr(block, "thinking", "")).encode("utf-8"))
-        + len(
-            (
-                str(getattr(block, "name", ""))
-                + str(getattr(block, "input", ""))
-            ).encode("utf-8"),
-        )
-        + sum(
-            len(str(getattr(output, "text", "")).encode("utf-8"))
-            for output in getattr(block, "output", [])
-        )
-        for block in synthetic.content
-    )
-    assert total_injected_bytes <= 1024
+    assert len(synthetic.content) == 1
+    hint_text = synthetic.content[0].hint
+    assert hint_text.startswith("<auto_memory_recall>")
+    assert POWERCONTEXT_UNTRUSTED_HISTORY_NOTICE in hint_text
+    assert len(hint_text.encode("utf-8")) <= 1024
     manager._client.search.assert_awaited_once_with(
         query="what did we decide?",
         limit=50,

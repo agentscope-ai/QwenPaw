@@ -11,7 +11,7 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { FolderOpen, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
 import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
@@ -126,33 +126,51 @@ function ProjectDirectorySetting() {
   );
 }
 
-function EnhancedCodeCapabilitySetting() {
+function RuntimeSwitch({ checked, ...props }: ComponentProps<typeof Switch>) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.runtimeSwitch}>
+      <span aria-hidden="true">
+        {t(checked ? "common.enabled" : "common.disabled")}
+      </span>
+      <Switch {...props} checked={checked} />
+    </div>
+  );
+}
+
+function CodeModeSetting() {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const setCodingMode = useCodingModeStore((state) => state.setCodingMode);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const mode = await codingModeApi.get();
       setCodingMode(selectedAgent, mode.enabled);
+    } catch {
+      setError(t("codingMode.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent, setCodingMode]);
+  }, [selectedAgent, setCodingMode, t]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const toggle = async (enabled: boolean) => {
+  const update = async (enabled: boolean) => {
+    setError("");
     setSaving(true);
     try {
       const result = await codingModeApi.toggle(enabled);
       setCodingMode(selectedAgent, result.enabled);
+    } catch {
+      setError(t("codingMode.updateFailed"));
     } finally {
       setSaving(false);
     }
@@ -160,23 +178,20 @@ function EnhancedCodeCapabilitySetting() {
 
   return (
     <SettingsField
-      label={t("agentConfig.enhancedCodeCapability")}
-      tooltip={t("agentConfig.enhancedCodeCapabilityTooltip")}
-      className={styles.reactAgentWideField}
+      label={t("codingMode.title")}
+      tooltip={t("codingMode.toolPresentationHelp")}
+      valuePropName="checked"
+      className={styles.runtimeToggle}
+      validateStatus={error ? "error" : undefined}
+      help={error || undefined}
     >
-      <div className={styles.switchSetting}>
-        <span>{t("agentConfig.enhancedCodeCapabilityDescription")}</span>
-        {loading ? (
-          <LoaderCircle className={styles.spin} size={16} />
-        ) : (
-          <Switch
-            checked={codingMode}
-            loading={saving}
-            onChange={(enabled) => void toggle(enabled)}
-            aria-label={t("agentConfig.enhancedCodeCapability")}
-          />
-        )}
-      </div>
+      <RuntimeSwitch
+        aria-label={t("codingMode.title")}
+        disabled={loading || saving}
+        loading={loading || saving}
+        checked={codingMode}
+        onChange={(enabled) => void update(enabled)}
+      />
     </SettingsField>
   );
 }
@@ -237,18 +252,20 @@ export function ReactAgentCard({
 
       <div className={styles.reactAgentSettings}>
         <ProjectDirectorySetting />
-        <EnhancedCodeCapabilitySetting />
       </div>
 
       <AgentModelCard />
 
+      <CodeModeSetting />
+
       <SettingsField
+        className={styles.runtimeToggle}
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
         tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
       >
-        <Switch />
+        <RuntimeSwitch aria-label={t("agentConfig.autoGenerateSessionTitle")} />
       </SettingsField>
 
       <Collapse

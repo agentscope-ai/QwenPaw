@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 from .models import ApprovalRequestSummary
+from ...plugins._events import approval_changed as _sdk_approval_changed
 
 if TYPE_CHECKING:
     from ...security.tool_guard.models import ToolGuardResult
@@ -224,6 +225,7 @@ class ApprovalService:
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
+            _sdk_approval_changed(pending)
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
@@ -295,6 +297,7 @@ class ApprovalService:
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
+            _sdk_approval_changed(pending)
         logger.info(
             "Generic approval pending created: request_id=%s agent_id=%s "
             "name=%s source=%s session=%s root=%s",
@@ -377,6 +380,7 @@ class ApprovalService:
         # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
+        _sdk_approval_changed(pending)
 
         logger.info(
             "Approval request %s resolved: decision=%s scope=%s tool=%s",
@@ -594,6 +598,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.TIMEOUT)
                 pending.status = "superseded"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -604,6 +609,29 @@ class ApprovalService:
                 session_id[:8],
             )
         return cancelled
+
+    async def cancel_request(
+        self,
+        request_id: str,
+        *,
+        actor: ApprovalActor,
+    ) -> bool:
+        """Cancel one owned pending request without affecting sibling calls."""
+        async with self._lock:
+            pending = self._pending.get(request_id)
+            if pending is None or pending.status != "pending":
+                return False
+            if not self.actor_can_resolve(pending, actor):
+                raise ApprovalIdentityMismatchError(
+                    "approval caller does not match the original requester",
+                )
+            self._pending.pop(request_id)
+            if not pending.future.done():
+                pending.future.set_result(ApprovalDecision.DENIED)
+            pending.status = "cancelled"
+            pending.resolved_at = time.time()
+            _sdk_approval_changed(pending)
+            return True
 
     async def cancel_all_pending_by_root_session(
         self,
@@ -636,6 +664,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.DENIED)
                 pending.status = "cancelled"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -668,6 +697,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
         overflow = len(self._pending) - _GC_MAX_PENDING
         if overflow <= 0:
@@ -682,6 +712,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
 
 # ------------------------------------------------------------------

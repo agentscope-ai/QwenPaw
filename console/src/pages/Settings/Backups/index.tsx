@@ -5,13 +5,12 @@
  * All modal/flow logic lives in the dedicated hooks and components;
  * this file is intentionally kept short (~90 lines).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Spin } from "antd";
-import { Plus as PlusOutlined } from "lucide-react";
+import { Plus as PlusOutlined, RefreshCw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api, { agentsApi } from "@/api";
 import { PageHeader } from "@/components/PageHeader";
-import { useAppMessage } from "@/hooks/useAppMessage";
 import type { BackupJobSnapshot, BackupMeta } from "@/api/types/backup";
 import type { AgentSummary } from "@/api/types/agents";
 
@@ -30,36 +29,51 @@ import styles from "./index.module.less";
 
 export default function BackupsPage() {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [backups, setBackups] = useState<BackupMeta[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [resumeJob, setResumeJob] = useState<BackupJobSnapshot | null>(null);
+  const requestIdRef = useRef(0);
 
   /** Fetches backups and agents in parallel; both are needed before rendering the table. */
   const fetchData = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    const isCurrent = () => requestIdRef.current === requestId;
     setLoading(true);
+    setError(null);
     try {
       const [backupRes, agentRes, activeJob] = await Promise.all([
         api.listBackups(),
         agentsApi.listAgents(),
         api.getActiveBackupJob(),
       ]);
+      if (!isCurrent()) return;
       setBackups(backupRes);
       setAgents(agentRes.agents);
       setResumeJob(activeJob);
       if (activeJob) setCreateOpen(true);
-    } catch {
-      message.error(t("backup.loadFailed"));
+    } catch (reason) {
+      if (!isCurrent()) return;
+      setBackups([]);
+      setAgents([]);
+      setResumeJob(null);
+      setCreateOpen(false);
+      setError(
+        reason instanceof Error ? reason : new Error("Failed to load backups"),
+      );
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [message, t]);
+  }, []);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [fetchData]);
 
   const importFlow = useImportFlow({ onSuccess: fetchData });
@@ -70,6 +84,23 @@ export default function BackupsPage() {
       <div className={styles.page}>
         <div className={styles.centerState}>
           <Spin />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.centerState} role="alert">
+          <TriangleAlert size={28} aria-hidden="true" />
+          <span>{t("backup.loadFailed")}</span>
+          <Button
+            icon={<RefreshCw size="1em" />}
+            onClick={() => void fetchData()}
+          >
+            {t("common.retry")}
+          </Button>
         </div>
       </div>
     );

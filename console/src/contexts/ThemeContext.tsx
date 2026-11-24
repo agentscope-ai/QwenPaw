@@ -60,7 +60,13 @@ function resolveIsDark(mode: ThemeMode): boolean {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({
+  children,
+  syncRemote = true,
+}: {
+  children: ReactNode;
+  syncRemote?: boolean;
+}) {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(getInitialMode);
   const [isDark, setIsDark] = useState<boolean>(() =>
     resolveIsDark(getInitialMode()),
@@ -69,6 +75,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [previewTheme, setPreviewTheme] = useState<ThemeConfig>({});
 
   useEffect(() => {
+    if (!syncRemote) return;
     let cancelled = false;
     themeApi
       .get()
@@ -84,7 +91,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [syncRemote]);
 
   const saveUserTheme = useCallback(async (theme: ThemeConfig) => {
     const saved = await themeApi.update(theme);

@@ -152,19 +152,21 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     }
     return lines.length > 0 ? lines.join("\n") : null;
   }, [control.offloadRemaining, control.killRemaining]);
+  const showRaw = expanded && showRawInputOutput;
+  const shouldFormatRaw = bodyMounted && showRaw;
   const rawInput = useMemo(
     () =>
-      showRawInputOutput
+      shouldFormatRaw
         ? formatRawToolValue(content.rawInput ?? content.params)
         : "",
-    [content.params, content.rawInput, showRawInputOutput],
+    [content.params, content.rawInput, shouldFormatRaw],
   );
   const rawOutput = useMemo(
     () =>
-      showRawInputOutput && content.result !== undefined
+      shouldFormatRaw && content.result !== undefined
         ? formatRawToolValue(content.result)
         : "",
-    [content.result, showRawInputOutput],
+    [content.result, shouldFormatRaw],
   );
 
   return (

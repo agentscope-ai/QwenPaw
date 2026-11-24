@@ -20,6 +20,8 @@ export interface AgentSummary {
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
+  backend_status?: "available" | "missing" | "disabled" | "failed";
+  backend_plugin_id?: string | null;
   backend_capabilities?: Partial<HarnessCapabilities>;
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
@@ -93,6 +95,31 @@ export interface MemoryGraphSnapshot {
   version: 1;
   nodes: MemoryGraphNode[];
   edges: MemoryGraphEdge[];
+}
+
+export interface MemoryTagPage {
+  items: { tag: string; file_count: number }[];
+  total_tags: number;
+  page: number;
+  page_size: number;
+}
+
+export interface MemoryTagFile {
+  path: string;
+  source: "daily" | "digest" | "workspace";
+  relative_path: string;
+  name: string;
+  description: string;
+  modified_at: number;
+  memory_tags: string[];
+}
+
+export interface MemoryTagFilePage {
+  tag: string;
+  items: MemoryTagFile[];
+  total_files: number;
+  page: number;
+  page_size: number;
 }
 
 export interface AgentProfileConfig {

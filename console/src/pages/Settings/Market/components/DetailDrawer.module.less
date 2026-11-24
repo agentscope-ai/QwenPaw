@@ -1,3 +1,5 @@
+@import (reference) "../../../../styles/skillPresentation.less";
+
 .detailHeader {
   display: flex;
   align-items: center;
@@ -26,16 +28,7 @@
 }
 
 .sourceBadge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-  background-color: var(--app-fill);
-  color: var(--app-text-secondary);
-  border: 1px solid var(--app-border-subtle);
-  white-space: nowrap;
+  .skill-source-badge();
 }
 
 .detailDescription {

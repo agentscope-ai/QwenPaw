@@ -14,6 +14,7 @@ import { SettingsField } from "@/components/interaction/SettingsField";
 import { useState } from "react";
 import {
   Card,
+  Checkbox,
   Form,
   Select,
   Switch,
@@ -36,7 +37,6 @@ import {
   Rocket,
   Gauge,
   Wallet,
-  Lock,
   GripVertical,
   Wrench,
   ListChecks,
@@ -222,6 +222,7 @@ function DoomLoopSection() {
                     </SettingsField>
 
                     <Button
+                      className={loopStyles.removeRule}
                       type="text"
                       danger
                       icon={<Trash2 size={14} />}
@@ -255,6 +256,21 @@ function DoomLoopSection() {
         </>
       )}
     </div>
+  );
+}
+
+function RubricDecisionField({ name }: { name: (string | number)[] }) {
+  const { t } = useTranslation();
+  const label = t("agentConfig.rubricUseDecisionModel");
+  return (
+    <SettingsField
+      name={name}
+      label={label}
+      tooltip={t("agentConfig.rubricUseDecisionModelHelp")}
+      valuePropName="checked"
+    >
+      <Checkbox aria-label={label} />
+    </SettingsField>
   );
 }
 
@@ -294,6 +310,9 @@ function RubricSection() {
       </SettingsField>
       {enabled && (
         <>
+          <RubricDecisionField
+            name={["loop", "rubric", "use_decision_model"]}
+          />
           <SettingsField
             name={["loop", "rubric", "prompt"]}
             label={t(
@@ -787,6 +806,7 @@ function GateParamsEditor({
                     <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} />
                   </SettingsField>
                   <Button
+                    className={loopStyles.removeRule}
                     type="text"
                     danger
                     icon={<Trash2 size={14} />}
@@ -902,15 +922,7 @@ function GateParamsEditor({
   if (type === "qualitative_rubric") {
     return (
       <>
-        <SettingsField
-          name={[...base, "max_evaluations"]}
-          label={t(
-            "agentConfig.loopMode.maxEvaluations",
-            "Maximum evaluation rounds",
-          )}
-        >
-          <InputNumber min={1} max={10} style={{ width: "100%" }} />
-        </SettingsField>
+        <RubricDecisionField name={[...base, "use_decision_model"]} />
         <SettingsField
           name={[...base, "rubric"]}
           label={t(
@@ -923,6 +935,15 @@ function GateParamsEditor({
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+        </SettingsField>
+        <SettingsField
+          name={[...base, "max_evaluations"]}
+          label={t(
+            "agentConfig.loopMode.maxEvaluations",
+            "Maximum evaluation rounds",
+          )}
+        >
+          <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </SettingsField>
       </>
     );
@@ -1339,7 +1360,6 @@ export function AgentLoopCard() {
       key: "default",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.defaultTab", "Standard")}
         </span>
       ),
@@ -1349,7 +1369,6 @@ export function AgentLoopCard() {
       key: "goal",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.goalTab", "Goal")}
         </span>
       ),
@@ -1359,7 +1378,6 @@ export function AgentLoopCard() {
       key: "mission",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.missionTab", "Mission")}
         </span>
       ),
@@ -1369,7 +1387,6 @@ export function AgentLoopCard() {
       key: "advisor",
       label: (
         <span className={loopStyles.builtInTab}>
-          <Lock size={12} />
           {t("agentConfig.loopMode.advisorTab", "Advisor")}
         </span>
       ),

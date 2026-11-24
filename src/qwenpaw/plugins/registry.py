@@ -2,17 +2,23 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
 from fastapi import APIRouter
+
+from .errors import SDKError
+
+if TYPE_CHECKING:
+    from .channel_adapter import ChannelDescription
 
 logger = logging.getLogger(__name__)
 
 # Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
 # routes can be inserted *before* it (routes appended later would lose).
 _CONSOLE_SPA_CATCHALL_ROUTE_NAME = "qwenpaw_console_spa_catchall"
+_TRANSCRIPTION_BACKEND_OWNERS = {"local_whisper": "local-whisper"}
 
 
 def _find_console_spa_route_index(app: Any) -> Optional[int]:
@@ -64,6 +70,18 @@ class ProviderRegistration:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class DriverProtocolState:
+    """In-memory runtime facts; registration is an opaque identity token."""
+
+    plugin_id: str
+    generation: int
+    active: bool
+    blocked: bool
+    revoked: bool
+    registration: object = field(repr=False)
+
+
 @dataclass
 class HookRegistration:
     """Hook registration record."""
@@ -99,12 +117,17 @@ class ChannelRegistration:
 
     plugin_id: str
     channel_key: str
-    channel_class: Type
+    channel_class: Optional[Type] = None
     label: str = ""
     description: str = ""
     config_fields: List[Dict[str, Any]] = field(default_factory=list)
     icon: str = ""
     doc_url: Any = ""
+    description_record: Optional["ChannelDescription"] = None
+    runtime_settings: Any = None
+    global_enabled: bool = True
+    dependency_token: Any = None
+    owns_dependency_token: bool = False
 
 
 @dataclass
@@ -125,6 +148,10 @@ class PromptSectionRegistration:
     after: str
     agent_id: Optional[str]
     provider: Callable[[Any], str]
+
+
+class MemoryBackendInUseError(RuntimeError):
+    """A live or selected memory backend prevents a lifecycle change."""
 
 
 class PluginRegistry:  # pylint:disable=too-many-public-methods
@@ -151,14 +178,28 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self._transcription_backends: Dict[str, Any] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        from .ownership import RuntimeOwners
+
+        self.runtime_owners = RuntimeOwners()
+        from .dependency_usage import DependencyUsageRegistry
+
+        self.dependency_usage = DependencyUsageRegistry(self.runtime_owners)
         self._channels: Dict[str, ChannelRegistration] = {}
+        self._driver_protocols: dict[str, Any] = {}
+        self._protocol_preparation = None
+        self.protocol_resolver: Optional[Callable] = None
+        self.protocol_eligibility: Optional[Callable] = None
+        self.channel_runtime = None
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_states: Dict[str, str] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
@@ -166,9 +207,100 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
+        self._backend_registry = None
+        from .workspace_projector import WorkspaceProjector
+
+        self.projector = WorkspaceProjector()
         self._stop_workspaces: dict[str, Any] = {}
 
         self._initialized = True
+
+    def register_driver_protocol(self, owner, spec) -> None:
+        """Reject duplicate protocol names before recording the exact owner."""
+        from .errors import SDKError
+
+        if spec.protocol in self._driver_protocols:
+            previous = self._driver_protocols[spec.protocol].owner
+            raise SDKError(
+                f"Driver protocol {spec.protocol!r} is already registered "
+                f"by plugin {previous.plugin_id!r}",
+            )
+        self._driver_protocols[spec.protocol] = owner
+
+    def unregister_driver_protocol(self, protocol, *, expected_owner) -> None:
+        """A retained handle may release only its own registration."""
+        current = self._driver_protocols.get(protocol)
+        if current is not None and current.owner is expected_owner:
+            del self._driver_protocols[protocol]
+
+    def register_protocol_preparation(self, service) -> None:
+        """Bind preparation and its callbacks to one explicit host owner."""
+        self._protocol_preparation = service
+        self.protocol_resolver = service.ensure_protocol
+        self.protocol_eligibility = service.eligible
+
+    def get_protocol_preparation(self):
+        return self._protocol_preparation
+
+    def unregister_protocol_preparation(self, service) -> None:
+        if self._protocol_preparation is service:
+            self._protocol_preparation = None
+            self.protocol_resolver = None
+            self.protocol_eligibility = None
+
+    def driver_protocol_loader(self, protocol, *, plugin_id):
+        """Find an existing owner's loader for host preparation bootstrap."""
+        descriptor = self._driver_protocols.get(protocol)
+        if descriptor is not None and descriptor.owner.plugin_id == plugin_id:
+            return descriptor.plugin._loader
+        return None
+
+    def describe_driver_protocol(self, protocol, *, loader=None):
+        """Read runtime ownership without discovery, I/O or admission changes."""
+        from .errors import SDKError
+
+        descriptor = self._driver_protocols.get(protocol)
+        if descriptor is None:
+            return None
+        owner = descriptor.owner
+        owner_loader = descriptor.plugin._loader
+        record = owner_loader.get_loaded_plugin(owner.plugin_id)
+        active = bool(
+            (loader is None or loader is owner_loader)
+            and record is not None
+            and record.enabled
+            and record.status == "active",
+        )
+        if active:
+            try:
+                descriptor.guard()
+            except SDKError:
+                active = False
+        return DriverProtocolState(
+            owner.plugin_id,
+            owner.generation,
+            active,
+            owner.plugin_id in owner_loader.startup_blocked_plugins,
+            descriptor.revoked,
+            descriptor,
+        )
+
+    @property
+    def backend_registry_initialized(self):
+        """Check declaration presence without importing backend machinery."""
+        return self._backend_registry is not None
+
+    @property
+    def backend_registry(self):
+        """Load only the declaration registry when harnesses are used."""
+        if self._backend_registry is None:
+            from ..runtime.backends.registry import BackendRegistry
+
+            self._backend_registry = BackendRegistry(
+                self.get_harness_manifests,
+                self.get_harness_states,
+            )
+        return self._backend_registry
 
     def register_middleware(
         self,
@@ -218,6 +350,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             app: The root ``FastAPI`` instance.
         """
         self._plugin_http_app = app
+        if app is None:
+            return
+        from ._harness_http import install_gateway
+
+        install_gateway(self, app)
 
     def get_plugin_http_app(self) -> Optional[Any]:
         """Return the application that owns the native plugin lifecycle."""
@@ -331,6 +468,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             if r.plugin_id != plugin_id
         ]
 
+    def register_transcription_backend(self, backend_id: str, adapter) -> None:
+        """Reserve a backend ID until its owning plugin releases it."""
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if owner is not None and adapter.plugin_id != owner:
+            raise SDKError(
+                f"Transcription backend '{backend_id}' is reserved for '{owner}'",
+            )
+        if backend_id in self._transcription_backends:
+            raise ValueError(
+                f"Transcription backend '{backend_id}' already registered",
+            )
+        self._transcription_backends[backend_id] = adapter
+
+    def get_transcription_backend(self, backend_id: str):
+        backend = self._transcription_backends.get(backend_id)
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if (
+            backend is not None
+            and owner is not None
+            and backend.plugin_id != owner
+        ):
+            return None
+        return backend
+
+    def get_transcription_backends(self) -> Dict[str, Any]:
+        return self._transcription_backends.copy()
+
+    def drop_transcription_backend(self, backend_id: str, expected) -> None:
+        if self._transcription_backends.get(backend_id) is expected:
+            del self._transcription_backends[backend_id]
+
     def register_provider(
         self,
         plugin_id: str,
@@ -425,6 +593,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             MultiAgentManager instance or None
         """
         return self._workspace_manager
+
+    def get_driver_workspace(self, agent_id):
+        """Resolve the live or standalone owner, without starting a workspace."""
+        manager = self._workspace_manager
+        live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
+        return live.get(agent_id) or self._stop_workspaces.get(agent_id)
 
     def register_stop_workspace(self, agent_id: str, workspace: Any) -> None:
         """Expose a standalone workspace without replacing the app manager."""
@@ -562,6 +736,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             List of HookRegistration
         """
         return self._shutdown_hooks.copy()
+
+    def remove_shutdown_hook(self, hook: HookRegistration) -> None:
+        """Retire one completed callback without removing a replacement."""
+        self._shutdown_hooks = [
+            h for h in self._shutdown_hooks if h is not hook
+        ]
 
     def register_uninstall_hook(
         self,
@@ -716,8 +896,22 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         if not normalized_name:
             raise ValueError("Prompt section name must not be empty")
         if normalized_name in self._prompt_section_names:
+            occupant = next(
+                (
+                    item.plugin_id
+                    for item in self._prompt_sections
+                    if item.name == normalized_name
+                ),
+                "",
+            )
+            from ..runtime.occupancy import occupancy_conflict
+
             raise ValueError(
-                f"Prompt section '{normalized_name}' is already registered",
+                occupancy_conflict(
+                    "prompt section",
+                    normalized_name,
+                    occupant,
+                ),
             )
         normalized_after = after.strip() or "workspace"
         from ..agents.prompt_builder import PromptBuilder
@@ -758,6 +952,30 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             handler: Control command handler instance
             priority_level: Command priority (default: 10 = high)
         """
+        from ..runtime.occupancy import occupancy_conflict
+        from ..runtime.commands.control import command_owner
+
+        name = str(getattr(handler, "command_name", "") or "")
+        normalized = name.lstrip("/").lower()
+        for item in self._control_commands:
+            other = str(item.handler.command_name or "").lstrip("/").lower()
+            if other == normalized and item.plugin_id != plugin_id:
+                raise ValueError(
+                    occupancy_conflict(
+                        "control_command",
+                        normalized,
+                        item.plugin_id,
+                    ),
+                )
+        live_owner = command_owner(normalized)
+        if live_owner and live_owner != plugin_id:
+            raise ValueError(
+                occupancy_conflict(
+                    "control_command",
+                    normalized,
+                    live_owner,
+                ),
+            )
         cmd_reg = ControlCommandRegistration(
             plugin_id=plugin_id,
             handler=handler,
@@ -787,7 +1005,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         config_fields: Optional[List[Dict[str, Any]]] = None,
         icon: str = "",
         doc_url: Any = "",
-    ) -> None:
+    ) -> ChannelRegistration:
         """Register a custom channel from a plugin.
 
         Args:
@@ -846,10 +1064,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 )
 
         # Prevent overriding built-in channels
-        if normalized_key in BUILTIN_CHANNEL_KEYS:
+        from .official_channel_catalog import official_channel_owners
+
+        owners = official_channel_owners()
+        if normalized_key in BUILTIN_CHANNEL_KEYS or normalized_key in owners:
+            owner = owners.get(normalized_key, "builtin")
             raise ValueError(
-                f"Channel '{normalized_key}' conflicts with a built-in "
-                f"channel and cannot be registered by a plugin",
+                f"Channel '{normalized_key}' is reserved by owner '{owner}' "
+                f"and cannot be registered by plugin '{plugin_id}'",
             )
 
         if normalized_key in self._channels:
@@ -884,13 +1106,19 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             f"'{plugin_id}'",
         )
 
+        return self._channels[normalized_key]
+
     def get_registered_channels(self) -> Dict[str, ChannelRegistration]:
         """Get all plugin-registered channels.
 
         Returns:
             Dictionary of channel_key -> ChannelRegistration.
         """
-        return self._channels.copy()
+        return {
+            key: row
+            for key, row in self._channels.items()
+            if row.channel_class is not None
+        }
 
     def get_channel_registration(
         self,
@@ -904,26 +1132,270 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         Returns:
             ChannelRegistration or None.
         """
+        row = self._channels.get(channel_key)
+        return (
+            row
+            if row is not None
+            and (
+                row.channel_class is not None
+                or row.runtime_settings is not None
+            )
+            else None
+        )
+
+    def get_channel_catalog(self) -> Dict[str, ChannelRegistration]:
+        """Return static candidates and active class registrations."""
+        return self._channels.copy()
+
+    def get_channel_catalog_entry(
+        self,
+        channel_key: str,
+    ) -> Optional[ChannelRegistration]:
+        """Look up an owned row without claiming it is runtime-ready."""
         return self._channels.get(channel_key)
 
-    def _unregister_plugin_channels(self, plugin_id: str) -> None:
-        """Remove all channels registered by a plugin (used on unload).
+    def configure_channel_runtime(self, settings) -> None:
+        """Reserve selected keys independently of installed artifacts."""
+        if (
+            self.channel_runtime is not None
+            and self.channel_runtime != settings
+        ):
+            raise RuntimeError("CHANNEL_RUNTIME_ALREADY_CONFIGURED")
+        self.channel_runtime = settings
 
-        Note: This only removes the registration from the registry.
-        Already-instantiated channel instances in ChannelManager are
-        cleaned up when the workspace triggers a config reload
-        (schedule_agent_reload), which rebuilds the ChannelManager.
-        """
-        to_remove = [
+    def has_channel_owners(self, plugin_id: str) -> bool:
+        """Compatibility query over the sole runtime custody authority."""
+        return any(
+            lease.key.kind == "channel"
+            for lease in self.runtime_owners.leases(plugin_id)
+        )
+
+    def register_channel_descriptor(
+        self,
+        plugin_id: str,
+        description: "ChannelDescription",
+        *,
+        runtime_settings=None,
+        global_enabled: bool = True,
+        dependency_token=None,
+    ) -> ChannelRegistration:
+        """Register host-owned static metadata without loading a driver."""
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+
+        descriptor = description.descriptor
+        key = descriptor.channel_key
+        if plugin_id != description.plugin_id:
+            raise ValueError("Channel descriptor owner mismatch")
+        from ..app.channels.catalog import config_fields
+        from .official_channel_catalog import official_channel_owners
+
+        owner = official_channel_owners().get(key)
+        if key in BUILTIN_CHANNEL_KEYS or (owner and owner != plugin_id):
+            occupying = "builtin" if key in BUILTIN_CHANNEL_KEYS else owner
+            raise ValueError(
+                f"Channel '{key}' owner '{occupying}' conflicts with "
+                f"plugin '{plugin_id}'",
+            )
+        if key in self._channels:
+            owner = self._channels[key].plugin_id
+            raise ValueError(
+                f"Channel '{key}' is already registered by plugin '{owner}'",
+            )
+        fields = config_fields(
+            descriptor.config_schema,
+            descriptor.config_fields,
+        )
+        row = ChannelRegistration(
+            plugin_id=plugin_id,
+            channel_key=key,
+            label=descriptor.label["en"],
+            description=description.description,
+            config_fields=fields,
+            description_record=description,
+            runtime_settings=runtime_settings,
+            global_enabled=global_enabled,
+            dependency_token=dependency_token,
+        )
+        if (
+            global_enabled
+            and runtime_settings is not None
+            and dependency_token is None
+        ):
+            from .dependency_usage import DependencyDeclaration
+
+            row.dependency_token = self.dependency_usage.declare(
+                DependencyDeclaration(
+                    plugin_id,
+                    description.source_revision,
+                    description.requirements,
+                    None,
+                ),
+                pending=False,
+            )
+            row.owns_dependency_token = True
+        self._channels[key] = row
+        return row
+
+    def unregister_channel(
+        self,
+        channel_key: str,
+        *,
+        expected: Optional[ChannelRegistration] = None,
+    ) -> bool:
+        """Drop one channel registration by key."""
+        current = self._channels.get(channel_key)
+        if current is None or (
+            expected is not None and current is not expected
+        ):
+            return False
+        if current.runtime_settings is not None and any(
+            lease.key.kind == "channel" and lease.key.name == channel_key
+            for lease in self.runtime_owners.leases(current.plugin_id)
+        ):
+            from .lifecycle import QuiescenceError
+
+            raise QuiescenceError("CHANNEL_INSTANCE_STILL_OWNED")
+        del self._channels[channel_key]
+        if current.owns_dependency_token:
+            self.dependency_usage.withdraw(current.dependency_token)
+        logger.info("Unregistered channel '%s'", channel_key)
+        return True
+
+    def leftover_channel_keys(self, plugin_id: str) -> List[str]:
+        """Channel keys still owned by *plugin_id* (report-only)."""
+        return [
             key
             for key, reg in self._channels.items()
             if reg.plugin_id == plugin_id
         ]
-        for key in to_remove:
-            del self._channels[key]
-            logger.info(
-                f"Unregistered channel '{key}' (plugin '{plugin_id}' "
-                f"unloaded)",
+
+    def drop_http_router(self, plugin_id: str, prefix: str) -> None:
+        """Remove one mounted HTTP prefix for *plugin_id*."""
+        http_app = self._plugin_http_app
+        normalized = prefix.strip()
+        remaining = []
+        for reg in self._http_router_registrations:
+            if reg.plugin_id != plugin_id or reg.prefix != normalized:
+                remaining.append(reg)
+                continue
+            self._http_prefix_to_plugin.pop(reg.prefix, None)
+            if http_app is None:
+                continue
+            routes = http_app.router.routes
+            for route in reg.routes:
+                try:
+                    routes.remove(route)
+                except ValueError:
+                    logger.debug(
+                        "HTTP route %r already gone for '%s'",
+                        getattr(route, "path", route),
+                        plugin_id,
+                    )
+        self._http_router_registrations = remaining
+
+    def drop_provider(self, provider_id: str) -> None:
+        """Remove one provider registration."""
+        self._providers.pop(provider_id, None)
+
+    def drop_control_command(self, plugin_id: str, command_name: str) -> None:
+        """Remove one control-command registration."""
+        wanted = str(command_name or "").lstrip("/").lower()
+        self._control_commands = [
+            item
+            for item in self._control_commands
+            if not (
+                item.plugin_id == plugin_id
+                and str(item.handler.command_name or "").lstrip("/").lower()
+                == wanted
+            )
+        ]
+
+    def drop_middleware(
+        self,
+        plugin_id: str,
+        factory: Callable,
+        priority: int,
+    ) -> None:
+        """Remove one middleware factory registration."""
+        self._middleware_registrations = [
+            item
+            for item in self._middleware_registrations
+            if not (
+                item.plugin_id == plugin_id
+                and item.factory is factory
+                and item.priority == priority
+            )
+        ]
+
+    def drop_prompt_section(self, name: str) -> None:
+        """Remove one prompt section by name."""
+        self._prompt_sections = [
+            item for item in self._prompt_sections if item.name != name
+        ]
+        self._prompt_section_names.discard(name)
+
+    def leftover_registrations(self, plugin_id: str) -> List[str]:
+        """Ledgered rows that are still present after teardown."""
+        leftovers: List[str] = [
+            f"transcription:{key}"
+            for key, item in self._transcription_backends.items()
+            if item.plugin_id == plugin_id
+        ]
+        leftovers.extend(
+            f"http:{reg.prefix}"
+            for reg in self._http_router_registrations
+            if reg.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"provider:{pid}"
+            for pid, reg in self._providers.items()
+            if reg.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"channel:{key}" for key in self.leftover_channel_keys(plugin_id)
+        )
+        leftovers.extend(
+            f"control_command:{item.handler.command_name}"
+            for item in self._control_commands
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"middleware:{item.priority}"
+            for item in self._middleware_registrations
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"prompt_section:{item.name}"
+            for item in self._prompt_sections
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"hook:{item.hook_name}"
+            for item in (
+                self._startup_hooks
+                + self._shutdown_hooks
+                + self._uninstall_hooks
+                + self._workspace_created_hooks
+            )
+            if item.plugin_id == plugin_id
+        )
+        if plugin_id in self._plugin_manifests:
+            leftovers.append("manifest")
+        return leftovers
+
+    def _unregister_plugin_channels(self, plugin_id: str) -> None:
+        """Report leftover channel registrations; do not delete them.
+
+        Ledger teardown owns ``unregister_channel``. Rows still present
+        here are leaks for the unload report.
+        """
+        leftovers = self.leftover_channel_keys(plugin_id)
+        for key in leftovers:
+            logger.error(
+                "Channel '%s' still registered after teardown "
+                "(plugin '%s')",
+                key,
+                plugin_id,
             )
 
     def register_plugin_manifest(
@@ -938,7 +1410,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             manifest: Plugin manifest dictionary
         """
         self._plugin_manifests[plugin_id] = manifest
+        self.remember_harness_manifest(plugin_id, manifest)
         logger.debug(f"Registered manifest for plugin '{plugin_id}'")
+
+    def drop_plugin_manifest(self, plugin_id: str) -> None:
+        """Remove a stored manifest if present."""
+        self._plugin_manifests.pop(plugin_id, None)
+        if plugin_id in self._harness_states:
+            self._harness_states[plugin_id] = "disabled"
+
+    def remember_harness_manifest(
+        self,
+        plugin_id,
+        manifest,
+        status="disabled",
+    ):
+        """Retain discovery metadata without granting runtime admission."""
+        if (manifest.get("meta") or {}).get("harnesses") is not None:
+            self._harness_manifests[plugin_id] = manifest
+            self._harness_states[plugin_id] = status
+        else:
+            self.forget_harness_manifest(plugin_id)
+
+    def forget_harness_manifest(self, plugin_id):
+        self._harness_manifests.pop(plugin_id, None)
+        self._harness_states.pop(plugin_id, None)
+
+    def get_harness_manifests(self):
+        return {**self._harness_manifests, **self._plugin_manifests}
+
+    def get_harness_states(self):
+        return self._harness_states.copy()
 
     def get_all_plugin_manifests(self) -> Dict[str, Dict[str, Any]]:
         """Get all plugin manifests.
@@ -1007,7 +1509,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 exc_info=True,
             )
 
-        self._plugin_manifests.pop(plugin_id, None)
+        for key, item in tuple(self._transcription_backends.items()):
+            if item.plugin_id == plugin_id:
+                item.closed = True
+                self.drop_transcription_backend(key, item)
+        self.drop_plugin_manifest(plugin_id)
 
         providers_to_remove = [
             pid
@@ -1181,7 +1687,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             tuple(selected_agent_ids),
         )
         if in_use:
-            raise RuntimeError(
+            raise MemoryBackendInUseError(
                 f"Cannot unload plugin '{plugin_id}'; memory backend is "
                 f"in use by agents: {', '.join(sorted(in_use))}",
             )

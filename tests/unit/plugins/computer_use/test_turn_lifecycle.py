@@ -31,6 +31,8 @@ from computer_use.transport import (
 from qwenpaw.app import agent_context
 from qwenpaw.app.computer_use import set_current_computer_use_turn_id
 
+from tests.unit.plugins.timing import WAIT_TIMEOUT
+
 
 class _RecordingTransport(ComputerUseTransport):
     def __init__(self) -> None:
@@ -160,10 +162,11 @@ async def test_an_evicted_client_has_its_connection_closed(
         assert "idle-session" not in client_module._clients
         # Closing is handed to the loop that owns the transport rather than
         # awaited under the cache lock, so it lands a little later.
-        for _ in range(100):
-            if transport.closed:
-                break
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(WAIT_TIMEOUT):
+            while True:
+                if transport.closed:
+                    break
+                await asyncio.sleep(0.01)
         assert transport.closed is True
     finally:
         set_current_computer_use_turn_id(None)

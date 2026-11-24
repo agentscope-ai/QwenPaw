@@ -1031,10 +1031,12 @@ def test_skip_in_unrelated_test_method_is_allowed(tmp_path: Path) -> None:
     assert report.missing_specs == ()
 
 
-def test_repository_has_complete_contract_coverage() -> None:
+def test_repository_has_complete_builtin_contract_coverage() -> None:
     report = checker.analyze_repository(REPO_ROOT)
 
-    assert len(report.specs) == 18
-    assert len(report.tested_classes) == 18
+    assert [(spec.key, spec.class_name) for spec in report.specs] == [
+        ("console", "ConsoleChannel"),
+    ]
+    assert report.tested_classes == {"ConsoleChannel"}
     assert report.missing_specs == ()
     assert report.errors == ()

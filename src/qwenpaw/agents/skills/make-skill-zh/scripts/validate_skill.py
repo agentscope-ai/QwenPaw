@@ -6,14 +6,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import py_compile
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-import yaml
-
 import create_plan
+import native_cli
 
 DRAFT_ID_PATTERN = create_plan.ARTIFACT_ID_PATTERN
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
@@ -133,6 +134,7 @@ def _validate_frontmatter(
     skill_dir: Path,
     plan: dict[str, Any],
     errors: list[dict[str, str]],
+    metadata: dict[str, Any] | None,
 ) -> str:
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file() or skill_md.is_symlink():
@@ -146,14 +148,15 @@ def _validate_frontmatter(
         return ""
     try:
         content = skill_md.read_text(encoding="utf-8")
-        from qwenpaw.agents.skill_system.store import validate_skill_content
-
-        name, description = validate_skill_content(content)
-    except Exception as exc:
+    except (OSError, UnicodeError) as exc:
         errors.append(
             create_plan.error("invalid-frontmatter", "SKILL.md", str(exc)),
         )
         return ""
+
+    if metadata is None:
+        return ""
+    name, description = metadata["name"], metadata["description"]
 
     if name != plan["name"] or name != skill_dir.name:
         errors.append(
@@ -388,6 +391,21 @@ def _digest(
     return digest.hexdigest()
 
 
+def _python_error(path: Path, relative: str) -> str | None:
+    """Return why a script does not compile, without running or touching it."""
+    with tempfile.TemporaryDirectory() as output_dir:
+        try:
+            py_compile.compile(
+                str(path),
+                cfile=str(Path(output_dir) / "check.pyc"),
+                dfile=relative,
+                doraise=True,
+            )
+        except (OSError, py_compile.PyCompileError) as exc:
+            return str(exc)
+    return None
+
+
 def validate_draft(
     workspace: Path,
     draft_id: str,
@@ -421,18 +439,44 @@ def validate_draft(
             ),
         )
 
-    skill_md = _validate_frontmatter(skill_dir, plan, errors)
+    security_scan = "skipped"
+    metadata = None
+    if not has_symlink:
+        try:
+            check = native_cli.skills(
+                "test", str(skill_dir), "--workspace", str(workspace)
+            )
+            if not check["ok"] and not check.get("errors"):
+                raise RuntimeError(str(check.get("message", "Skill test failed.")))
+            metadata = check.get("metadata")
+            security_scan = check.get("security_scan", "failed")
+            errors.extend(
+                create_plan.error(
+                    item["code"], item.get("path", ""), item["message"]
+                )
+                for item in check.get("errors", [])
+            )
+            warnings.extend(
+                create_plan.error("skill-test-note", "", note)
+                for note in check.get("warnings", [])
+            )
+        except RuntimeError as exc:
+            security_scan = "failed"
+            errors.append(
+                create_plan.error("runtime-unavailable", "", str(exc))
+            )
+
+    skill_md = _validate_frontmatter(skill_dir, plan, errors, metadata)
     if skill_md:
         _validate_links(skill_dir, skill_md, errors)
 
     for relative in files:
         path = skill_dir / relative
         if relative.startswith("scripts/") and path.suffix == ".py":
-            try:
-                compile(path.read_bytes(), relative, "exec")
-            except (OSError, SyntaxError) as exc:
+            python_error = _python_error(path, relative)
+            if python_error:
                 errors.append(
-                    create_plan.error("invalid-python", relative, str(exc)),
+                    create_plan.error("invalid-python", relative, python_error),
                 )
         if relative.startswith(("scripts/", "evals/")) and path.suffix == ".json":
             try:
@@ -444,29 +488,6 @@ def validate_draft(
                 continue
             if relative.endswith(".batch.json"):
                 _validate_batch(data, relative, errors)
-        if relative == "agents/openai.yaml":
-            try:
-                data = yaml.safe_load(path.read_text(encoding="utf-8"))
-                if not isinstance(data, dict):
-                    raise ValueError("Top-level YAML value must be an object.")
-            except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
-                errors.append(
-                    create_plan.error("invalid-openai-yaml", relative, str(exc)),
-                )
-
-    security_scan = "skipped"
-    if not has_symlink:
-        try:
-            from qwenpaw.agents.skill_system.store import scan_skill_dir_or_raise
-
-            scan_skill_dir_or_raise(skill_dir, plan["name"])
-            security_scan = "completed"
-        except Exception as exc:
-            security_scan = "failed"
-            errors.append(
-                create_plan.error("security-scan-failed", "", str(exc)),
-            )
-
     digest = ""
     if not errors:
         try:

@@ -90,6 +90,19 @@ def _load_managed_qwenpawmail_card(path: Path) -> DriverCard | None:
         return None
 
 
+def mail_login_address(name: str, domain: str) -> str:
+    """Build the IMAP/SMTP login address for a mailbox credential.
+
+    Legacy configs store the full address in ``name``. Appending
+    ``@domain`` again produces ``user@domain@domain`` and authentication
+    fails. A name that already contains ``@`` is used as-is; otherwise
+    the address is ``name@domain``.
+    """
+    if "@" in name:
+        return name
+    return f"{name}@{domain}"
+
+
 def build_qwenpawmail_env(
     mail: AgentMailConfig | None,
     workspace_dir: Path | None = None,
@@ -107,7 +120,10 @@ def build_qwenpawmail_env(
         return {}
 
     env: dict[str, Any] = {
-        "QWENPAWMAIL_EMAIL": f"{credential.name}@{credential.domain}",
+        "QWENPAWMAIL_EMAIL": mail_login_address(
+            credential.name,
+            credential.domain,
+        ),
         "QWENPAWMAIL_AUTH_CODE": {
             "source": "credential",
             "credential": "mail",

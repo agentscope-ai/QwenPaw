@@ -48,6 +48,8 @@ export interface ModelInfo {
   template_id?: string | null;
   input_token_limit?: number | null;
   billing?: "free" | "paid" | "unknown";
+  pricing?: Record<string, string>;
+  capability_provenance?: Record<string, Record<string, unknown>>;
   auto_enabled?: boolean;
   requires_paid_confirmation?: boolean;
   remote_missing?: boolean;
@@ -238,6 +240,7 @@ export interface LocalModelConfigRequest {
 export interface LocalModelInfo {
   id: string;
   name: string;
+  model_type?: ModelType;
   size_bytes: number;
   downloaded: boolean;
   source: LocalDownloadSource;

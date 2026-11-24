@@ -125,7 +125,7 @@ If you need agent-to-agent collaboration, use **ACP as a Tool**.
 
 ## QwenPaw as an ACP Server
 
-In this mode, QwenPaw exposes itself as an [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) compliant agent service over stdio JSON-RPC. External clients, such as [Zed](https://zed.dev), [OpenCode](https://github.com/nicholasgasior/opencode), or any ACP-compatible editor, can connect to QwenPaw via the `qwenpaw acp` command and interact with it programmatically.
+In this mode, QwenPaw exposes itself as an [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) compliant agent service over stdio JSON-RPC. External clients, such as [Zed](https://zed.dev), [OpenCode](https://github.com/anomalyco/opencode), or any ACP-compatible editor, can connect to QwenPaw via the `qwenpaw acp` command and interact with it programmatically.
 
 ### Quick Start
 
@@ -147,6 +147,8 @@ qwenpaw acp --agent-mode goal
 ```
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
+
+`--agent-mode code` enables Python tool orchestration for every request, including loaded and resumed sessions. It exposes `run_code` without adding a slash-command prefix or changing saved agent configuration. The worker follows the global `security.sandbox_enabled` setting, which defaults to `false`; enabling Code Mode does not enable the sandbox.
 
 `--agent-mode MODE_ID` selects from the same workspace loop catalog as the Console (`GET /api/loops`). Built-in IDs include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
 

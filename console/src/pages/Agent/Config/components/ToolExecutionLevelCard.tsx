@@ -35,12 +35,16 @@ export function ToolExecutionLevelCard({
     void providerApi
       .listProviders()
       .then((providers) => {
-        const decisionModelProvider = providers.find(
-          (provider) => provider.id === "typesafe",
-        );
         setConfigured(
-          Boolean(
-            decisionModelProvider?.enabled && decisionModelProvider.api_key,
+          providers.some(
+            (provider) =>
+              provider.enabled &&
+              ((provider.id === "typesafe" && Boolean(provider.api_key)) ||
+                (provider.id === "qwenpaw-local" &&
+                  Boolean(provider.base_url) &&
+                  [...provider.models, ...provider.extra_models].some(
+                    (model) => model.model_type === "decision",
+                  ))),
           ),
         );
       })

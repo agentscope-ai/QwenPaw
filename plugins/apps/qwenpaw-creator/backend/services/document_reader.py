@@ -16,6 +16,7 @@ import asyncio
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import tempfile
 from typing import Any, Literal
 
 from domain.errors import ValidationError
@@ -68,6 +69,14 @@ class DocumentReadResult:
     extraction_complete: bool
     extraction_fraction: float | None
     notes: tuple[str, ...]
+    # 1-based page numbers whose visible content had no extractable text
+    # layer (scanned/image-only pages, text outlined to vector curves, or a
+    # pdfium text-API failure).  Empty for a fully text-layered document;
+    # genuinely blank pages are never listed.  A text-only caller (script
+    # direct-landing) refuses to land these pages because their words would be
+    # silently dropped, while the VLM path still rasterizes them, so this stays
+    # a separate signal from ``extraction_complete``.
+    unextractable_pages: tuple[int, ...] = ()
 
 
 def is_supported_document(name: str) -> bool:
@@ -159,6 +168,7 @@ def _read_document_sync(
     page_images: list[Path] = []
     extraction_complete = True
     extraction_fraction: float | None = 1.0
+    unextractable_pages: list[int] = []
 
     max_pixels = budget_to_pixels(budget, IMAGE_BUDGET_TOKENS)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -210,6 +220,10 @@ def _read_document_sync(
             else:
                 # The true total is unknown: the honest fraction is too.
                 extraction_fraction = None
+        elif block_type == "page_text_gap":
+            page_no = block.get("page")
+            if isinstance(page_no, int):
+                unextractable_pages.append(page_no)
 
     if not pages_rendered:
         pages_rendered = sorted(
@@ -258,6 +272,7 @@ def _read_document_sync(
             extraction_fraction if not extraction_complete else 1.0
         ),
         notes=tuple(notes),
+        unextractable_pages=tuple(sorted(set(unextractable_pages))),
     )
 
 
@@ -280,6 +295,26 @@ async def read_document(
     )
 
 
+def read_document_text(file_path: Path) -> DocumentReadResult:
+    """Extract a document's text layer without rasterizing any page image.
+
+    ``max_pages=0`` keeps the pdf/office renderers text-only: the text layer
+    is still extracted for every page (up to the renderer's own cap) while no
+    page image is produced or persisted.  Callers that only want the words
+    (indexing a script, importing a manuscript) pay no rasterization cost and
+    leave no scratch PNGs behind.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="creator-doc-text-") as scratch:
+        return _read_document_sync(
+            file_path,
+            output_dir=Path(scratch),
+            pages=None,
+            budget="small",
+            max_pages=0,
+        )
+
+
 __all__ = [
     "DOC_READER_WEB_ENABLED_ENV",
     "DocumentBudget",
@@ -289,4 +324,5 @@ __all__ = [
     "SUPPORTED_DOCUMENT_EXTENSIONS",
     "is_supported_document",
     "read_document",
+    "read_document_text",
 ]

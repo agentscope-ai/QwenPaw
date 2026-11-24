@@ -312,90 +312,90 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div
-      className={cls}
-      data-pinned={pinned}
-      onClick={handleClick}
-      onKeyDown={(event) => {
-        // Rename inputs and the nested actions have their own keyboard
-        // behavior; only activate when the session row itself has focus.
-        if (
-          event.target !== event.currentTarget ||
-          event.repeat ||
-          event.nativeEvent.isComposing
-        ) {
-          return;
-        }
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          handleClick();
-        }
-      }}
-      role="button"
-      aria-disabled={disabled || undefined}
-      tabIndex={disabled || editing ? -1 : 0}
-    >
-      {!editing && (
-        <span
-          className={styles.statusSlot}
-          role="img"
-          aria-label={statusAriaLabel}
-        >
-          {inProgress && <span className={styles.runningDot} />}
-          {hasUnseenResult && <span className={styles.unseenDot} />}
-          {isIdle && !hasUnseenResult && <span className={styles.idleDot} />}
-        </span>
-      )}
+    <div className={cls} data-pinned={pinned}>
+      <div
+        className={styles.primary}
+        onClick={handleClick}
+        onKeyDown={(event) => {
+          if (
+            event.target !== event.currentTarget ||
+            event.repeat ||
+            event.nativeEvent.isComposing
+          ) {
+            return;
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handleClick();
+          }
+        }}
+        role={editing ? undefined : "button"}
+        aria-label={editing ? undefined : displayName}
+        aria-current={!editing && active ? "page" : undefined}
+        aria-disabled={!editing && disabled ? true : undefined}
+        tabIndex={editing || disabled ? -1 : 0}
+      >
+        {!editing && (
+          <span
+            className={styles.statusSlot}
+            role="img"
+            aria-label={statusAriaLabel}
+          >
+            {inProgress && <span className={styles.runningDot} />}
+            {hasUnseenResult && <span className={styles.unseenDot} />}
+            {isIdle && !hasUnseenResult && <span className={styles.idleDot} />}
+          </span>
+        )}
 
-      {/* Content area */}
-      <div className={styles.content}>
-        {editing ? (
-          <Input
-            ref={inputRef}
-            autoFocus
-            size="small"
-            value={editValue}
-            className={styles.renameInput}
-            onChange={(e) => onEditChange?.(e.target.value)}
-            onCompositionStart={() => {
-              isComposingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              isComposingRef.current = false;
-            }}
-            onPressEnter={(e) => {
-              if (!e.nativeEvent.isComposing && !isComposingRef.current) {
-                handleRenameSubmit();
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                onEditCancel?.();
-              }
-            }}
-            onBlur={() => {
-              setTimeout(() => {
-                if (!isComposingRef.current) {
+        <div className={styles.content}>
+          {editing ? (
+            <Input
+              ref={inputRef}
+              autoFocus
+              size="small"
+              value={editValue}
+              className={styles.renameInput}
+              onChange={(e) => onEditChange?.(e.target.value)}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingRef.current = false;
+              }}
+              onPressEnter={(e) => {
+                if (!e.nativeEvent.isComposing && !isComposingRef.current) {
                   handleRenameSubmit();
                 }
-              }, 100);
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <MarqueeName name={displayName} />
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  onEditCancel?.();
+                }
+              }}
+              onBlur={() => {
+                setTimeout(() => {
+                  if (!isComposingRef.current) {
+                    handleRenameSubmit();
+                  }
+                }, 100);
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <MarqueeName name={displayName} />
+          )}
+        </div>
+
+        {!editing && pinned && (
+          <span
+            className={styles.pinMark}
+            title={t("chat.group.pinned", "Pinned")}
+          >
+            <Pin size={11} />
+          </span>
         )}
       </div>
-
-      {!editing && pinned && (
-        <span
-          className={styles.pinMark}
-          title={t("chat.group.pinned", "Pinned")}
-        >
-          <Pin size={11} />
-        </span>
-      )}
 
       {!editing && (
         <SessionActions

@@ -11,42 +11,13 @@ import {
   type ContextMenuItem,
 } from "../components/ContextMenu";
 import { getChannelLabel } from "../utils/channel";
-import { syncSessionsGlobal } from "../stores/sessionListStore";
-import { useAgentStore } from "../stores/agentStore";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+} from "../stores/sessionListStore";
 import { useAppMessage } from "../hooks/useAppMessage";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
-
-/**
- * Shallow-compare two session arrays by visible fields.
- * Returns true when the list would look identical, so we can skip
- * the state update and avoid a full re-render cascade.
- */
-function sessionsEqual(
-  prev: ExtendedChatSession[],
-  next: ExtendedChatSession[],
-): boolean {
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < prev.length; i++) {
-    const a = prev[i];
-    const b = next[i];
-    if (
-      a.id !== b.id ||
-      a.name !== b.name ||
-      a.updatedAt !== b.updatedAt ||
-      a.lastFinishedAt !== b.lastFinishedAt ||
-      a.pinned !== b.pinned ||
-      a.generating !== b.generating ||
-      a.status !== b.status ||
-      a.archived !== b.archived ||
-      a.groupId !== b.groupId ||
-      a.source !== b.source
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
 export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
@@ -93,8 +64,6 @@ export const formatCreatedAt = (raw: string | null | undefined): string => {
 };
 
 interface UseSessionListDataOptions {
-  /** Whether the sidebar list should fetch sessions. */
-  active: boolean;
   /** Current session id — used to determine active item and block no-op clicks */
   currentSessionId: string | undefined;
   /** Called when user clicks a session; the hook itself does NOT navigate */
@@ -137,13 +106,8 @@ export function useSessionListData(
 ): SessionListData {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { active, currentSessionId, onSessionClick } = opts;
-  // Re-fetch immediately when the selected agent changes — the shared store
-  // is cleared synchronously on the switch and must be repopulated for the
-  // new agent without waiting for the next poll tick.
-  const selectedAgent = useAgentStore((s) => s.selectedAgent);
-
-  const [loading, setLoading] = useState(true);
+  const { currentSessionId, onSessionClick } = opts;
+  const loading = useSessionListStore((state) => state.loading);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
     null,
   );
@@ -155,8 +119,8 @@ export function useSessionListData(
     string | null
   >(null);
 
-  /** Cache last polled sessions to skip no-op state updates */
-  const lastSessionsRef = useRef<ExtendedChatSession[]>([]);
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   const refreshSessions = useCallback(async () => {
     const owner = sessionApi.getActiveOwner();
@@ -171,61 +135,6 @@ export function useSessionListData(
       console.error("useSessionListData: failed to fetch sessions", err);
     }
   }, [setSessions]);
-
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    let inFlight = true;
-    const owner = sessionApi.getActiveOwner();
-
-    const fetchSessions = async () => {
-      setLoading(true);
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && sessionApi.isActiveOwner(owner)) {
-          const extended = list as ExtendedChatSession[];
-          if (!sessionsEqual(lastSessionsRef.current, extended)) {
-            lastSessionsRef.current = extended;
-            setSessions(extended);
-            syncSessionsGlobal(extended);
-          }
-        }
-      } catch (err) {
-        console.error("useSessionListData: failed to fetch sessions", err);
-      } finally {
-        inFlight = false;
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void fetchSessions();
-
-    const timer = setInterval(async () => {
-      // Pause polling during session switch to avoid bandwidth contention
-      if (sessionApi.isSessionSwitching || inFlight) return;
-      inFlight = true;
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && sessionApi.isActiveOwner(owner)) {
-          const extended = list as ExtendedChatSession[];
-          if (!sessionsEqual(lastSessionsRef.current, extended)) {
-            lastSessionsRef.current = extended;
-            setSessions(extended);
-            syncSessionsGlobal(extended);
-          }
-        }
-      } catch {
-        // ignore polling errors
-      } finally {
-        inFlight = false;
-      }
-    }, 3000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [active, setSessions, selectedAgent]);
 
   const resolvedSessions = useMemo(() => {
     return sessions.filter((s) => {
@@ -276,6 +185,10 @@ export function useSessionListData(
       const owner = sessionApi.getActiveOwner();
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
+      const originalCurrentSessionId = currentSessionIdRef.current;
+      const originalCurrentChatId = sessionApi.getSessionIdentity(
+        originalCurrentSessionId,
+      ).chatId;
       if (backendId) await chatApi.deleteChat(backendId);
 
       // Per-session cleanup is safe regardless of the active agent: it is
@@ -293,7 +206,30 @@ export function useSessionListData(
       // navigation). A delete that finished after an agent switch must not
       // touch the new agent's state.
       if (!sessionApi.isActiveOwner(owner)) return;
+      const latestCurrentSessionId = currentSessionIdRef.current;
+      const canonicalId = backendId ?? sessionId;
+      // Canonical IDs take precedence over shared runtime or display aliases.
+      // Polling can clear identity while DELETE is pending. Reuse the snapshot
+      // only for the unchanged route, without overriding a newly known identity.
+      const currentChatId =
+        sessionApi.getSessionIdentity(latestCurrentSessionId).chatId ??
+        (latestCurrentSessionId === originalCurrentSessionId
+          ? originalCurrentChatId
+          : undefined) ??
+        latestCurrentSessionId;
+      const isCurrentRouteRemoved =
+        !!latestCurrentSessionId && currentChatId === canonicalId;
+      sessionApi.markRouteRemoved(canonicalId);
+      if (isCurrentRouteRemoved && latestCurrentSessionId !== canonicalId) {
+        sessionApi.markCurrentRouteRemoved(latestCurrentSessionId);
+      }
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
+
+      // Leave the deleted route before publishing the refreshed list. Otherwise
+      // route resolution can request the removed Chat while navigation settles.
+      if (isCurrentRouteRemoved) {
+        window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+      }
 
       // Fetch fresh session list after deletion
       const freshList =
@@ -301,23 +237,8 @@ export function useSessionListData(
       if (!sessionApi.isActiveOwner(owner)) return;
       setSessions(freshList);
       syncSessionsGlobal(freshList);
-
-      // Post-deletion check: if the currently displayed session no longer
-      // exists in the refreshed list, navigate to a new blank chat.
-      // This avoids all ID-format mismatch issues between URL chatId,
-      // session.id, and session.realId.
-      if (currentSessionId) {
-        const stillExists = freshList.some(
-          (s) =>
-            s.id === currentSessionId ||
-            (s as ExtendedChatSession).realId === currentSessionId,
-        );
-        if (!stillExists) {
-          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
-        }
-      }
     },
-    [sessions, currentSessionId, setSessions],
+    [sessions, setSessions],
   );
 
   const handleEditStart = useCallback(

@@ -88,6 +88,7 @@
   font-size: 12px;
 }
 .table {
+  container-type: inline-size;
   margin: 0 14px 8px;
   border: 1px solid var(--env-border);
   border-radius: 12px;
@@ -267,26 +268,34 @@
   .searchBox {
     width: auto;
   }
+}
+
+@container (max-width: 760px) {
   .row {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px 14px;
   }
+
   .identity {
     grid-column: 1 / -1;
   }
+
   .actions {
     grid-column: 1 / -1;
     justify-content: flex-end;
     padding-top: 6px;
     border-top: 1px solid var(--env-border);
   }
+
   .locked {
     justify-content: flex-end;
   }
+
   .helpButton {
     min-width: 44px;
     min-height: 44px;
   }
+
   :global(.dark-mode) .actions {
     border-top-color: var(--env-border);
   }

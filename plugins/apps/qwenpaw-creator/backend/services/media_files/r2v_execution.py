@@ -44,6 +44,7 @@ from domain.enums import (
     SpecialistRole,
     SpecialistRunStatus,
     TERMINAL_SPECIALIST_STATUSES,
+    TERMINAL_TASK_STATUSES,
     TaskKind,
     TaskStatus,
 )
@@ -99,6 +100,7 @@ from services.media_files.transient_errors import (
     transient_retry_slot_key,
 )
 from services.media_files.prompt_labels import media_prompt_entity_names
+from services.media_files.task_scratch import terminal_release_listener
 from services.project_files.prompt_sync import assert_r2v_prompt_sync
 from services.media_files.visual_reference_resolution import (
     resolve_r2v_visual_reference_version_ids,
@@ -158,14 +160,7 @@ _ACTIVE_PHASES = frozenset(
         "PUBLISHED",
     },
 )
-_TERMINAL_TASKS = frozenset(
-    {
-        TaskStatus.SUCCEEDED,
-        TaskStatus.FAILED,
-        TaskStatus.CANCELLED,
-        TaskStatus.QUARANTINED,
-    },
-)
+_TERMINAL_TASKS = TERMINAL_TASK_STATUSES
 
 logger = setup_logger("services.media_files.r2v_execution")
 
@@ -1684,7 +1679,10 @@ class FileR2VExecutionService:
             HoldAwareExecutionStore,
         )
 
-        self.executions = HoldAwareExecutionStore(services.root)
+        self.executions = HoldAwareExecutionStore(
+            services.root,
+            on_task_terminal=terminal_release_listener(services),
+        )
         self.poll_interval_seconds = float(poll_interval_seconds)
         self.poll_lease_seconds = float(poll_lease_seconds)
         self.poll_timeout_seconds = float(

@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = pytest.mark.usefixtures("installed_mcp_plugin")
+
 
 @pytest.mark.integration
 @pytest.mark.p0
@@ -299,26 +301,25 @@ def test_mcp_create_writes_driver_card_and_credentials_not_agent_json(
         agent_config = json.loads(
             (workspace_dir / "agent.json").read_text(encoding="utf-8"),
         )
-        card = yaml.safe_load(card_path.read_text(encoding="utf-8"))
+        card_yaml = card_path.read_text(encoding="utf-8")
+        card = yaml.safe_load(card_yaml)
         credentials = yaml.safe_load(
             credentials_path.read_text(encoding="utf-8"),
         )
 
         assert not flat_card_path.exists()
         assert card["protocol"] == "mcp"
-        assert card["credentials"]["static"] == {
-            "kind": "static",
-            "ref": f"mcp/{client_key}",
-        }
+        binding = card["credentials"]["static"]
+        assert binding["kind"] == "static"
         assert card["endpoint"]["env"]["ECHO_SECRET"] == {
             "source": "credential",
             "credential": "static",
             "field": "ECHO_SECRET",
         }
-        assert "secret-value" not in card_path.read_text(encoding="utf-8")
-        assert credentials["credentials"][f"mcp/{client_key}"]["secrets"][
-            "ECHO_SECRET"
-        ].startswith("ENC:")
+        assert "secret-value" not in card_yaml
+        record = credentials["credentials"][binding["ref"]]
+        assert record["kind"] == binding["kind"]
+        assert record["secrets"]["ECHO_SECRET"].startswith("ENC:")
         old_clients = (agent_config.get("mcp") or {}).get("clients") or {}
         assert client_key not in old_clients
     finally:

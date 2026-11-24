@@ -15,13 +15,15 @@ import asyncio
 import logging
 import re
 import uuid
-from functools import partial
+from collections.abc import Awaitable, Callable
+from inspect import isasyncgen
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
+    ReplyEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -33,16 +35,22 @@ from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
 from .context.overflow_recovery import call_with_overflow_recovery
+from .context.types import DecisionCompactionResult
 from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
-from .utils.message_request_normalizer import _is_media_block
+from .utils.message_request_normalizer import (
+    _is_media_block,
+    mark_media_omitted_after_overflow,
+    omitted_media_marker,
+)
 from .utils.text_block_utils import (
     drop_empty_text_blocks,
+    has_answer_content,
     sanitize_empty_text_blocks,
 )
-from ..modes.coding import CodingModeMixin
-from ..utils.io_utils import run_sync_io
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -50,7 +58,10 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
-from ..providers.error_utils import extract_status_code
+from ..providers.error_utils import (
+    extract_status_code,
+    is_request_body_too_large,
+)
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..providers.adapters.request_context import model_session
@@ -64,6 +75,15 @@ if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
+
+
+_VIDEO_COUNT_LIMIT_RE = re.compile(
+    r"\bat most (\d+) video(?:\(s\)|s)?(?!\w)",
+)
+_VIDEO_PART_REJECTION_RE = re.compile(
+    r"\b(?:unknown|unexpected)\s+(?:variant|field|part|content(?: type)?)"
+    r"\s*[:=]?\s*[`'\"]?(?:video_url|input_video)\b",
+)
 
 
 _GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
@@ -217,7 +237,7 @@ def _effective_artifact_retention_days(light_context_config: Any) -> int:
     )
 
 
-class QwenPawAgent(CodingModeMixin, Agent):
+class QwenPawAgent(Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends agentscope 2.0 ``Agent`` with:
@@ -226,7 +246,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
     - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
-    - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
     # Events a middleware wants shown in the chat stream (an injected
@@ -353,6 +372,35 @@ class QwenPawAgent(CodingModeMixin, Agent):
             instructions=instructions,
         )
 
+    @property
+    def decision_compaction_enabled(self) -> bool:
+        """Whether automatic context compaction may use the decision model."""
+        lcc = self._agent_config.running.light_context_config
+        return (
+            lcc.context_compact_config.enabled
+            and lcc.decision_compact_config.enabled
+        )
+
+    async def try_decision_compact(
+        self,
+        *,
+        tokens: int,
+        source_refs: dict[str, str] | None = None,
+    ) -> DecisionCompactionResult:
+        """Return semantic-preview commit status and its token measurement."""
+        if not self.decision_compaction_enabled:
+            return DecisionCompactionResult(changed=False, tokens_after=tokens)
+        from .context.decision_compaction import DecisionCompactor
+
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is None:
+            compactor = self._decision_compactor = DecisionCompactor()
+        return await compactor.compact(
+            self,
+            tokens=tokens,
+            source_refs=source_refs,
+        )
+
     async def _compress_context_impl(
         self,
         context_config: Any = None,
@@ -371,6 +419,23 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     instructions=instructions,
                 )
             return
+
+        if self.decision_compaction_enabled:
+            from .context import _as_internals as as_internals
+
+            cfg = context_config or self.context_config
+            target = cfg.trigger_ratio * self.model.context_size
+            # Manual /compact and overflow recovery keep explicit eviction.
+            if cfg.trigger_ratio >= self.context_config.trigger_ratio:
+                kwargs = await as_internals.prepare_model_input(self)
+                tokens = await as_internals.count_model_input_tokens(
+                    self,
+                    kwargs,
+                )
+                if tokens > target:
+                    result = await self.try_decision_compact(tokens=tokens)
+                    if result.changed and result.tokens_after <= target:
+                        return
 
         await super()._compress_context_impl(
             context_config,
@@ -505,9 +570,27 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # compress_context() on the next reasoning cycle.
             pass
 
+    async def _close_decision_compactor(self):
+        """Release the optional model without interrupting other cleanup."""
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is not None:
+            try:
+                await compactor.close()
+            except Exception:
+                logger.warning(
+                    "Decision model client close failed",
+                    exc_info=True,
+                )
+            else:
+                self._decision_compactor = None
+
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
         tool-result files."""
+        await run_async_to_completion(self._close_resources())
+
+    async def _close_resources(self) -> None:
+        """Keep all cleanup alive until resources are released."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
@@ -515,9 +598,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
-        # Scroll history: apply the retention window (if any) while the
-        # connection is still open, then release it (db + -wal + -shm fds —
-        # otherwise they accumulate across requests on a long-lived server).
+        await self._close_decision_compactor()
+
+        # Apply retention while history is available, then retire the request's
+        # manager. Workspace-owned history stays open for subsequent requests;
+        # standalone managers close their own connection.
         cm = getattr(self, "_context_manager", None)
         if cm is not None:
             if hasattr(cm, "purge_old"):
@@ -617,6 +702,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         return get_capability_cache().get(key, "rejects_audio", False)
 
+    def _model_rejects_video(self) -> bool:
+        """Check the capability cache for a learned video rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_video", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -663,6 +755,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
+        """Toggle request-time video stripping on the active formatter.
+
+        Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
+        same request stay untouched, so a session that only tripped over an
+        unsupported ``video_url`` part keeps its other media.
+        """
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_video", enabled)
+
     def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         """Propagate reasoning omissions through model wrappers."""
         model_setter = getattr(self.model, "set_thinking_omit_ids", None)
@@ -674,6 +778,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return False
         formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
         if callable(formatter_setter):
+            # Dynamic formatter implementations supply this optional method.
+            # pylint: disable-next=not-callable
             return bool(formatter_setter(set(block_ids)))
         # Compatibility for third-party OpenAI-chat formatters that predate
         # the explicit interface but consume the QwenPaw extension attribute.
@@ -698,6 +804,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if formatter is None:
             return False
         count = getattr(formatter, "_qwenpaw_last_wire_audio_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    def _last_wire_request_had_video(self) -> bool:
+        """Return whether the last completed formatting emitted video."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_video_count", 0)
         return (
             isinstance(count, int)
             and not isinstance(count, bool)
@@ -773,6 +891,41 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return True
         return False
 
+    @staticmethod
+    def _is_video_fallback_error(exc: Exception) -> bool:
+        """Recognize video type/capability rejections and count limits."""
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        error_str = " ".join(str(exc).lower().split())
+        # Schema errors can list image/audio parts as accepted alternatives.
+        if _VIDEO_PART_REJECTION_RE.search(error_str):
+            return True
+        # Broader rejections must retain the existing media-free fallback.
+        if re.search(
+            r"\b(?:images?|image_url|input_image|audios?|input_audio|"
+            r"files?|input_file|pdf|vision|media|multimodal)\b",
+            error_str,
+        ):
+            return False
+        return bool(
+            _VIDEO_COUNT_LIMIT_RE.search(error_str)
+            or "video input is not supported" in error_str
+            or re.search(
+                r"\bmodel\b.{0,40}\b(?:does not|doesn't|cannot|can't) "
+                r"support videos?\b",
+                error_str,
+            )
+            or re.search(r"\bunsupported modality\s*:\s*video\b", error_str),
+        )
+
+    @staticmethod
+    def _is_video_capability_error(exc: Exception) -> bool:
+        """Allow learning only for rejected video types or zero budgets."""
+        if not QwenPawAgent._is_video_fallback_error(exc):
+            return False
+        limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
+        return limit is None or int(limit.group(1)) == 0
+
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
         await freeze_local_images_async(self.state.context)
@@ -780,7 +933,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:
-        """Return whether *exc* is a provider 400 for an oversized input.
+        """Return whether *exc* rejects the token context length.
 
         A bare 400 is deliberately insufficient: malformed tool schemas,
         unsupported parameters, and media errors must keep their existing
@@ -810,6 +963,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return True
 
         overflow_marker_groups = (
+            (
+                "the input (",
+                "tokens)",
+                "is longer than the model's context length",
+            ),
             ("tokens", "exceeds the available context size"),
             (
                 "input token count",
@@ -831,39 +989,94 @@ class QwenPawAgent(CodingModeMixin, Agent):
         tools: list[dict],
         tool_choice: Any = None,
     ) -> Any:
-        """Call the model, recovering once from a provider input overflow.
+        """Call the model with at most two context recovery attempts.
 
-        When the provider rejects the request as too large, let the configured
-        context manager attempt recovery. Rebuild and retry only when that
-        recovery changed the model input. The retry calls AgentScope directly,
-        so a second overflow propagates instead of entering a recovery loop.
+        Body-size rejections omit media from request copies; token overflows
+        delegate to the context manager. Rebuild and retry only when recovery
+        changed the model input. Invocation and streaming share the budget.
         """
         self._index_tool_schemas(tools)
-        return await call_with_overflow_recovery(
-            super()._call_model,
-            partial(self._recover_model_overflow, tool_choice=tool_choice),
+        remaining = 2
+        call_model = super()._call_model
+
+        async def recover(exc: Exception) -> Any:
+            nonlocal remaining
+            if remaining == 0:
+                raise exc
+            remaining -= 1
+            return await self._recover_model_overflow(
+                exc,
+                tool_choice=tool_choice,
+                retry=call,
+            )
+
+        async def call(**kwargs: Any) -> Any:
+            return await call_with_overflow_recovery(
+                call_model,
+                recover,
+                **kwargs,
+            )
+
+        result = await call(
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
         )
 
+        def capture_completion(response: Any) -> None:
+            metadata = getattr(response, f"metadata", None) or {}
+            completion = metadata.get(COMPLETION_METADATA_KEY)
+            self._model_completion = (
+                dict(completion) if isinstance(completion, dict) else None
+            )
+
+        if not isasyncgen(result):
+            capture_completion(result)
+            return result
+
+        async def capture_stream():
+            try:
+                async for chunk in result:
+                    if getattr(chunk, f"is_last", False):
+                        capture_completion(chunk)
+                    yield chunk
+            finally:
+                await result.aclose()
+
+        return capture_stream()
+
     async def _recover_model_overflow(
         self,
         exc: Exception,
         tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
     ) -> Any:
-        """Compact rejected input and retry once through AgentScope."""
+        """Perform one recovery step within the caller's shared budget."""
+        body_overflow = is_request_body_too_large(exc)
+        if body_overflow and self._last_wire_request_had_media():
+            omitted = mark_media_omitted_after_overflow(self.state.context)
+            if omitted:
+                logger.warning(
+                    "Request body exceeded the limit; omitting %d "
+                    "historical media block(s) and retrying once.",
+                    omitted,
+                )
+                return await self._retry_with_refreshed_input(tool_choice)
+            # Context recovery can fold consumed tool results in the active
+            # turn. Do not silently remove media the user is asking about.
+            raise exc
+
         context_manager = getattr(self, "_context_manager", None)
         if not isinstance(
             context_manager,
             ContextManager,
-        ) or not self._is_context_overflow_error(exc):
+        ) or not (body_overflow or self._is_context_overflow_error(exc)):
             raise exc
 
         before = len(getattr(self.state, "context", []) or [])
         logger.warning(
-            "Model input exceeded the provider context limit; attempting "
-            "one context recovery.",
+            "Model input exceeded a size limit; attempting "
+            "a context recovery step.",
         )
         input_changed = await context_manager.recover_from_context_overflow(
             self,
@@ -876,21 +1089,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             raise exc
         after = len(getattr(self.state, "context", []) or [])
 
-        # The original `messages` list was prepared before compaction and
-        # can still reference evicted turns.  Always rebuild it from the
-        # updated agent state before retrying.
-        refreshed = await self._prepare_model_input()
-        refreshed_messages = refreshed["messages"]
-        refreshed_tools = refreshed.get("tools", [])
-        self._index_tool_schemas(refreshed_tools)
         logger.info(
             "Context-overflow recovery rebuilt model input "
             "(messages %d -> %d).",
             before,
             after,
         )
-        return await super()._call_model(
-            messages=refreshed_messages,
+        return await self._retry_with_refreshed_input(tool_choice, retry=retry)
+
+    async def _retry_with_refreshed_input(
+        self,
+        tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
+    ) -> Any:
+        """Rebuild input and use the caller's bounded retry when supplied."""
+        refreshed = await self._prepare_model_input()
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        call_model = retry or super()._call_model
+        return await call_model(
+            messages=refreshed["messages"],
             tools=refreshed_tools,
             tool_choice=tool_choice,
         )
@@ -994,6 +1212,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # agentscope drops ChatResponse.metadata during event conversion;
         # collect model-fallback transparency data out-of-band instead.
         fallback_sink = install_fallback_notice_sink()
+        self._model_completion = None
 
         # ── Inject background-tool results before each reasoning step ──
         await self._inject_pending_hints()
@@ -1033,6 +1252,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         should_strip_audio = (
             not should_strip_media and self._model_rejects_audio()
         )
+        should_strip_video = (
+            not should_strip_media and self._model_rejects_video()
+        )
         if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
@@ -1049,6 +1271,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             and self._uses_request_time_media_normalization()
         ):
             self._set_formatter_audio_strip(True)
+
+        if (
+            should_strip_video
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_video_strip(True)
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
@@ -1072,6 +1300,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
+            if isinstance(evt, ModelCallEndEvent):
+                self._attach_model_completion(evt)
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
@@ -1101,6 +1331,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._attach_fallback_notices(evt, fallback_sink)
                     yield evt
         except Exception as e:
+            video_fallback_retry = (
+                self._last_wire_request_had_video()
+                and self._is_video_fallback_error(e)
+            )
             audio_fallback_retry = (
                 self._last_wire_request_had_audio()
                 and self._is_audio_fallback_error(e)
@@ -1116,7 +1350,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and self._is_media_payload_rejection_error(e)
             )
             if not (
-                audio_fallback_retry
+                video_fallback_retry
+                or audio_fallback_retry
                 or media_capability_retry
                 or media_payload_retry
             ):
@@ -1125,6 +1360,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         self._set_formatter_media_strip(False)
                     if should_strip_audio:
                         self._set_formatter_audio_strip(False)
+                    if should_strip_video:
+                        self._set_formatter_video_strip(False)
                 raise
 
             model_key = self._get_model_key()
@@ -1132,7 +1369,14 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 media_capability_retry
                 and self._is_global_media_capability_error(e)
             )
-            if audio_fallback_retry:
+            if video_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected a "
+                    "video input (%s); stripping only video and retrying.",
+                    e,
+                )
+                self._set_formatter_video_strip(True)
+            elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
                     "audio payload (%s); stripping audio and retrying.",
@@ -1168,6 +1412,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     else:
                         self._attach_fallback_notices(evt, fallback_sink)
                         yield evt
+                if (
+                    model_key
+                    and video_fallback_retry
+                    and self._is_video_capability_error(e)
+                ):
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_video",
+                        True,
+                    )
                 if model_key and learn_global_rejection:
                     get_capability_cache().learn(
                         model_key,
@@ -1182,6 +1436,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             finally:
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_video_strip(False)
                     self._set_formatter_audio_strip(False)
                     self._set_formatter_media_strip(False)
         else:
@@ -1190,6 +1445,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     self._set_formatter_media_strip(False)
                 if should_strip_audio:
                     self._set_formatter_audio_strip(False)
+                if should_strip_video:
+                    self._set_formatter_video_strip(False)
+
+        stored_msg = self._get_last_msg()
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
+        self._attach_model_completion(final_msg)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -1233,8 +1495,31 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return  # outer loop continues
 
         outgoing_msg = stop_result.final_message or final_msg
+        completion = (outgoing_msg.metadata or {}).get(COMPLETION_METADATA_KEY)
+        self._model_completion = (
+            dict(completion) if isinstance(completion, dict) else None
+        )
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
+        if not has_answer_content(outgoing_msg.content):
+            raise RuntimeError(
+                f"The model returned an empty answer. "
+                f"Please retry or switch models.",
+            )
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
         yield outgoing_msg
+
+    def _attach_model_completion(self, target: Any) -> None:
+        """Keep raw completion details in events and persisted messages."""
+        if target is None:
+            return
+        completion = getattr(self, f"_model_completion", None)
+        metadata = dict(target.metadata or {})
+        if completion:
+            metadata[COMPLETION_METADATA_KEY] = dict(completion)
+        else:
+            metadata.pop(COMPLETION_METADATA_KEY, None)
+        target.metadata = metadata
 
     @staticmethod
     def _attach_fallback_notices(
@@ -1434,6 +1719,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         return
                     finally:
                         await self._flush_context_save()
+                if isinstance(evt, ReplyEndEvent):
+                    self._attach_model_completion(evt)
+                    # None explicitly clears the last model call's marker.
+                    evt.metadata.setdefault(COMPLETION_METADATA_KEY, None)
                 yield evt
         finally:
             try:
@@ -1477,19 +1766,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
         mgr.hooks.register("grep_search", default_timeout_secs=30.0)
         mgr.hooks.register("glob_search", default_timeout_secs=15.0)
-        mgr.hooks.register("ast_search", default_timeout_secs=35.0)
         mgr.hooks.register(
             "desktop_screenshot",
             default_timeout_secs=30.0,
         )
-        for name in (
-            "lsp_definition",
-            "lsp_references",
-            "lsp_rename",
-            "lsp_hover",
-            "lsp_diagnostics",
-        ):
-            mgr.hooks.register(name, default_timeout_secs=20.0)
 
         agent_id = (self._request_context or {}).get(
             "agent_id",
@@ -1596,14 +1876,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         total_stripped += stripped_count
                         stripped_this_message += stripped_count
                         if stripped_count > 0:
+                            replacement: Any = (
+                                filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                            )
+                            if filtered:
+                                # Some content survived the strip, so the
+                                # removed media would otherwise vanish without
+                                # a trace ("Image loaded: x.png" with no image).
+                                replacement = filtered + [
+                                    omitted_media_marker(filtered),
+                                ]
                             if isinstance(block, dict):
-                                block["output"] = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block["output"] = replacement
                             else:
-                                block.output = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block.output = replacement
 
                 new_content.append(block)
 

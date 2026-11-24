@@ -36,7 +36,10 @@ def model_metadata(
         template_id,
     )
     for document, source in catalog_documents(keys):
-        for key, provider in document.providers.items():
+        for key, provider in sorted(
+            document.providers.items(),
+            key=lambda item: item[0] == provider_id,
+        ):
             exact_endpoint = endpoint in {
                 url.rstrip(f"/") for url in provider.api_urls
             }
@@ -109,7 +112,10 @@ def provider_catalog_models(
     keys = matching_catalog_keys(provider_id, endpoint, f"", None)
     models = {}
     for document, _ in catalog_documents(keys):
-        for key, entry in document.providers.items():
+        for key, entry in sorted(
+            document.providers.items(),
+            key=lambda item: item[0] == provider_id,
+        ):
             if key != provider_id and endpoint not in {
                 url.rstrip(f"/") for url in entry.api_urls
             }:

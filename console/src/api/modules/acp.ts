@@ -6,30 +6,48 @@ import type {
   ACPNodeRuntimeUpdate,
 } from "../types";
 
+function agentHeaders(agentId?: string) {
+  return agentId ? { "X-Agent-Id": agentId } : undefined;
+}
+
 export const acpApi = {
-  getACPConfig: () => request<ACPConfig>("/config/acp"),
+  getACPConfig: (agentId?: string) =>
+    request<ACPConfig>("/config/acp", {
+      headers: agentHeaders(agentId),
+    }),
 
-  getACPNodeRuntime: () =>
-    request<ACPNodeRuntimeStatus>("/config/acp/node-runtime"),
+  getACPNodeRuntime: (agentId?: string) =>
+    request<ACPNodeRuntimeStatus>("/config/acp/node-runtime", {
+      headers: agentHeaders(agentId),
+    }),
 
-  getACPAgentConfig: (agentName: string) =>
-    request<ACPAgentConfig>(`/config/acp/${encodeURIComponent(agentName)}`),
+  getACPAgentConfig: (agentName: string, agentId?: string) =>
+    request<ACPAgentConfig>(`/config/acp/${encodeURIComponent(agentName)}`, {
+      headers: agentHeaders(agentId),
+    }),
 
-  updateACPConfig: (body: ACPConfig) =>
+  updateACPConfig: (body: ACPConfig, agentId?: string) =>
     request<ACPConfig>("/config/acp", {
       method: "PUT",
       body: JSON.stringify(body),
+      headers: agentHeaders(agentId),
     }),
 
-  updateACPNodeRuntime: (body: ACPNodeRuntimeUpdate) =>
+  updateACPNodeRuntime: (body: ACPNodeRuntimeUpdate, agentId?: string) =>
     request<ACPNodeRuntimeStatus>("/config/acp/node-runtime", {
       method: "PUT",
       body: JSON.stringify(body),
+      headers: agentHeaders(agentId),
     }),
 
-  updateACPAgentConfig: (agentName: string, body: ACPAgentConfig) =>
+  updateACPAgentConfig: (
+    agentName: string,
+    body: ACPAgentConfig,
+    agentId?: string,
+  ) =>
     request<ACPAgentConfig>(`/config/acp/${encodeURIComponent(agentName)}`, {
       method: "PUT",
       body: JSON.stringify(body),
+      headers: agentHeaders(agentId),
     }),
 };

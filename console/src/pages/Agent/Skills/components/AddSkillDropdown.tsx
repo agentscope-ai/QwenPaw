@@ -44,7 +44,11 @@ export function AddSkillDropdown({
       ? [
           {
             key: "from-pool",
-            label: t("skills.downloadFromPool"),
+            label: (
+              <span data-settings-target="skills.downloadFromPool">
+                {t("skills.downloadFromPool")}
+              </span>
+            ),
             icon: <DownloadOutlined size="1em" />,
             onClick: onFromPool,
           },
@@ -52,14 +56,22 @@ export function AddSkillDropdown({
       : []),
     {
       key: "upload-zip",
-      label: t("skills.uploadZip"),
+      label: (
+        <span data-settings-target="skills.uploadZip">
+          {t("skills.uploadZip")}
+        </span>
+      ),
       icon: <UploadOutlined size="1em" />,
       disabled: uploading,
       onClick: onUploadZip,
     },
     {
       key: "from-url",
-      label: t("skills.importHub"),
+      label: (
+        <span data-settings-target="skills.importHub">
+          {t("skills.importHub")}
+        </span>
+      ),
       icon: <ImportOutlined size="1em" />,
       onClick: onFromUrl,
     },
@@ -73,8 +85,9 @@ export function AddSkillDropdown({
   ];
 
   return (
-    <Dropdown menu={{ items }} placement="bottomRight">
+    <Dropdown menu={{ items }} trigger={["click"]} placement="bottomRight">
       <Button
+        data-settings-open="skill-add"
         type="primary"
         icon={<PlusOutlined size="1em" />}
         loading={uploading}

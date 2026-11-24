@@ -63,6 +63,12 @@ from services.media_files.overlay import (
     render_pet_os_overlay,
 )
 from services.media_files.motion_engine import full_engine_digest
+from services.media_files.task_scratch import (
+    link_asset_into_scratch,
+    release_scratch_file,
+    stamp_scratch_baseline,
+    terminal_release_listener,
+)
 from services.media_files.motion_overlay import (
     PreparedMotionLayer,
     caption_layout_error,
@@ -74,6 +80,14 @@ from services.media_files.motion_overlay import (
 from services.media_files.beat_grid import (
     BeatGridUnavailable,
     extract_beat_grid,
+)
+from services.media_files.motion_blueprints import (
+    subtitle_pack_animation,
+    subtitle_pack_typography,
+)
+from services.media_files.motion_design import (
+    caption_animation_for_compose,
+    caption_animation_override,
 )
 from services.media_files.motion_templates import (
     DEFAULT_CAPTION_LOCATION,
@@ -248,6 +262,7 @@ class LocalMediaInput:
     media_type: str
     path: Path
     source_ref: str
+    mutable: bool = False
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
@@ -879,6 +894,9 @@ class FfmpegLocalMediaRunner:
             ],
             cwd=spec.work_dir,
         )
+        # The mix wrote a fresh delivery, so the renamed predecessor is a full
+        # second copy of the film with no reader left.
+        release_scratch_file(premix, reason="superseded-by-audio-mix")
 
     def _probe_has_audio(self, path: Path) -> bool:
         try:
@@ -1561,6 +1579,7 @@ class FfmpegLocalMediaRunner:
                             emotion=str(overlay.get("vibe") or "chill"),
                             box_width=render_location["width"],
                             box_height=render_location["height"],
+                            **_caption_fallback_style_kwargs(overlay),
                         ),
                         "fps": 24,
                         "loop": False,
@@ -1618,6 +1637,7 @@ class FfmpegLocalMediaRunner:
                             emotion=str(overlay.get("vibe") or "chill"),
                             box_width=render_location["width"],
                             box_height=render_location["height"],
+                            **_caption_fallback_style_kwargs(overlay),
                         ),
                         fps=24,
                         loop=False,
@@ -1704,6 +1724,8 @@ class FfmpegLocalMediaRunner:
                 appear_at=overlay["appear_at"],
                 duration=overlay["duration"],
                 location=render_location,
+                style=overlay.get("subtitle_style"),
+                subtitle_template=overlay.get("subtitle_template"),
             )
         if not result.success:
             rendered.unlink(missing_ok=True)
@@ -1958,6 +1980,24 @@ class FfmpegLocalMediaRunner:
             "motion": (
                 dict(raw["motion"])
                 if isinstance(raw.get("motion"), Mapping)
+                else None
+            ),
+            # Carry the project's subtitle-bar overrides through
+            # normalisation so the plain-subtitle renderer can apply them.
+            "subtitle_style": (
+                dict(raw["subtitle_style"])
+                if isinstance(raw.get("subtitle_style"), Mapping)
+                else None
+            ),
+            # ...and the chosen style pack, whose typography the fallback PNG
+            # has to agree with.
+            "subtitle_template": raw.get("subtitle_template"),
+            # ...and the caption's own entrance/exit/loop pick, so a
+            # compose-time fallback burns the animation the user chose
+            # instead of silently reverting to the pack's signature motion.
+            "caption_animation": (
+                dict(raw["caption_animation"])
+                if isinstance(raw.get("caption_animation"), Mapping)
                 else None
             ),
         }
@@ -2288,6 +2328,7 @@ class FfmpegLocalMediaRunner:
                 "layer levels may pump",
                 spec.output_path.name,
             )
+        release_scratch_file(preloud, reason="superseded-by-loudnorm")
         return None
 
     def _run(self, arguments: Sequence[str], *, cwd: Path) -> str:
@@ -2364,6 +2405,9 @@ class _FrozenInput:
     source_ref: str
     media_type: str
     source_url: str | None = None
+    # An input a consumer rewrites in place must stay a private copy; the
+    # default shares bytes with the stored Artifact instead.
+    mutable: bool = False
     start_seconds: float | None = None
     end_seconds: float | None = None
     duration_seconds: float | None = None
@@ -2514,6 +2558,26 @@ def _ensure_real_directory_chain(root: Path, *segments: str) -> Path:
     return current
 
 
+def _ensure_task_work_dir(project_root: Path, task_id: str) -> Path:
+    """Allocate one task's scratch and baseline the reclaim sweep for it.
+
+    Allocation is where a baseline has to be recorded: a Project can arrive
+    through creation, copy, an archive import or an example install, and only
+    this path is guaranteed to run before the first byte of scratch.  The
+    stamp is idempotent and stays later than whatever the Project came with,
+    so imported leftovers keep their protected-history treatment.
+    """
+
+    work_dir = _ensure_real_directory_chain(
+        project_root,
+        "runtime",
+        "task-work",
+        task_id,
+    )
+    stamp_scratch_baseline(Path(project_root))
+    return work_dir
+
+
 def _indexed_version(
     project: Project,
     version_id: str,
@@ -2630,6 +2694,44 @@ def _motion_document_matches_text(html: str, text: str) -> bool:
     return needle in re.sub(r"\s+", "", plain)
 
 
+def _caption_fallback_style_kwargs(
+    overlay: Mapping[str, Any],
+) -> dict[str, Any]:
+    """What the last-resort caption template must burn in for one overlay.
+
+    A compose-time fallback is still the final cut: when the user picked a
+    style pack, a plain white bar under a description that says 综艺花字 would
+    recreate exactly the mismatch the subtitle style route removes.  The same
+    reasoning covers the entrance triple, so a caption that carries its own
+    ``caption_animation=`` pick keeps it here instead of dropping back to the
+    pack's signature motion — the field report this answers was "the animation
+    setting did nothing", which was really the fallback ignoring the pick.
+    Nothing picked hands back no kwargs, so the historical document is
+    reproduced byte-for-byte (``render_caption_template`` defaults *are* the
+    legacy look).
+    """
+
+    pack_id = str(overlay.get("subtitle_template") or "") or None
+    style = overlay.get("subtitle_style")
+    style_map = dict(style) if isinstance(style, Mapping) and style else None
+    stamped = overlay.get("caption_animation")
+    stamp_map = (
+        dict(stamped) if isinstance(stamped, Mapping) and stamped else None
+    )
+    if pack_id is None and style_map is None and stamp_map is None:
+        return {}
+    kwargs: dict[str, Any] = {
+        "typography": subtitle_pack_typography(pack_id),
+    }
+    if style_map is not None:
+        kwargs["style"] = style_map
+    animation = stamp_map or subtitle_pack_animation(pack_id)
+    kwargs["entrance"] = str(animation["entrance"])
+    kwargs["exit"] = str(animation["exit"])
+    kwargs["loop"] = bool(animation["loop"])
+    return kwargs
+
+
 def _motion_document_payload(
     project: Project,
     motion: Any,
@@ -2719,6 +2821,21 @@ def _edit_overlays(
             # Invalidate only this template's old forced-preset renders.
             # Generic subtitle projects retain their existing cache keys.
             template_fields["caption_renderer"] = "authored-v1"
+        # This caption's own motion pick, resolved while the model is still
+        # here: the compose worker only sees this dumped line, and the
+        # last-resort caption template would otherwise replay the pack's
+        # signature instead of what the user chose.  Absent for captions this
+        # pipeline never drew (and for the 发布会 template, which owns its
+        # lettering), so an untouched project keeps the fingerprint it had.
+        caption_animation = (
+            None
+            if template_fields
+            else caption_animation_for_compose(
+                motion,
+                project.settings.subtitle_template,
+                caption_animation_override(project.settings),
+            )
+        )
         result.append(
             {
                 **template_fields,
@@ -2737,6 +2854,23 @@ def _edit_overlays(
                 ),
                 "text": overlay.creation.text,
                 "vibe": overlay.creation.vibe,
+                # Per-project subtitle-bar overrides (colour / font size /
+                # outline).  Consumed by the deterministic plain-subtitle
+                # renderer; designed motion documents ignore it.
+                "subtitle_style": (
+                    project.settings.subtitle_style.model_dump(mode="json")
+                    if project.settings.subtitle_style is not None
+                    else None
+                ),
+                # The style pack belongs in the render fingerprint too: an
+                # overlay without a motion document still burns the pack's
+                # typography into the last-resort PNG.
+                "subtitle_template": project.settings.subtitle_template,
+                **(
+                    {"caption_animation": caption_animation}
+                    if caption_animation is not None
+                    else {}
+                ),
                 "location": (
                     location.model_dump(mode="json")
                     if location is not None
@@ -3420,7 +3554,10 @@ def _resolved_fingerprint(resolved: _ResolvedExecution) -> str:
             # old unnormalized deliveries must not be reused after the fix.
             # v11: ordinary and safety-fallback captions use borderless
             # typography, including the last-resort PNG renderer.
-            "rendererVersion": 11,
+            # v12: the subtitle style pack is drawn, not just suggested —
+            # caption templates paint the pack's typography, plate, glow and
+            # entrance/exit triple, and the fallback PNG agrees with it.
+            "rendererVersion": 12,
             **(
                 {"informalLaunchAudio": "uploaded-bgm-only-v1"}
                 if resolved.replace_native_audio
@@ -3646,7 +3783,10 @@ class FileLocalMediaExecutionService:
             HoldAwareExecutionStore,
         )
 
-        self.executions = HoldAwareExecutionStore(services.root)
+        self.executions = HoldAwareExecutionStore(
+            services.root,
+            on_task_terminal=terminal_release_listener(services),
+        )
         self.max_output_bytes = max_output_bytes
         self._closed = False
 
@@ -4153,12 +4293,7 @@ class FileLocalMediaExecutionService:
         project_root = self.services.projects.project_root(
             base.project.project_id,
         )
-        work_dir = _ensure_real_directory_chain(
-            project_root,
-            "runtime",
-            "task-work",
-            task.task_id,
-        )
+        work_dir = _ensure_task_work_dir(project_root, task.task_id)
         input_dir = _ensure_real_directory_chain(work_dir, "inputs")
         file_store = AssetFileStore(project_root)
         local_inputs: list[LocalMediaInput] = []
@@ -4190,13 +4325,27 @@ class FileLocalMediaExecutionService:
                 if destination.exists():
                     raise StorageIntegrityError("Task input scratch 已存在")
                 if frozen.indexed is not None:
-                    with (
-                        file_store.open_verified(frozen.indexed) as source,
-                        destination.open("xb") as target,
-                    ):
-                        shutil.copyfileobj(source, target, length=1024 * 1024)
-                        target.flush()
-                        os.fsync(target.fileno())
+                    # Task inputs are the Project's own immutable Artifacts, so
+                    # a hard link is the same bytes without doubling them on
+                    # disk; only an input a consumer must write to stays a
+                    # private copy.
+                    linked = not frozen.mutable and link_asset_into_scratch(
+                        file_store,
+                        frozen.indexed,
+                        destination,
+                    )
+                    if not linked:
+                        with (
+                            file_store.open_verified(frozen.indexed) as source,
+                            destination.open("xb") as target,
+                        ):
+                            shutil.copyfileobj(
+                                source,
+                                target,
+                                length=1024 * 1024,
+                            )
+                            target.flush()
+                            os.fsync(target.fileno())
                 elif frozen.source_url is not None:
                     source_version = (
                         base.project.assets.source_versions_by_id.get(
@@ -4235,6 +4384,7 @@ class FileLocalMediaExecutionService:
                     checksum=frozen.checksum,
                     media_type=frozen.media_type,
                     path=destination,
+                    mutable=frozen.mutable,
                     source_ref=frozen.source_ref,
                     start_seconds=frozen.start_seconds,
                     end_seconds=frozen.end_seconds,

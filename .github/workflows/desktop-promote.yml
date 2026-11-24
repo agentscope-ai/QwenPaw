@@ -54,13 +54,21 @@ jobs:
           # even when the release target predates those helpers.
           ref: ${{ github.workflow_sha }}
           path: .release-infra
-          sparse-checkout: scripts
+          sparse-checkout: |
+            scripts
+            src/qwenpaw/security
           persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
@@ -146,12 +154,19 @@ jobs:
 
       - name: Generate and upload OSS updater manifest
         # The Tauri auto-updater uses OSS only; GitHub Releases only carry
-        # first-install artifacts.
+        # first-install artifacts. Match the web console's stable-only policy.
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE=$(python -c \
+            'import sys; from packaging.version import Version; print(Version(sys.argv[1]).is_prerelease)' \
+            "$VERSION")
+          if [ "$IS_PRERELEASE" = "True" ]; then
+            echo "Skipping auto-update manifest for pre-release ${VERSION}"
+            exit 0
+          fi
           RELEASE_BODY="$(gh release view "${{ inputs.tag }}" --json body -q .body --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)"
           OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
           metadata_args=()

@@ -79,7 +79,10 @@ ON hub_model_requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_invites_batch ON hub_invites(batch_id);
 """
 
+DEFAULT_GATEWAY_TIMEOUT_SECONDS = 600
+
 DEFAULTS = {
+    f"gateway_timeout_seconds": DEFAULT_GATEWAY_TIMEOUT_SECONDS,
     "default_model_id": None,
     "member_token_limit": None,
     "timezone": "UTC",
@@ -113,6 +116,7 @@ class GovernanceStore:
             "SELECT * FROM hub_governance_settings WHERE singleton = 1",
         ).fetchone()
         return {
+            **DEFAULTS,
             **json.loads(row["value_json"]),
             "revision": row["revision"],
         }

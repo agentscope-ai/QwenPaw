@@ -80,20 +80,24 @@ def _image_save_options(image: Image.Image) -> dict[str, object]:
 def resize_base64_image(
     data: str,
     max_pixels: int,
+    *,
+    max_bytes: int = 0,
 ) -> tuple[str, bool]:
-    """Resize one base64 image when it exceeds ``max_pixels``.
+    """Resize a request-local image to fit pixel and optional byte limits.
 
     Returns the encoded image and whether a resize occurred. The source data
     is never changed when resizing is disabled or unnecessary.
     """
-    if max_pixels <= 0:
+    if max_pixels <= 0 and max_bytes <= 0:
         return data, False
 
     try:
         image_bytes = base64.b64decode(data)
         with Image.open(BytesIO(image_bytes)) as image:
             width, height = image.size
-            if width * height <= max_pixels:
+            fits_pixels = max_pixels <= 0 or width * height <= max_pixels
+            fits_bytes = max_bytes <= 0 or len(image_bytes) <= max_bytes
+            if fits_pixels and fits_bytes:
                 return data, False
             if getattr(image, "is_animated", False):
                 raise ValueError(
@@ -110,33 +114,38 @@ def resize_base64_image(
             image.load()
             save_options = _image_save_options(image)
             oriented = ImageOps.exif_transpose(image)
+            if image_format == "JPEG" and oriented.mode not in ("L", "RGB"):
+                converted = oriented.convert("RGB")
+                oriented.close()
+                oriented = converted
             try:
                 oriented_width, oriented_height = oriented.size
-                resized_size = _resized_dimensions(
-                    oriented_width,
-                    oriented_height,
-                    max_pixels,
-                )
-                resized = oriented.resize(
-                    resized_size,
-                    Image.Resampling.LANCZOS,
-                )
-                try:
-                    if image_format == "JPEG" and resized.mode not in (
-                        "L",
-                        "RGB",
-                    ):
-                        converted = resized.convert("RGB")
-                        resized.close()
-                        resized = converted
-                    output = BytesIO()
-                    resized.save(
-                        output,
-                        format=image_format,
-                        **save_options,
+                pixel_budget = oriented_width * oriented_height
+                if max_pixels > 0:
+                    pixel_budget = min(pixel_budget, max_pixels)
+                while True:
+                    resized_size = _resized_dimensions(
+                        oriented_width,
+                        oriented_height,
+                        pixel_budget,
                     )
-                finally:
-                    resized.close()
+                    with oriented.resize(
+                        resized_size,
+                        Image.Resampling.LANCZOS,
+                    ) as resized:
+                        output = BytesIO()
+                        resized.save(
+                            output,
+                            format=image_format,
+                            **save_options,
+                        )
+                    if max_bytes <= 0 or output.tell() <= max_bytes:
+                        break
+                    if resized_size == (1, 1):
+                        raise ValueError(
+                            "Image cannot fit the request byte limit.",
+                        )
+                    pixel_budget = max(1, pixel_budget // 2)
             finally:
                 oriented.close()
     except (

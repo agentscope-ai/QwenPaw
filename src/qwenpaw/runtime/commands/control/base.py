@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
+    from ....channel_protocol.models import ApprovalResolutionParams
     from ....app.channels.base import BaseChannel
     from ....app.workspace import Workspace
 
@@ -37,6 +38,7 @@ class ControlContext:
     user_id: str
     agent_id: str
     args: Dict[str, Any]
+    approval_resolution: ApprovalResolutionParams | None = None
 
 
 class BaseControlCommandHandler(ABC):

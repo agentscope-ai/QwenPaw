@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from qwenpaw.app.mail import driver_config
+from qwenpaw.config.config import AgentMailConfig, AgentMailCredential
 
 
 @pytest.mark.parametrize(
@@ -42,3 +43,28 @@ def test_frozen_driver_card_preserves_python_override(monkeypatch):
 
     assert command == "/custom/bin/python"
     assert args == ["-m", "qwenpawmail_mcp"]
+
+
+@pytest.mark.parametrize(
+    ("name", "domain", "expected"),
+    [
+        ("tester", "163.com", "tester@163.com"),
+        (
+            "3855686217@qq.com",
+            "qq.com",
+            "3855686217@qq.com",
+        ),
+    ],
+)
+def test_build_qwenpawmail_env_login_address(name, domain, expected):
+    """A name that is already a full address must not gain another domain."""
+    mail = AgentMailConfig(
+        is_new_account=False,
+        credential=AgentMailCredential(
+            name=name,
+            domain=domain,
+            auth_code="a" * 16,
+        ),
+    )
+    env = driver_config.build_qwenpawmail_env(mail)
+    assert env["QWENPAWMAIL_EMAIL"] == expected

@@ -18,6 +18,11 @@ from ....app.approvals import (
     get_approval_service,
 )
 from ....security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from ....channel_protocol.models import (
+    ApprovalResolutionParams,
+    ApprovalResolutionOutcome,
+)
+from ....channel_protocol.errors import ProtocolValidationError
 
 from .base import BaseControlCommandHandler, ControlContext
 
@@ -40,6 +45,22 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/approval"
+
+    @classmethod
+    def _resolution(cls, context, request_id, outcome, resolved=None):
+        if not request_id:
+            return
+        try:
+            context.approval_resolution = ApprovalResolutionParams(
+                request_id=request_id,
+                outcome=ApprovalResolutionOutcome(outcome),
+                actor_user_id=cls._actor(context).user_id,
+                tool_name=resolved.tool_name if resolved is not None else None,
+            )
+        except ProtocolValidationError:
+            # The authorization remains committed even if display data cannot
+            # fit the bounded wire result. No invented failed decision.
+            logger.warning("Approval result exceeds display contract")
 
     @staticmethod
     def _actor(context: ControlContext) -> ApprovalActor:
@@ -148,6 +169,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         # Get pending by request_id (supports cross-session)
         pending = await svc.get_request(request_id)
         if pending is None:
+            self._resolution(context, request_id, "unavailable")
             return (
                 f"❌ **审批请求不存在**\n\n"
                 f"请求 ID: `{request_id[:16]}`\n\n"
@@ -156,6 +178,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
         # Permission check: can only approve own agent's requests
         if pending.agent_id != context.agent_id:
+            self._resolution(context, request_id, "forbidden")
             return (
                 f"❌ **权限不足**\n\n"
                 f"无法审批其他Agent的工具请求。\n"
@@ -172,10 +195,13 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 actor=self._actor(context),
             )
         except ApprovalIdentityMismatchError:
+            self._resolution(context, request_id, "forbidden")
             return self._identity_denied()
 
         if resolved is None:
-            return f"审批请求已处理或已超时。\n\n" f"请求 ID: `{request_id[:16]}`"
+            self._resolution(context, request_id, "unavailable")
+            return f"审批请求已处理或已超时。\n\n请求 ID: `{request_id[:16]}`"
+        self._resolution(context, request_id, "approved", resolved)
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -216,6 +242,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         # Get pending by request_id (supports cross-session)
         pending = await svc.get_request(request_id)
         if pending is None:
+            self._resolution(context, request_id, "unavailable")
             return (
                 f"❌ **审批请求不存在**\n\n"
                 f"请求 ID: `{request_id[:16]}`\n\n"
@@ -224,6 +251,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
 
         # Permission check: can only deny own agent's requests
         if pending.agent_id != context.agent_id:
+            self._resolution(context, request_id, "forbidden")
             return (
                 f"❌ **权限不足**\n\n"
                 f"无法拒绝其他Agent的工具请求。\n"
@@ -239,10 +267,13 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 actor=self._actor(context),
             )
         except ApprovalIdentityMismatchError:
+            self._resolution(context, request_id, "forbidden")
             return self._identity_denied()
 
         if resolved is None:
-            return f"审批请求已处理或已超时。\n\n" f"请求 ID: `{request_id[:16]}`"
+            self._resolution(context, request_id, "unavailable")
+            return f"审批请求已处理或已超时。\n\n请求 ID: `{request_id[:16]}`"
+        self._resolution(context, request_id, "denied", resolved)
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -349,10 +380,14 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 actor=self._actor(context),
             )
         except ApprovalIdentityMismatchError:
+            self._resolution(context, request_id, "forbidden")
             return self._identity_denied()
 
         if resolved is None:
+            self._resolution(context, request_id, "unavailable")
             return f"❌ **审批请求不存在**\n\n" f"请求 ID: `{request_id[:16]}`"
+
+        self._resolution(context, request_id, "denied", resolved)
 
         return (
             f"✅ **审批请求已取消**\n\n"

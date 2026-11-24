@@ -1,311 +1,121 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access,redefined-outer-name
-"""Unit tests for the Tauri single-backend reconciliation guard.
+"""Runtime ownership survives clients without replacing a live backend."""
 
-The guard exists because an abnormal exit (crash / OOM / SIGKILL) leaves the
-Python sidecar orphaned, and repeated launches then stack up ~500 MB backends
-(issue #5550). The PID-reuse check in ``_looks_like_backend`` is the safety
-critical part: a recycled PID must never be killed.
-"""
-
+import json
 import os
+import runpy
+import subprocess
+import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import psutil
 import pytest
 
-from qwenpaw.tauri import backend_guard as guard
+from qwenpaw.tauri.backend_guard import BackendInstance
 
 
-def _proc(name="qwenpaw-backend", exe="/usr/bin/python3", cmdline=None):
-    """Build a fake psutil.Process whose identity probes succeed."""
-    proc = MagicMock()
-    proc.name.return_value = name
-    proc.exe.return_value = exe
-    proc.cmdline.return_value = (
-        cmdline
-        if cmdline is not None
-        else ["python3", "-m", "qwenpaw.tauri.entry"]
+@pytest.fixture(name="manifest_to_semver", scope="module")
+def _manifest_to_semver():
+    script = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "pack-tauri"
+        / "generate_update_manifest.py"
     )
-    return proc
+    return runpy.run_path(str(script))["to_semver"]
 
 
-@pytest.fixture()
-def pid_file(tmp_path):
-    return tmp_path / guard.PID_FILENAME
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("2.3.0", "2.3.0"),
+        ("2.3.0a1", "2.3.0-alpha.1"),
+        ("2.3.0b2", "2.3.0-beta.2"),
+        ("2.3.0rc3", "2.3.0-rc.3"),
+        ("2.3.0.dev1", "2.3.0-dev.1"),
+        ("2.3.0b2.dev1", "2.3.0-beta.2.dev.1"),
+        ("2.3.0.post1", "2.3.0+post.1"),
+        ("2.3.0.post1.dev2", "2.3.0-dev.2+post.1"),
+    ],
+)
+def test_runtime_lock_rejects_a_second_owner(
+    tmp_path,
+    monkeypatch,
+    version,
+    expected,
+    manifest_to_semver,
+):
+    monkeypatch.setattr(
+        "qwenpaw.tauri.backend_guard.__version__",
+        version,
+    )
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    with BackendInstance(tmp_path, "shared") as first:
+        first.publish(12345)
+        with pytest.raises(RuntimeError, match="already owns"):
+            with BackendInstance(tmp_path, "shared"):
+                pytest.fail("Two runtimes acquired the same directory")
+        record = json.loads((first.directory / "runtime.json").read_text())
+        assert record["instance"] == first.instance
+        assert record["mode"] == "shared"
+        assert record["version"] == expected
+        assert record["version"] == manifest_to_semver(version)
+        assert record["token"] == first.token
+    assert not (first.directory / "runtime.json").exists()
+    with BackendInstance(tmp_path, "shared") as replacement:
+        assert replacement.instance != first.instance
 
 
-class TestReadRecordedPid:
-    def test_reads_an_integer(self, pid_file):
-        pid_file.write_text("4242", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) == 4242
+def test_runtime_lock_is_released_after_process_death(tmp_path):
+    source = (
+        f"from pathlib import Path; import time; "
+        f"from qwenpaw.tauri.backend_guard import BackendInstance; "
+        f"instance = BackendInstance(Path({str(tmp_path)!r}), 'shared'); "
+        f"instance.__enter__(); instance.publish(12345); "
+        f"print('ready', flush=True); time.sleep(60)"
+    )
+    environment = dict(os.environ)
+    environment.pop("QWENPAW_RUNTIME_ID", None)
+    with subprocess.Popen(
+        [sys.executable, "-c", source],
+        stdout=subprocess.PIPE,
+        text=True,
+        env=environment,
+    ) as child:
+        try:
+            assert child.stdout.readline().strip() == "ready"
+            child.kill()
+            child.wait(timeout=5)
+            with BackendInstance(tmp_path, "shared") as replacement:
+                replacement.publish(23456)
+                record = json.loads(
+                    (replacement.directory / "runtime.json").read_text(),
+                )
+                assert record["port"] == 23456
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            child.stdout.close()
 
-    def test_tolerates_surrounding_whitespace(self, pid_file):
-        pid_file.write_text("  4242\n", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) == 4242
 
-    def test_missing_file_returns_none(self, pid_file):
-        assert guard._read_recorded_pid(pid_file) is None
-
-    def test_non_integer_content_returns_none(self, pid_file):
-        """A torn write must self-heal rather than raise."""
-        pid_file.write_text("not-a-pid", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) is None
-
-    def test_empty_file_returns_none(self, pid_file):
-        pid_file.write_text("", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) is None
-
-    def test_zero_pid_returns_none(self, pid_file):
-        pid_file.write_text("0", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) is None
-
-    def test_negative_pid_returns_none(self, pid_file):
-        pid_file.write_text("-7", encoding="utf-8")
-        assert guard._read_recorded_pid(pid_file) is None
-
-    def test_unreadable_file_returns_none(self, pid_file):
-        pid_file.mkdir()  # reading a directory raises OSError
-        assert guard._read_recorded_pid(pid_file) is None
+def test_modes_have_separate_discovery_records(tmp_path):
+    with BackendInstance(tmp_path, "shared") as shared:
+        with BackendInstance(tmp_path, "stdio") as stdio:
+            assert shared.directory != stdio.directory
 
 
-class TestLooksLikeBackend:
-    def test_matches_on_process_name(self):
-        assert guard._looks_like_backend(_proc(name="QwenPaw-Backend")) is True
+def test_hub_cannot_publish_a_shared_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "hub-tenant")
+    with pytest.raises(RuntimeError, match="Hub"):
+        with BackendInstance(tmp_path, "shared"):
+            pytest.fail("Hub runtime acquired shared ownership")
+    assert not (tmp_path / "runtime").exists()
 
-    def test_matches_on_executable_path(self):
-        proc = _proc(name="python3", exe="/opt/qwenpaw-backend/bin/run")
-        assert guard._looks_like_backend(proc) is True
 
-    def test_matches_on_tauri_entry_cmdline(self):
-        proc = _proc(
-            name="python3",
-            exe="/usr/bin/python3",
-            cmdline=["python3", "-m", "qwenpaw.tauri.entry"],
+def test_explicit_stop_persists_supervisor_intent(tmp_path):
+    with BackendInstance(tmp_path, "shared") as instance:
+        instance.request_stop()
+        assert (instance.directory / "stop-request").read_text() == (
+            instance.instance
         )
-        assert guard._looks_like_backend(proc) is True
-
-    def test_matches_on_backend_marker_in_cmdline(self):
-        proc = _proc(
-            name="python3",
-            exe="/usr/bin/python3",
-            cmdline=["/usr/bin/qwenpaw-backend", "--port", "1234"],
-        )
-        assert guard._looks_like_backend(proc) is True
-
-    def test_rejects_an_unrelated_process(self):
-        """🔴 PID-reuse guard: a recycled PID is not a backend."""
-        proc = _proc(
-            name="firefox",
-            exe="/usr/lib/firefox/firefox",
-            cmdline=["firefox", "--new-window"],
-        )
-        assert guard._looks_like_backend(proc) is False
-
-    def test_rejects_when_name_probe_raises(self):
-        proc = _proc()
-        proc.name.side_effect = psutil.NoSuchProcess(pid=1)
-        proc.exe.return_value = "/usr/bin/vim"
-        proc.cmdline.return_value = ["vim"]
-        assert guard._looks_like_backend(proc) is False
-
-    def test_rejects_when_all_probes_raise(self):
-        proc = MagicMock()
-        proc.name.side_effect = psutil.AccessDenied(pid=1)
-        proc.exe.side_effect = psutil.AccessDenied(pid=1)
-        proc.cmdline.side_effect = psutil.AccessDenied(pid=1)
-        assert guard._looks_like_backend(proc) is False
-
-    def test_survives_a_plain_os_error(self):
-        proc = MagicMock()
-        proc.name.side_effect = OSError("boom")
-        proc.exe.side_effect = OSError("boom")
-        proc.cmdline.side_effect = OSError("boom")
-        assert guard._looks_like_backend(proc) is False
-
-    def test_none_identity_values_do_not_raise(self):
-        proc = MagicMock()
-        proc.name.return_value = None
-        proc.exe.return_value = None
-        proc.cmdline.return_value = []
-        assert guard._looks_like_backend(proc) is False
-
-
-class TestTerminatePreviousBackend:
-    def test_no_pid_file_does_nothing(self, pid_file):
-        guard._terminate_previous_backend(pid_file)  # must not raise
-
-    def test_terminates_a_recorded_backend(self, pid_file, monkeypatch):
-        pid_file.write_text("999", encoding="utf-8")
-        proc = _proc()
-        monkeypatch.setattr(
-            guard.psutil,
-            "Process",
-            lambda pid: proc if pid == 999 else None,
-        )
-
-        guard._terminate_previous_backend(pid_file)
-
-        proc.terminate.assert_called_once()
-        proc.wait.assert_called_once()
-        proc.kill.assert_not_called()
-
-    def test_never_terminates_its_own_pid(self, pid_file, monkeypatch):
-        pid_file.write_text(str(os.getpid()), encoding="utf-8")
-        factory = MagicMock()
-        monkeypatch.setattr(guard.psutil, "Process", factory)
-
-        guard._terminate_previous_backend(pid_file)
-
-        factory.assert_not_called()
-
-    def test_skips_a_pid_reuse_victim(self, pid_file, monkeypatch):
-        """🔴 Core safety: the unrelated PID-holder must live."""
-        pid_file.write_text("999", encoding="utf-8")
-        victim = _proc(
-            name="postgres",
-            exe="/usr/lib/postgres/bin/postgres",
-            cmdline=["postgres", "-D", "/var/lib/pg"],
-        )
-        monkeypatch.setattr(guard.psutil, "Process", lambda pid: victim)
-
-        guard._terminate_previous_backend(pid_file)
-
-        victim.terminate.assert_not_called()
-        victim.kill.assert_not_called()
-
-    def test_gone_process_is_ignored(self, pid_file, monkeypatch):
-        pid_file.write_text("999", encoding="utf-8")
-
-        def raise_gone(pid):
-            raise psutil.NoSuchProcess(pid)
-
-        monkeypatch.setattr(guard.psutil, "Process", raise_gone)
-
-        guard._terminate_previous_backend(pid_file)  # must not raise
-
-    def test_inspection_error_is_swallowed(self, pid_file, monkeypatch):
-        pid_file.write_text("999", encoding="utf-8")
-
-        def raise_denied(pid):
-            raise psutil.AccessDenied(pid)
-
-        monkeypatch.setattr(guard.psutil, "Process", raise_denied)
-
-        guard._terminate_previous_backend(pid_file)  # must not raise
-
-    def test_escalates_to_kill_when_terminate_times_out(
-        self,
-        pid_file,
-        monkeypatch,
-    ):
-        pid_file.write_text("999", encoding="utf-8")
-        proc = _proc()
-        proc.wait.side_effect = psutil.TimeoutExpired(
-            guard._TERMINATE_TIMEOUT_SECONDS,
-            pid=999,
-        )
-        monkeypatch.setattr(guard.psutil, "Process", lambda pid: proc)
-
-        guard._terminate_previous_backend(pid_file)
-
-        proc.terminate.assert_called_once()
-        proc.kill.assert_called_once()
-
-    def test_vanishing_mid_terminate_is_not_an_error(
-        self,
-        pid_file,
-        monkeypatch,
-    ):
-        pid_file.write_text("999", encoding="utf-8")
-        proc = _proc()
-        proc.terminate.side_effect = psutil.NoSuchProcess(999)
-        monkeypatch.setattr(guard.psutil, "Process", lambda pid: proc)
-
-        guard._terminate_previous_backend(pid_file)
-
-        proc.kill.assert_not_called()
-
-    def test_terminate_failure_is_logged_not_raised(
-        self,
-        pid_file,
-        monkeypatch,
-    ):
-        pid_file.write_text("999", encoding="utf-8")
-        proc = _proc()
-        proc.terminate.side_effect = psutil.AccessDenied(999)
-        monkeypatch.setattr(guard.psutil, "Process", lambda pid: proc)
-
-        guard._terminate_previous_backend(pid_file)  # must not raise
-
-
-class TestWritePid:
-    def test_writes_current_pid_as_text(self, pid_file):
-        guard._write_pid(pid_file, 4242)
-        assert pid_file.read_text(encoding="utf-8") == "4242"
-
-    def test_creates_missing_parent_dirs(self, tmp_path):
-        target = tmp_path / "deep" / "nested" / guard.PID_FILENAME
-        guard._write_pid(target, 7)
-        assert target.read_text(encoding="utf-8") == "7"
-
-
-class TestReconcileSingletonBackend:
-    def test_records_the_current_pid(self, tmp_path):
-        guard.reconcile_singleton_backend(tmp_path)
-
-        recorded = (tmp_path / guard.PID_FILENAME).read_text(encoding="utf-8")
-        assert recorded == str(os.getpid())
-
-    def test_terminates_the_orphan_then_records_itself(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
-        pid_file = tmp_path / guard.PID_FILENAME
-        pid_file.write_text("999", encoding="utf-8")
-        orphan = _proc()
-        monkeypatch.setattr(
-            guard.psutil,
-            "Process",
-            lambda pid: orphan if pid == 999 else None,
-        )
-
-        guard.reconcile_singleton_backend(tmp_path)
-
-        orphan.terminate.assert_called_once()
-        assert pid_file.read_text(encoding="utf-8") == str(os.getpid())
-
-    def test_creates_the_working_dir_if_absent(self, tmp_path):
-        target = tmp_path / "not-yet-created"
-        guard.reconcile_singleton_backend(target)
-        assert (target / guard.PID_FILENAME).is_file()
-
-    def test_accepts_a_str_path(self, tmp_path):
-        guard.reconcile_singleton_backend(str(tmp_path))
-        assert (tmp_path / guard.PID_FILENAME).is_file()
-
-    def test_never_raises_when_terminate_explodes(self, tmp_path, monkeypatch):
-        """Contract: a failure here must not block backend startup."""
-        (tmp_path / guard.PID_FILENAME).write_text("999", encoding="utf-8")
-
-        def explode(pid):
-            raise RuntimeError("unexpected")
-
-        monkeypatch.setattr(guard.psutil, "Process", explode)
-
-        guard.reconcile_singleton_backend(tmp_path)  # must not raise
-
-        # It must still record the current pid.
-        assert (tmp_path / guard.PID_FILENAME).read_text(
-            encoding="utf-8",
-        ) == str(os.getpid())
-
-    def test_never_raises_when_recording_explodes(self, monkeypatch, tmp_path):
-        def deny(self, *a, **kw):
-            raise OSError("read-only fs")
-
-        monkeypatch.setattr(Path, "write_text", deny)
-
-        guard.reconcile_singleton_backend(tmp_path)  # must not raise
+    assert (instance.directory / "stop-request").exists()

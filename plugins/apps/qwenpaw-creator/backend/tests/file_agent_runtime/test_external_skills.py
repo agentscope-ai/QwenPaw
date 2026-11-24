@@ -95,7 +95,9 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert loaded["good"].available
     assert not loaded["ghost"].available and loaded["ghost"].reason
     assert not loaded["bad-md"].available
-    assert "off" not in loaded  # disabled entries are skipped entirely
+    # Disabled entries stay listed (enabled=False) so the UI can re-enable
+    # them; agent-facing consumers filter on entry.enabled.
+    assert "off" in loaded and not loaded["off"].entry.enabled
     invalid = next(s for s in loaded.values() if "invalid" in (s.reason or ""))
     assert not invalid.available
 
@@ -350,3 +352,74 @@ def test_computer_use_manual_follows_the_loaded_plugin(tmp_path, monkeypatch):
 
     manual = live_operation_guidance.load_host_computer_use_manual()
     assert manual == "Native manual"
+
+
+# ── Management reader vs agent viewer gates ──────────────────────────────────
+
+
+def test_view_skill_refuses_a_disabled_skill(tmp_path, monkeypatch) -> None:
+    """A skill disabled mid-run is not readable through the agent viewer."""
+
+    root = _write_skill(tmp_path / "demo-src")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [{"name": "demo-skill", "path": str(root), "enabled": False}],
+    )
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    # Stays listed so the UI can re-enable it, but the agent-facing viewer
+    # now refuses it (regression: it used to check only ``available``).
+    assert "demo-skill" in loaded
+    assert not loaded["demo-skill"].entry.enabled
+    with pytest.raises(external_skills.SkillExecutionError, match="disabled"):
+        external_skills.view_skill(skill_name="demo-skill")
+
+
+def test_read_skill_content_reads_disabled_and_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The management reader bypasses the enabled/available gates."""
+
+    root = _write_skill(tmp_path / "demo-src")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [
+            {"name": "demo-skill", "path": str(root), "enabled": False},
+            {"name": "ghost", "path": str(tmp_path / "nope"), "enabled": True},
+        ],
+    )
+    # A disabled skill stays editable through the management reader.
+    viewed = external_skills.read_skill_content(skill_name="demo-skill")
+    assert viewed["ok"] is True
+    assert viewed["content"] == _SKILL_MD
+    assert viewed["truncated"] is False
+    # A missing directory surfaces as a refusal, not a silently empty editor.
+    with pytest.raises(external_skills.SkillExecutionError):
+        external_skills.read_skill_content(skill_name="ghost")
+
+
+def test_read_skill_content_is_not_truncated_by_the_viewer_cap(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The editor reader round-trips the whole file, unlike view_skill."""
+
+    big_md = "---\nname: big-skill\ndescription: big\n---\n\n# Big\n\n"
+    big_md += "line\n" * 100_000
+    root = tmp_path / "big-src"
+    root.mkdir()
+    (root / "SKILL.md").write_text(big_md, encoding="utf-8")
+    _configure(
+        tmp_path,
+        monkeypatch,
+        [{"name": "big-skill", "path": str(root), "enabled": True}],
+    )
+    viewed = external_skills.view_skill(skill_name="big-skill")
+    assert viewed["truncated"] is True
+    cap = external_skills.SKILL_FILE_READ_MAX_BYTES
+    assert len(viewed["content"].encode("utf-8")) <= cap
+    full = external_skills.read_skill_content(skill_name="big-skill")
+    assert full["truncated"] is False
+    assert full["content"] == big_md

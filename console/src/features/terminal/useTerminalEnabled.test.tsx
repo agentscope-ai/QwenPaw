@@ -1,6 +1,8 @@
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { request } from "../../api/request";
+import { AuthStatusProvider } from "../../contexts/AuthStatusContext";
 import { useTerminalEnabled } from "./useTerminalEnabled";
 
 vi.mock("../../api/request", () => ({ request: vi.fn() }));
@@ -8,10 +10,36 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
+
+function authWrapper(enabled: boolean) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <AuthStatusProvider value={{ enabled, has_users: true }}>
+        {children}
+      </AuthStatusProvider>
+    );
+  };
+}
+
 describe("terminal authentication capability", () => {
+  it("does not request terminal status when authentication is disabled", () => {
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(false),
+    });
+
+    expect(result.current).toEqual({
+      enabled: false,
+      reason: "",
+      confirmed: true,
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("honors backend enabled=%s", async (enabled) => {
     vi.mocked(request).mockResolvedValue({ enabled });
-    const { result } = renderHook(() => useTerminalEnabled("agent"));
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(true),
+    });
     expect(result.current.enabled).toBe(false);
     expect(result.current.confirmed).toBe(false);
     await waitFor(() => expect(request).toHaveBeenCalled());
@@ -20,7 +48,9 @@ describe("terminal authentication capability", () => {
   });
   it("fails closed when capability loading fails", async () => {
     vi.mocked(request).mockRejectedValue(new Error("unavailable"));
-    const { result } = renderHook(() => useTerminalEnabled("agent"));
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(true),
+    });
     await waitFor(() => expect(result.current.reason).toBe("unavailable"));
     expect(result.current.enabled).toBe(false);
     expect(result.current.confirmed).toBe(false);
@@ -30,47 +60,44 @@ describe("terminal authentication capability", () => {
       enabled: false,
       reason: "dependency_missing",
     });
-    const { result } = renderHook(() => useTerminalEnabled("agent"));
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(true),
+    });
     await waitFor(() =>
       expect(result.current.reason).toBe("dependency_missing"),
     );
     expect(result.current.enabled).toBe(false);
     expect(result.current.confirmed).toBe(true);
   });
-  it("keeps a confirmed status when a focus refresh fails", async () => {
-    vi.mocked(request)
-      .mockResolvedValueOnce({ enabled: true })
-      .mockRejectedValueOnce(new Error("unavailable"));
-    const { result } = renderHook(() => useTerminalEnabled("agent"));
+  it("does not refresh a confirmed status on focus", async () => {
+    vi.mocked(request).mockResolvedValue({ enabled: true });
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(true),
+    });
     await waitFor(() => expect(result.current.enabled).toBe(true));
 
-    window.dispatchEvent(new Event("focus"));
+    act(() => window.dispatchEvent(new Event("focus")));
 
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(request).toHaveBeenCalledTimes(1);
     expect(result.current).toEqual({
       enabled: true,
       reason: "",
       confirmed: true,
     });
   });
-  it("restores the cached status when switching back to an agent", async () => {
+  it("retries an unconfirmed status on focus", async () => {
     vi.mocked(request)
-      .mockResolvedValueOnce({ enabled: true })
-      .mockImplementationOnce(() => new Promise(() => undefined));
-    const { result, rerender } = renderHook(
-      ({ agentId }) => useTerminalEnabled(agentId),
-      { initialProps: { agentId: "agent-a" } },
-    );
-    await waitFor(() => expect(result.current.enabled).toBe(true));
-
-    rerender({ agentId: "agent-b" });
-    expect(result.current.confirmed).toBe(false);
-    rerender({ agentId: "agent-a" });
-
-    expect(result.current).toEqual({
-      enabled: true,
-      reason: "",
-      confirmed: true,
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValueOnce({ enabled: true });
+    const { result } = renderHook(() => useTerminalEnabled(), {
+      wrapper: authWrapper(true),
     });
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    expect(result.current.confirmed).toBe(false);
+
+    act(() => window.dispatchEvent(new Event("focus")));
+
+    await waitFor(() => expect(result.current.enabled).toBe(true));
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });

@@ -16,12 +16,19 @@ import { LongTextPasteInput } from "./LongTextPaste";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
+import {
+  getPendingProjectDirectory,
+  setPendingProjectDirectory,
+} from "../../features/project-directory/pendingProjectDirectory";
+import { listenForProjectDirectoryChanges } from "../../features/project-directory/projectDirectoryChangeEvent";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 const {
   mockListProviders,
+  mockPreviewModelInfo,
+  mockMessageWarning,
   mockGetActiveModels,
   mockUploadFile,
   mockGetChatStatus,
@@ -41,6 +48,8 @@ const {
   mockResolvedRoutes,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
+  mockPreviewModelInfo: vi.fn(),
+  mockMessageWarning: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
   mockGetChatStatus: vi.fn(),
@@ -73,7 +82,7 @@ let observedSdkSessions: Array<{ agent: string; sessionId?: string }> = [];
 // ---------------------------------------------------------------------------
 vi.mock("../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+    message: { success: vi.fn(), error: vi.fn(), warning: mockMessageWarning },
   }),
 }));
 
@@ -151,6 +160,7 @@ vi.mock("../../features/session-settings/sessionModel", () => ({
 vi.mock("@/api/modules/provider", () => ({
   providerApi: {
     listProviders: mockListProviders,
+    previewModelInfo: mockPreviewModelInfo,
     getActiveModels: mockGetActiveModels,
   },
 }));
@@ -222,6 +232,8 @@ vi.mock("./sessionApi", () => ({
       mockResolvedRoutes.set(`${mockSelectedAgent()}:${chat.session_id}`, chat);
     }),
     getRouteResolutionVersion: vi.fn(() => 0),
+    isRouteRemoved: vi.fn(() => false),
+    clearRouteRemoval: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: (id: string) => mockSdkHistoryLoad(id),
       getSessionList: vi.fn(async () => []),
@@ -424,6 +436,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
+  useBackendCapabilities: vi.fn(() => undefined),
 }));
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
@@ -479,11 +492,11 @@ vi.mock("./components/ApprovalLevelToggle", () => ({
   default: () => <div data-testid="approval-toggle" />,
 }));
 
-vi.mock("./components/HarnessApprovalToggle", () => ({
+vi.mock("./components/BackendApprovalToggle", () => ({
   default: () => <div data-testid="harness-approval" />,
 }));
 
-vi.mock("./components/HarnessModelSelector", () => ({
+vi.mock("./components/BackendModelSelector", () => ({
   default: () => <div data-testid="harness-model" />,
 }));
 
@@ -635,6 +648,13 @@ describe("ChatPage coverage", () => {
         extra_models: [],
       },
     ]);
+    mockPreviewModelInfo.mockResolvedValue({
+      id: "gpt-4",
+      supports_multimodal: true,
+      supports_image: true,
+      supports_video: false,
+    });
+    mockMessageWarning.mockClear();
     mockGetActiveModels.mockResolvedValue({
       active_llm: { provider_id: "openai", model: "gpt-4" },
     });
@@ -661,7 +681,9 @@ describe("ChatPage coverage", () => {
     const location = useLocation();
     return (
       <>
-        <output data-testid="chat-path">{location.pathname}</output>
+        <output data-testid="chat-path">
+          {location.pathname + location.search}
+        </output>
         <ChatPage />
       </>
     );
@@ -928,7 +950,7 @@ describe("ChatPage coverage", () => {
     });
     expect(capturedOptions.session.currentSessionId).toBe(target);
     const { getDraftStorageKey } = await import("./chatInputDraft");
-    const draftKey = getDraftStorageKey("default");
+    const draftKey = getDraftStorageKey("default", target);
     localStorage.setItem(draftKey, "new route draft");
     let result: unknown;
     await act(async () => {
@@ -1655,6 +1677,42 @@ describe("ChatPage coverage", () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
+  it("preserves the latest approval target when normalizing a runtime alias", async () => {
+    const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
+    function NotificationRouteHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button
+            onClick={() =>
+              navigate(`/chat/${runtimeId}?approval=second&agent=default`)
+            }
+          >
+            Open notification
+          </button>
+          <RouteHarness />
+        </>
+      );
+    }
+    renderWithProviders(<NotificationRouteHarness />, {
+      initialEntries: [`/chat/${runtimeId}?approval=first&agent=default`],
+    });
+    await screen.findByTestId("chat-ui");
+    fireEvent.click(screen.getByRole("button", { name: "Open notification" }));
+    const session = (await import("./sessionApi")).default;
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) =>
+      id === runtimeId ? chatId : id,
+    );
+
+    await act(async () => session.onSessionSelected?.(runtimeId, chatId));
+
+    expect(screen.getByTestId("chat-path")).toHaveTextContent(
+      `/chat/${chatId}?approval=second&agent=default`,
+    );
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) => id);
+  });
+
   it("migrates a queued runtime alias before selecting its Chat UUID", async () => {
     const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
     const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
@@ -1911,17 +1969,44 @@ describe("ChatPage coverage", () => {
   });
 
   // ── sender attachments trigger renders ─────────────────────────────────
-  it("sender attachments trigger function renders tooltip", async () => {
+  it("sender attachments trigger has a localized accessible name", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
     const attachments = capturedOptions?.sender?.attachments;
-    if (attachments?.trigger) {
-      const element = attachments.trigger({ disabled: false });
-      expect(element).toBeTruthy();
-    }
+    expect(attachments?.trigger).toBeTypeOf("function");
+    const element = attachments.trigger({ disabled: false });
+    renderWithProviders(element);
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
+  });
+
+  it("loads image capabilities when provider summaries omit models", async () => {
+    mockListProviders.mockResolvedValue([
+      { id: "openai", models: [], extra_models: [] },
+    ]);
+    mockPreviewModelInfo.mockResolvedValue({
+      id: "gpt-4",
+      supports_image: true,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await waitFor(() =>
+      expect(mockPreviewModelInfo).toHaveBeenCalledWith("openai", "gpt-4"),
+    );
+    const onSuccess = vi.fn();
+    await act(async () => {
+      await capturedOptions.sender.attachments.customRequest({
+        file: new File(["image"], "test.png", { type: "image/png" }),
+        onSuccess,
+        onError: vi.fn(),
+      });
+    });
+    expect(onSuccess).toHaveBeenCalled();
+    expect(mockMessageWarning).not.toHaveBeenCalled();
   });
 
   // ── file upload: multimodal warning path ───────────────────────────────
@@ -2173,6 +2258,56 @@ describe("ChatPage coverage", () => {
       user_id: "user-a",
     });
   });
+
+  it.each([true, false])(
+    "confirms pending directories only after a successful first request (ok=%s)",
+    async (ok) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/sdk-chat-uuid"],
+      });
+      await screen.findByTestId("chat-ui");
+      setPendingProjectDirectory("default", "sdk-chat-uuid", [
+        { path: "/projects/custom", label: null },
+      ]);
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok,
+        status: ok ? 200 : 500,
+        body: null,
+      } as Response);
+      const onDirectoryChanged = vi.fn();
+      const unsubscribe = listenForProjectDirectoryChanges(onDirectoryChanged);
+      const submission = {
+        session_id: "sdk-chat-uuid",
+        input: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      };
+      try {
+        await capturedOptions.api.fetch(submission);
+
+        expect(getPendingProjectDirectory("default", "sdk-chat-uuid")).toBe(
+          ok ? null : "/projects/custom",
+        );
+        if (ok) {
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        } else {
+          expect(onDirectoryChanged).not.toHaveBeenCalled();
+          await capturedOptions.api.fetch(submission);
+          expect(
+            getPendingProjectDirectory("default", "sdk-chat-uuid"),
+          ).toBeNull();
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        }
+      } finally {
+        unsubscribe();
+        setPendingProjectDirectory("default", "sdk-chat-uuid", null);
+      }
+    },
+  );
 
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {
@@ -2871,7 +3006,10 @@ describe("ChatPage coverage", () => {
       });
       await screen.findByTestId("chat-ui");
       const { getDraftStorageKey } = await import("./chatInputDraft");
-      const key = getDraftStorageKey("default");
+      const key = getDraftStorageKey(
+        "default",
+        route === "/chat" ? undefined : "test-session",
+      );
       // Direct submission is available only after history and ownership settle.
       const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
       await waitFor(() =>
@@ -2926,7 +3064,7 @@ describe("ChatPage coverage", () => {
       ),
     );
     const { getDraftStorageKey } = await import("./chatInputDraft");
-    const key = getDraftStorageKey("default");
+    const key = getDraftStorageKey("default", chatId);
     localStorage.setItem(key, "submitted-draft");
     let finish!: (status: { status: string }) => void;
     mockGetChatStatus.mockImplementationOnce(
@@ -2945,6 +3083,122 @@ describe("ChatPage coverage", () => {
     expect(await submission).toMatchObject({ proceed: true, clear: true });
     expect(localStorage.getItem(key)).toBe("newer-draft");
     localStorage.removeItem(key);
+  });
+
+  function ComposerHarness() {
+    return (
+      <>
+        <div className="sender">
+          <textarea aria-label="composer" />
+        </div>
+        <ChatPage />
+      </>
+    );
+  }
+
+  function composerTextarea(): HTMLTextAreaElement {
+    const textarea = screen.getByRole("textbox", { name: "composer" });
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("composer is not a textarea");
+    }
+    return textarea;
+  }
+
+  it("does not restore a legacy per-agent draft into a new chat", async () => {
+    localStorage.clear();
+    const legacy = "qwenpaw_chat_input_draft_default";
+    localStorage.setItem(
+      legacy,
+      JSON.stringify({
+        value: "stale legacy",
+        selectionStart: 0,
+        selectionEnd: 0,
+      }),
+    );
+    const { setTextareaValue } = await import("./utils");
+    vi.mocked(setTextareaValue).mockClear();
+    renderWithProviders(<ComposerHarness />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    expect(vi.mocked(setTextareaValue)).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "stale legacy",
+    );
+    expect(localStorage.getItem(legacy)).toBeNull();
+    localStorage.clear();
+  });
+
+  it("keeps text typed on /chat when that chat receives a real session id", async () => {
+    localStorage.clear();
+    renderWithProviders(<ComposerHarness />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = composerTextarea();
+    textarea.value = "follow up";
+    textarea.selectionStart = 9;
+    textarea.selectionEnd = 9;
+    fireEvent.input(textarea);
+
+    const { getDraftStorageKey } = await import("./chatInputDraft");
+    const pending = getDraftStorageKey("default");
+    expect(localStorage.getItem(pending)).toContain("follow up");
+
+    const legacy = "qwenpaw_chat_input_draft_default";
+    if (legacy !== pending) {
+      localStorage.setItem(
+        legacy,
+        JSON.stringify({
+          value: "stale legacy",
+          selectionStart: 0,
+          selectionEnd: 0,
+        }),
+      );
+    }
+
+    const realId = "75590000-0000-4000-8000-000000000099";
+    const session = (await import("./sessionApi")).default as {
+      onSessionIdResolved: ((tempId: string, realId: string) => void) | null;
+    };
+    expect(session.onSessionIdResolved).toEqual(expect.any(Function));
+    const { setTextareaValue } = await import("./utils");
+    vi.mocked(setTextareaValue).mockClear();
+    await act(async () => {
+      session.onSessionIdResolved?.("1710000000000-ab12", realId);
+    });
+
+    const sessionKey = getDraftStorageKey("default", realId);
+    await waitFor(() => {
+      expect(localStorage.getItem(sessionKey)).toContain("follow up");
+    });
+    const applied = vi
+      .mocked(setTextareaValue)
+      .mock.calls.map((call) => call[1]);
+    expect(applied).toContain("follow up");
+    expect(applied).not.toContain("");
+    expect(localStorage.getItem(sessionKey)).not.toContain("stale legacy");
+    expect(localStorage.getItem(pending)).toBeNull();
+    expect(localStorage.getItem(legacy)).toBeNull();
+    localStorage.clear();
+  });
+
+  it("does not move a blank-route draft onto a local timestamp id", async () => {
+    localStorage.clear();
+    renderWithProviders(<ComposerHarness />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+    const textarea = composerTextarea();
+    textarea.value = "still drafting";
+    fireEvent.input(textarea);
+    const { getDraftStorageKey } = await import("./chatInputDraft");
+    const pending = getDraftStorageKey("default");
+    const session = (await import("./sessionApi")).default as {
+      onSessionCreated: ((sessionId: string) => void) | null;
+    };
+    await act(async () => {
+      session.onSessionCreated?.("1710000000000-ab12");
+    });
+    expect(localStorage.getItem(pending)).toContain("still drafting");
+    expect(
+      localStorage.getItem(getDraftStorageKey("default", "1710000000000-ab12")),
+    ).toBeNull();
+    localStorage.clear();
   });
 
   // ── customFetch with session in input ──────────────────────────────────

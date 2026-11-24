@@ -53,6 +53,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Secure Python certificate dependencies
+        if: steps.draft.outputs.value != 'true'
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
       - name: Update setuptools and wheel
         if: steps.draft.outputs.value != 'true'
         run: |

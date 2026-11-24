@@ -226,6 +226,11 @@ const HOME_VIEWS: { key: HomeView; labelKey: string; icon: string }[] = [
   { key: "projects", labelKey: "home.myProjects", icon: tabProjectsIcon },
 ];
 
+// Mirrors the QwenPaw console's subtle `v{version}` badge next to the brand.
+// typeof-guarded so a runner without the vite define still renders the brand.
+const creatorVersion =
+  typeof __CREATOR_VERSION__ === "string" ? __CREATOR_VERSION__ : "";
+
 export default function HomePage() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -493,6 +498,14 @@ export default function HomePage() {
               <span className="hero-title-creator !text-[25px] !leading-[34px]">
                 Creator
               </span>
+              {creatorVersion && (
+                <span
+                  className="self-end pb-1 text-xs leading-none text-[#1a171673] dark:text-[var(--color-text-secondary)]"
+                  title={`QwenPaw Creator v${creatorVersion}`}
+                >
+                  v{creatorVersion}
+                </span>
+              )}
             </span>
           </div>
           <div

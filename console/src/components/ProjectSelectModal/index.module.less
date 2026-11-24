@@ -1,3 +1,5 @@
+@import (reference) "../../styles/fileDropZone.less";
+
 .modal {
   :global(.ant-modal-body) {
     padding: 12px 24px 20px;
@@ -96,52 +98,22 @@
   line-height: 1.5;
 }
 
-// ---- Drop zone (EXACT same CSS as PluginManager/index.module.less) -------
+// ---- Shared file drop zone ------------------------------------------------
 
 .dropZone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 36px 24px;
-  border: 1.5px dashed var(--app-border-strong);
-  border-radius: 10px;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
-  user-select: none;
-
-  &:hover {
-    border-color: var(--app-accent);
-    background: var(--app-accent-soft);
-
-    .dropIcon {
-      color: var(--app-accent);
-    }
-  }
+  .file-drop-zone();
 }
 
 .dropZoneActive {
-  border-color: var(--app-accent) !important;
-  background: var(--app-accent-soft) !important;
-
-  .dropIcon {
-    color: var(--app-accent) !important;
-  }
+  .file-drop-active() !important;
 }
 
 .dropIcon {
-  color: var(--app-text-quaternary);
-  transition: color 0.2s ease;
-  margin-bottom: 4px;
+  .file-drop-icon();
 }
 
 .dropPrimary {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--app-text);
+  .file-drop-primary();
 }
 
 .dropSecondary {
@@ -149,25 +121,14 @@
   color: var(--app-text-secondary);
 }
 
-// ---- Selected path card (EXACT same as PluginManager selectionCard) ------
+// ---- Shared selected path card --------------------------------------------
 
 .selectionCard {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--app-border-strong);
-  border-radius: 8px;
-  background: var(--app-fill-faint);
-  color: var(--app-text);
+  .file-selection-card();
 }
 
 .selectionName {
-  flex: 1;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  .file-selection-name();
 }
 
 // ---- Open Directory: server-side file browser -----------------------------

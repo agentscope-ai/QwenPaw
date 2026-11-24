@@ -39,8 +39,17 @@ from qwenpaw.app.mail.monitor import (
 )
 from qwenpaw.utils.io_utils import run_sync_io
 
-
 _HAN_RE = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+@pytest.fixture(autouse=True)
+def _available_mcp(monkeypatch):
+    """Mail domain tests run against a healthy host; no external plugin I/O."""
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: True,
+    )
+
 
 # ── test doubles ─────────────────────────────────────────────────────
 
@@ -242,6 +251,23 @@ async def _run_pipeline(
         uid,
         envelope,
     )
+
+
+def test_unavailable_mcp_does_not_consume_mail_or_execute_rules(
+    tmp_path,
+    monkeypatch,
+):
+    service, workspace = _service(tmp_path, mode="agent_all")
+    service._last_uid = 4
+    connection = FakeImapConn(b"5")
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: False,
+    )
+    service._check_new_messages(connection)
+    assert service._last_uid == 4
+    assert connection.calls == []
+    assert workspace.queries == []
 
 
 # ── rule matching ─────────────────────────────────────────────────────
@@ -2185,6 +2211,36 @@ def test_mailbox_credential_rotation_keeps_watermark(tmp_path):
     rotated._load_state()
 
     assert rotated._last_uid == 42
+
+
+@pytest.mark.parametrize(
+    ("name", "domain", "expected"),
+    [
+        ("tester", "163.com", "tester@163.com"),
+        (
+            "3855686217@qq.com",
+            "qq.com",
+            "3855686217@qq.com",
+        ),
+        ("user@qq.com", "163.com", "user@qq.com"),
+    ],
+)
+def test_monitor_login_address_keeps_full_address(
+    tmp_path,
+    name,
+    domain,
+    expected,
+):
+    """IMAP login uses name as-is when it already contains '@'."""
+    config = _mail_config()
+    config.credential.name = name
+    config.credential.domain = domain
+    service = MailMonitorService(
+        agent_id="test-agent",
+        workspace=FakeWorkspace(tmp_path),
+        mail_config=config,
+    )
+    assert service.email_address == expected
 
 
 def test_empty_mailbox_persists_zero_baseline(tmp_path):

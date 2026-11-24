@@ -11,6 +11,10 @@
 /** Route id of the aggregate System Settings window. */
 export const SETTINGS_APP_ID = "os.settings";
 
+const ROUTE_OWNER_OVERRIDES: Readonly<Record<string, string>> = {
+  "core.acp-alias": "core.acp",
+};
+
 /** Minimal route shape needed here (matches ResolvedRoute from the registry). */
 export interface RouteLike {
   id: string;
@@ -24,11 +28,13 @@ export interface RouteLike {
  * opens System Settings and selects the matching pane.
  */
 export const SETTINGS_ROUTE_IDS = new Set<string>([
+  "core.community",
   "core.agents",
   "core.models",
   "core.skill-pool",
   "core.environments",
   "core.security",
+  "core.offload-policy",
   "core.token-usage",
   "core.backups",
   "core.voice-transcription",
@@ -86,6 +92,8 @@ function routeMatchScore(pathname: string, routePath: string): number {
 }
 
 function bundleRouteId(route: RouteLike, routes: RouteLike[]): string {
+  const ownerOverride = ROUTE_OWNER_OVERRIDES[route.id];
+  if (ownerOverride) return ownerOverride;
   if (route.source === undefined || route.source === "core") return route.id;
   return (
     routes.find(

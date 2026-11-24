@@ -34,7 +34,8 @@ vi.mock("../../features/files-workspace/ResponseArtifactList", () => ({
 vi.mock("../../components/Chat/MediaDownload", () => ({
   DownloadableAudios: () => null,
 }));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 // Keep the real vendor Request/Card and SDK contexts. Only visual leaves are
@@ -140,6 +141,52 @@ afterEach(() => {
 });
 
 describe("merged host bubbles behavior", () => {
+  it.each(["expanded", "result-collapsed", "process-collapsed"] as const)(
+    "keeps a truncation warning visible with %s messages",
+    (preference) => {
+      setAssistantMessageDisplayPreference(preference);
+      const markdown = vi
+        .spyOn(assistantMarkdown, "AssistantMarkdown")
+        .mockImplementation(({ content }) => <p>{content}</p>);
+      try {
+        render(
+          provider(
+            <HostResponseCard
+              id="truncated"
+              data={{
+                id: "response",
+                status: AgentScopeRuntimeRunStatus.Completed,
+                output: [
+                  {
+                    id: "partial",
+                    role: "assistant",
+                    type: AgentScopeRuntimeMessageType.MESSAGE,
+                    status: AgentScopeRuntimeRunStatus.Completed,
+                    content: [{ type: "text", text: "partial answer" }],
+                    metadata: {
+                      metadata: {
+                        qwenpaw_model_completion: {
+                          finish_reason: "length",
+                          truncated: true,
+                        },
+                      },
+                    },
+                  },
+                ],
+              }}
+            />,
+          ),
+        );
+        expect(screen.getByText("partial answer")).toBeInTheDocument();
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "chat.outputTruncated",
+        );
+      } finally {
+        markdown.mockRestore();
+      }
+    },
+  );
+
   it.each([
     [undefined, AgentScopeRuntimeRunStatus.InProgress, true],
     [null, AgentScopeRuntimeRunStatus.InProgress, true],
@@ -227,7 +274,9 @@ describe("merged host bubbles behavior", () => {
         />,
       ),
     );
-    expect(screen.getByText("reasoning content")).toBeInTheDocument();
+    const reasoning = screen.getByText("reasoning content");
+    expect(reasoning).toBeInTheDocument();
+    expect(reasoning.parentElement?.className).toContain("reasoningStep");
     expect(screen.getByText("tool content")).toBeInTheDocument();
     expect(screen.queryByTestId("steps")).not.toBeInTheDocument();
     await act(async () => {

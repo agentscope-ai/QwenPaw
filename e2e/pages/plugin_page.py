@@ -64,7 +64,48 @@ class PluginPage(BasePage):
     # ----- Plugin Market compatibility (upstream #5661) -----
     # Catalog rows share CSS-module classes with the Official list
     # (OfficialPluginList.module.less), matched by basename substring.
-    MARKET_ROW = '[class*="catalogRow"], article[class*="pluginCard"]'
+    #
+    # Pane scope is mandatory, not cosmetic: all three Plugin Manager tabs
+    # (Installed / Official / Market) render cards/rows with the SAME
+    # CSS-module classes (InstalledPluginList and OfficialPluginList import
+    # MarketPluginList.module.less), and antd Tabs keep inactive panes in
+    # the DOM (display:none; no destroyInactiveTabPane is configured). A
+    # global ``.first`` therefore resolves to the FIRST pane in DOM order
+    # (Installed). Before #8128 that pane was empty and the miss was
+    # harmless; #8128 seeds four built-in hub plugins into it, so the
+    # hidden ``<article aria-label="ModelScope Hub" ...>`` now shadows the
+    # Market rows forever (nightly 2026-10-13/14: "123 x locator resolved
+    # to hidden"). Scope every Market selector to the active tab pane.
+    # Live probe 2026-10-15 (version-aligned local build, frontend and
+    # backend both at the CI head) settled the scope anchor: rc-tabs
+    # gives every pane a STABLE id ``rc-tabs-<n>-panel-<key>`` (key comes
+    # from the Tabs items, here "market"), while the ``-active`` class is
+    # only swapped after a React commit (~90 ms in the probe). During
+    # that window ``.qwenpaw-tabs-tabpane-active`` still names the OLD
+    # pane, so a locator resolved then pins the hidden Installed pane's
+    # toggle and Playwright keeps retrying that same hidden handle for
+    # the whole timeout (nightly 2026-10-15: "112 x element is not
+    # visible" while the failure screenshot shows the Market toggle
+    # plainly visible). Scoping by pane id is immune to the window and
+    # to the active-class swap alike.
+    MARKET_TABPANE = '[id$="panel-market"]'
+    MARKET_ROW = (
+        '[id$="panel-market"] [class*="catalogRow"], '
+        '[id$="panel-market"] article[class*="pluginCard"]'
+    )
+    # The card/list view toggle (PluginViewToggle) is rendered once PER
+    # pane with identical aria-labels in all three lists, so it needs the
+    # same pane scope: the unscoped variant clicked the HIDDEN Installed
+    # pane's toggle, the click raised, and a bare ``except: pass`` swallowed
+    # it -- leaving the Market pane in card view where catalogRow never
+    # renders (failure screenshot 2026-10-14 shows the Market tab active
+    # with both mocked cards still in card view). Note the toggle is a
+    # design-library segmented control (label > input + item-label > the
+    # aria-labelled span); there is NO button[role="tab"] layer to click.
+    MARKET_LIST_TOGGLE = (
+        '[id$="panel-market"] span[aria-label*="List view"], '
+        '[id$="panel-market"] span[aria-label*="列表"]'
+    )
     # antd Tag with prefixCls=qwenpaw; text is "QwenPaw <labels>"
     COMPAT_TAG_GREEN = '.qwenpaw-tag-green:has-text("QwenPaw")'
     COMPAT_TAG_ORANGE = '.qwenpaw-tag-orange:has-text("QwenPaw")'

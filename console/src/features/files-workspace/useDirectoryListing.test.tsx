@@ -27,6 +27,33 @@ function page(name: string, cursor: string | null = null): DirectoryPage {
   };
 }
 
+function entriesPage(
+  entries: DirectoryPage["entries"],
+  cursor: string | null = null,
+): DirectoryPage {
+  return {
+    directory: "",
+    entries,
+    next_cursor: cursor,
+    has_more: cursor !== null,
+  };
+}
+
+function file(
+  path: string,
+  overrides: Partial<DirectoryPage["entries"][number]> = {},
+): DirectoryPage["entries"][number] {
+  return {
+    name: path,
+    path,
+    kind: "file",
+    size: 1,
+    modified_at: "2026-10-09T00:00:00Z",
+    preview_kind: "text",
+    ...overrides,
+  };
+}
+
 function deferred() {
   let resolve!: (value: DirectoryPage) => void;
   let reject!: (reason: Error) => void;
@@ -203,5 +230,76 @@ describe("directory listing request lifecycle", () => {
     );
     await act(async () => old.resolve(page("stale.txt")));
     expect(result.current.entries[0].name).toBe("fresh.txt");
+  });
+
+  it("reuses unchanged entry identities across a refresh", async () => {
+    listDirectory.mockImplementation(async () => page("same.txt"));
+    const { result, rerender } = renderListing();
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+    const original = result.current.entries[0];
+
+    rerender({ ...initialProps, revision: 1 });
+    await waitFor(() => expect(listDirectory).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.entries[0]).toBe(original);
+  });
+
+  it.each([
+    ["name", "renamed.txt"],
+    ["path", "moved.txt"],
+    ["kind", "directory"],
+    ["size", 2],
+    ["modified_at", "2026-10-10T00:00:00Z"],
+    ["preview_kind", "binary"],
+  ] as const)("creates a new entry when %s changes", async (field, value) => {
+    const original = file("same.txt");
+    const changed = { ...original, [field]: value };
+    listDirectory
+      .mockResolvedValueOnce(entriesPage([original]))
+      .mockResolvedValueOnce(entriesPage([changed]));
+    const { result, rerender } = renderListing();
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+    const originalResult = result.current.entries[0];
+
+    rerender({ ...initialProps, revision: 1 });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.entries[0]).not.toBe(originalResult);
+    expect(result.current.entries[0][field]).toBe(value);
+  });
+
+  it("preserves identities through multi-page insertion, deletion, and reorder", async () => {
+    const first = file("first.txt");
+    const removed = file("removed.txt");
+    const last = file("last.txt");
+    listDirectory
+      .mockResolvedValueOnce(entriesPage([first, removed], "old-page-2"))
+      .mockResolvedValueOnce(entriesPage([last]));
+    const { result, rerender } = renderListing();
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+    await act(async () => result.current.loadMore());
+    const identities = new Map(
+      result.current.entries.map((entry) => [entry.path, entry]),
+    );
+    const inserted = file("inserted.txt");
+    listDirectory
+      .mockResolvedValueOnce(
+        entriesPage([{ ...last }, { ...first }], "new-page-2"),
+      )
+      .mockResolvedValueOnce(entriesPage([inserted]));
+
+    rerender({ ...initialProps, revision: 1 });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.entries.map((entry) => entry.path)).toEqual([
+      "last.txt",
+      "first.txt",
+      "inserted.txt",
+    ]);
+    expect(result.current.entries[0]).toBe(identities.get("last.txt"));
+    expect(result.current.entries[1]).toBe(identities.get("first.txt"));
+    expect(result.current.entries[2]).not.toBe(identities.get("removed.txt"));
+    expect(result.current.hasMore).toBe(false);
   });
 });

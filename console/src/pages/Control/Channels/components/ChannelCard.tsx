@@ -49,7 +49,7 @@ export const ChannelCard = React.memo(function ChannelCard({
           }
         }}
         className={styles.channelCard}
-        bodyStyle={{ padding: 24 }}
+        styles={{ body: { padding: 24 } }}
       >
         {/* Top section: Icon and Status */}
         <div className={styles.cardTopSection}>

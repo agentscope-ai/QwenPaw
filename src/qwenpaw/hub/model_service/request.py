@@ -24,6 +24,7 @@ class GatewayRequest:
         self.catalog = catalog
         self.stack = AsyncExitStack()
         self.reservation = None
+        self.upstream_key = None
         self._closing = None
 
     @property
@@ -59,10 +60,10 @@ class GatewayRequest:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    async def dispatch(self):
+    async def dispatch(self, timeout):
         """Persist dispatch before the transport can send upstream bytes."""
         with anyio.CancelScope(shield=True):
-            await run_sync_io(self.budgets.dispatch, self.request_id)
+            await run_sync_io(self.budgets.dispatch, self.request_id, timeout)
         await anyio.lowlevel.checkpoint()
 
     async def close(self, actual=None, error=None):
