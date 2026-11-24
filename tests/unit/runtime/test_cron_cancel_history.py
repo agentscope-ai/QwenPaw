@@ -171,10 +171,8 @@ async def test_restoration_is_not_duplicated_on_cancel(
         agent=agent,
         session_id="cron:test",
         request=SimpleNamespace(user_id="user", channel="console"),
-        workspace=SimpleNamespace(
-            session=session,
-            config=SimpleNamespace(session_persistence=True),
-        ),
+        workspace=SimpleNamespace(session=session),
+        agent_config=SimpleNamespace(session_persistence=True),
     )
     await CronMemoryIsolateHook().run(ctx)
     new = message("new")
@@ -211,10 +209,8 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
         agent=agent,
         session_id="cron:test",
         request=SimpleNamespace(user_id="user", channel="console"),
-        workspace=SimpleNamespace(
-            session=session,
-            config=SimpleNamespace(session_persistence=True),
-        ),
+        workspace=SimpleNamespace(session=session),
+        agent_config=SimpleNamespace(session_persistence=True),
         mode_state={},
     )
     await CronMemoryIsolateHook().run(ctx)

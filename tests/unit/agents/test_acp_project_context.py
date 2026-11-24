@@ -165,9 +165,26 @@ async def test_acp_config_precedence_and_instance_isolation(
     assert workspace.approval_levels[-1] == workspace.approval_levels[-2]
     assert agent._sessions[first.session_id].config.active_model == selected
 
+    new_default = ModelSlotConfig(provider_id="test", model="new-default")
+    refreshed = base.model_copy(update={"active_model": new_default})
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.load_persisted_agent_config",
+        lambda _agent_id: refreshed,
+    )
+    new = await agent.new_session(cwd=str(tmp_path))
+    assert new.models.current_model_id == "test:new-default"
+    await agent.prompt([text_block("selected model")], first.session_id)
+    await agent.prompt([text_block("inherited model")], second.session_id)
+    assert workspace.configs[-2].active_model == selected
+    assert workspace.configs[-1].active_model == new_default
+
 
 async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
-    agent = _TestACPAgent(_FakeWorkspace())
+    default_dir = tmp_path / "default"
+    default_dir.mkdir()
+    defaults = {"project_dir": str(default_dir)}
+    agent = _TestACPAgent(_FakeWorkspace(), config_overrides=defaults)
+    agent.on_connect(_FakeConn())
     session = await agent.new_session(
         cwd="original",
         **{
@@ -184,6 +201,7 @@ async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
     )
     assert agent._sessions[session.session_id].config.project_dirs == [
         {"path": "updated"},
+        {"path": str(default_dir)},
     ]
     directories = [{"path": str(tmp_path), "access": "read_write"}]
     await agent.resume_session(
@@ -192,15 +210,31 @@ async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
         **{ACP_CONFIG_META_KEY: {"project_dirs": directories}},
     )
     info = agent._sessions[session.session_id]
-    assert info.config.project_dir is None
+    assert info.config.project_dir == str(tmp_path)
     assert info.config.project_dirs == directories
+    await agent.resume_session(
+        cwd="ignored",
+        session_id=session.session_id,
+        **{ACP_CONFIG_META_KEY: {"project_dirs": []}},
+    )
+    await agent.resume_session(cwd="ignored", session_id=session.session_id)
+    config = agent._sessions[session.session_id].config
+    assert config.project_dir is None
+    assert config.project_dirs == []
+    resolved = resolve_effective_project_dirs(
+        tmp_path,
+        agent_project_dir=config.project_dir,
+        agent_project_dirs=agent_project_dirs_from_config(config),
+    )
+    assert resolved.is_workspace_fallback
+    assert resolved.primary.path == tmp_path
     await agent.load_session(
         cwd="old-client",
         session_id=session.session_id,
         **{ACP_CONFIG_META_KEY: {}},
     )
-    assert (
-        agent._sessions[session.session_id].config.project_dir == "old-client"
+    assert agent._sessions[session.session_id].config.project_dir == str(
+        default_dir,
     )
 
     temporary = await agent.new_session(
@@ -218,7 +252,7 @@ async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
         **{ACP_CONFIG_META_KEY: {}},
     )
     reset = agent._sessions[temporary.session_id].config
-    assert reset.project_dir == "restored"
+    assert reset.project_dir == str(default_dir)
     assert reset.session_persistence is True
     legacy = await agent.new_session(
         cwd="original",

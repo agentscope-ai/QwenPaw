@@ -24,8 +24,7 @@ from ..services.session_config import (
     SessionProjectDirsUnavailable,
     resolve_runtime_parameters,
 )
-from ..modes.catalog import prepare_session_message
-from .message_convert import rewrite_user_msg
+from ..modes.catalog import dispatch_session_command
 from ..schemas import AgentRequest
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
@@ -131,13 +130,8 @@ class Runtime:
                 skip_agent = True
 
             # --- [fixed 1] slash command dispatch ---
-            text = _get_last_user_text(ctx.input_msgs)
-            prepared = prepare_session_message(ctx, text or "")
-            if prepared != text:
-                rewrite_user_msg(ctx, prepared, preserve_non_text=True)
-                text = prepared
-            cmd_registry = self.workspace.plugins.slash_command_registry
-            cmd_msg = await cmd_registry.dispatch(text or "", ctx)
+            text = _get_last_user_text(ctx.input_msgs) or ""
+            cmd_msg = await dispatch_session_command(ctx, text)
             if cmd_msg is not None:
                 async for ev in envelope.from_msg(cmd_msg):
                     yield ev
@@ -355,7 +349,7 @@ class Runtime:
             return
         workspace = getattr(ctx, "workspace", None)
         session = getattr(workspace, "session", None) if workspace else None
-        if session is None or not workspace.config.session_persistence:
+        if session is None or not ctx.agent_config.session_persistence:
             return
         try:
             envelope = getattr(ctx, "_envelope", None)

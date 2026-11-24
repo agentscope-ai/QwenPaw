@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, Self
 
 from ...config.overrides import merge_overrides
-from ...config.runtime import RuntimeParameters
+from ...config.runtime import RuntimeParameters, merge_session_overrides
 from .meta import (
     ACP_CONFIG_META_KEY,
     ACP_EPHEMERAL_META_KEY,
@@ -83,16 +83,18 @@ class ACPRuntimeParameters(RuntimeParameters):
             transport["session_persistence"] = False
         overrides = merge_overrides(supplied, transport)
         selected_mode = overrides.get("agent_mode", self.config.agent_mode)
+        restored_mode = None
+        if previous is not None:
+            if selected_mode == previous.config.agent_mode:
+                restored_mode = previous.restored_mode
+        elif (resume or restored) and "agent_mode" not in supplied:
+            restored_mode = selected_mode
         return replace(
             self,
             cwd=cwd,
             metadata=metadata,
             overrides=overrides,
-            restored_mode=(
-                previous.config.agent_mode if previous else selected_mode
-            )
-            if resume or restored
-            else None,
+            restored_mode=restored_mode,
         )
 
     def with_overrides(self, values: Mapping) -> Self:
@@ -100,7 +102,10 @@ class ACPRuntimeParameters(RuntimeParameters):
         result = super().with_overrides(values)
         supplied = self.metadata.get(ACP_CONFIG_META_KEY, {})
         metadata = merge_overrides(self.metadata, {})
-        metadata[ACP_CONFIG_META_KEY] = merge_overrides(supplied, values)
+        metadata[ACP_CONFIG_META_KEY] = merge_session_overrides(
+            supplied,
+            values,
+        )
         return replace(result, metadata=metadata)
 
     def with_permission_mode(self, mode: str) -> Self:

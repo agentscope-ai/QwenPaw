@@ -12,6 +12,14 @@ from typing import Any
 
 import yaml
 
+from ...config.config import (
+    AgentProfileConfig,
+    MCPConfig,
+    load_persisted_agent_config,
+    update_agent_config_async,
+)
+from ...config.utils import load_config
+from ...utils.io_utils import run_sync_io
 from .env_ref import env_ref
 from .mcp_console import (
     mcp_credential_ref,
@@ -95,7 +103,7 @@ class LegacyMCPUpgradeReport:
 
 
 async def migrate_legacy_mcp_if_needed(
-    ws: Any,
+    agent_id: str,
     driver_manager: DriverManager,
     *,
     clients: dict | None = None,
@@ -109,11 +117,12 @@ async def migrate_legacy_mcp_if_needed(
     longer makes the next start re-derive it from ``mcp.clients`` (#6130).
     """
     report = LegacyMCPMigrationReport()
-    mcp = getattr(getattr(ws, "_config", None), "mcp", None)
+    cards_dir = driver_manager.cards_dir
+    mcp = await run_sync_io(_load_migration_source, agent_id, cards_dir)
     if mcp is None:
         return report
 
-    current = int(getattr(mcp, "migration_version", 0) or 0)
+    current = mcp.migration_version
     if current >= CURRENT_MCP_MIGRATION_VERSION:
         return report
 
@@ -121,7 +130,7 @@ async def migrate_legacy_mcp_if_needed(
         # v0 -> v1: move legacy mcp.clients into DriverCard storage.  The
         # per-client "card exists" guard in _migrate_one_client is now only
         # an in-run idempotency / crash-rerun guard, not the judgement.
-        saved_clients = dict(getattr(mcp, "clients", None) or {})
+        saved_clients = mcp.clients
         if clients is None:
             clients = saved_clients
         elif any(
@@ -145,21 +154,38 @@ async def migrate_legacy_mcp_if_needed(
         # bad literals are historical: post-fix migration never makes new.
         await upgrade_legacy_mcp_credentials(driver_manager)
 
-    await asyncio.to_thread(_write_report, driver_manager.cards_dir, report)
+    await asyncio.to_thread(_write_report, cards_dir, report)
 
-    # Persist the watermark only after all steps succeed; on partial failure
-    # the version stays put and the next start re-runs (idempotent).
-    mcp.migration_version = CURRENT_MCP_MIGRATION_VERSION
-    await asyncio.to_thread(_persist_mcp_migration_version, ws)
+    def commit(profile: AgentProfileConfig) -> None:
+        if not _owns_migration_source(agent_id, cards_dir):
+            raise RuntimeError("Agent workspace changed during MCP migration")
+        saved = profile.mcp
+        if saved and saved.migration_version >= CURRENT_MCP_MIGRATION_VERSION:
+            return
+        if saved is None or saved != mcp:
+            raise RuntimeError(
+                "Agent MCP configuration changed during migration",
+            )
+        saved.migration_version = CURRENT_MCP_MIGRATION_VERSION
+
+    await update_agent_config_async(agent_id, commit)
     return report
 
 
-def _persist_mcp_migration_version(ws: Any) -> None:
-    """Persist the bumped MCPConfig.migration_version back to agent.json."""
-    from ...config.config import save_agent_config
+def _load_migration_source(agent_id: str, cards_dir: Path) -> MCPConfig | None:
+    if _owns_migration_source(agent_id, cards_dir):
+        return load_persisted_agent_config(agent_id).mcp
+    return None
 
-    # pylint: disable=protected-access
-    save_agent_config(ws.agent_id, ws._config)
+
+def _owns_migration_source(agent_id: str, cards_dir: Path) -> bool:
+    """Associate saved migration versions with the agent's own card store."""
+    reference = load_config().agents.profiles.get(agent_id)
+    if reference is None:
+        return False
+    workspace_dir = Path(reference.workspace_dir).expanduser().resolve()
+    candidate = cards_dir.parent.resolve() / cards_dir.name
+    return candidate == workspace_dir / "drivers"
 
 
 async def _migrate_one_client(

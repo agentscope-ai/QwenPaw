@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from contextlib import aclosing
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -561,7 +562,10 @@ class QwenPawACPAgent(Agent):
         restored: bool = False,
     ) -> ACPRuntimeParameters:
         try:
-            return self._session_configuration().for_session(
+            parameters = self._with_current_model(
+                self._session_configuration(),
+            )
+            return parameters.for_session(
                 cwd,
                 meta,
                 previous=previous,
@@ -572,6 +576,20 @@ class QwenPawACPAgent(Agent):
             raise RequestError.invalid_params(
                 {"details": f"Invalid session configuration: {error}"},
             ) from error
+
+    @staticmethod
+    def _with_current_model(
+        parameters: ACPRuntimeParameters,
+    ) -> ACPRuntimeParameters:
+        """Refresh the inherited model before resolving a session or turn."""
+        profile = parameters.profile
+        active_model = load_persisted_agent_config(profile.id).active_model
+        if active_model == profile.active_model:
+            return parameters
+        return replace(
+            parameters,
+            profile=profile.model_copy(update={"active_model": active_model}),
+        )
 
     async def _install_runtime_provider(self) -> None:
         """Register the process-scoped provider without persisting it."""
@@ -802,7 +820,8 @@ class QwenPawACPAgent(Agent):
     ) -> NewSessionResponse:
         await self._require_mcp()
         session_id = uuid4().hex
-        parameters = self._resolve_session(
+        parameters = await run_sync_io(
+            self._resolve_session,
             cwd=cwd,
             meta=kwargs,
         )
@@ -856,19 +875,20 @@ class QwenPawACPAgent(Agent):
         )
 
         text = _extract_text(prompt)
-        if not text:
-            return PromptResponse(stop_reason="end_turn")
-
         user_id = f"acp_{session_id[:8]}"
 
         # Once admitted, a restore must drain this task before changing owners.
         async with self._session_lock(session_id):
+            session_info = self._sessions.get(session_id)
+            if session_info is None:
+                raise RequestError.resource_not_found()
+            if not text:
+                return PromptResponse(stop_reason="end_turn")
             active_prompt = self._prompt_tasks.get(session_id)
             if active_prompt is not None and not active_prompt.done():
                 raise RequestError.invalid_params(
                     {"details": "This session already has an active prompt"},
                 )
-            session_info = self._sessions.get(session_id)
             cancel_event = asyncio.Event()
             self._cancel_events[session_id] = cancel_event
             prompt_task = asyncio.current_task()
@@ -900,8 +920,10 @@ class QwenPawACPAgent(Agent):
             try:
                 await self._require_mcp()
                 workspace = await self._ensure_workspace()
-                agent_id = await run_sync_io(self._resolve_agent_id)
-                parameters = session_info or self._session_configuration()
+                parameters = await run_sync_io(
+                    self._with_current_model,
+                    session_info,
+                )
                 with parameters.scope():
                     request = AgentRequest(
                         input=[
@@ -914,7 +936,7 @@ class QwenPawACPAgent(Agent):
                         ],
                         session_id=session_id,
                         user_id=user_id,
-                        agent_id=agent_id,
+                        agent_id=parameters.profile.id,
                         request_context={
                             DRIVER_SCOPE_CONTEXT_KEY: acp_mcp_scope_id(
                                 session_id,
@@ -1248,7 +1270,8 @@ class QwenPawACPAgent(Agent):
     ) -> None:
         """Drain the admitted prompt before replacing its session owner."""
         async with self._session_lock(session_id):
-            parameters = self._resolve_session(
+            parameters = await run_sync_io(
+                self._resolve_session,
                 cwd=cwd,
                 meta=meta,
                 previous=self._sessions.get(session_id),
@@ -1764,6 +1787,8 @@ class QwenPawACPAgent(Agent):
                     )
 
             active = agent_config.active_model
+            if not (active and active.provider_id and active.model):
+                active = await run_sync_io(manager.get_active_model)
             if active and active.provider_id and active.model:
                 current_model_id = f"{active.provider_id}:{active.model}"
             else:

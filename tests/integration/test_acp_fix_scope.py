@@ -349,12 +349,12 @@ async def test_config_resolution_runs_off_loop_and_reports_failure(
     agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
     monkeypatch.setattr(acp_server, f"_ACP_KEEPALIVE_SECONDS", 0.01)
 
-    def resolve():
+    def resolve(_agent_id):
         assert threading.get_ident() != loop_thread
         time.sleep(0.08)
         raise OSError(f"Configuration unreadable")
 
-    monkeypatch.setattr(agent, f"_resolve_agent_id", resolve)
+    monkeypatch.setattr(acp_server, "load_persisted_agent_config", resolve)
     with pytest.raises(RequestError):
         await agent.prompt([text_block(f"hello")], session_id)
     assert any(_is_keepalive(update) for _, update in conn.updates)

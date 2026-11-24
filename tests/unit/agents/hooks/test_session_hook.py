@@ -47,10 +47,8 @@ def _ctx(session: _FakeSession, *, ephemeral: bool):
             user_id="acp_warmup",
             channel="",
         ),
-        workspace=SimpleNamespace(
-            session=session,
-            config=SimpleNamespace(session_persistence=not ephemeral),
-        ),
+        workspace=SimpleNamespace(session=session),
+        agent_config=SimpleNamespace(session_persistence=not ephemeral),
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
         session_state=None,
@@ -63,7 +61,7 @@ async def test_ephemeral_request_skips_session_load_and_save():
     session = _FakeSession()
     ctx = _ctx(session, ephemeral=True)
 
-    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    ctx.session_state = await load_session_state(ctx, ctx.agent_config)
     if ctx.session_state:
         ctx.mode_state.update(ctx.session_state.get("mode_state", {}))
     await SessionPrepareHook().run(ctx)
@@ -81,7 +79,7 @@ async def test_normal_request_loads_and_saves_session_state():
     }
     ctx = _ctx(session, ephemeral=False)
 
-    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    ctx.session_state = await load_session_state(ctx, ctx.agent_config)
     if ctx.session_state:
         ctx.mode_state.update(ctx.session_state.get("mode_state", {}))
     await SessionPrepareHook().run(ctx)
@@ -126,7 +124,7 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
         "qwenpaw.hooks.session.session_hook.repair_invalid_history_images",
         slow_repair,
     )
-    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    ctx.session_state = await load_session_state(ctx, ctx.agent_config)
     task = asyncio.create_task(SessionPrepareHook().run(ctx))
     try:
         await asyncio.wait_for(started.wait(), timeout=1)

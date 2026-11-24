@@ -230,6 +230,10 @@ async def test_new_session_reports_agent_id_in_meta(monkeypatch):
     agent._configuration = ACPRuntimeParameters.from_profile(
         AgentProfileConfig(id="my-agent", name="Test"),
     )
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.load_persisted_agent_config",
+        lambda _agent_id: agent._configuration.profile,
+    )
     monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     conn = _FakeConn()
@@ -259,7 +263,12 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
     agent._configuration = ACPRuntimeParameters.from_profile(
         AgentProfileConfig(id="my-agent", name="Test"),
     )
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.load_persisted_agent_config",
+        lambda _agent_id: agent._configuration.profile,
+    )
     monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     conn = _FakeConn()
     workspace = _FakeWorkspace()
     agent.on_connect(conn)
@@ -269,9 +278,10 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
 
     monkeypatch.setattr(agent, "_ensure_workspace", _fake_workspace)
 
+    session = await agent.new_session(cwd="/tmp")
     await agent.prompt(
         [{"type": "text", "text": "hello"}],
-        session_id="sess-123",
+        session_id=session.session_id,
     )
 
     assert getattr(workspace.request, "agent_id", None) == "my-agent"

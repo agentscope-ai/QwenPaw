@@ -21,10 +21,8 @@ async def test_ephemeral_cancel_does_not_create_hidden_session() -> None:
             request_context={},
         ),
         agent=SimpleNamespace(state_dict=lambda: {"state": {}}),
-        workspace=SimpleNamespace(
-            session=FailIfSaved(),
-            config=SimpleNamespace(session_persistence=False),
-        ),
+        workspace=SimpleNamespace(session=FailIfSaved()),
+        agent_config=SimpleNamespace(session_persistence=False),
     )
     runtime = Runtime(workspace=object(), app_services=None)
 

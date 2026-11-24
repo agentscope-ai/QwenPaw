@@ -4098,6 +4098,10 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 mail_credential_updated = True
 
             payload = candidate.model_dump(exclude_none=True)
+            # Parse the saved fields so nested edits are explicit in the cache.
+            cached = AgentProfileConfig.model_validate(payload)
+            # Mail credentials are stored separately from the profile.
+            cached.mail = candidate.mail
             saved_digest = _json_payload_digest(payload)
             if not candidate.uses_scroll_history:
                 from ..agents.context.scroll.sync import (
@@ -4111,9 +4115,18 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 retry_windows_replace=True,
             )
             agent_config.record_source_digest(saved_digest)
-            # Reparse the saved fields. In-place edits to nested defaults
-            # do not update the candidate's Pydantic fields-set metadata.
-            _agent_config_cache.pop(agent_id, None)
+            cached.record_source_digest(saved_digest)
+            try:
+                saved_fingerprint = _agent_config_fingerprint(
+                    agent_config_path,
+                )
+            except OSError:
+                _agent_config_cache.pop(agent_id, None)
+            else:
+                _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
+                    config=cached,
+                    fingerprint=saved_fingerprint,
+                )
         except Exception:
             # Keep the public agent config and its referenced credential on the
             # same logical version when JSON publication fails.

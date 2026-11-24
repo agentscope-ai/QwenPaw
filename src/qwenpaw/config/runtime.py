@@ -18,6 +18,16 @@ from .overrides import merge_overrides, _check_fields
 _Model = TypeVar("_Model", bound=BaseModel)
 
 
+def merge_session_overrides(base: Mapping, values: Mapping) -> dict:
+    """Merge overrides while keeping the primary and directory list aligned."""
+    patch = dict(values)
+    if "project_dirs" in patch:
+        patch.setdefault("project_dir", None)
+    elif "project_dir" in patch and patch["project_dir"] is None:
+        patch["project_dirs"] = []
+    return merge_overrides(base, patch)
+
+
 def _session_values(value: BaseModel, schema: type[BaseModel]) -> dict:
     """Project an agent model onto the session schema without losing nulls."""
     result = {}
@@ -85,6 +95,17 @@ def _apply_session(
                 if item.get("path") != directory
             ),
         ]
+    elif "project_dirs" in patch:
+        candidate.project_dir = next(
+            (
+                path
+                for item in candidate.project_dirs
+                if isinstance(path := item.get("path"), str) and path.strip()
+            ),
+            None,
+        )
+    elif "project_dir" in patch:
+        candidate.project_dirs = []
     result = _with_validated_fields(config, candidate)
     result._runtime_scoped = True  # pylint: disable=protected-access
     return result
@@ -176,7 +197,7 @@ class RuntimeParameters:
             raise ValueError("Session configuration must be an object")
         return replace(
             self,
-            overrides=merge_overrides(self.overrides, values),
+            overrides=merge_session_overrides(self.overrides, values),
         )
 
     @contextmanager

@@ -267,7 +267,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             )
             log_legacy_archive(self._workspace.agent_id, snapshot.legacy_skips)
         await migrate_legacy_mcp_if_needed(
-            self._workspace,
+            self._workspace.agent_id,
             self,
             clients=snapshot.legacy_mcp.clients,
         )

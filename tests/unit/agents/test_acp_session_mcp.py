@@ -14,7 +14,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from acp import text_block
+from acp import RequestError, text_block
 from acp.schema import (
     EnvVariable,
     HttpHeader,
@@ -538,10 +538,14 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
 ) -> None:
     started = asyncio.Event()
     stopped = asyncio.Event()
+    closing = asyncio.Event()
+    release = asyncio.Event()
 
     class _OrderedDriverManager(_FakeDriverManager):
         async def remove_transient_drivers(self, scope_id: str) -> None:
             assert stopped.is_set()
+            closing.set()
+            await release.wait()
             await super().remove_transient_drivers(scope_id)
 
     class _BlockingWorkspace(_FakeWorkspace):
@@ -553,7 +557,7 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
             self,
             request: Any,
         ) -> AsyncIterator[Any]:
-            del request
+            self.requests.append(request)
             started.set()
             try:
                 await asyncio.Future()
@@ -576,8 +580,26 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
     )
     await asyncio.wait_for(started.wait(), timeout=1)
 
-    await agent.close_session(session_id=response.session_id)
+    close_task = asyncio.create_task(agent.close_session(response.session_id))
+    try:
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        queued = asyncio.create_task(
+            agent.prompt([text_block("queued prompt")], response.session_id),
+        )
+        await asyncio.sleep(0)
+        assert not queued.done()
+    finally:
+        release.set()
+        await asyncio.wait_for(close_task, timeout=1)
     prompt_response = await asyncio.wait_for(prompt_task, timeout=1)
 
     assert prompt_response.stop_reason == "cancelled"
     assert stopped.is_set()
+    with pytest.raises(RequestError) as rejected:
+        await asyncio.wait_for(queued, timeout=1)
+    assert rejected.value.code == RequestError.resource_not_found().code
+    for blocks in ([text_block("late prompt")], []):
+        with pytest.raises(RequestError) as rejected:
+            await agent.prompt(blocks, response.session_id)
+        assert rejected.value.code == RequestError.resource_not_found().code
+    assert len(workspace.requests) == 1

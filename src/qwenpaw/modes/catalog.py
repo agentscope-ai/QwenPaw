@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
+
+from ..runtime.message_convert import rewrite_user_msg
+
+if TYPE_CHECKING:
+    from agentscope.message import Msg
+
+    from ..runtime.hooks import HookContext
+    from .base import AgentMode
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +34,10 @@ class ModeActivation:
         return f"/{self.command} {text}"
 
 
-def resolve_mode_activation(workspace: Any, mode_id: str) -> ModeActivation:
-    """Resolve mode-owned configuration and its optional entry command."""
+def _resolve_mode(
+    workspace: Any,
+    mode_id: str,
+) -> tuple[AgentMode, ModeActivation]:
     for mode in workspace.plugins.modes:
         activation = mode.describe_activation(workspace)
         if activation is not None and activation.id == mode_id:
@@ -40,28 +50,43 @@ def resolve_mode_activation(workspace: Any, mode_id: str) -> ModeActivation:
                 is None
             ):
                 break
-            return activation
+            return mode, activation
     raise ValueError(f"Unknown or unavailable agent mode: {mode_id!r}")
 
 
-def prepare_session_message(ctx: Any, text: str) -> str:
-    """Apply a mode's entry command once for each session selection."""
+def resolve_mode_activation(workspace: Any, mode_id: str) -> ModeActivation:
+    """Resolve mode-owned configuration and its optional entry command."""
+    return _resolve_mode(workspace, mode_id)[1]
+
+
+async def dispatch_session_command(ctx: HookContext, text: str) -> Msg | None:
+    """Dispatch commands and record mode entry only after activation."""
+    plugins = ctx.workspace.plugins
+    dispatch = plugins.slash_command_registry.dispatch
     mode_id = ctx.agent_config.agent_mode
-    started = ctx.workspace.plugins.session_modes
+    session_id = ctx.session_id
+    started = plugins.session_modes
+    if started.get(session_id) == mode_id:
+        return await dispatch(text, ctx)
+    previous_mode = started.pop(session_id, None)
     if mode_id is None:
-        started.pop(ctx.session_id, None)
-        return text
-    if started.get(ctx.session_id) == mode_id:
-        return text
-    activation = resolve_mode_activation(ctx.workspace, mode_id)
+        return await dispatch(text, ctx)
+
+    mode, activation = _resolve_mode(ctx.workspace, mode_id)
     restored = (
-        ctx.session_id not in started
-        and mode_id == ctx.parameters.restored_mode
+        previous_mode is None and mode_id == ctx.parameters.restored_mode
     )
-    started[ctx.session_id] = mode_id
-    if restored:
-        return text
-    return activation.prepare_message(text)
+    if restored or not activation.command or mode.is_active(ctx):
+        started[session_id] = mode_id
+        return await dispatch(text, ctx)
+
+    prepared = activation.prepare_message(text)
+    if prepared != text:
+        rewrite_user_msg(ctx, prepared, preserve_non_text=True)
+    result = await dispatch(prepared, ctx)
+    if mode.is_active(ctx):
+        started[session_id] = mode_id
+    return result
 
 
 class LoopModeInfo(BaseModel):

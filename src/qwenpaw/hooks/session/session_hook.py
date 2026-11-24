@@ -54,7 +54,7 @@ class SessionSaveHook(LifecycleHook):
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
         if ctx.workspace is None or ctx.agent is None:
             return HookResult()
-        if not ctx.workspace.config.session_persistence:
+        if not ctx.agent_config.session_persistence:
             return HookResult()
         session = getattr(ctx.workspace, "session", None)
         if session is None:
