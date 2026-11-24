@@ -202,7 +202,7 @@ qwenpaw models set-llm                 # 只切换模型
 
 #### 本地模型
 
-QwenPaw Local 的 GGUF 下载、查看和删除在控制台中操作，不通过核心 CLI。插件安装、权重导入及启动见[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)。Ollama 和 LM Studio 的权重由各自的服务管理。
+启用 QwenPaw Local 插件后，可以在控制台管理 GGUF 模型，也可以用 `qwenpaw models download <仓库名>` 下载、`qwenpaw models local` 列出、`qwenpaw models remove-local <模型 ID>` 删除。插件安装、权重导入及启动见[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)。Ollama 和 LM Studio 的权重由各自的服务管理。
 
 #### Ollama 模型
 
@@ -776,7 +776,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        否         |
 | `qwenpaw task`      | —                                                                                    |        否         |
 | `qwenpaw auth`      | `reset-password`                                                                     |        否         |
-| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate` · [`dependency-upgrade`](./plugins#插件管理) |        否         |
 | `qwenpaw acp`       | —                                                                                    |        否         |
 | `qwenpaw clean`     | —                                                                                    |        否         |
 | `qwenpaw shutdown`  | —                                                                                    |        否         |

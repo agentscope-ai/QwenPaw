@@ -481,9 +481,9 @@ def apply_channel_preset(name, offline):
 def install(source: str, force: bool):
     """Install a plugin from local path or URL.
 
-    When QwenPaw is running, the plugin is hot-loaded immediately via
-    the API (no restart required).  When QwenPaw is stopped, the
-    plugin files are copied and will be loaded on next start.
+    A running App handles installation and asks for confirmation if a shared
+    package needs an upgrade. When the App is stopped, the plugin files are
+    installed for loading on the next start.
 
     Examples:
         qwenpaw plugin install examples/plugins/idealab-provider
@@ -803,17 +803,24 @@ def _dependency_operation(action, operation_id):
         try:
             with api_client(base, timeout=300) as client:
                 path = f"plugins/dependency-upgrades/{operation_id}"
-                response = (
-                    client.get(path)
-                    if action == "status"
-                    else (
-                        client.post(path + "/apply")
-                        if action == "apply"
-                        else client.delete(path)
+                if action == "apply":
+                    response = client.post(
+                        path + "/apply",
+                        params={"background": "true"},
                     )
-                )
+                elif action == "status":
+                    response = client.get(path)
+                else:
+                    response = client.delete(path)
                 response.raise_for_status()
                 operation = response.json()
+            if response.status_code == 202:
+                click.echo(f"Dependency upgrade {operation_id} accepted.")
+                click.echo(
+                    "Check the result with: qwenpaw plugin dependency-upgrade "
+                    f"status {operation_id}",
+                )
+                return
         except httpx.HTTPError as exc:
             raise click.ClickException(
                 "Dependency operation failed through the running backend; "
@@ -848,18 +855,29 @@ def _dependency_operation(action, operation_id):
         except Exception as exc:
             raise click.ClickException(str(exc)) from exc
     _echo_dependency_operation(operation)
-    return operation
+    if operation["status"] == "failed" and action in {"apply", "status"}:
+        error = operation.get("error") or {}
+        raise click.ClickException(
+            error.get("message")
+            or error.get("code")
+            or "Dependency upgrade failed.",
+        )
 
 
 @dependency_upgrade.command("status")
 @click.argument("operation_id")
 def dependency_upgrade_status(operation_id):
+    """Show upgrade progress and the final result."""
     _dependency_operation("status", operation_id)
 
 
 @dependency_upgrade.command("apply")
 @click.argument("operation_id")
 def dependency_upgrade_apply(operation_id):
+    """Approve the upgrade.
+
+    If the App reports 'accepted', use 'status' to check the result.
+    """
     _dependency_operation("apply", operation_id)
 
 

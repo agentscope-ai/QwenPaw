@@ -19,7 +19,15 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    File,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -102,9 +110,27 @@ async def dependency_upgrade_status(operation_id: str, request: Request):
 
 
 @router.post("/dependency-upgrades/{operation_id}/apply")
-async def apply_dependency_upgrade(operation_id: str, request: Request):
+async def apply_dependency_upgrade(
+    operation_id: str,
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    background: bool = False,
+):
     try:
-        return await _upgrade_manager(request).apply(operation_id)
+        manager = _upgrade_manager(request)
+        if background:
+            operation = await run_sync_io(manager.status, operation_id)
+            if operation["status"] in {"needs_confirmation", "preparing"}:
+                # Return before the CLI releases its shared environment lease.
+                background_tasks.add_task(
+                    manager.apply,
+                    operation_id,
+                    wait_for_readers=True,
+                )
+                response.status_code = 202
+            return operation
+        return await manager.apply(operation_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (SharedDependencyError, DependencyUpgradeRequired) as exc:

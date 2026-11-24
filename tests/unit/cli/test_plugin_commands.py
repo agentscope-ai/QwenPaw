@@ -1240,6 +1240,60 @@ def test_offline_dependency_operation_uses_one_async_loader(
     assert len(loops) == 1 and loops[0].is_closed()
 
 
+@pytest.mark.parametrize(
+    "action,http_status,status,exit_code",
+    [
+        ("apply", 202, "needs_confirmation", 0),
+        ("apply", 200, "failed", 1),
+        ("status", 200, "failed", 1),
+    ],
+)
+def test_online_dependency_upgrade_reports_acceptance_and_failure(
+    monkeypatch,
+    action,
+    http_status,
+    status,
+    exit_code,
+):
+    def respond(request):
+        assert request.url.path.endswith(
+            "/operation/apply" if action == "apply" else "/operation",
+        )
+        assert request.url.params.get("background") == (
+            "true" if action == "apply" else None
+        )
+        return httpx.Response(
+            http_status,
+            json={
+                "id": "operation",
+                "status": status,
+                "error": {"code": "DEPENDENCY_ENVIRONMENT_BUSY"},
+            },
+        )
+
+    monkeypatch.setattr(pc, "_is_running", lambda: True)
+    monkeypatch.setattr(pc, "_get_api_base", lambda: "http://test/api/")
+    monkeypatch.setattr(
+        pc,
+        "api_client",
+        lambda base, timeout: httpx.Client(
+            base_url=base,
+            timeout=timeout,
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["dependency-upgrade", action, "operation"],
+    )
+    assert result.exit_code == exit_code, result.output
+    if exit_code:
+        assert "DEPENDENCY_ENVIRONMENT_BUSY" in result.output
+    else:
+        assert "accepted" in result.output
+        assert "dependency-upgrade status operation" in result.output
+
+
 def test_validate_rejects_incomplete_cli_declaration(tmp_path):
     from qwenpaw.plugins.discovery import read_manifest
 

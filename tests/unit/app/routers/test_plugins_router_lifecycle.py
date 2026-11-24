@@ -23,7 +23,7 @@ from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -852,6 +852,31 @@ class TestUninstallPluginSource:
 # ---------------------------------------------------------------------------
 # install / uninstall / upload routes
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_dependency_upgrade_apply_response(monkeypatch, background):
+    operation = {"id": "operation", "status": "needs_confirmation"}
+    completed = {**operation, "status": "succeeded"}
+    manager = SimpleNamespace(
+        status=Mock(return_value=operation),
+        apply=AsyncMock(return_value=completed),
+    )
+    monkeypatch.setattr(
+        plugins_module,
+        "_upgrade_manager",
+        lambda request: manager,
+    )
+
+    with _client() as client:
+        response = client.post(
+            "/api/plugins/dependency-upgrades/operation/apply",
+            params={"background": str(background).lower()},
+        )
+    assert response.status_code == (202 if background else 200)
+    assert response.json() == (operation if background else completed)
+    options = {"wait_for_readers": True} if background else {}
+    manager.apply.assert_awaited_once_with("operation", **options)
 
 
 class TestInstallPluginRoute:

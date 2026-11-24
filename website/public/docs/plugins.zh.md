@@ -663,8 +663,7 @@ SDK 插件与旧插件共用框架的依赖检查、安装和复核流程，不�
 缺少依赖时，先用 pip 按已观察到的版本约束准备 wheel 安装包，再经过共享依赖检查后
 写入目录。桌面端使用随附 Python 和共享插件依赖目录。
 安装完成后再次检查依赖是否满足，通过后才加载插件。
-共享依赖检查会核验环境信息，只允许通过验证的新增包；不兼容的替换需要显式维护环境。
-这不等于提供共享依赖环境的通用原子回滚。
+缺少的包通过检查后可以安装。QwenPaw 提议替换共享包时，会先请用户确认。升级失败时，会尝试恢复这次替换的文件。
 
 SDK 插件与旧插件均可通过 `meta.dependency_install_timeout` 设置安装及等待安装锁的
 超时秒数，范围为 300–3600，默认 300。本地 Whisper 配置为 1800 秒，以允许大包下载。
@@ -920,6 +919,15 @@ qwenpaw plugin install /path/to/plugin --force
 
 QwenPaw 运行时，CLI 会将安装请求交给热安装 API；QwenPaw 停止时，文件会被安装并在下次
 启动时加载。
+
+如果安装时提示升级共享 Python 包，先核对版本。在控制台点击**升级并安装**。在终端使用 `install` 显示的操作编号。
+
+```bash
+qwenpaw plugin dependency-upgrade apply <操作编号>
+qwenpaw plugin dependency-upgrade status <操作编号>
+```
+
+App 运行时，`accepted` 表示 App 已收到确认。等 `status` 显示 `succeeded` 后再使用插件。若显示 `failed`，命令会输出错误原因并以退出码 1 结束。
 
 #### 列出已安装插件
 

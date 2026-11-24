@@ -1730,6 +1730,7 @@ class DependencyUpgradeManager:
                 snapshot,
                 binding.description.requirements,
             )
+            excluded_tokens = ()
             if prepared is not None:
                 from .dependency_transaction import environment_fingerprint
 
@@ -1738,20 +1739,26 @@ class DependencyUpgradeManager:
                     or prepared.owner is not asyncio.current_task()
                     or prepared.claimed
                     or prepared.source_revision != revision
-                    or prepared.environment_fingerprint
-                    != await run_sync_io(
-                        environment_fingerprint,
-                        snapshot.to_mapping(),
-                    )
-                    or prepared.context != context.to_mapping()
-                    or prepared.candidates != _candidate_scope(candidates)
-                    or not set(requirements) <= set(prepared.requirements)
                 ):
                     _refuse(
                         "DEPENDENCY_PLAN_STALE",
                         "Prepared resolution inputs changed.",
                     )
-                requirements = prepared.requirements
+                excluded_tokens = prepared.excluded_tokens
+                if (
+                    prepared.environment_fingerprint
+                    == await run_sync_io(
+                        environment_fingerprint,
+                        snapshot.to_mapping(),
+                    )
+                    and prepared.context == context.to_mapping()
+                    and prepared.candidates == _candidate_scope(candidates)
+                    and set(requirements) <= set(prepared.requirements)
+                ):
+                    requirements = prepared.requirements
+                else:
+                    # Resolve from the activation backend's view before review.
+                    prepared = None
             preferences_failed = (
                 prepared.preferences_failed if prepared is not None else False
             )
@@ -1848,9 +1855,7 @@ class DependencyUpgradeManager:
                 candidates=candidates,
                 changes={name: inventory[name] for name in changed},
                 payload_paths=payload,
-                excluded_tokens=(
-                    prepared.excluded_tokens if prepared is not None else ()
-                ),
+                excluded_tokens=excluded_tokens,
             )
             from .dependency_transaction import imported_changes_async
 
@@ -1948,11 +1953,7 @@ class DependencyUpgradeManager:
                     consumers,
                     sites=snapshot.dependency_sites,
                     policy_version=3,
-                    excluded_tokens=(
-                        prepared.excluded_tokens
-                        if prepared is not None
-                        else ()
-                    ),
+                    excluded_tokens=excluded_tokens,
                 ),
                 "proposed": inventory,
                 "payload": payload,
@@ -1979,14 +1980,14 @@ class DependencyUpgradeManager:
                 _refuse(str(exc).split(":", 1)[0], str(exc))
             raise
 
-    async def apply(self, operation_id):
+    async def apply(self, operation_id, wait_for_readers=False):
         from .dependency_transaction import apply_operation
 
         lock = self._locks.setdefault(operation_id, asyncio.Lock())
         if lock.locked():
             return await run_sync_io(self.status, operation_id)
         async with lock:
-            return await apply_operation(self, operation_id)
+            return await apply_operation(self, operation_id, wait_for_readers)
 
 
 def retain_maintenance_assets(directory, operation, runtime):

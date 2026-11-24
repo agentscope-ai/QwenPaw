@@ -3,6 +3,7 @@
 
 import asyncio
 import base64
+import hashlib
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -28,11 +29,18 @@ from qwenpaw.plugins.dependency_context import DependencyEnvironmentContext
 from qwenpaw.plugins.dependency_gate import SharedDependencyError
 from qwenpaw.plugins.dependency_transaction import (
     _owned,
+    environment_fingerprint,
     publish,
     rollback,
     verify_payload,
 )
-from qwenpaw.plugins.dependency_upgrade import DependencyUpgradeManager
+from qwenpaw.plugins.dependency_upgrade import (
+    DependencyUpgradeManager,
+    PreparedResolution,
+    _candidate_scope,
+    _resolution_requirements,
+    _source_hash,
+)
 from qwenpaw.plugins.execution.dependencies import (
     DependencySnapshot,
     _installed_metadata,
@@ -1974,6 +1982,50 @@ def test_native_launcher_publish_and_exact_rollback(
     assert _inventory(files.prefix) == before
 
 
+@pytest.mark.parametrize("verified_owner", [True, False])
+def test_upgrade_preserves_launcher_owned_by_unchanged_package(
+    dependency_files,
+    verified_owner,
+):
+    files = dependency_files
+    files.site.rename(files.prefix / "site-packages")
+    files.site = files.prefix / "site-packages"
+    launcher = files.prefix / ("Scripts" if os.name == "nt" else "bin") / "sdk"
+    launcher.parent.mkdir()
+    content = b"launcher installed by the unchanged package"
+    launcher.write_bytes(content)
+    relative = Path(os.path.relpath(launcher, files.site)).as_posix()
+
+    def record_row(data):
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+        return f"{relative},sha256={digest.decode().rstrip('=')},{len(data)}\n"
+
+    old_record = files.site / "sample_shared_sdk-0.5.dist-info/RECORD"
+    with old_record.open("a", encoding="utf-8") as stream:
+        stream.write(record_row(b"overwritten launch script"))
+    unchanged_record = files.site / "certifi-2026.10.19.dist-info/RECORD"
+    with unchanged_record.open("a", encoding="utf-8") as stream:
+        stream.write(record_row(content if verified_owner else b"other bytes"))
+
+    before = _inventory(files.prefix)
+    if not verified_owner:
+        with pytest.raises(RuntimeError, match="file differs from RECORD"):
+            _prepare_dependency_operation(files)
+        assert _inventory(files.prefix) == before
+        return
+
+    operation = _prepare_dependency_operation(files)
+    path = str(maintenance.canonical(launcher))
+    assert path not in operation["payload"]["old"]
+    assert path not in operation["payload"]["new"]
+    publish(files.directory, operation)
+    assert launcher.read_bytes() == content
+    assert not old_record.exists()
+    assert unchanged_record.is_file()
+    rollback(files.directory)
+    assert _inventory(files.prefix) == before
+
+
 @pytest.mark.parametrize("late_cache", [False, True])
 def test_pip_record_cache_publish_and_exact_rollback(
     tmp_path,
@@ -2149,9 +2201,19 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
     (independent / "requirements.txt").write_text(
         "unrelated-missing-sdk>=1\nsample-shared-sdk<1\n",
     )
-    old = local_wheel(tmp_path / "old", version="0.5", value="0.5")
-    with zipfile.ZipFile(next(old.glob("*.whl"))) as archive:
+    old = _local_dependency_wheel(
+        tmp_path / "old",
+        "sample-shared-sdk",
+        "0.5",
+        {
+            "sample_shared_sdk.py": b"VALUE = '0.5'\n",
+            "sample_shared_sdk_legacy.py": b"VALUE = 'legacy'\n",
+        },
+    )
+    with zipfile.ZipFile(old) as archive:
         archive.extractall(site)
+    legacy = site / "sample_shared_sdk_legacy.py"
+    legacy_cache = Path(py_compile.compile(str(legacy), doraise=True))
     module = site / "sample_shared_sdk.py"
     module.chmod(0o640)
     (site / "neighbor.txt").write_bytes(b"preserve unrelated bytes\x00")
@@ -2166,7 +2228,16 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
             "    sdk.VALUE + '\\n' + Path(sdk.__file__).read_text())\n"
             "raise RuntimeError('new source cannot initialize')\n",
         )
-    wheel = next(local_wheel(tmp_path / "new", value="1.0").glob("*.whl"))
+    wheel = _local_dependency_wheel(
+        tmp_path / "new",
+        "sample-shared-sdk",
+        "1.0",
+        {
+            "sample_shared_sdk.py": b"VALUE = '1.0'\n",
+            "sample_shared_sdk-1.0.dist-info/licenses/LICENSE": b"license",
+            "sample_shared_sdk_extra/data/value.txt": b"new resource",
+        },
+    )
     certifi_wheel = local_certifi_wheel(wheel.parent)
 
     def resolve(command, **kwargs):
@@ -2185,7 +2256,32 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
     )
     try:
         manager = DependencyUpgradeManager(host.loader)
-        operation = await manager.stage(source)
+        workspace = None
+        prepared = None
+        if scenario == "different_audit_order":
+            workspace = await host.workspace("after-upgrade", use_sdk=True)
+            binding = await manager._binding(source)
+            snapshot = await binding.backend.audit_dependencies(
+                binding.description,
+            )
+            assert len(snapshot.sites) > 1
+            candidates = await manager._consumer_candidates(binding, snapshot)
+            prepared = PreparedResolution(
+                _source_hash(source),
+                environment_fingerprint(
+                    replace(snapshot, sites=snapshot.sites[::-1]).to_mapping(),
+                ),
+                (await manager._environment(binding, snapshot)).to_mapping(),
+                _resolution_requirements(
+                    snapshot,
+                    binding.description.requirements,
+                ),
+                _candidate_scope(candidates),
+                (),
+            )
+        operation = await manager.stage(source, prepared=prepared)
+        if prepared is not None:
+            assert not prepared.claimed
         yield SimpleNamespace(
             host=host,
             manager=manager,
@@ -2196,7 +2292,10 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
             mode=mode,
             source=source,
             published=published,
+            legacy=legacy,
+            legacy_cache=legacy_cache,
             broken_source=broken_source,
+            workspace=workspace,
         )
     finally:
         await host.close()
@@ -2374,7 +2473,7 @@ async def test_shared_change_ignores_disjoint_inactive_runtime(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "staged_upgrade",
-    [False, True, "shared_reader"],
+    [False, True, "shared_reader", "different_audit_order"],
     indirect=True,
 )
 async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
@@ -2402,6 +2501,7 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
         },
     ]
     assert digest(site) == before and not operation["requires_restart"]
+    assert prepared.legacy.is_file() and prepared.legacy_cache.is_file()
     assert not published.exists()
     result = await manager.apply(operation["id"])
     if broken_source:
@@ -2409,16 +2509,25 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
         assert result["error"]["code"] == "DEPENDENCY_UPGRADE_FAILED", result
         assert published.read_text() == "1.0\nVALUE = '1.0'\n"
         assert digest(site) == before and module.stat().st_mode == mode
+        assert prepared.legacy.is_file() and prepared.legacy_cache.is_file()
+        assert not (site / "sample_shared_sdk-1.0.dist-info").exists()
+        assert not (site / "sample_shared_sdk_extra").exists()
         assert not host.installed.exists()
     else:
         assert result["status"] == "succeeded", result
         assert module.read_text() == "VALUE = '1.0'\n"
         assert not (site / "sample_shared_sdk-0.5.dist-info").exists()
+        assert not prepared.legacy.exists()
+        assert not prepared.legacy_cache.exists()
         assert (site / "sample_shared_sdk-1.0.dist-info/RECORD").is_file()
         assert (host.installed / "sample.py").read_bytes() == (
             source / "sample.py"
         ).read_bytes()
         assert (await manager.apply(operation["id"])) == result
+        if prepared.workspace is not None:
+            _, identity = await host.identity(prepared.workspace)
+            assert identity["sdk"] == "1.0"
+    assert not maintenance.marker(site).exists()
     assert (site / "neighbor.txt").read_bytes() == (
         b"preserve unrelated bytes\x00"
     )
@@ -2461,6 +2570,25 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
             match="No dependency replacement",
         ):
             await manager.stage(source)
+
+
+@pytest.mark.asyncio
+async def test_reviewed_upgrade_rejects_dependency_metadata_change(
+    staged_upgrade,
+):
+    prepared = staged_upgrade
+    metadata = prepared.site / "sample_shared_sdk-0.5.dist-info/METADATA"
+    with metadata.open("a", encoding="utf-8") as stream:
+        stream.write("Summary: Changed after review\n")
+    changed = digest(prepared.site)
+
+    result = await prepared.manager.apply(prepared.operation["id"])
+
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "DEPENDENCY_PLAN_STALE"
+    assert digest(prepared.site) == changed
+    assert not prepared.host.installed.exists()
+    assert not maintenance.marker(prepared.site).exists()
 
 
 @pytest.mark.asyncio
