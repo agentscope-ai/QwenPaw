@@ -168,7 +168,17 @@ class OpenAIProvider(Provider):
             "parameters (prompt_cache_key / prompt_cache_retention). Only "
             "needed for OpenAI-compatible gateways other than "
             "api.openai.com, and only when their documentation confirms "
-            "the parameters. Unset keeps the wire-level gate closed."
+            "the parameters. Unset keeps the wire-level gate closed. "
+            "Backend-only configuration: the provider update API does not "
+            "carry this field, so it is set in the custom provider file "
+            "instead - a top-level key in "
+            "<QWENPAW_SECRET_DIR>/providers/custom/<provider-id>.json, "
+            "next to base_url, api_key and chat_model "
+            "(QWENPAW_SECRET_DIR defaults to <working dir>.secret). "
+            "Custom provider files are read at startup, so the change "
+            "takes effect on the next restart; changing base_url in the "
+            "UI drops the declaration again, because it describes the "
+            "endpoint behind that URL."
         ),
     )
 

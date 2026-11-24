@@ -29,18 +29,43 @@ _CACHE_USAGE_MODEL_MODULES = (
 )
 
 
+def _cache_usage_modules(model: Any) -> set[str]:
+    """Return the AgentScope model modules behind a wrapped model."""
+    return {
+        cls.__module__
+        for cls in type(model).__mro__
+        if isinstance(getattr(cls, "__module__", None), str)
+    }
+
+
+def _reports_cache_separately(model: Any) -> bool:
+    """Whether the provider reports the cached part outside input_tokens.
+
+    Anthropic reports only the uncached part of the prompt in
+    ``input_tokens`` and the cached part in its own cache counters, so the
+    full prompt is the sum of the two. OpenAI-style providers already
+    count the cached tokens in ``prompt_tokens``.
+    """
+    return any(
+        module.startswith("agentscope.model._anthropic")
+        for module in _cache_usage_modules(model)
+    )
+
+
 def _cache_usage_metrics(
     model: Any,
     prompt_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
 ) -> tuple[bool, int]:
-    """Return whether cache usage is supported and its input denominator."""
-    modules = {
-        cls.__module__
-        for cls in type(model).__mro__
-        if isinstance(getattr(cls, "__module__", None), str)
-    }
+    """Return whether cache usage is supported and its input denominator.
+
+    The denominator is the cache-rate metric: the number of input tokens
+    the provider could have cached. It is deliberately computed apart from
+    the full prompt size the context meter shows, so that a change in how
+    a provider normalizes cache counters cannot move the context meter.
+    """
+    modules = _cache_usage_modules(model)
     observed = any(
         module.startswith(prefix)
         for module in modules
@@ -48,9 +73,7 @@ def _cache_usage_metrics(
     )
     if not observed:
         return False, 0
-    if any(
-        module.startswith("agentscope.model._anthropic") for module in modules
-    ):
+    if _reports_cache_separately(model):
         return (
             True,
             prompt_tokens + cache_read_tokens + cache_write_tokens,
@@ -58,6 +81,25 @@ def _cache_usage_metrics(
     if cache_read_tokens + cache_write_tokens > prompt_tokens:
         return False, 0
     return True, prompt_tokens
+
+
+def _full_prompt_tokens(
+    model: Any,
+    prompt_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+) -> int:
+    """Return the full prompt the provider processed.
+
+    This is the context-size metric: Anthropic's ``input_tokens`` covers
+    only the uncached part, so the cached part is added back, while
+    OpenAI-style ``prompt_tokens`` already includes it. It is computed
+    independently of the cache-rate denominator so that a provider-specific
+    change to cache normalization cannot shrink the reported context.
+    """
+    if _reports_cache_separately(model):
+        return prompt_tokens + cache_read_tokens + cache_write_tokens
+    return prompt_tokens
 
 
 class TokenRecordingModelWrapper(ChatModelBase):
@@ -167,14 +209,19 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # full prompt the provider processed: Anthropic reports only the
         # uncached part in ``input_tokens`` and its cache read/write counters
         # separately, while OpenAI-style ``prompt_tokens`` already includes
-        # cached tokens (and ``cache_eligible`` equals ``pt`` there).
+        # cached tokens. It is computed on its own, not taken from the
+        # cache-rate denominator, so the two metrics cannot drift apart.
+        full_prompt_tokens = _full_prompt_tokens(
+            self._model,
+            pt,
+            cache_read,
+            cache_write,
+        )
         usage_data = {
             "provider_id": self._provider_id,
             "model_name": self.model,
             "prompt_tokens": pt,
-            "last_prompt_tokens": (
-                cache_eligible if cache_observed and cache_eligible > 0 else pt
-            ),
+            "last_prompt_tokens": full_prompt_tokens,
             "completion_tokens": ct,
             "total_tokens": pt + ct,
             "cache_read_tokens": cache_read,

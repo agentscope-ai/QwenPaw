@@ -992,6 +992,54 @@ class TestTokenRecordingModelWrapper:
         assert stored is not None
         assert stored["last_prompt_tokens"] == 4_000
 
+    def test_full_prompt_tokens_is_independent_of_the_cache_denominator(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """The context size is computed on its own, not from the cache rate.
+
+        The cache-rate denominator and the full prompt size are different
+        metrics. A provider whose cache normalization changes (for example
+        a gateway that starts reporting cache counters separately) must not
+        move the context meter, so the full prompt is computed from the
+        provider's own reporting shape.
+        """
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-openai-independent-context",
+        )
+        wrapper, _ = self._module_model_harness(
+            tmp_path,
+            monkeypatch,
+            "agentscope.model._openai_chat._model",
+            "gpt-4.1",
+        )
+        usage = MagicMock()
+        usage.input_tokens = 4_000
+        usage.output_tokens = 20
+        usage.cache_input_tokens = 3_000
+        usage.cache_creation_input_tokens = 0
+
+        # Move the cache-rate denominator away from the prompt size, the
+        # way a provider that normalizes its cache counters differently
+        # would. The context meter must not follow it.
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda *_args, **_kwargs: (True, 999_999),
+        )
+
+        wrapper._record_usage(usage)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-openai-independent-context",
+        )
+        assert stored is not None
+        # The context meter keeps the provider's own prompt size ...
+        assert stored["last_prompt_tokens"] == 4_000
+        # ... while the cache-rate metric follows the denominator.
+        assert stored["cache_eligible_input_tokens"] == 999_999
+
     def test_last_prompt_tokens_ignores_unverifiable_cache_tokens(
         self,
         tmp_path,

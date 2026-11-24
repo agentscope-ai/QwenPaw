@@ -389,6 +389,7 @@ class ProviderManager(
             if field in candidate.__class__.model_fields
             and before_update.get(field) != getattr(candidate, field)
         }
+        self._reset_endpoint_capability_declarations(candidate, changed_fields)
         if candidate.is_custom:
             candidate = self._provider_from_data(candidate.model_dump())
         if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
@@ -453,6 +454,10 @@ class ProviderManager(
                 and before_update.get(field) != getattr(candidate, field)
             }
             snapshot = candidate
+            self._reset_endpoint_capability_declarations(
+                candidate,
+                changed_fields,
+            )
             if candidate.is_custom:
                 snapshot = self._provider_from_data(
                     candidate.model_dump(),
@@ -525,6 +530,26 @@ class ProviderManager(
         if provider_id in self.plugin_providers:
             return True
         return self.get_provider(provider_id) is provider
+
+    @staticmethod
+    def _reset_endpoint_capability_declarations(
+        provider: Provider,
+        changed_fields: set[str],
+    ) -> None:
+        """Drop gateway capability declarations when the endpoint changes.
+
+        ``supports_openai_prompt_cache`` describes one specific endpoint:
+        it says the gateway behind ``base_url`` accepts the OpenAI prompt
+        cache parameters. Carrying the declaration over to a different
+        gateway would apply the old endpoint's capability to a new one
+        that may reject those parameters upstream, so the declaration is
+        dropped when ``base_url`` actually changes and kept for every
+        other update (a name, an API key or any unrelated field).
+        """
+        if "base_url" not in changed_fields:
+            return
+        if getattr(provider, "supports_openai_prompt_cache", None):
+            provider.supports_openai_prompt_cache = False
 
     @staticmethod
     def _reset_model_availability(provider: Provider) -> None:
