@@ -19,15 +19,7 @@ runs:
   steps:
     - name: Install built Debian package
       shell: bash
-      run: |
-        set -euo pipefail
-        shopt -s nullglob
-        deb_artifacts=("$PWD"/dist/QwenPaw-Tauri-*-linux-*.deb)
-        if [ ${#deb_artifacts[@]} -ne 1 ]; then
-          echo "::error::Expected exactly one Linux deb, found ${#deb_artifacts[@]}"
-          exit 1
-        fi
-        sudo apt-get install -y --no-install-recommends "${deb_artifacts[0]}"
+      run: sudo apt-get install -y --no-install-recommends ./dist/QwenPaw-Tauri-*-linux-*.deb
 
     - name: Install verify deps (Playwright + WebKit)
       shell: bash

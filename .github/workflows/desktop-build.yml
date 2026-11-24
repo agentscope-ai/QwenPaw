@@ -446,9 +446,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
-        run: |
-          chmod +x scripts/pack-tauri/build_linux_pyinstaller.sh
-          bash scripts/pack-tauri/build_linux_pyinstaller.sh
+        run: bash scripts/pack-tauri/build_linux_pyinstaller.sh
 
       - name: Verify desktop (Tauri Linux)
         timeout-minutes: 15

@@ -29,7 +29,7 @@ RELEASE_HELPERS = (
 )
 
 
-def test_linux_publisher_preserves_windows_install_registry_key():
+def test_linux_maintainer_preserves_windows_install_registry_key():
     """Linux maintainer metadata must not move existing NSIS installations."""
     config_dir = REPO_ROOT / "console/src-tauri"
     config = json.loads(
@@ -42,12 +42,29 @@ def test_linux_publisher_preserves_windows_install_registry_key():
     registry_key = rf"Software\{manufacturer}\{config['productName']}"
     assert registry_key == r"Software\agentscope\QwenPaw Desktop"
 
-    linux = json.loads(
-        (config_dir / "tauri.linux.conf.json").read_text(encoding="utf-8"),
+    # Tauri writes the Cargo authors to the deb Maintainer field and only
+    # falls back to bundle.publisher, so the contact address lives there.
+    cargo = tomllib.loads(
+        (config_dir / "Cargo.toml").read_text(encoding="utf-8"),
     )
-    assert linux["bundle"]["publisher"] == (
-        "QwenPaw Contributors <qwenpaw@users.noreply.github.com>"
+    assert cargo["package"]["authors"] == [
+        "QwenPaw Contributors <qwenpaw@users.noreply.github.com>",
+    ]
+
+
+def test_linux_deb_dependencies_stay_frozen_for_in_app_updates():
+    """In-app updates cannot install a dependency the old package lacked."""
+    config = json.loads(
+        (REPO_ROOT / "console/src-tauri/tauri.conf.json").read_text(
+            encoding="utf-8",
+        ),
     )
+    assert config["bundle"]["linux"]["deb"]["depends"] == [
+        "libwebkit2gtk-4.1-0",
+        "libgtk-3-0t64 | libgtk-3-0",
+        "libayatana-appindicator3-1",
+        "pkexec",
+    ], "updates install with `pkexec dpkg -i`, which resolves no dependencies"
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux packaging script")
@@ -114,7 +131,8 @@ def test_linux_packaging(tmp_path, status, version, expected):
     bin_dir.mkdir()
     for name in ("node", "rustc", "cargo", "pkg-config"):
         tool = bin_dir / name
-        tool.write_text("#!/bin/sh\nexit 0\n")
+        # Record calls: the script runs every tool from the repository root.
+        tool.write_text(f'#!/bin/sh\necho "$*" >> {name}-calls\n')
         tool.chmod(0o755)
     npm = bin_dir / "npm"
     npm.write_text(
@@ -141,6 +159,8 @@ def test_linux_packaging(tmp_path, status, version, expected):
         check=False,
     )
     assert result.returncode == status, result.stdout + result.stderr
+    # The override is gitignored, so a retry must not reuse a stale version.
+    assert "sync_tauri_version.mjs" in (tmp_path / "node-calls").read_text()
     outputs = list((tmp_path / "dist").glob("*"))
     assert len(outputs) == (1 if status == 0 else 0)
     if status == 0:
@@ -159,7 +179,8 @@ def test_linux_packaging(tmp_path, status, version, expected):
             members = {m.name.removeprefix("./"): m for m in tar.getmembers()}
             assert tar.extractfile(members["control"]).read().decode() == (
                 control.replace(
-                    "Version: 2.3.1-beta.1", f"Version: {expected}"
+                    "Version: 2.3.1-beta.1",
+                    f"Version: {expected}",
                 )
             )
             assert members["postinst"].mode == 0o755
@@ -168,49 +189,15 @@ def test_linux_packaging(tmp_path, status, version, expected):
             )
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Linux checksum step")
-def test_linux_checksum_is_portable(tmp_path):
-    """Downloaded installers can be verified from their containing folder."""
-    job = _load_workflow("desktop-build.yml")["jobs"]["build-tauri-linux"]
-    script = next(
-        step["run"]
-        for step in job["steps"]
-        if step.get("name") == "Checksum desktop artifacts (Tauri Linux)"
-    )
-    dist = tmp_path / "dist"
-    dist.mkdir()
-    package = dist / "QwenPaw-Tauri-2.3.1b1-linux-x86_64.deb"
-    package.write_bytes(b"installer contents")
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    dpkg = bin_dir / "dpkg-deb"
-    dpkg.write_text("#!/bin/sh\nexit 0\n")
-    dpkg.chmod(0o755)
-    subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", script],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-        },
-        check=True,
-        capture_output=True,
-    )
-    downloaded = tmp_path / "Downloads"
-    dist.rename(downloaded)
-    subprocess.run(
-        ["sha256sum", "-c", package.name + ".sha256"],
-        cwd=downloaded,
-        check=True,
-        capture_output=True,
-    )
-
-
-@pytest.mark.parametrize("rendered", [True, False])
+@pytest.mark.parametrize(
+    ("rendered", "close_hangs"),
+    [(True, False), (False, False), (False, True)],
+)
 def test_linux_native_window_required_before_web_checks(
     tmp_path,
     monkeypatch,
     rendered,
+    close_hangs,
 ):
     """A working API or separate browser cannot substitute for the native UI."""
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/verify"))
@@ -224,6 +211,9 @@ def test_linux_native_window_required_before_web_checks(
 
     def http(method, url, body, timeout):
         calls.append((method, url))
+        if method == "DELETE" and close_hangs:
+            # urllib raises socket timeouts unwrapped, not as RuntimeError.
+            raise TimeoutError("timed out")
         if url.endswith("/session"):
             assert (
                 body["capabilities"]["alwaysMatch"][

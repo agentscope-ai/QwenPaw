@@ -9,7 +9,10 @@ that a failure in any one of them blocks the whole release: you can never end up
 with, e.g., a web release that has no matching desktop build.
 
 Linux `.deb` installers are published to GitHub Releases and the download page.
-The updater uses the same signed package from OSS.
+The updater uses the same signed package from OSS. To release a target that
+predates Linux packaging (it has no
+`scripts/pack-tauri/build_linux_pyinstaller.sh`), run the workflow from that
+target's branch: run from `main`, its Linux build fails.
 
 > Orchestrator: [`.github/workflows/release.yml`](.github/workflows/release.yml).
 > The older per-artifact workflows are kept as a fallback — see
@@ -122,6 +125,10 @@ Release (or `gh release create ...`), which triggers `publish-pypi` /
 > **Warning:** the legacy flow does **not** gate the web release on the desktop
 > build (the very problem this orchestrator fixes), so use it only as an
 > emergency fallback.
+>
+> It also builds Windows and macOS only. It publishes no Linux installer, and its
+> updater manifest has no Linux entry, so Linux users are not offered that
+> version until a unified release runs.
 
 ## Fork / dry-run testing
 

@@ -47,7 +47,8 @@ def main() -> int:
                 try:
                     command("GET", "/status", timeout=2)
                     break
-                except RuntimeError:
+                except (RuntimeError, OSError):
+                    # _http leaves socket timeouts and resets unwrapped.
                     time.sleep(1)
             else:
                 raise RuntimeError("WebKitWebDriver did not start within 30s")
@@ -124,20 +125,22 @@ def main() -> int:
                 check=False,
             ).returncode
         finally:
-            if session:
-                try:
-                    command("DELETE", session, timeout=10)
-                except RuntimeError as exc:
-                    print(
-                        f"WARN  closing native window: {exc}",
-                        file=sys.stderr,
-                    )
-            driver.terminate()
+            # A hung window must not hide the real failure or leak the driver.
             try:
-                driver.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                driver.kill()
-                driver.wait()
+                if session:
+                    command("DELETE", session, timeout=10)
+            except (RuntimeError, OSError) as exc:
+                print(
+                    f"WARN  closing native window: {exc}",
+                    file=sys.stderr,
+                )
+            finally:
+                driver.terminate()
+                try:
+                    driver.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    driver.kill()
+                    driver.wait()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@
 name = "qwenpaw-desktop"
 version = "0.1.0"
 description = "QwenPaw Desktop Tauri shell that wraps the QwenPaw Console frontend and runs the Python FastAPI backend as a local sidecar process."
-authors = ["QwenPaw Contributors"]
+# Tauri writes this to the deb Maintainer field, which needs a contact address.
+authors = ["QwenPaw Contributors <qwenpaw@users.noreply.github.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/agentscope-ai/QwenPaw"
 edition = "2021"

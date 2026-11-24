@@ -241,7 +241,7 @@ A: 当前采用
 ### 系统要求
 
 - **操作系统**：Ubuntu 24.04 LTS 或更新、Debian 13 或更新（glibc 2.39+），x86_64
-- **运行依赖**：`libwebkit2gtk-4.1-0`、`libgtk-3-0t64`、`libayatana-appindicator3-1`
+- **运行依赖**：`libwebkit2gtk-4.1-0`、`libgtk-3-0t64`、`libayatana-appindicator3-1`、`pkexec`
 - **会话**：Wayland 或 X11
 - **磁盘空间**：安装后约 3.5 GB
 

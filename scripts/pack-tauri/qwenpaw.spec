@@ -357,25 +357,19 @@ def _strip_cuda_payload(bundle):
     collects these libs from package data rather than from imports, so the
     ``excludes`` entry alone is not enough.
     """
-    internal = bundle / "_internal"
-    if not internal.is_dir():
-        return
-    removed_bytes = 0
-    for entry in sorted(internal.iterdir()):
-        if entry.name != "nvidia" and not entry.name.startswith(
-            ("nvidia.", "triton"),
+    for entry in sorted((bundle / "_internal").glob("*")):
+        # Match the payload only. ``triton-*.dist-info`` must stay: Whisper
+        # declares triton, and plugin dependency checks read that metadata.
+        name = entry.name
+        if name not in ("nvidia", "triton") and not name.startswith(
+            ("nvidia.", "triton."),
         ):
             continue
+        print(f"stripping CUDA payload: {name}")
         if entry.is_dir():
-            removed_bytes += sum(
-                f.stat().st_size for f in entry.rglob("*") if f.is_file()
-            )
             shutil.rmtree(entry)
         else:
-            removed_bytes += entry.stat().st_size
             entry.unlink()
-    if removed_bytes:
-        print(f"stripped CUDA payload: {removed_bytes / (1024 ** 3):.2f} GiB")
 
 
 _strip_cuda_payload(Path(DISTPATH) / "qwenpaw-backend")

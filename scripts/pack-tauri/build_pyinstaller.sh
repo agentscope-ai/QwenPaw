@@ -101,7 +101,12 @@ echo "PyInstaller installed"
 
 # Older Linux packages bundle Whisper via the full extra. Use CPU-only torch
 # for that case and let the optional Whisper plugin install its own runtime.
-if [ "$(uname -s)" = "Linux" ] && "$PYTHON_BIN" - "$REPO_ROOT/pyproject.toml" <<'PYTHON'
+if [ "$(uname -s)" = "Linux" ]; then
+    # Exit 0: the full extra bundles Whisper. Exit 3: it does not. Any other
+    # status is a probe failure and must stop the build: skipping CPU-only
+    # torch would ship CUDA torch without the CUDA libraries the spec strips.
+    whisper_probe=0
+    "$PYTHON_BIN" - "$REPO_ROOT/pyproject.toml" <<'PYTHON' || whisper_probe=$?
 import sys
 import tomllib
 
@@ -109,12 +114,21 @@ from packaging.requirements import Requirement
 
 with open(sys.argv[1], "rb") as project_file:
     full = tomllib.load(project_file)["project"]["optional-dependencies"]["full"]
-sys.exit(not any("whisper" in Requirement(item).extras for item in full))
+bundles_whisper = any("whisper" in Requirement(item).extras for item in full)
+sys.exit(0 if bundles_whisper else 3)
 PYTHON
-then
-    echo "== Installing CPU-only torch =="
-    install_python_packages torch \
-        --index-url https://download.pytorch.org/whl/cpu
+    case "$whisper_probe" in
+        0)
+            echo "== Installing CPU-only torch =="
+            install_python_packages torch \
+                --index-url https://download.pytorch.org/whl/cpu
+            ;;
+        3) ;;
+        *)
+            echo "ERROR: could not read the full extra from pyproject.toml"
+            exit 1
+            ;;
+    esac
 fi
 
 # Install project dependencies (ensures ALL runtime deps are importable)

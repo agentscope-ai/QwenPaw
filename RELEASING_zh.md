@@ -36,7 +36,9 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
    镜像、把桌面安装包挂到 release 并上传 OSS、发布插件——然后**最后一步**才把草稿翻成
    *published*（tag 钉到构建用的 SHA）。发布后刷新桌面下载索引，推送 Windows 和 macOS 的
    `latest` 文件和三个平台的自动更新清单，部署官网（仅正式版/post），并创建 Release Duty 验收 issue。
-   Linux 自动更新使用 OSS 上的同一个已签名 deb。
+   Linux 自动更新使用 OSS 上的同一个已签名 deb。早于 Linux 打包的发布目标（没有
+   `scripts/pack-tauri/build_linux_pyinstaller.sh`）要从该目标所在的分支触发 workflow；
+   从 `main` 触发时 Linux 构建会失败。
 
 整体约 60–75 分钟，主要耗时在桌面 Tauri 构建。
 
@@ -103,6 +105,9 @@ Release **点 Publish**（或 `gh release create ...`），会在 `release: publ
 
 > **警告**：旧流程**不会**用桌面构建来 gate Web 发布（这正是本编排器要修的问题），
 > 因此仅作应急回退使用。
+>
+> 旧流程也只构建 Windows 和 macOS：不会发布 Linux 安装包，更新清单里也没有 Linux
+> 条目，所以在下一次统一发布之前，Linux 用户收不到这个版本。
 
 ## Fork / dry-run 测试
 

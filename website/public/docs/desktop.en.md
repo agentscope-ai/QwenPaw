@@ -241,7 +241,7 @@ A: Currently using:
 ### System Requirements
 
 - **Operating System**: Ubuntu 24.04 LTS or newer, Debian 13 or newer (glibc 2.39+), x86_64
-- **Runtime dependencies**: `libwebkit2gtk-4.1-0`, `libgtk-3-0t64`, `libayatana-appindicator3-1`
+- **Runtime dependencies**: `libwebkit2gtk-4.1-0`, `libgtk-3-0t64`, `libayatana-appindicator3-1`, `pkexec`
 - **Session**: Wayland or X11
 - **Disk space**: about 3.5 GB after installation
 
@@ -263,7 +263,7 @@ The app creates `~/.qwenpaw` on first launch and initializes a default workspace
 - `~/.qwenpaw/workspaces/` — agent workspaces
 - `~/.qwenpaw/config.json` — configuration
 - `~/.qwenpaw.secret/` — credentials
-- `~/.qwenpaw.log` / `~/.qwenpaw/desktop.log` — logs
+- `~/.qwenpaw/desktop.log` — logs
 
 ### Known Limitations (Linux)
 
