@@ -26,11 +26,11 @@ rules. Choose the style that best matches your workflow.
 
 Common recurring task templates:
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01nVpHql1zxISweZb3J_!!6000000006780-2-tps-1724-1000.png)
+![todo](https://img.alicdn.com/imgextra/i1/O1CN01IzMn3iGE8vL3FPfU_!!6000000001693-2-tps-1600-1000.png)
 
 Common calendar task templates:
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01z5WVDU1Pbvp2pnvcM_!!6000000001860-2-tps-1720-1294.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01IgfxiosOQKE3FPfU_!!6000000002308-2-tps-1600-1000.png)
 
 Calendar tasks support **one-time runs / recurring runs with end date /
 recurring runs with run-count limits**.
@@ -44,7 +44,7 @@ recurring runs with run-count limits**.
 
 1. Click **Create Task**.
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN01TiMKlk1dSgRgu2B2B_!!6000000003735-2-tps-1164-1966.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01MOdzzzXA7WC3FPfU_!!6000000001950-2-tps-1600-1000.png)
 
 2. Fill in fields:
    - **Basic info**: set a task name and enable the task.
@@ -93,7 +93,7 @@ Disable the task first, click **Delete**, then confirm.
 The new **Calendar View** displays all calendar tasks by date so you can quickly
 review upcoming plans. Click a task to open its edit page.
 
-![todo](https://img.alicdn.com/imgextra/i4/O1CN01CF6OTg22d5qFWYCSd_!!6000000007142-2-tps-2970-1686.png)
+![todo](https://img.alicdn.com/imgextra/i3/O1CN015ozFivd8fzB3FPfU_!!6000000006306-2-tps-1600-1000.png)
 
 ---
 
@@ -144,7 +144,7 @@ The new **Create from Template** flow lets you choose **Recurring Task** or
 message/request content. Default delivery goes to the Console `cron_job`
 session, with `default` as user ID.
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01nVpHql1zxISweZb3J_!!6000000006780-2-tps-1724-1000.png)
+![todo](https://img.alicdn.com/imgextra/i1/O1CN01IzMn3iGE8vL3FPfU_!!6000000001693-2-tps-1600-1000.png)
 
 ### Method 3: CLI
 
