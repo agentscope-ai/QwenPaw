@@ -35,6 +35,15 @@ On a fresh installation, **Settings → Models → Local & Custom** lists Ollama
 
 When QwenPaw restarts, it tries to restore a previously started local model selected by an enabled agent. If you use only cloud models, llama.cpp stays stopped.
 
+### Local Piccolo decision models
+
+Under **Decision models** in QwenPaw Local, choose a recommended BF16 or Q8_0 model for your machine's memory. Download it and select **Start**. For Q4_K_M, use the custom download option and enter a GGUF repository ID, such as `agentscope-ai/Piccolo-4B-Q4_K_M` on Hugging Face or `AgentScope/Piccolo-4B-Q4_K_M` on ModelScope.
+
+Under **Models → Default models → Decision model**, check that Piccolo is selected. Then configure the agent for the feature you want to use.
+
+- **Tool review**. Choose **Decision Model Mode** in the agent's security settings and enable tool review in the conversation.
+- **Context compaction**. Turn on automatic context compaction in the agent's context settings, then select **Enable decision model compaction**.
+
 ## Ollama Configuration
 
 Before using Ollama, you need to install the latest version of [Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.

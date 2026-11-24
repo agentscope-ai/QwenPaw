@@ -35,6 +35,15 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 重启 QwenPaw 时，如果启用的智能体仍选用已启动过的本地模型，QwenPaw 会尝试恢复该模型。只使用云模型时，llama.cpp 不会随 App 启动。
 
+### 使用本地 Piccolo 决策模型
+
+在 QwenPaw Local 的 **决策模型** 列表中，按机器内存选择推荐的 BF16 或 Q8_0 版本，下载后点击 **启动**。如需 Q4_K_M，可在自定义下载中填写 GGUF 仓库 ID，例如 Hugging Face 的 `agentscope-ai/Piccolo-4B-Q4_K_M` 或 ModelScope 的 `AgentScope/Piccolo-4B-Q4_K_M`。
+
+在 **模型 → 默认模型 → 决策模型** 确认已选中 Piccolo，再按用途配置智能体：
+
+- **工具审查**：在智能体的安全设置中选择 **决策模型模式**，并在对话中开启工具审查。
+- **上下文压缩**：在智能体的上下文设置中开启自动上下文压缩，再打开 **启用决策模型压缩**。
+
 ## Ollama 配置
 
 在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
