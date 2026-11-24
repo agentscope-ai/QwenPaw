@@ -137,6 +137,8 @@ class ApprovalService:
         self,
         pending: PendingApproval,
         channel_body: str,
+        *,
+        message_type: str = "tool_guard_approval",
     ) -> None:
         """Fire-and-forget: push approval notification to channel."""
         if not pending.channel or pending.channel == "console":
@@ -167,6 +169,7 @@ class ApprovalService:
                 severity=pending.severity,
                 result_summary=channel_body,
                 channel_meta=channel_meta,
+                message_type=message_type,
             )
         except Exception:
             logger.warning(
@@ -174,6 +177,30 @@ class ApprovalService:
                 pending.request_id[:8],
                 exc_info=True,
             )
+
+    async def _notify_timeout(self, pending: PendingApproval) -> None:
+        """Tell the chat user that the window closed and nothing ran.
+
+        Silence was the worst part of the old behaviour: the request expired
+        and the user could not tell whether the tool had run, was still
+        queued, or had been refused.
+        """
+        if not pending.channel or pending.channel == "console":
+            return
+        if not (pending.extra or {}).get("_channel_instance"):
+            return
+        body = (
+            "\u23f1\ufe0f **Approval timed out**\n\n"
+            f"\u2022 **Tool**: `{pending.tool_name}`\n"
+            f"\u2022 **Request**: `{pending.request_id[:16]}`\n\n"
+            "Nothing was executed. Ask again to retry, or send "
+            "`/approval list` to see what is still pending."
+        )
+        await self._notify_channel(
+            pending,
+            body,
+            message_type="approval_timeout",
+        )
 
     # ------------------------------------------------------------------
     # Core approval lifecycle
@@ -246,7 +273,10 @@ class ApprovalService:
                 or _is_spawn_child_approval(pending)
             )
         ):
-            channel_body = format_channel_approval_body(result)
+            channel_body = format_channel_approval_body(
+                result,
+                request_id=request_id,
+            )
             asyncio.create_task(
                 self._notify_channel(pending, channel_body),
                 name=f"approval-notify-{request_id[:8]}",
@@ -317,8 +347,18 @@ class ApprovalService:
                 or _is_spawn_child_approval(pending)
             )
         ):
+            from ...security.tool_guard.approval import (
+                format_summary_approval_body,
+            )
+
             asyncio.create_task(
-                self._notify_channel(pending, pending.result_summary),
+                self._notify_channel(
+                    pending,
+                    format_summary_approval_body(
+                        summary,
+                        request_id=request_id,
+                    ),
+                ),
                 name=f"approval-notify-{request_id[:8]}",
             )
 
@@ -564,6 +604,8 @@ class ApprovalService:
             )
             # A response may have won the race with this waiter's timeout.
             decision = pending.future.result()
+            if decision == ApprovalDecision.TIMEOUT:
+                await self._notify_timeout(pending)
 
         return decision
 

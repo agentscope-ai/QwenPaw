@@ -1305,11 +1305,16 @@ class IsolatedChannelProxy(BaseChannel):
             policy = await self._response_policy(to_handle, meta)
             if policy.text_merge_delay_ms is not None:
                 parts = fields.get("content_parts")
+                # Time-sensitive sends opt out of the merge window: a
+                # WeChat merge can hold text for 30 s, which is longer than
+                # the approval timeout it is announcing. Buffered text is
+                # still flushed first so ordering is preserved.
                 mergeable = (
                     operation == "message.create"
                     and fields.get("content_source") != "event"
                     and fields.get("approval") is None
                     and fields.get("approval_resolution") is None
+                    and not meta.get("no_merge")
                     and parts
                 )
                 if mergeable and all(
