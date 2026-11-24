@@ -443,16 +443,14 @@ async def configure_provider(
     name = body.name.strip() if body.name else None
     if name and provider is not None and provider.is_custom:
         config["name"] = name
-    ok = await manager.update_provider_async(provider_id, config)
-    if not ok and provider is None:
-        saved = await run_sync_io(
-            manager.update_saved_plugin_provider,
+    if provider is None:
+        saved = await manager.update_saved_plugin_provider_async(
             provider_id,
             config,
         )
         if saved is not None:
             return saved.model_copy(update={"api_key": saved.masked_api_key()})
-    if not ok:
+    if not await manager.update_provider_async(provider_id, config):
         raise HTTPException(
             status_code=404,
             detail=f"Provider '{provider_id}' not found",

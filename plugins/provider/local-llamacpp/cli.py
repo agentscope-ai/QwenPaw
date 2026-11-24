@@ -2,6 +2,7 @@
 """Local model commands using the plugin's owned management operations."""
 
 import asyncio
+import shlex
 
 import click
 import httpx
@@ -9,7 +10,7 @@ import httpx
 from qwenpaw.plugins import SDKError
 
 from .io_helpers import finish, run_io
-from .model_types import DownloadSource
+from .model_types import DownloadSource, PICCOLO_REPO_IDS
 
 
 async def download_model(provider, model_id, source, timeout=7200.0):
@@ -118,10 +119,20 @@ def build_cli(name, provider, call):
         size = raw_size if isinstance(raw_size, int) else 0
         click.echo(f"Done! Model saved to: {progress.get('local_path') or ''}")
         click.echo(f"  Size: {size / (1024 * 1024):.1f} MB")
-        click.echo(f"  Name: {repo_id}")
+        model_id = progress.get("model_name") or repo_id
+        click.echo(f"  Name: {model_id}")
+        if model_id in PICCOLO_REPO_IDS:
+            click.echo(
+                "Start this decision model from Local Models in the Console.",
+            )
+            return
+        argument = shlex.quote(model_id)
         click.echo(
-            "\nTo use this model, run:\n"
-            "  qwenpaw models set-llm  (select 'qwenpaw-local' provider)",
+            "\nIf this model is not configured yet, run:\n"
+            f"  qwenpaw models add-model qwenpaw-local "
+            f"-m {argument} -n {argument}\n"
+            "Then select it under QwenPaw Local:\n"
+            "  qwenpaw models set-llm",
         )
 
     @click.command("local")

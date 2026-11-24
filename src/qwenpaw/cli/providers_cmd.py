@@ -588,14 +588,14 @@ def list_cmd() -> None:
         click.echo(f"  {defn.name} ({defn.id}){tag}")
         click.echo(f"{'─' * 44}")
 
+        all_models = defn.all_models()
         if defn.is_local:
-            all_models = list(defn.models)
             if all_models:
                 click.echo(f"  {'models':16s}:")
                 for m in all_models:
                     click.echo(f"    - {m.name}")
             else:
-                click.echo("  No models downloaded.")
+                click.echo("  No models configured.")
                 click.echo(
                     "  Run 'qwenpaw models --help' for available commands.",
                 )
@@ -611,7 +611,6 @@ def list_cmd() -> None:
                     f"  {'api_key_prefix':16s}: {', '.join(prefixes)}",
                 )
 
-            all_models = defn.all_models()
             if all_models:
                 click.echo(f"  {'models':16s}:")
                 extra_ids = {m.id for m in defn.extra_models}

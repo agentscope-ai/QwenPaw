@@ -741,6 +741,7 @@ class TestListCmd:
             name="Local",
             is_local=True,
             models=[ModelInfo(id="lm", name="Local Model")],
+            extra_models=[ModelInfo(id="manual", name="Added Local Model")],
         )
         empty_local = FakeProvider(
             "p-local2",
@@ -774,7 +775,8 @@ class TestListCmd:
         assert "Model Two (m2) [user-added]" in res.output
         assert "Local (p-local) [local]" in res.output
         assert "Local Model" in res.output
-        assert "No models downloaded." in res.output
+        assert "Added Local Model" in res.output
+        assert "No models configured." in res.output
         assert "qwenpaw models --help" in res.output
         assert "qwenpaw models download" not in res.output
         assert "(not set)" in res.output

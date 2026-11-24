@@ -12,11 +12,19 @@ from llamacpp.cli import build_cli, download_model
 from llamacpp.model_types import DownloadSource
 
 
-@pytest.mark.parametrize("status", ["completed", "failed"])
-def test_download_command_preserves_source_and_reports_result(status):
+@pytest.mark.parametrize(
+    ("status", "model_id"),
+    [
+        ("completed", "example/model"),
+        ("completed", "AgentScope/Piccolo-4B"),
+        ("failed", "example/model"),
+    ],
+)
+def test_download_command_reports_result(status, model_id):
     manager = SimpleNamespace(
         get_model_download_progress=lambda: {
             "status": status,
+            "model_name": model_id,
             "downloaded_bytes": 1024 * 1024,
             "local_path": "/models/example",
             "error": "worker failed" if status == "failed" else None,
@@ -28,18 +36,26 @@ def test_download_command_preserves_source_and_reports_result(status):
         cancel_model_download=AsyncMock(),
     )
     command = build_cli("download", provider, SimpleNamespace(run=asyncio.run))
-    result = CliRunner().invoke(command, ["example/model", "-s", "modelscope"])
+    result = CliRunner().invoke(command, [model_id, "-s", "modelscope"])
     provider.start_model_download.assert_awaited_once_with(
-        "example/model",
+        model_id,
         source=DownloadSource.MODELSCOPE,
     )
     provider.cancel_model_download.assert_not_awaited()
     assert result.exit_code == (0 if status == "completed" else 1)
-    assert (
-        "Size: 1.0 MB"
-        if status == "completed"
-        else "Download failed: worker failed"
-    ) in result.output
+    if status == "failed":
+        assert "Download failed: worker failed" in result.output
+    elif model_id == "example/model":
+        assert "Size: 1.0 MB" in result.output
+        assert (
+            "qwenpaw models add-model qwenpaw-local "
+            "-m example/model -n example/model" in result.output
+        )
+        assert "qwenpaw models set-llm" in result.output
+    else:
+        assert model_id in result.output
+        assert "decision model" in result.output
+        assert "qwenpaw models set-llm" not in result.output
 
 
 @pytest.mark.parametrize("interruption", ["startup", "polling", "timeout"])

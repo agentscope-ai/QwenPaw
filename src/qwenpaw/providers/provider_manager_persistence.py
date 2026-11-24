@@ -93,23 +93,34 @@ class ProviderManagerPersistenceMixin(
                 )
         return result
 
+    async def update_saved_plugin_provider_async(
+        self,
+        provider_id: str,
+        values: dict,
+    ) -> ProviderInfo | None:
+        """Serialize a retained configuration edit with plugin registration."""
+        provider_key = self._normalize_provider_id(provider_id)
+        lock = self._provider_save_locks.setdefault(
+            provider_key,
+            asyncio.Lock(),
+        )
+        async with lock:
+            return await run_sync_io(
+                self.update_saved_plugin_provider,
+                provider_key,
+                values,
+            )
+
     def update_saved_plugin_provider(
         self,
         provider_id: str,
         values: dict,
     ) -> ProviderInfo | None:
-        """Update retained settings without registering an executable provider.
-
-        Re-read under the path lock so concurrent edits and fields from a
-        newer plugin survive. Connection changes invalidate endpoint metadata.
-        Return the saved settings, or None when no snapshot matches the ID.
-        """
+        """Merge edits into an unregistered plugin's existing snapshot."""
         provider_key = self._normalize_provider_id(provider_id)
         if provider_key in self.plugin_providers:
-            raise ProviderError(
-                message="Use the active provider update operation.",
-            )
-        path = self._provider_path_for_kind("plugin", provider_id)
+            return None
+        path = self._provider_path_for_kind("plugin", provider_key)
         with get_sync_path_lock(path):
             try:
                 raw = json.loads(path.read_text(encoding="utf-8"))
@@ -606,20 +617,20 @@ class ProviderManagerPersistenceMixin(
             provider_id,
         )
         revision = self._bump_provider_revision(provider_key)
-        registration = await asyncio.to_thread(
-            self._prepare_plugin_registration,
-            provider_id,
-            provider_class,
-            label,
-            base_url,
-            metadata=metadata,
-            saved_config_path=provider_path,
-        )
         lock = self._provider_save_locks.setdefault(
             provider_key,
             asyncio.Lock(),
         )
         async with lock:
+            registration = await run_sync_io(
+                self._prepare_plugin_registration,
+                provider_id,
+                provider_class,
+                label,
+                base_url,
+                metadata=metadata,
+                saved_config_path=provider_path,
+            )
             if revision != self._provider_revision(provider_key):
                 return
             self.plugin_providers[provider_key] = registration
