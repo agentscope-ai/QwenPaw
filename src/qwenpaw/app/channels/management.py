@@ -27,6 +27,7 @@ from ...plugins.ownership import (
     RuntimeKey,
     RuntimeLease,
     RuntimeSourceBusyError,
+    RuntimeIdentityConflictError,
     RuntimeStopReceipt,
 )
 from .process_supervisor import (
@@ -167,11 +168,18 @@ class ChannelManagementService:
                         ),
                     )
                 values = self._parameters(description, parameters)
+                from ...plugins.channel_config import channel_resource_claims
+
                 lease = owners.reserve(
                     description.plugin_id,
                     key,
                     description.code_root,
                     instance_id=str(uuid4()),
+                    identity_claims=channel_resource_claims(
+                        description.descriptor.config_schema,
+                        values["config"],
+                        operation,
+                    ),
                 )
                 try:
                     work = _Work(lease, ChannelProcess())
@@ -275,7 +283,7 @@ class ChannelManagementService:
                 ) from None
         except (ProtocolValidationError, ValueError, TypeError):
             raise ManagementError("MANAGEMENT_INVALID_REQUEST") from None
-        except RuntimeSourceBusyError:
+        except (RuntimeSourceBusyError, RuntimeIdentityConflictError):
             raise ManagementError("MANAGEMENT_BUSY") from None
         except ProcessError as exc:
             reason = (

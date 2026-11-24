@@ -31,6 +31,7 @@ class HookContext(ToolContext):
     phase: HookPhase = HookPhase.PRE_DISPATCH
     messages: tuple[Message, ...] = ()
     error: str | None = None
+    session_saved: bool | None = None
 
 
 @dataclass(frozen=True)

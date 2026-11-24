@@ -354,6 +354,14 @@ def instantiate_channel(
     from .registry import selected_process_channels
 
     plugin_registry = PluginRegistry()
+    show_tool_details = getattr(workspace_config, "show_tool_details", None)
+    if show_tool_details is None:
+        from ...config import load_config
+
+        # Dynamic plugin projection receives an agent profile, whereas initial
+        # service construction supplies a merged Config. Keep the root policy
+        # in both paths instead of silently enabling hidden tool details.
+        show_tool_details = load_config().show_tool_details
     if key in selected_process_channels():
         if context is None or context.prepared is None:
             raise RuntimeError("CHANNEL_PREPARATION_STALE")
@@ -372,11 +380,16 @@ def instantiate_channel(
         )
         from ...plugins.ownership import RuntimeKey, RuntimeStopReceipt
 
-        identity_claims = ()
+        from ...plugins.channel_config import channel_resource_claims
+
+        identity_claims = channel_resource_claims(
+            row.description_record.descriptor.config_schema,
+            prepared_config.config,
+        )
         if key == "voice":
             from .conflict import get_channel_bot_identity
 
-            identity_claims = tuple(
+            identity_claims += tuple(
                 ("channel:voice:" + name, value)
                 for name, value in (
                     get_channel_bot_identity(key, ch_cfg) or ()
@@ -419,14 +432,11 @@ def instantiate_channel(
                 instance_id=instance_id,
                 generation=lease.generation,
                 workspace_dir=workspace_dir,
+                workspace_id=context.configured_id,
                 on_reply_sent=on_last_dispatch,
                 display_config=ChannelDisplayConfig.from_config(
                     ch_cfg,
-                    show_tool_details=getattr(
-                        workspace_config,
-                        "show_tool_details",
-                        True,
-                    ),
+                    show_tool_details=show_tool_details,
                 ),
                 no_text_debounce=getattr(ch_cfg, "no_text_debounce", True),
                 startup_timeout=settings.startup_timeout,
@@ -464,11 +474,6 @@ def instantiate_channel(
     ch_cfg = channel_cfg_for_key(workspace_config, key)
     if ch_cfg is None:
         raise RuntimeError(f"No config found for channel '{key}'")
-    show_tool_details = getattr(
-        workspace_config,
-        "show_tool_details",
-        True,
-    )
     no_text_debounce = getattr(ch_cfg, "no_text_debounce", True)
     from_config_kwargs: dict[str, Any] = {
         "process": process,
@@ -639,7 +644,9 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         self._workspace_config: Any = None
 
         # New unified queue system
-        self._command_registry = CommandRegistry()
+        self._command_registry = CommandRegistry(
+            control_resolver=self._is_sdk_control,
+        )
         self._queue_manager: UnifiedQueueManager | None = None
         self._workspace = None
 
@@ -704,6 +711,13 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 expected=self._channel_handle(old),
                 token=handle,
             )
+
+    def _is_sdk_control(self, query: str) -> bool:
+        """Read the live workspace declaration, avoiding duplicate registrations."""
+        plugins = getattr(self._workspace, "plugins", None)
+        registry = getattr(plugins, "slash_command_registry", None)
+        match = registry.resolve(query) if registry is not None else None
+        return bool(match and match[0].metadata.get("sdk_control") is True)
 
     def register_control_command(
         self,

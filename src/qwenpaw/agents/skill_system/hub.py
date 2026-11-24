@@ -2262,6 +2262,42 @@ class _InstallPayload:
     installation_origin: dict[str, Any] | None = None
 
 
+@asynccontextmanager
+async def _cancel_pending_download():
+    """Interrupt a stalled fetch, but never cancel a disk-writing thread."""
+    if _cancel_checker_ctx.get() is None:
+        yield
+        return
+    owner = asyncio.current_task()
+    assert owner is not None
+    cancelled_here = False
+
+    async def watch():
+        nonlocal cancelled_here
+        while True:
+            await asyncio.sleep(0.1)
+            try:
+                _ensure_not_cancelled()
+            except SkillImportCancelled:
+                if not owner.cancelling():
+                    cancelled_here = True
+                    owner.cancel()
+                return
+
+    watcher = asyncio.create_task(watch(), name="skill-download-cancel")
+    try:
+        yield
+        _ensure_not_cancelled()
+    except asyncio.CancelledError:
+        if not cancelled_here or owner.cancelling() > 1:
+            raise
+        owner.uncancel()
+        raise SkillImportCancelled("Skill import cancelled by user") from None
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
 async def _prepare_install_payload(
     bundle_url: str,
     version: str,
@@ -2280,17 +2316,23 @@ async def _prepare_install_payload(
             message="bundle_url must be a valid http(s) URL",
         )
     _ensure_not_cancelled()
-    if provider is None:
-        data, source_url = await _resolve_bundle_from_url(bundle_url, version)
-        installed_from = _classify_install_origin(bundle_url)
-    else:
-        if not provider.matches_url(bundle_url):
-            raise ValueError(f"URL does not belong to Hub {provider.key!r}")
-        data, source_url = await provider.fetch_bundle(
-            bundle_url,
-            requested_version=version,
-        )
-        installed_from = provider.key
+    async with _cancel_pending_download():
+        if provider is None:
+            data, source_url = await _resolve_bundle_from_url(
+                bundle_url,
+                version,
+            )
+            installed_from = _classify_install_origin(bundle_url)
+        else:
+            if not provider.matches_url(bundle_url):
+                raise ValueError(
+                    f"URL does not belong to Hub {provider.key!r}",
+                )
+            data, source_url = await provider.fetch_bundle(
+                bundle_url,
+                requested_version=version,
+            )
+            installed_from = provider.key
     name, content, references, scripts, extra_files = _normalize_bundle(data)
     if not name:
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]

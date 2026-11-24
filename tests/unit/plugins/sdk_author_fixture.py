@@ -4,19 +4,27 @@
 import json
 
 
-def make_plugin(tmp_path, source, capabilities):
-    root = tmp_path / "extension-plugin"
+def make_plugin(
+    tmp_path,
+    source,
+    capabilities,
+    *,
+    plugin_id="extension-contract",
+    sdk_version=None,
+):
+    if sdk_version is None:
+        sdk_version = "1.2" if "drivers" in capabilities else "1.0"
+    root = tmp_path / (
+        "extension-plugin" if plugin_id == "extension-contract" else plugin_id
+    )
     root.mkdir()
     (root / "plugin.json").write_text(
         json.dumps(
             {
-                "id": "extension-contract",
+                "id": plugin_id,
                 "version": "1.0.0",
                 "entry": {"backend": "main.py"},
-                "sdk": {
-                    "version": "1.2" if "drivers" in capabilities else "1.0",
-                    "capabilities": capabilities,
-                },
+                "sdk": {"version": sdk_version, "capabilities": capabilities},
             },
         ),
         encoding="utf-8",
