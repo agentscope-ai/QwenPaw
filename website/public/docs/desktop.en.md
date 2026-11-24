@@ -8,15 +8,16 @@
 > - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
 > - **Features under development**: Some features may be unstable or missing
 >
-> ✅ The desktop app is now built with **Tauri** and ships with a built-in **in-app auto-updater**, so you can upgrade to newer versions without uninstalling and reinstalling.
+> ✅ The desktop app is built with **Tauri** and supports **in-app updates**.
 >
 > We welcome your feedback to help improve product quality.
 
-**Download**: [GitHub Releases][releases]
+**Download**: [Download page][downloads] · [GitHub Releases][github-releases]
 
 This guide explains how to install and use the QwenPaw Desktop application on Windows, macOS, and Linux.
 
-[releases]: https://qwenpaw.agentscope.io/downloads
+[downloads]: https://qwenpaw.agentscope.io/downloads/
+[github-releases]: https://github.com/agentscope-ai/QwenPaw/releases
 
 ## Important Notice
 
@@ -41,7 +42,7 @@ This guide explains how to install and use the QwenPaw Desktop application on Wi
 ### Installation Steps
 
 1. **Download the installer**
-   Download `QwenPaw-Tauri-<version>-Windows-setup.exe` from the [Release page][releases]
+   Download `QwenPaw-Tauri-<version>-Windows-setup.exe` from the [download page][downloads].
 
 2. **Run the installer**
    Double-click the `.exe` file and follow the installation wizard
@@ -108,7 +109,7 @@ The code is completely open source, and the build process is transparently verif
 ### Installation Steps
 
 1. **Download the archive**
-   Download `QwenPaw-Tauri-<version>-macOS.zip` from the [Release page][releases]
+   Download `QwenPaw-Tauri-<version>-macOS.zip` from the [download page][downloads].
 
 2. **Extract**
    Double-click the `.zip` file to extract and get `QwenPaw Desktop.app`
@@ -241,14 +242,12 @@ A: Currently using:
 
 - **Operating System**: Ubuntu 24.04 LTS or newer, Debian 13 or newer (glibc 2.39+), x86_64
 - **Runtime dependencies**: `libwebkit2gtk-4.1-0`, `libgtk-3-0t64`, `libayatana-appindicator3-1`
-- **Session**: Wayland or X11 (both work; GNOME 50 on Ubuntu 26.04 is Wayland-only)
+- **Session**: Wayland or X11
 - **Disk space**: about 3.5 GB after installation
 
 ### Installation Steps
 
-**Option 1 — Debian package (recommended)**
-
-1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [Release page][releases]
+1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [download page][downloads] or [GitHub Releases][github-releases].
 2. Install it with apt so dependencies resolve automatically:
 
    ```bash
@@ -256,18 +255,6 @@ A: Currently using:
    ```
 
 3. Launch **QwenPaw Desktop** from the application grid, or run `qwenpaw-desktop`
-
-**Option 2 — AppImage (no installation)**
-
-1. Download `QwenPaw-Tauri-<version>-linux-x86_64.AppImage`
-2. Make it executable and run it:
-
-   ```bash
-   chmod +x QwenPaw-Tauri-<version>-linux-x86_64.AppImage
-   ./QwenPaw-Tauri-<version>-linux-x86_64.AppImage
-   ```
-
-An AppImage carries no dependency metadata: install `libwebkit2gtk-4.1-0` and `libfuse2` first if the system does not have them.
 
 ### First Run
 
@@ -280,12 +267,12 @@ The app creates `~/.qwenpaw` on first launch and initializes a default workspace
 
 ### Known Limitations (Linux)
 
-- **Blurry UI under fractional display scaling.** The desktop window is a GTK 3 webview, and GTK 3 has no fractional scaling: at 125% or 150% the compositor renders the window at 1x and scales it up, so text looks soft. Other GTK 3 applications on the same desktop show the same effect. Set the display to an integer scale (100% or 200%) when sharp text matters.
-- **Scrolling and window resizing can feel slower than in a browser.** The same Console UI rendered in a browser uses a different engine; WebKitGTK's compositing path is slower on some GPU/Wayland combinations. This is a rendering-path limitation, not a packaging one.
+- Text may look blurry under fractional display scaling. Try 100% or 200% scaling.
+- On some desktop environments, scrolling and window resizing may feel slower than in a browser.
 
 ### Updates and Uninstall
 
-- **Updates**: download and install the newer package, or replace the AppImage file
+- **Updates**: choose **Update Now** or **Download in Background** in the app. Installing the update requires administrator authorization.
 - **Uninstall**: `sudo apt remove qwen-paw-desktop` — this keeps `~/.qwenpaw`, remove it manually for a clean wipe
 
 ## Technical Support

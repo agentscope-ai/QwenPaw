@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build QwenPaw Desktop for Linux: a .deb and an .AppImage from the same
+# Build QwenPaw Desktop for Linux: a .deb from the same
 # Tauri shell used on Windows/macOS (bundled Python runtime + PyInstaller
 # backend + Node runtime, no Docker).
 #
@@ -8,12 +8,10 @@
 #
 # Output:
 #   console/src-tauri/target/release/bundle/deb/*.deb
-#   console/src-tauri/target/release/bundle/appimage/*.AppImage
 #   dist/QwenPaw-Tauri-<version>-linux-<arch>.deb
-#   dist/QwenPaw-Tauri-<version>-linux-<arch>.AppImage
 #
 # Prerequisites (Ubuntu/Debian):
-#   sudo apt-get install -y build-essential curl file patchelf libfuse2 \
+#   sudo apt-get install -y build-essential curl file libtbb12 pkgconf \
 #     libgtk-3-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev \
 #     libwebkit2gtk-4.1-dev
 #   Rust (rustup) and Node.js >= 22 must be on PATH; Python 3.11-3.13 is used
@@ -41,7 +39,7 @@ echo ""
 # ---------------------------------------------------------------- prerequisites
 echo "== Checking prerequisites =="
 missing=()
-for tool in npm node rustc cargo python3 ldd; do
+for tool in npm node rustc cargo python3 ar tar gzip; do
   if command -v "${tool}" >/dev/null 2>&1; then
     echo "  [OK] ${tool}"
   else
@@ -71,7 +69,7 @@ if [ ${#missing[@]} -gt 0 ]; then
   echo "Missing prerequisites: ${missing[*]}"
   echo ""
   echo "Install the system packages:"
-  echo "  sudo apt-get install -y build-essential curl file patchelf libfuse2 pkgconf \\"
+  echo "  sudo apt-get install -y build-essential curl file libtbb12 pkgconf \\"
   echo "    libgtk-3-dev libsoup-3.0-dev librsvg2-dev \\"
   echo "    libayatana-appindicator3-dev libwebkit2gtk-4.1-dev"
   echo ""
@@ -102,138 +100,15 @@ echo ""
 fi
 
 # ------------------------------------------------------------------- 3) Tauri bundles
-# Tauri merges into an existing AppDir instead of recreating it, so leftovers
-# from an earlier product name (or an earlier failed run) stay behind and can
-# break the next bundling step. Always start from clean bundle directories.
-rm -rf "${REPO_ROOT}/console/src-tauri/target/release/bundle/deb" \
-       "${REPO_ROOT}/console/src-tauri/target/release/bundle/appimage"
+# Start from a clean bundle directory so collection cannot pick up an old deb.
+rm -rf "${REPO_ROOT}/console/src-tauri/target/release/bundle/deb"
 
-echo "== Step 3: Tauri bundles (deb + AppImage) =="
+echo "== Step 3: Tauri Debian package =="
 cd console
-# CI/containers usually have no FUSE; this lets the AppImage bundler extract
-# and run itself without mounting.
-set +e
-APPIMAGE_EXTRACT_AND_RUN=1 npm exec -- tauri build \
+npm exec -- tauri build \
   --config src-tauri/tauri.version.conf.json \
-  --bundles deb,appimage
-TAURI_STATUS=$?
-set -e
+  --bundles deb
 cd ..
-echo ""
-
-# ------------------------------------------------------- 3b) AppImage fallback
-# linuxdeploy walks every ELF file in the AppDir and shells out to `ldd` for
-# each one. With a bundled Python runtime that is thousands of files, and a
-# single unresolved name aborts the whole bundling step. Our AppDir already
-# ships every dependency it needs, so dependency inference adds nothing: pack
-# the tree with appimagetool when linuxdeploy fails.
-APPDIR_ROOT="${REPO_ROOT}/console/src-tauri/target/release/bundle/appimage"
-APPDIR="$(ls -d "${APPDIR_ROOT}"/*.AppDir 2>/dev/null | head -1 || true)"
-APPIMAGE_OUT=""
-if [ "${TAURI_STATUS}" -ne 0 ]; then
-  if [ -z "${APPDIR}" ] || [ ! -x "${APPDIR}/AppRun" ]; then
-    echo "ERROR: bundling failed and no usable AppDir was produced"
-    exit "${TAURI_STATUS}"
-  fi
-  echo "== Step 3b: tauri bundling failed; packing the AppDir with appimagetool =="
-
-  APPDIR_NAME="$(basename "${APPDIR}" .AppDir)"
-  # Tauri emits the resource payload twice under usr/lib (once per product
-  # name it knows about). Keep only the one the runtime resolves.
-  # The runtime resolves resources under usr/lib/<product name>, and Tauri can
-  # emit the payload under two names. Keep one real tree and point the other
-  # name at it, so either resolution works and the archive stores it once.
-  PRIMARY_LIB=""
-  for lib_dir in "${APPDIR}"/usr/lib/*/; do
-    [ -d "${lib_dir}" ] || continue
-    name="$(basename "${lib_dir}")"
-    if [ -d "${lib_dir}binaries" ] && [ "${name}" = "${APPDIR_NAME}" ]; then
-      PRIMARY_LIB="${name}"
-    fi
-  done
-  for lib_dir in "${APPDIR}"/usr/lib/*/; do
-    [ -d "${lib_dir}" ] || continue
-    name="$(basename "${lib_dir}")"
-    [ -d "${lib_dir}binaries" ] || continue
-    if [ -z "${PRIMARY_LIB}" ]; then
-      PRIMARY_LIB="${name}"
-      continue
-    fi
-    if [ "${name}" != "${PRIMARY_LIB}" ]; then
-      echo "    deduplicating usr/lib/${name} -> symlink to ${PRIMARY_LIB}"
-      rm -rf "${lib_dir}"
-      ln -sfn "${PRIMARY_LIB}" "${APPDIR}/usr/lib/${name}"
-    fi
-  done
-
-  # appimagetool wants the icon named by the desktop entry next to it.
-  DESKTOP_FILE="$(ls "${APPDIR}"/usr/share/applications/*.desktop 2>/dev/null | head -1 || true)"
-  if [ -n "${DESKTOP_FILE}" ]; then
-    ICON_NAME="$(sed -n 's/^Icon=//p' "${DESKTOP_FILE}" | head -1)"
-    if [ -n "${ICON_NAME}" ] && [ ! -e "${APPDIR}/${ICON_NAME}.png" ]; then
-      SOURCE_PNG="$(ls "${APPDIR}"/*.png 2>/dev/null | head -1 || true)"
-      if [ -n "${SOURCE_PNG}" ]; then
-        cp -f "${SOURCE_PNG}" "${APPDIR}/${ICON_NAME}.png"
-      fi
-    fi
-    if [ -n "${ICON_NAME}" ] && [ -e "${APPDIR}/${ICON_NAME}.png" ]; then
-      ln -sfn "${ICON_NAME}.png" "${APPDIR}/.DirIcon"
-    fi
-  fi
-
-  # An executable AppRun alone is not proof of a complete bundle: linuxdeploy
-  # can die mid-deployment and leave a partial tree behind. Validate the
-  # required contents and the dependency closure of the main binary before
-  # packing; on failure, preserve the original tauri build error.
-  _problems=()
-  [ -x "${APPDIR}/usr/bin/qwenpaw-desktop" ] \
-    || _problems+=("missing main binary usr/bin/qwenpaw-desktop")
-  [ -n "$(ls -d "${APPDIR}"/usr/lib/*/binaries 2>/dev/null | head -1)" ] \
-    || _problems+=("missing resource payload usr/lib/*/binaries")
-  [ -n "$(ls "${APPDIR}"/usr/share/applications/*.desktop 2>/dev/null | head -1)" ] \
-    || _problems+=("missing .desktop entry")
-  _libpath="${APPDIR}/usr/lib"
-  for _d in "${APPDIR}"/usr/lib/*/; do
-    [ -d "${_d}" ] || continue
-    _libpath="${_libpath}:${_d%/}"
-  done
-  _unresolved="$(LD_LIBRARY_PATH="${_libpath}" \
-    ldd "${APPDIR}/usr/bin/qwenpaw-desktop" 2>/dev/null \
-    | grep 'not found' || true)"
-  [ -z "${_unresolved}" ] \
-    || _problems+=("unresolved shared libraries: ${_unresolved}")
-  if [ ${#_problems[@]} -gt 0 ]; then
-    echo "ERROR: refusing the appimagetool fallback; AppDir is incomplete:"
-    printf '  - %s\n' "${_problems[@]}"
-    exit "${TAURI_STATUS}"
-  fi
-
-  TOOL_CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/qwenpaw-desktop"
-  mkdir -p "${TOOL_CACHE}"
-  APPIMAGETOOL="${TOOL_CACHE}/appimagetool-x86_64.AppImage"
-  if [ ! -x "${APPIMAGETOOL}" ]; then
-    echo "    downloading appimagetool"
-    curl -fL --retry 3 -o "${APPIMAGETOOL}" \
-      https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-    chmod +x "${APPIMAGETOOL}"
-  fi
-
-  # appimagetool requires AppRun and the runtime payload to be readable and
-  # executable by everyone; the bundler can emit group-only modes (0770)
-  # that pass the same-user -x check above. Normalize world-read/exec on
-  # files that are already readable/executable by someone, without adding
-  # new execute bits; appimagetool keeps its own permission validation.
-  chmod 0755 "${APPDIR}/AppRun"
-  chmod -R a+rX "${APPDIR}"
-
-  APPIMAGE_OUT="${APPDIR_ROOT}/${APPDIR_NAME}.AppImage"
-  ARCH="$(uname -m)" APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGETOOL}" \
-    --no-appstream "${APPDIR}" "${APPIMAGE_OUT}"
-  if [ ! -f "${APPIMAGE_OUT}" ]; then
-    echo "ERROR: appimagetool ran but ${APPIMAGE_OUT} was not created"
-    exit 1
-  fi
-fi
 echo ""
 
 # ---------------------------------------------------------------- 4) collect output
@@ -246,37 +121,62 @@ mkdir -p "${DIST}"
 
 BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
 DEB_PATH="$(ls -1 "${BUNDLE_DIR}"/deb/*.deb 2>/dev/null | head -1 || true)"
-APPIMAGE_PATH="$(ls -1 "${BUNDLE_DIR}"/appimage/*.AppImage 2>/dev/null | head -1 || true)"
 
 if [ -z "${DEB_PATH}" ]; then
   echo "ERROR: no .deb produced under ${BUNDLE_DIR}/deb"
   exit 1
 fi
-if [ -z "${APPIMAGE_PATH}" ]; then
-  echo "ERROR: no .AppImage produced under ${BUNDLE_DIR}/appimage"
-  exit 1
-fi
+
+# Tauri writes SemVer into the deb, where '-' means a package revision.
+# Rewrite only the control archive; keep the application payload unchanged.
+DEB_CONTROL_DIR="$(mktemp -d)"
+trap 'rm -rf "$DEB_CONTROL_DIR"' EXIT
+mkdir "${DEB_CONTROL_DIR}/files"
+ar p "${DEB_PATH}" control.tar.gz | tar -xz -C "${DEB_CONTROL_DIR}/files"
+python3 - "${DEB_CONTROL_DIR}/files/control" "${VERSION}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+match = re.fullmatch(
+    r"(\d+\.\d+\.\d+)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?(?:\.dev(\d+))?",
+    sys.argv[2],
+)
+if not match:
+    raise SystemExit(f"Unsupported Python version for deb: {sys.argv[2]}")
+version, pre, number, post, dev = match.groups()
+if pre:
+    version += "~" + {"a": "alpha", "b": "beta", "rc": "rc"}[pre] + "." + number
+if post is not None:
+    version += "+post." + post
+if dev is not None:
+    # A release's dev builds must also sort before its first alpha.
+    version += ("~~dev." if pre is None and post is None else "~dev.") + dev
+control = Path(sys.argv[1])
+text, count = re.subn(r"(?m)^Version: .+$", f"Version: {version}", control.read_text())
+if count != 1:
+    raise SystemExit("Expected exactly one Version field in the deb control file")
+control.write_text(text)
+print(f"Debian package version: {version}")
+PY
+tar --owner=0 --group=0 -czf "${DEB_CONTROL_DIR}/control.tar.gz" \
+  -C "${DEB_CONTROL_DIR}/files" .
+ar r "${DEB_PATH}" "${DEB_CONTROL_DIR}/control.tar.gz"
+rm -rf "${DEB_CONTROL_DIR}"
+trap - EXIT
 
 DEB_OUT="${DIST}/QwenPaw-Tauri-${VERSION}-linux-${ARCH}.deb"
-APPIMAGE_OUT="${DIST}/QwenPaw-Tauri-${VERSION}-linux-${ARCH}.AppImage"
 cp -f "${DEB_PATH}" "${DEB_OUT}"
-cp -f "${APPIMAGE_PATH}" "${APPIMAGE_OUT}"
-chmod +x "${APPIMAGE_OUT}"
 
 # --------------------------------------------------------------- 5) cleanup
-# Tauri stages a full copy of the bundle resources under
-# target/release/binaries, and linuxdeploy keeps its working trees under
-# target/release/bundle/appimage_deb. Together they are tens of gigabytes of
-# pure intermediates that are rebuilt on the next run. Drop them by default;
-# set QWENPAW_DESKTOP_KEEP_STAGING=1 to keep them for debugging.
+# Drop Tauri's staged resource copies after collecting the package.
+# Set QWENPAW_DESKTOP_KEEP_STAGING=1 to keep them for debugging.
 if [ "${QWENPAW_DESKTOP_KEEP_STAGING:-0}" != "1" ]; then
   echo "== Step 5: clean packaging intermediates =="
   BUNDLE_ROOT="${REPO_ROOT}/console/src-tauri/target/release"
   rm -rf \
     "${BUNDLE_ROOT}/binaries" \
-    "${BUNDLE_ROOT}/bundle/appimage_deb" \
-    "${BUNDLE_ROOT}/bundle/deb" \
-    "${BUNDLE_ROOT}/bundle/appimage"
+    "${BUNDLE_ROOT}/bundle/deb"
   echo "Removed staged resources and bundle working trees."
   echo "Set QWENPAW_DESKTOP_KEEP_STAGING=1 to keep them."
 fi
@@ -285,8 +185,8 @@ echo ""
 echo "========================================="
 echo "Build complete"
 echo "========================================="
-ls -lh "${DEB_OUT}" "${APPIMAGE_OUT}"
+ls -lh "${DEB_OUT}"
 echo ""
 echo "Install / run:"
 echo "  sudo apt install ./$(basename "${DEB_OUT}")"
-echo "  ./$(basename "${APPIMAGE_OUT}")"
+echo "  qwenpaw-desktop"

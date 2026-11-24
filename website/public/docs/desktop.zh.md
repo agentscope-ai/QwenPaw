@@ -8,15 +8,16 @@
 > - **性能可能存在缺陷**：启动速度、内存占用等方面可能需要进一步优化
 > - **功能持续完善中**：部分功能可能不稳定或缺失
 >
-> ✅ 桌面应用现已采用 **Tauri** 构建，内置**应用内自动更新**，无需卸载重装即可升级到新版本。
+> ✅ 桌面应用采用 **Tauri** 构建，支持**应用内更新**。
 >
 > 欢迎反馈问题，帮助我们改进产品质量。
 
-**下载地址**：[GitHub Releases][releases]
+**下载地址**：[官网下载页][downloads] · [GitHub Releases][github-releases]
 
 本文档说明如何在 Windows、macOS 和 Linux 系统上安装和使用 QwenPaw Desktop 桌面应用。
 
-[releases]: https://qwenpaw.agentscope.io/downloads
+[downloads]: https://qwenpaw.agentscope.io/downloads/
+[github-releases]: https://github.com/agentscope-ai/QwenPaw/releases
 
 ## 特别说明
 
@@ -41,7 +42,7 @@
 ### 安装步骤
 
 1. **下载安装包**
-   从 [Release 页面][releases]下载 `QwenPaw-Tauri-<version>-Windows-setup.exe` 文件
+   从[官网下载页][downloads]下载 `QwenPaw-Tauri-<version>-Windows-setup.exe`。
 
 2. **运行安装程序**
    双击 `.exe` 文件，按照安装向导提示完成安装
@@ -108,7 +109,7 @@ A: 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows
 ### 安装步骤
 
 1. **下载压缩包**
-   从 [Release 页面][releases]下载 `QwenPaw-Tauri-<version>-macOS.zip` 文件
+   从[官网下载页][downloads]下载 `QwenPaw-Tauri-<version>-macOS.zip`。
 
 2. **解压缩**
    双击 `.zip` 文件自动解压，得到 `QwenPaw Desktop.app` 应用
@@ -241,14 +242,12 @@ A: 当前采用
 
 - **操作系统**：Ubuntu 24.04 LTS 或更新、Debian 13 或更新（glibc 2.39+），x86_64
 - **运行依赖**：`libwebkit2gtk-4.1-0`、`libgtk-3-0t64`、`libayatana-appindicator3-1`
-- **会话**：Wayland 或 X11 均可（Ubuntu 26.04 的 GNOME 50 只有 Wayland）
+- **会话**：Wayland 或 X11
 - **磁盘空间**：安装后约 3.5 GB
 
 ### 安装步骤
 
-**方式一 —— deb 包（推荐）**
-
-1. 从 [Release 页面][releases] 下载 `QwenPaw-Tauri-<version>-linux-x86_64.deb`
+1. 从[官网下载页][downloads]或 [GitHub Releases][github-releases] 下载 `QwenPaw-Tauri-<version>-linux-x86_64.deb`。
 2. 用 apt 安装，依赖会自动补齐：
 
    ```bash
@@ -256,18 +255,6 @@ A: 当前采用
    ```
 
 3. 从应用列表启动 **QwenPaw Desktop**，或执行 `qwenpaw-desktop`
-
-**方式二 —— AppImage（免安装）**
-
-1. 下载 `QwenPaw-Tauri-<version>-linux-x86_64.AppImage`
-2. 赋可执行权限并运行：
-
-   ```bash
-   chmod +x QwenPaw-Tauri-<version>-linux-x86_64.AppImage
-   ./QwenPaw-Tauri-<version>-linux-x86_64.AppImage
-   ```
-
-AppImage 不带依赖元数据：系统若缺 `libwebkit2gtk-4.1-0` 或 `libfuse2`，需先手动安装。
 
 ### 首次启动
 
@@ -280,12 +267,12 @@ AppImage 不带依赖元数据：系统若缺 `libwebkit2gtk-4.1-0` 或 `libfuse
 
 ### 已知限制（Linux）
 
-- **分数缩放下界面发虚。** 桌面窗口是 GTK 3 的 webview，而 GTK 3 不支持分数缩放：显示器设为 125% 或 150% 时，合成器按 1 倍渲染再整体放大，文字就会发软。同一桌面上的其它 GTK 3 应用也是同样表现。需要清晰文字时，把显示缩放设为整数（100% 或 200%）。
-- **滚动与窗口缩放可能比浏览器慢。** 同一套 Console 界面在浏览器里走的是另一套引擎；WebKitGTK 的合成路径在部分 GPU + Wayland 组合上更慢。这是渲染路径的限制，与打包无关。
+- 分数缩放下文字可能发虚，可尝试使用 100% 或 200% 缩放。
+- 部分桌面环境中，滚动和调整窗口大小可能比浏览器慢。
 
 ### 更新与卸载
 
-- **更新**：下载并安装更新的包，或替换 AppImage 文件
+- **更新**：在应用内选择「现在更新」，或在后台下载后稍后安装。安装更新时需要管理员授权。
 - **卸载**：`sudo apt remove qwen-paw-desktop` —— 会保留 `~/.qwenpaw`，需要彻底清除请手动删除
 
 ## 技术支持

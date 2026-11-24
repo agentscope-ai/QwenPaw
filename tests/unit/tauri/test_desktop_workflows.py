@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """Regression tests for desktop packaging workflows."""
 
+import importlib
+import io
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
+from tarfile import TarInfo, open as open_tar
 
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
@@ -23,6 +27,249 @@ RELEASE_HELPERS = (
     "scripts/pack/generate_oss_metadata.py",
     "scripts/pack-tauri/generate_update_manifest.py",
 )
+
+
+def test_linux_publisher_preserves_windows_install_registry_key():
+    """Linux maintainer metadata must not move existing NSIS installations."""
+    config_dir = REPO_ROOT / "console/src-tauri"
+    config = json.loads(
+        (config_dir / "tauri.conf.json").read_text(encoding="utf-8"),
+    )
+    # Tauri NSIS uses the identifier's second component when publisher is unset.
+    manufacturer = (
+        config["bundle"].get("publisher") or config["identifier"].split(".")[1]
+    )
+    registry_key = rf"Software\{manufacturer}\{config['productName']}"
+    assert registry_key == r"Software\agentscope\QwenPaw Desktop"
+
+    linux = json.loads(
+        (config_dir / "tauri.linux.conf.json").read_text(encoding="utf-8"),
+    )
+    assert linux["bundle"]["publisher"] == (
+        "QwenPaw Contributors <qwenpaw@users.noreply.github.com>"
+    )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux packaging script")
+@pytest.mark.parametrize(
+    ("status", "version", "expected"),
+    [
+        (37, "2.3.1b1", None),
+        (0, "2.3.1", "2.3.1"),
+        (0, "2.3.1.dev0", "2.3.1~~dev.0"),
+        (0, "2.3.1a1", "2.3.1~alpha.1"),
+        (0, "2.3.1b1.dev0", "2.3.1~beta.1~dev.0"),
+        (0, "2.3.1b1", "2.3.1~beta.1"),
+        (0, "2.3.1rc1", "2.3.1~rc.1"),
+        (0, "2.3.1.post0", "2.3.1+post.0"),
+        (0, "2.3.1.post1.dev0", "2.3.1+post.1~dev.0"),
+        (0, "2.3.1b1.post1.dev0", "2.3.1~beta.1+post.1~dev.0"),
+    ],
+)
+def test_linux_packaging(tmp_path, status, version, expected):
+    """Publish only successful bundles, with correctly ordered deb metadata."""
+    script = tmp_path / "scripts/pack-tauri/build_linux_pyinstaller.sh"
+    script.parent.mkdir(parents=True)
+    shutil.copyfile(REPO_ROOT / script.relative_to(tmp_path), script)
+    version_file = tmp_path / "src/qwenpaw/__version__.py"
+    version_file.parent.mkdir(parents=True)
+    version_file.write_text(f'__version__ = "{version}"\n')
+    bundle = tmp_path / "console/src-tauri/target/release/bundle"
+    bundle.mkdir(parents=True)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "debian-binary").write_text("2.0\n")
+    control = (
+        "Package: qwen-paw-desktop\nVersion: 2.3.1-beta.1\n"
+        "Architecture: amd64\nMaintainer: Test <test@example.com>\n"
+        "Description: Packaging regression fixture\n"
+    )
+    for archive, entries in {
+        "control.tar.gz": {
+            "control": (control.encode(), 0o644),
+            "postinst": (b"#!/bin/sh\nexit 0\n", 0o755),
+        },
+        "data.tar.gz": {
+            "usr/bin/qwenpaw-desktop": (b"original application\n", 0o755),
+        },
+    }.items():
+        with open_tar(fixture / archive, "w:gz") as tar:
+            for name, (data, mode) in entries.items():
+                info = TarInfo(name)
+                info.size, info.mode = len(data), mode
+                tar.addfile(info, io.BytesIO(data))
+    subprocess.run(
+        [
+            "ar",
+            "rc",
+            "test.deb",
+            "debian-binary",
+            "control.tar.gz",
+            "data.tar.gz",
+        ],
+        cwd=fixture,
+        check=True,
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("node", "rustc", "cargo", "pkg-config"):
+        tool = bin_dir / name
+        tool.write_text("#!/bin/sh\nexit 0\n")
+        tool.chmod(0o755)
+    npm = bin_dir / "npm"
+    npm.write_text(
+        "#!/bin/sh\n"
+        'mkdir -p "$BUNDLE/deb"\n'
+        'cp "$FIXTURE/test.deb" "$BUNDLE/deb/test.deb"\n'
+        'exit "$BUNDLER_STATUS"\n',
+    )
+    npm.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(script)],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "QWENPAW_SKIP_BACKEND_BUILD": "1",
+            "BUNDLE": str(bundle),
+            "FIXTURE": str(fixture),
+            "BUNDLER_STATUS": str(status),
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == status, result.stdout + result.stderr
+    outputs = list((tmp_path / "dist").glob("*"))
+    assert len(outputs) == (1 if status == 0 else 0)
+    if status == 0:
+        package = outputs[0]
+        assert package.name.startswith(f"QwenPaw-Tauri-{version}-linux-")
+        assert (
+            subprocess.check_output(
+                ["ar", "p", str(package), "data.tar.gz"],
+            )
+            == (fixture / "data.tar.gz").read_bytes()
+        )
+        metadata = subprocess.check_output(
+            ["ar", "p", str(package), "control.tar.gz"],
+        )
+        with open_tar(fileobj=io.BytesIO(metadata), mode="r:gz") as tar:
+            members = {m.name.removeprefix("./"): m for m in tar.getmembers()}
+            assert tar.extractfile(members["control"]).read().decode() == (
+                control.replace(
+                    "Version: 2.3.1-beta.1", f"Version: {expected}"
+                )
+            )
+            assert members["postinst"].mode == 0o755
+            assert tar.extractfile(members["postinst"]).read() == (
+                b"#!/bin/sh\nexit 0\n"
+            )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux checksum step")
+def test_linux_checksum_is_portable(tmp_path):
+    """Downloaded installers can be verified from their containing folder."""
+    job = _load_workflow("desktop-build.yml")["jobs"]["build-tauri-linux"]
+    script = next(
+        step["run"]
+        for step in job["steps"]
+        if step.get("name") == "Checksum desktop artifacts (Tauri Linux)"
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    package = dist / "QwenPaw-Tauri-2.3.1b1-linux-x86_64.deb"
+    package.write_bytes(b"installer contents")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    dpkg = bin_dir / "dpkg-deb"
+    dpkg.write_text("#!/bin/sh\nexit 0\n")
+    dpkg.chmod(0o755)
+    subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+        },
+        check=True,
+        capture_output=True,
+    )
+    downloaded = tmp_path / "Downloads"
+    dist.rename(downloaded)
+    subprocess.run(
+        ["sha256sum", "-c", package.name + ".sha256"],
+        cwd=downloaded,
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.parametrize("rendered", [True, False])
+def test_linux_native_window_required_before_web_checks(
+    tmp_path,
+    monkeypatch,
+    rendered,
+):
+    """A working API or separate browser cannot substitute for the native UI."""
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/verify"))
+    verifier = importlib.import_module("verify_tauri_linux")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr(verifier.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(verifier.time, "sleep", lambda _: None)
+    monkeypatch.setattr(sys, "argv", ["verify_tauri_linux.py"])
+    calls = []
+
+    def http(method, url, body, timeout):
+        calls.append((method, url))
+        if url.endswith("/session"):
+            assert (
+                body["capabilities"]["alwaysMatch"][
+                    "webkitgtk:browserOptions"
+                ]["binary"]
+                == "/usr/bin/qwenpaw-desktop"
+            )
+            value = {"sessionId": "native"}
+        elif url.endswith("/execute/async"):
+            value = 8088 if rendered else None
+        elif url.endswith("/screenshot"):
+            value = "cG5n"
+        else:
+            value = {}
+        return json.dumps({"value": value})
+
+    class Driver:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            calls.append("terminated")
+
+        def wait(self, **kwargs):
+            return 0
+
+    def web_checks(*args, **kwargs):
+        calls.append("web checks")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(verifier, "_http", http)
+    monkeypatch.setattr(verifier.subprocess, "Popen", Driver)
+    monkeypatch.setattr(verifier.subprocess, "run", web_checks)
+    if rendered:
+        assert verifier.main() == 0
+        assert "web checks" in calls
+        assert (tmp_path / "verify-screenshots/00-native-window.png").is_file()
+    else:
+        with pytest.raises(RuntimeError, match="did not render"):
+            verifier.main()
+        assert "web checks" not in calls
+    assert ("DELETE", "http://127.0.0.1:9515/session/native") in calls
+    assert calls[-1] == "terminated"
 
 
 def _load_workflow(name: str) -> dict:
@@ -195,6 +442,32 @@ def test_desktop_updater_manifest_only_publishes_stable_versions(
         ),
         encoding="utf-8",
     )
+    linux_supported = workflow_name == "desktop-promote.yml"
+    if linux_supported:
+        linux = "QwenPaw-Tauri-2.3.0-linux-x86_64.deb"
+        installer_dir = tmp_path / "QwenPaw-Desktop-Tauri-Linux-2.3.0"
+        installer_dir.mkdir()
+        (installer_dir / linux).write_bytes(b"!<arch>\ndebian-binary")
+        linux_meta = tmp_path / "tauri-updater-meta-linux"
+        linux_meta.mkdir()
+        (linux_meta / f"{linux}.sig").write_text("linux-signature")
+        (linux_meta / "tauri-linux-x86_64-deb-updater.json").write_text(
+            json.dumps(
+                {
+                    "target": "linux-x86_64-deb",
+                    "artifact": linux,
+                    "signature": f"{linux}.sig",
+                },
+            ),
+        )
+        link = next(
+            step["run"]
+            for step in steps
+            if step.get("name")
+            == "Link artifacts into updater-meta dirs for manifest generation"
+        )
+        subprocess.run(["bash", "-e", "-c", link], cwd=tmp_path, check=True)
+
     published = tmp_path / "published.json"
     previous = '{"version": "2.2.2"}\n'
     published.write_text(previous, encoding="utf-8")
@@ -247,6 +520,11 @@ def test_desktop_updater_manifest_only_publishes_stable_versions(
             "url": "https://example.test/desktop/win-tauri/installer.exe",
             "signature": "test-signature",
         }
+        if linux_supported:
+            assert manifest["platforms"]["linux-x86_64-deb"] == {
+                "url": f"https://example.test/desktop/linux-tauri/{linux}",
+                "signature": "linux-signature",
+            }
 
 
 def test_nsis_template_avoids_solid_compression() -> None:

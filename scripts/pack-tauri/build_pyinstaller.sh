@@ -99,13 +99,19 @@ if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
 fi
 echo "PyInstaller installed"
 
-# Desktop builds ship torch's CPU build on Linux. The default PyPI wheel
-# declares the CUDA runtime (nvidia-* plus triton, ~4 GB) through DT_NEEDED on
-# libtorch_cpu.so itself, so those libraries cannot simply be stripped after
-# the fact -- and they are unusable on machines without a matching driver.
-# Installing the CPU wheel first satisfies the whisper requirement, so the
-# project install below keeps it instead of replacing it with the CUDA build.
-if [ "$(uname -s)" = "Linux" ]; then
+# Older Linux packages bundle Whisper via the full extra. Use CPU-only torch
+# for that case and let the optional Whisper plugin install its own runtime.
+if [ "$(uname -s)" = "Linux" ] && "$PYTHON_BIN" - "$REPO_ROOT/pyproject.toml" <<'PYTHON'
+import sys
+import tomllib
+
+from packaging.requirements import Requirement
+
+with open(sys.argv[1], "rb") as project_file:
+    full = tomllib.load(project_file)["project"]["optional-dependencies"]["full"]
+sys.exit(not any("whisper" in Requirement(item).extras for item in full))
+PYTHON
+then
     echo "== Installing CPU-only torch =="
     install_python_packages torch \
         --index-url https://download.pytorch.org/whl/cpu

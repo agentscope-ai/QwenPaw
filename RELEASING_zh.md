@@ -3,7 +3,7 @@
 _English: [RELEASING.md](RELEASING.md)_
 
 QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜像、**桌面**应用
-（Tauri，Windows + macOS）和**插件**包。它们由一个统一编排的 workflow 一起发布：
+（Tauri，Windows + macOS + Linux）和**插件**包。它们由一个统一编排的 workflow 一起发布：
 任一产物失败都会拦下整个发布，绝不会出现"Web 版发了、却没有对应桌面版"这种情况。
 
 > 编排器：[`.github/workflows/release.yml`](.github/workflows/release.yml)。
@@ -28,14 +28,15 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
 2. **Prepare（构建 + 验证，不发布任何东西）**——并行：
    - `build-wheel`——构建 Python wheel（含打包好的 console）。
    - `verify-web`——pip 安装、Docker 健康检查、安装脚本三类验证。
-   - `build-desktop`——构建 Tauri Windows + macOS 应用，并跑
+   - `build-desktop`——构建 Tauri Windows + macOS + Linux 应用，并跑
      安装 → 启动 → 真实问答 的 UI 验证。
    - `build-plugins`——打包插件。
 3. **Gate + Publish（门禁 + 发布）**——每个 publish job 都 `needs` **全部** prepare
    job，因此上面任一失败都会跳过整个发布阶段。全绿后：发布 PyPI、推多架构 Docker
    镜像、把桌面安装包挂到 release 并上传 OSS、发布插件——然后**最后一步**才把草稿翻成
-   *published*（tag 钉到构建用的 SHA）。发布后再：推桌面 `latest`/更新清单、部署官网
-   （仅正式版/post，beta 跳过）、创建 Release Duty 验收 issue。
+   *published*（tag 钉到构建用的 SHA）。发布后刷新桌面下载索引，推送 Windows 和 macOS 的
+   `latest` 文件和三个平台的自动更新清单，部署官网（仅正式版/post），并创建 Release Duty 验收 issue。
+   Linux 自动更新使用 OSS 上的同一个已签名 deb。
 
 整体约 60–75 分钟，主要耗时在桌面 Tauri 构建。
 
