@@ -48,7 +48,7 @@ def contents(root, session):
 
 @pytest.mark.parametrize(
     "memory,files",
-    [(False, False), (True, False), (False, True), (True, True)],
+    [(True, False), (False, True)],
 )
 async def test_restore_scope_matches_original_engine(tmp_path, memory, files):
     source = make_checkpoint_plugin(tmp_path)

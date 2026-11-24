@@ -114,6 +114,10 @@ async def test_declared_migration_preserves_sources_and_existing_data(
         assert (
             ctx.storage.read_bytes("partial/nested/second.json") == b"second"
         )
+        moved = old.rename(tmp_path / "moved-legacy")
+        old.symlink_to(moved, target_is_directory=True)
+        with pytest.raises(SDKError, match="symlink"):
+            ctx.storage.import_legacy("profile", "linked-profile.json")
 
 
 async def test_workspace_and_app_storage_inherit_declared_sources(tmp_path):
@@ -223,15 +227,6 @@ def test_legacy_manifest_rejects_foreign_namespace(plugin_id, path):
             {"version": "1.2.0", "legacy_storage": {"data": path}},
             plugin_id,
         )
-
-
-async def test_legacy_source_symlink_rejected(tmp_path):
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(package(tmp_path))
-        old = host.root / "extension-contract"
-        old.symlink_to(tmp_path, target_is_directory=True)
-        with pytest.raises(SDKError, match="symlink"):
-            ctx.storage.import_legacy("profile", "profile")
 
 
 async def test_partial_copy_retry_and_source_preservation(

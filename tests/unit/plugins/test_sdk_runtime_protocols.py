@@ -10,10 +10,8 @@ from qwenpaw.plugins.compliance import check_plugin
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("explicit", [False, True])
 async def test_runtime_allows_resource_scope_async_context_protocol(
     tmp_path,
-    explicit,
 ):
     (tmp_path / "plugin.json").write_text(
         json.dumps(
@@ -25,30 +23,21 @@ async def test_runtime_allows_resource_scope_async_context_protocol(
             },
         ),
     )
-    operation = (
-        """
-            owned = ctx.resources.child()
-            entered = await Scope.__aenter__(owned)
-            try:
-                await entered.run_sync(str, 42)
-            finally:
-                await owned.__aexit__(None, None, None)
-"""
-        if explicit
-        else """
-            async with ctx.resources.child() as resources:
-                await resources.run_sync(str, 42)
-"""
-    )
     (tmp_path / "main.py").write_text(
         """
 from qwenpaw.plugins.resources import ResourceScope as Scope
 class Plugin:
     def register(self, ctx):
         async def activate(call):
-"""
-        + operation
-        + """
+            async with ctx.resources.child() as resources:
+                await resources.run_sync(str, 42)
+
+            owned = ctx.resources.child()
+            entered = await Scope.__aenter__(owned)
+            try:
+                await entered.run_sync(str, 42)
+            finally:
+                await owned.__aexit__(None, None, None)
         ctx.on_activate(activate)
 plugin = Plugin()
 """,

@@ -3,7 +3,6 @@
 
 import asyncio
 import json
-from pathlib import Path
 
 import pytest
 
@@ -81,10 +80,8 @@ class Driver(ChannelDriver):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("decision", ["approve", "deny"])
 async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
     tmp_path,
-    decision,
 ):
     from qwenpaw.app.approvals import service
     from qwenpaw.app.approvals.models import ApprovalRequestSummary
@@ -137,17 +134,6 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
             workspaces[name] = workspace
             stores[name] = workspace_store(host.root, key, name)
         channel = await workspaces["one"].channel_manager.get_channel(key)
-        pending = await approvals.create_pending_summary(
-            session_id="room",
-            root_session_id="room",
-            owner_agent_id="one",
-            user_id="alice",
-            channel=key,
-            agent_id="one",
-            summary=ApprovalRequestSummary("test", "test-effect"),
-            extra={"_channel_instance": channel},
-            identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
-        )
 
         def rows(workspace):
             return [
@@ -155,19 +141,33 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
                 for path in sorted(stores[workspace].glob("sent-*.json"))
             ]
 
-        await eventually(
-            lambda: any(row["card"] for row in rows("one")),
-            timeout=10,
-        )
-        assert (
-            next(row["card"] for row in rows("one") if row["card"])[
-                "request_id"
-            ]
-            == pending.request_id
-        )
+        async def create_request():
+            pending = await approvals.create_pending_summary(
+                session_id="room",
+                root_session_id="room",
+                owner_agent_id="one",
+                user_id="alice",
+                channel=key,
+                agent_id="one",
+                summary=ApprovalRequestSummary("test", "test-effect"),
+                extra={"_channel_instance": channel},
+                identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
+            )
+            await eventually(
+                lambda: any(
+                    row["card"]
+                    and row["card"]["request_id"] == pending.request_id
+                    for row in rows("one")
+                ),
+                timeout=10,
+            )
+            return pending
 
         async def action(
+            request_id,
             label,
+            *,
+            decision="approve",
             workspace="one",
             actor="alice",
             session="room",
@@ -181,7 +181,7 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
                         "id": label,
                         "actor": actor,
                         "session": session,
-                        "request_id": pending.request_id,
+                        "request_id": request_id,
                         "decision": decision,
                     },
                 ),
@@ -199,14 +199,18 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
             ].channel_manager._queue_manager.drain()
             return result["status"]
 
-        assert await action("blocked", actor="intruder") == "rejected"
+        pending = await create_request()
+        first_id = pending.request_id
+        assert (
+            await action(first_id, "blocked", actor="intruder") == "rejected"
+        )
         assert not pending.future.done()
         for label, kwargs in (
             ("wrong-user", {"actor": "bob"}),
             ("wrong-workspace", {"workspace": "two"}),
             ("wrong-session", {"session": "other-room"}),
         ):
-            assert await action(label, **kwargs) == "accepted"
+            assert await action(first_id, label, **kwargs) == "accepted"
             assert (
                 not pending.future.done()
             ), "Admission must not bypass approval identity"
@@ -216,31 +220,46 @@ async def test_platform_approval_action_is_scoped_and_bypasses_only_mention(
                 ]
                 == "forbidden"
             )
-        assert await action("valid") == "accepted"
-        expected = (
-            ApprovalDecision.APPROVED
-            if decision == "approve"
-            else ApprovalDecision.DENIED
-        )
-        outcome = "approved" if decision == "approve" else "denied"
-        assert (
-            await asyncio.wait_for(asyncio.shield(pending.future), 10)
-            is expected
-        )
-        await eventually(
-            lambda: any(
-                row["resolution"] and row["resolution"]["outcome"] == outcome
-                for row in rows("one")
-            ),
-            timeout=10,
-        )
-        resolved = next(
-            row["resolution"]
-            for row in rows("one")
-            if row["resolution"] and row["resolution"]["outcome"] == outcome
-        )
-        assert resolved["actor_user_id"] == "alice"
-        assert await action("replay") == "accepted"
-        assert pending.future.result() is expected
-        assert rows("one")[-1]["resolution"]["outcome"] == "unavailable"
+        for decision, expected in (
+            ("approve", ApprovalDecision.APPROVED),
+            ("deny", ApprovalDecision.DENIED),
+        ):
+            if decision == "deny":
+                pending = await create_request()
+                assert pending.request_id != first_id
+            request_id = pending.request_id
+            assert (
+                await action(
+                    request_id,
+                    f"valid-{decision}",
+                    decision=decision,
+                )
+                == "accepted"
+            )
+            assert (
+                await asyncio.wait_for(asyncio.shield(pending.future), 10)
+                is expected
+            )
+            await eventually(
+                lambda: any(
+                    row["resolution"]
+                    and row["resolution"]["request_id"] == request_id
+                    and row["resolution"]["outcome"] == expected.value
+                    and row["resolution"]["actor_user_id"] == "alice"
+                    for row in rows("one")
+                ),
+                timeout=10,
+            )
+            assert (
+                await action(
+                    request_id,
+                    f"replay-{decision}",
+                    decision=decision,
+                )
+                == "accepted"
+            )
+            assert pending.future.result() is expected
+            replay = rows("one")[-1]["resolution"]
+            assert replay["request_id"] == request_id
+            assert replay["outcome"] == "unavailable"
         assert (await host.uninstall(key)).clean

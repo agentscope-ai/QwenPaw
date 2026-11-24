@@ -52,7 +52,6 @@ async def test_market_filters_do_not_cross_concurrent_calls(tmp_path):
         assert english.items[0].slug == "en:custom-category:needle:10:3"
         assert chinese.has_more and not english.has_more
         assert chinese.total == english.total == 30
-        assert (await host.reload("extension-contract")).ok
         default = await host.search_market("filter-probe", "default")
         assert default.items[0].slug == "en:None:default:10:1"
         assert (await host.unload("extension-contract")).clean

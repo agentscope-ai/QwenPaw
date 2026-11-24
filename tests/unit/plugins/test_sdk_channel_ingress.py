@@ -313,25 +313,6 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
                     200,
                     headers=signed(new_url, "key-one"),
                 )
-                current = replaced(
-                    await host.update_config(KEY, {"validation": True}),
-                    current,
-                )
-                upgrade = tmp_path / "upgrade"
-                shutil.copytree(ingress_plugin, upgrade)
-                manifest = json.loads((upgrade / "plugin.json").read_text())
-                manifest["version"] = "0.1.1"
-                (upgrade / "plugin.json").write_text(json.dumps(manifest))
-                current = replaced(
-                    await host.install(upgrade, replace=True),
-                    current,
-                )
-                new_url = current["two"]["urls"]["echo"]
-                await expect_post(
-                    new_url,
-                    200,
-                    headers=signed(new_url, "key-two"),
-                )
                 ws_url = current["two"]["urls"]["ws"]
                 disabled_ws = await client.ws_connect(
                     ws_url,

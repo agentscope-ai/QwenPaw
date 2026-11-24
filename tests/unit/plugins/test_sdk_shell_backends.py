@@ -105,8 +105,7 @@ async def test_remote_and_local_share_effective_timeout(
         assert local.call_args.args[2] == expected
 
 
-@pytest.mark.parametrize("policy", [False, True])
-async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
+async def test_reload_does_not_deselect_remote_backend(tmp_path):
     source = (
         "from qwenpaw.plugins.apps import PawApp\n"
         "from qwenpaw.plugins.commands import CommandSpec, CommandResult\n"
@@ -138,6 +137,27 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
         ["shell", "commands", "apps"],
         sdk_version="1.2.0",
     )
+
+    def shell_tools():
+        return (tool(), tool(policy=True))
+
+    async def outputs(shells):
+        return [
+            (await shell(command="echo LOCAL")).content[0].text
+            for shell in shells
+        ]
+
+    async def assert_runs_locally(shells):
+        assert [output.strip() for output in await outputs(shells)] == [
+            "LOCAL",
+            "LOCAL",
+        ]
+
+    async def assert_refuses_local(shells):
+        for output in await outputs(shells):
+            assert "local execution refused" in output
+            assert "LOCAL" not in output
+
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(package)
         workspace = await host._workspace("test")
@@ -148,7 +168,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
         )
         record = host._loader.get_loaded_plugin("extension-contract")
         record.instance.selected = True
-        native = tool(policy=policy)
+        native = shell_tools()
         for user, expected in (("bob", 403), ("alice", 200)):
             response = await host.request(
                 "POST",
@@ -161,9 +181,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
         report = await host.reload("extension-contract")
         assert (report.ok, report.errors) == (True, ())
         for _ in range(2):
-            result = await native(command="echo LOCAL")
-            assert "local execution refused" in result.content[0].text
-            assert "LOCAL" not in result.content[0].text
+            await assert_refuses_local(native)
         runtime = await host._request_context(
             "test",
             "selected",
@@ -175,14 +193,12 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
             channel="console",
             request_context={"session_id": "other", "user_id": "bob"},
         )
-        cls = PolicyGuardedTool if policy else GuardedFunctionTool
-        guarded = cls(
-            execute_shell_command,
-            request_context=AgentBuilder._build_request_context(runtime),
-        )
-        assert (
-            "local execution refused"
-            in (await guarded(command="echo LOCAL")).content[0].text
+        await assert_refuses_local(
+            cls(
+                execute_shell_command,
+                request_context=AgentBuilder._build_request_context(runtime),
+            )
+            for cls in (GuardedFunctionTool, PolicyGuardedTool)
         )
         assert (await tool(user="bob")(command="echo LOCAL")).content[
             0
@@ -190,15 +206,14 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
 
         record = host._loader.get_loaded_plugin("extension-contract")
         record.instance.selected = True
-        assert (await native(command="echo LOCAL")).content[0].text == "REMOTE"
+        assert await outputs(native) == ["REMOTE", "REMOTE"]
         reply = await host.call_control_command(
             "/select-backend",
             user_id="alice",
             session_id="selected",
         )
         assert reply.content[0].text == "changed"
-        result = await native(command="echo LOCAL")
-        assert result.content[0].text.strip() == "LOCAL"
+        await assert_runs_locally(native)
         await host.call_control_command(
             "/select-backend remote",
             user_id="alice",
@@ -206,8 +221,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
         )
         report = await host.unload("extension-contract")
         assert report.clean and report.quiescent
-        result = await native(command="echo LOCAL")
-        assert "local execution refused" in result.content[0].text
+        await assert_refuses_local(native)
         assert CommandRegistry().is_control_command("/shell-local")
         reply = await host.call_command(
             "/shell-local",
@@ -215,9 +229,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
             session_id="selected",
         )
         assert "now uses the local shell" in reply.content[0].text
-        assert (await native(command="echo LOCAL")).content[
-            0
-        ].text.strip() == "LOCAL"
+        await assert_runs_locally(native)
         await host.load(package)
         await host.call_control_command(
             "/select-backend remote",
@@ -227,8 +239,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
 
     async with PluginTestHost(tmp_path / "host") as restarted:
         await restarted._workspace("test")
-        result = await tool(policy=policy)(command="echo LOCAL")
-        assert "local execution refused" in result.content[0].text
+        await assert_refuses_local(shell_tools())
 
     async with PluginTestHost(
         tmp_path / "host",
@@ -240,8 +251,7 @@ async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
             "alice",
             "console",
         )
-        result = await tool(policy=policy)(command="echo LOCAL")
-        assert result.content[0].text.strip() == "LOCAL"
+        await assert_runs_locally(shell_tools())
 
 
 def tool(user="alice", session="selected", workspace="test", policy=False):

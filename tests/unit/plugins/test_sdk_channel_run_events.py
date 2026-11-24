@@ -23,7 +23,7 @@ from tests.channel_support.sdk import make_channel, workspace_store
 from tests.channel_support.process import alive, eventually
 from .sdk_author_fixture import make_plugin
 from .test_sdk_channel_policy import MODEL, DRIVER
-from .test_sdk_channel_worker import Driver, setup
+from .test_sdk_channel_worker import Driver, send_params, setup
 
 
 class Observer(Driver):
@@ -34,6 +34,7 @@ class Observer(Driver):
         self.wait_start = False
         self.stopped = False
         self.remap_target = False
+        self.fail_notifications = False
 
     async def resolve_target(self, ch, target):
         return ReplyTarget("platform-address") if self.remap_target else target
@@ -45,6 +46,8 @@ class Observer(Driver):
         if event.phase == "start" and self.wait_start:
             self.entered.set()
             await self.release.wait()
+        if self.fail_notifications:
+            raise RuntimeError("Expected notification failure")
 
     async def stop(self, ch):
         self.stopped = True
@@ -199,6 +202,8 @@ async def test_event_validation_identity_and_idempotent_callbacks(
     )
     call = peer.methods["channel.run.event"]
     adapter.driver.remap_target = remap_target
+    adapter.driver.fail_notifications = remap_target
+    accepted = {"status": "failed" if remap_target else "complete"}
     params = await run_params(adapter, identity)
     try:
         for change in (
@@ -215,13 +220,18 @@ async def test_event_validation_identity_and_idempotent_callbacks(
         with pytest.raises(RpcError):
             await call({**params, "generation": identity.generation + 1}, None)
         assert not adapter.driver.events
-        assert (await call(params, None))["status"] == "complete"
-        await call(params, None)
+        assert await call(params, None) == accepted
+        assert await call(params, None) == accepted
         with pytest.raises(ValueError, match="RUN_IDENTITY_MISMATCH"):
             await call({**params, "sender_id": "bob"}, None)
+        delivery = await peer.methods["channel.send"](
+            send_params(identity, params["response_handle"]),
+            None,
+        )
+        assert delivery["state"] == "acknowledged"
         end = {**params, "phase": "end", "status": "completed"}
-        await call(end, None)
-        await call(end, None)
+        assert await call(end, None) == accepted
+        assert await call(end, None) == accepted
         with pytest.raises(ValueError, match="RUN_OUTCOME_CONFLICT"):
             await call({**end, "status": "failed"}, None)
         assert [event.phase for event in adapter.driver.events] == [
@@ -243,6 +253,12 @@ async def test_event_validation_identity_and_idempotent_callbacks(
             ),
             None,
         )
+        assert [
+            (target.key, outcome)
+            for target, outcome in adapter.driver.finished
+        ] == [
+            ("platform-address" if remap_target else "room", "completed"),
+        ]
         assert not adapter.runs.runs
     finally:
         await adapter.stop()

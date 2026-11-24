@@ -87,11 +87,16 @@ def message(content, kind=MessageType.MESSAGE):
     )
 
 
-def tool_result(output, name="external"):
+def tool_result(output, name="external", *, state="success"):
     return message(
         [
             DataContent(
-                data={"call_id": "call-one", "name": name, "output": output},
+                data={
+                    "call_id": "call-one",
+                    "name": name,
+                    "output": output,
+                    "state": state,
+                },
             ),
         ],
         MessageType.FUNCTION_CALL_OUTPUT,
@@ -99,8 +104,7 @@ def tool_result(output, name="external"):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", ["hidden", "preview", "tool-error"])
-async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
+async def test_runtime_content_policy_in_real_worker(tmp_path):
     source = tmp_path / "channel"
     key = "sdk-content"
     definition = ChannelDefinition(
@@ -133,7 +137,7 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
         'return ToolResult.text("tool-result")',
         """return ToolResult((ContentBlock(text="before-image"),
                 ContentBlock("image", attachment=Attachment("https://example.invalid/image.png", "image/png")),
-                ContentBlock(text="after-image")), is_error=ctx.config.get("error", False))""",
+                ContentBlock(text="after-image")))""",
     )
     provider_source = make_plugin(
         tmp_path,
@@ -143,25 +147,16 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
     root = tmp_path / "host"
     async with PluginTestHost(root, process_channels=(key,)) as host:
         assert (await host.install(source)).ok
-        provider = await host.load(
-            provider_source,
-            config={"error": scenario == "tool-error"},
-        )
+        provider = await host.load(provider_source)
         await host.configure_chat_model("policy-model", "model")
-        if scenario == "preview":
-            from qwenpaw.config import load_config, save_config
-
-            config = load_config()
-            config.show_tool_details = False
-            save_config(config)
-        settings = {}
-        if scenario == "hidden":
-            settings = {
+        await host.start_channel(
+            key,
+            {
                 "show_tool_calls": False,
                 "show_tool_results": False,
                 "show_thinking": False,
-            }
-        await host.start_channel(key, settings)
+            },
+        )
         storage = workspace_store(root, key, "test")
         await eventually((storage / "finished.json").exists, timeout=15)
         assert (
@@ -171,46 +166,13 @@ async def test_runtime_content_policy_in_real_worker(tmp_path, scenario):
         assert provider.storage.read_json("calls.json") == 2
         assert provider.storage.read_json("tool.json") is True
         assert parts[-1]["type"] == "text" and parts[-1]["text"] == "part-2"
-        if scenario == "hidden":
-            assert not any(
-                p["type"] in {"tool_call", "tool_result", "thinking"}
-                for p in parts
-            )
-            assert "private-reasoning" not in json.dumps(parts)
-            assert "before-image" not in json.dumps(parts)
-            assert any(p["type"] == "image" for p in parts)
-        else:
-            call = next(p for p in parts if p["type"] == "tool_call")
-            result = next(p for p in parts if p["type"] == "tool_result")
-            assert call["id"] == result["id"] == "policy-call"
-            assert call["name"] == result["name"] == "policy_echo"
-            assert parts.index(call) < parts.index(result) < len(parts) - 1
-            assert any(
-                p["type"] == "thinking" and p["role"] == "reasoning"
-                for p in parts
-            )
-            assert result["state"] == (
-                "error" if scenario == "tool-error" else "success"
-            )
-            output = result["output"]
-            assert (
-                next(p for p in output if p["type"] == "image")["attachment"][
-                    "mime_type"
-                ]
-                == "image/png"
-            )
-            if scenario == "tool-error":
-                assert [p["type"] for p in output] == ["text", "image", "text"]
-                assert [output[0]["text"], output[2]["text"]] == [
-                    "before-image",
-                    "after-image",
-                ]
-                assert call["arguments"] == "{}"
-            else:
-                assert call["arguments"] == "..."
-                assert [p["type"] for p in output] == ["text", "image"]
-                assert output[0]["text"] == "..."
-                assert "before-image" not in json.dumps(parts)
+        assert not any(
+            p["type"] in {"tool_call", "tool_result", "thinking"}
+            for p in parts
+        )
+        assert "private-reasoning" not in json.dumps(parts)
+        assert "before-image" not in json.dumps(parts)
+        assert any(p["type"] == "image" for p in parts)
         pid = json.loads((storage / "pid.json").read_text())
         assert (await host.uninstall(key)).quiescent
         assert not alive(pid)
@@ -254,6 +216,13 @@ def test_hidden_internal_media_and_shared_truncation_budget():
     ]
     assert [p["type"] for p in output] == ["text", "image", "text"]
     assert [output[0]["text"], output[2]["text"]] == ["ab", "c..."]
+    display.show_tool_details = False
+    assert project_structured_content(renderer, call)[0]["arguments"] == "..."
+    preview = project_structured_content(renderer, tool_result(blocks))[0][
+        "output"
+    ]
+    assert [p["type"] for p in preview] == ["text", "image"]
+    assert preview[0]["text"] == "..."
     display.show_tool_results = False
     assert (
         project_structured_content(renderer, tool_result(blocks, "view_image"))
@@ -280,7 +249,32 @@ async def test_refusal_reasoning_and_nested_media_reach_public_types(tmp_path):
         renderer,
         message([TextContent(text="thought")], MessageType.REASONING),
     )
-    blocks = [{"type": "text", "text": "left"}]
+    parts += project_structured_content(
+        renderer,
+        message(
+            [
+                DataContent(
+                    data={
+                        "call_id": "call-one",
+                        "name": "external",
+                        "arguments": "{}",
+                    },
+                ),
+            ],
+            MessageType.FUNCTION_CALL,
+        ),
+    )
+    blocks = [
+        {"type": "text", "text": "left"},
+        {
+            "type": "image",
+            "source": {
+                "type": "url",
+                "url": "https://example.test/a.png",
+                "media_type": "image/png",
+            },
+        },
+    ]
     for kind in ("audio", "video", "file"):
         blocks.append(
             {
@@ -292,7 +286,10 @@ async def test_refusal_reasoning_and_nested_media_reach_public_types(tmp_path):
             },
         )
     blocks.append({"type": "text", "text": "right"})
-    parts += project_structured_content(renderer, tool_result(blocks))
+    parts += project_structured_content(
+        renderer,
+        tool_result(blocks, state="error"),
+    )
     adapter, peer, identity = await setup(
         tmp_path,
         capabilities=("channel.generic.v1", "send.structured_parts.v1"),
@@ -318,13 +315,32 @@ async def test_refusal_reasoning_and_nested_media_reach_public_types(tmp_path):
             ("text", "after", "message"),
             ("thinking", "thought", "reasoning"),
         ]
-        assert [p.type for p in received[-1].output] == [
+        call, result = received[-2:]
+        assert (call.type, call.id, call.name, call.arguments) == (
+            "tool_call",
+            "call-one",
+            "external",
+            "{}",
+        )
+        assert (result.type, result.id, result.name, result.state) == (
+            "tool_result",
+            "call-one",
+            "external",
+            "error",
+        )
+        assert [p.type for p in result.output] == [
             "text",
+            "image",
             "audio",
             "video",
             "file",
             "text",
         ]
+        assert (
+            result.output[0].text == "left"
+            and result.output[-1].text == "right"
+        )
+        assert result.output[1].attachment.mime_type == "image/png"
     finally:
         await adapter.stop()
 

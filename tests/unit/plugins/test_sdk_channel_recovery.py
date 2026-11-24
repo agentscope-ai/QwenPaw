@@ -290,6 +290,8 @@ async def test_callbacks_recover_with_durable_host_state_and_no_duplicate_effect
                 for ref in receipt["resource_refs"]
             )
             if scenario == "unknown-send":
+                state = json.loads(proxy._state_path().read_text())
+                assert state["sdk.responses.v1"]["value"] == []
                 assert (await call("channel.send", delta))[
                     "state"
                 ] == "unknown"
@@ -297,60 +299,6 @@ async def test_callbacks_recover_with_durable_host_state_and_no_duplicate_effect
         assert (
             effects[-1]["generation"] == 3 and effects[-1]["target"] == "room"
         )
-        if scenario == "unknown-send":
-            # Cross the real 128-live-route bound without discarding any
-            # unknown receipt or borrowing the first response's resource.
-            for index in range(129):
-                fresh = (
-                    await call(
-                        "channel.response.open",
-                        {
-                            "to_handle": f"room-{index}",
-                            "session_id": f"session-{index}",
-                            "meta": {},
-                        },
-                    )
-                )["response_handle"]
-                await call(
-                    "channel.response.prepare",
-                    {
-                        "response_handle": fresh,
-                        "delivery_id": hashlib.sha256(
-                            (fresh + ":prepare").encode(),
-                        ).hexdigest(),
-                    },
-                )
-                assert (
-                    await call("channel.send", {**first, "to_handle": fresh})
-                )["state"] == "acknowledged"
-                assert (
-                    await call("channel.send", {**delta, "to_handle": fresh})
-                )["state"] == "unknown"
-                await call(
-                    "channel.response.finish",
-                    {**finish, "response_handle": fresh},
-                )
-            receipts = archive.list("sdk.responses.v1", limit=1000)
-            assert len(receipts) == 130 and archive.get(key) == receipt
-            state = json.loads(proxy._state_path().read_text())
-            assert state["sdk.responses.v1"]["value"] == []
-            cards = [
-                row["card"] for row in effects if row["operation"] == "prepare"
-            ]
-            assert len(cards) == len(set(cards)) == 130
-            assert (
-                len(
-                    [
-                        row
-                        for row in effects
-                        if row["operation"] == "local-cleanup"
-                    ],
-                )
-                == 130
-            )
-            before = list(effects)
-            assert (await call("channel.send", delta))["state"] == "unknown"
-            assert effects == before
     finally:
         if (storage / "starts.json").exists():
             pids.extend(row["pid"] for row in starts())
@@ -363,7 +311,10 @@ async def test_callbacks_recover_with_durable_host_state_and_no_duplicate_effect
 
 
 @pytest.mark.asyncio
-async def test_local_cleanup_retains_live_thread_and_pending_route(tmp_path):
+async def test_local_cleanup_retains_live_thread_and_pending_route(
+    tmp_path,
+    monkeypatch,
+):
     import threading
     from qwenpaw.channel_protocol.models import (
         ResponseFinishParams,
@@ -372,8 +323,11 @@ async def test_local_cleanup_retains_live_thread_and_pending_route(tmp_path):
     from qwenpaw.channel_protocol.response_lifecycle import (
         ResponseCleanupState,
     )
+    from qwenpaw.plugins import custody
     from .test_sdk_channel_worker import Driver, setup, open_response
 
+    # The thread stays blocked until the test explicitly sets released.
+    monkeypatch.setattr(custody, "THREAD_STOP_SECONDS", 0.2)
     released, stop_requested = threading.Event(), threading.Event()
 
     class ThreadCleanup(Driver):

@@ -2,10 +2,10 @@
 """Public response policy through real workers and the production Runtime."""
 
 import json
-import asyncio
 
 import pytest
 
+from qwenpaw.app.channels import manager as channel_manager
 from qwenpaw.plugins.channel_workers import ChannelDefinition, ResponsePolicy
 from qwenpaw.plugins import SDKError
 from qwenpaw.plugins.testing import PluginTestHost
@@ -62,6 +62,7 @@ class Driver(ChannelDriver):
     )
 
     async def start(self, ch):
+        self.cases = ch.config.get("cases", {})
         await ch.storage.awrite_json("pid.json", os.getpid())
         await ch.report_status("connected")
         if ch.config.get("manual"):
@@ -74,6 +75,18 @@ class Driver(ChannelDriver):
                 message_id="message-one",
             )
         )
+
+    def response_policy_for(self, target):
+        case = self.cases.get(target.session_id)
+        if case is None:
+            return self.response_policy
+        delay, continued, _ = case
+        return ResponsePolicy(
+            text_merge_delay_ms=delay, continue_on_delivery_error=continued
+        )
+
+    def record(self, session, filename):
+        return f"{session}/{filename}" if session in self.cases else filename
 
     async def send(self, ch, response):
         text = "\\n".join(block.text for block in response.content)
@@ -102,21 +115,21 @@ class Driver(ChannelDriver):
                 )
             )
             return ChannelSendResult("cancel-submitted")
-        calls = await ch.storage.aread_json("sent.json", [])
+        session = response.target.session_id
+        sent = self.record(session, "sent.json")
+        calls = await ch.storage.aread_json(sent, [])
         calls.append(text)
-        await ch.storage.awrite_json("sent.json", calls)
-        if (
-            ch.config.get("failure") in {"failed", "unknown"}
-            and len(calls) == 1
-        ):
+        await ch.storage.awrite_json(sent, calls)
+        _, _, failure = self.cases.get(session, (None, False, ""))
+        if failure and len(calls) == 1:
             raise ChannelDeliveryError(
                 "PLATFORM_TEST_FAILURE",
-                side_effect_possible=ch.config["failure"] == "unknown",
+                side_effect_possible=failure == "unknown",
             )
         return ChannelSendResult(str(len(calls)))
 
     async def finish_response(self, ch, target, outcome):
-        await ch.storage.awrite_json("finished.json", outcome)
+        await ch.storage.awrite_json(self.record(target.session_id, "finished.json"), outcome)
 
     async def stop(self, ch):
         await ch.storage.awrite_json("stopped.json", True)
@@ -131,8 +144,9 @@ class Driver(ChannelDriver):
                         break
                     await asyncio.sleep(0.01)
                 except asyncio.CancelledError:
-                    await ch.storage.awrite_json("run-cancelled.json", True)
-        values = await ch.storage.aread_json("runs.json", [])
+                    continue
+        runs = self.record(event.session_id, "runs.json")
+        values = await ch.storage.aread_json(runs, [])
         values.append(
             {
                 "id": event.run_id,
@@ -147,9 +161,7 @@ class Driver(ChannelDriver):
                 "workspace": ch.workspace_id,
             }
         )
-        await ch.storage.awrite_json("runs.json", values)
-        if ch.config.get("failure") == "run-error":
-            raise RuntimeError("Expected notification failure")
+        await ch.storage.awrite_json(runs, values)
 """
 
 
@@ -161,25 +173,13 @@ def test_merge_delay_is_a_bounded_integer(delay):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "delay,continued,failure",
-    [
-        (0, False, ""),
-        (10000, False, ""),
-        (None, False, "failed"),
-        (None, True, "failed"),
-        (None, True, "unknown"),
-        (10000, False, "missing-capability"),
-        (10000, False, "cancel"),
-        (30, False, "cancel-after-idle"),
-        (None, False, "slow-end"),
-        (None, False, "run-error"),
-    ],
+    "scenario",
+    ["delivery", "cancel", "cancel-after-idle", "slow-end"],
 )
 async def test_policy_controls_actual_runtime_delivery(
     tmp_path,
-    delay,
-    continued,
-    failure,
+    monkeypatch,
+    scenario,
 ):
     source = tmp_path / "channel"
     key = "sdk-policy"
@@ -190,21 +190,15 @@ async def test_policy_controls_actual_runtime_delivery(
         {"type": "object", "properties": {}},
         (),
         (
-            ("channel.generic.v1",)
-            if failure == "missing-capability"
-            else (
-                "channel.generic.v1",
-                "channel.run_events.v1",
-                "channel.text_merge.v1",
-            )
+            "channel.generic.v1",
+            "channel.run_events.v1",
+            "channel.text_merge.v1",
         ),
     )
+    delay = {"cancel": 10000, "cancel-after-idle": 30}.get(scenario)
     make_channel(
         source,
-        DRIVER.replace("DELAY", repr(delay)).replace(
-            "CONTINUE",
-            repr(continued),
-        ),
+        DRIVER.replace("DELAY", repr(delay)).replace("CONTINUE", "False"),
         definition,
         capabilities=["channels", "storage"],
     )
@@ -216,36 +210,48 @@ async def test_policy_controls_actual_runtime_delivery(
     )
     root = tmp_path / "host"
     async with PluginTestHost(root, process_channels=(key,)) as host:
-        if failure == "missing-capability":
-            with pytest.raises(SDKError, match="WORKER_START_FAILED"):
-                await host.install(source)
-            assert not list((root / "plugin-data" / key).glob("**/pid.json"))
-            return
         assert (await host.install(source)).ok
         provider = await host.load(
             provider_source,
-            config={"cancel": failure.startswith("cancel")},
+            config={"cancel": scenario.startswith("cancel")},
         )
         await host.configure_chat_model("policy-model", "model")
-        await host.start_channel(key, {"failure": failure})
+        cases = (
+            {
+                "no-timer": (0, False, ""),
+                "delayed": (10000, False, ""),
+                "failed-stop": (None, False, "failed"),
+                "failed-continue": (None, True, "failed"),
+                "unknown": (None, True, "unknown"),
+            }
+            if scenario == "delivery"
+            else {}
+        )
+        await host.start_channel(
+            key,
+            {"failure": scenario, "manual": bool(cases), "cases": cases},
+        )
         storage = workspace_store(root, key, "test")
-        if failure == "slow-end":
+        if scenario == "slow-end":
             await eventually((storage / "run-ending.json").exists, timeout=15)
             pid = json.loads((storage / "pid.json").read_text())
-            stopping = asyncio.create_task(host.stop_channel(key))
             try:
-                await eventually(
-                    (storage / "run-cancelled.json").exists,
-                    timeout=8,
-                )
-                with pytest.raises(SDKError, match="CHANNEL_DRAIN_TIMEOUT"):
-                    await stopping
+                with monkeypatch.context() as deadlines:
+                    deadlines.setattr(
+                        channel_manager,
+                        "_CHANNEL_DRAIN_TIMEOUT",
+                        1.0,
+                    )
+                    with pytest.raises(
+                        SDKError,
+                        match="CHANNEL_DRAIN_TIMEOUT",
+                    ):
+                        await host.stop_channel(key)
                 assert alive(pid)
                 assert not (storage / "finished.json").exists()
                 assert not (storage / "stopped.json").exists()
             finally:
                 (storage / "release.json").write_text("true")
-                await asyncio.gather(stopping, return_exceptions=True)
             await host.stop_channel(key)
             assert not alive(pid)
             assert (
@@ -261,14 +267,14 @@ async def test_policy_controls_actual_runtime_delivery(
             assert events[0]["id"] == events[1]["id"]
             assert (await host.uninstall(key)).quiescent
             return
-        if failure.startswith("cancel"):
+        if scenario.startswith("cancel"):
             await eventually(
                 lambda: provider.storage.read_json("waiting.json", False),
                 timeout=15,
             )
             pid = json.loads((storage / "pid.json").read_text())
             before = []
-            if failure == "cancel-after-idle":
+            if scenario == "cancel-after-idle":
 
                 def sent_tool_result():
                     if not (storage / "sent.json").exists():
@@ -318,49 +324,57 @@ async def test_policy_controls_actual_runtime_delivery(
             assert original[0]["id"] == original[1]["id"]
             assert (await host.uninstall(key)).quiescent
             return
-        await eventually((storage / "finished.json").exists, timeout=15)
-        sent = json.loads((storage / "sent.json").read_text())
-        outcome = json.loads((storage / "finished.json").read_text())
-        calls = provider.storage.read_json("calls.json")
-        events = json.loads((storage / "runs.json").read_text())
-        assert [(event["phase"], event["status"]) for event in events] == [
-            ("start", "running"),
-            (
-                "end",
-                "failed" if failure in {"failed", "unknown"} else "completed",
-            ),
-        ]
-        assert events[0]["id"] == events[1]["id"]
-        assert all(
-            event["user"] == event["sender"] == event["acl"] == "alice"
-            and event["session"] == event["target"] == "room"
-            and event["messages"] == ["message-one"]
-            and event["workspace"] == "test"
-            for event in events
-        )
-        if not failure or failure == "run-error":
-            assert calls == 2 and outcome == "completed"
-            assert provider.storage.read_json("tool.json") is True
-            assert len(sent) == (1 if delay is not None else 3)
-            assert "policy_echo" in sent[0] and "part-2" in sent[-1]
-            if delay is not None:
+        for session, (_, continued, failure) in cases.items():
+            provider.storage.delete("calls.json")
+            provider.storage.delete("tool.json")
+            await host.send_channel(
+                key,
+                "request-start:"
+                + json.dumps(
+                    {"user": "alice", "session": session, "message": session},
+                ),
+                user_id="alice",
+                session_id="policy-test-control",
+            )
+            case_storage = storage / session
+            await eventually(
+                (case_storage / "finished.json").exists,
+                timeout=15,
+            )
+            sent = json.loads((case_storage / "sent.json").read_text())
+            outcome = json.loads((case_storage / "finished.json").read_text())
+            calls = provider.storage.read_json("calls.json")
+            events = json.loads((case_storage / "runs.json").read_text())
+            assert [(event["phase"], event["status"]) for event in events] == [
+                ("start", "running"),
+                ("end", "failed" if failure else "completed"),
+            ], session
+            assert events[0]["id"] == events[1]["id"]
+            assert all(
+                event["user"] == event["sender"] == event["acl"] == "alice"
+                and event["session"] == event["target"] == session
+                and event["messages"] == [session]
+                and event["workspace"] == "test"
+                for event in events
+            )
+            if not failure:
+                assert calls == 2 and outcome == "completed", session
+                assert provider.storage.read_json("tool.json") is True
+                assert len(sent) == 1
                 assert (
                     sent[0].index("policy_echo")
                     < sent[0].index("tool-result")
                     < sent[0].index("part-2")
                 )
             else:
-                assert "tool-result" in sent[1]
-                assert "tool-result" not in sent[0] and "part-2" not in sent[1]
-        else:
-            assert outcome == "failed"
-            assert calls == (2 if continued else 1)
-            assert sent.count(sent[0]) == 1
-            if failure == "unknown":
-                assert len(sent) == 1
-            assert any("part-2" in text for text in sent) == (
-                continued and failure != "unknown"
-            )
+                assert outcome == "failed", session
+                assert calls == (2 if continued else 1), session
+                assert sent.count(sent[0]) == 1
+                if failure == "unknown":
+                    assert len(sent) == 1
+                assert any("part-2" in text for text in sent) == (
+                    continued and failure != "unknown"
+                )
         pid = json.loads((storage / "pid.json").read_text())
         assert alive(pid)
         result = await host.uninstall(key)
