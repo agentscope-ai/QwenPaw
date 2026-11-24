@@ -278,8 +278,10 @@ class GoalMode(AgentMode):
         register_goal_tools_governance()
 
     async def _check_stop(self, ctx: Any):
-        handler = self._handlers[get_current_session_id()]
-        return await handler(ctx)
+        session_id = get_current_session_id()
+        if session_id is None:
+            return None
+        return await self._handlers[session_id](ctx)
 
     async def on_turn_start(self, ctx: HookContext) -> None:
         """Build gates from this session's policy, independently of peers."""
