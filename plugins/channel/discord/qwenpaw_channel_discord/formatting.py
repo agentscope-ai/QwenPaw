@@ -64,17 +64,19 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
         line_with_nl = line + "\n"
         stripped = line.strip()
 
-        # Detect fence toggle.
+        # Determine the state after this line without changing the state
+        # used to close and reopen the current chunk during a flush.
+        next_fence_open = fence_open
         if _FENCE_RE.match(stripped):
             if fence_open:
-                fence_open = ""
+                next_fence_open = ""
             else:
-                fence_open = stripped
+                next_fence_open = stripped
 
         # Flush if adding this line would exceed the limit.
         # When inside a code fence, reserve space for the closing
         # suffix that _flush() appends.
-        reserved = fence_close_len if fence_open else 0
+        reserved = fence_close_len if next_fence_open else 0
         if current and current_len + len(line_with_nl) + reserved > max_len:
             saved_fence = fence_open
             _flush()
@@ -85,6 +87,8 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
                 reopener = saved_fence + "\n"
                 current.append(reopener)
                 current_len += len(reopener)
+
+        fence_open = next_fence_open
 
         # Single line exceeds max_len -> hard-split.
         if len(line_with_nl) > max_len:
