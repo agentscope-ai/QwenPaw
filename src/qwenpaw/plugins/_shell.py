@@ -60,7 +60,7 @@ async def select_backend(call, name):
         raise SDKAccessError(
             "Select a shell backend from an app or control command",
         )
-    call.workspace_ops.directory
+    await call.workspace_ops._directory_async()
     plugin = call._plugin
     if plugin is None:
         raise SDKAccessError("Shell selection requires a host-owned context")
@@ -130,7 +130,7 @@ class ShellRouter:
                 session_id=identity.session_id,
                 identity=identity,
             ) as call:
-                call.workspace_ops.directory
+                await call.workspace_ops._directory_async()
                 matched = spec.matches(identity)
                 if type(matched) is not bool:
                     if inspect.iscoroutine(matched):

@@ -163,17 +163,14 @@ async def file_response(call, result):
         FilePathToolGuardian,
     )
 
-    path = Path(result.path).expanduser()
-    if not path.is_absolute():
-        path = await call.workspace_ops.resolve_path(path)
-    path = path.resolve()
-    private = call.storage._root
-    if not path.is_relative_to(private):
-        path = await call.workspace_ops.resolve_path(path)
     reader = call.resources.connection(
         _DownloadReader(),
         description="file download",
     )
+
+    def normalize_path():
+        path = Path(result.path).expanduser()
+        return path.resolve() if path.is_absolute() else path
 
     def open_checked():
         if _check_path(path, guardian=FilePathToolGuardian()):
@@ -203,6 +200,10 @@ async def file_response(call, result):
             raise
 
     try:
+        path = await reader.run(normalize_path)
+        if not path.is_relative_to(call.storage._root):
+            path = await call.workspace_ops.resolve_path(path)
+        call.resources._check()
         stream = await reader.run(open_checked)
     except FileNotFoundError as exc:
         raise HTTPException(404, "Download not found") from exc

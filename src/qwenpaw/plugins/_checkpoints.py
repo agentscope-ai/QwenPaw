@@ -21,7 +21,8 @@ from ..checkpoints.models import CheckpointError as HostCheckpointError
 
 
 async def bound(call):
-    root = call.workspace_ops.directory
+    workspace_ops = call.workspace_ops
+    root = await workspace_ops._directory_async()
     identity = call.identity
     if isinstance(call, AppContext) and call._services.selected_chat:
         workspace, chat = await call._services.selected_conversation()
@@ -42,12 +43,19 @@ async def bound(call):
         raise SDKAccessError(
             "Checkpoints require a bound conversation and authenticated identity",
         )
-    if Path(workspace.workspace_dir).resolve() != root:
+    live_root = await call.resources.run_sync(
+        Path(workspace.workspace_dir).resolve,
+    )
+    if live_root != root:
         raise SDKAccessError("Workspace binding changed")
     from ..checkpoints.runtime import RUNTIME
 
     service = await RUNTIME.get_for_workspace_async(workspace)
-    call.workspace_ops.directory
+    if (
+        await workspace_ops._directory_async() != root
+        or service.workspace_dir != root
+    ):
+        raise SDKAccessError("Workspace binding changed")
     return service, identity
 
 
@@ -155,7 +163,6 @@ async def approve_restore(call, identity, preview):
         raise
     if decision != ApprovalDecision.APPROVED:
         raise CheckpointError("Restore was not confirmed: " + decision.value)
-    call.workspace_ops.directory
 
 
 async def restore(

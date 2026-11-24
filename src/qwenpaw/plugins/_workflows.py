@@ -81,7 +81,7 @@ def register(plugin, spec):
                 deadline=asyncio.get_running_loop().time() + spec.timeout,
             ) as base:
                 pending_scope = base.resources
-                base.workspace_ops.directory
+                await base.workspace_ops._directory_async()
                 call = WorkflowContext(
                     **{
                         item.name: getattr(base, item.name)

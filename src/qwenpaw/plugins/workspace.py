@@ -42,6 +42,12 @@ class WorkspaceService:
             raise SDKAccessError("Workspace is not configured and enabled")
         return Path(profile.workspace_dir).expanduser().resolve()
 
+    async def _directory_async(self) -> Path:
+        self._guard()
+        root = await self._context.resources.run_sync(lambda: self.directory)
+        self._guard()
+        return root
+
     async def project_directories(self) -> tuple[Path, ...]:
         """Effective project roots, primary first; unconfigured means ().
 
@@ -49,6 +55,9 @@ class WorkspaceService:
         Otherwise only the bound, identity-matching saved conversation is
         considered. There is no arbitrary session selector.
         """
+        return await self._project_directories(await self._directory_async())
+
+    async def _project_directories(self, root: Path) -> tuple[Path, ...]:
         from ..config.context import (
             get_current_project_dirs,
             get_current_session_id,
@@ -66,7 +75,6 @@ class WorkspaceService:
         )
 
         call = self._context
-        root = self.directory
         pinned = get_current_project_dirs()
         ambient = get_current_workspace_dir()
         if (
@@ -77,9 +85,10 @@ class WorkspaceService:
             and call.identity.channel
             and get_current_channel() == call.identity.channel
             and ambient is not None
-            and ambient.resolve() == root
             and pinned is not None
+            and await call.resources.run_sync(ambient.resolve) == root
         ):
+            self._guard()
             return tuple(item.path for item in pinned)
         meta = None
         from .apps import AppContext
@@ -134,8 +143,8 @@ class WorkspaceService:
         containment checks. This does not open the path or prevent a later
         filesystem change; it is not a replacement for operation-time checks.
         """
-        root = self.directory
-        projects = await self.project_directories()
+        root = await self._directory_async()
+        projects = await self._project_directories(root)
 
         def resolve() -> Path:
             candidate = Path(path).expanduser()
