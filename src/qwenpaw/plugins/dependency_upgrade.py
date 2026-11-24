@@ -25,7 +25,11 @@ from .dependency_gate import (
     SharedDependencyError,
     parse_requirements_file,
 )
-from .execution.dependencies import DependencySnapshot, _dependency_closure
+from .execution.dependencies import (
+    DependencySnapshot,
+    _dependency_closure,
+    host_module_affected,
+)
 from .wheel_additions import (
     WheelAddition,
     WheelFiles,
@@ -33,6 +37,19 @@ from .wheel_additions import (
     hash_wheel,
     validate_additions,
 )
+
+
+def _affected_host_modules(facts, rows, write_paths, records):
+    return tuple(
+        fact
+        for fact in facts
+        if os.path.realpath(fact.origin) in write_paths
+        or any(witness[0] in write_paths for witness in fact.file_witness)
+        or any(
+            host_module_affected(row, (fact,), record_reads=records)
+            for row in rows
+        )
+    )
 
 
 def _core_requirements(installed, markers) -> tuple[str, ...]:
@@ -916,6 +933,16 @@ class DependencyUpgradeManager:
             if isinstance(payload_paths, dict)
             else set()
         )
+        rows = (
+            changes.values()
+            if isinstance(changes, dict)
+            else (
+                snapshot.distributions[name]
+                for name in changes or ()
+                if name in snapshot.distributions
+            )
+        )
+        changed_rows = tuple(row for row in rows if row is not None)
         for use in self.loader.registry.dependency_usage.snapshot().uses:
             if (
                 use.origin != "host"
@@ -962,42 +989,12 @@ class DependencyUpgradeManager:
                 continue
             facts = getattr(use, "host_modules", ())
             if facts and changes is not None:
-                from .execution.dependencies import host_module_affected
-
-                rows = (
-                    changes.values()
-                    if isinstance(changes, dict)
-                    else (
-                        snapshot.distributions[name]
-                        for name in changes
-                        if name in snapshot.distributions
-                    )
-                )
-                rows = tuple(row for row in rows if row is not None)
-                paths = (
-                    set(payload_paths.get("old", ()))
-                    | set(payload_paths.get("new", ()))
-                    if isinstance(payload_paths, dict)
-                    else set()
-                )
-                facts = tuple(
-                    fact
-                    for fact in facts
-                    if any(
-                        value in paths
-                        for value in (
-                            os.path.realpath(fact.origin),
-                            *(witness[0] for witness in fact.file_witness),
-                        )
-                    )
-                    or any(
-                        host_module_affected(
-                            row,
-                            (fact,),
-                            record_reads=records,
-                        )
-                        for row in rows
-                    )
+                facts = await run_sync_io(
+                    _affected_host_modules,
+                    facts,
+                    changed_rows,
+                    write_paths,
+                    records,
                 )
                 if not facts and not unknown:
                     continue
