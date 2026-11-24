@@ -28,6 +28,17 @@ rtb = importlib.import_module("qwenpaw.agents.tools.run_tool_batch")
 # ---------------------------------------------------------------------------
 
 
+def _permission_state(context: Any = None) -> Any:
+    """Minimal AgentState stand-in: the gate only reads permission_context."""
+    from types import SimpleNamespace
+
+    from agentscope.permission import PermissionContext
+
+    return SimpleNamespace(
+        permission_context=context or PermissionContext(),
+    )
+
+
 def _text_chunk(
     text: str,
     state: ToolResultState = ToolResultState.SUCCESS,
@@ -1062,7 +1073,325 @@ class TestCallTool:
     # lives in ``Agent._execute_tool_call``), so ``_call_tool`` must run
     # it explicitly — otherwise batch inner calls escape governance.
 
-    def test_denied_decision_blocks_execution(self):
+    def test_explicit_deny_rule_blocks_execution(self):
+        """An explicit deny rule stops the step before the tool body runs."""
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionDecision,
+            PermissionContext,
+            PermissionRule,
+        )
+
+        executed: list[str] = []
+
+        class _Tool:
+            name = "harmless_tool"
+
+            async def match_rule(self, rule_content, tool_input):
+                return True
+
+            async def check_read_only(self, tool_input):
+                return False
+
+            async def check_permissions(self, tool_input, context):
+                # A hook that defers to the engine — the deny must come
+                # from the rule, exactly as it would at the top level.
+                return PermissionDecision(
+                    behavior=PermissionBehavior.PASSTHROUGH,
+                    message="defer to engine",
+                )
+
+            async def generate_suggestions(self, tool_input):
+                return []
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("should not run")
+
+        context = PermissionContext(
+            deny_rules={
+                "harmless_tool": [
+                    PermissionRule(
+                        tool_name="harmless_tool",
+                        rule_content=None,
+                        behavior=PermissionBehavior.DENY,
+                        source="test",
+                    ),
+                ],
+            },
+        )
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=_permission_state(context),
+                ):
+                    return await rtb._call_tool("harmless_tool", {})
+
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert chunk.state == ToolResultState.DENIED
+        assert not executed, "denied tool must not be executed"
+        payload = rtb._response_payload(chunk)
+        assert payload["ok"] is False
+        assert payload["denied"] is True
+        assert payload["behavior"] == "deny"
+        assert "blocked" in payload["error"]
+
+    def test_passthrough_hook_is_not_permission_to_execute(self):
+        """A bare PASSTHROUGH from the hook must not run the step.
+
+        Top-level calls funnel the hook result through
+        ``PermissionEngine``: PASSTHROUGH continues to allow-rule
+        matching and then falls back to ASK.  A batch has no way to
+        surface that prompt, so it must deny — treating PASSTHROUGH as
+        "execute" made the batch path strictly wider than a normal call.
+        """
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionContext,
+            PermissionDecision,
+            PermissionEngine,
+        )
+
+        executed: list[str] = []
+
+        class _Tool:
+            name = "harmless_tool"
+
+            async def match_rule(self, rule_content, tool_input):
+                return False
+
+            async def check_read_only(self, tool_input):
+                return False
+
+            async def check_permissions(self, tool_input, context):
+                return PermissionDecision(
+                    behavior=PermissionBehavior.PASSTHROUGH,
+                    message="tool defers to engine",
+                )
+
+            async def generate_suggestions(self, tool_input):
+                return []
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("should not run")
+
+        context = PermissionContext()
+
+        async def _go():
+            # What the top level decides for the very same call.
+            top = await PermissionEngine(context).check_permission(
+                _Tool(),
+                {},
+            )
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=_permission_state(context),
+                ):
+                    chunk = await rtb._call_tool("harmless_tool", {})
+            return top, chunk
+
+        top, chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+
+        # Parity: the top level does not consider PASSTHROUGH an allow.
+        assert top.behavior == PermissionBehavior.ASK
+        # …so the batch must not execute it either.
+        assert chunk.state == ToolResultState.DENIED
+        assert not executed, "PASSTHROUGH must not run the tool body"
+        payload = rtb._response_payload(chunk)
+        assert payload["denied"] is True
+        # The engine upgrades a bare PASSTHROUGH to ASK (allow rules did
+        # not match, so it falls through to the mode default) — the batch
+        # reports that final behavior, not the hook's raw return value.
+        assert payload["behavior"] == "ask"
+        assert "requires user approval" in payload["error"]
+
+    def test_ask_decision_blocks_execution(self):
+        """A non-safety ASK from the hook also denies inside a batch."""
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionContext,
+            PermissionDecision,
+        )
+
+        executed: list[str] = []
+
+        class _Tool:
+            name = "harmless_tool"
+
+            async def match_rule(self, rule_content, tool_input):
+                return False
+
+            async def check_read_only(self, tool_input):
+                return False
+
+            async def check_permissions(self, tool_input, context):
+                return PermissionDecision(
+                    behavior=PermissionBehavior.ASK,
+                    message="needs confirmation",
+                )
+
+            async def generate_suggestions(self, tool_input):
+                return []
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("should not run")
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=_permission_state(PermissionContext()),
+                ):
+                    return await rtb._call_tool("harmless_tool", {})
+
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert chunk.state == ToolResultState.DENIED
+        assert not executed
+        assert (
+            "requires user approval" in rtb._response_payload(chunk)["error"]
+        )
+
+    def test_passthrough_with_allow_rule_executes(self):
+        """An explicit allow rule still lets a PASSTHROUGH step run.
+
+        This is the other half of parity: the engine's allow rules apply
+        to batch steps exactly as they do to top-level calls, so the
+        gate does not become a blanket denial.
+        """
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionContext,
+            PermissionDecision,
+            PermissionEngine,
+            PermissionRule,
+        )
+
+        executed: list[str] = []
+
+        class _Tool:
+            name = "harmless_tool"
+
+            async def match_rule(self, rule_content, tool_input):
+                return True
+
+            async def check_read_only(self, tool_input):
+                return False
+
+            async def check_permissions(self, tool_input, context):
+                return PermissionDecision(
+                    behavior=PermissionBehavior.PASSTHROUGH,
+                    message="defer to engine",
+                )
+
+            async def generate_suggestions(self, tool_input):
+                return []
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("ran")
+
+        context = PermissionContext(
+            allow_rules={
+                "harmless_tool": [
+                    PermissionRule(
+                        tool_name="harmless_tool",
+                        rule_content=None,
+                        behavior=PermissionBehavior.ALLOW,
+                        source="test",
+                    ),
+                ],
+            },
+        )
+
+        async def _go():
+            top = await PermissionEngine(context).check_permission(
+                _Tool(),
+                {},
+            )
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=_permission_state(context),
+                ):
+                    chunk = await rtb._call_tool("harmless_tool", {})
+            return top, chunk
+
+        top, chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert top.behavior == PermissionBehavior.ALLOW
+        assert chunk.state == ToolResultState.SUCCESS
+        assert executed == ["harmless_tool"]
+
+    def test_missing_permission_context_falls_back_to_hook(self):
+        """Agent state without a permission context still gets gated.
+
+        Older agents do not expose ``permission_context``; the gate must
+        keep working there by calling the tool hook directly.
+        """
         import asyncio
 
         from agentscope.permission import (
@@ -1073,11 +1402,19 @@ class TestCallTool:
         executed: list[str] = []
 
         class _Tool:
-            async def check_permissions(self, arguments, agent_state):
+            name = "harmless_tool"
+
+            async def check_permissions(self, tool_input, context):
+                # Older state exposes no permission context; the fallback
+                # passes None in the documented position.
+                assert context is None
                 return PermissionDecision(
                     behavior=PermissionBehavior.DENY,
-                    message="blocked by policy",
+                    message="blocked by hook",
                 )
+
+            async def generate_suggestions(self, tool_input):
+                return []
 
         class _Toolkit:
             async def get_tool(self, tool_name):
@@ -1098,7 +1435,7 @@ class TestCallTool:
                     "get_current_agent_state",
                     return_value=object(),
                 ):
-                    return await rtb._call_tool("danger_tool", {"x": 1})
+                    return await rtb._call_tool("harmless_tool", {})
 
         chunk = (
             asyncio.get_event_loop_policy()
@@ -1106,26 +1443,34 @@ class TestCallTool:
             .run_until_complete(_go())
         )
         assert chunk.state == ToolResultState.DENIED
-        assert not executed, "denied tool must not be executed"
-        payload = rtb._response_payload(chunk)
-        assert payload["ok"] is False
-        assert payload["denied"] is True
-        assert "blocked by policy" in payload["error"]
+        assert not executed
 
     def test_allow_decision_executes_tool(self):
         import asyncio
 
         from agentscope.permission import (
             PermissionBehavior,
+            PermissionContext,
             PermissionDecision,
         )
 
         class _Tool:
-            async def check_permissions(self, arguments, agent_state):
+            name = "safe_tool"
+
+            async def match_rule(self, rule_content, tool_input):
+                return True
+
+            async def check_read_only(self, tool_input):
+                return False
+
+            async def check_permissions(self, tool_input, context):
                 return PermissionDecision(
                     behavior=PermissionBehavior.ALLOW,
                     message="ok",
                 )
+
+            async def generate_suggestions(self, tool_input):
+                return []
 
         class _Toolkit:
             async def get_tool(self, tool_name):
@@ -1143,7 +1488,7 @@ class TestCallTool:
                 with patch.object(
                     rtb,
                     "get_current_agent_state",
-                    return_value=object(),
+                    return_value=_permission_state(PermissionContext()),
                 ):
                     return await rtb._call_tool("safe_tool", {})
 
