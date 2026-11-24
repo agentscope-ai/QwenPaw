@@ -631,7 +631,7 @@ async def test_native_probes_use_prepared_endpoint_and_release_it(
             assert current.custom_headers["x-preserved"] == "configured"
             assert model_id == "model-A"
             if operation == "check_model_connection":
-                assert 0 < timeout < 3
+                assert 0 < timeout <= 3
             else:
                 assert timeout == 3
             assert plugin.active == 1

@@ -60,6 +60,24 @@ describe("modelSelectorModels (#5784 压缩阈值跨 provider 校验)", () => {
   });
 
   describe("buildEligibleProviders", () => {
+    it("keeps enabled callback providers that require neither a key nor a URL", () => {
+      const provider = makeProvider({
+        id: "sdk-local",
+        require_api_key: false,
+        api_key: "",
+        base_url: "",
+        models: [makeModel("local", 32768)],
+      });
+      expect(buildEligibleProviders([provider]).map((item) => item.id)).toEqual(
+        ["sdk-local"],
+      );
+      expect(buildEligibleProviders([{ ...provider, enabled: false }])).toEqual(
+        [],
+      );
+      expect(
+        buildEligibleProviders([{ ...provider, is_custom: true }]),
+      ).toEqual([]);
+    });
     it("两个 provider 有同名 model 时，各自保留自己的 max_input_length", () => {
       const sharedModelId = "shared-model";
       const providers: ProviderInfo[] = [

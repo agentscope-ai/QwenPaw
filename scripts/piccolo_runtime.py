@@ -22,7 +22,7 @@ CONFIG = json.loads(
         ROOT / "plugins/provider/local-llamacpp/runtime-release.json"
     ).read_text(),
 )
-PATCH = ROOT / "docs/patches/piccolo-llama.cpp.patch"
+PATCH = ROOT / "scripts/patches/piccolo-llama.cpp.patch"
 
 
 def digest(path):

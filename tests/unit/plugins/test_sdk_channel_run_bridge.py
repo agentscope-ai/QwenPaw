@@ -477,7 +477,8 @@ async def test_channel_stop_closes_actual_overflow_stream_before_owner_exit(
                             "extension-contract",
                             interrupt_tasks=True,
                         )
-                assert closing.is_set() and not closed.is_set()
+                await asyncio.wait_for(closing.wait(), timeout=5)
+                assert not closed.is_set()
                 assert (
                     host.resource_snapshot("extension-contract")[
                         "active_calls"

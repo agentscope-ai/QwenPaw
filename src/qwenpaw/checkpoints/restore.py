@@ -70,9 +70,16 @@ def _changed_paths(
 class WorkspaceMutationGuard:
     """Pause cooperative workspace writers for one restore transaction."""
 
-    def __init__(self, workspace, *, timeout: float) -> None:
+    def __init__(
+        self,
+        workspace,
+        *,
+        timeout: float,
+        waiting_tasks: set[asyncio.Task] | None = None,
+    ) -> None:
         self.workspace = workspace
         self.timeout = timeout
+        self.waiting_tasks = waiting_tasks
 
     async def quiesce(self) -> list[Callable[[], None]]:
         """Pause cron and wait until tracked workspace tasks are idle."""
@@ -174,12 +181,31 @@ class WorkspaceMutationGuard:
                     "could not be inspected.",
                 ) from exc
 
-    @staticmethod
     async def _wait_for_other_tasks(
+        self,
         task_tracker,
         restore_task: asyncio.Task | None,
     ) -> None:
-        while await task_tracker.has_active_tasks_excluding(restore_task):
+        while True:
+            if self.waiting_tasks is not None and hasattr(
+                task_tracker,
+                "snapshot_active_tasks",
+            ):
+                active = await task_tracker.snapshot_active_tasks()
+                # Gate waiters cannot mutate state until this restore exits.
+                # Waiting for them here would make both sides wait forever.
+                busy = any(
+                    not task.done()
+                    and task is not restore_task
+                    and task not in self.waiting_tasks
+                    for task in active.values()
+                )
+            else:
+                busy = await task_tracker.has_active_tasks_excluding(
+                    restore_task,
+                )
+            if not busy:
+                return
             await asyncio.sleep(0.5)
 
     @staticmethod
@@ -298,6 +324,7 @@ class RestoreService:
         include_files: bool = False,
         selected_files: tuple[str, ...] | None = None,
         dry_run: bool = False,
+        expected_preview: RestoreResult | None = None,
     ) -> RestoreResult:
         """Run one validated restore transaction."""
         service = self.service
@@ -348,6 +375,29 @@ class RestoreService:
                             prepared.plan,
                             dry_run=True,
                         )
+
+                    if expected_preview is not None:
+                        current = self._result_from_plan(
+                            prepared.plan,
+                            dry_run=True,
+                        )
+                        # Target labels can change while approval is pending;
+                        # compare the immutable commit and exact affected paths.
+                        if any(
+                            getattr(current, field)
+                            != getattr(expected_preview, field)
+                            for field in (
+                                "commit",
+                                "restored_paths",
+                                "deleted_paths",
+                                "file_paths",
+                                "include_memory",
+                                "include_files",
+                            )
+                        ):
+                            raise CheckpointError(
+                                "Restore impact changed; preview and confirm again.",
+                            )
 
                     if include_files:
                         description = f"Before file restore to {target}"
@@ -679,6 +729,7 @@ class RestoreService:
         return WorkspaceMutationGuard(
             workspace=self.service.workspace,
             timeout=self.service.memory_quiesce_timeout,
+            waiting_tasks=self.service._query_waiters,
         )
 
 

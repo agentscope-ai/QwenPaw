@@ -1,4 +1,4 @@
-import { Button, Checkbox } from "@agentscope-ai/design";
+import { Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -97,13 +97,23 @@ export function PoolSkillListItem({
             {automationLabel && (
               <span className={styles.automationTag}>{automationLabel}</span>
             )}
-            <span
-              className={`${styles.statusValue} ${
-                styles[getPoolBuiltinStatusTone(skill.sync_status)]
-              }`}
+            <Tooltip
+              title={
+                skill.sync_status === "removed"
+                  ? t("skillPool.statusRemovedHint")
+                  : undefined
+              }
+              trigger={["hover", "focus"]}
             >
-              {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-            </span>
+              <span
+                className={`${styles.statusValue} ${
+                  styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                }`}
+                tabIndex={skill.sync_status === "removed" ? 0 : undefined}
+              >
+                {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+              </span>
+            </Tooltip>
             {skill.last_updated && (
               <span className={styles.listItemTime}>
                 {t("skills.lastUpdated")} {dayjs(skill.last_updated).fromNow()}

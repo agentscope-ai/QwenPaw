@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 from .events import JSONValue
@@ -36,6 +37,22 @@ _OPTIONS = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class ModelSelection:
+    """A provider/model identity, without credentials or mutable config."""
+
+    provider_id: str
+    model_id: str
+
+
+@dataclass(frozen=True)
+class ModelDescription:
+    provider_id: str
+    provider_name: str
+    model_id: str
+    model_name: str
+
+
 class ModelService:
     """
     Use context.models; each request remains owned by that callback scope.
@@ -58,6 +75,54 @@ class ModelService:
         if not context.workspace_id:
             raise SDKError("Model requests require a workspace-bound context")
 
+    def _check_workspace(self) -> None:
+        from ..config.utils import load_config
+
+        reference = load_config().agents.profiles.get(
+            self._context.workspace_id,
+        )
+        if reference is None or not reference.enabled:
+            raise SDKError(
+                "The calling workspace is not configured and enabled",
+            )
+
+    async def configured(self) -> ModelSelection | None:
+        """Read this workspace's choice, falling back to the host default."""
+        from ..agents.model_factory import _load_agent_model_settings
+        from ..providers.provider_manager import ProviderManager
+
+        self._guard()
+
+        def read() -> ModelSelection | None:
+            self._check_workspace()
+            manager = ProviderManager.get_instance()
+            slot = _load_agent_model_settings(
+                self._context.workspace_id,
+            ).model_slot
+            slot = slot or manager.get_active_model()
+            if slot is None or not slot.provider_id or not slot.model:
+                return None
+            return ModelSelection(slot.provider_id, slot.model)
+
+        result = await self._context.resources.run_sync(read)
+        self._guard()
+        return result
+
+    async def catalog(self) -> tuple[ModelDescription, ...]:
+        """List available chat-model choices without credentials or endpoints."""
+        from ..providers.provider_manager import ProviderManager
+
+        self._guard()
+        await self._context.resources.run_sync(self._check_workspace)
+        models = (
+            await ProviderManager.get_instance().list_available_chat_models()
+        )
+        self._guard()
+        return tuple(
+            ModelDescription(provider.id, provider.name, model.id, model.name)
+            for provider, model in models
+        )
+
     # Keep the ownership state machine in one scope.
     # pylint: disable-next=too-many-statements
     async def stream(
@@ -78,10 +143,7 @@ class ModelService:
             create_model_and_formatter,
             _model_creation_observer,
         )
-        from ..providers.provider_manager import (
-            ProviderManager,
-            ModelSlotConfig,
-        )
+        from ..config.config import ModelSlotConfig
         from ..utils.io_utils import run_sync_io
         import math
 
@@ -94,6 +156,11 @@ class ModelService:
             raise SDKError(
                 "provider_id and model_id must be supplied together",
             )
+        override = (
+            ModelSlotConfig(provider_id=provider_id, model=model_id)
+            if provider_id is not None
+            else None
+        )
         values = json_mapping({} if options is None else options)
         if unknown := values.keys() - _OPTIONS:
             raise SDKError(
@@ -155,24 +222,6 @@ class ModelService:
                     "The calling workspace is not configured and enabled",
                 )
             workspace = Path(reference.workspace_dir).expanduser()
-            override = None
-            if provider_id is not None:
-                provider = ProviderManager.get_instance().get_provider(
-                    provider_id,
-                )
-                if (
-                    provider is None
-                    or not provider.enabled
-                    or provider.get_model_info(model_id) is None
-                ):
-                    raise SDKError(
-                        "The selected provider/model is not configured and "
-                        "enabled",
-                    )
-                override = ModelSlotConfig(
-                    provider_id=provider_id,
-                    model=model_id,
-                )
             token = _model_creation_observer.set(lease)
             try:
                 with model_context(
@@ -200,6 +249,7 @@ class ModelService:
                 workspace_id=context.workspace_id,
                 session_id=context.session_id,
                 deadline=deadline,
+                identity=context.identity,
             ) as base:
                 lease = ModelLease()
                 base.resources.defer(lease.close, "configured model transport")

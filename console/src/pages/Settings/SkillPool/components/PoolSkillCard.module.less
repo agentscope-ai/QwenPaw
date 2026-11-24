@@ -25,11 +25,11 @@
 }
 .title {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 18px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
   > button:first-child {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     padding: 0;
     border: 0;
@@ -39,7 +39,9 @@
     font: inherit;
     font-size: 18px;
     font-weight: 600;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     cursor: pointer;
     &:focus-visible {
       outline: 2px solid var(--app-focus-ring);
@@ -47,18 +49,42 @@
     }
   }
 }
+.menuAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  > svg {
+    flex-shrink: 0;
+    color: var(--app-accent-text);
+  }
+}
 .metadata {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
   color: var(--app-text-tertiary);
   font-size: 12px;
   margin-top: 12px;
-  margin-bottom: 20px;
+}
+.updatedAt {
+  margin-inline-start: auto;
+  text-align: end;
+}
+.description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 12px 0 0;
+  color: color-mix(in srgb, var(--app-text-secondary) 75%, var(--app-text));
+  font-size: 14px;
+  line-height: 1.6;
 }
 .tags {
-  margin-bottom: 16px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -69,19 +95,5 @@
     font-size: 12px;
     background: var(--app-fill-faint);
     color: var(--app-text-secondary);
-  }
-}
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 16px;
-  border-top: 1px solid var(--app-border-subtle);
-  > button[aria-pressed="true"] {
-    color: var(--app-accent-text);
-    background: var(--app-accent-faint);
   }
 }

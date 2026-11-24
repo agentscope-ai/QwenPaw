@@ -221,7 +221,7 @@ source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg" alt="Auto-Memory 完成后推送到 Inbox 的任务结果" />
 </p>
 
-Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然是 workspace 中的文件。
+在 **收件箱 → 推送消息** 查看运行结果。Auto-Memory 和 Auto-Dream 的收件箱通知分别控制；开启后，记忆有变化或任务失败才会推送。成功但没有变化时，没有消息是正常的。可编辑的记忆仍在工作区文件中。
 
 ### 3. Auto Resource（Beta）从外部补充知识
 
@@ -236,7 +236,7 @@ Inbox 只用于查看运行结果；真正可编辑、可复用的记忆仍然�
 - Markdown 阅读记录进入普通记忆索引，也能继续参与长期整理。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg" alt="Daily Paper 的调度与主题配置" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01lzzwOgq7unF3FPfU_!!6000000005738-2-tps-1600-1000.png" alt="Daily Paper 的调度与主题配置" />
 </p>
 
 Auto Fin 会拉取一个滚动时间窗口内的财联社电报（默认最近 24 小时），按关注主题筛选相关新闻，再搜索 ReMe 中有回顾价值的历史记忆，生成一份带有效 Wikilink 的中文研究报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告会写入 `memory/YYYY-MM-DD/auto_fin.md`。同日重跑会参考已有报告并原子覆盖为修订结果；没有相关新闻时任务成功跳过，不写报告，也不发送 Inbox 通知。
@@ -375,7 +375,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 7. 你可以随时检查和修正 Markdown，修改后的内容继续参与后续协作。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg" alt="QwenPaw 长期记忆控制台总览" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01X8kWs8lRGMC3FPfU_!!6000000003955-2-tps-1600-1000.png" alt="QwenPaw 长期记忆控制台总览" />
 </p>
 
 ### 6. 实验效果：历史变长后还能找回来吗？
@@ -484,10 +484,10 @@ action 目录。QwenPaw 明确允许 `status`、`search`、`proactive`、`auto_m
 API 执行，而不是 `/reme`。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg" alt="ReMe 后台活动、资源占用和索引组件状态" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01ON8EnCCRL7L3FPfU_!!6000000001517-2-tps-1600-1000.png" alt="ReMe 后台活动、资源占用和索引组件状态" />
 </p>
 
-正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要使用 **Rebuild Memory Index**。维护 API 支持分范围重建：
+正常的 Markdown 新增和修改会被增量索引。只有在控制台提示向量空间发生变化、索引损坏或搜索明显异常时，才需要重建。在 **运行配置 → 记忆与检索** 中，通过 **维护与修复 → 重建 BM25 索引** 修复关键词索引；通过 **Embedding 模型中心 → Embedding 索引** 重建向量索引。维护 API 支持分范围重建：
 
 ```http
 POST /api/agents/{agentId}/memory/reindex?scope=all
@@ -506,7 +506,7 @@ POST /api/agents/{agentId}/memory/reindex/undo
 撤销会恢复与现有向量匹配的上一份 Embedding 配置，不会删除记忆文件。只有存在待重建变更时才能撤销。
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的资源占用确认提示" />
+  <img src="https://img.alicdn.com/imgextra/i2/O1CN01t1PV3fCoKAF0qMm4_!!6000000007304-2-tps-416-188.png" alt="Embedding 索引重建确认框" />
 </p>
 
 ---
