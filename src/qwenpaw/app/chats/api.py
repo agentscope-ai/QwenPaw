@@ -457,15 +457,24 @@ async def _release_deleted_chats(
     chats: list[ChatSpec],
 ) -> None:
     """Release sessions that no longer have a chat mapping."""
-    sessions = {chat.session_id for chat in chats}
-    remaining = await manager.list_chats(archived=None)
-    sessions.difference_update(chat.session_id for chat in remaining)
-    for session_id in sessions:
-        await workspace.release_session(session_id)
-    await CHECKPOINT_RUNTIME.delete_session_checkpoints(
-        workspace,
-        [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
-    )
+    try:
+        sessions = {chat.session_id for chat in chats}
+        remaining = await manager.list_chats(archived=None)
+        sessions.difference_update(chat.session_id for chat in remaining)
+        for session_id in sessions:
+            try:
+                await workspace.release_session(session_id)
+            except Exception:
+                logger.warning(
+                    "Failed to release deleted chat session %s",
+                    session_id,
+                    exc_info=True,
+                )
+    finally:
+        await CHECKPOINT_RUNTIME.delete_session_checkpoints(
+            workspace,
+            [(chat.session_id, chat.user_id, chat.channel) for chat in chats],
+        )
 
 
 @router.post("/batch-delete", response_model=dict)

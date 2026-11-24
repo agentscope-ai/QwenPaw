@@ -109,7 +109,8 @@ async def test_get_chat_status_treats_unknown_run_key_as_idle():
 
 
 @pytest.mark.asyncio
-async def test_delete_chat_stops_a_live_run(tmp_path):
+@pytest.mark.parametrize("batch", [False, True])
+async def test_delete_chat_stops_a_live_run(tmp_path, batch):
     """Stop runs and release modes when the final chat mapping is deleted."""
     workspace = Workspace("default", str(tmp_path))
     tracker = workspace.task_tracker
@@ -122,6 +123,12 @@ async def test_delete_chat_stops_a_live_run(tmp_path):
     )
     peer = await manager.create_chat(_chat("chat-peer"))
     modes = [DefaultMode(), GoalMode()]
+    failing_mode = SimpleNamespace(
+        name="failing-mode",
+        on_turn_start=AsyncMock(),
+        on_conversation_reset=AsyncMock(side_effect=RuntimeError("test")),
+    )
+    workspace.plugins.modes.append(failing_mode)
     workspace.plugins.modes.extend(modes)
     runtime = Runtime(workspace=workspace, app_services=None)
     profile = AgentProfileConfig(id="default", name="Test")
@@ -147,10 +154,11 @@ async def test_delete_chat_stops_a_live_run(tmp_path):
     await asyncio.wait_for(started.wait(), timeout=1)
     assert (await tracker.get_global_status())["running_task_count"] == 1
 
+    checkpoints = AsyncMock()
     with patch.object(
         chats_api.CHECKPOINT_RUNTIME,
         "delete_session_checkpoints",
-        new=AsyncMock(),
+        new=checkpoints,
     ):
         result = await chats_api.delete_chat(
             chat_id=live.id,
@@ -159,16 +167,33 @@ async def test_delete_chat_stops_a_live_run(tmp_path):
         )
         assert result == {"deleted": True}
         assert stopped.is_set()
+        failing_mode.on_conversation_reset.assert_not_awaited()
         for mode in modes:
             assert live.session_id in mode._handlers
 
-        result = await chats_api.batch_delete_chats(
-            [alias.id],
-            mgr=manager,
-            workspace=workspace,
-        )
+        if batch:
+            result = await chats_api.batch_delete_chats(
+                [alias.id],
+                mgr=manager,
+                workspace=workspace,
+            )
+        else:
+            result = await chats_api.delete_chat(
+                chat_id=alias.id,
+                mgr=manager,
+                workspace=workspace,
+            )
 
     assert result == {"deleted": True}
+    failing_mode.on_conversation_reset.assert_awaited_once()
+    assert checkpoints.await_count == 2
+    checkpoints.assert_awaited_with(
+        workspace,
+        [(alias.session_id, alias.user_id, alias.channel)],
+    )
+    assert await manager.get_chat(live.id) is None
+    assert await manager.get_chat(alias.id) is None
+    assert await manager.get_chat(peer.id) is not None
     for mode in modes:
         assert set(mode._handlers) == {peer.session_id}
         assert set(mode._config_keys) == {peer.session_id}

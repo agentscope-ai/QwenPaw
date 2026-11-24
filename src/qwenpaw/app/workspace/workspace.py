@@ -547,7 +547,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self.plugins.session_modes.pop(session_id, None)
         with scoped_session_id(session_id):
             for mode in self.plugins.modes:
-                await mode.on_conversation_reset(ctx)
+                try:
+                    await mode.on_conversation_reset(ctx)
+                except Exception:
+                    logger.warning(
+                        "Mode %r failed to release session %s",
+                        getattr(mode, "name", "?"),
+                        session_id,
+                        exc_info=True,
+                    )
 
     @_sdk_observe_stream
     async def stream_query(

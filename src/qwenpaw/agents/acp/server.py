@@ -16,9 +16,11 @@ import json
 import logging
 import os
 import sys
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from weakref import WeakValueDictionary
 
 import anthropic
 import openai
@@ -393,6 +395,10 @@ class QwenPawACPAgent(Agent):
         self._runtime_provider_manager: ProviderManager | None = None
         self._runtime_provider_instance: Any | None = None
         self._sessions: dict[str, ACPRuntimeParameters] = {}
+        self._session_locks: WeakValueDictionary[
+            str,
+            asyncio.Lock,
+        ] = WeakValueDictionary()
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._prompt_tasks: dict[str, asyncio.Task[Any]] = {}
         self._workspace: Any | None = None
@@ -827,21 +833,7 @@ class QwenPawACPAgent(Agent):
     ) -> LoadSessionResponse | None:
         await self._require_mcp()
         session_meta = await run_sync_io(self._session_meta)
-        previous_session = self._sessions.get(session_id)
-        candidate_session = self._resolve_session(
-            cwd=cwd,
-            meta=kwargs,
-            previous=previous_session,
-            restored=True,
-        )
-        await self._cancel_active_prompt(session_id)
-        await run_async_to_completion(
-            self._configure_session(
-                session_id,
-                candidate_session,
-                mcp_servers,
-            ),
-        )
+        await self._restore_session(session_id, cwd, kwargs, mcp_servers)
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -867,20 +859,22 @@ class QwenPawACPAgent(Agent):
         if not text:
             return PromptResponse(stop_reason="end_turn")
 
-        session_info = self._sessions.get(session_id)
         user_id = f"acp_{session_id[:8]}"
 
-        active_prompt = self._prompt_tasks.get(session_id)
-        if active_prompt is not None and not active_prompt.done():
-            raise RequestError.invalid_params(
-                {f"details": f"This session already has an active prompt"},
-            )
+        # Once admitted, a restore must drain this task before changing owners.
+        async with self._session_lock(session_id):
+            active_prompt = self._prompt_tasks.get(session_id)
+            if active_prompt is not None and not active_prompt.done():
+                raise RequestError.invalid_params(
+                    {"details": "This session already has an active prompt"},
+                )
+            session_info = self._sessions.get(session_id)
+            cancel_event = asyncio.Event()
+            self._cancel_events[session_id] = cancel_event
+            prompt_task = asyncio.current_task()
+            if prompt_task is not None:
+                self._prompt_tasks[session_id] = prompt_task
 
-        cancel_event = asyncio.Event()
-        self._cancel_events[session_id] = cancel_event
-        prompt_task = asyncio.current_task()
-        if prompt_task is not None:
-            self._prompt_tasks[session_id] = prompt_task
         approval_bridge = asyncio.create_task(
             self._bridge_approval_requests(session_id),
         )
@@ -929,25 +923,28 @@ class QwenPawACPAgent(Agent):
                     )
 
                     events_since_yield = 0
-                    async for event in workspace.stream_query(request):
-                        if getattr(event, f"object", None) == f"response":
-                            status = getattr(event, f"status", None)
-                            if status == RunStatus.Failed:
-                                outcome = (
-                                    f"error",
-                                    RuntimeError(
-                                        f"Workspace failed: {event.error}",
-                                    ),
-                                )
-                            elif status == RunStatus.Cancelled:
-                                outcome = (f"cancelled", None)
-                        for upd in tracker.process(event):
-                            await queue.put(("update", upd))
-                        events_since_yield += 1
-                        if events_since_yield >= 64:
-                            # Unmapped events also need explicit fairness.
-                            events_since_yield = 0
-                            await asyncio.sleep(0)
+                    async with aclosing(
+                        workspace.stream_query(request),
+                    ) as stream:
+                        async for event in stream:
+                            if getattr(event, "object", None) == "response":
+                                status = getattr(event, "status", None)
+                                if status == RunStatus.Failed:
+                                    outcome = (
+                                        "error",
+                                        RuntimeError(
+                                            f"Workspace failed: {event.error}",
+                                        ),
+                                    )
+                                elif status == RunStatus.Cancelled:
+                                    outcome = ("cancelled", None)
+                            for upd in tracker.process(event):
+                                await queue.put(("update", upd))
+                            events_since_yield += 1
+                            if events_since_yield >= 64:
+                                # Unmapped events need a yield point too.
+                                events_since_yield = 0
+                                await asyncio.sleep(0)
             except asyncio.CancelledError:
                 if consumer_stopped:
                     raise
@@ -1054,14 +1051,15 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
-        await self._cancel_active_prompt(session_id)
-        await self._cancel_pending_approvals(session_id)
-        await self._remove_session_mcp(session_id)
-        if self._workspace is not None:
-            await self._workspace.release_session(session_id)
-        self._sessions.pop(session_id, None)
-        self._cancel_events.pop(session_id, None)
-        self._prompt_tasks.pop(session_id, None)
+        async with self._session_lock(session_id):
+            await self._cancel_active_prompt(session_id)
+            await self._cancel_pending_approvals(session_id)
+            await self._remove_session_mcp(session_id)
+            if self._workspace is not None:
+                await self._workspace.release_session(session_id)
+            self._sessions.pop(session_id, None)
+            self._cancel_events.pop(session_id, None)
+            self._prompt_tasks.pop(session_id, None)
         return CloseSessionResponse()
 
     async def list_sessions(  # pylint: disable=unused-argument
@@ -1098,20 +1096,12 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        previous_session = self._sessions.get(session_id)
-        candidate_session = self._resolve_session(
-            cwd=cwd,
-            meta=kwargs,
-            previous=previous_session,
+        await self._restore_session(
+            session_id,
+            cwd,
+            kwargs,
+            mcp_servers,
             resume=True,
-        )
-        await self._cancel_active_prompt(session_id)
-        await run_async_to_completion(
-            self._configure_session(
-                session_id,
-                candidate_session,
-                mcp_servers,
-            ),
         )
         return ResumeSessionResponse()
 
@@ -1139,11 +1129,12 @@ class QwenPawACPAgent(Agent):
                     "details": str(exc),
                 },
             ) from None
-        session_info = self._sessions.get(session_id)
-        if session_info is not None:
-            self._sessions[session_id] = session_info.with_overrides(
-                {"active_model": model_slot.model_dump()},
-            )
+        async with self._session_lock(session_id):
+            session_info = self._sessions.get(session_id)
+            if session_info is not None:
+                self._sessions[session_id] = session_info.with_overrides(
+                    {"active_model": model_slot.model_dump()},
+                )
         logger.info(
             "Model switched to %s for agent %s",
             model_id,
@@ -1178,13 +1169,15 @@ class QwenPawACPAgent(Agent):
                     "calls will bypass security checks.",
                     session_id,
                 )
-            if session_id in self._sessions:
-                self._sessions[session_id] = self._sessions[
-                    session_id
-                ].with_permission_mode(str_value)
-            return SetSessionConfigOptionResponse(
-                config_options=self._build_config_options(session_id),
-            )
+            async with self._session_lock(session_id):
+                session_info = self._sessions.get(session_id)
+                if session_info is not None:
+                    self._sessions[
+                        session_id
+                    ] = session_info.with_permission_mode(str_value)
+                return SetSessionConfigOptionResponse(
+                    config_options=self._build_config_options(session_id),
+                )
         return None
 
     async def cancel(  # pylint: disable=unused-argument
@@ -1196,12 +1189,21 @@ class QwenPawACPAgent(Agent):
             "ACP cancel: session=%s",
             session_id,
         )
-        await self._cancel_active_prompt(session_id)
-        await self._cancel_pending_approvals(session_id)
+        async with self._session_lock(session_id):
+            await self._cancel_active_prompt(session_id)
+            await self._cancel_pending_approvals(session_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        """Serialize admission and lifecycle changes for one ACP session."""
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
 
     async def _cancel_all_prompts(self) -> None:
         """Cancel every active prompt before workspace shutdown."""
@@ -1223,15 +1225,39 @@ class QwenPawACPAgent(Agent):
         ):
             return
 
-        prompt_task.cancel()
-        try:
-            await prompt_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception(
+        if not prompt_task.cancelling():
+            prompt_task.cancel()
+        (result,) = await run_async_to_completion(
+            asyncio.gather(prompt_task, return_exceptions=True),
+        )
+        if isinstance(result, Exception):
+            logger.error(
                 "ACP prompt failed while cancelling session=%s",
                 session_id,
+                exc_info=result,
+            )
+
+    async def _restore_session(
+        self,
+        session_id: str,
+        cwd: str,
+        meta: dict[str, Any],
+        mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
+        *,
+        resume: bool = False,
+    ) -> None:
+        """Drain the admitted prompt before replacing its session owner."""
+        async with self._session_lock(session_id):
+            parameters = self._resolve_session(
+                cwd=cwd,
+                meta=meta,
+                previous=self._sessions.get(session_id),
+                resume=resume,
+                restored=not resume,
+            )
+            await self._cancel_active_prompt(session_id)
+            await run_async_to_completion(
+                self._configure_session(session_id, parameters, mcp_servers),
             )
 
     async def _configure_session(
@@ -1847,17 +1873,17 @@ class QwenPawACPAgent(Agent):
         """
         try:
             workspace = await self._ensure_workspace()
-            parameters = self._sessions.get(session_id)
-            if parameters is None:
-                return
-            workspace = await workspace.for_session(session_id, parameters)
+            async with self._session_lock(session_id):
+                parameters = self._sessions.get(session_id)
+                if parameters is None:
+                    return
+                owner = await workspace.for_session(session_id, parameters)
+                commands = self._build_available_commands(owner)
             await self._conn.session_update(
                 session_id=session_id,
                 update=AvailableCommandsUpdate(
                     sessionUpdate="available_commands_update",
-                    available_commands=self._build_available_commands(
-                        workspace,
-                    ),
+                    available_commands=commands,
                 ),
             )
         except Exception:

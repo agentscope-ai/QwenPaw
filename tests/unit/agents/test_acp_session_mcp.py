@@ -11,6 +11,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from acp import text_block
@@ -28,6 +29,7 @@ from qwenpaw.agents.acp.session_mcp import (
     acp_mcp_scope_id,
     build_acp_mcp_driver_cards,
 )
+from qwenpaw.config.context import current_runtime_parameters
 from qwenpaw.drivers.constants import (
     DRIVER_SCOPE_CONTEXT_KEY,
     POLICY_EFFECT_ASK,
@@ -411,6 +413,8 @@ async def test_acp_workspace_handoff_keeps_old_mcp_until_ready(
     monkeypatch.setattr(workspace, "configure_session", configure_session)
     monkeypatch.setattr(workspace, "session_workspace", lambda _: owner)
     agent = _TestACPAgent(workspace)
+    agent.on_connect(_FakeConn())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     await agent.load_session(
         cwd=str(tmp_path),
         session_id="session-1",
@@ -435,12 +439,73 @@ async def test_acp_workspace_handoff_keeps_old_mcp_until_ready(
     assert workspace.driver_manager.removals == []
 
     replacement.driver_manager.fail_replacement = False
-    await restore(
-        cwd=str(tmp_path),
-        session_id="session-1",
-        mcp_servers=[_stdio_server()],
-        **metadata,
+    prepared, publish = asyncio.Event(), asyncio.Event()
+    prompt_entered, announce_entered = asyncio.Event(), asyncio.Event()
+    replace = replacement.driver_manager.replace_transient_drivers
+    announced = []
+
+    async def prepare_replacement(scope_id, cards):
+        await replace(scope_id, cards)
+        prepared.set()
+        await publish.wait()
+
+    async def bind_owner(session_id, parameters):
+        async with configure_session(session_id, parameters) as candidate:
+            return candidate
+
+    async def stream_query(request):
+        parameters = current_runtime_parameters.get()
+        assert parameters is not None
+        selected = await bind_owner(request.session_id, parameters)
+        async for event in _FakeWorkspace.stream_query(selected, request):
+            yield event
+
+    def available_commands(selected):
+        announced.append(selected)
+        return []
+
+    async def submit_prompt():
+        prompt_entered.set()
+        return await agent.prompt([text_block("continue")], "session-1")
+
+    async def announce():
+        announce_entered.set()
+        await QwenPawACPAgent._advertise_commands(agent, "session-1")
+
+    monkeypatch.setattr(
+        replacement.driver_manager,
+        "replace_transient_drivers",
+        prepare_replacement,
     )
+    monkeypatch.setattr(workspace, "for_session", bind_owner)
+    monkeypatch.setattr(workspace, "stream_query", stream_query)
+    monkeypatch.setattr(agent, "_build_available_commands", available_commands)
+
+    handoff = asyncio.create_task(
+        restore(
+            cwd=str(tmp_path),
+            session_id="session-1",
+            mcp_servers=[_stdio_server()],
+            **metadata,
+        ),
+    )
+    try:
+        await asyncio.wait_for(prepared.wait(), timeout=2)
+        prompt = asyncio.create_task(submit_prompt())
+        advertisement = asyncio.create_task(announce())
+        await asyncio.wait_for(
+            asyncio.gather(prompt_entered.wait(), announce_entered.wait()),
+            timeout=2,
+        )
+    finally:
+        publish.set()
+    _, response, _ = await asyncio.wait_for(
+        asyncio.gather(handoff, prompt, advertisement),
+        timeout=2,
+    )
+    assert response.stop_reason == "end_turn"
+    assert not workspace.requests and len(replacement.requests) == 1
+    assert announced == [replacement]
     assert agent._sessions["session-1"].config.workspace_dir == directory
     assert owner is replacement
     assert workspace.driver_manager.removals == [scope]
