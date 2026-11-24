@@ -140,7 +140,7 @@ class ModelInfo(BaseModel):
     )
     max_input_length_auto_detected: int | None = Field(
         default=None,
-        ge=1000,
+        ge=1,
         description="Context window reported by the provider API.",
     )
     template_id: str | None = None
@@ -250,6 +250,22 @@ class ModelInfo(BaseModel):
         description="Override provider-level thinking_budget_range [min, max] "
         "for this model.",
     )
+
+    @model_validator(mode="after")
+    def validate_thinking_budget_range(self):
+        """Require a complete, ordered [min, max] thinking budget range."""
+        budget_range = self.thinking_budget_range
+        if budget_range is not None and (
+            len(budget_range) != 2
+            or budget_range[0] > budget_range[1]
+            or budget_range[1] < 1
+        ):
+            raise ValueError(
+                "thinking_budget_range must be [min, max] with min <= max "
+                "and max >= 1",
+            )
+        return self
+
     supports_agent_thinking: bool | None = Field(
         default=None,
         description=(

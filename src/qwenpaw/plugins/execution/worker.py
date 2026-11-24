@@ -29,10 +29,44 @@ def _sibling(name: str) -> Any:
     return module
 
 
+def _install_windows_crypto_path_fix() -> None:
+    """Normalize raw-library paths when the optional Crypto helper loads."""
+    from importlib.machinery import PathFinder, SourceFileLoader
+    import ntpath
+
+    class Finder:
+        def find_spec(self, name, path=None, target=None):
+            if name != "Crypto.Util._file_system":
+                return None
+            spec = PathFinder.find_spec(name, path, target)
+            if spec is None or not isinstance(spec.loader, SourceFileLoader):
+                return None
+            execute = spec.loader.exec_module
+
+            def load(module):
+                execute(module)
+                original = module.pycryptodome_filename
+
+                def filename(dir_comps, filename):
+                    return ntpath.normpath(original(dir_comps, filename))
+
+                module.pycryptodome_filename = filename
+
+            spec.loader.exec_module = load
+            return spec
+
+    for index, finder in enumerate(sys.meta_path):
+        if finder is PathFinder:
+            sys.meta_path.insert(index, Finder())
+            break
+
+
 def _configure(
     boot: Any,
     packet: dict[str, Any],
     protected_namespaces: tuple[str, ...],
+    *,
+    environment_passthrough: tuple[str, ...] = (),
 ) -> None:
     root = boot._absolute_existing_directory(packet["code_root"], "code_root")
     support = Path(__file__).resolve().parents[3]
@@ -106,9 +140,11 @@ def _configure(
     sys.modules["qwenpaw.plugins.dependency_maintenance"] = custody
     custody.lease_environment(
         (*dependencies, *custody.host_sites()),
-        parent_pid=int(sys.argv[1])
-        if packet.get("mode") in {"audit", "probe"}
-        else None,
+        parent_pid=(
+            int(sys.argv[1])
+            if packet.get("mode") in {"audit", "probe"}
+            else None
+        ),
         timeout=packet["startup_timeout"],
     )
     package = types.ModuleType("qwenpaw")
@@ -120,7 +156,7 @@ def _configure(
     plugins.__path__ = [str(support / "qwenpaw/plugins")]
     sys.modules["qwenpaw.plugins"] = plugins
     # Direct path assignment never executes additional .pth files.
-    boot._clean_environment(())
+    boot._clean_environment(environment_passthrough)
     private_env = boot.validate_private_environment(
         packet.get("private_env", {}),
     )
@@ -136,11 +172,17 @@ async def run(
     runtime: Any,
     *,
     input_handle: Any,
+    diagnostics: Any = None,
 ) -> None:
     from .errors import ProtocolValidationError
     from .framing import FramedTransport
     from .payloads import PayloadStore
     from .rpc import RpcResponsePublication
+
+    if diagnostics is None:
+        from .diagnostics import StartupDiagnostics
+
+        diagnostics = StartupDiagnostics(packet)
 
     payloads = (
         PayloadStore.attach(packet["payload_transport"])
@@ -166,10 +208,14 @@ async def run(
             raise ProtocolValidationError("identity mismatch")
         if start_task is not None:
             start_task.cancel()
-        if component is not None:
-            await component.stop()
-        if management_stop is not None:
-            await management_stop()
+        try:
+            if component is not None:
+                await component.stop()
+            if management_stop is not None:
+                await management_stop()
+        except Exception as exc:
+            diagnostics.failure(exc, event="component_stop_failed")
+            raise
         return RpcResponsePublication(
             result={"stopped": True},
             on_prepare=lambda: {"stopped": True},
@@ -180,10 +226,22 @@ async def run(
         )
 
     async def connect() -> None:
+        diagnostics.mark("component_start")
+        diagnostics.watch(asyncio.current_task(), packet["startup_timeout"])
         try:
             await component.start(packet["config"])
-        except Exception:
+            diagnostics.mark("component_started")
+        except asyncio.CancelledError as exc:
+            if exc.__context__ is not None or exc.__cause__ is not None:
+                diagnostics.failure(exc, event="component_cancelled")
+            else:
+                diagnostics.emit("component_cancelled")
+            raise
+        except Exception as exc:
+            diagnostics.failure(exc, event="component_failed")
             await runtime.state(context, runtime.failed_state)
+        finally:
+            diagnostics.cancel_watch()
 
     mode = packet.get("mode", "run")
     if not isinstance(mode, str) or mode not in {
@@ -203,8 +261,10 @@ async def run(
             runtime,
             identity,
             peer,
+            diagnostics,
         )
         if mode in {"audit", "probe"}:
+            diagnostics.cancel_watch()
             await peer.notify(
                 runtime.control_prefix + "inspected",
                 identity.to_mapping(),
@@ -220,6 +280,10 @@ async def run(
                 )
             management_stop = bind(packet, component_class, peer, identity)
         else:
+            diagnostics.mark(
+                "component_bind",
+                initial_state=runtime.initial_state,
+            )
             context = runtime.context(peer, identity)
             component = component_class()
             if any(
@@ -232,10 +296,12 @@ async def run(
                 )
             component.bind(context)
             await runtime.state(context, runtime.initial_state)
+        diagnostics.mark("ready_notify")
         await peer.notify(
             runtime.control_prefix + "ready",
             identity.to_mapping(),
         )
+        diagnostics.cancel_watch()
         if mode == "run":
             start_task = asyncio.create_task(connect())
         closed_task = asyncio.create_task(peer.wait_closed())
@@ -249,8 +315,10 @@ async def run(
             task.cancel()
         await asyncio.gather(closed_task, stop_task, return_exceptions=True)
     except Exception as exc:
+        diagnostics.failure(exc)
         await _report_error(peer, identity, runtime, exc)
     finally:
+        diagnostics.cancel_watch()
         if start_task is not None:
             start_task.cancel()
         if management_stop is not None:
@@ -260,17 +328,26 @@ async def run(
             await payloads.cleanup(deadline=asyncio.get_running_loop().time())
 
 
-async def _prepare_component(boot, packet, runtime, identity, peer):
+async def _prepare_component(
+    boot,
+    packet,
+    runtime,
+    identity,
+    peer,
+    diagnostics,
+):
     """Publish child evidence and optionally import a nonconnecting Driver."""
     mode = packet.get("mode", "run")
     from .dependencies import (
         observe_dependencies,
         validate_driver,
-        check_import_origins,
-        require_dependencies,
     )
 
+    packet["mode"] = mode
+    packet["_reuse_ambiguous"] = mode == "audit"
+    diagnostics.mark("dependency_read")
     snapshot = observe_dependencies(packet)
+    diagnostics.mark("dependency_admission", versions=dict(snapshot.versions))
     accepted = await peer.call(
         "execution.dependencies",
         {
@@ -291,11 +368,10 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
                 "source mismatch",
             )
         return None
-    relevant = require_dependencies(snapshot, packet)
-    packet["dependency_versions"] = {
-        name: snapshot.distributions[name]["version"] for name in relevant
-    }
+    packet["dependency_versions"] = dict(snapshot.versions)
+    diagnostics.mark("driver_verify")
     entrypoint, source, hello = runtime.verify(boot, packet, identity)
+    diagnostics.mark("hello")
     accepted = await peer.call(
         runtime.hello_method,
         hello,
@@ -307,12 +383,10 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
     root = Path(packet["code_root"])
     sys.path.insert(0, str(root))
     sys.modules["qwenpaw"].__path__.insert(0, str(root / "qwenpaw"))
+    if sys.platform == "win32":
+        _install_windows_crypto_path_fix()
+    diagnostics.mark("driver_import", entrypoint=entrypoint)
     component_class = boot._load_driver_class(entrypoint, source)
-    check_import_origins(
-        snapshot,
-        Path(packet["code_root"]).resolve(),
-        relevant,
-    )
     if mode == "probe":
         validate_driver(component_class)
     return component_class
@@ -369,10 +443,13 @@ def main(
     runtime_factory: Any = None,
     *,
     protected_namespaces: tuple[str, ...] = (),
+    environment_passthrough: tuple[str, ...] = (),
 ) -> int:
     output = None
     protocol_input = None
     input_transferred = False
+    diagnostics = None
+    log_writer = None
     try:
         _sibling("process_tree").watch_parent(int(sys.argv[1]))
         boot = _sibling("bootstrap")
@@ -388,7 +465,26 @@ def main(
         if len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
             return 70
         packet = json.loads(raw)
-        mode = packet.get("mode", "run")
+        worker_logs = _sibling(f"worker_logs")
+        mode = packet.get(f"mode", f"run")
+        if mode in (f"run", f"manage") and f"channel_log_level" in packet:
+            log_writer = worker_logs.configure_channel_logging(
+                packet[f"channel_log_level"],
+            )
+        diagnostics = _sibling("diagnostics").StartupDiagnostics(
+            packet,
+            clean=worker_logs._clean,
+            write=(
+                (lambda text, _event, _critical: log_writer.submit(text))
+                if log_writer is not None
+                else None
+            ),
+        )
+        diagnostics.mark(
+            "bootstrap",
+            executable=sys.executable,
+            worker=__file__,
+        )
         if not isinstance(mode, str) or mode not in {
             "run",
             "manage",
@@ -399,13 +495,37 @@ def main(
 
         async def enter() -> None:
             nonlocal input_transferred
+            diagnostics.watch(
+                asyncio.current_task(),
+                packet["startup_timeout"],
+            )
             # Windows builds the trusted loop's self-pipe with socketpair.
             # Install the guard after that, but before candidate paths enter.
             if mode in {"audit", "probe"}:
                 # Windows Python 3.11 may run `ver` to initialize uname.
                 platform.uname()
                 _guard_inspection(boot)
-            _configure(boot, packet, protected_namespaces)
+            diagnostics.mark("configure")
+            _configure(
+                boot,
+                packet,
+                protected_namespaces,
+                environment_passthrough=environment_passthrough,
+            )
+            diagnostics.emit(
+                "worker_environment",
+                paths=list(sys.path),
+                path_count=len(sys.path),
+                proxy_keys=sorted(
+                    name
+                    for name in boot.NETWORK_PROXY_ENVIRONMENT
+                    if name in os.environ
+                ),
+                ca_file=os.environ.get("SSL_CERT_FILE"),
+                loop=type(asyncio.get_running_loop()).__name__,
+                python=sys.version,
+                platform=sys.platform,
+            )
             from qwenpaw.plugins.execution.runtime import Runtime
 
             run_component = importlib.import_module(
@@ -416,17 +536,21 @@ def main(
                 Runtime() if runtime_factory is None else runtime_factory()
             )
             input_transferred = True
-            await run_component(
-                boot,
-                packet,
-                output,
-                runtime,
-                input_handle=protocol_input,
-            )
+            with diagnostics.background_errors(asyncio.get_running_loop()):
+                await run_component(
+                    boot,
+                    packet,
+                    output,
+                    runtime,
+                    input_handle=protocol_input,
+                    diagnostics=diagnostics,
+                )
 
         asyncio.run(enter())
         return 0
     except BaseException as exc:
+        if diagnostics is not None:
+            diagnostics.failure(exc)
         reason = getattr(exc, "reason_code", None)
         if reason is None:
             reason = (
@@ -434,10 +558,18 @@ def main(
                 if str(exc).startswith("DEPENDENCY_")
                 else type(exc).__name__
             )
-        sys.stderr.write(json.dumps({"error": reason}) + "\n")
-        sys.stderr.flush()
+        error = json.dumps({f"error": reason})
+        if log_writer is not None:
+            log_writer.submit(error)
+        else:
+            sys.stderr.write(f"{error}\n")
+            sys.stderr.flush()
         return 70
     finally:
+        if diagnostics is not None:
+            diagnostics.cancel_watch()
+        if log_writer is not None:
+            log_writer.close()
         # A Windows reader may hold the buffer lock in a blocking read.
         # Once transferred, it closes its stream or process exit reclaims it.
         if os.name == "nt" and protocol_input is not None:

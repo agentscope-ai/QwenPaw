@@ -14,7 +14,7 @@ QwenPaw provides two types of tools for agents:
    - Can be individually enabled/disabled
 
 2. **MCP Tools**: Connect to external services via MCP protocol to extend additional capabilities
-   - Configure clients on the **Agent → MCP** page
+   - Configure clients on the **Settings → MCP** page
    - MCP clients register new tools with the agent
 
 Both types can be used simultaneously without conflict.
@@ -41,12 +41,12 @@ node --version  # Check version
 
 ### Adding MCP Clients
 
-1. Open the Console and go to **Agent → MCP**
-2. Click **+ Create** button
-3. Paste your MCP client JSON configuration
+1. Open the Console and go to **Settings → MCP**
+2. Select **Create Client**
+3. Open **JSON Import** and paste your MCP client configuration
 4. Click **Create** to import
 
-![MCP](https://img.alicdn.com/imgextra/i2/O1CN01uYjPWG1YwqRRF3wYd_!!6000000003124-2-tps-3822-2070.png)
+![MCP Clients list with the Create Client button in the upper right](https://img.alicdn.com/imgextra/i4/O1CN01NeffbT6Yg2D3FPfU_!!6000000007368-2-tps-1600-1000.png)
 
 ---
 
@@ -141,6 +141,8 @@ Tavily is an AI-optimized web search service that enables agents to perform real
 
 > **Built-in Support**: A `tavily_search` client is automatically created at system startup. It auto-enables when the `TAVILY_API_KEY` environment variable is set. You can also directly modify the tavily mcp configuration.
 
+This configures the Tavily **MCP client**. QwenPaw's built-in `web_search` tool can use Tavily, AnySearch, or Firecrawl; see [Web Search](#Web-Search-web_search) below for its configuration.
+
 #### Remote MCP Service
 
 ```json
@@ -169,7 +171,7 @@ The client exposes 22 tools for reading, sending, attachments, organization,
 threads, and statistics.
 
 New driver cards use `ask` as their default access policy. You can adjust policy
-by tool and call origin in **Workspace → MCP**. Saving the mail configuration
+by tool and call origin in **Settings → MCP**. Saving the mail configuration
 again preserves the existing enabled state, tool scope, and access policy.
 
 You do not create this client manually on the general MCP page, but a source
@@ -217,7 +219,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 
 ### Tool Management
 
-![tool](https://img.alicdn.com/imgextra/i1/O1CN01Wwi7Im1ll1DlO9x74_!!6000000004858-2-tps-3822-2070.png)
+![tool](https://img.alicdn.com/imgextra/i3/O1CN01xbqxmkOa1wB3FPfU_!!6000000006028-2-tps-1600-1000.png)
 
 #### Enable and Disable Tools
 
@@ -247,6 +249,8 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | File Operations    | `append_file`             | Append content to file end                                    |
 | File Search        | `grep_search`             | Search by content, supports regex and context                 |
 | File Search        | `glob_search`             | Find files by name pattern                                    |
+| Web Search         | `web_search`              | Search the web with Tavily, AnySearch, or Firecrawl           |
+| Web Fetch          | `web_fetch`               | Read a web page and convert it to Markdown                    |
 | Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution              |
 | Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                 |
 | Browser Automation | `browser`                 | Unified Browser SDK automation with async Python              |
@@ -259,6 +263,32 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | Statistics         | `get_token_usage`         | Query LLM token usage statistics                              |
 
 ### Tool Details
+
+#### Web Search (`web_search`)
+
+Enable `web_search` under **Agent → Tools**, select a search provider, and optionally enter that provider's API key. Each agent has its own configuration. AnySearch is the default when no provider is selected.
+
+- **AnySearch** (default): Supports keyless anonymous search with an anonymous quota. An AnySearch API key enables authenticated requests. If the anonymous quota is exhausted, the service may return an automatically registered key, which the tool attempts to save before retrying.
+- **Tavily**: Keyless anonymous search works without an API key. With a Tavily API key, authenticated requests are preferred; HTTP 401, 429, or 432 falls back to anonymous search.
+- **Firecrawl**: The API key is optional. Authenticated requests are preferred when a key is set; HTTP 401 triggers one keyless retry. Keyless availability and limits depend on the service.
+
+Select the provider on the tool card, then enter its API key if needed. Keys are stored in the current agent's credential store; the **built-in tool** does not read the `TAVILY_API_KEY` environment variable from the Tavily MCP example above. If editing `agent.json` manually, the provider is stored at `tools.builtin_tools.web_search.config.provider`:
+
+```json
+{
+  "tools": {
+    "builtin_tools": {
+      "web_search": {
+        "name": "web_search",
+        "enabled": true,
+        "config": { "provider": "anysearch" }
+      }
+    }
+  }
+}
+```
+
+Valid `provider` values are `tavily`, `anysearch`, and `firecrawl`. Enter API keys through the Console instead of saving them in this file. `web_search` accepts `search_term`; `web_fetch` accepts `url` to read pages found in search results.
 
 **File Operations**
 

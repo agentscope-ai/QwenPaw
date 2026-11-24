@@ -2,7 +2,10 @@
 ; crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi
 ; Local change: use per-file compression instead of /SOLID to reduce the
 ; uncompressed temporary datablock size during packaging.
+; Keep the CLI entry unavailable until every bundled resource is installed.
 Unicode true
+; Publishing the CLI requires a complete payload, so no file may be skipped.
+AllowSkipFiles off
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
 ; Currently undocumented on NSIS's website but is in the Docs folder of source tree, see
@@ -361,7 +364,7 @@ Function PageLeaveReinstall
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
-      ExecWait '$R1' $0
+      !insertmacro QWENPAW_UNINSTALL_PREVIOUS
     ${EndIf}
 
     BringToFront
@@ -648,6 +651,9 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  !insertmacro QWENPAW_INSTALL_ACTION BeginInstall ""
+  !insertmacro QWENPAW_INSTALL_ACTION ClearRuntime ""
+
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
 
@@ -656,7 +662,11 @@ Section Install
     CreateDirectory "$INSTDIR\\{{this}}"
   {{/each}}
   {{#each resources}}
+    !if "{{this.[1]}}" == "binaries\qwenpaw-backend\qwenpaw.exe"
+    File /a "/oname={{this.[1]}}.qwenpaw-new" "{{no-escape @key}}"
+    !else
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
+    !endif
   {{/each}}
 
   ; Copy external binaries
@@ -784,6 +794,11 @@ Section Uninstall
   !endif
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+
+  !insertmacro QWENPAW_INSTALL_ACTION BeginInstall "un."
+  !insertmacro QWENPAW_INSTALL_ACTION ClearRuntime "un."
+  !insertmacro QWENPAW_REMOVE_DEBUG_LAUNCHER
+  !insertmacro QWENPAW_REMOVE_CLI_PATH
 
   ; Delete the app directory and its content from disk
   ; Copy main executable

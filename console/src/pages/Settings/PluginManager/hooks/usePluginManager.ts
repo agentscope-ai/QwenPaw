@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { useRequest } from "ahooks";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import {
   fetchPluginCatalog,
   fetchPlugins,
@@ -10,6 +11,8 @@ import {
   type PluginInfo,
   type PluginUpdateInfo,
   uninstallPlugin,
+  setPluginEnabled,
+  repairPluginDependencies,
 } from "@/api/modules/plugin";
 import {
   buildMarketDownloadUrl,
@@ -19,6 +22,7 @@ import {
 import { compareVersions } from "@/layouts/constants";
 import { marketPluginMatches } from "@/utils/marketPluginIdentity";
 import { reloadFrontendPlugin, reloadPawApp } from "@/plugins/usePluginLoader";
+import { refreshHarnessCatalog } from "@/plugins/harnesses";
 import { removePluginRuntime } from "@/plugins/pluginRuntimeCleanup";
 import { removePluginAppState } from "@/os/osCleanup";
 import { runPluginInstall } from "../dependencyUpgrade";
@@ -59,6 +63,7 @@ async function reloadInstalledPluginRuntime(plugin: PluginInfo): Promise<void> {
 export function usePluginManager() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const [enablingId, setEnablingId] = useState<string | null>(null);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
   const [updates, setUpdates] = useState<Map<string, PluginUpdateInfo>>(
     new Map(),
@@ -188,7 +193,7 @@ export function usePluginManager() {
         message.success(t("pluginManager.updateSuccess"));
       } catch (err) {
         message.error(
-          err instanceof Error ? err.message : t("pluginManager.updateFailed"),
+          pluginErrorMessage(err, t("pluginManager.updateFailed"), t),
         );
       } finally {
         await refresh();
@@ -228,7 +233,7 @@ export function usePluginManager() {
         } catch (error) {
           failedPluginNames.push(
             error instanceof Error && error.message
-              ? `${plugin.name}: ${error.message}`
+              ? `${plugin.name}: ${pluginErrorMessage(error, "", t)}`
               : plugin.name,
           );
         }
@@ -262,6 +267,73 @@ export function usePluginManager() {
     }
   }, [message, plugins, refresh, t, updatingAll, updatingId, updates]);
 
+  const changeActivation = useCallback(
+    async (plugin: PluginInfo, action: "enable" | "repair" | "disable") => {
+      if (enablingId !== null) return;
+      setEnablingId(plugin.id);
+      const failureKey = `pluginManager.${action}Failed`;
+      try {
+        if (action === "repair") {
+          const result = await runPluginInstall(
+            () => repairPluginDependencies(plugin.id),
+            t,
+          );
+          if (result === null) return;
+          const active =
+            "status" in result
+              ? result.enabled && result.status === "active"
+              : result.loaded;
+          if (!active)
+            throw new Error(
+              ("diagnostics" in result && result.diagnostics.join("\n")) ||
+                t(failureKey),
+            );
+        } else {
+          const result = await setPluginEnabled(plugin.id, action === "enable");
+          if (action === "enable") {
+            if (
+              !result.loaded ||
+              !result.enabled ||
+              (result.status && result.status !== "active")
+            )
+              throw new Error(t(failureKey));
+          } else {
+            if (
+              result.enabled ||
+              result.loaded ||
+              result.needs_restart ||
+              result.clean === false
+            )
+              throw new Error(result.errors?.join("\n") || t(failureKey));
+          }
+        }
+        if (action === "disable") removePluginRuntime(plugin.id);
+        else await reloadInstalledPluginRuntime(plugin);
+        message.success(
+          t(
+            action === "disable"
+              ? "pluginManager.disableSuccess"
+              : "pluginManager.enableSuccess",
+          ),
+        );
+      } catch (err) {
+        message.error(pluginErrorMessage(err, t(failureKey), t));
+      } finally {
+        try {
+          await refreshHarnessCatalog().catch(() => {});
+          await refresh();
+        } finally {
+          setEnablingId(null);
+        }
+      }
+    },
+    [enablingId, message, refresh, t],
+  );
+  const enableOne = (plugin: PluginInfo) => changeActivation(plugin, "enable");
+  const repairOne = (plugin: PluginInfo) => changeActivation(plugin, "repair");
+  const disableOne = (plugin: PluginInfo) =>
+    changeActivation(plugin, "disable");
+
   const handleUninstall = useCallback(
     (plugin: PluginInfo) => {
       Modal.confirm({
@@ -282,11 +354,9 @@ export function usePluginManager() {
             message.success(t("pluginManager.uninstallSuccess"));
             await refresh();
           } catch (err) {
-            const msg =
-              err instanceof Error
-                ? err.message
-                : t("pluginManager.uninstallFailed");
-            message.error(msg);
+            message.error(
+              pluginErrorMessage(err, t("pluginManager.uninstallFailed"), t),
+            );
           } finally {
             setUninstallingId(null);
           }
@@ -303,6 +373,10 @@ export function usePluginManager() {
     refreshUpdates,
     uninstallingId,
     handleUninstall,
+    enablingId,
+    enableOne,
+    repairOne,
+    disableOne,
     updates,
     updatesLoading,
     updatingId,

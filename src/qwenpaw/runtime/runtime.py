@@ -36,6 +36,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from .provider_turn import ProviderTurn
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class Runtime:
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
-        """8-phase lifecycle orchestration."""
+        """Resolve one turn's configuration and own its Provider resources."""
         request = self._normalize(request)
 
         if (
@@ -91,18 +92,22 @@ class Runtime:
         ctx.parameters = parameters
         ctx.agent_config = parameters.config
         ctx.project_directories = resolved
+        provider_uses = ProviderTurn()
         stream = self._run(ctx)
         exhausted = object()
         try:
             while True:
-                with parameters.scope():
+                with parameters.scope(), provider_uses.bind():
                     event = await anext(stream, exhausted)
                 if event is exhausted:
                     break
                 yield event
         finally:
-            with parameters.scope():
-                await stream.aclose()
+            try:
+                with parameters.scope(), provider_uses.bind():
+                    await stream.aclose()
+            finally:
+                await provider_uses.close()
 
     async def _run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -284,17 +289,17 @@ class Runtime:
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
-            agent = getattr(ctx, "agent", None)
-            if agent is not None and hasattr(agent, "close"):
-                try:
-                    await agent.close()
-                except Exception:  # pylint: disable=broad-except
-                    logger.warning(
-                        "runtime: agent.close() failed session=%s",
-                        getattr(ctx, "session_id", ""),
-                        exc_info=True,
-                    )
             try:
+                agent = getattr(ctx, "agent", None)
+                if agent is not None and hasattr(agent, "close"):
+                    try:
+                        await agent.close()
+                    except Exception:  # pylint: disable=broad-except
+                        logger.warning(
+                            "runtime: agent.close() failed session=%s",
+                            getattr(ctx, "session_id", ""),
+                            exc_info=True,
+                        )
                 await hooks.run(Phase.FINALLY, ctx)
             finally:
                 if isinstance(ctx.request, AgentRequest):

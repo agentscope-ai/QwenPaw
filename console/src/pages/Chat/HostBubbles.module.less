@@ -1,3 +1,43 @@
+.completionWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-warning-border);
+  border-radius: 8px;
+  background: var(--app-warning-bg);
+  color: var(--app-warning-text);
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
+
+  svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
+.reasoningStep {
+  width: 100%;
+
+  > :global([class*="-operate-card"]) {
+    background-color: transparent;
+    border-radius: 0;
+
+    &:hover {
+      background-color: transparent;
+    }
+
+    > :global([class*="-operate-card-header"]) {
+      padding-left: 2px;
+    }
+  }
+
+  :global([class$="-operate-card-line-body"]) {
+    margin-left: 10px;
+  }
+}
+
 .collapsedSteps {
   // Stay inside the bubble's paint boundary: content-visibility on the SDK
   // bubble clips a negatively offset header, including its left border.
@@ -66,5 +106,28 @@
       ) {
       color: var(--app-success-text) !important;
     }
+  }
+}
+
+/* Fix #8811: this wrapper sits between the SDK bubble content and the
+ * markdown root. The bubble content sizes itself intrinsically, and a flex
+ * child defaults to min-width: auto, so without these constraints the
+ * max-content width of wide tables and code blocks widens the wrapper
+ * instead of scrolling inside the block - the bubble then clips the
+ * overflow silently on both desktop and mobile. */
+.quoteResponse {
+  min-width: 0;
+  max-width: 100%;
+
+  // Native selection keeps prose/code layout while omitting their UI controls.
+  button,
+  [role="button"],
+  input,
+  textarea,
+  [contenteditable],
+  header,
+  iframe {
+    -webkit-user-select: none;
+    user-select: none;
   }
 }

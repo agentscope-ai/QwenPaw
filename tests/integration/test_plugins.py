@@ -5,9 +5,9 @@ Covers both ingest paths (POST /install with a local source path,
 POST /upload with an in-memory zip) plus the catalog and status
 endpoints. Two real bundled plugins (``cloudpaw`` and
 ``gpt-image2-tool``) are installed and uninstalled to exercise the
-full hot-load → unload pipeline; both have light enough dependency
-footprints (stdlib only / httpx) that the test environment can satisfy
-them without extra pip installs.
+full hot-load → unload pipeline. Install CloudPaw's requirements together
+with the host test dependencies before starting pytest workers: their
+isolated workspaces still share the same Python package environment.
 
 The catalog endpoint proxies an external CDN; in CI / offline the CDN
 may be unreachable. The catalog test asserts the graceful 200 +
@@ -38,10 +38,31 @@ from tests.integration.helpers import (
 
 
 @pytest.fixture(scope=f"module", autouse=True)
-def aliyun_cli_on_path(
+def plugin_lifecycle_environment(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[None]:
-    """Keep plugin lifecycle checks independent of CLI installation/network."""
+    """Check dependencies and prepare CLI discovery before lifecycle tests."""
+    from qwenpaw.plugins.dependency_gate import DependencyGate
+
+    requirements = OFFICIAL_PLUGINS_DIR / "bundle/cloudpaw/requirements.txt"
+    assert requirements.is_file(), f"missing requirements: {requirements}"
+    decision = DependencyGate().evaluate(
+        requirements,
+        allow_install=True,
+        plugin_id="cloudpaw",
+    )
+    if not decision.already_satisfied:
+        details = ", ".join(
+            decision.missing + decision.unsupported + list(decision.warnings),
+        )
+        pytest.fail(
+            "Prepare plugin lifecycle dependencies before starting pytest "
+            f"workers ({decision.reason}: {details}). From the repository "
+            'root, run: python -m pip install -e ".[dev,test,full]" '
+            '-r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"',
+            pytrace=False,
+        )
+
     bin_dir = tmp_path_factory.mktemp(f"aliyun-cli")
     windows = os.name == f"nt"
     cli = bin_dir / (f"aliyun.cmd" if windows else f"aliyun")

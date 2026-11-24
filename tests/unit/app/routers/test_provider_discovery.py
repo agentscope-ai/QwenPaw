@@ -16,9 +16,11 @@ from qwenpaw.app.routers.providers import (
     configure_provider,
     create_custom_provider_endpoint,
     discover_models,
+    probe_model_multimodal,
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
 )
+from qwenpaw.plugins.activity import PluginBusyError
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 
 
@@ -70,6 +72,21 @@ async def test_create_custom_provider_passes_api_key_to_manager() -> None:
 
     provider_info = manager.add_custom_provider.await_args.args[0]
     assert provider_info.api_key == "sk-test"
+
+
+async def test_multimodal_probe_returns_busy_conflict() -> None:
+    busy = PluginBusyError("local-llamacpp", 1)
+    manager = SimpleNamespace(
+        probe_model_multimodal=AsyncMock(side_effect=busy),
+    )
+    with pytest.raises(HTTPException) as error:
+        await probe_model_multimodal(
+            manager=manager,
+            provider_id="qwenpaw-local",
+            model_id="local-B",
+        )
+    assert error.value.status_code == 409
+    assert error.value.detail == busy.detail
 
 
 async def test_configure_provider_schedules_model_discovery() -> None:

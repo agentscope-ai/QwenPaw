@@ -7,6 +7,8 @@ This module provides utilities for:
 - Managing download directories
 - Reading text files with encoding fallback for cross-platform compatibility
 """
+
+import codecs
 import os
 import mimetypes
 import base64
@@ -16,7 +18,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
@@ -39,41 +41,168 @@ def single_line_log_value(value: object) -> str:
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _normalize_newlines(content: str) -> str:
+    """Fold ``\\r\\n`` and lone ``\\r`` to ``\\n``."""
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+# utf-8-sig strips this prefix. Try it only when a BOM (or a truncated
+# BOM prefix) is present so a later edit does not invent a BOM.
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+# Strict ladder used by read, edit, and grep. Heuristics for lossy
+# UTF-8 and "suspicious" CP1252 are intentionally out of scope.
+STRICT_TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gbk", "cp1252", "latin-1")
+
+
+class DecodedText(NamedTuple):
+    """Text plus the encoding that produced it.
+
+    ``lossy`` is reserved for a follow-up that may reintroduce
+    replacement-character heuristics. The strict ladder always sets
+    it to False.
+    """
+
+    text: str
+    encoding: str
+    lossy: bool
+
+
+def _should_try_utf8_sig(data: bytes, *, truncated: bool) -> bool:
+    """True when the bytes start with a BOM, or a cut BOM prefix."""
+    if data.startswith(_UTF8_BOM):
+        return True
+    return bool(truncated and data and _UTF8_BOM.startswith(data))
+
+
+def _decode_prefix(data: bytes, encoding: str) -> str | None:
+    """Decode a possibly truncated prefix and drop a cut trailing character.
+
+    ``final=False`` leaves an incomplete trailing sequence buffered, so
+    it is not part of the text. Newlines are left as decoded; callers
+    fold CR/LF only when ``normalize_newlines`` is set.
+    """
+    try:
+        decoder = codecs.getincrementaldecoder(encoding)()
+        return decoder.decode(data, final=False)
+    except (UnicodeDecodeError, LookupError):
+        return None
+
+
+def _decode_strict(
+    data: bytes,
+    encoding: str,
+    *,
+    truncated: bool,
+) -> str | None:
+    """Return decoded text, or None when *encoding* cannot be used."""
+    if truncated:
+        return _decode_prefix(data, encoding)
+    try:
+        return data.decode(encoding)
+    except (UnicodeDecodeError, LookupError):
+        return None
+
+
+def _encoding_candidates(data: bytes, *, truncated: bool) -> tuple[str, ...]:
+    """Return the strict ladder, skipping utf-8-sig when no BOM is present."""
+    if _should_try_utf8_sig(data, truncated=truncated):
+        return STRICT_TEXT_ENCODINGS
+    return ("utf-8", "gbk", "cp1252", "latin-1")
+
+
+def decode_text_bytes(
+    data: bytes,
+    *,
+    normalize_newlines: bool = True,
+    truncated: bool = False,
+    file_name: object = "<bytes>",
+) -> DecodedText:
+    """Decode *data* on the strict ``utf-8-sig → utf-8 → gbk → cp1252 → latin-1`` ladder.
+
+    ``truncated`` keeps a valid prefix when ``max_bytes`` cuts a
+    multibyte character. ``normalize_newlines`` folds CR/LF for display
+    paths; ``edit_file`` turns it off so endings can be written back.
+    """
+    for encoding in _encoding_candidates(data, truncated=truncated):
+        text = _decode_strict(data, encoding, truncated=truncated)
+        if text is None:
+            continue
+        if normalize_newlines:
+            text = _normalize_newlines(text)
+        if encoding not in ("utf-8", "utf-8-sig"):
+            logger.debug(
+                "File %s read with encoding: %s",
+                single_line_log_value(file_name),
+                encoding,
+            )
+        return DecodedText(text, encoding, False)
+    # latin-1 accepts every byte; this is a defensive fallback only.
+    text = data.decode("latin-1")
+    if normalize_newlines:
+        text = _normalize_newlines(text)
+    logger.debug(
+        "File %s read with encoding: %s",
+        single_line_log_value(file_name),
+        "latin-1",
+    )
+    return DecodedText(text, "latin-1", False)
+
+
+class IncrementalTextDecoder:
+    """Incremental wrapper around :func:`decode_text_bytes`.
+
+    Bytes are buffered and decoded with the same ladder as a full-buffer
+    call, so feeding arbitrary chunks and then finalizing matches
+    ``decode_text_bytes`` on the concatenation.
+    """
+
+    def __init__(
+        self,
+        *,
+        normalize_newlines: bool = True,
+        truncated: bool = False,
+        file_name: object = "<bytes>",
+    ) -> None:
+        self._buffer = bytearray()
+        self._normalize_newlines = normalize_newlines
+        self._truncated = truncated
+        self._file_name = file_name
+        self._result: DecodedText | None = None
+
+    def feed(self, chunk: bytes, final: bool = False) -> DecodedText | None:
+        """Append *chunk*. When *final* is true, decode the buffer."""
+        if chunk:
+            self._buffer.extend(chunk)
+        if not final:
+            return None
+        self._result = decode_text_bytes(
+            bytes(self._buffer),
+            normalize_newlines=self._normalize_newlines,
+            truncated=self._truncated,
+            file_name=self._file_name,
+        )
+        return self._result
+
+    def result(self) -> DecodedText:
+        """Return the finalized decode, finishing the stream if needed."""
+        if self._result is None:
+            self.feed(b"", final=True)
+        assert self._result is not None
+        return self._result
+
+
 def decode_text_bytes_with_encoding_fallback(
     data: bytes,
     *,
     file_name: object = "<bytes>",
 ) -> str:
-    """Decode bytes with the historical fallback and newline behavior."""
-    encodings_to_try = [
-        "utf-8-sig",
-        "utf-8",
-        "gbk",
-        "cp936",
-        "cp1252",
-        "latin-1",
-    ]
-    for encoding in encodings_to_try:
-        try:
-            content = data.decode(encoding)
-            if encoding not in ("utf-8", "utf-8-sig"):
-                logger.debug(
-                    "File %s read with encoding: %s",
-                    single_line_log_value(file_name),
-                    encoding,
-                )
-            return content.replace("\r\n", "\n").replace("\r", "\n")
-        except (UnicodeDecodeError, LookupError):
-            continue
-
-    # latin-1 can decode every byte sequence, so this is defensive only.
-    content = data.decode("utf-8", errors="replace")
-    logger.warning(
-        "File %s read with UTF-8 errors='replace' fallback, "
-        "some characters may be corrupted",
-        single_line_log_value(file_name),
-    )
-    return content.replace("\r\n", "\n").replace("\r", "\n")
+    """Decode bytes with the strict ladder and newline folding."""
+    return decode_text_bytes(
+        data,
+        normalize_newlines=True,
+        file_name=file_name,
+    ).text
 
 
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
@@ -84,13 +213,10 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     different platforms, especially addressing the common issue where Windows
     Notepad saves files in GBK encoding while most editors use UTF-8.
 
-    Tries common encodings in order:
-    1. UTF-8 with BOM (Windows Notepad with "UTF-8" option) - tried first
-       to handle BOM correctly
-    2. UTF-8 (default, most common on macOS/Linux)
-    3. GBK/CP936 (Windows Notepad default for Chinese)
-    4. CP1252/Latin-1 (Windows Notepad default for Western languages)
-    5. UTF-8 with errors='replace' as final fallback
+    Bytes are decoded on the strict ladder ``utf-8-sig → utf-8 → gbk
+    → cp1252 → latin-1``. A leading BOM selects ``utf-8-sig`` so a
+    later edit does not invent a BOM. Valid GBK is preferred over
+    CP1252 and Latin-1. Latin-1 covers any remaining byte sequence.
 
     Args:
         file_path: Path to the file to read (Path object or string)

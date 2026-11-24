@@ -137,6 +137,17 @@ async def test_proactive_session_resolves_native_destination(imessage):
     assert "+15559990000" in (root / "commands.jsonl").read_text()
 
 
+async def test_invalid_media_logs_reason_without_payload(imessage, caplog):
+    driver, _, _, _, _ = imessage
+    media = driver._platform.media
+    value = f"data:image/png;base64,invalid-private-payload!"
+    assert media.data_url(value, f"image", f"image") is None
+    assert f"iMessage media rejected: data URL contains invalid Base64" in (
+        caplog.text
+    )
+    assert f"invalid-private-payload" not in caplog.text
+
+
 async def test_stop_closes_sqlite_and_owned_watcher(imessage):
     driver, _, _, _, _ = imessage
     platform = driver._platform

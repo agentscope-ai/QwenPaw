@@ -12,7 +12,7 @@ Agent persona files are Markdown documents stored in the agent's workspace direc
 $QWENPAW_WORKING_DIR/workspaces/{agent_id}/
 ```
 
-**Persona files are flexible and extensible.** The files shown below represent the default configuration, but you can freely add new Markdown files or remove existing ones. Any Markdown file enabled in the Console's **Agent → Workspace** page will be loaded into the system prompt.
+**Persona files are flexible and extensible.** The files shown below represent the default configuration, but you can freely add new Markdown files or remove existing ones. Any Markdown file enabled under **Files → Profile** in the Console will be loaded into the system prompt.
 
 ### Default Persona Files
 
@@ -78,11 +78,11 @@ After setup completes, BOOTSTRAP.md is deleted, so it only exists during initial
 
 ### Console Management
 
-In the Console's **Agent → Workspace** page, you can:
+Under **Files → Profile** in the Console, you can:
 
-![files](https://img.alicdn.com/imgextra/i4/O1CN01PxPeIs1G8m3jwGq6c_!!6000000000578-2-tps-3822-2070.png)
+![SOUL.md open in the Profile editor](https://img.alicdn.com/imgextra/i3/O1CN010Lmn7qnmEvG3FPfU_!!6000000003750-2-tps-1600-1000.png)
 
-1. **View all persona files**: Left panel lists all Markdown files in the workspace (shows only `.md` files)
+1. **Choose profile files**: The list shows default profile files and files already enabled, not every Markdown file in the workspace. Use **Add from workspace** to include another file.
 2. **Edit content online**: Click a file to edit it in the right-side editor, then click "Save" to apply changes
 3. **Enable/disable files**: Each file has a switch on the right that controls whether it's loaded into the system prompt
    - **Enabled** (switch on, green dot shown): File content is loaded into the system prompt
@@ -128,9 +128,9 @@ If using `qwenpaw init --defaults`, the default language is `zh` (Chinese).
 
 ### Switching Agent Language
 
-You can switch the agent's language in the Console's **Agent → Runtime Config** page. After switching:
+You can switch the agent's language in the Console's **Settings → Configuration** page. After switching:
 
-![language](https://img.alicdn.com/imgextra/i2/O1CN01fwbflF29ynv8ex1xR_!!6000000008137-2-tps-3822-2070.png)
+![language](https://img.alicdn.com/imgextra/i2/O1CN01rcV4TwJyzqK3FPfU_!!6000000007421-2-tps-1600-1000.png)
 
 1. The system will **overwrite** existing persona files (AGENTS.md, SOUL.md, PROFILE.md) with new language templates
 2. This is the **agent's own language** setting that determines the system prompt language
@@ -222,6 +222,6 @@ You can select "QA Agent" in the agent switcher at the top-right of the Console,
 
 ### Can I modify or delete it?
 
-- **Can modify**: You can manage it like any other agent—edit persona files in "Agent → Workspace" or adjust skills and tools in "Agent → Skills"
+- **Can modify**: You can manage it like any other agent—edit persona files in **Files → Profile** or adjust skills and tools in "Agent → Skills"
 - **Can delete**: Delete it in "Settings → Agent Management" (doesn't affect other agents; will be recreated on next `qwenpaw init`)
 - **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.2/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2/`)

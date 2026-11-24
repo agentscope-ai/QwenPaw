@@ -463,6 +463,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
@@ -636,6 +637,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
@@ -659,7 +661,7 @@ class WeChatConfig(BaseChannelConfig):
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/wechat_bot_token).
+                            (default <workspace>/wechat/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -2725,11 +2727,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "
@@ -3523,6 +3521,7 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    local_model_plugin_migrated: bool = False
     skill_paths: List[str] = Field(
         default_factory=list,
         description="Additional read-only skill pool roots, scanned after "
@@ -4038,7 +4037,6 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         load_config,
         _agent_config_cache,
         _agent_config_lock,
-        _record_agent_config_publication,
     )
 
     config = load_config()
@@ -4107,21 +4105,15 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 )
 
                 invalidate_agent_migration(workspace_dir)
-            write_json_atomic(agent_config_path, payload)
-            _record_agent_config_publication()
-            candidate.record_source_digest(saved_digest)
+            write_json_atomic(
+                agent_config_path,
+                payload,
+                retry_windows_replace=True,
+            )
             agent_config.record_source_digest(saved_digest)
-            try:
-                saved_fingerprint = _agent_config_fingerprint(
-                    agent_config_path,
-                )
-            except OSError:
-                _agent_config_cache.pop(agent_id, None)
-            else:
-                _agent_config_cache[agent_id] = _AgentConfigCacheEntry(
-                    config=candidate.model_copy(deep=True),
-                    fingerprint=saved_fingerprint,
-                )
+            # Reparse the saved fields. In-place edits to nested defaults
+            # do not update the candidate's Pydantic fields-set metadata.
+            _agent_config_cache.pop(agent_id, None)
         except Exception:
             # Keep the public agent config and its referenced credential on the
             # same logical version when JSON publication fails.

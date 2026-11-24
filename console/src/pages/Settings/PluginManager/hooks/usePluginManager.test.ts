@@ -13,6 +13,10 @@ const hoisted = vi.hoisted(() => ({
   fetchMarketPluginsMock: vi.fn(),
   installPluginMock: vi.fn(),
   uninstallPluginMock: vi.fn(),
+  setPluginEnabledMock: vi.fn(),
+  repairPluginDependenciesMock: vi.fn(),
+  applyDependencyUpgradeMock: vi.fn(),
+  cancelDependencyUpgradeMock: vi.fn(),
   // Captured Modal.confirm options; initialized per-test in beforeEach.
   modalConfirmMock: vi.fn(),
   refreshMock: vi.fn(),
@@ -33,6 +37,10 @@ vi.mock("@/api/modules/plugin", () => ({
   fetchPluginCatalog: hoisted.fetchPluginCatalogMock,
   installPlugin: hoisted.installPluginMock,
   uninstallPlugin: hoisted.uninstallPluginMock,
+  setPluginEnabled: hoisted.setPluginEnabledMock,
+  repairPluginDependencies: hoisted.repairPluginDependenciesMock,
+  applyDependencyUpgrade: hoisted.applyDependencyUpgradeMock,
+  cancelDependencyUpgrade: hoisted.cancelDependencyUpgradeMock,
 }));
 
 vi.mock("@/api/modules/pluginMarket", () => ({
@@ -81,6 +89,10 @@ describe("usePluginManager", () => {
     refreshMock.mockReset();
     hoisted.installPluginMock.mockReset();
     uninstallPluginMock.mockReset();
+    hoisted.setPluginEnabledMock.mockReset();
+    hoisted.repairPluginDependenciesMock.mockReset();
+    hoisted.applyDependencyUpgradeMock.mockReset();
+    hoisted.cancelDependencyUpgradeMock.mockReset();
     hoisted.fetchPluginCatalogMock
       .mockReset()
       .mockResolvedValue({ plugins: [] });
@@ -136,6 +148,138 @@ describe("usePluginManager", () => {
     );
     expect(refreshMock).toHaveBeenCalled();
   });
+
+  it.each([true, false])(
+    "sets plugin enabled=%s and refreshes installed state",
+    async (enabled) => {
+      const target = { ...makePlugin(), enabled: !enabled, loaded: !enabled };
+      hoisted.setPluginEnabledMock.mockResolvedValueOnce({
+        id: target.id,
+        enabled,
+        loaded: enabled,
+        status: enabled ? "active" : "disabled",
+      });
+      const { result } = renderHook(() => usePluginManager());
+      await act(async () => {
+        await (enabled
+          ? result.current.enableOne(target)
+          : result.current.disableOne(target));
+      });
+      expect(hoisted.setPluginEnabledMock).toHaveBeenCalledWith(
+        target.id,
+        enabled,
+      );
+      expect(refreshMock).toHaveBeenCalledOnce();
+      expect(messageMock.success).toHaveBeenCalledOnce();
+      expect(messageMock.error).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["active", "failed"])(
+    "reports the actual %s result of repairing a failed plugin",
+    async (status) => {
+      const target = {
+        ...makePlugin(),
+        enabled: true,
+        loaded: true,
+        status: "failed",
+      };
+      const diagnostic = "Backend restart required to finish repair";
+      hoisted.repairPluginDependenciesMock.mockResolvedValueOnce({
+        id: target.id,
+        enabled: true,
+        status,
+        diagnostics: status === "failed" ? [diagnostic] : [],
+      });
+      const { result } = renderHook(() => usePluginManager());
+      await act(async () => {
+        await result.current.repairOne(target);
+      });
+      expect(hoisted.repairPluginDependenciesMock).toHaveBeenCalledWith(
+        target.id,
+      );
+      expect(hoisted.setPluginEnabledMock).not.toHaveBeenCalled();
+      expect(refreshMock).toHaveBeenCalledOnce();
+      if (status === "active") {
+        expect(messageMock.success).toHaveBeenCalledOnce();
+        expect(messageMock.error).not.toHaveBeenCalled();
+      } else {
+        expect(messageMock.error).toHaveBeenCalledWith(
+          expect.stringContaining(diagnostic),
+        );
+        expect(messageMock.success).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["loaded", "not-loaded", "cancelled"])(
+    "handles a %s shared dependency upgrade during repair",
+    async (outcome) => {
+      const target = { ...makePlugin(), status: "failed", enabled: true };
+      const operation = {
+        id: `repair-${outcome}`,
+        plugin_id: target.id,
+        status: "needs_confirmation",
+        changes: [],
+        affected_instances: [],
+        requires_restart: false,
+        message: "Review dependency repair",
+      };
+      hoisted.repairPluginDependenciesMock.mockRejectedValueOnce(
+        Object.assign(new Error("Review dependency repair"), {
+          code: "DEPENDENCY_UPGRADE_REQUIRED",
+          operation,
+        }),
+      );
+      hoisted.applyDependencyUpgradeMock.mockResolvedValueOnce({
+        ...operation,
+        status: "succeeded",
+        result: { id: target.id, loaded: outcome === "loaded" },
+      });
+      hoisted.cancelDependencyUpgradeMock.mockResolvedValueOnce({
+        ...operation,
+        status: "cancelled",
+      });
+      const { result } = renderHook(() => usePluginManager());
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = result.current.repairOne(target);
+      });
+      await waitFor(() => expect(modalConfirmMock).toHaveBeenCalledOnce());
+      const confirm = modalConfirmMock.mock.calls[0][0] as {
+        onOk: () => void;
+        onCancel: () => void;
+      };
+      await act(async () => {
+        if (outcome === "cancelled") confirm.onCancel();
+        else confirm.onOk();
+        await pending;
+      });
+      expect(hoisted.repairPluginDependenciesMock).toHaveBeenCalledWith(
+        target.id,
+      );
+      expect(hoisted.setPluginEnabledMock).not.toHaveBeenCalled();
+      expect(refreshMock).toHaveBeenCalledOnce();
+      if (outcome === "cancelled") {
+        expect(hoisted.cancelDependencyUpgradeMock).toHaveBeenCalledWith(
+          operation.id,
+        );
+        expect(hoisted.applyDependencyUpgradeMock).not.toHaveBeenCalled();
+        expect(messageMock.success).not.toHaveBeenCalled();
+        expect(messageMock.error).not.toHaveBeenCalled();
+      } else {
+        expect(hoisted.applyDependencyUpgradeMock).toHaveBeenCalledWith(
+          operation.id,
+        );
+        expect(messageMock.success).toHaveBeenCalledTimes(
+          outcome === "loaded" ? 1 : 0,
+        );
+        expect(messageMock.error).toHaveBeenCalledTimes(
+          outcome === "loaded" ? 0 : 1,
+        );
+      }
+    },
+  );
 
   it("detects official updates and updates one plugin without reloading", async () => {
     const plugin = { ...makePlugin(), version: "1.0.0" };

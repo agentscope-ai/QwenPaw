@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import logging
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ JSONRPC_INTERNAL_ERROR = -32603
 RPC_REQUEST_ID_IN_USE = -32020
 RPC_BACKPRESSURE = -32021
 _TASK_SHUTDOWN_TIMEOUT = 0.1
+
+
+logger = logging.getLogger(__name__)
 
 
 def _reject_non_finite(value: str) -> object:
@@ -602,7 +606,11 @@ class RpcPeer:
                 "request cancelled",
                 data={"reason_code": "REQUEST_CANCELLED"},
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception(
+                "Unhandled error in RPC handler for method %r",
+                request.method,
+            )
             if await self._abort_response_publication(
                 publication,
                 response_sent,
@@ -615,7 +623,6 @@ class RpcPeer:
                 "internal error",
                 data={"reason_code": "INTERNAL_ERROR"},
             )
-            _ = exc
         finally:
             _CURRENT_CANCELLATION.reset(token)
 

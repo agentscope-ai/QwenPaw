@@ -24,6 +24,7 @@ from typing import Any
 from ...drivers.errors import DriverCardError
 from ...drivers.storage import card_paths_for_name, load_card
 from ...exceptions import SkillsError
+from ...installation_origin import validated_origin
 from ...utils.file_snapshot_cache import FileSignature
 from ...utils.shell_normalization import shell_execution_path
 from ..utils.file_handling import (
@@ -984,6 +985,9 @@ def _build_reconciled_pool_entry(
     existing_tags = existing.get("tags")
     if existing_tags is not None:
         new_entry["tags"] = existing_tags
+    new_entry["installation_origin"] = validated_origin(
+        existing.get("installation_origin"),
+    )
     existing_installed_from = existing.get("installed_from")
     if existing_installed_from:
         new_entry["installed_from"] = existing_installed_from
@@ -1144,6 +1148,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 existing_tags = existing.get("tags")
                 if existing_tags is not None:
                     next_entry["tags"] = existing_tags
+                next_entry["installation_origin"] = validated_origin(
+                    existing.get("installation_origin"),
+                )
                 existing_installed_from = existing.get("installed_from")
                 if existing_installed_from:
                     next_entry["installed_from"] = existing_installed_from

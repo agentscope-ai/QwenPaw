@@ -9,16 +9,24 @@ DEFAULT_WS_URL_BACKUP = "wss://116.63.174.231/openclaw/v1/ws/link"
 
 # Heartbeat interval (seconds)
 HEARTBEAT_INTERVAL = 30
+PONG_TIMEOUT = 10
+WORKING_INTERVAL = 30
+WORKING_SEND_TIMEOUT = 1.0
+WORKING_MAX_SECONDS = 3600
 
 # Reconnect delays (seconds)
 RECONNECT_DELAYS = [1, 2, 5, 10, 30, 60]
 MAX_RECONNECT_ATTEMPTS = 50
+RECONNECT_STABLE_SECONDS = 10
 
 # Connection timeout (seconds)
 CONNECTION_TIMEOUT = 30
 
 # Task timeout (milliseconds)
 DEFAULT_TASK_TIMEOUT_MS = 3600000  # 1 hour
+
+MAX_PENDING_MESSAGES = 128
+MAX_CONCURRENT_DOWNLOADS = 4
 
 # Maximum text chunk size (characters)
 # Larger messages will be split to avoid WebSocket disconnection

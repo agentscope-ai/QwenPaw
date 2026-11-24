@@ -10,13 +10,16 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ..drivers.capabilities import DriverRuntimeInfo
 from ..drivers.contracts import DriverCard
 from ..drivers.credentials.store import (
     AsyncCredentialStore,
 )
 from ..drivers.credentials.types import CredentialRecord
-from ..drivers.errors import CredentialNotFoundError, DriverCardError
+from ..drivers.errors import (
+    CredentialNotFoundError,
+    DriverCardError,
+    driver_error_diagnostic,
+)
 from ..drivers.storage import (
     AsyncDriverCardStore,
     card_path,
@@ -44,6 +47,9 @@ class DriverConfigService:
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None and hasattr(manager, "credential_store"):
             return manager.credential_store
+        prepared = getattr(self._workspace, "_driver_credential_store", None)
+        if prepared is not None:
+            return prepared
         return AsyncCredentialStore(
             self._workspace.workspace_dir / "credentials.yaml",
         )
@@ -53,6 +59,9 @@ class DriverConfigService:
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None and hasattr(manager, "card_store"):
             return manager.card_store
+        prepared = getattr(self._workspace, "_driver_card_store", None)
+        if prepared is not None:
+            return prepared
         return AsyncDriverCardStore(self.cards_dir)
 
     def card_path(self, name: str, *, protocol: str) -> Path:
@@ -104,29 +113,18 @@ class DriverConfigService:
         except CredentialNotFoundError:
             return None
 
-    async def save_card(
-        self,
-        card: DriverCard,
-        *,
-        reload_driver: bool = True,
-    ) -> Path:
-        path = await self.card_store.save(card)
-        if reload_driver:
-            await self.reload_driver_best_effort(card.name)
-        return path
-
     async def save_card_if_absent(self, card: DriverCard) -> bool:
         """Persist an imported card without replacing an existing one."""
-        return await self.card_store.save_if_absent(card)
+        saved = await self.card_store.save_if_absent(card)
+        if saved:
+            await self._request_monitoring(card.protocol)
+        return saved
 
-    async def save_policy(self, card: DriverCard) -> Path:
-        """Persist policy changes and update the active Driver immediately."""
+    async def _request_monitoring(self, protocol: str) -> None:
         manager = getattr(self._workspace, "driver_manager", None)
-        if manager is not None:
-            await manager.sync_driver_policy(card)
-        else:
-            await self.card_store.save(card)
-        return self.card_path(card.name, protocol=card.protocol)
+        request = getattr(manager, "request_monitoring", None)
+        if request is not None:
+            await request(protocol)
 
     async def reload_driver_best_effort(self, name: str) -> None:
         manager = getattr(self._workspace, "driver_manager", None)
@@ -135,13 +133,17 @@ class DriverConfigService:
 
         async def reload_background() -> None:
             try:
-                await manager.reload_driver(name)
-                logger.info("Driver '%s' reloaded and active", name)
+                result = await manager.reload_driver(name)
+                logger.info(
+                    "Driver %r reload finished (status=%s)",
+                    name,
+                    result.status if result is not None else "unknown",
+                )
             except Exception as exc:
                 logger.info(
-                    "Driver '%s' saved but not active yet: %s",
+                    "Driver %r saved but not active yet: %s",
                     name,
-                    exc,
+                    driver_error_diagnostic(exc),
                 )
 
         task = asyncio.create_task(
@@ -207,24 +209,3 @@ class DriverConfigService:
             kind=kind,
             request_context=request_context or {},
         )
-
-
-async def ensure_driver_active(
-    manager: Any,
-    name: str,
-    *,
-    protocol: str,
-) -> DriverRuntimeInfo:
-    """Compatibility helper for tests and small call sites."""
-    drivers = await manager.list_drivers(protocol=protocol)
-    current = next((item for item in drivers if item.name == name), None)
-    if current is None or current.status != "active":
-        status = current.status if current is not None else "missing"
-        raise HTTPException(
-            503,
-            detail=(
-                f"{protocol.upper()} client '{name}' is saved but not "
-                f"active yet (status={status})"
-            ),
-        )
-    return current

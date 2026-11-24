@@ -24,6 +24,7 @@ from services.media_files.keyframe_cache import (
     materialize_keyframe,
     verified_indexed_path,
 )
+from services.media_files.motion_blueprints import subtitle_pack_preview_specs
 from services.media_files.motion_engine import (
     referenced_vendor_filenames,
     resolve_vendor_files,
@@ -705,6 +706,18 @@ async def artifact_media(
         version_id=version_id,
         kind="artifact",
     )
+
+
+@router.get("/subtitle-packs/preview")
+async def subtitle_pack_previews() -> dict[str, object]:
+    """Read-only preview specs for the subtitle style picker cards.
+
+    Pure catalog data derived from ``SUBTITLE_TEMPLATE_PACKS``: the style
+    window paints one miniature of the deterministic renderer per card
+    from these numbers, so the UI never hand-codes a second copy of the
+    pack typography.
+    """
+    return {"items": subtitle_pack_preview_specs()}
 
 
 __all__ = ["router"]

@@ -46,9 +46,9 @@ def _capture_runtime_selection(get_runtime, is_frozen=None):
 
 def host_bundle_identity():
     """Bind desktop recovery to the bundle independently of runtime policy."""
-    from .channel_bootstrap import plugin_runtime_site, runtime_manifest
+    from .channel_bootstrap import bundle_runtime_identity
 
-    return plugin_runtime_site(Path("/"), runtime_manifest()).parent.name
+    return bundle_runtime_identity()
 
 
 @dataclass(frozen=True)
@@ -204,9 +204,15 @@ class DependencyEnvironmentContext:
             for root in self.immutable_roots
         )
 
-    def immutable_providers(self):
-        """Read bundled provider policy without changing consumer evidence."""
+    def immutable_providers(self, requirements, snapshot, *, resolved=()):
+        """Read bundled providers and reject damaged dependencies in use.
+
+        Resolver output extends the checked names with newly discovered
+        dependencies. Unrelated incomplete records do not prevent installation;
+        ambiguous providers remain unsafe to use as resolver constraints.
+        """
         from .execution.dependencies import (
+            _dependency_closure,
             _installed_metadata,
             dependency_error,
         )
@@ -214,9 +220,23 @@ class DependencyEnvironmentContext:
         if not self.immutable_roots:
             return {}
         rows, invalid, _observed = _installed_metadata(self.immutable_roots)
-        if invalid:
-            raise dependency_error(next(iter(invalid.values())))
-        return rows
+        if not invalid:
+            return rows
+        for code in invalid.values():
+            if code != "DEPENDENCY_METADATA_INVALID":
+                raise dependency_error(code)
+        required = set(resolved)
+        required.update(
+            name
+            for name, _requirement in _dependency_closure(
+                requirements,
+                {**rows, **snapshot.distributions},
+                snapshot.marker_environment,
+            )
+        )
+        for name in required & invalid.keys():
+            raise dependency_error(invalid[name])
+        return {name: row for name, row in rows.items() if name not in invalid}
 
     @staticmethod
     def refuse_immutable_provider(name, row):

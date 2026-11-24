@@ -11,13 +11,15 @@ option.
 import os
 import runpy
 import sys
+import tomllib
+from importlib.metadata import packages_distributions
 from pathlib import Path
 
+from PyInstaller.building.utils import format_binaries_and_datas
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_submodules,
     copy_metadata,
-    get_package_paths,
 )
 
 REPO_ROOT = Path(SPECPATH).parent.parent
@@ -56,7 +58,7 @@ def collect_tree(source_dir, target_dir):
             str(Path(target_dir) / path.relative_to(source_dir).parent),
         )
         for path in source_dir.rglob("*")
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     ]
 
 
@@ -87,17 +89,41 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
+# Keep the offline, opt-in MCP payload identical to wheel package data. Do not
+# copy the whole author tree (which may contain node_modules or build caches).
+_packaging = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+    "tool"
+]["setuptools"]
+_optional_package = "qwenpaw.plugins.bundled.optional.mcp"
+_optional_source = REPO_ROOT / _packaging["package-dir"][_optional_package]
+for _pattern in _packaging["package-data"][_optional_package]:
+    for _path in sorted(_optional_source.glob(_pattern)):
+        if _path.is_file():
+            datas.append(
+                (
+                    str(_path),
+                    str(
+                        Path(*_optional_package.split("."))
+                        / _path.relative_to(_optional_source).parent
+                    ),
+                ),
+            )
+datas.append(
+    (
+        str(REPO_ROOT / "plugins/provider"),
+        "qwenpaw/plugins/bundled/provider",
+    )
+)
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
+# Ship the SDK adapter as source data, without analysing its optional imports.
+datas += collect_tree(
+    REPO_ROOT / "plugins/transcription/local-whisper",
+    "qwenpaw/plugins/bundled/transcription/local-whisper",
+)
 datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),
         "qwenpaw/browser/control_link/injected",
-    ),
-)
-datas.append(
-    (
-        str(SRC / "local_models/runtime-release.json"),
-        "qwenpaw/local_models",
     ),
 )
 
@@ -108,7 +134,6 @@ datas.append(
 datas += collect_data_files("reme")
 datas += collect_data_files("reme_auto_fin")
 datas += collect_data_files("reme_daily_paper")
-datas += collect_data_files("whisper")
 datas += collect_data_files("agentscope")
 datas += collect_data_files(
     "agentscope.tool._builtin._scripts",
@@ -119,52 +144,20 @@ datas += collect_data_files(
     include_py_files=True,
 )
 
-# The Qoder SDK ships a platform-specific qodercli executable. Classify it as
-# a binary so PyInstaller preserves executable permissions and signs it with
-# the rest of the macOS bundle.
-_, _qoder_sdk_dir = get_package_paths("qoder_agent_sdk")
-_qoder_cli_name = "qodercli.exe" if sys.platform == "win32" else "qodercli"
-_qoder_cli = Path(_qoder_sdk_dir) / "_bundled" / _qoder_cli_name
-if not _qoder_cli.is_file():
-    raise SystemExit(
-        f"Qoder SDK CLI not found at {_qoder_cli}; reinstall qoder-agent-sdk"
+# Standalone workers need readable sources outside the frozen module archive.
+for relative in (
+    "modes/coding/_worker.py",
+    "agents/context/scroll/memoryspace.py",
+    "backup/_ops/sqlite_snapshot.py",
+    "utils/sqlite_uri.py",
+):
+    datas.append(
+        (str(SRC / relative), str(Path("qwenpaw") / Path(relative).parent)),
     )
-qoder_binaries = [
-    (str(_qoder_cli), "qoder_agent_sdk/_bundled"),
-]
-
-# The official Codex Python SDK depends on a platform wheel that exposes a
-# stable bundled_codex_path() API. Preserve its runtime layout because Codex
-# resolves sibling hosts and resources relative to the main executable.
-_, _codex_bin_dir = get_package_paths("codex_cli_bin")
-_codex_bin_dir = Path(_codex_bin_dir)
-_codex_executable = "codex.exe" if sys.platform == "win32" else "codex"
-_codex_cli = _codex_bin_dir / "bin" / _codex_executable
-if not _codex_cli.is_file():
-    raise SystemExit(
-        f"Codex SDK CLI not found at {_codex_cli}; reinstall openai-codex"
-    )
-codex_binaries = [
-    (
-        str(path),
-        str(Path("codex_cli_bin") / path.relative_to(_codex_bin_dir).parent),
-    )
-    for directory_name in ("bin", "codex-path", "codex-resources")
-    for path in (_codex_bin_dir / directory_name).rglob("*")
-    if path.is_file()
-]
-datas.append(
-    (
-        str(_codex_bin_dir / "codex-package.json"),
-        "codex_cli_bin",
-    ),
-)
-
-# The native Code Mode worker runs under the bundled standalone CPython.
-datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
 
 # The dependency gate needs complete host metadata, not only the packages
 # that query their own versions. Both desktop builds install qwenpaw[full].
+# Optional Harness runtimes remain outside that dependency graph.
 datas += runpy.run_path(str(Path(SPECPATH) / "collect_runtime_metadata.py"))[
     "collect_runtime_metadata"
 ](
@@ -195,15 +188,10 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "modelscope",
-    "openai-whisper",
-    "openai-codex",
-    "openai-codex-cli-bin",
-    "qoder-agent-sdk",
 ]
 for _pkg in _metadata_pkgs:
     try:
-        datas += copy_metadata(_pkg)
+        datas += copy_metadata(_pkg, recursive=True)
     except Exception:
         pass
 
@@ -214,15 +202,16 @@ ENTRY_SCRIPTS = (BACKEND_ENTRY, CLI_ENTRY)
 a = Analysis(
     [str(path) for path in ENTRY_SCRIPTS],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(MAIL_MCP_SRC)],
-    binaries=[*qoder_binaries, *codex_binaries],
+    binaries=[],
     datas=datas,
     hiddenimports=[
+        # Optional PyTorch imports this stdlib module after installation.
+        "pickletools",
         # Bundled Hub entrypoints are plugin data, not statically imported.
         "qwenpaw.market.providers.qwenpaw",
         "qwenpaw.market.providers.clawhub",
         "qwenpaw.market.providers.modelscope",
         "qwenpaw.market.providers.aliyun",
-        "codex_cli_bin",
         # uvicorn internals (not auto-discovered by PyInstaller)
         "uvicorn.logging",
         "uvicorn.loops",
@@ -276,18 +265,25 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
-        "modelscope",
-        "modelscope.hub.api",
-        "modelscope.hub.snapshot_download",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
-        *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
+    # Keep optional audio, Harness and external Channel modules out of the backend.
     excludes=[
+        "whisper",
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "triton",
+        "qwenpaw.harnesses",
+        "openai_codex",
+        "codex_cli_bin",
+        "qoder_agent_sdk",
+        "modelscope",
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",
@@ -295,6 +291,27 @@ a = Analysis(
     ],
     noarchive=False,
 )
+
+# Runtime plugin installs must see the versions of all bundled host packages,
+# including packages that never query their own metadata. Only collect metadata
+# for modules actually included by Analysis, not unused build-environment tools.
+_distributions = packages_distributions()
+_bundled_roots = {
+    name.replace("/", ".").split(".", 1)[0]
+    for name, *_ in [*a.pure, *a.binaries]
+}
+_bundled_packages = {
+    package
+    for root in _bundled_roots
+    for package in _distributions.get(root, ())
+}
+for _pkg in sorted(_bundled_packages):
+    a.datas += [
+        (destination, source, "DATA")
+        for destination, source in format_binaries_and_datas(
+            copy_metadata(_pkg)
+        )
+    ]
 
 pyz = PYZ(a.pure)
 

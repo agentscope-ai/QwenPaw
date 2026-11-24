@@ -664,13 +664,14 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 - **`qwenpaw init`** — 交互式向导，最简单
 - **控制台 UI** — 在设置 → 模型页面配置
-- **API** — `PUT /providers/{id}` 和 `PUT /providers/active_llm`
+- **API** — `PUT /api/models/{id}/config` 和 `PUT /api/models/active`
+
+`qwenpaw-local` 由可选插件 `local-llamacpp` 注册，不属于内置提供商。详见[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)。
 
 **内置提供商列表：**
 
 | 提供商                                  | ID                       | 说明                          |
 | --------------------------------------- | ------------------------ | ----------------------------- |
-| QwenPaw Local                           | `qwenpaw-local`          | 本地 llama.cpp 后端           |
 | Ollama                                  | `ollama`                 | 本地 Ollama 服务              |
 | LM Studio                               | `lmstudio`               | 本地 LM Studio 服务           |
 | OpenRouter                              | `openrouter`             | OpenRouter 模型聚合平台       |
@@ -704,7 +705,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 ## 工具环境变量
 
-部分工具和 MCP 服务需要额外的 API Key（如网络搜索用的 `TAVILY_API_KEY`）。有三种管理方式：
+部分工具和 MCP 服务需要额外的 API Key（如 Tavily MCP 客户端使用的 `TAVILY_API_KEY`）。有三种管理方式：
 
 - **`qwenpaw init`** — 初始化时会问 "Configure environment variables?"
 - **控制台 UI** — 在设置页面编辑

@@ -8,6 +8,8 @@ import logging
 
 from fastapi import APIRouter
 
+from .errors import SDKError
+
 if TYPE_CHECKING:
     from .channel_adapter import ChannelDescription
 
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Registered on the console SPA catch-all in ``_app.py`` so plugin HTTP
 # routes can be inserted *before* it (routes appended later would lose).
 _CONSOLE_SPA_CATCHALL_ROUTE_NAME = "qwenpaw_console_spa_catchall"
+_TRANSCRIPTION_BACKEND_OWNERS = {"local_whisper": "local-whisper"}
 
 
 def _find_console_spa_route_index(app: Any) -> Optional[int]:
@@ -65,6 +68,18 @@ class ProviderRegistration:
     label: str
     base_url: str
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DriverProtocolState:
+    """In-memory runtime facts; registration is an opaque identity token."""
+
+    plugin_id: str
+    generation: int
+    active: bool
+    blocked: bool
+    revoked: bool
+    registration: object = field(repr=False)
 
 
 @dataclass
@@ -163,6 +178,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self._transcription_backends: Dict[str, Any] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
@@ -175,9 +191,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         self.dependency_usage = DependencyUsageRegistry(self.runtime_owners)
         self._channels: Dict[str, ChannelRegistration] = {}
+        self._driver_protocols: dict[str, Any] = {}
+        self._protocol_preparation = None
+        self.protocol_resolver: Optional[Callable] = None
+        self.protocol_eligibility: Optional[Callable] = None
         self.channel_runtime = None
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_states: Dict[str, str] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
@@ -185,11 +207,100 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
+        self._driver_workspaces: dict[str, Any] = {}
+        self._backend_registry = None
         from .workspace_projector import WorkspaceProjector
 
         self.projector = WorkspaceProjector()
 
         self._initialized = True
+
+    def register_driver_protocol(self, owner, spec) -> None:
+        """Reject duplicate protocol names before recording the exact owner."""
+        from .errors import SDKError
+
+        if spec.protocol in self._driver_protocols:
+            previous = self._driver_protocols[spec.protocol].owner
+            raise SDKError(
+                f"Driver protocol {spec.protocol!r} is already registered "
+                f"by plugin {previous.plugin_id!r}",
+            )
+        self._driver_protocols[spec.protocol] = owner
+
+    def unregister_driver_protocol(self, protocol, *, expected_owner) -> None:
+        """A retained handle may release only its own registration."""
+        current = self._driver_protocols.get(protocol)
+        if current is not None and current.owner is expected_owner:
+            del self._driver_protocols[protocol]
+
+    def register_protocol_preparation(self, service) -> None:
+        """Bind preparation and its callbacks to one explicit host owner."""
+        self._protocol_preparation = service
+        self.protocol_resolver = service.ensure_protocol
+        self.protocol_eligibility = service.eligible
+
+    def get_protocol_preparation(self):
+        return self._protocol_preparation
+
+    def unregister_protocol_preparation(self, service) -> None:
+        if self._protocol_preparation is service:
+            self._protocol_preparation = None
+            self.protocol_resolver = None
+            self.protocol_eligibility = None
+
+    def driver_protocol_loader(self, protocol, *, plugin_id):
+        """Find an existing owner's loader for host preparation bootstrap."""
+        descriptor = self._driver_protocols.get(protocol)
+        if descriptor is not None and descriptor.owner.plugin_id == plugin_id:
+            return descriptor.plugin._loader
+        return None
+
+    def describe_driver_protocol(self, protocol, *, loader=None):
+        """Read runtime ownership without discovery, I/O or admission changes."""
+        from .errors import SDKError
+
+        descriptor = self._driver_protocols.get(protocol)
+        if descriptor is None:
+            return None
+        owner = descriptor.owner
+        owner_loader = descriptor.plugin._loader
+        record = owner_loader.get_loaded_plugin(owner.plugin_id)
+        active = bool(
+            (loader is None or loader is owner_loader)
+            and record is not None
+            and record.enabled
+            and record.status == "active",
+        )
+        if active:
+            try:
+                descriptor.guard()
+            except SDKError:
+                active = False
+        return DriverProtocolState(
+            owner.plugin_id,
+            owner.generation,
+            active,
+            owner.plugin_id in owner_loader.startup_blocked_plugins,
+            descriptor.revoked,
+            descriptor,
+        )
+
+    @property
+    def backend_registry_initialized(self):
+        """Check declaration presence without importing backend machinery."""
+        return self._backend_registry is not None
+
+    @property
+    def backend_registry(self):
+        """Load only the declaration registry when harnesses are used."""
+        if self._backend_registry is None:
+            from ..runtime.backends.registry import BackendRegistry
+
+            self._backend_registry = BackendRegistry(
+                self.get_harness_manifests,
+                self.get_harness_states,
+            )
+        return self._backend_registry
 
     def register_middleware(
         self,
@@ -239,6 +350,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             app: The root ``FastAPI`` instance.
         """
         self._plugin_http_app = app
+        if app is None:
+            return
+        from ._harness_http import install_gateway
+
+        install_gateway(self, app)
 
     def get_plugin_http_app(self) -> Optional[Any]:
         """Return the application that owns the native plugin lifecycle."""
@@ -352,6 +468,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             if r.plugin_id != plugin_id
         ]
 
+    def register_transcription_backend(self, backend_id: str, adapter) -> None:
+        """Reserve a backend ID until its owning plugin releases it."""
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if owner is not None and adapter.plugin_id != owner:
+            raise SDKError(
+                f"Transcription backend '{backend_id}' is reserved for '{owner}'",
+            )
+        if backend_id in self._transcription_backends:
+            raise ValueError(
+                f"Transcription backend '{backend_id}' already registered",
+            )
+        self._transcription_backends[backend_id] = adapter
+
+    def get_transcription_backend(self, backend_id: str):
+        backend = self._transcription_backends.get(backend_id)
+        owner = _TRANSCRIPTION_BACKEND_OWNERS.get(backend_id)
+        if (
+            backend is not None
+            and owner is not None
+            and backend.plugin_id != owner
+        ):
+            return None
+        return backend
+
+    def get_transcription_backends(self) -> Dict[str, Any]:
+        return self._transcription_backends.copy()
+
+    def drop_transcription_backend(self, backend_id: str, expected) -> None:
+        if self._transcription_backends.get(backend_id) is expected:
+            del self._transcription_backends[backend_id]
+
     def register_provider(
         self,
         plugin_id: str,
@@ -446,6 +593,27 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             MultiAgentManager instance or None
         """
         return self._workspace_manager
+
+    def get_driver_workspace(self, agent_id):
+        """Resolve the live or standalone owner, without starting a workspace."""
+        manager = self._workspace_manager
+        live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
+        return live.get(agent_id) or self._driver_workspaces.get(agent_id)
+
+    def register_driver_workspace(self, workspace: Any) -> None:
+        """Publish a standalone Driver owner without replacing the manager."""
+        agent_id = workspace.agent_id
+        existing = self._driver_workspaces.setdefault(agent_id, workspace)
+        if existing is not workspace:
+            raise ValueError(
+                f"Driver workspace already registered: {agent_id}",
+            )
+
+    def unregister_driver_workspace(self, workspace: Any) -> None:
+        """Remove only the standalone registration owned by this workspace."""
+        agent_id = workspace.agent_id
+        if self._driver_workspaces.get(agent_id) is workspace:
+            del self._driver_workspaces[agent_id]
 
     def register_startup_hook(
         self,
@@ -1120,7 +1288,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
     def leftover_registrations(self, plugin_id: str) -> List[str]:
         """Ledgered rows that are still present after teardown."""
-        leftovers: List[str] = []
+        leftovers: List[str] = [
+            f"transcription:{key}"
+            for key, item in self._transcription_backends.items()
+            if item.plugin_id == plugin_id
+        ]
         leftovers.extend(
             f"http:{reg.prefix}"
             for reg in self._http_router_registrations
@@ -1190,11 +1362,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             manifest: Plugin manifest dictionary
         """
         self._plugin_manifests[plugin_id] = manifest
+        self.remember_harness_manifest(plugin_id, manifest)
         logger.debug(f"Registered manifest for plugin '{plugin_id}'")
 
     def drop_plugin_manifest(self, plugin_id: str) -> None:
         """Remove a stored manifest if present."""
         self._plugin_manifests.pop(plugin_id, None)
+        if plugin_id in self._harness_states:
+            self._harness_states[plugin_id] = "disabled"
+
+    def remember_harness_manifest(
+        self,
+        plugin_id,
+        manifest,
+        status="disabled",
+    ):
+        """Retain discovery metadata without granting runtime admission."""
+        if (manifest.get("meta") or {}).get("harnesses") is not None:
+            self._harness_manifests[plugin_id] = manifest
+            self._harness_states[plugin_id] = status
+        else:
+            self.forget_harness_manifest(plugin_id)
+
+    def forget_harness_manifest(self, plugin_id):
+        self._harness_manifests.pop(plugin_id, None)
+        self._harness_states.pop(plugin_id, None)
+
+    def get_harness_manifests(self):
+        return {**self._harness_manifests, **self._plugin_manifests}
+
+    def get_harness_states(self):
+        return self._harness_states.copy()
 
     def get_all_plugin_manifests(self) -> Dict[str, Dict[str, Any]]:
         """Get all plugin manifests.
@@ -1263,7 +1461,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 exc_info=True,
             )
 
-        self._plugin_manifests.pop(plugin_id, None)
+        for key, item in tuple(self._transcription_backends.items()):
+            if item.plugin_id == plugin_id:
+                item.closed = True
+                self.drop_transcription_backend(key, item)
+        self.drop_plugin_manifest(plugin_id)
 
         providers_to_remove = [
             pid

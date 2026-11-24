@@ -213,8 +213,23 @@ class NoneSandbox(LocalSandbox):
 
         start = time.monotonic()
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *_shell_argv(shell, cmd),
+            if (
+                sys.platform == "win32"
+                and _shell_basename(shell) in _CMD_NAMES
+            ):
+                # Windows exec serializes argv with list2cmdline, escaping
+                # embedded quotes with backslashes. cmd.exe needs raw shell
+                # text; subprocess_shell supplies its /c wrapper directly.
+                spawn = asyncio.create_subprocess_shell
+                args = (cmd,)
+                options = {"executable": shell}
+            else:
+                spawn = asyncio.create_subprocess_exec
+                args = tuple(_shell_argv(shell, cmd))
+                options = {}
+            self._process = await spawn(
+                *args,
+                **options,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

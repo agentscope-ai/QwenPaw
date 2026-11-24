@@ -59,6 +59,11 @@ class PluginStorage:
             )
         return path
 
+    def path(self, name: str) -> Path:
+        """Return a scoped file path for native file consumers."""
+        self._guard()
+        return self._path(name)
+
     def read_bytes(self, name: str) -> bytes:
         return self._path(name).read_bytes()
 

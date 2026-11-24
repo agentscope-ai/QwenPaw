@@ -81,6 +81,7 @@ class LocalMatrixAPI:
         self.device = "SERVER-DEVICE"
         self.closed = asyncio.Event()
         self.download = b"native-media-bytes"
+        self.device_keys = {}
 
     async def handle(self, request):
         raw = await request.read()
@@ -140,6 +141,8 @@ class LocalMatrixAPI:
                 },
             }, 200
         elif path.endswith("/keys/upload"):
+            if "device_keys" in body:
+                self.device_keys[self.device] = body["device_keys"]
             value, status = {
                 "one_time_key_counts": {
                     "signed_curve25519": len(
@@ -148,7 +151,10 @@ class LocalMatrixAPI:
                 },
             }, 200
         elif path.endswith("/keys/query"):
-            value, status = {"device_keys": {}, "failures": {}}, 200
+            value, status = {
+                "device_keys": {self.user: self.device_keys},
+                "failures": {},
+            }, 200
         elif "/send/" in path:
             value, status = ({"event_id": "$sent-" + str(len(self.sent))}, 200)
         elif "/download/" in path:
@@ -256,6 +262,14 @@ async def test_password_precedes_token_and_server_identity_is_persisted(
         "access_token": "password-result-token",
         "user_id": BOT,
         "device_id": "SERVER-DEVICE",
+        "credential_scope": {
+            "homeserver": hs.url,
+            "login_user": BOT,
+            "device_id": "named-device",
+        },
+        "password_fingerprint": platform._password_fingerprint(
+            "password-result-token",
+        ),
     }
 
 
@@ -325,10 +339,14 @@ async def test_default_e2ee_dependency_initializes_crypto_store(
     trusted = platform._state.crypto_dir / f"{database.stem}.trusted_devices"
     assert trusted.is_file()
     identity_keys = platform._client.olm.account.identity_keys
+    saved = platform._client.store.load_account()
+    assert saved is not None and saved.shared
+    assert saved.identity_keys == identity_keys
     await platform.stop()
 
     resumed = platform_factory(encryption=True)
     await resumed.start()
+    assert resumed._client.olm.account.shared
     assert resumed._client.olm.account.identity_keys == identity_keys
     assert resumed._client.store.is_device_verified(peer)
     assert len(hs.calls("/keys/upload")) == 1

@@ -14,8 +14,8 @@ from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.app.chats.session import SafeJSONSession
-from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
-from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from qwenpaw.runtime.backends.session import HarnessSessionBridge
 from qwenpaw.portability.import_conversations import (
     ConversationState,
     import_conversations,

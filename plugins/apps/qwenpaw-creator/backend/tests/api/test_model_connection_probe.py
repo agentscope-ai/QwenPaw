@@ -184,6 +184,59 @@ def test_asr_qwen3_probe_uses_the_multimodal_generation_route(
     }
 
 
+def test_asr_token_plan_probe_transcribes_a_public_sample(
+    uploaded_samples,
+) -> None:
+    """A Token Plan key has no local-audio channel, so the probe transcribes
+    a public sample instead of staging one through an uploader.
+
+    Measured: public dashscope uploads answer sk-sp- 401, the plan host
+    serves no /api/v1/uploads, and a Base64 data URL answers an empty 400
+    while the same clip transcribes from a public URL (200). qwen-audio also
+    rejects ``result_format=message``, so the parameters follow the family.
+    """
+    url, headers, payload = _probe(
+        _request(
+            base_url=(
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+            ),
+            model_name="qwen-audio-3.0-asr-flash",
+            protocol="Aliyun Token Plan",
+            provider="fun-asr",
+        ),
+    )
+
+    assert uploaded_samples == []
+    assert url == (
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+        "/services/aigc/multimodal-generation/generation"
+    )
+    audio = payload["input"]["messages"][0]["content"][0]["audio"]
+    assert audio.startswith("https://")
+    assert payload["parameters"] == {
+        "format": "wav",
+        "sample_rate": "16000",
+    }
+    assert headers["X-DashScope-OssResourceResolve"] == "enable"
+
+
+def test_asr_provider_routes_qwen_audio_to_the_qwen3_route() -> None:
+    """The probe dispatch must match ``transcribe`` for the plan's model.
+
+    A restated copy of the dispatch missed the ``qwen-audio`` family and
+    sent the plan's only ASR model down the Fun-ASR route.
+    """
+    assert (
+        _asr_provider(
+            _request(
+                model_name="qwen-audio-3.0-asr-flash",
+                provider="fun-asr",
+            ),
+        )
+        == "qwen3-asr"
+    )
+
+
 def test_asr_whisper_probe_posts_a_real_multipart_transcription(
     uploaded_samples,
 ) -> None:
@@ -534,6 +587,74 @@ def test_a_real_synthesis_probe_still_verifies_the_voice(
 
     assert result.ok
     assert result.capability_verified is True
+
+
+def test_a_websocket_model_is_never_probed_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Having system voices does not make HTTP the right route to test.
+
+    ``qwen-audio-3.1-tts-flash`` publishes voices and speaks over WebSocket.
+    The HTTP endpoint that branch would reach is not the route production
+    uses, so a verdict about the model/voice pair there is a verdict about a
+    route nobody calls - green with broken narration, or red with working.
+    """
+
+    seen: dict = {}
+
+    async def fake_send(client, url, headers, payload):
+        del client, headers
+        seen["url"] = url
+        seen["payload"] = payload
+        return _StubResponse(
+            '{"output": {"voice_list": []}}',
+            "application/json",
+        )
+
+    monkeypatch.setattr(model_routes, "load_model_config", _ProbeConfig)
+    monkeypatch.setattr(model_routes, "_send_probe", fake_send)
+    result = asyncio.run(
+        model_routes.test_model_connection(
+            _request(
+                type="tts",
+                model_name="qwen-audio-3.1-tts-flash",
+                protocol="DashScope CosyVoice",
+                provider=None,
+            ),
+        ),
+    )
+
+    assert result.ok
+    assert result.capability_verified is False
+    assert seen["url"].endswith("/api/v1/services/audio/tts/customization")
+    assert seen["payload"] == {
+        "model": "voice-enrollment",
+        "input": {"action": "list_voice"},
+    }
+
+
+def test_a_synthesis_probe_without_audio_is_not_read_as_a_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 200 that hands back no audio URL answered; it did not verify.
+
+    The HTTP family is probed by synthesizing one character, and the guard on
+    that probe is the very field production downloads.
+    """
+
+    result = _connection_test_replying(
+        _request(
+            type="tts",
+            model_name="qwen3-tts-flash",
+            protocol="DashScope TTS",
+            provider=None,
+        ),
+        monkeypatch,
+        '{"output": {"finished": true}}',
+    )
+
+    assert result.ok is False
+    assert "output.audio.url" in result.error
 
 
 @pytest.mark.parametrize(

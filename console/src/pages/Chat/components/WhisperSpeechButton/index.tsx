@@ -229,6 +229,7 @@ const WhisperSpeechButton = forwardRef<
     <Tooltip title={accessibleLabel} mouseEnterDelay={0.5}>
       <IconButton
         aria-label={accessibleLabel}
+        data-composer-tool="speech"
         bordered={false}
         icon={
           loading ? (

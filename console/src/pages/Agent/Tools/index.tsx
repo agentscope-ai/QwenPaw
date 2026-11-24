@@ -1,17 +1,18 @@
 import { useAgentStore } from "@/stores/agentStore";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
-import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
+import {
+  CircleAlert,
+  CircleHelp,
+  RefreshCw,
+  TriangleAlert,
+  Search,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Spin, Popover, Segmented } from "antd";
-import {
-  Switch,
-  Button,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-} from "@agentscope-ai/design";
+import { Switch, Button, Form, Input } from "@agentscope-ai/design";
 import api from "../../../api";
 import {
   Zap as ThunderboltOutlined,
@@ -23,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { ConfigFields } from "@/components/ConfigFields";
 import { WebSearchConfigModal } from "./WebSearchConfigModal";
 import styles from "./index.module.less";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
@@ -160,75 +162,7 @@ function ToolConfigModal({
     >
       <Spin spinning={loadingConfig}>
         <Form form={form} layout="vertical" onValuesChange={schedule}>
-          {tool.config_fields?.map((field) => {
-            // Render different input types based on field type
-            const renderInput = () => {
-              switch (field.type) {
-                case "password":
-                  return (
-                    <Input.Password
-                      placeholder={field.placeholder}
-                      autoComplete="off"
-                    />
-                  );
-
-                case "number":
-                  return (
-                    <InputNumber
-                      placeholder={field.placeholder}
-                      min={field.min}
-                      max={field.max}
-                      style={{ width: "100%" }}
-                    />
-                  );
-
-                case "boolean":
-                  return <Switch />;
-
-                case "select":
-                  return (
-                    <Select placeholder={field.placeholder}>
-                      {field.options?.map((option) => (
-                        <Select.Option key={option} value={option}>
-                          {option}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  );
-
-                case "textarea":
-                  return (
-                    <Input.TextArea
-                      placeholder={field.placeholder}
-                      rows={4}
-                      autoSize={{ minRows: 2, maxRows: 8 }}
-                    />
-                  );
-
-                case "text":
-                default:
-                  return <Input placeholder={field.placeholder} />;
-              }
-            };
-
-            return (
-              <Form.Item
-                key={field.name}
-                name={field.name}
-                label={field.label}
-                rules={[
-                  {
-                    required: field.required,
-                    message: `${field.label} is required`,
-                  },
-                ]}
-                help={field.help}
-                valuePropName={field.type === "boolean" ? "checked" : "value"}
-              >
-                {renderInput()}
-              </Form.Item>
-            );
-          })}
+          <ConfigFields fields={tool.config_fields ?? []} />
         </Form>
       </Spin>
     </Modal>
@@ -243,6 +177,7 @@ export default function ToolsPage() {
     tools,
     loading,
     error,
+    refreshState,
     ready,
     batchLoading,
     toggleEnabled,
@@ -291,7 +226,7 @@ export default function ToolsPage() {
   const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
     await saveToolConfig(currentTool.name, values, configAgentId);
-    await loadTools();
+    void loadTools({ background: true });
   };
 
   const handleExperimentalChange = async (experimental: boolean) => {
@@ -366,6 +301,26 @@ export default function ToolsPage() {
     <div className={styles.toolsPage}>
       <PageHeader items={[{ title: t("tools.title") }]} />
       <div className={styles.toolsContainer}>
+        {refreshState !== "idle" && (
+          <Alert
+            className={styles.refreshError}
+            type="warning"
+            showIcon
+            icon={<CircleAlert size={16} aria-hidden />}
+            message={t("tools.loadError")}
+            action={
+              <Button
+                size="small"
+                type="link"
+                icon={<RefreshCw size={14} aria-hidden />}
+                loading={refreshState === "retrying"}
+                onClick={() => void loadTools({ background: true })}
+              >
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        )}
         <div className={styles.toolbar}>
           <Segmented
             aria-label={t("tools.title")}

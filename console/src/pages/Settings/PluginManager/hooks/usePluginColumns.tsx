@@ -1,19 +1,23 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Tooltip, Button, Space, Typography } from "antd";
 import { Package, Trash2 } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import { PluginStatusTag } from "../components/PluginStatusTag";
 
 const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  renderActivation: (record: PluginInfo) => ReactNode;
   onUninstall: (record: PluginInfo) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  renderActivation,
   onUninstall,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
@@ -26,6 +30,13 @@ export function usePluginColumns({
       render: (name: string, record: PluginInfo) => (
         <Space direction="vertical" size={2}>
           <Space size={8}>
+            <CommunityFeedback
+              origin={record.installation_origin}
+              installedPluginId={record.id}
+              installedVersion={record.version}
+              resourceName={name}
+              variant="inline"
+            />
             <Package size={16} style={{ flexShrink: 0 }} />
             <Text strong>{name}</Text>
           </Space>
@@ -80,15 +91,18 @@ export function usePluginColumns({
       key: "actions",
       width: 100,
       render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
-        </Tooltip>
+        <Space>
+          {renderActivation(record)}
+          <Tooltip title={t("pluginManager.uninstall")}>
+            <Button
+              type="text"
+              danger
+              icon={<Trash2 size={14} />}
+              loading={uninstallingId === record.id}
+              onClick={() => onUninstall(record)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];

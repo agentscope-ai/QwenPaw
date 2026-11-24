@@ -648,10 +648,9 @@ class OneBotPlatform:
                 return
             try:
                 await self._watchdog_iteration()
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "onebot: watchdog recovery attempt failed",
-                    exc_info=True,
+                    f"OneBot watchdog recovery failed ({type(exc).__name__})",
                 )
 
     async def _watchdog_iteration(self) -> None:
@@ -660,6 +659,8 @@ class OneBotPlatform:
             if self._endpoint_publication_pending:
                 await self._publish_desired_endpoint()
             return
+        if self._site is not None:
+            logger.warning(f"OneBot listener unhealthy, attempting rebind")
         self._accepting = False
         if (
             self._last_endpoint is not None
@@ -677,6 +678,8 @@ class OneBotPlatform:
             return
         try:
             await self._start_ws_server("update")
+            if self._site is not None:
+                logger.info(f"OneBot watchdog restored the WebSocket listener")
         finally:
             if self._site is not None and self.listen_port is not None:
                 self._platform_rebind_total += 1
@@ -737,6 +740,7 @@ class OneBotPlatform:
 
         connection = web.WebSocketResponse()
         await connection.prepare(request)
+        logger.info(f"OneBot reverse WebSocket connected")
         self._connections.add(connection)
         reader = asyncio.current_task()
         self._reader_tasks.add(reader)
@@ -752,20 +756,23 @@ class OneBotPlatform:
                     aiohttp.WSMsgType.CLOSE,
                 }:
                     break
-        except Exception:
-            logger.exception("onebot: WebSocket connection failed")
+        except Exception as exc:
+            logger.warning(
+                f"OneBot WebSocket connection failed ({type(exc).__name__})",
+            )
         finally:
             self._connections.discard(connection)
             self._connection_transports.pop(connection, None)
             self._reader_tasks.discard(reader)
+            logger.info(f"OneBot reverse WebSocket disconnected")
         return connection
 
     def _handle_text_frame(self, value: str) -> None:
         """Route native echo responses and platform events separately."""
         try:
             data = json.loads(value)
-        except json.JSONDecodeError:
-            logger.warning(f"onebot: invalid JSON: {value[:200]}")
+        except json.JSONDecodeError as exc:
+            logger.warning(f"OneBot invalid JSON at column {exc.colno}")
             return
         if not isinstance(data, Mapping):
             logger.warning("onebot: native WebSocket payload is not an object")
@@ -800,6 +807,9 @@ class OneBotPlatform:
         if queue is None:
             if len(self._session_queues) >= self._event_task_hard_cap:
                 self._runner_event_dropped_total += 1
+                logger.warning(
+                    f"OneBot session capacity reached, inbound event dropped",
+                )
                 return
             queue = asyncio.Queue(maxsize=50)
             self._session_queues[key] = queue
@@ -818,8 +828,10 @@ class OneBotPlatform:
                 value = await queue.get()
                 try:
                     await self._event_handler(value)
-                except Exception:
-                    logger.exception("onebot: session event failed")
+                except Exception as exc:
+                    logger.warning(
+                        f"OneBot session event failed ({type(exc).__name__})",
+                    )
                 finally:
                     queue.task_done()
                 if queue.empty():
@@ -865,6 +877,7 @@ class OneBotPlatform:
         if self._stopping:
             raise OneBotPlatformError("ONEBOT_STOPPING")
         if not self._connections:
+            logger.warning(f"OneBot API {action} has no active connection")
             raise OneBotPlatformError("INGRESS_CONNECTION_UNKNOWN")
         if len(self._pending_calls) >= self._event_task_hard_cap:
             raise OneBotPlatformError("INGRESS_API_BACKPRESSURE")
@@ -889,12 +902,18 @@ class OneBotPlatform:
                 None,
             )
             if connection is None:
+                logger.warning(
+                    f"OneBot API {action} has no writable connection",
+                )
                 raise OneBotPlatformError("INGRESS_CONNECTION_UNKNOWN")
             try:
                 await connection.send_str(payload)
             except Exception as exc:
                 # A raised write may already have reached NapCat; never replay
                 # it on another connection without an authoritative rejection.
+                logger.warning(
+                    f"OneBot API {action} write failed ({type(exc).__name__})",
+                )
                 raise OneBotPlatformError(
                     "PLATFORM_RESULT_UNKNOWN",
                     side_effect_possible=True,
@@ -904,6 +923,7 @@ class OneBotPlatform:
                 timeout=self._api_timeout,
             )
         except asyncio.TimeoutError as exc:
+            logger.warning(f"OneBot API {action} acknowledgement timed out")
             raise OneBotPlatformError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -921,6 +941,13 @@ class OneBotPlatform:
             if not future.done():
                 future.cancel()
         if result.get("retcode") != 0:
+            code = result.get(f"retcode")
+            safe_code = code if type(code) is int else None
+            deferred = result.get(f"status") == f"async"
+            logger.warning(
+                f"OneBot API {action} rejected: "
+                f"retcode={safe_code} deferred={deferred}",
+            )
             raise OneBotPlatformError(
                 (
                     "PLATFORM_RESULT_UNKNOWN"
@@ -929,6 +956,7 @@ class OneBotPlatform:
                 ),
                 side_effect_possible=result.get("status") == "async",
             )
+        logger.debug(f"OneBot API {action} acknowledged")
         return result
 
     def _handle_api_response(self, data: dict[str, Any]) -> None:

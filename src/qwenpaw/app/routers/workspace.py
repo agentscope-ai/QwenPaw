@@ -1109,9 +1109,11 @@ async def workspace_watch_events(
                 change_name = (
                     "added"
                     if change_type is Change.added
-                    else "deleted"
-                    if change_type is Change.deleted
-                    else "modified"
+                    else (
+                        "deleted"
+                        if change_type is Change.deleted
+                        else "modified"
+                    )
                 )
                 events.append(
                     {"change": change_name, "path": rel.as_posix()},
@@ -1386,7 +1388,10 @@ async def put_transcription_provider_type(
     """Set the transcription provider type."""
     raw = body.get("transcription_provider_type")
     provider_type = (str(raw) if raw is not None else "").strip().lower()
+    from ...plugins.registry import PluginRegistry
+
     valid = {"disabled", "whisper_api", "local_whisper"}
+    valid.update(PluginRegistry().get_transcription_backends())
     if provider_type not in valid:
         raise HTTPException(
             status_code=400,
@@ -1405,19 +1410,29 @@ async def put_transcription_provider_type(
 
 @router.get(
     "/local-whisper-status",
-    summary="Check local whisper availability",
+    summary="Read local whisper status",
     description=(
-        "Check whether the local whisper provider can be used. "
-        "Returns availability of ffmpeg and openai-whisper."
+        "Read plugin and dependency readiness and the last dependency import "
+        "result without importing Whisper or loading a model."
     ),
 )
 async def get_local_whisper_status() -> dict:
-    """Check local whisper dependencies."""
-    from ...agents.utils.audio_transcription import (
-        check_local_whisper_available,
-    )
+    """Read installation readiness and the last dependency import result."""
+    from ...plugins.local_whisper import get_runtime_status
 
-    return check_local_whisper_available()
+    return await get_runtime_status()
+
+
+@router.post("/local-whisper-install", status_code=202)
+async def install_local_whisper() -> dict:
+    """Install the bundled SDK plugin through the standard plugin loader."""
+    from ...plugins.local_whisper import get_service, get_status
+
+    service = get_service()
+    if service is None:
+        raise HTTPException(503, "Backend is still starting; retry shortly")
+    service.request()
+    return await run_sync_io(get_status)
 
 
 @router.get(
@@ -1468,6 +1483,51 @@ async def put_transcription_provider(
     return {"provider_id": provider_id}
 
 
+@router.get(
+    "/transcription-model",
+    summary="Get transcription model name",
+    description=(
+        "Get the model name used for Whisper API transcription. "
+        'Empty means the built-in default ("whisper-1").'
+    ),
+)
+async def get_transcription_model() -> dict:
+    """Get the Whisper API transcription model name."""
+    config = load_config()
+    return {"transcription_model": config.agents.transcription_model}
+
+
+@router.put(
+    "/transcription-model",
+    summary="Set transcription model name",
+    description=(
+        "Set the model name used for Whisper API transcription. "
+        "Non-OpenAI providers need their own model id, e.g. "
+        '"FunAudioLLM/SenseVoiceSmall" for SiliconFlow. '
+        'Use empty string "" to fall back to the default "whisper-1".'
+    ),
+)
+async def put_transcription_model(
+    body: dict = Body(
+        ...,
+        description=(
+            "Model name, e.g. "
+            '{"transcription_model": "FunAudioLLM/SenseVoiceSmall"} '
+            'or {"transcription_model": ""} to reset'
+        ),
+    ),
+) -> dict:
+    """Set the Whisper API transcription model name."""
+    raw = body.get("transcription_model")
+    model = (str(raw) if raw is not None else "").strip()
+
+    def apply_model(config: Any) -> None:
+        config.agents.transcription_model = model
+
+    await run_sync_io(mutate_config, apply_model)
+    return {"transcription_model": model}
+
+
 @router.post(
     "/transcribe",
     summary="Transcribe audio to text",
@@ -1497,6 +1557,26 @@ async def post_transcribe_audio(
                 ),
             },
         )
+
+    if provider_type == "local_whisper":
+        from ...plugins.local_whisper import get_status
+        from ...plugins.registry import PluginRegistry
+
+        status = await run_sync_io(get_status)
+        backend = PluginRegistry().get_transcription_backend(provider_type)
+        if not status["available"] or backend is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "TRANSCRIPTION_UNAVAILABLE",
+                    "message": status.get("error")
+                    or (
+                        "Local Whisper is preparing or unavailable. "
+                        "Check installation and ffmpeg in "
+                        "Voice Transcription settings."
+                    ),
+                },
+            )
 
     # Validate file type
     allowed_extensions = {
