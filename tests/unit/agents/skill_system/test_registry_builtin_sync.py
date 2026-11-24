@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 from qwenpaw.agents.skill_system import registry as reg
+from qwenpaw.agents.skill_system.pool_service import refresh_pool_automation
 from qwenpaw.exceptions import SkillsError
 from qwenpaw.utils.file_snapshot_cache import get_file_snapshot_cache
 
@@ -730,6 +731,63 @@ class TestAutoUpdateBuiltinSkills:
         }
         assert _read_manifest()["skills"]["alpha"]["version_text"] == "2.0"
 
+    @pytest.mark.parametrize("packaged_version", ["1.0", "2.0.0", "legacy"])
+    def test_refresh_keeps_pool_copy_without_a_newer_version(
+        self,
+        packaged_root,
+        packaged_version,
+    ):
+        manifest = self._imported_pool(packaged_root, version="2.0")
+        _opt_in_auto_update(manifest["skills"]["alpha"])
+        _write_manifest(manifest)
+        pool_md = reg.get_skill_pool_dir() / "alpha" / "SKILL.md"
+        original = pool_md.read_bytes()
+        _packaged_variant(
+            packaged_root,
+            "alpha",
+            "en",
+            packaged_version,
+            body="replacement",
+        )
+
+        result = refresh_pool_automation()
+
+        assert result["checked"]["auto_update"] == 1
+        assert result["pool_updated"] == []
+        assert result["pool_failed"] == []
+        assert pool_md.read_bytes() == original
+        assert _read_manifest()["skills"]["alpha"]["version_text"] == "2.0"
+
+    def test_auto_update_rechecks_version_at_write(
+        self,
+        packaged_root,
+        monkeypatch,
+    ):
+        manifest = self._imported_pool(packaged_root)
+        _opt_in_auto_update(manifest["skills"]["alpha"])
+        _write_manifest(manifest)
+        _packaged_variant(packaged_root, "alpha", "en", "2.0")
+        reg.refresh_packaged_builtin_registry()
+        pool_md = reg.get_skill_pool_dir() / "alpha" / "SKILL.md"
+        newer_content = pool_md.read_bytes().replace(b"1.0", b"3.0")
+        mutate = reg.mutate_pool_manifest
+
+        def _after_newer_install(mutator):
+            pool_md.write_bytes(newer_content)
+            manifest["skills"]["alpha"]["version_text"] = "3.0"
+            _write_manifest(manifest)
+            return mutate(mutator)
+
+        monkeypatch.setattr(reg, "mutate_pool_manifest", _after_newer_install)
+
+        assert reg.auto_update_builtin_skills() == {
+            "updated": [],
+            "failed": [],
+            "checked": 1,
+        }
+        assert pool_md.read_bytes() == newer_content
+        assert _read_manifest()["skills"]["alpha"]["version_text"] == "3.0"
+
     def test_name_filter_limits_the_batch(self, packaged_root):
         manifest = self._imported_pool(packaged_root)
         _opt_in_auto_update(manifest["skills"]["alpha"])
@@ -921,6 +979,62 @@ class TestImportBuiltinSkills:
             "unchanged": ["alpha"],
             "conflicts": [],
         }
+
+    def test_same_language_downgrade_needs_confirmation(self, packaged_root):
+        _packaged_variant(packaged_root, "alpha", "en", "2.0")
+        reg.import_builtin_skills()
+        pool_md = reg.get_skill_pool_dir() / "alpha" / "SKILL.md"
+        original = pool_md.read_bytes()
+        source = _packaged_variant(packaged_root, "alpha", "en", "1.0")
+        _packaged_variant(packaged_root, "beta", "en", "1.0")
+        reg.refresh_packaged_builtin_registry()
+        selection = [
+            {"skill_name": "beta", "language": "en"},
+            {"skill_name": "alpha", "language": "en"},
+        ]
+        original_manifest = _read_manifest()
+
+        assert reg.list_builtin_import_candidates()[0]["status"] == "current"
+        blocked = reg.import_builtin_skills(selection)
+
+        assert blocked["imported"] == []
+        assert blocked["updated"] == []
+        (conflict,) = blocked["conflicts"]
+        assert conflict["status"] == "conflict"
+        assert conflict["current_version_text"] == "2.0"
+        assert conflict["source_version_text"] == "1.0"
+        assert pool_md.read_bytes() == original
+        assert _read_manifest() == original_manifest
+        assert not (reg.get_skill_pool_dir() / "beta").exists()
+
+        forced = reg.import_builtin_skills(selection, overwrite_conflicts=True)
+
+        assert forced["imported"] == ["beta"]
+        assert forced["updated"] == ["alpha"]
+        assert pool_md.read_bytes() == (source / "SKILL.md").read_bytes()
+        assert _read_manifest()["skills"]["alpha"]["version_text"] == "1.0"
+
+    def test_equivalent_version_is_unchanged(self, packaged_root):
+        _packaged_variant(packaged_root, "alpha", "en", "2.0")
+        reg.import_builtin_skills()
+        pool_md = reg.get_skill_pool_dir() / "alpha" / "SKILL.md"
+        original = pool_md.read_bytes()
+        original_manifest = _read_manifest()
+        _packaged_variant(packaged_root, "alpha", "en", "2.0.0")
+        reg.refresh_packaged_builtin_registry()
+
+        result = reg.import_builtin_skills(
+            [{"skill_name": "alpha", "language": "en"}],
+        )
+
+        assert result == {
+            "imported": [],
+            "updated": [],
+            "unchanged": ["alpha"],
+            "conflicts": [],
+        }
+        assert pool_md.read_bytes() == original
+        assert _read_manifest() == original_manifest
 
     def test_language_switch_needs_confirmation(self, packaged_root):
         _packaged_variant(packaged_root, "alpha", "en", "1.0")

@@ -19,7 +19,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from packaging.version import InvalidVersion, Version
 
@@ -504,16 +504,26 @@ def _resolve_pool_builtin_language(
     return fallback if fallback in variants else sorted(variants.keys())[0]
 
 
+def _compare_builtin_versions(current: str, packaged: str) -> str:
+    """Compare the pool version with its packaged counterpart."""
+    if current == packaged:
+        return "current"
+    try:
+        current_version = Version(current)
+        packaged_version = Version(packaged)
+    except InvalidVersion:
+        return "conflict"
+    if current_version < packaged_version:
+        return "outdated"
+    if current_version > packaged_version:
+        return "ahead"
+    return "current"
+
+
 def _get_builtin_version_status(current: str, packaged: str) -> str:
     """Report an update only when the packaged version is newer."""
-    if current == packaged:
-        return f"current"
-    try:
-        if Version(current) < Version(packaged):
-            return f"outdated"
-        return f"current"
-    except InvalidVersion:
-        return f"conflict"
+    status = _compare_builtin_versions(current, packaged)
+    return "current" if status == "ahead" else status
 
 
 def _build_builtin_language_spec(
@@ -684,10 +694,18 @@ def _collect_builtin_import_conflicts(
         cur_lang = str(candidate.get("current_language", "") or "")
         lang_spec = candidate.get("languages", {}).get(language, {}) or {}
         status = str(lang_spec.get("status", "") or "")
+        current_version = str(candidate.get("current_version_text", "") or "")
+        source_version = str(lang_spec.get("version_text", "") or "")
         if not cur_src:
             continue
         if cur_src == "builtin" and cur_lang and cur_lang != language:
             status = "language_switch"
+        elif (
+            status == "current"
+            and _compare_builtin_versions(current_version, source_version)
+            == "ahead"
+        ):
+            status = "conflict"
         elif status not in {"conflict", "outdated"}:
             continue
         conflicts.append(
@@ -698,12 +716,8 @@ def _collect_builtin_import_conflicts(
                 "source_name": str(
                     lang_spec.get("source_name", "") or "",
                 ),
-                "source_version_text": str(
-                    lang_spec.get("version_text", "") or "",
-                ),
-                "current_version_text": str(
-                    candidate.get("current_version_text", "") or "",
-                ),
+                "source_version_text": source_version,
+                "current_version_text": current_version,
                 "current_source": cur_src,
                 "current_language": cur_lang,
             },
@@ -727,21 +741,10 @@ def import_builtin_skills(
 
     registry = _get_packaged_builtin_registry()
     pref = get_builtin_skill_language_preference()
-    manifest = read_skill_pool_manifest()
-    pool_skills = manifest.get("skills", {})
-    candidates = {
-        skill_name: _build_builtin_import_candidate(
-            skill_name,
-            pool_skills=pool_skills,
-            registry=registry,
-            preferred_language=pref,
-        )
-        for skill_name in sorted(registry)
-    }
     # Build default import requests when none provided.
     if imports is None:
         selected_imports: list[dict[str, Any]] = []
-        for skill_name in sorted(candidates):
+        for skill_name in sorted(registry):
             variant = _select_builtin_variant(
                 registry,
                 skill_name,
@@ -755,47 +758,52 @@ def import_builtin_skills(
     else:
         selected_imports = imports
 
-    (
-        normalized_imports,
-        unknown,
-        unsupported,
-    ) = _normalize_builtin_import_requests(
-        selected_imports,
-        registry,
-        candidates,
-        preferred_language=pref,
-    )
-    if unknown:
-        raise SkillsError(
-            message=f"Unknown builtin skill(s): {', '.join(sorted(unknown))}",
-        )
-    if unsupported:
-        raise SkillsError(
-            message=(
-                "Unsupported builtin language selection(s): "
-                f"{', '.join(sorted(unsupported))}"
-            ),
-        )
-
-    conflicts = _collect_builtin_import_conflicts(
-        normalized_imports,
-        candidates,
-    )
-    if conflicts and not overwrite_conflicts:
-        return {
-            "imported": [],
-            "updated": [],
-            "unchanged": [],
-            "conflicts": conflicts,
-        }
-
     imported: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
+    conflicts: list[dict[str, Any]] = []
 
-    def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
+    def _process(payload: dict[str, Any]) -> bool:
         skills = payload.setdefault("skills", {})
-        payload["builtin_skill_names"] = sorted(registry.keys())
+        candidates = {
+            skill_name: _build_builtin_import_candidate(
+                skill_name,
+                pool_skills=skills,
+                registry=registry,
+                preferred_language=pref,
+            )
+            for skill_name in sorted(registry)
+        }
+        (
+            normalized_imports,
+            unknown,
+            unsupported,
+        ) = _normalize_builtin_import_requests(
+            selected_imports,
+            registry,
+            candidates,
+            preferred_language=pref,
+        )
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise SkillsError(message=f"Unknown builtin skill(s): {names}")
+        if unsupported:
+            raise SkillsError(
+                message=(
+                    "Unsupported builtin language selection(s): "
+                    f"{', '.join(sorted(unsupported))}"
+                ),
+            )
+
+        conflicts.extend(
+            _collect_builtin_import_conflicts(normalized_imports, candidates),
+        )
+        if conflicts and not overwrite_conflicts:
+            return False
+
+        builtin_names = sorted(registry)
+        names_changed = payload.get("builtin_skill_names") != builtin_names
+        payload["builtin_skill_names"] = builtin_names
         for skill_name, language in normalized_imports:
             variant = registry[skill_name][language]
             target = safe_skill_dir(pool_dir, skill_name)
@@ -813,12 +821,14 @@ def import_builtin_skills(
                     preferred_language=pref,
                 )
                 == language
-                and str(
-                    existing.get("version_text", "") or "",
+                and _compare_builtin_versions(
+                    str(existing.get("version_text", "") or ""),
+                    variant.version_text,
                 )
-                == variant.version_text
+                == "current"
             ):
                 unchanged.append(skill_name)
+                continue
             else:
                 copy_skill_dir(variant.skill_dir, target)
                 updated.append(skill_name)
@@ -838,14 +848,15 @@ def import_builtin_skills(
             copy_pool_skill_automation(existing, entry)
             skills[skill_name] = entry
 
-        return {
-            "imported": imported,
-            "updated": updated,
-            "unchanged": unchanged,
-            "conflicts": conflicts,
-        }
+        return bool(imported or updated or names_changed)
 
-    return mutate_pool_manifest(_process)
+    mutate_pool_manifest(_process)
+    return {
+        "imported": imported,
+        "updated": updated,
+        "unchanged": unchanged,
+        "conflicts": conflicts,
+    }
 
 
 def migrate_pool_builtin_language_fields() -> bool:
@@ -1648,8 +1659,8 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
 def _resolve_builtin_update_variant(
     skill_name: str,
     language: str | None,
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
 ) -> tuple[str, str, BuiltinSkillVariant]:
-    registry = _get_packaged_builtin_registry()
     canonical_name = _canonical_builtin_skill_name(skill_name, registry)
     if canonical_name not in registry:
         raise SkillsError(
@@ -1690,13 +1701,15 @@ def update_single_builtin(
     skill_name: str,
     *,
     language: str | None = None,
+    only_if_newer: bool = False,
 ) -> dict[str, Any]:
-    """Replace one builtin Pool skill with its current packaged version."""
+    """Replace one builtin Pool skill, or return an empty dict if skipped."""
+    registry = _get_packaged_builtin_registry()
     (
         canonical_name,
         selected_language,
         variant,
-    ) = _resolve_builtin_update_variant(skill_name, language)
+    ) = _resolve_builtin_update_variant(skill_name, language, registry)
 
     pool_dir = get_skill_pool_dir()
     pool_dir.mkdir(parents=True, exist_ok=True)
@@ -1719,13 +1732,23 @@ def update_single_builtin(
             backup_target.rename(target)
         target_replaced = False
 
-    def _update(payload: dict[str, Any]) -> dict[str, Any]:
+    def _update(payload: dict[str, Any]) -> dict[str, Any] | Literal[False]:
         payload.setdefault("skills", {})
         current = payload.get("skills", {}).get(canonical_name, {})
         if not is_pool_builtin_entry(current):
             raise SkillsError(
                 message=f"'{canonical_name}' is not a builtin pool skill",
             )
+        if only_if_newer and (
+            _resolve_pool_builtin_language(canonical_name, current, registry)
+            != selected_language
+            or _get_builtin_version_status(
+                str(current.get("version_text", "") or ""),
+                variant.version_text,
+            )
+            != "outdated"
+        ):
+            return False
         nonlocal target_replaced
         if target.exists():
             target.rename(backup_target)
@@ -1755,7 +1778,7 @@ def update_single_builtin(
     try:
         copy_skill_dir(variant.skill_dir, staged_target)
         try:
-            return mutate_pool_manifest(_update)
+            return mutate_pool_manifest(_update) or {}
         except Exception:
             if target_replaced or backup_target.exists():
                 _rollback_target()
@@ -1767,7 +1790,7 @@ def update_single_builtin(
 def auto_update_builtin_skills(
     skill_name: str | None = None,
 ) -> dict[str, Any]:
-    """Make opted-in builtin Pool entries match the packaged versions."""
+    """Upgrade opted-in builtin Pool entries to newer packaged versions."""
     updated: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     checked = 0
@@ -1829,11 +1852,19 @@ def auto_update_builtin_skills(
                 },
             )
             continue
-        if current_version_text == target_version_text:
+        status = _get_builtin_version_status(
+            current_version_text,
+            target_version_text,
+        )
+        if status != "outdated":
             continue
 
         try:
-            update_single_builtin(name, language=language)
+            entry = update_single_builtin(
+                name,
+                language=language,
+                only_if_newer=True,
+            )
         except Exception as exc:  # keep the batch retryable per skill
             logger.warning(
                 "builtin auto-update failed for '%s'",
@@ -1852,6 +1883,8 @@ def auto_update_builtin_skills(
             )
             continue
 
+        if not entry:
+            continue
         updated.append(
             {
                 "skill": name,
