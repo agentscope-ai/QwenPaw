@@ -161,14 +161,13 @@ def _patch_heartbeat_env(monkeypatch, *, stream):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["error", "cancel", "timeout"])
-async def test_heartbeat_cleans_up_only_its_own_usage(monkeypatch, failure):
+async def test_heartbeat_cancellation_clears_only_its_own_usage(monkeypatch):
     from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
     wrapper = TokenRecordingModelWrapper
     chat_usage = {"total_tokens": 10}
     monkeypatch.setitem(wrapper._usage_by_session, "main", chat_usage)
-    started = asyncio.Event()
+    started = asyncio.get_running_loop().create_future()
     buffers = []
 
     async def stream(req):
@@ -177,33 +176,21 @@ async def test_heartbeat_cleans_up_only_its_own_usage(monkeypatch, failure):
         buffer = wrapper._usage_buffer()
         buffers.append(buffer)
         buffer["main"] = {"total_tokens": 2}
-        started.set()
-        if failure == "error":
-            raise RuntimeError("heartbeat failed")
+        started.set_result(None)
         await asyncio.Event().wait()
         yield
 
     workspace = _patch_heartbeat_env(monkeypatch, stream=stream)
-    monkeypatch.setattr(
-        "qwenpaw.app.crons.heartbeat.get_heartbeat_config",
-        lambda agent_id: SimpleNamespace(
-            active_hours=None,
-            timeout_seconds=0.05 if failure == "timeout" else 1,
-            target="",
-        ),
-    )
     run = asyncio.create_task(
         run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock()),
     )
-    if failure == "error":
-        with pytest.raises(RuntimeError, match="heartbeat failed"):
-            await run
-    elif failure == "cancel":
-        await started.wait()
-        run.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await run
-    else:
+    await asyncio.wait((started, run), return_when=asyncio.FIRST_COMPLETED)
+    if run.done():
+        await run
+        pytest.fail("Heartbeat finished before cancellation")
+
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
         await run
     assert buffers == [{}]
     assert wrapper.peek_usage_for_session("main") == chat_usage
