@@ -238,12 +238,10 @@ async def test_takeover_turn_survives_session_save_hook_and_reload(
         root_session_id=session_id,
         root_agent_id="assistant",
         workspace_dir=tmp_path,
-        workspace=SimpleNamespace(
-            session=session,
-            config=SimpleNamespace(session_persistence=True),
-        ),
+        workspace=SimpleNamespace(session=session),
         app_services=None,
         agent=agent,
+        agent_config=SimpleNamespace(session_persistence=True),
     )
     await hooks.run(Phase.POST_RESPONSE, ctx)
 
