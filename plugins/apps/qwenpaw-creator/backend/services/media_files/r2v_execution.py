@@ -1284,7 +1284,9 @@ def _submission_input_fingerprint(
 
 
 def _matches_submission_inputs(
-    project: Project, element_id: str, frozen: str
+    project: Project,
+    element_id: str,
+    frozen: str,
 ) -> bool:
     if frozen == _submission_input_fingerprint(project, element_id):
         return True
@@ -3220,7 +3222,9 @@ class FileR2VExecutionService:
             if (
                 frozen is not None
                 and not _matches_submission_inputs(
-                    snapshot.project, element_id, frozen
+                    snapshot.project,
+                    element_id,
+                    frozen,
                 )
             ) or (
                 frozen is None
@@ -4750,7 +4754,8 @@ class FileR2VExecutionService:
         creation_type = getattr(creation, "type", "r2v")
         if isinstance(creation, (R2VCreation, T2VCreation, I2VCreation)):
             admitted_audio = raw.get(
-                "projectGenerateAudio", raw.get("generateAudio", True)
+                "projectGenerateAudio",
+                raw.get("generateAudio", True),
             )
             if creation.generate_audio != admitted_audio:
                 # Older requests stored a command override without separately
@@ -4760,7 +4765,9 @@ class FileR2VExecutionService:
                 if "projectGenerateAudio" in raw or not fingerprint:
                     return False
                 if not _matches_submission_inputs(
-                    project, element_id, fingerprint
+                    project,
+                    element_id,
+                    fingerprint,
                 ):
                     return False
         if creation_type == "r2v":

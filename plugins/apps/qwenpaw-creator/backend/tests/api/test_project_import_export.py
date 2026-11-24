@@ -829,7 +829,9 @@ def test_copy_member_counts_written_bytes_not_declared_ones(tmp_path):
 
 @pytest.mark.parametrize("interrupted", [False, True])
 def test_windows_uri_rewrite_preserves_archived_transaction(
-    tmp_path, monkeypatch, interrupted
+    tmp_path,
+    monkeypatch,
+    interrupted,
 ):
     from services.project_files.commit import ProjectCommitBoundary
     from services.project_files.recovery import (
@@ -871,7 +873,8 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
 
         monkeypatch.setattr(boundary, "_record_review", interrupt)
         with pytest.raises(
-            RuntimeError, match="interrupted after publication"
+            RuntimeError,
+            match="interrupted after publication",
         ):
             commit()
     else:
@@ -884,12 +887,14 @@ def test_windows_uri_rewrite_preserves_archived_transaction(
     )
     destination = tmp_path / "expanded"
     monkeypatch.setattr(
-        project_archive, "sys", SimpleNamespace(platform="win32")
+        project_archive,
+        "sys",
+        SimpleNamespace(platform="win32"),
     )
     project_archive.extract_archive(zip_path, destination)
     imported = ProjectStore(destination)
     recovered = ProjectCommitRecoveryCoordinator(imported).recover_project(
-        project.project_id
+        project.project_id,
     )
     assert recovered.ok
     snapshot = imported.read(project.project_id)

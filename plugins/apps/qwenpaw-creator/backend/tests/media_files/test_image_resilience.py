@@ -264,7 +264,11 @@ class _CountingProvider:
     # this test provider must identify the documented model contract it mocks.
     model_name = "qwen-image-2.0-pro"
 
-    def __init__(self, *, fail_with: str | BaseException | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_with: str | BaseException | None = None,
+    ) -> None:
         self.calls = 0
         self._fail_with = fail_with
 

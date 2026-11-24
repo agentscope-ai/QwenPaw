@@ -462,7 +462,10 @@ async def render_timeline(
                 services,
             )
     return await _render_timeline(
-        project_id, timeline_id, idempotency_key, services
+        project_id,
+        timeline_id,
+        idempotency_key,
+        services,
     )
 
 

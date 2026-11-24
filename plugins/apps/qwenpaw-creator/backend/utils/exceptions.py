@@ -40,7 +40,7 @@ _SECRET_QUERY_NAMES = frozenset(
         "x-oss-credential",
         "x-oss-security-token",
         "x-oss-signature",
-    }
+    },
 )
 
 _URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)

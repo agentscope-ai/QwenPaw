@@ -377,7 +377,10 @@ async def upload_reference_file_for_provider(
 
     if uses_dashscope_transport(base_url, protocol):
         return await upload_local_file_to_dashscope_temp(
-            path, api_key=api_key, model_name=model_name, media_type=media_type
+            path,
+            api_key=api_key,
+            model_name=model_name,
+            media_type=media_type,
         )
     return await transport_local_media_url(
         path,

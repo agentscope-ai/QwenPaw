@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Stored provider pre-signed URLs are reusable only while still fetchable.
 
 ``_materialize_and_publish`` records the Token Plan endpoint's short-lived

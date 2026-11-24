@@ -337,7 +337,8 @@ def _is_dashscope_provider(base_url: str, protocol: str | None = None) -> bool:
 
 
 def uses_dashscope_transport(
-    base_url: str = "", protocol: str | None = None
+    base_url: str = "",
+    protocol: str | None = None,
 ) -> bool:
     """True when local media travels through the DashScope model-bound
     temporary OSS upload (48h TTL, <=1GB) instead of inline Base64 URLs.

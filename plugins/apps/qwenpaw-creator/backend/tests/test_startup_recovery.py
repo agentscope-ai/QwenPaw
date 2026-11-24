@@ -18,10 +18,14 @@ def test_cancelled_standalone_startup_recovers_the_same_root_on_retry(
     started = threading.Event()
     release = threading.Event()
     monkeypatch.setattr(
-        dev_main, "require_creator_data_root", lambda: tmp_path
+        dev_main,
+        "require_creator_data_root",
+        lambda: tmp_path,
     )
     monkeypatch.setattr(
-        dev_main, "ensure_creator_runtime_dependencies", lambda: {}
+        dev_main,
+        "ensure_creator_runtime_dependencies",
+        lambda: {},
     )
     other_root = tmp_path / "unrelated"
     other = creator_file_services(other_root)
@@ -31,7 +35,9 @@ def test_cancelled_standalone_startup_recovers_the_same_root_on_retry(
         assert release.wait(5)
 
     monkeypatch.setattr(
-        dev_main, "recover_interrupted_source_analysis", wait_in_recovery
+        dev_main,
+        "recover_interrupted_source_analysis",
+        wait_in_recovery,
     )
 
     async def start():
@@ -69,7 +75,9 @@ def test_cancelled_standalone_startup_recovers_the_same_root_on_retry(
     ],
 )
 def test_cancelled_host_startup_joins_task_recovery_before_teardown(
-    tmp_path, monkeypatch, recovery
+    tmp_path,
+    monkeypatch,
+    recovery,
 ):
     entered, release = threading.Event(), threading.Event()
     order = []
@@ -86,11 +94,15 @@ def test_cancelled_host_startup_joins_task_recovery_before_teardown(
         order.append("media stopped")
 
     monkeypatch.setattr(
-        main, "configure_creator_runtime_environment", lambda: None
+        main,
+        "configure_creator_runtime_environment",
+        lambda: None,
     )
     monkeypatch.setattr(main, "require_creator_data_root", lambda: tmp_path)
     monkeypatch.setattr(
-        main, "ensure_creator_runtime_dependencies", lambda: {}
+        main,
+        "ensure_creator_runtime_dependencies",
+        lambda: {},
     )
     monkeypatch.setattr(main, "ensure_vendor_libs", lambda: None)
     monkeypatch.setattr(main, "start_file_media_execution_services", start)

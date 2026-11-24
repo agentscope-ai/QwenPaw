@@ -914,14 +914,14 @@ def test_frozen_auto_fix_restores_state_and_round(tmp_path):
         source.extractall(tmp_path)
     store = ProjectStore(tmp_path)
     recovery = ProjectCommitRecoveryCoordinator(store).recover_project(
-        "project-probe"
+        "project-probe",
     )
     assert recovery.ok
     runtime = store.project_root("project-probe") / "runtime"
     state = AtomicJsonRecordStore(runtime / "state.json").read()
     assert state["last_project_etag"] == store.read("project-probe").etag
     change_round = AtomicJsonRecordStore(
-        runtime / "change-rounds" / "round" / "round.json"
+        runtime / "change-rounds" / "round" / "round.json",
     ).read()
     assert change_round["status"] == TransactionStatus.COMMITTED.value
 
@@ -970,7 +970,7 @@ def test_unprovable_old_pending_review_retains_its_evidence(
 ):
     store = frozen_pending_review
     candidate = AtomicJsonRecordStore(
-        transaction_root(store, "review-v9") / "candidate.json"
+        transaction_root(store, "review-v9") / "candidate.json",
     )
     raw = candidate.read()
     raw["name"] = "Unrelated edit"
@@ -985,7 +985,8 @@ def test_unprovable_old_pending_review_retains_its_evidence(
 
 
 def test_first_migrated_publication_finishes_runtime_after_a_crash(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     store, base = make_store(tmp_path)
     raw = base.project.model_dump(mode="json")

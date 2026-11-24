@@ -142,10 +142,10 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
             original = store.read(project_id)
             if original.project.project_id != project_id:
                 raise ValueError(
-                    "archive directory and Project identity differ"
+                    "archive directory and Project identity differ",
                 )
             ProjectCommitRecoveryCoordinator(store).recover_project(
-                project_id
+                project_id,
             ).raise_for_integrity()
             original = store.read(project_id)
             candidate = original.project.model_dump(mode="json")
@@ -158,7 +158,7 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
             )
         except Exception as exc:
             raise BadRequestError(
-                "Could not reconcile Windows paths with the archived Project history"
+                "Could not reconcile Windows paths with the archived Project history",
             ) from exc
         return changed
     # Match the canonical on-disk form (serialization.canonical_json_bytes

@@ -1040,9 +1040,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                             "project-1",
                         )
                     ]
-                    assert (
-                        body["details"]["blockingReviewIds"] == pending_ids
-                    )
+                    assert body["details"]["blockingReviewIds"] == pending_ids
                     assert "审阅" in body["message"]
                 else:
                     assert body["details"]["blocker"] == "GATED"
@@ -1068,7 +1066,9 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
     run_scenario(app, scenario)
 
 
-def test_asset_authorization_names_only_the_review_that_actually_blocks() -> None:
+def test_asset_authorization_names_only_the_review_that_actually_blocks() -> (
+    None
+):
     """Two unrelated assets must not disable each other's Continue button.
 
     Asset and cast targets carry no ``element:`` ref, so the old locator

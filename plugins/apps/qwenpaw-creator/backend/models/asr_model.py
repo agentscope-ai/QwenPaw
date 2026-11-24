@@ -310,7 +310,8 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
             media_type=media_type,
         )
         logger.info(
-            "Fun-ASR: reference ready (scheme=%s)", url.partition(":")[0]
+            "Fun-ASR: reference ready (scheme=%s)",
+            url.partition(":")[0],
         )
         return url
     if parsed.scheme in {"http", "https"}:

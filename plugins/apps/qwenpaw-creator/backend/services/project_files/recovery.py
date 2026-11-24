@@ -361,7 +361,9 @@ class ProjectCommitRecoveryCoordinator:
                         skip_terminal = True
                 incomplete_policy = (
                     self._incomplete_frozen_round_policy(
-                        transaction_root, runtime_root, probe_journal
+                        transaction_root,
+                        runtime_root,
+                        probe_journal,
                     )
                     if skip_terminal
                     else None
@@ -371,7 +373,9 @@ class ProjectCommitRecoveryCoordinator:
                     # decision. Propagate a failed proof as an integrity
                     # outcome, leaving the journal and the evidence in place.
                     inputs = self._load_inputs(
-                        project_id, runtime_root, transaction_root
+                        project_id,
+                        runtime_root,
+                        transaction_root,
                     )
                 elif (
                     skip_terminal
@@ -591,7 +595,7 @@ class ProjectCommitRecoveryCoordinator:
             or record.project_id != journal.project_id
         ):
             raise _IntegrityProblem(
-                "Frozen review Round identity conflicts with journal"
+                "Frozen review Round identity conflicts with journal",
             )
         if transaction_round is not None and aggregate is not None:
             _validate_same_round(aggregate, transaction_round)
@@ -618,12 +622,15 @@ class ProjectCommitRecoveryCoordinator:
         """Verify publication from frozen snapshots and the live Project authority."""
         try:
             inputs = self._load_inputs(
-                project_id, runtime_root, transaction_root
+                project_id,
+                runtime_root,
+                transaction_root,
             )
             if inputs.final_data is None:
                 return None
             self._prove_current_is_published(
-                inputs, self.store.read(project_id)
+                inputs,
+                self.store.read(project_id),
             )
         except (
             Exception
@@ -1635,7 +1642,11 @@ def _diff_latest_document(
     if latest_project is None or latest_data is None:
         return None
     return _diff_base_document(
-        diff_semantics, latest_data, latest_project, writer, []
+        diff_semantics,
+        latest_data,
+        latest_project,
+        writer,
+        [],
     )
 
 

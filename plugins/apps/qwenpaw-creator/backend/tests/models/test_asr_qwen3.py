@@ -556,10 +556,11 @@ def test_qwen_audio_keeps_segmented_and_gateway_responses():
         prefer_cumulative=True,
     ) == ["First.", "Last."]
     assert asr_model._qwen3_sentences(
-        {"text": "Full."}, prefer_cumulative=True
+        {"text": "Full."},
+        prefer_cumulative=True,
     ) == ["Full."]
     mixed = {"output": {"text": "Full.", "sentence": {"text": "Last."}}}
     assert asr_model._qwen3_sentences(mixed) == ["Last."]
     assert asr_model._qwen3_sentences(mixed, prefer_cumulative=True) == [
-        "Full."
+        "Full.",
     ]

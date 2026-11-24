@@ -1,5 +1,11 @@
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CREATOR_ROUTE_OBJECTS } from "@/app/router";
 import type { FileProjectReviewRecord } from "@/contracts/creator";
@@ -227,14 +233,12 @@ describe("ProjectLayout visible shell", () => {
       return fetch(input, init);
     });
     act(() =>
-      useCreatorSessionStore
-        .getState()
-        .ingestEvents([
-          ev(1, "agent.run.completed", {
-            runId: "finished",
-            reviewIds: ["review-element-1"],
-          }),
-        ]),
+      useCreatorSessionStore.getState().ingestEvents([
+        ev(1, "agent.run.completed", {
+          runId: "finished",
+          reviewIds: ["review-element-1"],
+        }),
+      ]),
     );
     await waitFor(() => expect(p1Reads).toBe(1));
     await act(() => router.navigate("/project/p2/plan"));
@@ -405,9 +409,7 @@ describe("ProjectLayout visible shell", () => {
     expect(useAgentDockUiStore.getState().open).toBe(true);
 
     await act(() => router.navigate("/project/p1/plan"));
-    await waitFor(() =>
-      expect(composerBox().textContent).toBe("Draft for p1"),
-    );
+    await waitFor(() => expect(composerBox().textContent).toBe("Draft for p1"));
   });
 
   it("keeps both Project drafts across an A → B → A → B round trip", async () => {

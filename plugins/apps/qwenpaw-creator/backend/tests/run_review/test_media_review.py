@@ -727,6 +727,5 @@ def test_missing_binary_records_an_actionable_skip_note(
     # later version, or this one after the environment was fixed) clears it.
     assert _admit(reports_root, VERSION_ID) == 1
     assert (
-        admission.media_review_skip_note(reports_root, slot_id=SLOT_ID)
-        is None
+        admission.media_review_skip_note(reports_root, slot_id=SLOT_ID) is None
     )

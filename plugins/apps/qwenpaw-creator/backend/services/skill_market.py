@@ -87,11 +87,8 @@ async def search_skills(
         min(int(limit or _MAX_MARKET_LIMIT), _MAX_MARKET_LIMIT),
     )
     page_num = max(1, int(page or _DEFAULT_PAGE))
-    wanted = (
-        {key.strip() for key in providers if key and key.strip()}
-        if providers
-        else None
-    )
+    has_provider_filter = bool(providers)
+    wanted = {key.strip() for key in (providers or ()) if key and key.strip()}
 
     # Build provider_pages for every browsable provider so the user sees
     # results from all markets in one call.  ``list_providers`` is the host's
@@ -105,7 +102,7 @@ async def search_skills(
         for info in discovered
         if info.available
         and info.supports_browse
-        and (wanted is None or info.key in wanted)
+        and (not has_provider_filter or info.key in wanted)
     }
 
     results, errors, by_provider = await search_market_fn(

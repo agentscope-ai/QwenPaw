@@ -294,7 +294,10 @@ def _existing_replay(
     if version.input_fingerprint != fingerprint and (
         version.input_fingerprint
         != _request_fingerprint(
-            project, timeline, guidance=guidance, legacy=True
+            project,
+            timeline,
+            guidance=guidance,
+            legacy=True,
         )
     ):
         return None

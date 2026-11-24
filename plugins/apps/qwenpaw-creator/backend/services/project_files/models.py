@@ -1549,10 +1549,10 @@ class Project(StrictModel):
             return value
         if value.get("narrative_edges", []) != []:
             raise ValueError(
-                "Interactive narrative edges require the interactive edition"
+                "Interactive narrative edges require the interactive edition",
             )
         LinearPresentation.model_validate(
-            value.get("interactive_presentation", {})
+            value.get("interactive_presentation", {}),
         )
         return {
             key: item

@@ -304,7 +304,7 @@ def test_project_edit_invalidates_saved_draft_and_replays_new_version(
         base=original,
     )
     assert impact.invalidated_artifact_version_ids == {
-        first.artifact_version_id
+        first.artifact_version_id,
     }
     services.commits.commit(
         base=base,

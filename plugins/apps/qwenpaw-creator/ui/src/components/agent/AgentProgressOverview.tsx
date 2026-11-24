@@ -255,11 +255,7 @@ function WorkGroupCard({
   );
 }
 
-function AgentProgressOverview({
-  projectId,
-}: {
-  projectId: string;
-}) {
+function AgentProgressOverview({ projectId }: { projectId: string }) {
   const { t, i18n } = useTranslation();
   const [filter, setFilter] = useState<ProgressFilter>("all");
   const [expanded, setExpanded] = useState(true);

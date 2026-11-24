@@ -762,7 +762,9 @@ def test_unrelated_commit_during_render_does_not_quarantine(
 
 @pytest.mark.parametrize("muted", [False, True])
 def test_resume_admitted_video_from_before_project_audio_control(
-    tmp_path, monkeypatch, muted
+    tmp_path,
+    monkeypatch,
+    muted,
 ):
     from unittest.mock import AsyncMock
 
@@ -781,11 +783,13 @@ def test_resume_admitted_video_from_before_project_audio_control(
                     **state.request,
                     "projectInputFingerprint": historical,
                 },
-            }
+            },
         )
 
     state = worker._update_state_sync(
-        PROJECT_ID, task_id, restore_historical_fingerprint
+        PROJECT_ID,
+        task_id,
+        restore_historical_fingerprint,
     )
     if muted:
         base = services.projects.read(PROJECT_ID)
@@ -806,7 +810,8 @@ def test_resume_admitted_video_from_before_project_audio_control(
 
 
 def test_native_audio_edit_quarantines_an_in_flight_video(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
 ):
     services = _services(tmp_path, monkeypatch)
 
