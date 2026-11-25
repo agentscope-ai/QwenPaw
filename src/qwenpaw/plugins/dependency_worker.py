@@ -44,10 +44,15 @@ def _alive(pid):
 
 def _continue(directory, operation, *, preflight=False):
     command = operation.get("continuation_command")
+    # Preserve the audited search order when the support root is already visible.
     code = (
-        "import asyncio,sys;sys.path.insert(0,sys.argv[1]);"
-        "from qwenpaw.plugins.dependency_upgrade import continue_operation;"
-        "asyncio.run(continue_operation(sys.argv[2],preflight=sys.argv[3]=='1'))"
+        "import asyncio, sys\n"
+        "from pathlib import Path\n"
+        "support_root = Path(sys.argv[1]).resolve()\n"
+        "if not any(Path(p).resolve() == support_root for p in sys.path if p):\n"
+        "    sys.path.insert(0, str(support_root))\n"
+        "from qwenpaw.plugins.dependency_upgrade import continue_operation\n"
+        "asyncio.run(continue_operation(sys.argv[2], preflight=sys.argv[3] == '1'))"
     )
     result = subprocess.run(
         [*command, "1" if preflight else "0"]
