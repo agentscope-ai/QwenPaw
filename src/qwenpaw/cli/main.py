@@ -37,7 +37,7 @@ def _record(label: str, elapsed: float) -> None:
 
 # Timed imports below: order and placement are intentional (E402/C0413).
 _t = time.perf_counter()
-from ..config.utils import read_last_api  # noqa: E402
+from ..config.utils import read_last_api_record  # noqa: E402
 
 _record("..config.utils", time.perf_counter() - _t)
 
@@ -206,12 +206,12 @@ def _looks_like_project_path(value: str) -> bool:
 @click.pass_context
 def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     """QwenPaw CLI."""
-    # default from last run if not provided
-    last = read_runtime_api() or read_last_api()
-    if host is None or port is None:
-        if last:
-            host = host or last[0]
-            port = port or last[1]
+    runtime = read_runtime_api()
+    record = None if runtime else read_last_api_record()
+    last = runtime or record
+    if last and (host is None or port is None):
+        host = host or last[0]
+        port = port or last[1]
 
     # final fallback
     host = host or "127.0.0.1"
@@ -220,6 +220,7 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["host"] = host
     ctx.obj["port"] = port
+    ctx.obj["last_api"] = record
 
     # Bare ``qwenpaw`` (no subcommand) opens the interactive terminal chat UI.
     # ``--help`` is handled by Click before this callback runs, and every other

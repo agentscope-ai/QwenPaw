@@ -62,12 +62,13 @@ example.com {
 Open `https://example.com/qwenpaw/`. QwenPaw redirects the prefix without a
 trailing slash to this URL. Requests outside the configured prefix return 404.
 
-Local CLI commands and Chrome Bridge do not discover this prefix from the saved
-server address. Run them with the same `QWENPAW_BASE_PATH` as the server.
-Commands that support `--base-url` can instead receive the full prefixed URL,
-such as `http://127.0.0.1:8088/qwenpaw`. Commands without that option, including
-`qwenpaw env` and `qwenpaw plugin`, and Chrome Bridge still require the matching
-environment variable.
+Local CLI commands such as `qwenpaw chats list` use the mount recorded by the
+standalone server for its host and port. Saving a new prefix does not redirect
+these commands until the server restarts. When targeting another address, or
+when connecting to an older server that did not record its mount, set
+`QWENPAW_BASE_PATH` to that server's prefix. An explicit `--base-url` takes
+precedence, for example `http://127.0.0.1:8088/qwenpaw`. When setting up Chrome
+Bridge separately, use the same `QWENPAW_BASE_PATH` as the server.
 
 Before switching an existing deployment to a non-root prefix, update any
 installed Chrome and Voice plugins to `0.1.2` or later while the server is still

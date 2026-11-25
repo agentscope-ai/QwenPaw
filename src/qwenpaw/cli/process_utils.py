@@ -10,8 +10,6 @@ import subprocess
 import sys
 from typing import Optional
 
-from ..app.base_path import normalize_base_path
-
 
 _PORT_ARG_PATTERN = re.compile(r"(?:^|\s)--port(?:=|\s+)(\d+)(?=\s|$)")
 
@@ -202,15 +200,6 @@ def _extract_port_from_command(command: str, default: int = 8088) -> int:
     """Extract `--port` from a command line when present."""
     match = _PORT_ARG_PATTERN.search(command)
     return int(match.group(1)) if match else default
-
-
-def _base_url(host: str, port: int) -> str:
-    """Build a base URL from host and port."""
-    normalized_host = host.strip()
-    if ":" in normalized_host and not normalized_host.startswith("["):
-        normalized_host = f"[{normalized_host}]"
-    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
-    return f"http://{normalized_host}:{port}{base_path}"
 
 
 def _candidate_hosts(host: str | None) -> list[str]:

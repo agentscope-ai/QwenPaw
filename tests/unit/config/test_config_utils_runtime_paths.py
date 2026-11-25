@@ -1460,7 +1460,10 @@ class TestLastDispatchLegacyPaths:
         assert cu.read_last_dispatch("a1") is None
 
     def test_read_last_api_prefers_runtime_cache(self, monkeypatch):
-        monkeypatch.setattr(cu, "_runtime_last_api", ("127.0.0.1", 4321))
+        monkeypatch.setattr(cu, "_runtime_last_api", None)
+        cu.cache_last_api("127.0.0.1", 4321, "/live")
+
+        assert cu.read_last_api_record().base_path == "/live"
 
         assert cu.read_last_api() == ("127.0.0.1", 4321)
 
@@ -1509,7 +1512,7 @@ class TestLastDispatchLegacyPaths:
 
         cu.write_last_api("127.0.0.1", 5150)
 
-        assert cu._runtime_last_api == ("127.0.0.1", 5150)
+        assert cu.read_last_api() == ("127.0.0.1", 5150)
         persisted = json.loads(
             (working_dir / "config.json").read_text(encoding="utf-8"),
         )

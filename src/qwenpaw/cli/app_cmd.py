@@ -10,9 +10,8 @@ import uvicorn
 
 from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
-from ..config.utils import write_last_api
 from ..constant import LOG_LEVEL_ENV
-from ..utils.http import is_loopback_host, probe_host_for_bind_host
+from ..utils.http import is_loopback_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
 from .windows_shutdown import install_shutdown_handlers
@@ -54,7 +53,6 @@ Recommended:
 
 
 def configure_server_process(
-    host: str,
     port: int,
     log_level: str,
     hide_access_paths: tuple[str, ...],
@@ -68,7 +66,6 @@ def configure_server_process(
     os.environ["QWENPAW_RUNTIME_MODE"] = (
         "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
     )
-    write_last_api(probe_host_for_bind_host(host), port)
     os.environ[LOG_LEVEL_ENV] = log_level
     if reload:
         os.environ["QWENPAW_RELOAD_MODE"] = "1"
@@ -182,7 +179,6 @@ def app_cmd(
         ensure_local_runtime_initialized()
 
     configure_server_process(
-        host,
         port,
         log_level,
         hide_access_paths,
@@ -206,7 +202,12 @@ def app_cmd(
             "cwd": os.getcwd(),
         }
 
-    uvicorn.run(
+    from uvicorn.main import STARTUP_FAILURE
+    from uvicorn.supervisors import ChangeReload
+
+    from ..app.api_server import ApiServer
+
+    config = uvicorn.Config(
         "qwenpaw.app._app:app",
         host=host,
         port=port,
@@ -220,3 +221,14 @@ def app_cmd(
         # protocol fact rather than a user-configurable WebSocket capacity.
         ws_max_size=NM_MAX_INBOUND_BYTES,
     )
+    server = ApiServer(config)
+    try:
+        if config.should_reload:
+            with config.bind_socket() as sock:
+                ChangeReload(config, target=server.run, sockets=[sock]).run()
+        else:
+            server.run()
+    except KeyboardInterrupt:
+        pass
+    if not config.should_reload and not server.started:
+        raise SystemExit(STARTUP_FAILURE)

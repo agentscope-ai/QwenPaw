@@ -60,11 +60,11 @@ example.com {
 随后访问 `https://example.com/qwenpaw/`。QwenPaw 会把不带末尾斜杠的前缀
 重定向到此地址；配置前缀之外的请求返回 404。
 
-本机 CLI 命令和 Chrome Bridge 不会从已保存的服务地址中发现此前缀，运行时应
-设置与服务相同的 `QWENPAW_BASE_PATH`。支持 `--base-url` 的命令也可以显式传入
-带前缀的完整 URL，例如 `http://127.0.0.1:8088/qwenpaw`；没有此选项的命令
-（包括 `qwenpaw env` 和 `qwenpaw plugin`）以及 Chrome Bridge 仍需使用匹配的
-环境变量。
+`qwenpaw chats list` 等本机 CLI 命令会使用独立服务为当前主机和端口记录的挂载路径。
+保存新前缀后，即使新开 CLI 也仍连接旧路径，直到服务重启。如果连接其他地址，或者
+旧版服务没有记录挂载路径，请将 `QWENPAW_BASE_PATH` 设为目标服务的前缀。显式传入的
+`--base-url` 优先，例如 `http://127.0.0.1:8088/qwenpaw`。单独设置 Chrome Bridge 时，
+仍需使用与服务相同的 `QWENPAW_BASE_PATH`。
 
 已有部署切换到非根路径前，请在服务仍位于 `/` 时将已安装的 Chrome 和 Voice
 插件更新到 `0.1.2` 或更高版本，再设置前缀并重启 QwenPaw。如果使用 Chrome Bridge，

@@ -1938,8 +1938,14 @@ class TestConsoleStaticDiagnosticNotes:
 
 
 class TestApiTargetMismatchNote:
-    def _cfg(self, host, port):
-        return SimpleNamespace(last_api=SimpleNamespace(host=host, port=port))
+    def _cfg(self, host, port, base_path=None):
+        return SimpleNamespace(
+            last_api=SimpleNamespace(
+                host=host,
+                port=port,
+                base_path=base_path,
+            ),
+        )
 
     def test_no_last_api(self):
         assert (
@@ -1971,6 +1977,16 @@ class TestApiTargetMismatchNote:
             dc.api_target_mismatch_note(
                 self._cfg("127.0.0.1", 8088),
                 "http://127.0.0.1:8088/app",
+            )
+            is None
+        )
+
+    def test_match_with_recorded_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/client")
+        assert (
+            dc.api_target_mismatch_note(
+                self._cfg("127.0.0.1", 8088, "/server"),
+                "http://127.0.0.1:8088/server",
             )
             is None
         )

@@ -14,7 +14,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, NamedTuple, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -729,6 +729,8 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     candidate = config.model_copy(deep=True)
     with _config_lock:
         payload = candidate.model_dump(mode="json", by_alias=True)
+        if candidate.last_api.base_path is None:
+            payload["last_api"].pop("base_path", None)
         if candidate.theme is None:
             payload.pop("theme", None)
         else:
@@ -944,53 +946,53 @@ def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
         return None
 
 
-# In-process cache for the current server's API address.
-# Desktop mode uses a random port, and config.json on disk may be
-# overwritten by migrations or file-lock races.  The in-process cache
-# guarantees that tools running in the same process always resolve the
-# correct address without depending on disk I/O.
-#
-# Thread safety: the cache is an immutable tuple assigned atomically under
-# CPython's GIL.  Only the server startup thread calls write_last_api(),
-# so no lock is required for the current single-writer / multi-reader
-# pattern.  If concurrent writers are ever introduced, wrap both
-# read/write in a threading.Lock.
-_runtime_last_api: Optional[Tuple[str, int]] = None
+class LastApiEndpoint(NamedTuple):
+    host: str
+    port: int
+    base_path: str | None = None
+
+
+# Kept in the serving process even if config.json is subsequently rewritten.
+_runtime_last_api: LastApiEndpoint | None = None
+
+
+def read_last_api_record() -> LastApiEndpoint | None:
+    """Read the address and mount together, preferring the serving process."""
+    endpoint = _runtime_last_api
+    if endpoint is not None:
+        return endpoint
+
+    last_api = load_config().last_api
+    if not last_api.host or last_api.port is None:
+        return None
+    return LastApiEndpoint(last_api.host, last_api.port, last_api.base_path)
 
 
 def read_last_api() -> Optional[Tuple[str, int]]:
-    """Read last API host/port, preferring the in-process cache.
-
-    Priority:
-    1. In-process runtime cache (set by ``write_last_api`` in this process)
-    2. Persisted value from config.json on disk
-    """
-    if _runtime_last_api is not None:
-        logger.debug(
-            "read_last_api: using in-process cache %s:%s",
-            _runtime_last_api[0],
-            _runtime_last_api[1],
-        )
-        return _runtime_last_api
-
-    config = load_config()
-    host = config.last_api.host
-    port = config.last_api.port
-    if not host or port is None:
-        logger.debug("read_last_api: no value in cache or config")
+    """Return only the host/port for existing address-only consumers."""
+    endpoint = read_last_api_record()
+    if endpoint is None:
         return None
-    logger.debug("read_last_api: disk fallback %s:%s", host, port)
-    return host, port
+    return endpoint.host, endpoint.port
 
 
-def write_last_api(host: str, port: int) -> None:
-    """Write last API host/port to both in-process cache and config file."""
+def cache_last_api(host: str, port: int, base_path: str | None = None) -> None:
+    """Make the current API endpoint available within the server process."""
     global _runtime_last_api
-    _runtime_last_api = (host, port)
+    _runtime_last_api = LastApiEndpoint(host, port, base_path)
 
-    config = load_config()
-    config.last_api = LastApiConfig(host=host, port=port)
-    save_config(config)
+
+def write_last_api(host: str, port: int, base_path: str | None = None) -> None:
+    """Publish the last API endpoint in-process and in config.json."""
+    cache_last_api(host, port, base_path)
+    with _config_lock:
+        config = load_config()
+        config.last_api = LastApiConfig(
+            host=host,
+            port=port,
+            base_path=base_path,
+        )
+        save_config(config)
 
 
 def get_jobs_path() -> Path:

@@ -204,7 +204,11 @@ def test_desktop_base_path_with_persisted_bootstrap(tmp_path, mode):
                 else:
                     from qwenpaw.cli.main import cli
 
-                    uvicorn.run = lambda app, **_: probe(app)
+                    def run(server):
+                        probe(server.config.app)
+                        server.started = True
+
+                    uvicorn.Server.run = run
                     cli.main(args=sys.argv[2:], standalone_mode=False)
                 """,
             ),

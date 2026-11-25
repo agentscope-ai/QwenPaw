@@ -22,6 +22,7 @@ from qwenpaw.cli import http as cli_http
 from qwenpaw.cli import doctor_cmd, plugin_commands, update_cmd
 from qwenpaw.utils.runtime_api import async_api_client
 from qwenpaw.cli.main import cli
+from qwenpaw.config.utils import LastApiEndpoint
 
 _RUNTIME_URL = "http://127.0.0.1:9001"
 _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
@@ -34,8 +35,8 @@ def managed_runtime(monkeypatch):
     monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "secret-a")
     monkeypatch.setenv("QWENPAW_RUNTIME_API_URL", _RUNTIME_URL)
     monkeypatch.setattr(
-        "qwenpaw.cli.main.read_last_api",
-        lambda: ("127.0.0.1", 9002),
+        "qwenpaw.cli.main.read_last_api_record",
+        lambda: LastApiEndpoint("127.0.0.1", 9002),
     )
     monkeypatch.setattr(
         agent_management,
@@ -69,6 +70,11 @@ def test_agents_list_passes_real_boundary(monkeypatch, managed):
     app = FastAPI()
     app.add_middleware(RuntimeBoundaryMiddleware)
     seen = []
+    if managed:
+        monkeypatch.setattr(
+            "qwenpaw.cli.main.read_last_api_record",
+            lambda: LastApiEndpoint("127.0.0.1", 9001, "/not-the-runtime"),
+        )
 
     @app.get("/api/agents")
     async def agents(request: Request):
@@ -373,8 +379,8 @@ def test_cli_api_operations_pass_boundary(
             monkeypatch.delenv(name)
     monkeypatch.setattr(
         plugin_commands.config_utils,
-        "read_last_api",
-        lambda: ("127.0.0.1", 9002),
+        "read_last_api_record",
+        lambda: LastApiEndpoint("127.0.0.1", 9002),
     )
     archive = tmp_path / "plugin.zip"
     archive.write_bytes(b"fixture zip")

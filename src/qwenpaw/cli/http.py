@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import click
 import httpx
@@ -14,6 +14,9 @@ from ..utils.runtime_api import (
     api_url_from_deployment,
     api_url_from_override,
 )
+
+if TYPE_CHECKING:
+    from ..config.utils import LastApiEndpoint
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
@@ -28,24 +31,37 @@ def print_json(data: Any) -> None:
     click.echo(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def deployment_url(
+    host: str,
+    port: int,
+    record: LastApiEndpoint | None = None,
+) -> str:
+    """Use a recorded mount only for its own HTTP address."""
+    host = host.strip().strip("[]")
+    mount = None
+    if (
+        record is not None
+        and host.lower() == record.host.strip().strip("[]").lower()
+        and port == record.port
+    ):
+        mount = record.base_path
+    if mount is None:
+        mount = os.environ.get("QWENPAW_BASE_PATH")
+    if ":" in host:
+        host = f"[{host}]"
+    return f"http://{host}:{port}{normalize_base_path(mount)}"
+
+
 def resolve_base_url(ctx: click.Context, base_url: Optional[str]) -> str:
-    """Resolve base_url with priority:
-    1) command --base-url
-    2) global --host/--port (from ctx.obj)
-
-    Args:
-        ctx: Click context containing global options
-        base_url: Optional base_url override from command option
-
-    Returns:
-        Resolved base URL string
-    """
+    """Prefer an explicit URL; otherwise resolve the selected HTTP address."""
     if base_url:
         return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
-    return f"http://{host}:{port}{base_path}"
+    options = ctx.obj or {}
+    return deployment_url(
+        options.get("host", "127.0.0.1"),
+        options.get("port", 8088),
+        options.get("last_api"),
+    )
 
 
 def resolve_api_endpoint(ctx: click.Context, base_url: Optional[str]) -> str:
