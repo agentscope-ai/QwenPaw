@@ -22,11 +22,13 @@ from models.config import (
     get_video_model_name,
 )
 from services.file_agent_runtime import manual_regeneration_hold
-from services.file_agent_runtime.work_graph import derive_work_graph
+from services.file_agent_runtime.work_graph import WorkNode, derive_work_graph
 from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
 from services.media_files.call_budget import media_call_count
 from services.project_files.facade import CreatorFileServices
+from services.project_files.models import Project
 from services.project_files.store import ProjectNotFound
+from services.run_review import admission
 from services.runtime_files.execution_store import ProjectExecutionStore
 
 from .dependencies import CreatorErrorRoute, project_file_services
@@ -36,6 +38,70 @@ router = APIRouter(
     tags=["work-graph"],
     route_class=CreatorErrorRoute,
 )
+
+# Work-node kind -> the artifact slot kind it produces. A node's target_ref
+# is the slot's owner_ref, so the (owner, kind, variant) triple identifies
+# the artifact version whose automatic review state this node represents.
+_NODE_SLOT_KINDS = {
+    "visual": "visual_asset_image",
+    "lineup": "cast_lineup_image",
+    "storyboard": "r2v_storyboard_image",
+    "video": "element_video",
+    "compose": "final_video",
+}
+
+
+def _slot_variant_id(slot: Any) -> str | None:
+    """The visual Variant an artifact slot belongs to, if it names one."""
+
+    value = slot.metadata.get("variantId") if slot.metadata else None
+    return str(value) if value else None
+
+
+def _node_variant_id(node: WorkNode) -> str | None:
+    """The visual Variant a node dispatches, if it targets one."""
+
+    value = node.dispatch_arguments.get("variantId")
+    return str(value) if value else None
+
+
+def _review_skip_notes(
+    project: Project,
+    reports_root: Any,
+) -> dict[tuple[str, str, str | None], dict[str, str]]:
+    """Skip notes for currently selected artifact versions.
+
+    Keyed by ``(owner_ref, slot_kind, variant_id)`` because a visual entity
+    owns one image slot per Variant: the owner/kind pair alone would let a
+    v1 skip reason surface on v2's node. A note only applies while the
+    version it names is still the slot's selected output.
+    """
+
+    notes: dict[tuple[str, str, str | None], dict[str, str]] = {}
+    for slot in project.assets.artifact_slots_by_id.values():
+        if not slot.selected_version_id:
+            continue
+        note = admission.media_review_skip_note(
+            reports_root,
+            slot_id=slot.slot_id,
+        )
+        if note is None or note["version_id"] != slot.selected_version_id:
+            continue
+        notes[(slot.owner_ref, slot.kind, _slot_variant_id(slot))] = {
+            "reason": note["reason"],
+            "hint": note["hint"],
+        }
+    return notes
+
+
+def _node_review_skip(
+    node: WorkNode,
+    notes: dict[tuple[str, str, str | None], dict[str, str]],
+) -> dict[str, str] | None:
+    slot_kind = _NODE_SLOT_KINDS.get(node.kind)
+    if slot_kind is None or not node.target_ref:
+        return None
+    return notes.get((node.target_ref, slot_kind, _node_variant_id(node)))
 
 
 def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
@@ -52,6 +118,10 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
     hold = manual_regeneration_hold.ManualRegenerationHoldStore(
         services.root,
     ).read(project_id)
+    review_skips = _review_skip_notes(
+        snapshot.project,
+        services.projects.project_root(project_id) / "runtime" / "run-review",
+    )
     return {
         "projectId": project_id,
         "manualHold": hold.payload(),
@@ -80,6 +150,7 @@ def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:
                 "preparationState": (
                     "waiting" if node.prompt_sync_required else None
                 ),
+                "reviewSkip": _node_review_skip(node, review_skips),
             }
             for node in graph.nodes
         ],

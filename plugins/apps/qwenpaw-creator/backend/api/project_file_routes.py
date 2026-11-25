@@ -1269,17 +1269,41 @@ async def decide_project_review(
     # Session messages use the same Project lock as lifecycle operations, so
     # publish only after the decision boundary has released it. The journal
     # plus deterministic clientMessageId make this safe to retry.
+    #
+    # The decision is already durable at this point (journal FINALIZED +
+    # idempotency COMPLETED). A follow-up publication failure must not
+    # surface as an error response: users saw "decision failed" toasts for
+    # approvals that had in fact committed, then watched the reviewed
+    # assets disappear on the next poll. Degrade to success semantics and
+    # flag the deferral; startup recovery and driver convergence replay
+    # the journal outbox until the follow-up lands.
+    followup_deferred = False
     try:
         await services.publish_review_followup(
             project_id=project_id,
             review_id=review_id,
             decision_id=request.decision_id,
         )
-    except Exception as exc:
-        _translate_storage_error(exc)
-        raise
+    except Exception:
+        followup_deferred = True
+        logger.exception(
+            "review followup deferred: project=%s review=%s decision=%s",
+            _log_safe(project_id),
+            _log_safe(review_id),
+            _log_safe(request.decision_id),
+        )
     # The driver converges the resolved Review projection and consumes an
     # executable continuation only for ACCEPT or UNDO_AND_REGENERATE.
     # UNDO_ONLY is stored as system context and cannot start a run.
-    notify_creator_agent_runtime(project_id)
+    try:
+        notify_creator_agent_runtime(project_id)
+    except Exception:
+        followup_deferred = True
+        logger.exception(
+            "agent runtime notify deferred: project=%s review=%s",
+            _log_safe(project_id),
+            _log_safe(review_id),
+        )
+    if followup_deferred:
+        body = {**body, "followupDeferred": True}
     return body

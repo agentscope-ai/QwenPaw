@@ -105,17 +105,30 @@ def add_script_version(
     只维护索引：IndexedFile 条目按 ``markdown_text`` 计算 size，
     调用方必须把 UTF-8 字节以 ``checksum`` 为内容、
     :func:`script_file_relative_uri` 为路径落盘。
-    同 (timeline, checksum) 重复调用是幂等的 select 复放。
+    同正文、同输入且未过期的版本才可复放。已过期或输入不同的同正文
+    必须创建新版本，保留旧版本的 provenance 和过期状态。
     """
 
     slot_id = ensure_timeline_script_slot(project, timeline_id)
     version_id = script_version_id(project.project_id, timeline_id, checksum)
-    existing = project.assets.artifact_versions_by_id.get(version_id)
     slot = project.assets.artifact_slots_by_id.get(slot_id)
-    if existing is not None and slot is not None:
-        # 内容寻址复放：重新选中即可，不追加重复版本。
-        slot.selected_version_id = version_id
-        return existing
+    if slot is not None:
+        for previous_id in reversed(slot.version_ids):
+            existing = project.assets.artifact_versions_by_id[previous_id]
+            if (
+                existing.checksum == checksum
+                and existing.input_fingerprint == input_fingerprint
+                and not existing.stale
+            ):
+                slot.selected_version_id = previous_id
+                return existing
+        if version_id in project.assets.artifact_versions_by_id:
+            version_id = script_version_id(
+                project.project_id,
+                timeline_id,
+                f"{checksum}:{input_fingerprint}:{based_on_generation}"
+                f":r{len(slot.version_ids)}",
+            )
 
     content = markdown_text.encode("utf-8")
     if file_id not in project.assets.files_by_id:

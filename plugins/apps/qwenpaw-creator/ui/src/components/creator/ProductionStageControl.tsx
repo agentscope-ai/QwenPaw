@@ -58,7 +58,8 @@ export default function ProductionStageControl({
     <button
       type="button"
       disabled={busy || patching || !etag}
-      className="btn-secondary"
+      className="btn-decision"
+      data-production-stage-confirm=""
       onClick={requestConfirmation}
     >
       {t("productionStage.confirmScript")}

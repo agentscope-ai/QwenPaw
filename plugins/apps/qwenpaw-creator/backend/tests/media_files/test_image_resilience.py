@@ -264,12 +264,18 @@ class _CountingProvider:
     # this test provider must identify the documented model contract it mocks.
     model_name = "qwen-image-2.0-pro"
 
-    def __init__(self, *, fail_with: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_with: str | BaseException | None = None,
+    ) -> None:
         self.calls = 0
         self._fail_with = fail_with
 
     async def generate(self, **_kwargs):
         self.calls += 1
+        if isinstance(self._fail_with, BaseException):
+            raise self._fail_with
         if self._fail_with is not None:
             raise RuntimeError(self._fail_with)
         return {"content": _PNG, "media_type": "image/png"}
@@ -1077,6 +1083,56 @@ def test_unchanged_text_only_refusal_is_also_locally_blocked(
     with pytest.raises(ConflictError, match="已本地拦截"):
         _execute_safety(service, key="text-repeat")
     assert provider.calls == 1
+
+
+def test_reference_download_failure_keeps_its_structured_reason(
+    tmp_path,
+    monkeypatch,
+):
+    """A storage 403 while fetching a reference image is not a config bug.
+
+    The provider body quotes the pre-signed URL's 403, so a reader that only
+    pattern-matched status numbers would send the user to model settings.
+    The task error must keep the classified code (the workbench keys its next
+    step off it) and must never persist the usable grant.
+    """
+    from models.image.base import (
+        REFERENCE_DOWNLOAD_ERROR_CODE,
+        reference_download_model_error,
+    )
+
+    signed = (
+        "https://bucket.oss.aliyuncs.com/ref.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET"
+    )
+    failure = reference_download_model_error(
+        f"failed to download image: {signed} (status 403)",
+        "qwen-image-2.0-pro",
+        prefix="Image generation failed with status 400",
+    )
+    assert failure is not None
+    services = _safety_services(tmp_path, monkeypatch)
+    provider = _CountingProvider(fail_with=failure)
+    service = FileImageExecutionService(services, provider=provider)
+
+    with pytest.raises(ModelError) as caught:
+        _execute_safety(service, key="ref-403", reference_urls=[_PHOTO_URL])
+    assert caught.value.code == REFERENCE_DOWNLOAD_ERROR_CODE
+    assert caught.value.retryable is False
+    assert "AK123" not in str(caught.value)
+    assert "SECRET" not in str(caught.value)
+
+    failed = [
+        task
+        for task in service.executions.list_tasks(PROJECT_ID)
+        if task.error
+    ]
+    assert failed
+    error = failed[-1].error
+    assert error["code"] == REFERENCE_DOWNLOAD_ERROR_CODE
+    assert error["retryable"] is False
+    assert "AK123" not in error["message"]
+    assert "SECRET" not in error["message"]
 
 
 def _snapshot(*, variants: dict | None) -> ProjectSnapshot:

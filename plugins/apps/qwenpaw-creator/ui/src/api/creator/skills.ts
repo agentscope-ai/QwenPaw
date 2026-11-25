@@ -128,12 +128,18 @@ export function searchMarketSkills(
   page = 1,
   limit = 20,
   lang = "en",
+  providers?: string[],
 ): Promise<MarketSearchResponse> {
   const params = new URLSearchParams();
   if (query) params.set("query", query);
   params.set("page", String(page));
   params.set("limit", String(limit));
   params.set("lang", lang);
+  // Empty/omitted means "every reachable market" (the default); only send the
+  // filter once the user narrows the source picker.
+  if (providers && providers.length > 0) {
+    params.set("providers", providers.join(","));
+  }
   return creatorRequest<MarketSearchResponse>(
     `/skills/market/search?${params.toString()}`,
   );

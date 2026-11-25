@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { message, Modal, Tooltip } from "antd";
 import { Bookmark, FileText, Info, Loader2, RefreshCw, X } from "lucide-react";
 import { MenuUnfoldOutlined } from "@ant-design/icons";
@@ -10,7 +17,8 @@ import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useTimelineStore } from "@/store/timelineStore";
-import { renderTimeline } from "@/api/creator";
+import { CreatorHttpError, renderTimeline } from "@/api/creator";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import { setSubtitleStyle, toggleSubtitles } from "@/api/creator";
 import {
   isSubtitleOverlay,
@@ -44,8 +52,25 @@ function sec(tick: number, ticksPerSecond: number): string {
 }
 
 export default function PlanPage() {
-  const { t } = useTranslation();
   const { id = "", timelineId: timelineIdParam } = useParams();
+  return <TimelinePlan key={id} id={id} timelineIdParam={timelineIdParam} />;
+}
+
+function TimelinePlan({
+  id,
+  timelineIdParam,
+}: {
+  id: string;
+  timelineIdParam?: string;
+}) {
+  const { t } = useTranslation();
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
     state.projectId === id ? state.project : null,
@@ -448,6 +473,16 @@ export default function PlanPage() {
     // in the active-task poll. Reconcile the local error with that final cut.
     if (freshRenderVersionId !== null) setComposeFailed(false);
   }, [freshRenderVersionId]);
+  const autoComposePermission = useWorkGraphStore((state) => {
+    const graph = state.graph;
+    if (!timeline || state.projectId !== id || graph?.projectId !== id)
+      return "unknown";
+    const nodeId = `compose:${timeline.timeline_id}`;
+    return graph.manualHold?.nodeIds.includes(nodeId) ||
+      graph.nodes.some((node) => node.id === nodeId && node.manuallyHeld)
+      ? "held"
+      : "allowed";
+  });
   const allReady = readiness.total > 0 && readiness.notReady === 0;
   const timelineTargetRef = timeline
     ? `timeline:${timeline.timeline_id}`
@@ -503,60 +538,80 @@ export default function PlanPage() {
     ? t("plan.composingShort")
     : t("plan.preparingComposeShort");
 
-  const composeNow = useCallback(async () => {
-    if (!timeline || isComposing) return;
-    setComposing(true);
-    setComposeFailed(false);
-    try {
-      // The endpoint only dispatches a persistent Task; progress and the final
-      // artifact are recovered via polling, so switching pages, refreshing, or a
-      // takeover by another tab never loses compositing state.
-      // The dispatch request itself may hang while the backend is busy; on
-      // timeout, fall into the unified recovery branch so "preparing to
-      // compose" doesn't hang until a manual refresh.
-      const dispatch = await Promise.race([
-        renderTimeline(id, timeline.timeline_id),
-        new Promise<never>((_, reject) =>
-          window.setTimeout(
-            () => reject(new Error(t("plan.composeDispatchTimeout"))),
-            15_000,
+  const composeNow = useCallback(
+    async (automatic = false) => {
+      if (!timeline || isComposing) return;
+      setComposing(true);
+      setComposeFailed(false);
+      try {
+        // The endpoint only dispatches a persistent Task; progress and the final
+        // artifact are recovered via polling, so switching pages, refreshing, or a
+        // takeover by another tab never loses compositing state.
+        // The dispatch request itself may hang while the backend is busy; on
+        // timeout, fall into the unified recovery branch so "preparing to
+        // compose" doesn't hang until a manual refresh.
+        const dispatch = await Promise.race([
+          renderTimeline(id, timeline.timeline_id, undefined, automatic),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(
+              () => reject(new Error(t("plan.composeDispatchTimeout"))),
+              15_000,
+            ),
           ),
-        ),
-      ]);
-      setRequestedComposeTaskId(dispatch.taskId);
-      await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
-    } catch (error) {
-      await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
-      const adopted = useCreatorTaskViewStore
-        .getState()
-        .tasks.find(
-          (task) =>
-            task.kind === "compose" &&
-            task.targetRef === `timeline:${timeline.timeline_id}` &&
-            (task.status === "QUEUED" || task.status === "RUNNING"),
-        );
-      if (adopted) {
-        setRequestedComposeTaskId(adopted.id);
-      } else {
-        const latest = useProjectSnapshotStore.getState().project;
-        const latestTimeline = latest?.timelines.items[timeline.timeline_id];
-        const completed =
-          latest && latestTimeline
-            ? resolveTimelineRender(latest, latestTimeline)?.selected
-            : null;
-        if (completed && !completed.stale) {
-          setComposeFailed(false);
-        } else {
-          setComposeFailed(true);
-          message.error(
-            t("plan.composeFailed", { detail: (error as Error).message }),
-          );
+        ]);
+        if (!mounted.current) return;
+        setRequestedComposeTaskId(dispatch.taskId);
+        await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+      } catch (error) {
+        if (!mounted.current) return;
+        if (
+          automatic &&
+          error instanceof CreatorHttpError &&
+          error.status === 409 &&
+          error.details.code === "MANUAL_REGENERATION_HOLD"
+        ) {
+          // A hold was installed between the graph read and dispatch. Re-arm
+          // after reading it; the hold may already have been released again.
+          await useWorkGraphStore.getState().refresh(id);
+          const graph = useWorkGraphStore.getState();
+          if (mounted.current && graph.graph?.projectId === id && !graph.error)
+            composeAttemptedGeneration.current = null;
+          return;
         }
+        await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+        if (!mounted.current) return;
+        const adopted = useCreatorTaskViewStore
+          .getState()
+          .tasks.find(
+            (task) =>
+              task.kind === "compose" &&
+              task.targetRef === `timeline:${timeline.timeline_id}` &&
+              (task.status === "QUEUED" || task.status === "RUNNING"),
+          );
+        if (adopted) {
+          setRequestedComposeTaskId(adopted.id);
+        } else {
+          const latest = useProjectSnapshotStore.getState().project;
+          const latestTimeline = latest?.timelines.items[timeline.timeline_id];
+          const completed =
+            latest && latestTimeline
+              ? resolveTimelineRender(latest, latestTimeline)?.selected
+              : null;
+          if (completed && !completed.stale) {
+            setComposeFailed(false);
+          } else {
+            setComposeFailed(true);
+            message.error(
+              t("plan.composeFailed", { detail: (error as Error).message }),
+            );
+          }
+        }
+      } finally {
+        if (mounted.current) setComposing(false);
       }
-    } finally {
-      setComposing(false);
-    }
-  }, [id, isComposing, pollOnce, refreshTasks, timeline]);
+    },
+    [id, isComposing, pollOnce, refreshTasks, timeline, t],
+  );
 
   useEffect(() => {
     if (!isComposing) return;
@@ -592,6 +647,7 @@ export default function PlanPage() {
     const timer = window.setTimeout(() => {
       void (async () => {
         await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+        if (!mounted.current) return;
         const latest = useCreatorTaskViewStore.getState();
         if (latest.tasks.some((task) => task.id === pendingTaskId)) return;
         setRequestedComposeTaskId(null);
@@ -621,7 +677,9 @@ export default function PlanPage() {
     // The Project request already in-flight when the Task reached its terminal
     // state may return a stale snapshot; poll again serially so the final cut
     // published by a successful task lands on the page instead of stalling at 100%.
-    void pollOnce(id).then(() => pollOnce(id));
+    void pollOnce(id).then(() => {
+      if (mounted.current) return pollOnce(id);
+    });
     if (requestedComposeTask.status === "SUCCEEDED") {
       setComposeFailed(false);
       message.success(t("plan.composeSuccess"));
@@ -658,7 +716,15 @@ export default function PlanPage() {
   }, [pendingReviewCount]);
 
   useEffect(() => {
-    if (!allReady || renderIsCurrent || isComposing || pendingReviewCount > 0)
+    if (autoComposePermission === "held")
+      composeAttemptedGeneration.current = null;
+    if (
+      autoComposePermission !== "allowed" ||
+      !allReady ||
+      renderIsCurrent ||
+      isComposing ||
+      pendingReviewCount > 0
+    )
       return;
     if (
       generation !== null &&
@@ -667,11 +733,12 @@ export default function PlanPage() {
       return;
     const timer = window.setTimeout(() => {
       composeAttemptedGeneration.current = generation;
-      void composeNow();
+      void composeNow(true);
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [
     allReady,
+    autoComposePermission,
     renderIsCurrent,
     isComposing,
     generation,

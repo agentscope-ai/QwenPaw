@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,24 @@ from domain.errors import CreatorError
 WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 PLUGIN_ENTRYPOINT = WORKSPACE_ROOT / "qwenpaw-creator" / "backend" / "main.py"
 QWENPAW_SOURCE = WORKSPACE_ROOT.parents[1] / "src"
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_environment():
+    """Undo the environment the loaded entrypoint exports.
+
+    Importing the plugin entrypoint runs the host bootstrap, which mirrors
+    the machine's real Creator model config into ``os.environ`` (TEXT_API_KEY,
+    TTS_API_KEY, ...) without going through ``monkeypatch``.  Left in place,
+    that credential makes every later test see a configured TTS backend and
+    breaks their tool-set assertions.
+    """
+    before = dict(os.environ)
+    yield
+    for key in set(os.environ) - set(before):
+        del os.environ[key]
+    for key, value in before.items():
+        os.environ[key] = value
 
 
 def _load_plugin_entrypoint(monkeypatch):
