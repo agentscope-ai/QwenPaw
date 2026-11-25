@@ -120,12 +120,13 @@ def run(directory=None):
         )
         transaction.atomic_json(directory / "operation.json", operation)
         mutated = False
+        maintenance_args = (
+            operation["payload"]["sites"],
+            operation["id"],
+            operation["capability"],
+        )
         try:
-            with maintenance.maintenance(
-                operation["payload"]["sites"],
-                operation["id"],
-                operation["capability"],
-            ):
+            with maintenance.maintenance(*maintenance_args):
                 mutated = True
                 if recovering:
                     transaction.rollback(directory)
@@ -134,11 +135,10 @@ def run(directory=None):
                     raise RuntimeError(
                         "DEPENDENCY_INTERRUPTED: interrupted transaction was restored.",
                     )
-                _continue(directory, operation, preflight=True)
-                if maintenance.live_readers(operation["payload"]["sites"]):
-                    raise RuntimeError(
-                        "DEPENDENCY_CONSUMER_BUSY: verification child did not exit.",
-                    )
+            # The maintenance marker stays active while preflight takes the
+            # environment locks for its own scan.
+            _continue(directory, operation, preflight=True)
+            with maintenance.maintenance(*maintenance_args):
                 target = (
                     Path(operation["plugin_dirs"][0]) / operation["plugin_id"]
                 )
