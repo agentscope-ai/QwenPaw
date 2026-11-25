@@ -2421,20 +2421,25 @@ def _apply_model_fallbacks(
         fallback_key = (fallback_provider_id, fallback_slot.model)
         if fallback_key in seen_slots:
             continue
-        fallback_info = fallback_provider.get_model_info(fallback_slot.model)
-        if fallback_info is None:
-            continue
-        fallback_info = fallback_provider.resolve_model_info(
-            fallback_slot.model,
-        )
-        if require_image_support and fallback_info.supports_image is not True:
-            continue
-        if fallback_free_only and not fallback_info.is_free:
-            continue
         # A broken fallback slot (stale provider config, deleted chat
         # model class, ...) must never keep a healthy primary model
         # from being built: skip the slot instead of propagating.
         try:
+            fallback_info = fallback_provider.get_model_info(
+                fallback_slot.model,
+            )
+            if fallback_info is None:
+                continue
+            fallback_info = fallback_provider.resolve_model_info(
+                fallback_slot.model,
+            )
+            if (
+                require_image_support
+                and fallback_info.supports_image is not True
+            ):
+                continue
+            if fallback_free_only and not fallback_info.is_free:
+                continue
             with agent_thinking_level(thinking_level, thinking_budget):
                 fallback_provider.validate_chat_model(fallback_slot.model)
                 fallback_model = _create_provider_model(
