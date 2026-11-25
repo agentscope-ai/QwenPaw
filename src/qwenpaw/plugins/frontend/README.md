@@ -46,6 +46,68 @@ do not read `navigator.language` or call React hooks during registration.
 Existing string labels remain unchanged, and omitting `title` preserves the
 host's path-derived title.
 
+## Added in 1.2.0
+
+`getHost().chat.composer.read()` returns an immutable `ComposerSnapshot` for
+the visible composer, or `null`. Keep that exact object and call
+`composer.replace(snapshot, text)` after showing the result to the user.
+The host returns `false` if the draft, model, conversation or binding changed;
+typing and then undoing does not revive an old snapshot. No draft is modified
+when replacement fails. The snapshot contains `agentId`, nullable `sessionId`
+and `chatId`, `text`, and a monotonically advancing `revision`.
+
+`composer.model()` resolves the current draft's QwenPaw provider model
+(`provider_id`, `model_id`) without credentials. It returns `null` if the
+composer changed during lookup or the host cannot provide a QwenPaw provider
+model for the selection, as can happen with an external execution engine.
+For an SDK PawApp request that
+needs selected main-chat text or project directories, pass the snapshot's
+non-null `chatId` as `X-Chat-Id` and its `agentId` as `agent_id`. The backend
+checks the authenticated user's ownership; this does not grant arbitrary
+session access. The Python `conversations.history()` API returns saved text
+only and takes a bounded `limit`, not a session identifier.
+
+For `checkpoints(appId)`, pass both `chatId` and `agentId` from the selected
+saved conversation. Use the same pair for timeline, snapshot, preview, and
+restore so they all target that conversation's workspace.
+
+`getHost().host.selectAgent(agentId)` validates the current host list and uses
+the normal workspace selection flow. It rejects unavailable workspaces and
+will not overwrite a newer selection made while the request was pending.
+The host's existing `menu.add()` and `route.add()` return disposable handles.
+1.2 adds their missing standalone package declarations (`PluginMenuItem`,
+`PluginRoute`) without introducing competing runtime registration aliases.
+
+
+## Author checks (1.2.0)
+
+After installing TypeScript in your frontend project, run:
+
+```sh
+npx qwenpaw-sdk-check ../plugin.json ./tsconfig.json
+```
+
+The command compiles the selected project with strict checking and compares
+resolved SDK symbols' `@since` annotations with `plugin.json`'s `sdk.version`.
+It follows imports, aliases, destructuring, global declarations and typed call
+arguments, including a model option stored in a variable. Same-named third-party
+methods are not SDK uses. New interface members inherit their interface's
+introduction version. The checker never runs plugin code or compiler plugins.
+It returns JSON and exits with 1 for findings, 2 for an input/tool failure.
+TypeScript `>=5.8 <6` is an optional author dependency; the host does not need Node
+or TypeScript to run plugins.
+
+If the root `tsconfig.json` only lists project `references`, run the command
+with each referenced `tsconfig` that includes plugin source files, for example
+`npx qwenpaw-sdk-check ../plugin.json ./tsconfig.app.json`.
+
+Run the Python SDK checker as well. This command checks only sources included in
+the selected TypeScript project, not an omitted entry or deployed bundle. `any`,
+casts and TypeScript suppression comments can conceal uses; this is a development
+check, not a security boundary or a complete dynamic JavaScript proof. The Python
+checker explicitly reports frontend checking as uncovered. Existing legacy
+plugins are not rejected merely for lacking TypeScript sources.
+
 
 Harness Settings extensions require SDK 1.1. Import `HarnessSettingsProps` and
 `getHost` from this public package and register through

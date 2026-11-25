@@ -79,6 +79,7 @@ class CheckpointService:
         self._workspace_fallback = None
         self.query_gate = asyncio.Event()
         self.query_gate.set()
+        self._query_waiters: set[asyncio.Task] = set()
         self.lock = asyncio.Lock()
         self.maintenance_lock = asyncio.Lock()
         self._restores = RestoreService(self)

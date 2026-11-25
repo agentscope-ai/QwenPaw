@@ -11,6 +11,10 @@ from pathlib import Path
 import sys
 from typing import Any
 
+PLATFORM_STATES = frozenset(
+    ("connecting", "connected", "disconnected", "failed"),
+)
+
 
 class DriverContext:
     """Preserve the Channel context and platform state wire contract."""
@@ -44,7 +48,7 @@ class DriverContext:
         await self.peer.notify("channel.auth.required", params.to_mapping())
 
     async def set_platform_state(self, state: str) -> None:
-        if state not in {"connecting", "connected", "disconnected", "failed"}:
+        if state not in PLATFORM_STATES:
             raise ValueError("PLATFORM_STATE_INVALID")
         await self.peer.notify(
             "shared.state",
@@ -137,6 +141,21 @@ class ChannelRuntime:
             identity,
             self._capabilities,
             send_timeout=getattr(self, "_send_timeout", 120.0),
+        )
+
+    def prepare_component(self, component_class, packet):
+        if not any(
+            base.__module__ == "qwenpaw.plugins.channel_workers"
+            and base.__name__ == "ChannelDriver"
+            for base in getattr(component_class, "__mro__", ())
+        ):
+            return component_class
+        from qwenpaw.plugins._channel_worker import prepare_driver
+
+        return prepare_driver(
+            component_class,
+            packet,
+            capabilities=self._capabilities,
         )
 
     async def state(self, context, state):

@@ -118,6 +118,8 @@ async def _search_provider(
     # in as `category=`; otherwise its localized keyword replaces an empty
     # query. `_supported_kwargs` drops any kwarg the provider doesn't take.
     routing = resolve_category(category, key, lang)
+    if getattr(provider, "_sdk_category_filter", False):
+        routing = {"native_code": category, "search_term": None}
     native_code = routing["native_code"]
     effective_query = query
     if not query and routing["search_term"]:

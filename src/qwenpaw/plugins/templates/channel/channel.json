@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "channel_key": "example-sdk-mailbox",
+  "label": {"en": "Local mailbox example", "zh": "本地信箱示例"},
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {"scope": "runner", "module": "driver", "qualname": "MailboxDriver"},
+  "requirements_file": "requirements.txt",
+  "config_schema": {"type": "object", "properties": {"enabled": {"type": "boolean", "default": false}}},
+  "config_fields": ["enabled"],
+  "capabilities": ["channel.generic.v1"]
+}

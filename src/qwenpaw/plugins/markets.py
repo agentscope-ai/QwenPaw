@@ -10,6 +10,8 @@ from .tools import ToolContext
 @dataclass(frozen=True)
 class MarketContext(ToolContext):
     market_id: str = ""
+    lang: str = "en"
+    category: str | None = None
 
 
 @dataclass(frozen=True)
