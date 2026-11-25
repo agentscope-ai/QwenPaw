@@ -132,7 +132,7 @@ def test_load_drops_legacy_plaintext_keys(tmp_path, monkeypatch) -> None:
 
     history = module.get_history(current_key)
 
-    assert [record["ts"] for record in history] == [2]
+    assert [record.ts for record in history] == [2]
     persisted = json.loads(path.read_text(encoding="utf-8"))
     assert list(persisted) == [current_key]
     assert _TEST_API_KEY not in path.read_text(encoding="utf-8")
@@ -167,6 +167,8 @@ def test_get_history_skips_malformed_records(tmp_path, monkeypatch) -> None:
                     None,
                     {"ts": 1, "precision": 0.5},
                     {"ts": "not-a-number"},
+                    {"ts": 2, "latency_ms": "not-an-int"},
+                    {"ts": 3, "precision": "bad"},
                     "garbage",
                 ],
             },
@@ -176,7 +178,104 @@ def test_get_history_skips_malformed_records(tmp_path, monkeypatch) -> None:
 
     history = module.get_history(fingerprint)
 
-    assert [record["ts"] for record in history] == [1]
+    assert [record.ts for record in history] == [1]
+
+
+def test_append_record_filters_existing_malformed_entries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Appending to a series containing null or invalid entries must sanitize
+    them through the same validation path as get_history."""
+    path = _point_history_at(tmp_path, monkeypatch)
+    fingerprint = service_fingerprint(_config())
+    path.write_text(
+        json.dumps(
+            {
+                fingerprint: [
+                    None,
+                    {"ts": 1, "precision": 0.5},
+                    {"ts": "bad"},
+                    {"ts": 2, "latency_ms": "bad"},
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    returned = module.append_record(
+        fingerprint,
+        module.make_record(
+            latency_ms=15,
+            precision=1.0,
+            correct_count=5,
+            total=5,
+        ),
+    )
+
+    assert len(returned) == 2
+    assert returned[0].ts == 1
+    assert returned[1].precision == 1.0
+    persisted = json.loads(path.read_text(encoding="utf-8"))[fingerprint]
+    assert len(persisted) == 2
+    assert all(isinstance(item, dict) for item in persisted)
+
+
+def test_append_record_rejects_invalid_record(tmp_path, monkeypatch) -> None:
+    _point_history_at(tmp_path, monkeypatch)
+    fingerprint = service_fingerprint(_config())
+
+    with pytest.raises(ValueError, match="Invalid reranker history record"):
+        module.append_record(fingerprint, {"ts": "not-a-number"})
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "garbage",
+        {"ts": True},
+        {"ts": float("nan")},
+        {"ts": float("inf")},
+        {"ts": 1, "latency_ms": True},
+        {"ts": 1, "latency_ms": -1},
+        {"ts": 1, "latency_ms": "5"},
+        {"ts": 1, "precision": True},
+        {"ts": 1, "precision": float("nan")},
+        {"ts": 1, "precision": float("inf")},
+        {"ts": 1, "precision": -0.1},
+        {"ts": 1, "precision": 1.1},
+        {"ts": 1, "correct_count": -1},
+        {"ts": 1, "correct_count": "2"},
+        {"ts": 1, "total": -1},
+        {"ts": 1, "total": None},
+    ],
+)
+def test_parse_history_record_rejects_malformed_shapes(raw) -> None:
+    assert module.parse_history_record(raw) is None
+
+
+def test_get_history_returns_empty_for_non_positive_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    _point_history_at(tmp_path, monkeypatch)
+    fingerprint = service_fingerprint(_config())
+    module.append_record(fingerprint, {"ts": 1})
+
+    assert module.get_history(fingerprint, limit=0) == []
+    assert module.get_history(fingerprint, limit=-5) == []
+
+
+def test_write_creates_missing_parent_directory(tmp_path, monkeypatch) -> None:
+    nested = tmp_path / "nested" / "dir" / "reranker_history.json"
+    monkeypatch.setattr(module, "_history_path", lambda: nested)
+    fingerprint = service_fingerprint(_config())
+
+    returned = module.append_record(fingerprint, {"ts": 1})
+
+    assert len(returned) == 1
+    assert nested.exists()
 
 
 def test_append_and_history_roundtrip(tmp_path, monkeypatch) -> None:
@@ -195,10 +294,10 @@ def test_append_and_history_roundtrip(tmp_path, monkeypatch) -> None:
 
     history = module.get_history(fingerprint)
     assert len(history) == 1
-    assert history[0]["precision"] == 1.0
-    assert history[0]["correct_count"] == 5
-    assert history[0]["total"] == 5
-    assert history[0]["ts"] > 0
+    assert history[0].precision == 1.0
+    assert history[0].correct_count == 5
+    assert history[0].total == 5
+    assert history[0].ts > 0
 
 
 def test_history_is_capped(tmp_path, monkeypatch) -> None:

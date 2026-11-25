@@ -40,7 +40,9 @@ export interface RerankerTestResponse {
   incomplete_count?: number;
   precision: number | null;
   cases: RerankerCaseResponse[] | null;
+  fingerprint?: string;
   history: RerankerHistoryRecord[] | null;
+  history_error?: string | null;
 }
 
 export interface MemoryBackendDescriptor {

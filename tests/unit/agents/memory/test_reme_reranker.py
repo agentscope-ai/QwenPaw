@@ -688,3 +688,18 @@ async def test_probe_rejects_embedded_credentials(monkeypatch) -> None:
 
     assert result.success is False
     assert "credentials" in result.message
+
+
+def test_extract_scores_ignores_boolean_relevance_scores() -> None:
+    scores, correct = module._extract_scores(
+        [
+            {"index": 0, "relevance_score": True},
+            {"index": 1, "relevance_score": False},
+            {"index": 2, "relevance_score": False},
+        ],
+        3,
+        0,
+    )
+
+    assert scores is None
+    assert correct is None

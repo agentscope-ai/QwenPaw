@@ -322,4 +322,208 @@ describe("RerankerModelCenter manual request identity", () => {
     ).toBeUndefined();
     expect(modalMocks.success).not.toHaveBeenCalled();
   });
+
+  it("does not display model A history after switching to model B within the same agent", async () => {
+    const secondRecord = {
+      ...historyRecord,
+      ts: 1_700_000_005_000,
+      precision: 1.0,
+    };
+    mockHistory([historyRecord, secondRecord]);
+
+    const { rerender, container } = renderWithProviders(<Harness />);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("agentConfig.rerankerPrecisionHistoryOnly"),
+      ).not.toBeNull(),
+    );
+    expect(container.querySelector("svg polyline")).not.toBeNull();
+
+    rerender(<Harness config={{ ...enabledConfig, model_name: "model-b" }} />);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("agentConfig.rerankerPrecisionHint"),
+      ).not.toBeNull(),
+    );
+    expect(
+      screen.queryByText("agentConfig.rerankerPrecisionHistoryOnly"),
+    ).toBeNull();
+    expect(container.querySelector("svg polyline")).toBeNull();
+  });
+
+  it("preserves the displayed trend when a manual probe fails", async () => {
+    const secondRecord = {
+      ...historyRecord,
+      ts: 1_700_000_005_000,
+      precision: 1.0,
+    };
+    mockHistory([historyRecord, secondRecord]);
+    vi.spyOn(api, "testReranker").mockResolvedValue({
+      success: false,
+      latency_ms: 12,
+      message: "service unavailable",
+      total: 0,
+      correct_count: 0,
+      precision: null,
+      cases: null,
+      history: null,
+    });
+
+    const { container } = renderWithProviders(<Harness />);
+    await waitFor(() =>
+      expect(
+        screen.queryByText("agentConfig.rerankerPrecisionHistoryOnly"),
+      ).not.toBeNull(),
+    );
+    expect(container.querySelector("svg polyline")).not.toBeNull();
+
+    await clickTest();
+
+    await waitFor(() => expect(modalMocks.error).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByText("agentConfig.rerankerPrecisionHistoryOnly"),
+    ).not.toBeNull();
+    expect(container.querySelector("svg polyline")).not.toBeNull();
+  });
+
+  it("does not open the success dialog if unmounted while a manual probe is pending", async () => {
+    mockHistory([]);
+    const response = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker").mockReturnValue(response.promise);
+
+    const { unmount } = renderWithProviders(<Harness />);
+    await clickTest();
+    unmount();
+
+    await act(async () => {
+      response.resolve({
+        success: true,
+        latency_ms: 42,
+        message: "ok",
+        total: 5,
+        correct_count: 5,
+        precision: 1,
+        cases: null,
+        fingerprint: `sha256:${"a".repeat(64)}`,
+        history: [historyRecord],
+      });
+      await response.promise;
+    });
+
+    expect(modalMocks.success).not.toHaveBeenCalled();
+    expect(modalMocks.error).not.toHaveBeenCalled();
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default,
+    ).toBeUndefined();
+  });
+
+  it("does not open the error dialog if unmounted while a manual probe is pending", async () => {
+    mockHistory([]);
+    const response = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker").mockReturnValue(response.promise);
+
+    const { unmount } = renderWithProviders(<Harness />);
+    await clickTest();
+    unmount();
+
+    await act(async () => {
+      response.resolve({
+        success: false,
+        latency_ms: 10,
+        message: "boom",
+        total: 0,
+        correct_count: 0,
+        precision: null,
+        cases: null,
+        history: null,
+      });
+      await response.promise;
+    });
+
+    expect(modalMocks.error).not.toHaveBeenCalled();
+    expect(modalMocks.success).not.toHaveBeenCalled();
+  });
+
+  it("unlocks testing immediately when switching models mid-probe", async () => {
+    mockHistory([]);
+    const modelAResponse = deferred<RerankerTestResponse>();
+    const modelBResponse = deferred<RerankerTestResponse>();
+    vi.spyOn(api, "testReranker")
+      .mockReturnValueOnce(modelAResponse.promise)
+      .mockReturnValueOnce(modelBResponse.promise);
+
+    const { rerender } = renderWithProviders(<Harness />);
+    const button = screen.getByLabelText("agentConfig.rerankerTestConnection");
+    await clickTest();
+    expect(button).toBeDisabled();
+
+    // Switch to model B before model A's probe returns: button unlocks at once.
+    const modelB = { ...enabledConfig, model_name: "model-b" };
+    rerender(<Harness config={modelB} />);
+    await waitFor(() => expect(button).not.toBeDisabled());
+
+    // Start testing model B, then resolve model A's stale failure first.
+    await clickTest();
+    expect(button).toBeDisabled();
+    await act(async () => {
+      modelAResponse.resolve({
+        success: false,
+        latency_ms: 5,
+        message: "model A failed",
+        total: 0,
+        correct_count: 0,
+        precision: null,
+        cases: null,
+        history: null,
+      });
+      await modelAResponse.promise;
+    });
+    expect(modalMocks.error).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+
+    // Model B succeeds cleanly.
+    await act(async () => {
+      modelBResponse.resolve({
+        success: true,
+        latency_ms: 30,
+        message: "ok",
+        total: 5,
+        correct_count: 5,
+        precision: 1,
+        cases: null,
+        fingerprint: `sha256:${"b".repeat(64)}`,
+        history: [{ ...historyRecord, ts: 1_700_000_009_000, precision: 1 }],
+      });
+      await modelBResponse.promise;
+    });
+    expect(modalMocks.success).toHaveBeenCalledTimes(1);
+    expect(button).not.toBeDisabled();
+    expect(screen.queryByText("agentConfig.rerankerVerified")).not.toBeNull();
+  });
+
+  it("surfaces history_error on a successful probe without rendering 0% rolling average", async () => {
+    mockHistory([]);
+    vi.spyOn(api, "testReranker").mockResolvedValue({
+      success: true,
+      latency_ms: 42,
+      message: "ok",
+      total: 5,
+      correct_count: 5,
+      precision: 1,
+      cases: null,
+      fingerprint: `sha256:${"a".repeat(64)}`,
+      history: null,
+      history_error: "Failed to save verification history: disk full",
+    });
+
+    renderWithProviders(<Harness />);
+    await clickTest();
+
+    await waitFor(() => expect(modalMocks.success).toHaveBeenCalledTimes(1));
+    expect(modalMocks.success.mock.calls[0][0].content).toContain("disk full");
+    expect(screen.queryByText("agentConfig.rerankerVerified")).not.toBeNull();
+    expect(
+      screen.queryByText("agentConfig.rerankerPrecisionRolling"),
+    ).toBeNull();
+  });
 });

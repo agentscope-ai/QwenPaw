@@ -239,7 +239,12 @@ def _extract_scores(
             continue
         index = item.get("index")
         score = item.get("relevance_score")
-        if isinstance(index, int) and isinstance(score, (int, float)):
+        if (
+            isinstance(index, int)
+            and not isinstance(index, bool)
+            and isinstance(score, (int, float))
+            and not isinstance(score, bool)
+        ):
             value = float(score)
             if not math.isfinite(value):
                 raise ValueError(

@@ -4,10 +4,10 @@ import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { BadgeCheck, ChevronRight, Cpu, Power, Target } from "lucide-react";
 
-import { api } from "@/api";
 import type { RerankerHistoryRecord } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { isRerankerConfigured } from "./rerankerUtils";
 import styles from "../index.module.less";
 import { useRerankerVerification } from "./useRerankerVerification";
@@ -24,6 +24,7 @@ export function RerankerModelCenter() {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
+  const { configLoadRevision } = useMemoryMaintenance();
 
   const rerankerConfig = Form.useWatch(
     ["reme_light_memory_config", "reranker_config"],
@@ -36,14 +37,13 @@ export function RerankerModelCenter() {
   const {
     agentId,
     testingReranker,
-    setTestingReranker,
     testedReranker,
     testedRerankerIsCurrent,
     history,
     configKey,
-    markVerified,
-    setHistory,
-    clearVerification,
+    isMounted,
+    loadHistory,
+    runManualProbe,
   } = useRerankerVerification(rerankerConfig, rerankerConfigured);
 
   // History is a separate slice and never sets verifiedAt, so a verdict can
@@ -51,35 +51,19 @@ export function RerankerModelCenter() {
   const verifiedReranker =
     testedReranker && testedReranker.verifiedAt > 0 ? testedReranker : null;
 
-  // Request identity for the manual probe: a late response must not touch
-  // state, dialogs or the loading flag once the agent or config changed.
-  const requestIdRef = useRef(0);
-  const agentIdRef = useRef(agentId);
-  const configKeyRef = useRef(configKey);
+  // Load the persistent verification history once per agent / config load once
+  // the form's reranker settings are populated. The backend resolves the saved
+  // agent config and computes the fingerprint itself, and the hook scopes the
+  // returned series to that service so editing to another model never shows
+  // the previous model's trend.
+  const loadedHistoryTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    agentIdRef.current = agentId;
-  }, [agentId]);
-  useEffect(() => {
-    configKeyRef.current = configKey;
-  }, [configKey]);
-
-  // Load the persistent verification history from the backend. The backend
-  // resolves the saved agent config and computes the fingerprint itself, so
-  // the console never needs `crypto.subtle` (unavailable on plain HTTP).
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getRerankerHistory()
-      .then((res) => {
-        if (!cancelled) setHistory(res.history);
-      })
-      .catch(() => {
-        // History is best-effort; a failed fetch must not block the UI.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, setHistory]);
+    if (!configKey) return;
+    const token = `${agentId}:${configLoadRevision}`;
+    if (loadedHistoryTokenRef.current === token) return;
+    loadedHistoryTokenRef.current = token;
+    void loadHistory(configKey);
+  }, [agentId, configKey, configLoadRevision, loadHistory]);
 
   const testReranker = async () => {
     try {
@@ -90,6 +74,7 @@ export function RerankerModelCenter() {
     } catch {
       return;
     }
+    if (!isMounted()) return;
 
     const config = formRerankerConfig(form);
     if (!config || !isRerankerConfigured(config)) {
@@ -100,63 +85,35 @@ export function RerankerModelCenter() {
       return;
     }
 
-    setTestingReranker(true);
-    const requestId = ++requestIdRef.current;
-    const testedAgentId = agentId;
-    const testedConfigKey = configKey;
-    // The response is only applicable while this exact test is the latest
-    // request, for the same agent, with the same still-configured settings.
-    const isCurrent = () =>
-      requestId === requestIdRef.current &&
-      agentIdRef.current === testedAgentId &&
-      configKeyRef.current === testedConfigKey &&
-      isRerankerConfigured(formRerankerConfig(form));
+    const outcome = await runManualProbe(config, () =>
+      formRerankerConfig(form),
+    );
+    if (outcome.status === "stale") return;
 
-    try {
-      const result = await api.testReranker(config);
-      if (!isCurrent()) return;
-      if (result.success) {
-        await markVerified(
-          result.latency_ms,
-          result.precision,
-          result.correct_count,
-          result.total,
-          testedConfigKey,
-        );
-        // The backend appends this run to history before responding; refresh
-        // the trend from the same series (no second file read).
-        setHistory(result.history ?? []);
-        const precisionLine =
-          result.precision !== null
-            ? t("agentConfig.rerankerPrecisionResult", {
-                correct: result.correct_count,
-                total: result.total,
-                percent: Math.round(result.precision * 100),
-              })
-            : t("agentConfig.rerankerRankingUnknown");
-        modal.success({
-          title: t("agentConfig.rerankerTestSuccess"),
-          content: `${t("agentConfig.rerankerTestSuccessDetail", {
-            latency: result.latency_ms,
-          })} ${precisionLine}`,
-        });
-      } else {
-        clearVerification();
-        modal.error({
-          title: t("agentConfig.rerankerTestFailed"),
-          content: result.message,
-        });
-      }
-    } catch (error) {
-      if (!isCurrent()) return;
-      clearVerification();
+    if (outcome.status === "success") {
+      const { result } = outcome;
+      const precisionLine =
+        result.precision !== null
+          ? t("agentConfig.rerankerPrecisionResult", {
+              correct: result.correct_count,
+              total: result.total,
+              percent: Math.round(result.precision * 100),
+            })
+          : t("agentConfig.rerankerRankingUnknown");
+      const detail = `${t("agentConfig.rerankerTestSuccessDetail", {
+        latency: result.latency_ms,
+      })} ${precisionLine}`;
+      modal.success({
+        title: t("agentConfig.rerankerTestSuccess"),
+        content: result.history_error
+          ? `${detail} (${result.history_error})`
+          : detail,
+      });
+    } else {
       modal.error({
         title: t("agentConfig.rerankerTestFailed"),
-        content: error instanceof Error ? error.message : String(error),
+        content: outcome.message,
       });
-    } finally {
-      // A newer request owns the loading flag; an older one must not clear it.
-      if (requestId === requestIdRef.current) setTestingReranker(false);
     }
   };
 
@@ -252,11 +209,13 @@ export function RerankerModelCenter() {
                     {verifiedReranker.correctCount}/{verifiedReranker.total} ={" "}
                     {Math.round(verifiedReranker.precision * 100)}%
                   </strong>
-                  <small>
-                    {t("agentConfig.rerankerPrecisionRolling", {
-                      avg: Math.round(rollingPrecision(history) * 100),
-                    })}
-                  </small>
+                  {history.some((entry) => entry.precision !== null) && (
+                    <small>
+                      {t("agentConfig.rerankerPrecisionRolling", {
+                        avg: Math.round(rollingPrecision(history) * 100),
+                      })}
+                    </small>
+                  )}
                 </>
               ) : (
                 <>
@@ -308,8 +267,9 @@ function PrecisionSparkline({ history }: { history: RerankerHistoryRecord[] }) {
   const height = 26;
   const points = values
     .map((value, index) => {
+      const clamped = Math.max(0, Math.min(1, value));
       const x = (index / (values.length - 1)) * (width - 4) + 2;
-      const y = height - 3 - value * (height - 6);
+      const y = height - 3 - clamped * (height - 6);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");

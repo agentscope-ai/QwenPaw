@@ -56,7 +56,9 @@ from ...agents.memory.embedding_model import (
 from ...agents.memory.reranker_auto_probe import probe_and_record
 from ...agents.memory.reme_reranker import load_reranker_config
 from ...agents.memory.reranker_history import (
+    RerankerHistoryRecord,
     get_history,
+    parse_history_series,
     service_fingerprint,
 )
 from ...agents.memory.agent_md_manager import AgentMdManager
@@ -124,16 +126,6 @@ class EmbeddingTestResponse(BaseModel):
     message: str
 
 
-class RerankerHistoryRecord(BaseModel):
-    """One recorded verification run."""
-
-    ts: int
-    latency_ms: int = 0
-    precision: float | None = None
-    correct_count: int = 0
-    total: int = 0
-
-
 class RerankerCaseResponse(BaseModel):
     """Result of one reranker probe case."""
 
@@ -157,7 +149,9 @@ class RerankerTestResponse(BaseModel):
     incomplete_count: int = 0
     precision: float | None = None
     cases: list[RerankerCaseResponse] | None = None
+    fingerprint: str = ""
     history: list[RerankerHistoryRecord] | None = None
+    history_error: str | None = None
 
     @classmethod
     def from_result(
@@ -165,17 +159,21 @@ class RerankerTestResponse(BaseModel):
         result: Any,
         *,
         api_key: str = "",
-        history: list[dict] | None = None,
+        fingerprint: str = "",
+        history: list[Any] | None = None,
+        history_error: str | None = None,
     ) -> "RerankerTestResponse":
         """Convert a probe result in one step, masking the API key."""
         response = cls.model_validate(result)
         if api_key:
             response.message = response.message.replace(api_key, "***")
+            if history_error:
+                history_error = history_error.replace(api_key, "***")
+        response.fingerprint = fingerprint
         response.history = (
-            [RerankerHistoryRecord.model_validate(item) for item in history]
-            if history is not None
-            else None
+            parse_history_series(history) if history is not None else None
         )
+        response.history_error = history_error
         return response
 
 
@@ -1756,15 +1754,17 @@ async def test_reranker_configuration(
     # trusted proxy peer) may direct the probe at a non-public address.
     allow_private = _reranker_probe_allows_private_targets(request)
 
-    result, history = await probe_and_record(
+    outcome = await probe_and_record(
         reranker_config,
         allow_private=allow_private,
     )
 
     return RerankerTestResponse.from_result(
-        result,
+        outcome.result,
         api_key=reranker_config.api_key,
-        history=history,
+        fingerprint=outcome.fingerprint,
+        history=outcome.history,
+        history_error=outcome.history_error,
     )
 
 

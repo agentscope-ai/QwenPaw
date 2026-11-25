@@ -8,6 +8,16 @@ const configKey = JSON.stringify([
   "10",
 ]);
 
+const otherConfigKey = JSON.stringify([
+  "https://api.example.com/v1",
+  "",
+  "other-model",
+  "10",
+]);
+
+const fingerprintA = `sha256:${"a".repeat(64)}`;
+const fingerprintB = `sha256:${"b".repeat(64)}`;
+
 const verification = {
   configKey,
   latency: 320,
@@ -61,18 +71,22 @@ describe("rerankerVerificationStore", () => {
     expect(state.verificationByAgent["agent-2"]).toEqual(second);
   });
 
-  it("should clear verification and history for a specific agent", () => {
+  it("clears verification for a specific agent while preserving its history", () => {
     const store = useRerankerVerificationStore.getState();
 
     store.setVerification("agent-1", verification);
     store.setVerification("agent-2", verification);
-    store.setHistory("agent-1", [historyRecord]);
+    store.setHistory("agent-1", configKey, [historyRecord], fingerprintA);
 
     store.clearVerification("agent-1");
 
     const state = useRerankerVerificationStore.getState();
     expect(state.verificationByAgent["agent-1"]).toBeUndefined();
-    expect(state.historyByAgent["agent-1"]).toBeUndefined();
+    expect(state.historyByAgent["agent-1"]?.[configKey]).toEqual({
+      configKey,
+      fingerprint: fingerprintA,
+      records: [historyRecord],
+    });
     expect(state.verificationByAgent["agent-2"]).toEqual(verification);
   });
 
@@ -87,19 +101,42 @@ describe("rerankerVerificationStore", () => {
   it("stores history separately from the verification verdict", () => {
     const store = useRerankerVerificationStore.getState();
 
-    store.setHistory("agent-1", [historyRecord]);
+    store.setHistory("agent-1", configKey, [historyRecord], fingerprintA);
 
     const state = useRerankerVerificationStore.getState();
     // History loading must never manufacture a verified result.
     expect(state.verificationByAgent["agent-1"]).toBeUndefined();
-    expect(state.historyByAgent["agent-1"]).toEqual([historyRecord]);
+    expect(state.historyByAgent["agent-1"]?.[configKey]).toEqual({
+      configKey,
+      fingerprint: fingerprintA,
+      records: [historyRecord],
+    });
+  });
+
+  it("scopes history by service configKey within the same agent", () => {
+    const store = useRerankerVerificationStore.getState();
+    const otherRecord = {
+      ...historyRecord,
+      ts: 1_700_000_005_000,
+      precision: 0.4,
+    };
+
+    store.setHistory("agent-1", configKey, [historyRecord], fingerprintA);
+    store.setHistory("agent-1", otherConfigKey, [otherRecord], fingerprintB);
+
+    const agentHistory =
+      useRerankerVerificationStore.getState().historyByAgent["agent-1"];
+    expect(agentHistory?.[configKey]?.records).toEqual([historyRecord]);
+    expect(agentHistory?.[configKey]?.fingerprint).toBe(fingerprintA);
+    expect(agentHistory?.[otherConfigKey]?.records).toEqual([otherRecord]);
+    expect(agentHistory?.[otherConfigKey]?.fingerprint).toBe(fingerprintB);
   });
 
   it("refreshing history keeps the manual verdict untouched", () => {
     const store = useRerankerVerificationStore.getState();
 
     store.setVerification("agent-1", verification);
-    store.setHistory("agent-1", [historyRecord]);
+    store.setHistory("agent-1", configKey, [historyRecord], fingerprintA);
 
     const state = useRerankerVerificationStore.getState();
     expect(state.verificationByAgent["agent-1"]).toEqual(verification);

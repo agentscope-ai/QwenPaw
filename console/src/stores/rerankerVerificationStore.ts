@@ -12,11 +12,22 @@ export interface VerifiedReranker {
   verifiedAt: number;
 }
 
+export interface ScopedRerankerHistory {
+  configKey: string;
+  fingerprint: string;
+  records: RerankerHistoryRecord[];
+}
+
 interface RerankerVerificationStore {
   verificationByAgent: Record<string, VerifiedReranker>;
-  historyByAgent: Record<string, RerankerHistoryRecord[]>;
+  historyByAgent: Record<string, Record<string, ScopedRerankerHistory>>;
   setVerification: (agentId: string, verification: VerifiedReranker) => void;
-  setHistory: (agentId: string, records: RerankerHistoryRecord[]) => void;
+  setHistory: (
+    agentId: string,
+    configKey: string,
+    records: RerankerHistoryRecord[],
+    fingerprint?: string,
+  ) => void;
   clearVerification: (agentId: string) => void;
 }
 
@@ -28,9 +39,11 @@ interface RerankerVerificationStore {
  * application restart. The configuration key makes the result valid only for
  * the exact settings that were tested.
  *
- * Historical precision series live in a separate slice. Loading history can
- * therefore never manufacture a "Verified" verdict, and a late history
- * response cannot overwrite a newer manual result.
+ * Historical precision series live in a separate slice scoped by both agent
+ * and service configuration key (with backend fingerprint metadata). Loading
+ * history can never manufacture a "Verified" verdict, switching models within
+ * the same agent never shows another model's history, and clearing a failed
+ * verification verdict preserves the existing historical trend.
  */
 export const useRerankerVerificationStore = create<RerankerVerificationStore>(
   (set) => ({
@@ -43,26 +56,45 @@ export const useRerankerVerificationStore = create<RerankerVerificationStore>(
           [agentId]: verification,
         },
       })),
-    setHistory: (agentId, records) =>
-      set((state) => ({
-        historyByAgent: {
-          ...state.historyByAgent,
-          [agentId]: records,
-        },
-      })),
+    setHistory: (agentId, configKey, records, fingerprint = "") =>
+      set((state) => {
+        if (!configKey) return state;
+        const agentHistory = state.historyByAgent[agentId] ?? {};
+        const existing = agentHistory[configKey];
+        const sameService =
+          !existing?.fingerprint ||
+          !fingerprint ||
+          existing.fingerprint === fingerprint;
+        if (existing && sameService) {
+          const existingLast =
+            existing.records[existing.records.length - 1]?.ts ??
+            Number.NEGATIVE_INFINITY;
+          const incomingLast =
+            records[records.length - 1]?.ts ?? Number.NEGATIVE_INFINITY;
+          if (incomingLast < existingLast) return state;
+        }
+        return {
+          historyByAgent: {
+            ...state.historyByAgent,
+            [agentId]: {
+              ...agentHistory,
+              [configKey]: {
+                configKey,
+                fingerprint: fingerprint || existing?.fingerprint || "",
+                records,
+              },
+            },
+          },
+        };
+      }),
     clearVerification: (agentId) =>
       set((state) => {
-        if (
-          !(agentId in state.verificationByAgent) &&
-          !(agentId in state.historyByAgent)
-        ) {
+        if (!(agentId in state.verificationByAgent)) {
           return state;
         }
         const verificationByAgent = { ...state.verificationByAgent };
-        const historyByAgent = { ...state.historyByAgent };
         delete verificationByAgent[agentId];
-        delete historyByAgent[agentId];
-        return { verificationByAgent, historyByAgent };
+        return { verificationByAgent };
       }),
   }),
 );

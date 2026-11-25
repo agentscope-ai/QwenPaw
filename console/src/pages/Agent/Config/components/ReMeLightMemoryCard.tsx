@@ -94,6 +94,9 @@ export function ReMeLightMemoryCard() {
   const normalizeRerankerNumbersOnDisable = () => {
     const multiplier = form.getFieldValue(rerankerPath("candidate_multiplier"));
     const timeout = form.getFieldValue(rerankerPath("timeout"));
+    const autoVerifyInterval = form.getFieldValue(
+      rerankerPath("auto_verify_interval_hours"),
+    );
 
     const validMultiplier =
       typeof multiplier === "number" &&
@@ -102,6 +105,11 @@ export function ReMeLightMemoryCard() {
       Number.isInteger(multiplier);
     const validTimeout =
       typeof timeout === "number" && Number.isFinite(timeout) && timeout >= 1;
+    const validAutoVerifyInterval =
+      typeof autoVerifyInterval === "number" &&
+      Number.isFinite(autoVerifyInterval) &&
+      autoVerifyInterval >= 0 &&
+      Number.isInteger(autoVerifyInterval);
 
     form.setFields([
       {
@@ -120,6 +128,11 @@ export function ReMeLightMemoryCard() {
       {
         name: rerankerPath("timeout"),
         value: validTimeout ? timeout : 10,
+        errors: [],
+      },
+      {
+        name: rerankerPath("auto_verify_interval_hours"),
+        value: validAutoVerifyInterval ? autoVerifyInterval : 0,
         errors: [],
       },
     ]);
@@ -1106,9 +1119,33 @@ export function ReMeLightMemoryCard() {
                 initialValue={0}
                 rules={[
                   {
+                    required: true,
+                    message: t("agentConfig.rerankerAutoVerifyIntervalMin"),
+                  },
+                  {
                     type: "number",
                     min: 0,
                     message: t("agentConfig.rerankerAutoVerifyIntervalMin"),
+                  },
+                  {
+                    validator: (_, value) => {
+                      if (value == null) {
+                        return Promise.resolve();
+                      }
+                      const num = Number(value);
+                      if (
+                        !Number.isFinite(num) ||
+                        Number.isNaN(num) ||
+                        !Number.isInteger(num)
+                      ) {
+                        return Promise.reject(
+                          new Error(
+                            t("agentConfig.rerankerAutoVerifyIntervalMin"),
+                          ),
+                        );
+                      }
+                      return Promise.resolve();
+                    },
                   },
                 ]}
                 tooltip={t("agentConfig.rerankerAutoVerifyIntervalTooltip")}
@@ -1117,6 +1154,7 @@ export function ReMeLightMemoryCard() {
                   style={{ width: "100%" }}
                   min={0}
                   step={1}
+                  precision={0}
                   disabled={!rerankerEnabled}
                 />
               </SettingsField>

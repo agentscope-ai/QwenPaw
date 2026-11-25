@@ -6,8 +6,10 @@
  * invalidate the stored verdict.
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "@/api";
+import type { RerankerTestResponse } from "@/api/modules/agent";
 import type { RerankerConfig } from "@/api/types/agent";
 import { useAgentStore } from "@/stores/agentStore";
 import { useRerankerVerificationStore } from "@/stores/rerankerVerificationStore";
@@ -52,6 +54,7 @@ function renderVerificationHook(config: RerankerConfig) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   useAgentStore.setState({ selectedAgent: "default" });
   useRerankerVerificationStore.setState({
     verificationByAgent: {},
@@ -233,5 +236,113 @@ describe("useRerankerVerification", () => {
     expect(after?.configKey).toBe(before?.configKey);
     expect(after?.verifiedAt).toBe(before?.verifiedAt);
     expect(after?.precision).toBe(1.0);
+  });
+
+  it("hides model A history when switching to model B within the same agent", async () => {
+    const { result, rerender } = renderVerificationHook(enabledConfig);
+    const fpA = `sha256:${"a".repeat(64)}`;
+
+    await act(async () => {
+      result.current.setHistory([historyRecord], fpA);
+    });
+    expect(result.current.history).toEqual([historyRecord]);
+
+    rerender({
+      currentConfig: { ...enabledConfig, model_name: "model-b" },
+    });
+    expect(result.current.history).toEqual([]);
+
+    // Switching back restores model A's series.
+    rerender({ currentConfig: enabledConfig });
+    expect(result.current.history).toEqual([historyRecord]);
+  });
+
+  it("preserves existing history when a manual probe fails", async () => {
+    vi.spyOn(api, "testReranker").mockResolvedValue({
+      success: false,
+      latency_ms: 15,
+      message: "upstream 503",
+      total: 0,
+      correct_count: 0,
+      precision: null,
+      cases: null,
+      history: null,
+    });
+    const { result } = renderVerificationHook(enabledConfig);
+
+    await act(async () => {
+      await result.current.markVerified(321, 1.0, 5, 5);
+      result.current.setHistory([historyRecord], `sha256:${"a".repeat(64)}`);
+    });
+
+    const outcome = await act(async () =>
+      result.current.runManualProbe(enabledConfig),
+    );
+    expect(outcome).toEqual({ status: "failed", message: "upstream 503" });
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default,
+    ).toBeUndefined();
+    expect(result.current.history).toEqual([historyRecord]);
+  });
+
+  it("preserves existing history when a successful probe reports history_error", async () => {
+    vi.spyOn(api, "testReranker").mockResolvedValue({
+      success: true,
+      latency_ms: 42,
+      message: "ok",
+      total: 5,
+      correct_count: 5,
+      precision: 1,
+      cases: null,
+      fingerprint: `sha256:${"a".repeat(64)}`,
+      history: null,
+      history_error: "Failed to save verification history: disk full",
+    });
+    const { result } = renderVerificationHook(enabledConfig);
+
+    await act(async () => {
+      result.current.setHistory([historyRecord], `sha256:${"a".repeat(64)}`);
+    });
+
+    const outcome = await act(async () =>
+      result.current.runManualProbe(enabledConfig),
+    );
+    expect(outcome.status).toBe("success");
+    expect(result.current.testedRerankerIsCurrent).toBe(true);
+    expect(result.current.history).toEqual([historyRecord]);
+  });
+
+  it("invalidates a pending manual probe when unmounted", async () => {
+    let resolveProbe!: (value: RerankerTestResponse) => void;
+    vi.spyOn(api, "testReranker").mockReturnValue(
+      new Promise<RerankerTestResponse>((resolve) => {
+        resolveProbe = resolve;
+      }),
+    );
+    const { result, unmount } = renderVerificationHook(enabledConfig);
+
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = result.current.runManualProbe(enabledConfig);
+    });
+    unmount();
+
+    resolveProbe({
+      success: true,
+      latency_ms: 42,
+      message: "ok",
+      total: 5,
+      correct_count: 5,
+      precision: 1,
+      cases: null,
+      fingerprint: `sha256:${"a".repeat(64)}`,
+      history: [historyRecord],
+    });
+    const outcome = await pending;
+
+    expect(outcome).toEqual({ status: "stale" });
+    expect(
+      useRerankerVerificationStore.getState().verificationByAgent.default,
+    ).toBeUndefined();
   });
 });
