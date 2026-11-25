@@ -74,6 +74,71 @@ function textToken(raw: string): Tokens.Text {
   return { type: "text", raw, text: raw, escaped: false };
 }
 
+const WHITESPACE = /\s/u;
+const PUNCTUATION = /[\p{P}\p{S}]/u;
+
+/**
+ * True when `src` still holds a delimiter run stock can consume as a closer.
+ *
+ * This is the only place that decides whether stock's `emStrong` tokenizer has
+ * any work to do, and it is written from the CommonMark definition rather than
+ * from marked's own `emStrongRDelimAst` / `emStrongRDelimUnd` regexes: reading
+ * those would tie us to their capture-group numbering, which the reviewer
+ * explicitly ruled out and which any marked upgrade is free to reshuffle.
+ *
+ * CommonMark: a run is right-flanking when it is not preceded by whitespace
+ * and either not preceded by punctuation, or preceded by punctuation and
+ * followed by whitespace/punctuation. Only a right-flanking run can close.
+ *
+ * `**甲。**乙` fails exactly there — the closer sits between `。` and `乙`, so
+ * it is preceded by punctuation and followed by a letter — which is the whole
+ * reason stock leaves the asterisks literal.
+ *
+ * Any doubt answers `true`: that keeps stock's behaviour and stock's cost for
+ * that array, so a wrong guess can only make us slower, never change output.
+ */
+/** The whole code point ending at `end`, or "\n" past the end. */
+function codePointBefore(src: string, end: number): string {
+  if (end <= 0) return "\n";
+  const low = src.charCodeAt(end - 1);
+  // A trailing low surrogate means `end - 1` is the second half of an astral
+  // character; step back one more so the caller sees the whole code point
+  // instead of a lone surrogate, which matches no Unicode class at all.
+  const start = low >= 0xdc00 && low <= 0xdfff && end > 1 ? end - 2 : end - 1;
+  return src.slice(start, end);
+}
+
+/** The whole code point starting at `start`, or "\n" past the end. */
+function codePointAt(src: string, start: number): string {
+  if (start >= src.length) return "\n";
+  const high = src.charCodeAt(start);
+  const width =
+    high >= 0xd800 && high <= 0xdbff && start + 1 < src.length ? 2 : 1;
+  return src.slice(start, start + width);
+}
+
+function hasNativeCloser(src: string): boolean {
+  for (let index = 0; index < src.length; index += 1) {
+    const char = src[index];
+    if (char !== "*" && char !== "_") continue;
+    let end = index + 1;
+    while (end < src.length && src[end] === char) end += 1;
+    // `_` inside a word is not emphasis in CommonMark; leave that family
+    // entirely to stock rather than reason about the intraword rules here.
+    if (char === "_") return true;
+    const before = codePointBefore(src, index);
+    if (WHITESPACE.test(before)) {
+      index = end - 1;
+      continue;
+    }
+    if (!PUNCTUATION.test(before)) return true;
+    const after = codePointAt(src, end);
+    if (WHITESPACE.test(after) || PUNCTUATION.test(after)) return true;
+    index = end - 1;
+  }
+  return false;
+}
+
 function markerPattern(marker: string): RegExp {
   const escaped = marker[0] === "*" ? "\\*" : "_";
   return new RegExp(
@@ -357,7 +422,24 @@ function walkBlocks(tokens: Token[] | undefined): void {
 }
 
 export function cjkStrongExtension(): MarkedExtension {
+  // Per-inline-array verdict. `maskedSrc` is the same string for every
+  // `emStrong` call inside one array and a different one for a nested array,
+  // so identity is the cache key: one scan per array, none per delimiter run.
+  let currentMasked = "";
+  let skipStock = false;
   return {
+    tokenizer: {
+      emStrong(_src: string, maskedSrc: string) {
+        if (maskedSrc !== currentMasked) {
+          currentMasked = maskedSrc;
+          // Nothing stock can close here, so running its tokenizer would burn
+          // its quadratic scan and emit nothing. Skipping it is not a change
+          // to native pairings: by construction there are none to make.
+          skipStock = !hasNativeCloser(maskedSrc);
+        }
+        return skipStock ? undefined : false;
+      },
+    },
     hooks: {
       processAllTokens(tokens: Token[]) {
         walkBlocks(tokens);
