@@ -106,34 +106,11 @@ class ChatManager:  # pylint: disable=too-many-public-methods
     async def can_start_run(self, chat_id: str) -> bool:
         """Validate a resolved chat again at run registration time."""
         chat = await self.get_chat(chat_id)
-        return chat is not None and not chat.meta.get("deletion_pending")
+        return chat is not None
 
     async def can_start_session(self, identity: tuple[str, str, str]) -> bool:
-        """Reject direct workspace requests while cleanup remains pending."""
-        session_id, user_id, channel = identity
-        chats = await self.list_chats(
-            channel=channel,
-            archived=None,
-        )
-        return not any(
-            session_storage_identity(
-                chat.session_id,
-                chat.user_id,
-                chat.channel,
-            )
-            == session_storage_identity(session_id, user_id, channel)
-            and chat.meta.get("deletion_pending")
-            for chat in chats
-        )
-
-    async def mark_deleting(self, chat_ids: list[str]) -> None:
-        """Keep failed cleanup visible and retryable without new writes."""
-        async with self._lock:
-            for chat_id in chat_ids:
-                chat = await self._repo.get_chat(chat_id)
-                if chat is not None:
-                    chat.meta = {**chat.meta, "deletion_pending": True}
-                    await self._repo.upsert_chat(chat)
+        """Allow workspace writes unless TaskTracker holds a delete lock."""
+        return True
 
     async def list_chats(
         self,

@@ -1463,9 +1463,10 @@ describe("ChatPage coverage", () => {
     const childId = "44444444-4444-4444-8444-444444444444";
     vi.mocked(chatApi.forkChat).mockResolvedValue({ id: childId } as never);
     const destroy = vi.fn();
+    const update = vi.fn();
     const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
       destroy,
-      update: vi.fn(),
+      update,
     });
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     let rejectRefresh!: (reason: Error) => void;
@@ -1509,6 +1510,13 @@ describe("ChatPage coverage", () => {
       );
       expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
       expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cancelButtonProps: { disabled: true },
+          keyboard: false,
+          maskClosable: false,
+        }),
+      );
       await act(async () => rejectRefresh(new Error("sidebar unavailable")));
       expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
       expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
@@ -1520,6 +1528,49 @@ describe("ChatPage coverage", () => {
       confirm.mockRestore();
       warning.mockRestore();
     }
+  });
+
+  it("does not retry a failed fork and refreshes before unlocking cancel", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(chatApi.forkChat).mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(sessionApi.getSessionList).mockResolvedValueOnce([]);
+    const update = vi.fn();
+    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
+      destroy: vi.fn(),
+      update,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    await act(async () => {
+      capturedOptions.actions.list[1]
+        .render({
+          data: { id: "history-response:legacy:5", status: "completed" },
+        })
+        .props.onFork({
+          id: "history-response:legacy:5",
+          status: "completed",
+        });
+    });
+
+    await act(async () => {
+      await expect(confirm.mock.calls[0][0].onOk?.()).rejects.toThrow(
+        "offline",
+      );
+    });
+
+    expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+    expect(sessionApi.getSessionList).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cancelButtonProps: { disabled: false },
+        keyboard: true,
+        maskClosable: true,
+      }),
+    );
+    confirm.mockRestore();
   });
 
   // ── actions list: timestamp render ─────────────────────────────────────

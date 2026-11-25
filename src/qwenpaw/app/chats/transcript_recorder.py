@@ -81,6 +81,24 @@ class TranscriptRecorder:
     def ready(self) -> bool:
         return self._started and not self._degraded and self._store is not None
 
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    async def finish_failed(self, error: dict[str, Any]) -> None:
+        """Try failure-only settlement even after a recording write failed."""
+        if not self._started or self._finished or self._store is None:
+            return
+        identity = dict(
+            session_id=self._session_id,
+            turn_id=self._turn_id,
+        )
+        # Catalog routing needs the full identity; a store owns one session.
+        if not isinstance(self._store, TranscriptStore):
+            identity.update(user_id=self._user_id, channel=self._channel)
+        await run_sync_io(self._store.fail_turn, **identity, error=error)
+        self._finished = True
+
     async def steer_io(self, method: str, **kwargs: Any) -> Any:
         """Use strict writes and wait out database cancellation."""
         if not self.ready:

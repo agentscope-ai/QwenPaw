@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -39,6 +41,62 @@ from qwenpaw.schemas import Message, Role, RunStatus, TextContent
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
+@pytest.mark.asyncio
+async def test_migration_identity_does_not_hide_legacy_history(tmp_path):
+    legacy = tmp_path / "sessions"
+    legacy.mkdir()
+    state = AgentState(
+        context=[
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    {"type": "text", "text": "old question"},
+                ],
+            ),
+        ],
+    )
+    (legacy / session_filename("session-1", "user-1")).write_text(
+        json.dumps({"agent": {"state": state.model_dump(mode="json")}}),
+        encoding="utf-8",
+    )
+    store = TranscriptCatalog(tmp_path)
+    identity = dict(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    store.record_legacy_migration(**identity)
+    path = (
+        tmp_path / "transcripts" / (store.storage_id_for(**identity) + ".db")
+    )
+    # Model the proposed marker/identity transaction before importing rows.
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO transcript_sessions "
+            "(session_id, storage_id, user_id, channel) VALUES (?, ?, ?, ?)",
+            ("session-1", path.stem, "user-1", "console"),
+        )
+    session = DatabaseSession(catalog=store, legacy_save_dir=str(legacy))
+    workspace = _workspace(store)
+    workspace.session = session
+    try:
+        history = await get_chat(
+            chat_id="chat-1",
+            background_tasks=BackgroundTasks(),
+            include_app_owned=True,
+            mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+            session=session,
+            workspace=workspace,
+        )
+        assert [m.content[0].text for m in history.messages] == [
+            "old question",
+        ]
+    finally:
+        await session.ensure_legacy_migrated(**identity)
+        store.close()
+
+
 @pytest.fixture(autouse=True)
 def chat_config_loader(monkeypatch):
     loader = AsyncMock(
@@ -65,13 +123,13 @@ def _chat() -> ChatSpec:
 
 
 def _workspace(store) -> SimpleNamespace:
+    tracker = TaskTracker()
+    tracker.get_status = AsyncMock(return_value="running")
     return SimpleNamespace(
         agent_id="test-transcript-api",
         transcript_store=store,
         config=SimpleNamespace(backend="qwenpaw"),
-        task_tracker=SimpleNamespace(
-            get_status=AsyncMock(return_value="running"),
-        ),
+        task_tracker=tracker,
     )
 
 
@@ -848,6 +906,68 @@ async def test_delete_chat_data_removes_all_persistence(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ("copy", "registration"))
+async def test_fork_cancellation_waits_for_consistent_finish(
+    phase: str,
+) -> None:
+    parent = _chat().model_copy(
+        update={"meta": {"deletion_pending": True, "keep": "value"}},
+    )
+    reached = asyncio.Event()
+    release_thread = threading.Event()
+    release_async = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def fork_at_turn(**_kwargs) -> int:
+        if phase == "copy":
+            loop.call_soon_threadsafe(reached.set)
+            assert release_thread.wait(5)
+        return 1
+
+    async def create_chat(child: ChatSpec) -> ChatSpec:
+        if phase == "registration":
+            reached.set()
+            await release_async.wait()
+        return child
+
+    store = SimpleNamespace(
+        fork_at_turn=fork_at_turn,
+        delete_session=Mock(),
+    )
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=parent),
+        create_chat=AsyncMock(side_effect=create_chat),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=SimpleNamespace(ensure_legacy_migrated=AsyncMock()),
+        config=SimpleNamespace(backend="qwenpaw"),
+        task_tracker=TaskTracker(),
+    )
+
+    task = asyncio.create_task(
+        fork_chat_at_turn(
+            parent.id,
+            ChatForkRequest(turn_id="turn-1"),
+            manager,
+            workspace,
+        ),
+    )
+    await asyncio.wait_for(reached.wait(), 5)
+    task.cancel()
+    release_thread.set()
+    release_async.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    manager.create_chat.assert_awaited_once()
+    created = manager.create_chat.await_args.args[0]
+    assert created.meta == {"keep": "value"}
+    store.delete_session.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("anonymous", [False, True])
 async def test_delete_keeps_shared_session_data(anonymous: bool) -> None:
     first = _chat()
@@ -889,7 +1009,7 @@ async def test_delete_keeps_shared_session_data(anonymous: bool) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
+async def test_delete_commits_mapping_before_cleanup_retry() -> None:
     chat = _chat()
     store = Mock(spec=TranscriptCatalog)
     manager = SimpleNamespace(
@@ -907,20 +1027,13 @@ async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
             stop_session_writers=TaskTracker().stop_session_writers,
         ),
     )
-    checkpoint_delete = AsyncMock(side_effect=[OSError("disk error"), None])
+    checkpoint_delete = AsyncMock(side_effect=OSError("disk error"))
 
     with patch(
         "qwenpaw.app.chats.api.CHECKPOINT_RUNTIME."
         "delete_session_checkpoints",
         checkpoint_delete,
     ):
-        with pytest.raises(HTTPException, match="Failed to delete"):
-            await delete_chat(
-                chat_id=chat.id,
-                mgr=manager,
-                workspace=workspace,
-            )
-        manager.delete_chats.assert_not_awaited()
         result = await delete_chat(
             chat_id=chat.id,
             mgr=manager,
@@ -929,7 +1042,37 @@ async def test_delete_keeps_mapping_when_data_cleanup_fails() -> None:
 
     assert result == {"deleted": True}
     manager.delete_chats.assert_awaited_once_with(chat_ids=[chat.id])
-    assert store.delete_session.call_count == 1
+    store.commit_staged_session_deletion.assert_called_once()
+    store.restore_staged_session_deletion.assert_not_called()
+    store.delete_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_restores_transcript_when_mapping_commit_fails() -> None:
+    chat = _chat()
+    deletion = object()
+    store = Mock(spec=TranscriptCatalog)
+    store.stage_session_deletion.return_value = deletion
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+        list_chats=AsyncMock(return_value=[chat]),
+        delete_chats=AsyncMock(side_effect=OSError("catalog write failed")),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=None,
+        task_tracker=SimpleNamespace(
+            request_stop=AsyncMock(),
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
+        ),
+    )
+
+    with pytest.raises(HTTPException, match="Delete failed; please retry"):
+        await delete_chat(chat.id, manager, workspace)
+
+    store.restore_staged_session_deletion.assert_called_once_with(deletion)
+    store.commit_staged_session_deletion.assert_not_called()
 
 
 @pytest.mark.asyncio

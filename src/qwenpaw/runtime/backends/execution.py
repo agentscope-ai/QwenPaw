@@ -20,6 +20,7 @@ from typing import Any
 
 from agentscope.state import AgentState
 
+from ..._session_request import is_ephemeral_request
 from ..._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
@@ -493,6 +494,9 @@ class BackendExecution:
     # Keep wire translation and terminal persistence in the producer's lease.
     # pylint: disable-next=too-many-branches,too-many-statements
     async def _produce(self, entry, request, settings, cwd):
+        ephemeral = is_ephemeral_request(request)
+        store = None if ephemeral else self._store
+        session_bridge = None if ephemeral else self._session_bridge
         session_id = str(request.session_id)
         user_id = str(getattr(request, "user_id", "") or session_id)
         channel = str(getattr(request, "channel", "") or "")
@@ -546,7 +550,7 @@ class BackendExecution:
                 response.status = RunStatus.InProgress
                 yield tagged(response.model_copy(deep=True))
                 if (
-                    self._store is not None
+                    store is not None
                     and entry.spec.capabilities.fork_mode != "none"
                 ):
                     if not turn_id or not request_context.get(
@@ -557,7 +561,7 @@ class BackendExecution:
                             "start a native turn without durable identity.",
                         )
                     saved = await run_sync_io(
-                        self._store.read_provider_state,
+                        store.read_provider_state,
                         **identity,
                     )
                     binding = saved["binding"]
@@ -584,9 +588,9 @@ class BackendExecution:
                     )
                 if command in {"new", "clear"}:
                     await backend.reset_session(context)
-                    if self._store is not None:
+                    if store is not None:
                         await run_sync_io(
-                            self._store.write_runtime_state,
+                            store.write_runtime_state,
                             **identity,
                             turn_id=turn_id,
                             state={
@@ -599,8 +603,8 @@ class BackendExecution:
                             reset_context=True,
                             reset_provider=entry.spec.id,
                         )
-                    elif self._session_bridge is not None:
-                        await self._session_bridge.clear(**identity)
+                    elif session_bridge is not None:
+                        await session_bridge.clear(**identity)
                     event_stream = self._iter_events(
                         (
                             HarnessEvent(
@@ -634,9 +638,9 @@ class BackendExecution:
                         HarnessEventKind.SESSION_BOUND,
                         HarnessEventKind.TURN_BOUNDARY,
                     }:
-                        if self._store is not None:
+                        if store is not None:
                             await run_sync_io(
-                                self._store.record_provider_fact,
+                                store.record_provider_fact,
                                 **identity,
                                 kind=event.kind.value,
                                 turn_id=turn_id,
@@ -718,9 +722,9 @@ class BackendExecution:
                         **dict(response.output[-1].metadata or {}),
                         "context_reset": True,
                     }
-                if self._session_bridge is not None and not reset_context:
+                if session_bridge is not None and not reset_context:
                     await run_async_to_completion(
-                        self._session_bridge.append_turn(
+                        session_bridge.append_turn(
                             request=request,
                             response=response,
                             backend=entry.spec.id,

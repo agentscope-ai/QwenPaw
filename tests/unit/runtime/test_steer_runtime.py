@@ -2,7 +2,9 @@
 """Exercise steering through the real agent loop and transcript writer."""
 
 import asyncio
+from contextlib import aclosing
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.agent import Agent, ReActConfig
@@ -11,12 +13,18 @@ from agentscope.tool import FunctionTool, Toolkit, ToolResponse
 from agentscope.permission import PermissionDecision, PermissionBehavior
 from agentscope.model import ChatModelBase, ChatResponse
 
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.app.workspace import workspace as workspace_module
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_recorder import TranscriptRecorder
 from qwenpaw.runtime.envelope import Envelope
 from qwenpaw.runtime.executor import AgentExecutor
-from qwenpaw.runtime.steer import SteerControl, SteerMiddleware
-from qwenpaw.schemas import Message, TextContent
+from qwenpaw.runtime.steer import (
+    SteerControl,
+    SteerMiddleware,
+    current_steer,
+)
+from qwenpaw.schemas import AgentRequest, Message, RunStatus, TextContent
 
 
 class ControlledModel(ChatModelBase):
@@ -180,6 +188,8 @@ async def test_stop_during_commit_drains_context_before_snapshot(tmp_path):
     await entered.wait()
     task.cancel()
     await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
     assert not task.done()
     release.set()
     with pytest.raises(asyncio.CancelledError):
@@ -285,3 +295,253 @@ async def test_tool_round_finishes_before_steer_enters_context(tmp_path):
     assert max(results) < steer_index
     assert len(model.inputs) == 2
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_workspace_stop_at_steer_output_settles_history(
+    tmp_path,
+    monkeypatch,
+):
+    catalog = TranscriptCatalog(tmp_path)
+    controls = []
+    streams = []
+
+    class Runtime(workspace_module.Runtime):
+        def __init__(self, **kwargs):
+            pass
+
+        async def run(self, request):
+            control = current_steer.get()
+            controls.append(control)
+            model = ControlledModel(control)
+            agent = Agent(
+                "test",
+                "help",
+                model,
+                middlewares=[SteerMiddleware(control)],
+                react_config=ReActConfig(max_iters=3),
+            )
+            envelope = Envelope("s")
+            envelope.bind_turn(control.turn_id, "u1", "scope")
+            control.envelope = envelope
+            reply_stream = agent.reply_stream
+
+            def retain_source(**kwargs):
+                source = reply_stream(**kwargs)
+                streams.append(source)
+                return source
+
+            agent.reply_stream = retain_source
+            events = AgentExecutor(agent, envelope).run(
+                [
+                    Msg(
+                        name="user",
+                        role="user",
+                        id="u1",
+                        content=[TextBlock(text="go")],
+                    ),
+                ],
+            )
+            streams.append(events)
+            async with aclosing(events):
+                async for obj in events:
+                    yield obj
+
+    monkeypatch.setattr(workspace_module, "Runtime", Runtime)
+    monkeypatch.setattr(
+        workspace_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=SimpleNamespace(backend="qwenpaw")),
+    )
+    workspace = SimpleNamespace(
+        agent_id="test",
+        workspace_dir=tmp_path,
+        transcript_store=catalog,
+        session=None,
+        _app_services=None,
+        steer_runs={},
+        finalize_turn_usage=AsyncMock(),
+    )
+    identity = dict(session_id="s", user_id="u", channel="console")
+    stream = workspace_module.Workspace._stream_query(
+        workspace,
+        AgentRequest(
+            **identity,
+            input=[
+                Message(
+                    id="u1",
+                    role="user",
+                    content=[TextContent(text="go")],
+                ),
+            ],
+        ),
+    )
+    try:
+        async for obj in stream:
+            if (
+                isinstance(obj, Message)
+                and obj.role == "assistant"
+                and obj.status == RunStatus.Completed
+            ):
+                break
+        else:
+            pytest.fail("steer boundary not reached")
+        control = controls[0]
+        assert not control.lock.locked()
+        await asyncio.wait_for(stream.aclose(), 2)
+        assert all(source.ag_frame is None for source in streams)
+        assert not workspace.steer_runs
+        assert not catalog._handles
+        receipt = catalog.list_steers(**identity)[0]
+        assert receipt["status"] == "failed"
+        page = catalog.get_page(**identity)
+        assert page.messages[0].metadata["qwenpaw_turn_state"]["status"] == (
+            "canceled"
+        )
+        assert [m.role for m in page.messages] == ["user", "assistant"]
+        catalog.close()
+        catalog = TranscriptCatalog(tmp_path)
+        assert [m.id for m in catalog.get_page(**identity).messages] == [
+            m.id for m in page.messages
+        ]
+    finally:
+        await stream.aclose()
+        catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_new_attachment_during_boundary_stays_in_next_batch(tmp_path):
+    store = TranscriptStore(tmp_path / "s.db")
+    request = SimpleNamespace(
+        session_id="s",
+        user_id="u",
+        channel="console",
+        request_context={},
+        input=[],
+    )
+    recorder = TranscriptRecorder(store=store, request=request)
+    await recorder.start()
+    control = SteerControl(recorder)
+    agent = Agent("test", "help", ControlledModel(control))
+    control.agent = agent
+    envelope = Envelope("s")
+    envelope.bind_turn(recorder.turn_id, "u1", "scope")
+    control.envelope = envelope
+
+    async def boundary():
+        yield Message(
+            id="a1",
+            role="assistant",
+            content=[TextContent(text="before")],
+            status=RunStatus.Completed,
+        )
+
+    envelope.close_input_segment = boundary
+    await control.accept("first", [{"type": "text", "text": "first"}])
+    stream = control.apply(agent)
+    try:
+        item = await anext(stream)
+        await recorder.observe(item.output)
+        file = tmp_path / "next.txt"
+        file.write_text("NEXT_ATTACHMENT", encoding="utf-8")
+        await asyncio.wait_for(
+            control.accept(
+                "next",
+                [
+                    {"type": "text", "text": "next"},
+                    {
+                        "type": "file",
+                        "file_url": str(file),
+                        "file_name": "next.txt",
+                    },
+                ],
+            ),
+            2,
+        )
+        async for item in stream:
+            await recorder.observe(item.output)
+        receipts = store.list_steers(session_id="s")
+        assert [r["status"] for r in receipts] == ["applied", "accepted"]
+        assert [r["client_message_id"] for r in control.pending] == ["next"]
+        async for item in control.apply(agent):
+            await recorder.observe(item.output)
+        await recorder.finish("completed")
+        page = store.get_page(session_id="s", user_id="u", channel="console")
+        assert [m.role for m in page.messages] == ["assistant", "user", "user"]
+        assert page.messages[-1].content[-1].file_url == str(file)
+        assert "next.txt" in str(agent.state.context[-1].metadata)
+        assert not control.pending
+    finally:
+        await stream.aclose()
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_drains_accepted_attachment_before_settling(tmp_path):
+    store = TranscriptStore(tmp_path / "s.db")
+    recorder = TranscriptRecorder(
+        store=store,
+        request=SimpleNamespace(
+            session_id="s",
+            user_id="u",
+            channel="console",
+            request_context={},
+            input=[],
+        ),
+    )
+    await recorder.start()
+    control = SteerControl(recorder)
+    control.agent = Agent("test", "help", ControlledModel(control))
+    control.envelope = Envelope("s")
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = recorder.steer_io
+
+    async def delayed(method, **kwargs):
+        result = await original(method, **kwargs)
+        if method == "accept_steer":
+            entered.set()
+            await release.wait()
+        return result
+
+    recorder.steer_io = delayed
+    attachment = tmp_path / "pending.txt"
+    attachment.write_text("PENDING", encoding="utf-8")
+    submit = asyncio.create_task(
+        control.accept(
+            "pending",
+            [
+                {
+                    "type": "file",
+                    "file_url": str(attachment),
+                    "file_name": "pending.txt",
+                },
+            ],
+        ),
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        control.closed = True
+        closing = asyncio.create_task(control.close("cancelled"))
+        submit.cancel()
+        await asyncio.sleep(0)
+        submit.cancel()
+        await asyncio.sleep(0)
+        assert not closing.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submit
+        await asyncio.wait_for(closing, 2)
+        await recorder.finish("cancelled")
+        with pytest.raises(ValueError, match="no_active_turn"):
+            await control.accept("late", [{"type": "text", "text": "late"}])
+        receipts = store.list_steers(session_id="s")
+        assert len(receipts) == 1
+        assert receipts[0]["status"] == "failed"
+        assert receipts[0]["reason"] == "cancelled"
+        assert not control.pending
+        assert not control.agent.state.context
+        store.rebuild_projections()
+        assert store.list_steers(session_id="s")[0]["status"] == "failed"
+    finally:
+        release.set()
+        store.close()

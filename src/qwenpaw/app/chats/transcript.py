@@ -399,6 +399,36 @@ class TranscriptStore(SteerStoreMixin):
             )
             return True
 
+    def ensure_session_identity(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Initialize a recording destination without creating a turn."""
+        with self._transaction():
+            self._conn.execute(
+                "INSERT INTO transcript_sessions "
+                "(session_id, storage_id, user_id, channel) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO NOTHING",
+                (session_id, self._storage_id, user_id, channel),
+            )
+            session = self._session_row(session_id)
+            assert session is not None
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+                storage_id=self._storage_id,
+            )
+            self._append_session_fact(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                recorded_at=_utc_now(),
+            )
+
     def is_pristine(self) -> bool:
         """Return whether the schema has no durable conversation data."""
         with self._read_connection() as connection:
@@ -585,6 +615,11 @@ class TranscriptStore(SteerStoreMixin):
     ) -> bool:
         """Persist migration ownership and its final completion boundary."""
         with self._transaction():
+            self.ensure_session_identity(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
             row = self._conn.execute(
                 "SELECT payload_json FROM event_log "
                 "WHERE idempotency_key = ?",
@@ -607,6 +642,42 @@ class TranscriptStore(SteerStoreMixin):
                 recorded_at=_utc_now(),
             )
             return restore_runtime
+
+    def has_incomplete_legacy_migration(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Distinguish identity ownership from migration readiness."""
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
+            if session is not None:
+                self._assert_identity(
+                    session,
+                    user_id=user_id,
+                    channel=channel,
+                )
+            return self._migration_incomplete(connection, session_id)
+
+    @staticmethod
+    def _migration_incomplete(connection, session_id: str) -> bool:
+        keys = {
+            row[0]
+            for row in connection.execute(
+                "SELECT idempotency_key FROM event_log "
+                "WHERE idempotency_key IN (?, ?)",
+                (
+                    f"migration:started:{session_id}",
+                    f"migration:completed:{session_id}",
+                ),
+            )
+        }
+        return (
+            f"migration:started:{session_id}" in keys
+            and f"migration:completed:{session_id}" not in keys
+        )
 
     def write_runtime_state(
         self,
@@ -1415,9 +1486,34 @@ class TranscriptStore(SteerStoreMixin):
             "ORDER BY seq",
             (through_event_seq,),
         ).fetchall()
+        candidates = {
+            int(json.loads(event["payload_json"])["source_seq"])
+            for event in recall_events
+            if event["event_type"] == "recall.entry_committed"
+        }
+        purged = set()
+        for event in source.execute(
+            "SELECT payload_json FROM event_log WHERE seq > ? "
+            "AND event_type = 'recall.entries_purged' ORDER BY seq",
+            (through_event_seq,),
+        ):
+            payload = json.loads(event[0])
+            obj = source.execute(
+                "SELECT payload FROM content_objects WHERE content_hash = ?",
+                (payload["purge_ref"],),
+            ).fetchone()
+            if obj is None:
+                raise ValueError("fork recall purge object is missing")
+            purge = json.loads(bytes(obj[0]).decode())
+            purged.update(candidates.intersection(purge["seqs"]))
         with self._transaction():
             for event in recall_events:
                 payload = json.loads(event["payload_json"])
+                if (
+                    event["event_type"] == "recall.entry_committed"
+                    and int(payload["source_seq"]) in purged
+                ):
+                    continue
                 if (
                     next_legacy_source_seq is not None
                     and event["event_type"] == "recall.entry_committed"
@@ -2227,6 +2323,35 @@ class TranscriptStore(SteerStoreMixin):
                 finished_at=finished_at,
             )
 
+    def fail_turn(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        error: dict[str, Any],
+    ) -> bool:
+        """Atomically fail an unsettled turn and its unapplied inputs."""
+        with self._transaction():
+            row = self._conn.execute(
+                "SELECT status FROM transcript_turns "
+                "WHERE session_id = ? AND turn_id = ?",
+                (session_id, turn_id),
+            ).fetchone()
+            if row is None or row[0] != "running":
+                return False
+            self.fail_steers(
+                session_id=session_id,
+                turn_id=turn_id,
+                reason="failed",
+            )
+            self.finish_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                status="failed",
+                error=error,
+            )
+            return True
+
     def finish_turn(
         self,
         *,
@@ -2423,6 +2548,11 @@ class TranscriptStore(SteerStoreMixin):
                 if before is not None and before.snapshot_turn_seq is not None
                 else max(0, int(session["next_turn_seq"]) - 1)
             )
+            if snapshot_turn_seq == 0 and self._migration_incomplete(
+                connection,
+                session_id,
+            ):
+                return None
             snapshot_event_seq = (
                 before.snapshot_event_seq
                 if before is not None and before.snapshot_event_seq is not None

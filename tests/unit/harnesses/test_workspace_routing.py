@@ -156,7 +156,7 @@ async def test_selected_backend_routes_directly_to_harness(
     workspace = Workspace("agent-1", str(tmp_path / "workspace"))
     runtime = FakeBackendRuntime()
     workspace._backend_runtime = runtime
-    request = SimpleNamespace(request_context={})
+    request = _session_request()
 
     output = [item async for item in workspace.stream_query(request)]
 
@@ -532,6 +532,6 @@ async def test_workspace_finalization_failure_is_visible(
         session_id="s",
         user_id="u",
         channel="console",
-    ) == ("running", 0)
+    ) == ("failed", 0)
     assert not workspace.task_tracker._session_tasks
     catalog.close()

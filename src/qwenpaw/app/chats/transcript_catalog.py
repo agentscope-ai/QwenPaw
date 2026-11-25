@@ -7,8 +7,10 @@ import json
 import logging
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Iterator
 from uuid import uuid4
 
@@ -25,6 +27,15 @@ from .transcript import (
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5_000
+_DELETING_PREFIX = ".deleting-"
+
+
+@dataclass(frozen=True)
+class _StagedSessionDeletion:
+    """Reversible transcript files held until chat deletion commits."""
+
+    storage_id: str
+    files: tuple[tuple[Path, Path], ...]
 
 
 def _find_session_row(connection, session_id, user_id, channel):
@@ -104,6 +115,7 @@ class TranscriptCatalog:
         self._closed = False
         self._recover_orphaned_turns = recover_orphaned_turns
         self._handles: dict[str, _SessionHandle] = {}
+        self._staged_deletions: set[str] = set()
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
@@ -114,6 +126,7 @@ class TranscriptCatalog:
             self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
             self._conn.execute("PRAGMA journal_mode=DELETE")
             self._create_schema()
+            self._recover_staged_deletions()
             self._rebuild_from_chats()
         except BaseException:
             self._conn.close()
@@ -145,6 +158,60 @@ class TranscriptCatalog:
 
     def _store_path(self, storage_id: str) -> Path:
         return self._transcript_dir / f"{storage_id}.db"
+
+    @staticmethod
+    def _staged_path(path: Path) -> Path:
+        return path.with_name(f"{_DELETING_PREFIX}{path.name}")
+
+    def _recover_staged_deletions(self) -> None:
+        """Restore or finish transcript deletions interrupted by shutdown."""
+        staged_databases = tuple(
+            self._transcript_dir.glob(f"{_DELETING_PREFIX}*.db"),
+        )
+        if not staged_databases:
+            return
+        path = self._workspace_dir / "chats.json"
+        retained = None
+        if path.exists():
+            try:
+                chats = JsonChatRepository(path)._load_sync().chats
+                retained = {chat.storage_id for chat in chats}
+            except (OSError, ValueError, json.JSONDecodeError):
+                logger.error(
+                    "Cannot verify interrupted transcript deletions",
+                    exc_info=True,
+                )
+        for staged in staged_databases:
+            storage_id = staged.name.removeprefix(_DELETING_PREFIX)[:-3]
+            files = tuple(
+                (candidate, self._staged_path(candidate))
+                for candidate in (
+                    self._store_path(storage_id),
+                    self._store_path(storage_id).with_name(
+                        f"{storage_id}.db-wal",
+                    ),
+                    self._store_path(storage_id).with_name(
+                        f"{storage_id}.db-shm",
+                    ),
+                )
+            )
+            if retained is None or storage_id in retained:
+                for original, staged_path in files:
+                    if not staged_path.exists():
+                        continue
+                    if original.exists():
+                        raise ValueError(
+                            "conflicting staged transcript deletion",
+                        )
+                    staged_path.replace(original)
+                continue
+            for _original, staged_path in files:
+                staged_path.unlink(missing_ok=True)
+            with self._conn:
+                self._conn.execute(
+                    "DELETE FROM transcript_files WHERE storage_id = ?",
+                    (storage_id,),
+                )
 
     def _rebuild_from_chats(self) -> None:
         """Rebuild missing catalog rows from chats.json and DB identity."""
@@ -259,6 +326,7 @@ class TranscriptCatalog:
         channel: str,
         create: bool,
         storage_id: str | None = None,
+        initialize_identity: bool = False,
     ) -> sqlite3.Row | None:
         row = self._catalog_row(
             session_id=session_id,
@@ -289,8 +357,19 @@ class TranscriptCatalog:
                 or str(uuid4())
             )
             target = self._store_path(storage_id)
-            if target.exists():
-                store = TranscriptStore(target, storage_id=storage_id)
+            # Publish new recording databases only after identity commits.
+            # Otherwise restart can register a pristine file from chats.json.
+            staging = (
+                TemporaryDirectory(
+                    prefix=".recording-",
+                    dir=self._transcript_dir,
+                )
+                if initialize_identity and not target.exists()
+                else nullcontext(None)
+            )
+            with staging as directory:
+                path = Path(directory) / target.name if directory else target
+                store = TranscriptStore(path, storage_id=storage_id)
                 try:
                     if not (
                         store.has_session(
@@ -301,11 +380,16 @@ class TranscriptCatalog:
                         or store.is_pristine()
                     ):
                         raise ValueError("orphan transcript identity mismatch")
+                    if initialize_identity:
+                        store.ensure_session_identity(
+                            session_id=session_id,
+                            user_id=user_id,
+                            channel=channel,
+                        )
                 finally:
                     store.close()
-            else:
-                store = TranscriptStore(target, storage_id=storage_id)
-                store.close()
+                if directory:
+                    path.replace(target)
             self._conn.execute(
                 "INSERT INTO transcript_files("
                 "session_id, user_id, channel, storage_id) "
@@ -324,6 +408,24 @@ class TranscriptCatalog:
             )
 
     @contextmanager
+    def recording_lease(self, *, turn_id: str, **identity: Any):
+        """Keep live recording owned through failed-write finalization."""
+        with self._lease(
+            create=True,
+            initialize_identity=True,
+            **identity,
+        ):
+            try:
+                yield
+            finally:
+                self._release_turn(
+                    identity["session_id"],
+                    turn_id,
+                    user_id=identity["user_id"],
+                    channel=identity["channel"],
+                )
+
+    @contextmanager
     def _lease(
         self,
         *,
@@ -332,6 +434,7 @@ class TranscriptCatalog:
         channel: str,
         create: bool,
         storage_id: str | None = None,
+        initialize_identity: bool = False,
     ) -> Iterator[_SessionHandle | None]:
         handle: _SessionHandle | None = None
         with self._condition:
@@ -343,12 +446,18 @@ class TranscriptCatalog:
                 channel=channel,
                 create=create,
                 storage_id=storage_id,
+                initialize_identity=initialize_identity,
             )
+            resolved_storage_id = None
             if row is not None:
-                storage_id = str(row["storage_id"])
-                handle = self._handles.get(storage_id)
+                candidate = str(row["storage_id"])
+                if candidate not in self._staged_deletions:
+                    resolved_storage_id = candidate
+            if resolved_storage_id is not None:
+                storage_id = resolved_storage_id
+                handle = self._handles.get(resolved_storage_id)
                 if handle is None:
-                    path = self._store_path(storage_id)
+                    path = self._store_path(resolved_storage_id)
                     path.parent.mkdir(parents=True, exist_ok=True)
                     handle = _SessionHandle(
                         TranscriptStore(
@@ -357,9 +466,19 @@ class TranscriptCatalog:
                             create=False,
                         ),
                     )
+                    if initialize_identity:
+                        try:
+                            handle.store.ensure_session_identity(
+                                session_id=session_id,
+                                user_id=user_id,
+                                channel=channel,
+                            )
+                        except BaseException:
+                            handle.close()
+                            raise
                     if self._recover_orphaned_turns:
                         handle.store.recover_running_turns()
-                    self._handles[storage_id] = handle
+                    self._handles[resolved_storage_id] = handle
                 handle.active += 1
         if handle is None:
             yield None
@@ -603,6 +722,16 @@ class TranscriptCatalog:
                 raise RuntimeError("failed to create migration session")
             return handle.store.record_legacy_migration(**kwargs)
 
+    def has_incomplete_legacy_migration(self, **identity: Any) -> bool:
+        """Read migration readiness without creating a conversation."""
+        with self._lease(create=False, **identity) as handle:
+            return bool(
+                handle
+                and handle.store.has_incomplete_legacy_migration(
+                    **identity,
+                ),
+            )
+
     def write_runtime_state(self, **kwargs: Any) -> tuple[int, bool]:
         """Persist one session's runtime snapshot."""
         with self._lease(
@@ -806,6 +935,17 @@ class TranscriptCatalog:
             user_id=kwargs.get("user_id"),
             channel=kwargs.get("channel"),
         )
+
+    def fail_turn(self, **kwargs: Any) -> bool:
+        """Settle a failed invocation without reopening its live store."""
+        result = self._write_existing("fail_turn", **kwargs)
+        self._release_turn(
+            str(kwargs["session_id"]),
+            str(kwargs["turn_id"]),
+            user_id=kwargs.get("user_id"),
+            channel=kwargs.get("channel"),
+        )
+        return result
 
     def read_replay_page(self, **kwargs: Any) -> list[tuple[int, str]]:
         """Read a bounded committed replay page under a session lease."""
@@ -1152,6 +1292,96 @@ class TranscriptCatalog:
                 )
             self._condition.notify_all()
             return True
+
+    def stage_session_deletion(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> _StagedSessionDeletion | None:
+        """Move one transcript aside without committing its deletion."""
+        with self._condition:
+            row = self._resolve_catalog_row(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if row is None:
+                return None
+            storage_id = str(row["storage_id"])
+            handle = self._handles.get(storage_id)
+            while handle is not None and handle.active > 0:
+                self._condition.wait()
+                handle = self._handles.get(storage_id)
+            if handle is not None:
+                self._handles.pop(storage_id, None)
+                handle.close()
+            originals = (
+                self._store_path(storage_id),
+                self._store_path(storage_id).with_name(
+                    f"{storage_id}.db-wal",
+                ),
+                self._store_path(storage_id).with_name(
+                    f"{storage_id}.db-shm",
+                ),
+            )
+            files = tuple(
+                (path, self._staged_path(path))
+                for path in originals
+                if path.exists()
+            )
+            moved: list[tuple[Path, Path]] = []
+            try:
+                for original, staged in files:
+                    if staged.exists():
+                        raise FileExistsError(staged)
+                    original.replace(staged)
+                    moved.append((original, staged))
+            except BaseException:
+                for original, staged in reversed(moved):
+                    staged.replace(original)
+                raise
+            self._staged_deletions.add(storage_id)
+            self._condition.notify_all()
+            return _StagedSessionDeletion(storage_id, files)
+
+    def restore_staged_session_deletion(
+        self,
+        deletion: _StagedSessionDeletion,
+    ) -> None:
+        """Restore a transcript because chat index deletion did not commit."""
+        with self._condition:
+            for original, staged in deletion.files:
+                if not staged.exists():
+                    continue
+                if original.exists():
+                    raise ValueError("conflicting transcript rollback")
+                staged.replace(original)
+            self._staged_deletions.discard(deletion.storage_id)
+            self._condition.notify_all()
+
+    def commit_staged_session_deletion(
+        self,
+        deletion: _StagedSessionDeletion,
+    ) -> None:
+        """Commit a staged transcript deletion after chats.json changes."""
+        with self._condition:
+            with self._conn:
+                self._conn.execute(
+                    "DELETE FROM transcript_files WHERE storage_id = ?",
+                    (deletion.storage_id,),
+                )
+            self._staged_deletions.discard(deletion.storage_id)
+            self._condition.notify_all()
+        for _original, staged in deletion.files:
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "Staged transcript cleanup will retry after restart: %s",
+                    staged,
+                    exc_info=True,
+                )
 
     def close(self) -> None:
         """Close all per-session stores and the catalog."""

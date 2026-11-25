@@ -534,6 +534,80 @@ def test_delete_retries_after_database_unlink_fails(
     catalog.close()
 
 
+@pytest.mark.parametrize(
+    ("catalog_state", "expect_restored"),
+    (
+        ("deleted", False),
+        ("retained", True),
+        ("missing", True),
+        ("invalid", True),
+    ),
+)
+def test_restart_recovers_interrupted_staged_delete(
+    tmp_path: Path,
+    catalog_state: str,
+    expect_restored: bool,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    _upsert(catalog, "session-a")
+    _finish(catalog, "session-a")
+    storage_id = catalog.storage_id_for(
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+    chats_path = tmp_path / "chats.json"
+    if catalog_state == "retained":
+        chat = ChatSpec(
+            id="chat-a",
+            storage_id=storage_id,
+            session_id="session-a",
+            user_id="user-1",
+            channel="console",
+        )
+        chats_path.write_text(
+            json.dumps(
+                {"version": 1, "chats": [chat.model_dump(mode="json")]},
+            ),
+            encoding="utf-8",
+        )
+    elif catalog_state == "deleted":
+        chats_path.write_text(
+            json.dumps({"version": 1, "chats": []}),
+            encoding="utf-8",
+        )
+    deletion = catalog.stage_session_deletion(
+        "session-a",
+        "user-1",
+        "console",
+    )
+    assert deletion is not None
+    catalog.close()
+    if catalog_state == "invalid":
+        chats_path.write_text("{invalid", encoding="utf-8")
+
+    recovered = TranscriptCatalog(tmp_path)
+    try:
+        page = recovered.get_page(
+            session_id="session-a",
+            user_id="user-1",
+            channel="console",
+        )
+        if expect_restored:
+            assert page is not None
+            assert [message.id for message in page.messages] == [
+                "message-session-a",
+            ]
+        else:
+            assert page is None
+            assert not list(
+                (tmp_path / "transcripts").glob(".deleting-*.db"),
+            )
+    finally:
+        recovered.close()
+
+
 def test_failed_turn_write_releases_handle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

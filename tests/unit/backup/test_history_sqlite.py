@@ -145,6 +145,43 @@ def test_workspace_backup_fails_when_history_is_invalid(
             )
 
 
+def test_workspace_backup_after_migration_marker(tmp_path):
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    identity = dict(session_id="session", user_id="user", channel="console")
+    catalog.record_legacy_migration(**identity)
+    catalog.close()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        assert add_agent_workspaces(
+            archive,
+            [("agent", SimpleNamespace(workspace_dir=workspace))],
+        )
+    buffer.seek(0)
+    destination = tmp_path / "restored"
+    with zipfile.ZipFile(buffer) as archive:
+        restore._stage_agents(
+            archive,
+            ["agent"],
+            {"agent"},
+            {"agent": (destination, True)},
+            [],
+            {},
+            [],
+        )
+    restored = TranscriptCatalog(
+        destination.with_name(f"{destination.name}.restore_tmp"),
+    )
+    try:
+        assert restored.has_incomplete_legacy_migration(**identity)
+        assert restored.get_page(**identity) is None
+        restored.record_legacy_migration(**identity, complete=True)
+        assert not restored.has_incomplete_legacy_migration(**identity)
+        assert restored.get_page(**identity) is not None
+    finally:
+        restored.close()
+
+
 def test_workspace_backup_snapshots_live_conversation_databases(
     tmp_path: Path,
 ) -> None:

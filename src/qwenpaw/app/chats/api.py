@@ -58,7 +58,7 @@ from .resolver import (
 )
 from ...config.utils import load_config
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_async_to_completion, run_sync_io
 from ...services.project_directory import (
     agent_project_dirs_from_config,
     resolve_effective_project_dirs,
@@ -125,11 +125,6 @@ async def _read_history_page(
     max_content_blocks: int = 40,
 ) -> ConversationHistoryPage | None:
     """Read one history page without blocking the event loop."""
-    if chat.meta.get("deletion_pending"):
-        raise HTTPException(
-            409,
-            "Conversation deletion failed; retry deletion",
-        )
     store = _history_store(workspace)
     if store is None:
         return None
@@ -184,11 +179,6 @@ async def _read_user_message_page(
     limit: int = 200,
 ):
     """Read one user-message index page without blocking the event loop."""
-    if chat.meta.get("deletion_pending"):
-        raise HTTPException(
-            409,
-            "Conversation deletion failed; retry deletion",
-        )
     store = _history_store(workspace)
     if store is None:
         return None
@@ -341,12 +331,11 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
 
 
 async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
-    """Block run registration and retain failed deletion for retry."""
+    """Delete chats with a reversible transcript commit boundary."""
     try:
         async with workspace.task_tracker.prevent_new_runs(chat_ids):
             catalog = await mgr.list_chats(archived=None)
             targets = [chat for chat in catalog if chat.id in chat_ids]
-            await mgr.mark_deleting(chat_ids)
             for chat_id in chat_ids:
                 await workspace.task_tracker.request_stop(chat_id)
             data_targets = _unshared_chat_data_targets(targets, catalog)
@@ -355,9 +344,66 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                 for chat in data_targets
             ]
             async with workspace.task_tracker.stop_session_writers(identities):
-                if data_targets:
-                    await _delete_chat_data(workspace, data_targets)
-                return await mgr.delete_chats(chat_ids=chat_ids)
+
+                async def complete_delete() -> bool:
+                    store = getattr(workspace, "transcript_store", None)
+                    staged = []
+                    try:
+                        if store is not None:
+                            for chat in data_targets:
+                                deletion = await run_sync_io(
+                                    store.stage_session_deletion,
+                                    chat.session_id,
+                                    chat.user_id,
+                                    chat.channel,
+                                )
+                                if deletion is not None:
+                                    staged.append(deletion)
+                        deleted = await mgr.delete_chats(chat_ids=chat_ids)
+                        if not deleted:
+                            for deletion in reversed(staged):
+                                await run_sync_io(
+                                    store.restore_staged_session_deletion,
+                                    deletion,
+                                )
+                            return False
+                    except Exception as exc:
+                        for deletion in reversed(staged):
+                            await run_sync_io(
+                                store.restore_staged_session_deletion,
+                                deletion,
+                            )
+                        logger.error(
+                            "Chat deletion did not commit",
+                            exc_info=True,
+                        )
+                        raise HTTPException(
+                            500,
+                            "Delete failed; please retry",
+                        ) from exc
+
+                    for deletion in staged:
+                        try:
+                            await run_sync_io(
+                                store.commit_staged_session_deletion,
+                                deletion,
+                            )
+                        except Exception:
+                            logger.error(
+                                "Committed chat deletion left staged data",
+                                exc_info=True,
+                            )
+                    if data_targets:
+                        try:
+                            await _delete_chat_data(workspace, data_targets)
+                        except HTTPException:
+                            logger.error(
+                                "Committed chat deletion needs cleanup retry",
+                                exc_info=True,
+                            )
+                    return True
+
+                return await run_async_to_completion(complete_delete())
     except RunUnavailableError as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -1081,76 +1127,101 @@ async def fork_chat_at_turn(
         session_id=f"fork-{uuid4()}",
         user_id=parent.user_id,
         channel=parent.channel,
-        meta=dict(parent.meta),
+        meta={
+            key: value
+            for key, value in parent.meta.items()
+            if key != "deletion_pending"
+        },
         source=parent.source,
         group_id=parent.group_id,
         parent_chat_id=parent.id,
         fork_turn_id=payload.turn_id,
     )
-    try:
-        turn_seq = await run_sync_io(
-            store.fork_at_turn,
-            source_session_id=parent.session_id,
-            source_user_id=parent.user_id,
-            source_channel=parent.channel,
-            source_chat_id=parent.id,
-            turn_id=payload.turn_id,
-            target_session_id=child.session_id,
-            target_user_id=child.user_id,
-            target_channel=child.channel,
-            target_storage_id=child.storage_id,
-            native_context=boundary is not None,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    child = child.model_copy(update={"fork_turn_seq": turn_seq})
-    external_id = None
+    async def complete_fork() -> ChatSpec:
+        """Finish every durable fork side effect before cancellation."""
+        external_id = None
+        copied = False
+        try:
+            try:
+                turn_seq = await run_sync_io(
+                    store.fork_at_turn,
+                    source_session_id=parent.session_id,
+                    source_user_id=parent.user_id,
+                    source_channel=parent.channel,
+                    source_chat_id=parent.id,
+                    turn_id=payload.turn_id,
+                    target_session_id=child.session_id,
+                    target_user_id=child.user_id,
+                    target_channel=child.channel,
+                    target_storage_id=child.storage_id,
+                    native_context=boundary is not None,
+                )
+            except KeyError as exc:
+                raise HTTPException(404, str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            copied = True
+            forked = child.model_copy(update={"fork_turn_seq": turn_seq})
+            if boundary is not None:
+                settings = dict(workspace.config.backend_settings)
+                external_id = await workspace.backend_runtime.call(
+                    backend,
+                    "fork_session",
+                    settings,
+                    session_id=parent.session_id,
+                    user_id=parent.user_id,
+                    channel=parent.channel,
+                    boundary=boundary,
+                )
+                await run_sync_io(
+                    store.record_provider_fact,
+                    session_id=forked.session_id,
+                    user_id=forked.user_id,
+                    channel=forked.channel,
+                    kind="session_bound",
+                    data={
+                        "provider": backend,
+                        "external_session_id": external_id,
+                    },
+                )
+            return await mgr.create_chat(forked)
+        except BaseException as exc:
+            if external_id:
+                logger.error(
+                    "Native %s fork %s could not be registered for chat %s; "
+                    "the provider branch is retained for recovery",
+                    backend,
+                    external_id,
+                    child.id,
+                    exc_info=True,
+                )
+            if copied:
+                await run_sync_io(
+                    store.delete_session,
+                    child.session_id,
+                    child.user_id,
+                    child.channel,
+                )
+            if boundary is not None and isinstance(exc, Exception):
+                raise HTTPException(
+                    409,
+                    f"Native fork failed: {exc}",
+                ) from exc
+            raise
+
+    async def can_start_fork() -> bool:
+        return await mgr.get_chat(chat_id) is not None
+
+    identity = (parent.session_id, parent.user_id, parent.channel)
     try:
-        if boundary is not None:
-            settings = dict(workspace.config.backend_settings)
-            external_id = await workspace.backend_runtime.call(
-                backend,
-                "fork_session",
-                settings,
-                session_id=parent.session_id,
-                user_id=parent.user_id,
-                channel=parent.channel,
-                boundary=boundary,
-            )
-            await run_sync_io(
-                store.record_provider_fact,
-                session_id=child.session_id,
-                user_id=child.user_id,
-                channel=child.channel,
-                kind="session_bound",
-                data={"provider": backend, "external_session_id": external_id},
-            )
-        return await mgr.create_chat(child)
-    except BaseException as exc:
-        if external_id:
-            logger.error(
-                "Native %s fork %s could not be registered for chat %s; "
-                "the provider branch is retained for recovery",
-                backend,
-                external_id,
-                child.id,
-                exc_info=True,
-            )
-        await run_sync_io(
-            store.delete_session,
-            child.session_id,
-            child.user_id,
-            child.channel,
-        )
-        if boundary is not None and isinstance(exc, Exception):
-            raise HTTPException(
-                409,
-                f"Native fork failed: {exc}",
-            ) from exc
-        raise
+        async with workspace.task_tracker.session_execution(
+            identity,
+            can_start_fork,
+        ):
+            return await run_async_to_completion(complete_fork())
+    except RunUnavailableError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 # ----- Chat group endpoints -----

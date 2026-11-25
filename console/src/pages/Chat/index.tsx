@@ -3272,6 +3272,11 @@ export default function ChatPage() {
         okText: t("chat.fork"),
         cancelText: t("common.cancel", "Cancel"),
         onOk: async () => {
+          confirmation.update({
+            cancelButtonProps: { disabled: true },
+            keyboard: false,
+            maskClosable: false,
+          });
           try {
             const forked = await chatApi.forkChat(
               backendChatId,
@@ -3297,6 +3302,22 @@ export default function ChatPage() {
                 console.warn("Failed to refresh chats after fork", error);
               });
           } catch (error) {
+            try {
+              const sessions = await sessionApi.getSessionList();
+              if (sessionApi.isActiveOwner(owner)) {
+                syncSessionsGlobal(sessions);
+              }
+            } catch (refreshError) {
+              console.warn(
+                "Failed to confirm chats after fork error",
+                refreshError,
+              );
+            }
+            confirmation.update({
+              cancelButtonProps: { disabled: false },
+              keyboard: true,
+              maskClosable: true,
+            });
             message.error(
               error instanceof Error ? error.message : t("chat.forkFailed"),
             );

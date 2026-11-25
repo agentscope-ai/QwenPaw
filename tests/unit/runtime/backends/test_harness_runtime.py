@@ -248,7 +248,8 @@ class Model(ChatModelBase):
                 steer_chat.id,
                 ChatSteerRequest(turn_id=control.turn_id,
                                  client_message_id="native-steer",
-                                 content="native-correction"),
+                                 content=[{"type": "text",
+                                           "text": "native-correction"}]),
                 steer_workspace.chat_manager, steer_workspace,
             )
             assert receipt["status"] == "accepted"
@@ -463,6 +464,48 @@ async def test_stream_attachments_history_restore_and_clear(host, tmp_path):
     assert "old answer" in str(
         await session.get_session_state_dict("same", "alice", "console"),
     )
+
+
+async def test_ephemeral_fork_backend_skips_persistence(tmp_path):
+    from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+    from qwenpaw.config.config import load_agent_config, save_agent_config
+
+    root = package(tmp_path)
+    source = (
+        SOURCE.replace(
+            "HarnessCapabilities(external_history=True)",
+            "HarnessCapabilities(external_history=True, fork_mode='turn')",
+        )
+        .replace(
+            "    async def status(self, context):",
+            "    async def bind_session(self, context, external_session_id):\n"
+            "        pass\n\n"
+            "    async def status(self, context):",
+        )
+        .replace(
+            '        yield HarnessEvent(Kind.TEXT_DELTA, text="answer")',
+            "        yield HarnessEvent(Kind.SESSION_BOUND, "
+            'data={"external_session_id": "native"})\n'
+            '        yield HarnessEvent(Kind.TEXT_DELTA, text="answer")',
+        )
+    )
+    (root / "main.py").write_text(source, encoding="utf-8")
+    async with PluginTestHost(tmp_path / "host") as test_host:
+        assert (await test_host.install(root)).ok
+        workspace = await test_host._workspace("one")
+        config = load_agent_config("one")
+        config.backend = "codex"
+        save_agent_config("one", config)
+        incoming = request("temporary", session="temporary")
+        incoming.request_context = {ACP_EPHEMERAL_META_KEY: True}
+        events = [event async for event in workspace.stream_query(incoming)]
+        assert events[-1].status == "completed"
+        assert not workspace.transcript_store.has_session(
+            session_id="temporary",
+            user_id="alice",
+            channel="console",
+        )
+        assert len(plugin(test_host).created[0].calls) == 1
 
 
 @pytest.mark.parametrize("close_fails", [False, True])

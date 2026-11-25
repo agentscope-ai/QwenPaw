@@ -21,6 +21,48 @@ _IDENTITY = {
 }
 
 
+def test_historical_fork_excludes_later_purged_recall(tmp_path):
+    parent = TranscriptStore(tmp_path / "parent.db")
+    parent.start_turn(**_IDENTITY, turn_id="turn")
+    history = HistoryStore(parent.path)
+    history.append(
+        session_id="session",
+        entry=LogEntry(kind="model_turn", content="expired"),
+    )
+    parent.write_runtime_state(
+        **_IDENTITY,
+        turn_id="turn",
+        state={"agent": {}},
+    )
+    parent.finish_turn(
+        session_id="session",
+        turn_id="turn",
+        status="completed",
+    )
+    assert history.purge(before="9999-01-01T00:00:00+00:00") == 1
+    history.close()
+    child = TranscriptStore(tmp_path / "child.db")
+    try:
+        child.fork_completed_turn_from(
+            source_path=parent.path,
+            source_session_id="session",
+            source_chat_id="parent",
+            turn_id="turn",
+            target_session_id="child",
+            target_user_id="user",
+            target_channel="console",
+        )
+        child.rebuild_projections()
+        reader = HistoryStore(child.path)
+        try:
+            assert reader.count("child") == 0
+        finally:
+            reader.close()
+    finally:
+        child.close()
+        parent.close()
+
+
 def test_ui_and_runtime_projections_rebuild_from_events(
     tmp_path: Path,
 ) -> None:

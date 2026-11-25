@@ -37,7 +37,7 @@ from ...token_usage.turn_usage import (
     add_session_cache_usage,
     resolve_turn_usage,
 )
-from ...utils.io_utils import run_async_to_completion
+from ...utils.io_utils import run_async_to_completion, run_sync_io
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
@@ -541,6 +541,16 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 ),
             }
             try:
+                if await asyncio.to_thread(
+                    transcript_store.has_incomplete_legacy_migration,
+                    **identity,
+                ):
+                    await self.session.ensure_legacy_migrated(**identity)
+                    if await asyncio.to_thread(
+                        transcript_store.has_incomplete_legacy_migration,
+                        **identity,
+                    ):
+                        raise RuntimeError("Legacy migration is incomplete")
                 has_transcript = await asyncio.to_thread(
                     transcript_store.has_session,
                     **identity,
@@ -571,18 +581,93 @@ class Workspace:  # pylint: disable=too-many-public-methods
         del legacy_messages
         control = None
         token = None
-        close_reason = "turn_finished"
+        failure = None
+        lease = None
+        lease_entered = False
         identity_key = session_storage_identity(
             request.session_id,
             request.user_id,
             request.channel,
         )
 
-        async def finish_cancelled() -> None:
-            await stream.aclose()
-            await recorder.finish("cancelled")
+        cancelled_errors = (
+            asyncio.CancelledError,
+            GeneratorExit,
+            KeyboardInterrupt,
+        )
+
+        def acquire_lease() -> None:
+            nonlocal lease_entered
+            lease.__enter__()
+            lease_entered = True
+
+        async def settle() -> None:
+            nonlocal failure
+            if control is not None:
+                # Stop admission without waiting on an in-flight commit.
+                control.closed = True
+            try:
+                await stream.aclose()
+            except BaseException as exc:
+                if not recorder.finished and (
+                    failure is None or isinstance(failure, cancelled_errors)
+                ):
+                    failure = exc
+                else:
+                    logger.warning("Stream cleanup failed", exc_info=True)
+            if control is not None:
+                try:
+                    if recorder.ready:
+                        await control.close(
+                            "turn_finished"
+                            if failure is None
+                            else (
+                                "cancelled"
+                                if isinstance(
+                                    failure,
+                                    cancelled_errors,
+                                )
+                                else "failed"
+                            ),
+                        )
+                except BaseException as exc:
+                    if not recorder.finished and (
+                        failure is None
+                        or isinstance(failure, cancelled_errors)
+                    ):
+                        failure = exc
+                    logger.warning("Steer cleanup failed", exc_info=True)
+
+            try:
+                if failure is None:
+                    await recorder.finish("completed")
+                elif isinstance(failure, cancelled_errors):
+                    await recorder.finish("cancelled")
+            except BaseException as exc:
+                if failure is None or isinstance(failure, cancelled_errors):
+                    failure = exc
+                else:
+                    logger.warning("Turn settlement failed", exc_info=True)
+            if failure is not None and not isinstance(
+                failure,
+                cancelled_errors,
+            ):
+                try:
+                    await recorder.finish_failed(
+                        {"code": type(failure).__name__, "message": ""},
+                    )
+                except BaseException:
+                    logger.warning("Failure settlement failed", exc_info=True)
 
         try:
+            if transcript_store is not None:
+                lease = transcript_store.recording_lease(
+                    session_id=recorder._session_id,
+                    user_id=recorder._user_id,
+                    channel=recorder._channel,
+                    turn_id=recorder.turn_id,
+                )
+                await run_sync_io(acquire_lease)
             await recorder.start()
             if (
                 backend == "qwenpaw"
@@ -629,38 +714,36 @@ class Workspace:  # pylint: disable=too-many-public-methods
                                 "Auto checkpoint scheduling failed",
                             )
                 yield item
-        except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
-            close_reason = "cancelled"
-            await run_async_to_completion(finish_cancelled())
-            raise
         except BaseException as exc:
-            close_reason = "failed"
-            error = {
-                "code": type(exc).__name__,
-                "message": "",
-            }
-            await recorder.finish("failed", error=error)
-            raise
+            failure = exc
         finally:
             try:
-                await stream.aclose()
+                await run_async_to_completion(settle())
+            except asyncio.CancelledError as exc:
+                if failure is None or isinstance(failure, cancelled_errors):
+                    failure = exc
             finally:
                 if control is not None:
+                    if self.steer_runs.get(identity_key) is control:
+                        self.steer_runs.pop(identity_key, None)
+                    if token is not None and current_steer.get() is control:
+                        try:
+                            current_steer.reset(token)
+                        except ValueError:
+                            current_steer.set(None)
+                if lease_entered:
                     try:
                         await run_async_to_completion(
-                            control.close(close_reason),
+                            run_sync_io(lease.__exit__, None, None, None),
                         )
-                    finally:
-                        if self.steer_runs.get(identity_key) is control:
-                            self.steer_runs.pop(identity_key, None)
-                        if token is not None:
-                            # Generator cleanup may run in a copied context.
-                            if current_steer.get() is control:
-                                try:
-                                    current_steer.reset(token)
-                                except ValueError:
-                                    current_steer.set(None)
-        await recorder.finish("completed")
+                    except asyncio.CancelledError as exc:
+                        if failure is None or isinstance(
+                            failure,
+                            cancelled_errors,
+                        ):
+                            failure = exc
+        if failure is not None:
+            raise failure
 
     async def finalize_turn_usage(
         self,

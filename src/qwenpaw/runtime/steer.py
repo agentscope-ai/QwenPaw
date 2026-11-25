@@ -103,8 +103,16 @@ class SteerControl:
                 await self._close(self.unavailable)
                 return
             batch = list(self.pending)
-            async for obj in self.envelope.close_input_segment():
-                yield SteerOutput(obj)
+        # The consumer records this segment before allocating steer ordinals.
+        # Never hold admission's lock while waiting for that consumer.
+        async for obj in self.envelope.close_input_segment():
+            yield SteerOutput(obj)
+        async with self.lock:
+            if self.closed:
+                return
+            if self.unavailable:
+                await self._close(self.unavailable)
+                return
             messages = [self.envelope.prepare_steer(r) for r in batch]
             converted = _request_input_to_msgs(messages)
             if len(converted) != len(messages) or any(
@@ -135,13 +143,18 @@ class SteerControl:
                     "turn_id": self.turn_id,
                     "message_ids": [*applied, *(m.id for m in messages)],
                 }
-                self.pending.clear()
+                applied_ids = {r["client_message_id"] for r in batch}
+                self.pending[:] = [
+                    r
+                    for r in self.pending
+                    if r["client_message_id"] not in applied_ids
+                ]
                 for message in messages:
                     self.envelope.append_steer(message)
 
             await run_async_to_completion(commit())
-            for message in messages:
-                yield SteerOutput(message)
+        for message in messages:
+            yield SteerOutput(message)
 
     async def continue_reply(self, reason):
         async with self.lock:
