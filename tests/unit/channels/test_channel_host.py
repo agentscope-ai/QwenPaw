@@ -1626,8 +1626,38 @@ async def test_application_shutdown_reaps_workers_and_preserves_installed_code(
     pids = [(await host.identity(ws))[1]["pid"] for ws in workspaces]
     from qwenpaw.plugins.lifecycle import UnloadMode
 
+    activity = host.loader.lifecycle.activity(KEY)
+    entered = asyncio.Event()
+    events = []
+
+    async def request():
+        with activity.invocation():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("request finished")
+
+    async def flush():
+        for ws in workspaces:
+            channel = await ws.channel_manager.get_channel(KEY)
+            await channel.send(ws.agent_id, "shutting down")
+            events.append(ws.agent_id)
+
+    host.registry.register_shutdown_hook(KEY, "flush", flush)
+    task = asyncio.create_task(request())
+    await entered.wait()
     reports = await host.loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
-    assert reports and all(report.quiescent for report in reports)
+    assert task.cancelled()
+    assert events == ["request finished", "first", "second"]
+    assert [
+        (row["pid"], row["room"], list(texts(row["content_parts"])))
+        for row in rows(host.ledger, "sent")
+    ] == [
+        (pids[0], "first", ["shutting down"]),
+        (pids[1], "second", ["shutting down"]),
+    ]
+    assert reports and all(r.clean and r.quiescent for r in reports)
     assert all(not alive(pid) for pid in pids)
     assert not host.registry.runtime_owners.leases(KEY)
     assert (host.installed / "sample.py").is_file()
@@ -1760,6 +1790,12 @@ async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
     await eventually(lambda: not alive(before["pid"]))
     channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
     expected_error = [f"{KEY}: CHANNEL_STOP_INCOMPLETE"]
+    observed = []
+
+    async def hook():
+        observed.append(await ws.channel_manager.get_channel(KEY))
+
+    host.registry.register_shutdown_hook(KEY, "before-stop", hook)
     async with channel._state_lock:
         reports = await host.loader.lifecycle.unload_all(mode)
         assert reports == [
@@ -1773,6 +1809,7 @@ async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
             ),
         ]
         assert channel.last_stop_result.residual == ("HOST_STATE_IO_PENDING",)
+        assert observed == [channel]
         assert host.registry.runtime_owners.leases(KEY) == (
             channel._runtime_lease,
         )
@@ -1781,6 +1818,7 @@ async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
         UnloadReport(KEY, mode, clean=False, errors=expected_error),
     ]
     assert channel.last_stop_result.acknowledged is False
+    assert observed == [channel]
     assert not host.registry.runtime_owners.leases(KEY)
 
 

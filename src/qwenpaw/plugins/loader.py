@@ -4592,6 +4592,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance,
         delete_files: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unlocked unload used by ``PluginLifecycle``.
 
@@ -4603,6 +4604,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             mode=mode,
             interrupt_tasks=interrupt_tasks,
             instance=instance,
+            shutdown_channels=shutdown_channels,
         )
 
     async def _unload_plugin_unlocked(
@@ -4614,6 +4616,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance=None,
         skip_legacy: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin and release a failed unload reservation."""
         from qwenpaw.memory import memory_registry
@@ -4630,6 +4633,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     mode=mode,
                     instance=instance,
                     skip_legacy=skip_legacy,
+                    shutdown_channels=shutdown_channels,
                 )
             except BaseException:
                 memory_registry.cancel_owner_unload(plugin_id)
@@ -4660,6 +4664,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         mode: UnloadMode | None = None,
         instance=None,
         skip_legacy: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         # pylint: disable=too-many-branches,too-many-statements
@@ -4667,7 +4672,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             mode = UnloadMode.UNINSTALL if delete_files else UnloadMode.UNLOAD
         record = self._loaded_plugins.get(plugin_id)
         if record is None and mode is UnloadMode.SHUTDOWN:
-            return await self._shutdown_runtime_owners(plugin_id, mode)
+            report = UnloadReport(plugin_id=plugin_id, mode=mode)
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+            if report.quiescent:
+                report.absorb(
+                    await self._shutdown_runtime_owners(plugin_id, mode),
+                )
+            return report
         try:
             await self._stop_preparation(plugin_id)
         except Exception as exc:
@@ -4736,8 +4748,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # Author hooks must run while they are still in the registry.
         # Ledger teardowns only drop the rows; they do not invoke them.
         report = UnloadReport(plugin_id=plugin_id, mode=mode)
-        await self._run_shutdown_hooks(plugin_id, report)
+        await self._run_shutdown_hooks(
+            plugin_id,
+            report,
+            retire_successful=mode is UnloadMode.SHUTDOWN,
+        )
         if mode is UnloadMode.SHUTDOWN:
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+                if not report.quiescent:
+                    return report
             report.absorb(await instance.dispose(mode))
             if report.quiescent:
                 report.absorb(await self._stop_runtime_owners(plugin_id, mode))

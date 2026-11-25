@@ -243,10 +243,22 @@ def _terminate_backend_unix(
             pass
         return []
 
-    def wait_until(deadline):
+    def wait_until(deadline, *, force=False):
+        signalled = set()
         while pending:
-            if root in pending:
-                pending.update(descendants(root))
+            # Reparented workers can still spawn their own descendants.
+            discovered = set()
+            for member in pending:
+                if member not in discovered:
+                    discovered.update(descendants(member))
+            pending.update(discovered)
+            if force:
+                for member in pending - signalled:
+                    try:
+                        member.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                    signalled.add(member)
             if process is not None:
                 process.poll()  # Reap the desktop wrapper's direct child.
             for member in tuple(pending):
@@ -273,15 +285,7 @@ def _terminate_backend_unix(
         except psutil.NoSuchProcess:
             pass
         wait_until(deadline)
-        # A surviving owner may have spawned more children during cleanup.
-        for member in tuple(pending):
-            pending.update(descendants(member))
-        for member in pending:
-            try:
-                member.kill()
-            except psutil.NoSuchProcess:
-                pass
-        wait_until(time.monotonic() + 2.0)
+        wait_until(time.monotonic() + 2.0, force=True)
         if process is not None:
             process.poll()
         return not pending

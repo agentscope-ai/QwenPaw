@@ -45,7 +45,8 @@ def _make_shutdown_channel(source):
                         stop = threading.Event()
                         def run(stop=stop, index=index):
                             stop.wait()
-                            time.sleep(4.25)
+                            due = self.stop_started + 15.5 - 4.25 * index
+                            time.sleep(max(0, due - time.monotonic()))
                             marker.with_suffix(f".{index}.exited").write_text(
                                 str(time.monotonic_ns()),
                             )
@@ -56,7 +57,8 @@ def _make_shutdown_channel(source):
                     raise AssertionError("Unexpected delivery during shutdown")
 
                 async def stop(self, ch):
-                    # Three ordered joins add 12.75s to this platform drain.
+                    # Use one clock for the platform drain and ordered joins.
+                    self.stop_started = time.monotonic()
                     marker = Path(ch.config["marker"])
                     marker.with_suffix(".stopping").write_text(
                         str(time.monotonic_ns()),
@@ -103,6 +105,7 @@ def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
                 })
             save_agent_config("default", config)
             channels = []
+            hooks = []
             async with app.router.lifespan_context(app):
                 await app.state.startup_ready.wait()
                 ws = await app.state.multi_agent_manager.get_agent("default")
@@ -112,6 +115,17 @@ def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
                         source.name, config,
                     )
                     channels.append(handle.channel)
+                    async def before_shutdown(key=source.name):
+                        for peer in sources:
+                            live = await ws.channel_manager.get_channel(
+                                peer.name,
+                            )
+                            assert live is not None
+                            assert not peer.with_suffix(".stopping").exists()
+                        hooks.append(key)
+                    app.state.plugin_registry.register_shutdown_hook(
+                        source.name, "before-stop", before_shutdown,
+                    )
                 pid = int(sources[0].with_suffix(".pid").read_text())
                 psutil.Process(pid).kill()
                 await eventually(lambda: not alive(pid))
@@ -124,6 +138,7 @@ def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
             backups.shutdown.assert_awaited_once()
             workspaces.stop_all.assert_awaited_once()
             browser_stop.assert_awaited_once_with(app)
+            assert hooks == [s.name for s in sources]
             assert channels[0].last_stop_result.acknowledged is False
             for channel in channels[1:]:
                 assert channel.last_stop_result.acknowledged is True
@@ -165,15 +180,22 @@ def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
 @pytest.mark.parametrize("stubborn", [False, True])
 def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn):
     marker = tmp_path / "exited"
+    pid_file = tmp_path / "last.pid"
     worker_code = textwrap.dedent(
         """
+        import subprocess
         import sys
         import time
         from pathlib import Path
 
         sys.stdin.buffer.read()  # EOF when the backend exits.
-        time.sleep(float(sys.argv[1]))
-        Path(sys.argv[2]).touch()
+        child = subprocess.Popen(
+            [sys.executable, "-c", sys.argv[1], *sys.argv[2:4]],
+            stdin=subprocess.PIPE, start_new_session=True,
+        )
+        Path(sys.argv[4]).write_text(str(child.pid))
+        # Remain observable across multiple CLI polling intervals.
+        time.sleep(0.5)
         """,
     )
     backend_code = textwrap.dedent(
@@ -196,8 +218,20 @@ def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn):
             "-c",
             backend_code,
             worker_code,
+            textwrap.dedent(
+                """
+                import sys
+                import time
+                from pathlib import Path
+
+                sys.stdin.buffer.read()  # EOF when the middle worker exits.
+                time.sleep(float(sys.argv[1]))
+                Path(sys.argv[2]).touch()
+                """,
+            ),
             "60" if stubborn else "0.1",
             str(marker),
+            str(pid_file),
         ],
         stdout=subprocess.PIPE,
         text=True,
@@ -206,14 +240,17 @@ def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn):
         try:
             assert shutdown_cmd._terminate_pid(
                 backend.pid,
-                timeout_sec=1,
+                timeout_sec=2,
                 process=backend,
                 backend=True,
             )
             assert backend.returncode == -signal.SIGTERM
             assert not alive(worker.pid)
+            assert not alive(int(pid_file.read_text()))
             assert marker.exists() == (not stubborn)
         finally:
+            if pid_file.exists() and alive(int(pid_file.read_text())):
+                psutil.Process(int(pid_file.read_text())).kill()
             if worker.is_running():
                 try:
                     worker.kill()
