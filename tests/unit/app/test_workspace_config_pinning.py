@@ -31,6 +31,7 @@ from qwenpaw.config.config import (
     load_agent_config,
     save_agent_config,
 )
+from qwenpaw.modes.catalog import ModeEntry
 
 
 @pytest.fixture
@@ -168,8 +169,12 @@ async def test_session_workspace_owns_and_releases_only_its_resources(
     parameters = RuntimeParameters(profile=root.config)
     first = parameters.with_overrides({"workspace_dir": str(tmp_path / "a")})
     second = parameters.with_overrides({"workspace_dir": str(tmp_path / "b")})
+    entered = ModeEntry("goal")
+    root.plugins.session_modes["a"] = entered
     a = await root.for_session("a", first)
     b = await root.for_session("b", second)
+    assert a.plugins.session_modes == {"a": entered}
+    assert not root.plugins.session_modes and not b.plugins.session_modes
     assert a is await root.for_session("a", first)
     assert a.workspace_dir != b.workspace_dir != root.workspace_dir
     assert [name for name, _ in resources] == [
@@ -187,6 +192,7 @@ async def test_session_workspace_owns_and_releases_only_its_resources(
     with pytest.raises(OSError, match="storage unavailable"):
         await root.for_session("a", failed)
     assert root.session_workspace("a") is a
+    assert a.plugins.session_modes == {"a": entered}
     resources[2][1].stop.assert_not_awaited()
     replacement = parameters.with_overrides(
         {
@@ -199,13 +205,19 @@ async def test_session_workspace_owns_and_releases_only_its_resources(
             assert root.session_workspace("a") is a
             raise OSError("driver unavailable")
     assert root.session_workspace("a") is a
+    assert a.plugins.session_modes == {"a": entered}
     resources[2][1].stop.assert_not_awaited()
     resources[-1][1].stop.assert_awaited_once()
-    await root.release_session("a")
+    retry = ModeEntry("mission", retry=True)
+    a.plugins.session_modes["a"] = retry
+    assert await root.for_session("a", parameters) is root
+    assert root.plugins.session_modes == {"a": retry}
+    assert not a.plugins.session_modes
     resources[2][1].stop.assert_awaited_once()
     resources[3][1].stop.assert_not_awaited()
     assert root.session_workspace("b") is b
-    assert await root.for_session("a", parameters) is root
+    await root.release_session("a")
+    assert not root.plugins.session_modes
     assert (
         load_agent_config("agent").workspace_dir
         == parameters.profile.workspace_dir

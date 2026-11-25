@@ -495,7 +495,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 with parameters.scope():
                     yield self
                 if existing is not None:
-                    await self._release_session(session_id)
+                    await self._replace_session_owner(session_id, self)
                 return
             with parameters.scope():
                 usage = await capture_workspace_usage(self.agent_id, directory)
@@ -512,10 +512,23 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     if driver_manager := workspace.driver_manager:
                         await driver_manager.activate_registered_protocols()
                     yield workspace
-                    await self._release_session(session_id)
+                    await self._replace_session_owner(session_id, workspace)
                 except BaseException:
                     await run_async_to_completion(workspace.stop(final=True))
                     raise
+
+    async def _replace_session_owner(
+        self,
+        session_id: str,
+        workspace: "Workspace",
+    ) -> None:
+        """Keep mode entry with the session while replacing its resources."""
+        previous = self.session_workspace(session_id)
+        entry = previous.plugins.session_modes.get(session_id)
+        await self._release_session(session_id)
+        if entry is not None:
+            workspace.plugins.session_modes[session_id] = entry
+        if workspace is not self:
             self._session_workspaces[session_id] = workspace
 
     async def release_session(self, session_id: str) -> None:
