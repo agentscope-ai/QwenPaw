@@ -49,25 +49,51 @@
   }
 
   // --- fetch ---------------------------------------------------------------
+  async function replayRequestInit(input, init) {
+    var options = {};
+    for (var key of [
+      "method", "headers", "mode", "credentials", "cache", "redirect",
+      "referrer", "referrerPolicy", "integrity", "keepalive", "duplex", "signal",
+    ]) {
+      var option = init == null ? undefined : init[key];
+      options[key] = option === undefined ? input[key] : option;
+    }
+    options.body = init == null ? undefined : init.body;
+    if (options.body == null && input.body !== null) {
+      if (input.bodyUsed) throw new TypeError("Request body is already used");
+      // Keep a fixed-length body instead of turning a regular POST into a streaming upload.
+      var relay = new TransformStream();
+      var signal = options.signal ?? undefined;
+      try {
+        var result = await Promise.all([
+          input.body.pipeTo(relay.writable, { signal: signal }),
+          new Response(relay.readable).arrayBuffer(),
+        ]);
+        options.body = result[1];
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason;
+        throw error;
+      }
+    }
+    return options;
+  }
+
   var originalFetch = window.fetch;
   if (typeof originalFetch === "function") {
-    window.fetch = function (input, init) {
-      var url = input instanceof Request ? input.url : String(input);
-      var target = hostRequestUrl(url);
-      if (target) {
-        input = input instanceof Request ? new Request(target, input) : target;
-        var token = hostToken();
-        var headers = new Headers(
-          (init && init.headers) ||
-            (input && typeof input.url === "string" ? input.headers : undefined),
-        );
-        if (token && !headers.has("Authorization")) {
-          headers.set("Authorization", "Bearer " + token);
-        }
-        if (!headers.has("X-Agent-Id")) headers.set("X-Agent-Id", workspaceId());
-        init = Object.assign({}, init, { headers: headers });
+    window.fetch = async function (input, init) {
+      var isRequest = input instanceof Request;
+      var target = hostRequestUrl(isRequest ? input.url : String(input));
+      if (!target) return originalFetch.call(this, input, init);
+
+      var options = isRequest ? await replayRequestInit(input, init) : {};
+      var headers = new Headers(isRequest ? options.headers : init?.headers);
+      var token = hostToken();
+      if (token && !headers.has("Authorization")) {
+        headers.set("Authorization", "Bearer " + token);
       }
-      return originalFetch.call(this, input, init);
+      if (!headers.has("X-Agent-Id")) headers.set("X-Agent-Id", workspaceId());
+      options.headers = headers;
+      return originalFetch.call(this, target, Object.setPrototypeOf(options, init ?? null));
     };
   }
 

@@ -10,12 +10,17 @@ Cases:
 - COMPAT-001 P1  test_market_compat_tags_render
 - COMPAT-002 P1  test_incompatible_install_warning_modal
 - DATA-BASE-PATH-001 P1  test_data_context_console_preserves_nested_base_path
+- DATA-BASE-PATH-002 P1  test_data_context_bridge_preserves_request_options
+- DATA-BASE-PATH-003 P1  test_data_bridges_replay_request_bodies
+- DATA-BASE-PATH-004 P1  test_data_context_bridge_aborts_pending_body
 """
 
 from __future__ import annotations
 
 import logging
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from urllib.parse import unquote, urlparse
 
 import pytest
@@ -142,15 +147,13 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
     )
 
     assert context_page.url == f"{origin}{context_path}#/data-source"
-    assert api_requests == [
-        f"{origin}{prefix}/api/qwenpaw-data/context/status",
-        f"{origin}{prefix}/api/qwenpaw-data/context/config",
-        f"{origin}{prefix}/api/qwenpaw-data/context/replayed",
-        f"{origin}{prefix}/api/qwenpaw-data/context/fresh",
-        f"{origin}{prefix}/api/qwenpaw-data/context/override",
-        f"{origin}{prefix}/api/qwenpaw-data/context/null",
-        f"{origin}{prefix}/api/qwenpaw-data/context/inherited-override",
-    ]
+    assert sorted(api_requests) == sorted(
+        f"{origin}{prefix}/api/qwenpaw-data/context/{endpoint}"
+        for endpoint in (
+            "status", "config", "replayed", "fresh", "override",
+            "null", "inherited-override",
+        )
+    )
     assert replayed_bodies == ["new", "fresh-body"]
     assert outcomes == {
         "omitted": "AbortError",
@@ -226,6 +229,183 @@ def test_data_context_bridge_preserves_request_options(page: Page, prefix: str):
         "cache": "reload",
         "keepalive": False,
     }
+
+
+@pytest.mark.ui_smoke
+@pytest.mark.p1
+@pytest.mark.plugins
+@pytest.mark.test_id("DATA-BASE-PATH-003")
+@pytest.mark.parametrize("prefix", ["", "/qwenpaw"], ids=["root", "mounted"])
+@pytest.mark.parametrize("console", ["data-console", "context-console"])
+def test_data_bridges_replay_request_bodies(page: Page, prefix: str, console: str):
+    app_dir = Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
+    plugin_path = f"/api/frontend_plugin/qwenpaw-data/files/ui/dist/{console}/"
+    requests = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def respond(self, body, content_type):
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path.startswith(f"{prefix}/api/qwenpaw-data/"):
+                requests[self.path] = (None, {})
+            self.respond(b"<html></html>", "text/html")
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            requests[self.path] = (body.decode(), self.headers)
+            self.respond(b"ok", "text/plain")
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            page.goto(f"http://127.0.0.1:{server.server_port}{prefix}{plugin_path}")
+            outcomes = _fetch_data_bridge_probes(page, app_dir, prefix, console)
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert outcomes == {
+        "ordinary": 200,
+        "keepalive": 200,
+        "null": 200,
+        "replaced": 200,
+        "consumed-null": "TypeError",
+        "aborted-url": "AbortError",
+    }
+    assert set(requests) == {
+        f"{prefix}/api/qwenpaw-data/probe/{name}"
+        for name, outcome in outcomes.items()
+        if outcome == 200
+    }
+    for name in ("ordinary", "keepalive", "null", "replaced"):
+        body, headers = requests[f"{prefix}/api/qwenpaw-data/probe/{name}"]
+        replaced = name == "replaced"
+        assert body == ("replacement" if replaced else "original")
+        assert headers["x-probe"] == ("override" if replaced else "original")
+        assert headers["content-type"] == "text/plain;charset=UTF-8"
+        token = "caller" if replaced else "host-token"
+        assert headers["authorization"] == f"Bearer {token}"
+        if replaced:
+            assert headers["x-agent-id"] == "caller-agent"
+        elif console == "data-console":
+            assert headers["x-agent-id"] == "selected"
+
+
+def _fetch_data_bridge_probes(page: Page, app_dir: Path, prefix: str, console: str):
+    page.evaluate(
+        """(prefix) => {
+            localStorage.setItem('qwenpaw_auth_token', 'host-token');
+            window.QwenPaw = {host: {
+                getApiUrl: (path) => `${prefix}/api${path}`,
+                getSelectedAgentId: () => 'selected',
+            }};
+        }""",
+        prefix,
+    )
+    bridge_dir = "ui/public" if console == "data-console" else "scripts"
+    page.add_script_tag(path=app_dir / bridge_dir / console / "paw-bridge.js")
+
+    return page.evaluate(
+        """async () => {
+            const url = '/api/qwenpaw-data/probe/';
+            const outcomes = {};
+            const fetchWithResult = async (name, input, init) => {
+                try {
+                    outcomes[name] = (await fetch(input, init)).status;
+                } catch (error) {
+                    outcomes[name] = error.name;
+                }
+            };
+            for (const name of ['ordinary', 'keepalive', 'null', 'replaced']) {
+                const request = new Request(url + name, {
+                    method: 'POST', body: 'original', keepalive: name === 'keepalive',
+                    headers: {'X-Probe': 'original'},
+                });
+                let init;
+                if (name === 'null') init = {body: null};
+                if (name === 'replaced') {
+                    await request.text();
+                    init = Object.create({body: 'replacement', headers: {
+                        'X-Probe': 'override', Authorization: 'Bearer caller',
+                        'X-Agent-Id': 'caller-agent',
+                    }});
+                }
+                await fetchWithResult(name, request, init);
+            }
+            const consumed = new Request(url + 'consumed-null', {
+                method: 'POST', body: 'original',
+            });
+            await consumed.text();
+            await fetchWithResult('consumed-null', consumed, {body: null});
+            await fetchWithResult('aborted-url', new URL(url + 'aborted-url', location.href),
+                Object.create({signal: AbortSignal.abort()}));
+            return outcomes;
+        }""",
+    )
+
+
+@pytest.mark.ui_smoke
+@pytest.mark.p1
+@pytest.mark.plugins
+@pytest.mark.test_id("DATA-BASE-PATH-004")
+def test_data_context_bridge_aborts_pending_body(page: Page):
+    origin = "https://qwenpaw.test"
+    path = "/qwenpaw/api/frontend_plugin/qwenpaw-data/files/ui/dist/context-console/"
+    attempted_uploads = []
+
+    def serve(route):
+        if route.request.url == f"{origin}{path}":
+            route.fulfill(content_type="text/html", body="<html></html>")
+        else:
+            attempted_uploads.append(route.request.url)
+            route.fulfill(status=200)
+
+    page.route(f"{origin}/**", serve)
+    page.goto(f"{origin}{path}")
+    if not page.evaluate("""() => {
+        let duplexRead = false;
+        const request = new Request(location.href, {
+            method: 'POST', body: new ReadableStream(),
+            get duplex() { duplexRead = true; return 'half'; },
+        });
+        return duplexRead && !request.headers.has('Content-Type');
+    }"""):
+        pytest.skip("Browser does not support streaming request bodies")
+    app_dir = Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
+    page.add_script_tag(path=app_dir / "scripts/context-console/paw-bridge.js")
+    result = page.evaluate(
+        """async () => {
+            const controller = new AbortController();
+            const reason = new DOMException('cancelled by caller', 'AbortError');
+            let sourceCancelled = false;
+            const body = new ReadableStream({cancel(value) {
+                sourceCancelled = value === reason;
+            }});
+            const request = new Request('/api/qwenpaw-data/probe/stream', {
+                method: 'POST', body, duplex: 'half',
+            });
+            const settled = fetch(request, Object.create({signal: controller.signal}))
+                .then(() => 'sent', (error) => error === reason ? error.name : 'wrong reason');
+            setTimeout(() => controller.abort(reason), 0);
+            let timer;
+            const timeout = new Promise((resolve) => {
+                timer = setTimeout(() => resolve('still waiting for body'), 1000);
+            });
+            const outcome = await Promise.race([settled, timeout]);
+            clearTimeout(timer);
+            return {outcome, sourceCancelled};
+        }""",
+    )
+    assert result == {"outcome": "AbortError", "sourceCancelled": True}
+    assert attempted_uploads == []
 
 
 # ============================================================================

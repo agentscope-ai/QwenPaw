@@ -179,6 +179,27 @@ describe("configured console basename", () => {
     },
   );
 
+  it.each([
+    ["/O'Reilly", "/O%27Reilly"],
+    ["/中文", "/%e4%b8%ad%e6%96%87"],
+    ["/apps/data+preview", "/%61pps/data%2Bpreview"],
+  ])("matches an equivalent encoding of %s", async (base, spelling) => {
+    setDocumentBase(base);
+    const navigation = await loadNavigation(undefined);
+    const pathname = `${spelling}/chat/%2Fother`;
+    expect(navigation.getRouterBasename(pathname)).toBe(spelling);
+    expect(navigation.stripRouterBasename(spelling)).toBe("/");
+    expect(navigation.stripRouterBasename(pathname)).toBe("/chat/%2Fother");
+    expect(navigation.getLoginHref({ pathname })).toBe(
+      `${spelling}/login?redirect=%2Fchat%2F%252Fother`,
+    );
+    expect(
+      navigation.getRouterBasename(`${spelling}-other/chat`),
+    ).toBeUndefined();
+    expect(navigation.getRouterBasename(`${spelling}%2Fchat`)).toBeUndefined();
+    expect(navigation.getRouterBasename(`${spelling}%/chat`)).toBeUndefined();
+  });
+
   it("prefers the server-injected runtime base path", async () => {
     setDocumentBase("/app/qwenpaw/web");
     const navigation = await loadNavigation(undefined);
