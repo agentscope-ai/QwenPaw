@@ -144,8 +144,9 @@ function SkillPoolPage() {
                       }
                     >
                       <Badge
-                        dot={pool.hasUnseenBuiltinNotice}
-                        color="rgba(255, 157, 77, 1)"
+                        className={styles.builtinUpdateBadge}
+                        dot={pool.hasBuiltinVersionUpdates}
+                        color="var(--app-error)"
                         offset={[-4, 4]}
                       >
                         <Button

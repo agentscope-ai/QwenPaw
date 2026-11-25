@@ -540,8 +540,8 @@ class AgentBuilder:
                 agent._check_permission  # pylint: disable=protected-access
             )
             code_tool.acting = (
-                agent._acting  # pylint: disable=protected-access
-            )
+                agent._acting
+            )  # pylint: disable=protected-access
 
         # Restore the state loaded during core session preparation.
         if ctx.session_state:
@@ -577,6 +577,9 @@ class AgentBuilder:
         prompt_ctx = SimpleNamespace(
             workspace_dir=workspace_dir,
             agent_id=getattr(ctx, "agent_id", None),
+            session_id=getattr(ctx, "session_id", ""),
+            request=getattr(ctx, "request", None),
+            input_msgs=getattr(ctx, "input_msgs", ()),
             extras={
                 "language": agent_config.language,
                 "heartbeat_enabled": heartbeat_enabled,
@@ -713,7 +716,12 @@ class AgentBuilder:
             getattr(request, "request_context", None) if request else None
         )
         if isinstance(_payload_ctx, dict):
-            rc.update(_payload_ctx)
+            # A request's extra options must not change the execution identity.
+            rc.update(
+                (key, value)
+                for key, value in _payload_ctx.items()
+                if key not in {"agent_id", "session_id", "user_id", "channel"}
+            )
         return rc
 
     @staticmethod

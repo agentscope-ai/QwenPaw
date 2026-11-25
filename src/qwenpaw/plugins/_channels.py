@@ -123,7 +123,6 @@ def register(plugin, spec):
             # together.
             # pylint: disable-next=too-many-branches,too-many-statements
             async def produce(request):
-                from ._events import _observing
                 from ..runtime.turn_context import current_run_streams
                 from .sdk import _RunStreams
 
@@ -134,7 +133,6 @@ def register(plugin, spec):
                         session_id=request.session_id,
                     ),
                 ):
-                    token = _observing.set(True)
                     owned = _RunStreams()
                     owner_token = current_run_streams.set(owned)
                     source = None
@@ -172,7 +170,6 @@ def register(plugin, spec):
 
                             owned.closing = True
                             current_run_streams.reset(owner_token)
-                            _observing.reset(token)
                             # Host model wrappers can finish before their SDK
                             # producer does. This channel run retains custody
                             # of
@@ -456,6 +453,7 @@ def register(plugin, spec):
                     base.storage._root / "channels" / spec.name,
                     plugin._storage_guard,
                     _admission=plugin._storage_admission,
+                    _legacy_sources=base.storage._legacy_sources,
                 )
                 media_root = base.media._storage._root / "channels" / spec.name
                 self._sdk_context = replace(

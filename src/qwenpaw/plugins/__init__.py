@@ -13,8 +13,20 @@ if TYPE_CHECKING:
     # Describe lazy exports for static analyzers without loading host modules.
     from .activity import PluginBusyError as PluginBusyError
     from .api import get_tool_config as get_tool_config
-    from .errors import SDKError as SDKError
     from .sdk import Plugin as Plugin, PluginContext as PluginContext
+    from .sdk_version import (
+        SDK_VERSION as SDK_VERSION,
+        SDK_CAPABILITIES as SDK_CAPABILITIES,
+    )
+    from .errors import (
+        SDKError as SDKError,
+        SDKAccessError as SDKAccessError,
+        SDKCompatibilityError as SDKCompatibilityError,
+        SDKRestartRequiredError as SDKRestartRequiredError,
+        StaleContextError as StaleContextError,
+        ResourceError as ResourceError,
+        ToolInputError as ToolInputError,
+    )
 
 _EXPORTS = {
     "Plugin": "sdk",

@@ -13,7 +13,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -557,7 +557,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
                         exc_info=True,
                     )
 
-    @_sdk_observe_stream
     async def stream_query(
         self,
         request: Any,
@@ -572,13 +571,22 @@ class Workspace:  # pylint: disable=too-many-public-methods
         wait_ready = getattr(self._manager, "wait_workspace_ready", None)
         if wait_ready is not None:
             await wait_ready(self)
-        if isinstance(request, dict):
-            request = AgentRequest(**request)
 
-        workspace = self
+        from ...runtime.runtime import Runtime
+
+        if isinstance(request, (AgentRequest, dict)):
+            # pylint: disable-next=protected-access
+            request = Runtime._normalize(request)
+        owner = self
         parameters = current_runtime_parameters.get()
         if parameters is not None and parameters.profile.id == self.agent_id:
-            workspace = await self.for_session(request.session_id, parameters)
+            owner = await self.for_session(request.session_id, parameters)
+        async with aclosing(owner._stream_query(request)) as stream:
+            async for event in stream:
+                yield event
+
+    @_sdk_observe_stream
+    async def _stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
         config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -597,32 +605,20 @@ class Workspace:  # pylint: disable=too-many-public-methods
             )
             if isinstance(backend_controls, dict):
                 settings.update(backend_controls)
-            stream = workspace.backend_runtime.stream(
+            stream = self.backend_runtime.stream(
                 backend,
                 request,
                 settings,
-                cwd=workspace.workspace_dir,
+                cwd=self.workspace_dir,
             )
-            try:
-                async for item in stream:
-                    yield item
-            finally:
-                from ...plugins._events import observing
+        else:
+            from ...runtime.runtime import Runtime
 
-                if observing():
-                    await stream.aclose()
-            return
-
-        from ...runtime.runtime import Runtime
-
-        rt = Runtime(workspace=workspace, app_services=self._app_services)
-        stream = rt.run(request)
-        try:
+            rt = Runtime(workspace=self, app_services=self._app_services)
+            stream = rt.run(request)
+        async with aclosing(stream):
             async for item in stream:
                 yield item
-        finally:
-            # TODO: Review this shared close policy for cloud and local runs.
-            await stream.aclose()
 
     def _register_services(  # pylint: disable=too-many-statements
         self,

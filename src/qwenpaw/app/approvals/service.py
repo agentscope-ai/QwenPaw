@@ -670,9 +670,11 @@ class ApprovalService:
             logger.info(
                 "Cancelled %d pending approval(s) for root session %s",
                 cancelled,
-                root_session_id[:8]
-                if len(root_session_id) >= 8
-                else root_session_id,
+                (
+                    root_session_id[:8]
+                    if len(root_session_id) >= 8
+                    else root_session_id
+                ),
             )
         return cancelled
 

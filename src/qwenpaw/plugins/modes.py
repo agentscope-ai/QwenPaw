@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Mode bundles selected from an immutable request snapshot."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 from .commands import CommandSpec
@@ -10,6 +10,7 @@ from .messages import Message
 from .prompts import PromptSpec
 from .storage import PluginConfig
 from .tools import ToolSpec
+from .context import RequestContext
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,10 @@ class ModeContext:
     mode_name: str
     messages: tuple[Message, ...]
     config: PluginConfig
+    identity: RequestContext = field(
+        default_factory=RequestContext,
+        kw_only=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -31,8 +36,11 @@ class ModeSpec:
     commands: tuple[CommandSpec, ...] = ()
     hooks: tuple[HookSpec, ...] = ()
     prompts: tuple[PromptSpec, ...] = ()
-    on_turn_start: Callable[
-        [ModeContext],
-        None | Awaitable[None],
-    ] | None = None
+    on_turn_start: (
+        Callable[
+            [ModeContext],
+            None | Awaitable[None],
+        ]
+        | None
+    ) = None
     on_reset: Callable[[ModeContext], None | Awaitable[None]] | None = None

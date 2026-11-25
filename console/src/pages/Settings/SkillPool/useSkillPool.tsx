@@ -219,6 +219,10 @@ export function useSkillPool() {
     [builtinNotice, builtinNoticeAck],
   );
   const builtinNoticeTotal = builtinNotice?.total_changes || 0;
+  const hasBuiltinVersionUpdates = [
+    ...(builtinNotice?.added || []),
+    ...(builtinNotice?.updated || []),
+  ].some((skill) => skill.status === "outdated");
 
   const confirmOverwrite = useCallback(
     (title: string, content: ReactNode) =>
@@ -869,21 +873,14 @@ export function useSkillPool() {
   );
 
   const handleAutomationQuickAction = useCallback(
-    async (skill: PoolSkillSpec) => {
-      const builtin = isSkillBuiltin(skill.source);
-      const autoSync = Boolean(skill.auto_sync);
-      if (builtin && autoSync !== Boolean(skill.auto_update)) {
-        await openEdit(skill);
-        return;
-      }
-
+    async (skill: PoolSkillSpec, setting: "auto_sync" | "auto_update") => {
       setAutomationPendingSkills((current) => new Set(current).add(skill.name));
       try {
-        const enabled = !autoSync;
+        const enabled = !skill[setting];
         const response = await api.updatePoolSkillAutomation(
           skill.name,
-          builtin
-            ? { auto_update: enabled, auto_sync: { enabled } }
+          setting === "auto_update"
+            ? { auto_update: enabled }
             : { auto_sync: { enabled } },
         );
         const issueCount = countAutomationAttentionItems(response);
@@ -892,14 +889,13 @@ export function useSkillPool() {
             t("skillPool.automationNeedsAttention", { count: issueCount }),
           );
         } else {
-          const successKey = builtin
-            ? enabled
-              ? "skillPool.automationEnabled"
-              : "skillPool.automationDisabled"
-            : enabled
-            ? "skillPool.autoSyncEnabled"
-            : "skillPool.autoSyncDisabled";
-          message.success(t(successKey, { name: skill.name }));
+          message.success(
+            `${t(
+              setting === "auto_update"
+                ? "skillPool.builtinAutoUpdate"
+                : "skillPool.autoSync",
+            )}: ${t(enabled ? "common.enabled" : "common.disabled")}`,
+          );
         }
         invalidateSkillCache({ pool: true, workspaces: true });
         await loadData(true);
@@ -917,7 +913,7 @@ export function useSkillPool() {
         });
       }
     },
-    [loadData, message, openEdit, t],
+    [loadData, message, t],
   );
 
   const handleSavePoolSkill = async () => {
@@ -1349,6 +1345,7 @@ export function useSkillPool() {
     builtinNotice,
     builtinNoticeTotal,
     hasUnseenBuiltinNotice,
+    hasBuiltinVersionUpdates,
     importBuiltinLoading,
     importModalOpen,
     importing,

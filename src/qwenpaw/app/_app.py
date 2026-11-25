@@ -67,6 +67,7 @@ from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
+from .routers.channel_callbacks import channel_callbacks_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -1024,6 +1025,7 @@ app.include_router(agent_scoped_router, prefix="/api")
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+app.include_router(channel_callbacks_router)
 
 
 # Console static files and SPA fallback

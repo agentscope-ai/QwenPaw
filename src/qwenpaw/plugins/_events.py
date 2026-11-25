@@ -12,9 +12,10 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Mapping
-from contextvars import ContextVar
+from contextlib import aclosing
 from types import MappingProxyType
 
+from ..app.task_tracker import response_outcome
 from .errors import SDKError
 from .events import (
     ApprovalDisplay,
@@ -25,19 +26,15 @@ from .events import (
     StreamContent,
     StreamMessage,
     SubscriptionGap,
+    JSONValue,
 )
 
 _log = logging.getLogger(__name__)
 _listeners = []
 _sequence = itertools.count(1)
-_observing = ContextVar("sdk_observing", default=False)
 
 
-def observing():
-    return _observing.get()
-
-
-def freeze(value):
+def freeze(value: object) -> JSONValue:
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
     if isinstance(value, Mapping):
@@ -168,75 +165,89 @@ def approval_changed(pending):
         _log.exception("SDK approval snapshot failed")
 
 
+def _stream_outcome(item):
+    if isinstance(item, Mapping):
+        return response_outcome(
+            item.get("object"),
+            item.get("status"),
+            item.get("error"),
+        )
+    return response_outcome(
+        getattr(item, "object", None),
+        getattr(item, "status", None),
+        getattr(item, "error", None),
+    )
+
+
 def observe_stream(function):
     @functools.wraps(function)
-    def wrapped(workspace, request):
-        if not _listeners:
-            return function(workspace, request)
+    async def observed(workspace, request):
+        identity = None
 
-        async def observed():
-            run_id = str(
-                getattr(request, "request_id", None) or uuid.uuid4().hex,
-            )
-            identity = {
-                "run_id": run_id,
-                "workspace_id": workspace.agent_id,
-                "session_id": str(getattr(request, "session_id", "") or ""),
-                "user_id": str(getattr(request, "user_id", "") or ""),
-                "channel": str(
-                    getattr(request, "channel", "console") or "console",
-                ),
-            }
-
-            def publish(kind, event=None, reason=""):
-                emit(
-                    RunEvent(
-                        kind,
-                        **identity,
-                        sequence=next(_sequence),
-                        timestamp=time.time(),
-                        event=event,
-                        reason=reason,
+        def publish(kind, event=None, reason=""):
+            nonlocal identity
+            if identity is None:
+                identity = {
+                    "run_id": str(
+                        getattr(request, "request_id", None)
+                        or uuid.uuid4().hex,
                     ),
-                )
+                    "workspace_id": workspace.agent_id,
+                    "session_id": str(
+                        getattr(request, "session_id", "") or "",
+                    ),
+                    "user_id": str(getattr(request, "user_id", "") or ""),
+                    "channel": str(getattr(request, "channel", "") or ""),
+                }
+            emit(
+                RunEvent(
+                    kind,
+                    **identity,
+                    sequence=next(_sequence),
+                    timestamp=time.time(),
+                    event=event,
+                    reason=reason,
+                ),
+            )
 
+        if _listeners:
             publish("run.started")
-            stream = function(workspace, request)
-            outcome, reason = "completed", ""
-            try:
-                while True:
-                    token = _observing.set(True)
-                    try:
-                        item = await anext(stream)
-                    except StopAsyncIteration:
-                        break
-                    finally:
-                        _observing.reset(token)
-                    try:
-                        snapshot = chat_event(item)
-                        if snapshot.status in {"failed", "cancelled"}:
-                            outcome = snapshot.status
-                        publish("run.updated", snapshot)
-                    except Exception:
-                        _log.exception("SDK runtime snapshot failed")
+        item = None
+        outcome, reason = None, ""
+        try:
+            async with aclosing(function(workspace, request)) as stream:
+                async for item in stream:
+                    # Keep the outcome once observed, even across a gap
+                    # between subscribers.
+                    if identity is not None or _listeners:
+                        outcome = _stream_outcome(item) or outcome
+                    if _listeners:
+                        try:
+                            publish("run.updated", chat_event(item))
+                        except Exception:
+                            _log.exception(
+                                "SDK runtime event conversion failed",
+                            )
                     yield item
-            except (asyncio.CancelledError, GeneratorExit):
-                outcome, reason = "cancelled", "consumer cancelled or closed"
-                raise
-            except BaseException as exc:
-                outcome, reason = "failed", str(exc)
-                raise
-            finally:
-                token = _observing.set(True)
-                try:
-                    await stream.aclose()
-                finally:
-                    _observing.reset(token)
-                    publish(f"run.{outcome}", reason=reason)
+            # A listener may have joined after the final response was yielded.
+            if _listeners and outcome is None:
+                outcome = _stream_outcome(item)
+        except (asyncio.CancelledError, GeneratorExit):
+            outcome, reason = "cancelled", "consumer cancelled or closed"
+            raise
+        except BaseException as exc:
+            outcome, reason = "failed", str(exc)
+            raise
+        finally:
+            if _listeners:
+                if outcome is None:
+                    outcome, reason = (
+                        "failed",
+                        "Stream ended without a response terminal",
+                    )
+                publish(f"run.{outcome}", reason=reason)
 
-        return observed()
-
-    return wrapped
+    return observed
 
 
 def subscribe(plugin, spec):
@@ -300,9 +311,22 @@ def subscribe(plugin, spec):
                     else:
                         event = self.queue.popleft()
                     try:
+                        from .context import RequestContext
+
+                        owner = (
+                            event.approval
+                            if isinstance(event, ApprovalEvent)
+                            else event
+                        )
                         async with plugin._invocation(
                             workspace_id=getattr(event, "workspace_id", ""),
                             session_id=getattr(event, "session_id", ""),
+                            identity=RequestContext(
+                                getattr(event, "workspace_id", ""),
+                                getattr(event, "session_id", ""),
+                                getattr(owner, "channel", ""),
+                                getattr(owner, "user_id", ""),
+                            ),
                         ) as context:
                             await plugin._call(spec.handler, context, event)
                     except Exception as exc:

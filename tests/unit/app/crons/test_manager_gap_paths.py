@@ -618,10 +618,16 @@ class TestRegisterServiceJobs:
             key="compact",
             cron="0 3 * * *",
             callback=AsyncMock(),
+            timezone="Asia/Shanghai",
+            jitter_seconds=10,
         )
         manager._register_service_jobs("memory", [declaration])
         job = manager._scheduler.get_job("_service:memory:compact")
         assert job is not None
+        sdk_job = manager.register_service_job("sdk_example", declaration)
+        for registered in (job, sdk_job):
+            assert str(registered.trigger.timezone) == "Asia/Shanghai"
+            assert registered.trigger.jitter == 10
 
     def test_memory_manager_without_jobs_registers_nothing(self, manager):
         manager._workspace.memory_manager = None
