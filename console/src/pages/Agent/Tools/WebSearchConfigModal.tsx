@@ -64,7 +64,14 @@ export function WebSearchConfigModal({
         const provider =
           (typeof config?.provider === "string" && config.provider) ||
           "anysearch";
-        form.setFieldsValue({ ...(config || {}), provider });
+        // Loading saved values (including a masked key) is not a user edit.
+        form.setFields(
+          Object.entries({ ...config, provider }).map(([name, value]) => ({
+            name,
+            value,
+            touched: false,
+          })),
+        );
         setLoadState({ status: "ready", provider });
       })
       .catch(() => {
@@ -85,7 +92,7 @@ export function WebSearchConfigModal({
         .getToolConfig(tool.name, { provider })
         .then((config) => {
           if (gen !== fetchGen.current) return;
-          form.setFieldsValue({ api_key: config?.api_key ?? "" });
+          form.setFieldValue("api_key", config?.api_key ?? "");
           setLoadState({ status: "ready", provider });
         })
         .catch(() => {
@@ -139,7 +146,8 @@ export function WebSearchConfigModal({
   });
 
   useEffect(() => {
-    if (canSubmit && form.isFieldsTouched()) schedule();
+    // A user-selected provider is saved only after its key slot is loaded.
+    if (canSubmit && form.isFieldTouched("provider")) schedule();
   }, [canSubmit, form, schedule]);
 
   const isAnysearch = providerValue === "anysearch" || !providerValue;

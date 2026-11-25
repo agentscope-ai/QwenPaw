@@ -17,10 +17,20 @@
   "files": [
     "*.js",
     "*.d.ts",
-    "README.md"
+    "README.md",
+    "check.mjs"
   ],
   "peerDependencies": {
-    "@types/react": ">=18 <20"
+    "@types/react": ">=18 <20",
+    "typescript": ">=5.8 <6"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "bin": {
+    "qwenpaw-sdk-check": "./check.mjs"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  }
 }

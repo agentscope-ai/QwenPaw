@@ -398,6 +398,16 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 message=f"Model '{model_id}' is not a chat model",
             )
 
+    def validate_chat_model_override(self, model_id: str) -> None:
+        """Require a configured, available model for an explicit chat override."""
+        self.validate_model_selection(model_id)
+        model = self.resolve_model_info(model_id)
+        if not self.model_available(model):
+            reason = model.availability_message or "model is unavailable"
+            raise ProviderError(
+                message=f"Model '{model_id}' cannot be used: {reason}",
+            )
+
     def model_protocol(self, model_id: str) -> str:
         """Return this service's protocol for one model."""
         del model_id

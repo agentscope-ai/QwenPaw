@@ -172,6 +172,7 @@ class Runtime:
                 )
                 await record_agent_activity()
                 from ..providers.model_selection import runtime_model_context
+                from ..plugins._identity import from_runtime, request_identity
 
                 exhausted = object()
                 pre_model_timeout = EnvVarLoader.get_float(
@@ -215,6 +216,13 @@ class Runtime:
                                     raise AgentPreModelStallError(
                                         pre_model_timeout,
                                     ) from exc
+                            identity_token = request_identity.set(
+                                from_runtime(ctx),
+                            )
+                            try:
+                                ev = await anext(events, exhausted)
+                            finally:
+                                request_identity.reset(identity_token)
                         if ev is exhausted:
                             break
                         # Heartbeats keep the transport alive while the

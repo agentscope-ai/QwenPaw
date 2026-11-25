@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
+import { bindChatComposer } from "../../plugins/hostSdk/composer";
 import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
@@ -2554,6 +2555,52 @@ export default function ChatPage() {
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
+  useEffect(() => {
+    if (!isChatActivePage) return;
+    const binding = bindChatComposer({
+      element: getActiveSenderTextarea,
+      scope: () => {
+        if (
+          !isChatActiveRef.current ||
+          isSessionTransitionRef.current ||
+          isComposingRef.current
+        )
+          return null;
+        return {
+          agentId: selectedAgent,
+          sessionId:
+            sessionApi.getSessionIdentity(chatIdRef.current || "").sessionId ||
+            null,
+          chatId: resolveBackendChatId(chatIdRef.current) || null,
+        };
+      },
+      write: (text) => {
+        const textarea = getActiveSenderTextarea();
+        if (textarea) {
+          setTextareaValue(textarea, text);
+          textarea.focus();
+        }
+      },
+      model: async () => {
+        const result = await loadSessionModel(selectedAgent, {
+          sessionId: queueSessionId,
+          chatId: backendChatId,
+        });
+        const model = result.active_llm;
+        return model
+          ? { provider_id: model.provider_id, model_id: model.model }
+          : null;
+      },
+    });
+    return () => binding.dispose();
+  }, [
+    isChatActivePage,
+    selectedAgent,
+    routeChatId,
+    queueSessionId,
+    backendChatId,
+    queueKey,
+  ]);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground

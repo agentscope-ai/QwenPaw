@@ -16,6 +16,7 @@ class SendFormatPolicy:
     stream_prefix: bool = True
     parts_strip_text: bool = True
     parts_preserve_order: bool = False
+    configured_prefix: bool = True
 
     def __post_init__(self):
         if any(
@@ -56,8 +57,11 @@ class ResponsePolicy:
     text_merge_flush_before_media: bool = True
     text_merge_separator_newlines: int = 1
     text_merge_format_on_flush: bool = False
+    content_source: str = "rendered"
 
     def __post_init__(self):
+        if self.content_source not in {"rendered", "semantic"}:
+            raise ProtocolValidationError("Invalid channel content source")
         if any(
             type(getattr(self, key)) is not bool
             for key in (
@@ -101,6 +105,7 @@ class ResponsePolicy:
                 "text_merge_delay_ms",
                 "continue_on_delivery_error",
                 "raw_completed_text",
+                "content_source",
                 "text_merge_flush_before_media",
                 "text_merge_separator_newlines",
                 "text_merge_format_on_flush",
@@ -119,6 +124,8 @@ class ResponsePolicy:
             key: getattr(self, key)
             for key in ("streaming", "prepare", "completion_reaction")
         }
+        if self.content_source != "rendered":
+            data["content_source"] = self.content_source
         if self.send_format is not None:
             data["send_format"] = self.send_format.to_mapping()
         if self.text_merge_delay_ms is not None:

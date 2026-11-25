@@ -30,6 +30,7 @@ from .approval_handler import (
     DenyCommandHandler,
 )
 from .model_handler import ModelCommandHandler
+from .shell_handler import ShellLocalCommandHandler
 from .skills_handler import SkillsCommandHandler
 from .stop_handler import StopCommandHandler
 
@@ -66,6 +67,7 @@ def _register_defaults() -> None:
     register_command(DenyCommandHandler())
     register_command(StopCommandHandler())
     register_command(ModelCommandHandler())
+    register_command(ShellLocalCommandHandler())
     register_command(SkillsCommandHandler())
     register_command(CheckpointCommandHandler())
 

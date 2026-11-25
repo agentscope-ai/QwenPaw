@@ -1,7 +1,15 @@
 import { useAgentStore } from "@/stores/agentStore";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
-import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
+import {
+  CircleAlert,
+  CircleHelp,
+  RefreshCw,
+  TriangleAlert,
+  Search,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Spin, Popover, Segmented } from "antd";
 import { Switch, Button, Form, Input } from "@agentscope-ai/design";
@@ -169,6 +177,7 @@ export default function ToolsPage() {
     tools,
     loading,
     error,
+    refreshState,
     ready,
     batchLoading,
     toggleEnabled,
@@ -217,7 +226,7 @@ export default function ToolsPage() {
   const handleSaveConfig = async (values: Record<string, unknown>) => {
     if (!currentTool) return;
     await saveToolConfig(currentTool.name, values, configAgentId);
-    await loadTools();
+    void loadTools({ background: true });
   };
 
   const handleExperimentalChange = async (experimental: boolean) => {
@@ -292,6 +301,26 @@ export default function ToolsPage() {
     <div className={styles.toolsPage}>
       <PageHeader items={[{ title: t("tools.title") }]} />
       <div className={styles.toolsContainer}>
+        {refreshState !== "idle" && (
+          <Alert
+            className={styles.refreshError}
+            type="warning"
+            showIcon
+            icon={<CircleAlert size={16} aria-hidden />}
+            message={t("tools.loadError")}
+            action={
+              <Button
+                size="small"
+                type="link"
+                icon={<RefreshCw size={14} aria-hidden />}
+                loading={refreshState === "retrying"}
+                onClick={() => void loadTools({ background: true })}
+              >
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        )}
         <div className={styles.toolbar}>
           <Segmented
             aria-label={t("tools.title")}

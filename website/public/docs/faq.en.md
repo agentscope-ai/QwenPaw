@@ -264,16 +264,13 @@ In Console, go to **Settings → Models** to configure. See the
 
 - Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
   custom provider).
-- Local models: supports `llama.cpp`, LM Studio and Ollama.
+- Local models: use the optional QwenPaw Local plugin or connect to a running Ollama or LM Studio server.
 
-After configuration, choose the target provider and model under **Default LLM**
-at the top of the Models page and **Save** — that becomes the global default.
+Under **Settings → Models → Default models**, choose a **Chat model**. The selection is saved immediately. **Decision model** is a separate slot, not a second chat model.
 
-To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the **Chat** page for that
-agent.
+To override the model for one conversation, use the model selector in the chat input area. Clear that selection to inherit the agent’s model again. This does not change the agent or global defaults.
 
-You can also use `qwenpaw models` for setup, downloads, and switching. See
-[CLI → Models and environment variables → qwenpaw models](https://qwenpaw.agentscope.io/docs/cli#qwenpaw-models).
+For provider credentials and default model selection in the terminal, see [CLI: qwenpaw models](./cli#qwenpaw-models).
 
 ### How to use QwenPaw-Flash series models
 
@@ -287,14 +284,9 @@ QwenPaw-Flash models are currently open-sourced on
 [Hugging Face](https://huggingface.co/agentscope-ai/models), and can be
 downloaded directly from either platform.
 
-All built-in local providers in QwenPaw can be used with QwenPaw-Flash models:
-
 #### QwenPaw Local (llama.cpp)
 
-In the QwenPaw Local model interface, simply choose a QwenPaw-Flash model to
-download and start it.
-
-![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
+Follow [QwenPaw Local setup](./models#QwenPaw-Local-llamacpp-Configuration) to enable the plugin, install the runtime, and start a Flash GGUF model. If the card is missing, check the plugin before downloading any weights.
 
 > QwenPaw Local is still in beta. Compatibility across different devices and
 > runtime stability are still being improved. If you run into issues while
@@ -348,8 +340,7 @@ Then run the following command in your terminal:
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. In QwenPaw model settings, choose the Ollama provider, then automatically load
-   the model on the Models page.
+4. Open the Ollama model list in QwenPaw, click **Update model list**, and enable the imported model.
 
 #### LM Studio
 
@@ -365,8 +356,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-4. In QwenPaw model settings, choose the LM Studio provider, then automatically
-   load the model on the Models page.
+4. Open the LM Studio model list in QwenPaw, click **Update model list**, and enable the imported model.
 
 ### When using models deployed with Ollama / LM Studio, why can't QwenPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 
@@ -409,7 +399,7 @@ When you deploy a local model with Ollama or LM Studio, if the model's
 
 In Console, go to **Control -> Cron Jobs** to create and manage scheduled tasks.
 
-![cron](https://img.alicdn.com/imgextra/i3/O1CN01duPPPB1R0x495tRdY_!!6000000002050-2-tps-3822-2064.png)
+![cron](https://img.alicdn.com/imgextra/i1/O1CN01Y7rqloTIzaI3FPfU_!!6000000002217-2-tps-1600-1000.png)
 
 The easiest way to create a cron job is to talk to QwenPaw in the channel where you want the results. For example, say: “Create a scheduled task that reminds me to drink water every five minutes.” You can then see the enabled job in Console.
 
@@ -419,27 +409,29 @@ If a scheduled task does not run as expected, try the following:
 
 2. Check that the task **Status** is **Enabled**.
 
-   ![enable](https://img.alicdn.com/imgextra/i3/O1CN01XsJiIH1bIUOD4j9sF_!!6000000003442-2-tps-3236-880.png)
+   ![enable](https://img.alicdn.com/imgextra/i1/O1CN01Y7rqloTIzaI3FPfU_!!6000000002217-2-tps-1600-1000.png)
 
 3. Check that **Dispatch Channel** is set to the channel where you want the result (e.g. console, dingtalk, feishu, discord, imessage).
 
-   ![channel](https://img.alicdn.com/imgextra/i2/O1CN01JN4bq61WKFpzXrIcZ_!!6000000002769-2-tps-3230-876.png)
+   ![channel](https://img.alicdn.com/imgextra/i3/O1CN01a88rSgw9htF3FPfU_!!6000000006853-2-tps-1600-1000.png)
 
 4. Check that **Dispatch Target User ID** and **Dispatch Target Session ID** are correct.
 
-   ![id](https://img.alicdn.com/imgextra/i2/O1CN014BLaOC1YwO2onZK8U_!!6000000003123-2-tps-3236-874.png)
+   ![id](https://img.alicdn.com/imgextra/i3/O1CN01a88rSgw9htF3FPfU_!!6000000006853-2-tps-1600-1000.png)
 
    In Console, go to **Control -> Sessions** and find the session you used when creating the task. To have the task reply in that session, the **User ID** and **Session ID** there must match the task’s **Dispatch Target User ID** and **Dispatch Target Session ID**.
 
-   ![id](https://img.alicdn.com/imgextra/i2/O1CN01iZZhHZ1VeZnMzjlMm_!!6000000002678-2-tps-3236-1068.png)
+   ![id](https://img.alicdn.com/imgextra/i2/O1CN01TW0PZ6qEgIG3FPfU_!!6000000003094-2-tps-1600-1000.png)
 
 5. If the task runs at the wrong time, check the **Schedule (Cron)** for the task.
 
-   ![cron](https://img.alicdn.com/imgextra/i4/O1CN01TSodVd21msgJQvHkI_!!6000000007028-2-tps-3234-876.png)
+   ![cron](https://img.alicdn.com/imgextra/i4/O1CN011FG9w4Qbx4L3FPfU_!!6000000007916-2-tps-1600-1000.png)
 
 6. To verify that the task was created and can run, click **Execute Now**. If it works, you should see the reply in the target channel. You can also ask QwenPaw: “Trigger the ‘drink water reminder’ task I just created.”
 
-   ![exec](https://img.alicdn.com/imgextra/i4/O1CN01MkrSYn1mJpJshAO8n_!!6000000004934-2-tps-3224-878.png)
+   Open the job history to check the time and result of the manual run.
+
+   ![Job history showing a successful manual run](https://img.alicdn.com/imgextra/i4/O1CN01lcYClDVcaOE3FPfU_!!6000000003127-2-tps-1600-1000.png)
 
 ### How to manage Skills
 

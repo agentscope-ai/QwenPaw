@@ -246,6 +246,35 @@ Register tasks, connections, threads, and processes with `context.resources`. Li
 protection covers managed resources, not arbitrary global threads or external services
 that the author never registered.
 
+### Cancellation and locks around custom synchronous work
+
+`resources.run_sync()` requires SDK 1.2.0. Cancelling its waiter propagates
+`CancelledError`, but the synchronous function may continue. The resource scope
+retains the thread and waits for its actual termination during cleanup. This does
+not retain locks held by the caller: cancellation of a `run_sync()` await inside
+`async with asyncio_lock` can release that lock while the thread still writes.
+
+Keep acquisition, synchronous IO and release in the same synchronous function:
+
+```python
+def write_locked(path, lock, text):
+    with lock:
+        path.write_text(text, encoding="utf-8")
+
+
+async def save(call, shared_lock, text):
+    path = call.storage.path("state.txt")
+    await call.resources.run_sync(write_locked, path, shared_lock, text)
+```
+
+`shared_lock` is a `threading.Lock()` owned by the plugin instance and shared by
+calls accessing the same data scope, not a new lock per invocation. It coordinates
+this process only; it is not an interprocess file lock. Resolve the path through
+the current storage scope before starting. This example demonstrates the lock
+boundary, not atomic replacement; prefer SDK storage methods for ordinary
+persistence. If a critical section also includes asynchronous steps, this pattern
+alone is insufficient. Never synchronously wait for this lock on the event loop.
+
 ## Build Channels and PawApps using only the SDK
 
 Declare the `channels` capability. This backend logs outgoing events to demonstrate the
@@ -302,6 +331,61 @@ plugin = Plugin()
 Handlers receive public `AppContext/HttpRequest` values. Use context methods for models,
 chat, tasks, approvals, and scoped workspace delegation. Call `app.enable_standard_capabilities()`
 before registration when the app needs the standard frontend capabilities.
+
+### Enter a fresh App call scope in background work
+
+Declare `apps`, `resources` and `storage` in the manifest for this example. The HTTP
+request submits work; the plugin's root resource scope owns the coroutine, which
+enters a fresh call through the retained identity delegation when it executes.
+
+```python
+from uuid import uuid4
+
+from qwenpaw.plugins.apps import ChatRequest, HttpResponse, PawApp
+
+
+class Plugin:
+    def register(self, plugin):
+        app = PawApp("Summaries", app_id="summaries")
+
+        @app.route("/summaries/{workspace}", methods=("POST",))
+        async def submit(call, request):
+            workspace_id = request.path_params["workspace"]
+            job_id = str(uuid4())
+            delegate = call.for_workspace
+
+            async def run():
+                async with delegate(workspace_id) as target:
+                    reply = await target.chat(
+                        ChatRequest(
+                            "Summarize this workspace.",
+                            session_id=job_id,
+                        ),
+                    )
+                    await target.storage.awrite_json(
+                        f"summary-{job_id}.json", {"text": reply.text},
+                    )
+
+            plugin.resources.task(run(), "workspace summary")
+            return HttpResponse({"job_id": job_id}, status=202)
+
+        app.register(plugin)
+
+
+plugin = Plugin()
+```
+
+After the HTTP request ends, do not directly use the old `call` for chat, storage
+or resources. `delegate` retains only `for_workspace()` delegation. Entry rechecks
+the plugin generation and target workspace, preserving the original user, channel
+and App identity. Background work uses `target` services; exit releases that call's
+resources.
+
+`202` acknowledges submission, not target availability or business success. This
+is not a durable queue: host restart does not resume it. Disable and reload still
+coordinate cancellation and cleanup; failures appear in root resource diagnostics.
+Prefer `start_task()` when the SDK's existing chat-task status, streaming and
+cancellation interfaces fit the operation.
 
 ## Test independently and reload safely
 
@@ -391,6 +475,79 @@ Export the frontend package with `python -m qwenpaw.plugins.check --frontend ./f
 then install the local `@qwenpaw/plugin-sdk` npm package. It includes runtime entry points
 and type declarations; do not copy internal host types. Query optional backend capabilities
 before using features such as tasks rather than assuming support from the frontend version.
+
+## SDK 1.2 context and channel contracts
+
+A service appearing on a context does not mean every call can use it. The host
+checks identity, scope and permissions at execution time; capability preflight
+does not replace those checks.
+
+| Context                      | Scope and prerequisites                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PluginContext`              | Declarations, plugin storage and managed background work after activation; no specific user's conversation identity.                                             |
+| Tool, Command and Hook calls | The bound request identity; run information and save status depend on the phase. Ordinary tools can only preview checkpoint restoration.                         |
+| `AppContext`                 | This user/channel/app's sessions, tasks and approvals, with controlled `for_workspace()` delegation. Main-chat reads require a host-bound selected conversation. |
+| App background work          | Plugin-owned work entering a new `for_workspace()` call; do not reuse a finished request scope or impersonate an executor.                                       |
+| `WorkflowContext`            | Workspace service work without a user or conversation; not an arbitrary user's history or approval entry point.                                                  |
+| `ChannelWorkerContext`       | Worker services; send budgets and `delivery` are callback-local. `on_run` has no delivery transaction.                                                           |
+| `ChannelManagementRequest`   | A temporary management worker's separate resources and budget, not the persistent transport context.                                                             |
+
+### Choose a channel entry point
+
+Use `qwenpaw.plugins.channel_workers.ChannelDriver` for new process-backed platform
+channels. Start with connection, receive, send, health and stop; opt into streaming,
+approvals and delivery steps as needed. `ChannelBackend/ChannelContext` remains the
+in-host channel entry point. Its `receive()` returns `None`, while process-backed
+`await ch.receive()` returns admission status. Do not mix their signatures. A
+separate process alone is not a sandbox for untrusted plugin code.
+
+The optional synchronous `ChannelDriver.response_policy_for(target)` defaults to
+the static `response_policy`. It selects a new route's policy after target
+resolution and must return `ResponsePolicy`, without I/O or background work.
+The host validates declared capabilities and persists the policy with the target.
+Repeated ingress and worker restarts reuse it; mutating a shared Driver field must
+not change another in-flight response. Legacy routes without a saved policy keep
+the static-policy behavior and do not retroactively invoke the callback.
+
+`ResponsePolicy.configured_prefix` defaults to `True`. Set it to `False` to omit
+the channel-configured `bot_prefix` from direct, content-part and streaming sends,
+while retaining explicit per-message metadata prefixes. Target policies can select
+streaming for ordinary chats and non-streaming delivery for threads using
+`target.metadata["thread_id"]`; the descriptor must still declare `streaming`.
+
+### Select a shell backend for a conversation
+
+Register a backend with `register_shell_backend(ShellBackendSpec(...))`.
+When the user selects it, call `await call.select_shell_backend("backend-name")`
+from a control command or a PawApp request bound to the selected main chat.
+The host saves the choice for the workspace, user, channel and conversation.
+The plugin manages the connection and target; `matches` checks whether that
+identity can use the connection and does not select or clear the route.
+
+The host refuses execution if the selected backend is unavailable, including
+after a disconnect, reload, disable or uninstall. To explicitly switch back,
+call `await call.select_shell_backend(None)` or enter `/shell-local` in the
+conversation if the plugin is unavailable. This method requires SDK 1.2.0.
+
+### Execution failures and cleanup failures
+
+An operation failure, an unknown external outcome and a cleanup failure are
+different facts. An exception does not prove there were no side effects, and
+retrying cleanup must not rerun the operation. Channels retain
+`ChannelDeliveryError.side_effect_possible`, `retryable` and unknown receipts;
+never blindly resend after every exception.
+
+`ResourceScope.snapshot()` retains `owner/closed/resources/errors` and adds a
+`cleanup_errors` tuple. Each entry contains `description`, `error_type` and
+`message` for the latest failed close attempt of a still-open Registration.
+Snapshots are detached: modifying one does not alter host state. A successful
+cleanup retry removes its entry. `errors` continues to record background task
+failures. These diagnostics do not establish business success or failure, or prove
+that the entire resource tree stopped; incomplete resources retain their owner.
+
+These additions require SDK 1.2.0. Existing exception types remain; no universal
+Result wrapper is required. Plugins using new fields or methods must declare the
+corresponding minimum version.
 
 ## Install and validate your supported platforms
 
