@@ -93,17 +93,6 @@ export function DownloadCard({
         </div>
       </div>
 
-      {selected.filename.endsWith(".deb") && (
-        <div className="mb-4 text-sm">
-          <p className="mb-1.5 font-medium text-site-text-muted">
-            {t("downloads.debInstallHint")}
-          </p>
-          <code className="block rounded-md border border-border bg-site-bg px-3 py-2 font-mono text-xs break-all text-site-text select-all">
-            sudo apt install ./{selected.filename}
-          </code>
-        </div>
-      )}
-
       {versions.length > 1 && (
         <label className="mb-4 block">
           <span className="mb-1.5 block text-sm font-medium text-site-text">
