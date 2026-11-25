@@ -223,7 +223,7 @@ class RuntimeOwners:
         return True
 
     def retire_reaped_channel(self, lease, channel, result) -> bool:
-        """Retire a reaped channel and its claims for explicit recovery."""
+        """Retire a reaped channel and its claims for restart or shutdown."""
         if (
             self.resource(lease) is not channel
             or result.acknowledged is not False

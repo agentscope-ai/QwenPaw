@@ -1749,6 +1749,42 @@ async def test_failed_worker_update_restores_usable_source_and_config(host):
 
 
 @pytest.mark.asyncio
+async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
+    from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+    mode = UnloadMode.SHUTDOWN
+    ws = await host.workspace("shutdown-crash")
+    await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    expected_error = [f"{KEY}: CHANNEL_STOP_INCOMPLETE"]
+    async with channel._state_lock:
+        reports = await host.loader.lifecycle.unload_all(mode)
+        assert reports == [
+            UnloadReport(
+                KEY,
+                mode,
+                clean=False,
+                errors=expected_error,
+                quiescent=False,
+                needs_restart=True,
+            ),
+        ]
+        assert channel.last_stop_result.residual == ("HOST_STATE_IO_PENDING",)
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+    reports = await host.loader.lifecycle.unload_all(mode)
+    assert reports == [
+        UnloadReport(KEY, mode, clean=False, errors=expected_error),
+    ]
+    assert channel.last_stop_result.acknowledged is False
+    assert not host.registry.runtime_owners.leases(KEY)
+
+
+@pytest.mark.asyncio
 async def test_explicit_restart_recovers_reaped_channel(host):
     from qwenpaw.plugins.lifecycle import QuiescenceError
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
+import psutil
 
 from ..shutdown import SERVER_SHUTDOWN_SECONDS
 from .process_utils import (
@@ -207,19 +208,85 @@ def _wait_for_pid_exit(
     return not _pid_exists(pid)
 
 
-def _signal_process_unix(
-    pid: int,
-    sig: signal.Signals,
-    *,
-    tree: bool,
-) -> None:
-    """Signal the target, optionally including its descendants."""
-    descendants = sorted(_child_pids_unix(pid), reverse=True) if tree else []
+def _signal_process_tree_unix(pid: int, sig: signal.Signals) -> None:
+    """Signal the target and its descendants."""
+    descendants = sorted(_child_pids_unix(pid), reverse=True)
     for target in [*descendants, pid]:
         try:
             os.kill(target, sig)
         except OSError:
             continue
+
+
+def _terminate_backend_unix(
+    pid: int,
+    timeout_sec: float,
+    process: subprocess.Popen[str] | None,
+) -> bool:
+    """Keep identified descendants in custody even after reparenting."""
+    try:
+        root = psutil.Process(pid)
+        if process is not None and process.poll() is not None:
+            return True
+    except psutil.NoSuchProcess:
+        if process is not None:
+            process.poll()
+        return True
+    except psutil.AccessDenied:
+        return False
+
+    def descendants(parent):
+        try:
+            if parent.is_running():
+                return parent.children(recursive=True)
+        except psutil.NoSuchProcess:
+            pass
+        return []
+
+    def wait_until(deadline):
+        while pending:
+            if root in pending:
+                pending.update(descendants(root))
+            if process is not None:
+                process.poll()  # Reap the desktop wrapper's direct child.
+            for member in tuple(pending):
+                try:
+                    if member.is_running() and member.status() not in (
+                        psutil.STATUS_ZOMBIE,
+                        psutil.STATUS_DEAD,
+                    ):
+                        continue
+                except psutil.NoSuchProcess:
+                    pass
+                pending.remove(member)
+            remaining = deadline - time.monotonic()
+            if not pending or remaining <= 0:
+                break
+            time.sleep(min(remaining, 0.1))
+
+    deadline = time.monotonic() + timeout_sec
+    try:
+        # Process handles check PID and creation time before sending signals.
+        pending = {root, *descendants(root)}
+        try:
+            root.terminate()
+        except psutil.NoSuchProcess:
+            pass
+        wait_until(deadline)
+        # A surviving owner may have spawned more children during cleanup.
+        for member in tuple(pending):
+            pending.update(descendants(member))
+        for member in pending:
+            try:
+                member.kill()
+            except psutil.NoSuchProcess:
+                pass
+        wait_until(time.monotonic() + 2.0)
+        if process is not None:
+            process.poll()
+        return not pending
+    except psutil.AccessDenied:
+        return False
 
 
 def _signal_process_windows(pid: int) -> bool:
@@ -296,6 +363,8 @@ def _terminate_pid(
     When the process is our child, wait on Popen to reap its exit status.
     A departed, unreaped child still appears to exist to os.kill(pid, 0).
     """
+    if backend and sys.platform != "win32":
+        return _terminate_backend_unix(pid, timeout_sec, process)
 
     def has_exited() -> bool:
         if process is not None:
@@ -322,8 +391,7 @@ def _terminate_pid(
                 timeout_sec=max(0.0, deadline - time.monotonic()),
             )
     else:
-        # The backend owns worker shutdown RPCs and their acknowledgments.
-        _signal_process_unix(pid, _SIGTERM, tree=not backend)
+        _signal_process_tree_unix(pid, _SIGTERM)
 
     if wait_for_exit(max(0.0, deadline - time.monotonic()), 0.2):
         return True
@@ -334,7 +402,7 @@ def _terminate_pid(
             return True
         _force_terminate_windows_process(pid)
     else:
-        _signal_process_unix(pid, _SIGKILL, tree=True)
+        _signal_process_tree_unix(pid, _SIGKILL)
 
     return wait_for_exit(2.0, 0.1)
 

@@ -308,8 +308,7 @@ def test_find_windows_wrapper_ancestor_pids(monkeypatch) -> None:
     assert _find_windows_wrapper_ancestor_pids({24692}) == {1052}
 
 
-@pytest.mark.parametrize("backend", [True, False])
-def test_terminate_pid_force_kills_on_unix(monkeypatch, backend) -> None:
+def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
     calls = []
     wait_calls: list[tuple[float, float]] = []
     waits = iter([False, True])
@@ -324,25 +323,23 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch, backend) -> None:
         lambda _pid: True,
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.shutdown_cmd._signal_process_unix",
-        lambda pid, sig, *, tree: calls.append((pid, sig, tree)),
+        "qwenpaw.cli.shutdown_cmd._signal_process_tree_unix",
+        lambda pid, sig: calls.append((pid, sig)),
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
         wait_for_exit,
     )
 
-    assert _terminate_pid(4242, backend=backend) is True
+    assert _terminate_pid(4242) is True
     assert calls == [
         (
             4242,
             shutdown_cmd_module._SIGTERM,  # pylint: disable=protected-access
-            not backend,
         ),
         (
             4242,
             shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
-            True,
         ),
     ]
     budget = shutdown_cmd_module.SERVER_SHUTDOWN_SECONDS

@@ -1720,6 +1720,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         *,
         expected: ChannelHandle | None = None,
         channel_handoff: bool = False,
+        retire_reaped: bool = False,
     ) -> StopReceipt:
         """Stop one channel, retaining its handle until stop succeeds."""
         channel = self._find_channel(key)
@@ -1762,9 +1763,12 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 )
             from ...utils.io_utils import run_async_to_completion
 
-            return await run_async_to_completion(
+            receipt = await run_async_to_completion(
                 self._stop_one_unlocked(key, channel_handoff=channel_handoff),
             )
+            if retire_reaped and not receipt.stopped:
+                await self._retire_reaped_channel(channel, receipt)
+            return receipt
 
     async def _stop_one_unlocked(
         self,
@@ -1880,7 +1884,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             self._forget_channel(channel)
             channel._wechat_auth_claims = ()
         logger.warning(
-            "Restarting %s after generation %s exited without a stop reply",
+            "Retired %s generation %s after exit without a stop reply",
             receipt.key,
             receipt.generation,
         )

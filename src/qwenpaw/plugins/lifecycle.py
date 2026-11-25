@@ -1159,22 +1159,67 @@ class PluginLifecycle:
                 self._loader.startup_blocked_plugins.add(plugin_id)
             return record
 
+    async def _stop_shutdown_channels(self, leases):
+        """Drain independent channel workers before serial plugin teardown."""
+        from ..app.channels.manager import ChannelHandle
+
+        owners = self._loader.registry.runtime_owners
+        stops = {}
+        for lease in leases:
+            if lease.key.kind != "channel" or not self.delegate.owns_commit(
+                lease.plugin_id,
+            ):
+                continue
+            channel = owners.resource(lease)
+            handle = getattr(channel, "_manager_handle", None)
+            if isinstance(handle, ChannelHandle) and handle.channel is channel:
+                stops[lease] = handle.manager.stop_one(
+                    handle.key,
+                    expected=handle,
+                    retire_reaped=True,
+                )
+
+        results = await asyncio.gather(*stops.values(), return_exceptions=True)
+        failures = {}
+        for lease, result in zip(stops, results):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, Exception):
+                detail = str(result)
+            elif not result.stopped:
+                detail = result.detail
+            else:
+                continue
+            report = failures.setdefault(
+                lease.plugin_id,
+                UnloadReport(lease.plugin_id, UnloadMode.SHUTDOWN),
+            )
+            report.clean = False
+            report.errors.append(f"{lease.key.name}: {detail}")
+            if lease in owners.leases(lease.plugin_id):
+                report.quiescent = False
+                report.needs_restart = True
+        return failures
+
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:
         """Unload every known instance (used at process shutdown)."""
         reports: list[UnloadReport] = []
-        for plugin_id in dict.fromkeys(
-            (
-                *self._instances,
-                *(
-                    lease.plugin_id
-                    for lease in self._loader.registry.runtime_owners.leases()
-                ),
-            ),
-        ):
+        leases = self._loader.registry.runtime_owners.leases()
+        plugin_ids = dict.fromkeys(
+            (*self._instances, *(lease.plugin_id for lease in leases)),
+        )
+        failures = (
+            await self._stop_shutdown_channels(leases)
+            if mode is UnloadMode.SHUTDOWN
+            else {}
+        )
+        for plugin_id in plugin_ids:
+            failure = failures.get(plugin_id)
+            if failure is not None and not failure.quiescent:
+                reports.append(failure)
+                continue
             try:
-                reports.append(
-                    await self.unload(plugin_id, mode, delete_files=False),
-                )
+                report = await self.unload(plugin_id, mode, delete_files=False)
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "Failed to %s plugin '%s': %s",
@@ -1183,16 +1228,17 @@ class PluginLifecycle:
                     exc,
                     exc_info=True,
                 )
-                reports.append(
-                    UnloadReport(
-                        plugin_id=plugin_id,
-                        mode=mode,
-                        clean=False,
-                        quiescent=False,
-                        needs_restart=True,
-                        errors=[str(exc)],
-                    ),
+                report = UnloadReport(
+                    plugin_id=plugin_id,
+                    mode=mode,
+                    clean=False,
+                    quiescent=False,
+                    needs_restart=True,
+                    errors=[str(exc)],
                 )
+            if failure is not None:
+                report.absorb(failure)
+            reports.append(report)
         return reports
 
 

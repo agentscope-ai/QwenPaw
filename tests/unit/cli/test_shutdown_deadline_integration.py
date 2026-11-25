@@ -24,14 +24,13 @@ from tests.channel_support.process import alive
 from tests.channel_support.sdk import make_channel
 
 
-def test_app_lifespan_waits_for_channel_worker(tmp_path):
-    key = "slow-shutdown"
-    source = tmp_path / key
-    marker = tmp_path / "worker.pid"
+def _make_shutdown_channel(source):
+    key = source.name
     make_channel(
         source,
         textwrap.dedent(
             """
+            import asyncio
             import os
             import threading
             import time
@@ -47,12 +46,22 @@ def test_app_lifespan_waits_for_channel_worker(tmp_path):
                         def run(stop=stop, index=index):
                             stop.wait()
                             time.sleep(4.25)
-                            marker.with_suffix(f".{index}.exited").touch()
+                            marker.with_suffix(f".{index}.exited").write_text(
+                                str(time.monotonic_ns()),
+                            )
                         ch.resources.child().thread(run, stop=stop)
                     await ch.report_status("connected")
 
                 async def send(self, ch, response):
                     raise AssertionError("Unexpected delivery during shutdown")
+
+                async def stop(self, ch):
+                    # Three ordered joins add 12.75s to this platform drain.
+                    marker = Path(ch.config["marker"])
+                    marker.with_suffix(".stopping").write_text(
+                        str(time.monotonic_ns()),
+                    )
+                    await asyncio.sleep(2.75)
             """,
         ),
         ChannelDefinition(
@@ -65,37 +74,66 @@ def test_app_lifespan_waits_for_channel_worker(tmp_path):
         ),
         capabilities=["channels", "resources"],
     )
+
+
+def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
+    sources = [tmp_path / key for key in ("crashed", "slow-one", "slow-two")]
+    for source in sources:
+        _make_shutdown_channel(source)
     script = textwrap.dedent(
         """
         import asyncio
         import sys
         from pathlib import Path
+        from unittest.mock import AsyncMock
+        import psutil
+        from qwenpaw.app import _app
         from qwenpaw.app._app import app
+        from qwenpaw.app.migration import ensure_default_agent_exists
         from qwenpaw.config.config import load_agent_config, save_agent_config
+        from tests.channel_support.process import alive, eventually
 
         async def run():
-            source, marker = map(Path, sys.argv[1:])
+            sources = list(map(Path, sys.argv[1:]))
+            ensure_default_agent_exists()
+            config = load_agent_config("default")
+            for source in sources:
+                setattr(config.channels, source.name, {
+                    "enabled": True, "marker": str(source.with_suffix(".pid")),
+                })
+            save_agent_config("default", config)
+            channels = []
             async with app.router.lifespan_context(app):
                 await app.state.startup_ready.wait()
                 ws = await app.state.multi_agent_manager.get_agent("default")
-                config = load_agent_config("default")
-                setattr(config.channels, source.name, {
-                    "enabled": True, "marker": str(marker),
-                })
-                save_agent_config("default", config)
-                ws._config = config
-                await app.state.plugin_loader.load_plugin_from_path(source)
-                await ws.channel_manager.start_one(source.name, config)
-                assert marker.exists()
-                channel = await ws.channel_manager.get_channel(source.name)
-            assert channel.last_stop_result.acknowledged is True
-            assert not channel.last_stop_result.forced
+                for source in sources:
+                    await app.state.plugin_loader.load_plugin_from_path(source)
+                    handle = await ws.channel_manager.start_one(
+                        source.name, config,
+                    )
+                    channels.append(handle.channel)
+                pid = int(sources[0].with_suffix(".pid").read_text())
+                psutil.Process(pid).kill()
+                await eventually(lambda: not alive(pid))
+                backups = app.state.backup_manager
+                backups.shutdown = AsyncMock(wraps=backups.shutdown)
+                workspaces = app.state.multi_agent_manager
+                workspaces.stop_all = AsyncMock(wraps=workspaces.stop_all)
+                browser_stop = AsyncMock(wraps=_app._stop_browser_runtime)
+                _app._stop_browser_runtime = browser_stop
+            backups.shutdown.assert_awaited_once()
+            workspaces.stop_all.assert_awaited_once()
+            browser_stop.assert_awaited_once_with(app)
+            assert channels[0].last_stop_result.acknowledged is False
+            for channel in channels[1:]:
+                assert channel.last_stop_result.acknowledged is True
+                assert not channel.last_stop_result.forced
 
         asyncio.run(run())
         """,
     )
     result = subprocess.run(
-        [sys.executable, "-c", script, str(source), str(marker)],
+        [sys.executable, "-c", script, *map(str, sources)],
         env={
             **os.environ,
             "QWENPAW_WORKING_DIR": str(tmp_path / "app"),
@@ -111,12 +149,78 @@ def test_app_lifespan_waits_for_channel_worker(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert not alive(int(marker.read_text()))
+    for source in sources:
+        assert not alive(int(source.with_suffix(".pid").read_text()))
     assert sorted(p.name for p in tmp_path.glob("*.exited")) == [
-        "worker.0.exited",
-        "worker.1.exited",
-        "worker.2.exited",
+        f"{s.name}.{index}.exited" for s in sources[1:] for index in range(3)
     ]
+    starts = [int(s.with_suffix(".stopping").read_text()) for s in sources[1:]]
+    finishes = [
+        int(s.with_suffix(".0.exited").read_text()) for s in sources[1:]
+    ]
+    assert max(starts) < min(finishes)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
+@pytest.mark.parametrize("stubborn", [False, True])
+def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn):
+    marker = tmp_path / "exited"
+    worker_code = textwrap.dedent(
+        """
+        import sys
+        import time
+        from pathlib import Path
+
+        sys.stdin.buffer.read()  # EOF when the backend exits.
+        time.sleep(float(sys.argv[1]))
+        Path(sys.argv[2]).touch()
+        """,
+    )
+    backend_code = textwrap.dedent(
+        """
+        import signal
+        import subprocess
+        import sys
+
+        worker = subprocess.Popen(
+            [sys.executable, "-c", *sys.argv[1:]],
+            stdin=subprocess.PIPE, start_new_session=True,
+        )
+        print(worker.pid, flush=True)
+        signal.pause()
+        """,
+    )
+    with subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            backend_code,
+            worker_code,
+            "60" if stubborn else "0.1",
+            str(marker),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as backend:
+        worker = psutil.Process(int(backend.stdout.readline()))
+        try:
+            assert shutdown_cmd._terminate_pid(
+                backend.pid,
+                timeout_sec=1,
+                process=backend,
+                backend=True,
+            )
+            assert backend.returncode == -signal.SIGTERM
+            assert not alive(worker.pid)
+            assert marker.exists() == (not stubborn)
+        finally:
+            if worker.is_running():
+                try:
+                    worker.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            if backend.poll() is None:
+                backend.kill()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
