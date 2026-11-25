@@ -78,6 +78,47 @@ describe("useModelSelectorData", () => {
   });
 });
 
+it("keeps the post-mutation catalog when an older refresh resolves late", async () => {
+  const before = [{ id: "p", models: [{ id: "removed" }] }] as ProviderInfo[];
+  const after = [{ id: "p", models: [] }] as unknown as ProviderInfo[];
+  const refreshed = [{ id: "p", models: [{ id: "added" }] }] as ProviderInfo[];
+  const older = deferred<ProviderInfo[]>();
+  const listProviders = vi
+    .spyOn(providerApi, "listProviders")
+    .mockReset()
+    .mockResolvedValueOnce(before)
+    .mockReturnValueOnce(older.promise)
+    .mockResolvedValueOnce(refreshed);
+  vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
+    async (_agent, source, _session, onProviders) => {
+      const providers = await source!.listProviders();
+      onProviders?.(providers);
+      return { providers, activeModels: null, loadError: false };
+    },
+  );
+  const onActiveModels = vi.fn();
+  const { result } = renderHook(() =>
+    useModelSelectorData({ agentId: "default", onActiveModels }),
+  );
+  await waitFor(() => expect(result.current.providers).toEqual(before));
+
+  let oldRefresh: ReturnType<typeof result.current.fetchData>;
+  act(() => {
+    oldRefresh = result.current.fetchData();
+  });
+  act(() => result.current.setProviders(after));
+  await act(async () => {
+    const refresh = result.current.fetchData();
+    expect(listProviders).toHaveBeenCalledTimes(3);
+    await refresh;
+  });
+  await act(async () => {
+    older.resolve(before);
+    await oldRefresh;
+  });
+  expect(result.current.providers).toEqual(refreshed);
+});
+
 it("restores the selected session model and discards late previous results", async () => {
   const old =
     deferred<

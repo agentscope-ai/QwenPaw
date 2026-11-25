@@ -13,32 +13,45 @@ export function useProviderCatalog(enabled: boolean) {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
   const cached = useRef<ProviderInfo[] | null>(null);
   const pending = useRef<Promise<ProviderInfo[]> | null>(null);
-  const update = useCallback((value: SetStateAction<ProviderInfo[]>) => {
-    const list =
-      typeof value === "function" ? value(cached.current ?? []) : value;
+  const publish = useCallback((list: ProviderInfo[]) => {
     cached.current = list;
     setProviders(list);
   }, []);
+  const update = useCallback(
+    (value: SetStateAction<ProviderInfo[]>) => {
+      pending.current = null;
+      publish(
+        typeof value === "function" ? value(cached.current ?? []) : value,
+      );
+    },
+    [publish],
+  );
   const load = useCallback(
     (refresh = false): Promise<ProviderInfo[]> => {
-      if (pending.current) return pending.current;
+      if (!refresh && pending.current) return pending.current;
       if (!refresh && cached.current !== null)
         return Promise.resolve(cached.current);
-      pending.current = providerApi
+      const request = providerApi
         .listProviders()
         .then((list) => {
-          update(list);
+          if (pending.current === request) publish(list);
           return list;
         })
+        .catch((error) => {
+          if (pending.current === request && cached.current === null)
+            setProviders([]);
+          throw error;
+        })
         .finally(() => {
-          pending.current = null;
+          if (pending.current === request) pending.current = null;
         });
-      return pending.current;
+      pending.current = request;
+      return request;
     },
-    [update],
+    [publish],
   );
   useEffect(() => {
-    if (enabled) void load().catch(() => setProviders([]));
+    if (enabled) void load().catch(() => {});
   }, [enabled, load]);
   return { providers, load, setProviders: update };
 }
