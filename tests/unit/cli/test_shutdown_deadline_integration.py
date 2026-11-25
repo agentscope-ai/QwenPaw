@@ -13,6 +13,7 @@ import threading
 import time
 from contextlib import contextmanager
 from functools import partial
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
 
 import psutil
@@ -209,11 +210,34 @@ def _orphan_backend(marker, mode, delay):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
 @pytest.mark.parametrize("stubborn", [False, True])
-@pytest.mark.parametrize("mode", ["raw", "sdk"])
-def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn, mode):
+@pytest.mark.parametrize("mode", ["raw", "mixed", "sdk"])
+def test_backend_exit_waits_for_orphaned_worker(
+    tmp_path,
+    monkeypatch,
+    stubborn,
+    mode,
+):
     marker = tmp_path / "exited"
     with _orphan_backend(marker, mode, 60 if stubborn else 0.1) as pair:
         backend, worker = pair
+        if mode == "mixed":
+            terminate = psutil.Process.terminate
+
+            def terminate_between_scans(proc):
+                terminate(proc)
+                # Schedule the middle worker's entire spawn-and-exit between
+                # the initial snapshot and the first post-TERM CLI scan.
+                if proc.pid == backend.pid:
+                    deadline = time.monotonic() + 5
+                    while alive(worker.pid) and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    assert not alive(worker.pid)
+
+            monkeypatch.setattr(
+                psutil.Process,
+                "terminate",
+                terminate_between_scans,
+            )
         stopped = shutdown_cmd._terminate_pid(
             backend.pid,
             timeout_sec=2,
@@ -223,10 +247,12 @@ def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn, mode):
         assert backend.returncode == -signal.SIGTERM
         assert not alive(worker.pid)
         leaf = int(marker.with_suffix(".pid").read_text())
-        assert stopped == (mode == "sdk")
-        if stopped:
+        assert stopped is False
+        if mode == "sdk":
             assert not alive(leaf)
             assert marker.exists() == (not stubborn)
+        elif mode == "mixed" and stubborn:
+            assert alive(leaf)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
@@ -234,16 +260,18 @@ def test_shutdown_only_reaps_sessions_of_the_target_backend(tmp_path):
     with _orphan_backend(tmp_path / "other", "sdk", 0.1) as other:
         with _orphan_backend(tmp_path / "target", "sdk", 60) as target:
             backend, _ = target
-            assert shutdown_cmd._terminate_pid(
+            assert not shutdown_cmd._terminate_pid(
                 backend.pid,
                 timeout_sec=1,
                 process=backend,
                 backend=True,
             )
+            leaf = int((tmp_path / "target.pid").read_text())
+            assert not alive(leaf)
         backend, worker = other
         assert backend.poll() is None
         assert alive(worker.pid)
-        assert shutdown_cmd._terminate_pid(
+        assert not shutdown_cmd._terminate_pid(
             backend.pid,
             timeout_sec=2,
             process=backend,
@@ -281,6 +309,103 @@ def test_incomplete_launch_blocks_receipt_for_an_empty_group():
         with managed_launch({"start_new_session": True}):
             assert ownership.members({}) == (set(), False)
         assert ownership.members({}) == (set(), False)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX reload supervisor")
+@pytest.mark.parametrize("crash", [False, True], ids=["graceful", "crash"])
+def test_cli_shuts_down_ready_reload_server(tmp_path, monkeypatch, crash):
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        port = reserved.getsockname()[1]
+    watch_dir = tmp_path / "source"
+    watch_dir.mkdir()
+    log = tmp_path / "server.log"
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(
+            [
+                str(Path(__file__).resolve().parents[3] / "src"),
+                os.environ.get("PYTHONPATH", ""),
+            ],
+        ),
+        "QWENPAW_WORKING_DIR": str(tmp_path / "app"),
+        "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
+        "QWENPAW_BACKUP_DIR": str(tmp_path / "backups"),
+        "QWENPAW_RUNNING_IN_CONTAINER": "true",
+        "QWENPAW_TELEMETRY_DISABLED": "true",
+    }
+    # Only the listener on our reserved port belongs to this test.
+    monkeypatch.setattr(shutdown_cmd, "_find_frontend_dev_pids", set)
+    monkeypatch.setattr(shutdown_cmd, "_find_desktop_wrapper_pids", set)
+    with log.open("wb") as output, subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "qwenpaw",
+            "app",
+            "--reload",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=watch_dir,
+        env=env,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    ) as supervisor:
+        try:
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and supervisor.poll() is None:
+                conn = HTTPConnection("127.0.0.1", port, timeout=1)
+                try:
+                    conn.request("GET", "/api/healthz")
+                    if conn.getresponse().status == 200:
+                        break
+                except (OSError, HTTPException):
+                    pass
+                finally:
+                    conn.close()
+                time.sleep(0.1)
+            else:
+                pytest.fail(log.read_text(errors="replace"))
+            listeners = shutdown_cmd._listening_pids_for_port(port)
+            assert supervisor.pid in listeners
+            services = [
+                psutil.Process(p) for p in listeners - {supervisor.pid}
+            ]
+            assert len(services) == 1
+            if crash:
+                terminate = psutil.Process.terminate
+
+                def crash_at_shutdown(proc):
+                    if proc.pid == supervisor.pid:
+                        services[0].kill()
+                    terminate(proc)
+
+                monkeypatch.setattr(
+                    psutil.Process,
+                    "terminate",
+                    crash_at_shutdown,
+                )
+            result = CliRunner().invoke(
+                shutdown_cmd.shutdown_cmd,
+                ["--port", str(port)],
+            )
+            assert result.exit_code == int(crash), result.output
+            if crash:
+                assert "Unable to verify shutdown" in result.output
+            assert supervisor.wait(timeout=2) == 0
+            assert not services[0].is_running()
+            assert shutdown_cmd._listening_pids_for_port(port) == set()
+        finally:
+            # The supervisor and serving child share this test-only group.
+            if supervisor.poll() is None:
+                try:
+                    os.killpg(supervisor.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
@@ -451,7 +576,7 @@ def test_cli_waits_for_request_import_and_workspace_drains(
             shutdown_cmd.shutdown_cmd,
             ["--port", str(port)],
         )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == (1 if stalled else 0), result.output
         reaper.join(timeout=1)
         assert not alive(worker.pid)
         if stalled:

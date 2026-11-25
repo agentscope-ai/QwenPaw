@@ -240,7 +240,14 @@ def _terminate_backend_unix(
         return False
 
 
-def _stop_observed_backend(root, process, timeout_sec, ownership):
+def _stop_observed_backend(
+    root,
+    process,
+    timeout_sec,
+    ownership,
+    *,
+    supervisor=None,
+):
     def descendants(parent):
         try:
             if parent.is_running():
@@ -258,11 +265,7 @@ def _stop_observed_backend(root, process, timeout_sec, ownership):
                 if member not in discovered:
                     discovered.update(descendants(member))
             pending.update(discovered)
-            for member in pending.difference(known, (root,)):
-                try:
-                    known[member] = member.create_time()
-                except psutil.NoSuchProcess:
-                    known[member] = None
+            known.update(pending)
             if process is not None:
                 process.poll()  # Reap the desktop wrapper's direct child.
             for member in tuple(pending):
@@ -276,12 +279,12 @@ def _stop_observed_backend(root, process, timeout_sec, ownership):
                     pass
                 pending.remove(member)
             if ownership is not None and (not pending or force):
-                members, verified = ownership.members(known)
+                members, resolved = ownership.members(known)
                 pending.update(members)
-                if not pending and verified:
+                if not pending and resolved:
                     return True
             elif not pending:
-                return False
+                return True
             if force:
                 for member in pending - signalled:
                     try:
@@ -295,16 +298,19 @@ def _stop_observed_backend(root, process, timeout_sec, ownership):
             time.sleep(min(remaining, 0.1))
 
     deadline = time.monotonic() + timeout_sec
-    pending = {root, *descendants(root)}
-    known = {}
+    target = supervisor if supervisor is not None else root
+    pending = {target, root, *descendants(target)}
+    known = set()
     try:
-        root.terminate()
+        target.terminate()
     except psutil.NoSuchProcess:
         pass
-    return wait_until(deadline) or wait_until(
+    drained = wait_until(deadline) or wait_until(
         time.monotonic() + 2.0,
         force=True,
     )
+    # Empty recorded sessions cannot account for a detached, unseen child.
+    return drained and ownership is not None and ownership.closed
 
 
 def _signal_process_windows(pid: int) -> bool:
@@ -441,6 +447,54 @@ def _stop_pid_set(
     return stopped, failed
 
 
+def _stop_backend_listeners(
+    pids: set[int],
+    port: int,
+) -> tuple[list[int], list[int]]:
+    """Verify reload services against their own journal during parent exit."""
+    if sys.platform == "win32" or len(pids) < 2:
+        return _stop_pid_set(pids, backend=True)
+
+    remaining = pids.copy()
+    stopped, failed = [], []
+    for pid in sorted(pids):
+        if pid not in remaining:
+            continue
+        try:
+            service = psutil.Process(pid)
+            supervisor = service.parent()
+            if (
+                supervisor is None
+                or supervisor.pid not in remaining
+                or "--reload" not in supervisor.cmdline()
+                or service.environ().get("QWENPAW_RELOAD_MODE") != "1"
+            ):
+                continue
+        except psutil.Error:
+            continue
+
+        remaining.difference_update((pid, supervisor.pid))
+        try:
+            with observe_backend(service) as ownership:
+                # Uvicorn forwards TERM to its serving child, then joins it.
+                verified = _stop_observed_backend(
+                    service,
+                    None,
+                    SERVER_SHUTDOWN_SECONDS,
+                    ownership,
+                    supervisor=supervisor,
+                )
+        except (OSError, psutil.Error, ValueError):
+            verified = False
+        (stopped if verified else failed).extend((pid, supervisor.pid))
+
+    others_stopped, others_failed = _stop_pid_set(remaining, backend=True)
+    if stopped and _listening_pids_for_port(port):
+        failed.extend(stopped)
+        stopped.clear()
+    return stopped + others_stopped, failed + others_failed
+
+
 @click.command(
     "shutdown",
     help="Force stop the running QwenPaw app processes.",
@@ -489,11 +543,10 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             "No running QwenPaw backend/frontend process was found.",
         )
 
-    # Stop listening server processes before their reload supervisors. On
-    # Windows the server owns the lifespan and its PID-scoped shutdown event;
-    # stopping the supervisor first can leave it waiting on the server until
-    # the graceful deadline expires and the whole tree is force-terminated.
-    backend_stopped, backend_failed = _stop_pid_set(backend_pids, backend=True)
+    backend_stopped, backend_failed = _stop_backend_listeners(
+        backend_pids,
+        backend_port,
+    )
     wrapper_stopped, wrapper_failed = _stop_pid_set(
         wrapper_pids - set(backend_stopped),
     )
@@ -516,11 +569,11 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             + ", ".join(str(pid) for pid in sorted(stopped)),
         )
     if failed:
-        click.echo("Failed to stop the following processes:")
+        click.echo("Shutdown could not be verified for the following PIDs:")
         for pid in sorted(failed):
             cmd = proc_table.get(pid, "<unknown command line>")
             click.echo(f"  PID {pid}: {cmd}")
         raise click.ClickException(
-            "Failed to shutdown process(es): "
+            "Unable to verify shutdown of PID(s): "
             + ", ".join(str(pid) for pid in sorted(failed)),
         )

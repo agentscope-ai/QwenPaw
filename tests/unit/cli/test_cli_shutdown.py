@@ -74,7 +74,7 @@ def test_shutdown_command_reports_failure(monkeypatch) -> None:
     result = CliRunner().invoke(cli, ["shutdown"])
 
     assert result.exit_code != 0
-    assert "Failed to shutdown process" in result.output
+    assert "Unable to verify shutdown" in result.output
 
 
 def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:

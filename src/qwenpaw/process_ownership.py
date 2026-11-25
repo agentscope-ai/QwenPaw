@@ -156,9 +156,9 @@ class OwnershipSnapshot:
         self.journal = journal
         self.launches = {}
         self.closed = False
-        self.accounted = set()
 
     def members(self, known):
+        """Return live members and whether the launch records are resolved."""
         for line in self.journal:
             event = json.loads(line)
             if event == "closed":
@@ -178,24 +178,9 @@ class OwnershipSnapshot:
                 (sessions if session else groups)[pid] = birth
 
         found, resolved = self._live_members(sessions, groups, known)
-        self.accounted.update(found)
-        # A different recorded launch cannot vouch for an untracked worker.
-        leaders = {**groups, **sessions}
-        accounted = self.closed or all(
-            member in self.accounted
-            or (birth is not None and leaders.get(member.pid) == birth)
-            for member, birth in known.items()
-        )
         # A middle process can publish and exit during the OS snapshot.
         size = os.fstat(self.journal.fileno()).st_size
-        evidence = self.closed or bool(sessions or groups)
-        return found, (
-            verified
-            and resolved
-            and accounted
-            and evidence
-            and self.journal.tell() == size
-        )
+        return found, verified and resolved and self.journal.tell() == size
 
     @staticmethod
     def _live_members(sessions, groups, known):

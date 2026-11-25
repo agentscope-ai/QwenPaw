@@ -16,7 +16,7 @@ def main(role, mode, delay, marker):
         marker.touch()
         return
 
-    managed = mode == "sdk"
+    managed = mode == "sdk" or (mode == "mixed" and role == "backend")
     if managed:
         from qwenpaw.plugins.resources import ResourceOwner, ResourceScope
         from qwenpaw.process_ownership import backend_instance
