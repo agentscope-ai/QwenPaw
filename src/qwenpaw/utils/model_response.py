@@ -48,7 +48,7 @@ def _first_text_in_list(items: list) -> str:
             if isinstance(item, dict)
             else safe_attr(item, "text")
         )
-        if isinstance(got, str):
+        if isinstance(got, str) and got:
             return got
     return ""
 
