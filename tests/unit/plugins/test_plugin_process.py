@@ -1248,6 +1248,128 @@ def _prepare_dependency_operation(
     }
 
 
+@pytest.mark.parametrize("fail_phase", ["", "1", "0"])
+def test_offline_upgrade_preflight_observes_site_under_maintenance(
+    dependency_files,
+    monkeypatch,
+    tmp_path,
+    fail_phase,
+):
+    import json
+
+    from qwenpaw.plugins.dependency_transaction import (
+        _PLAN_FIELDS,
+        atomic_json,
+        authenticate_plan,
+    )
+    from qwenpaw.plugins.dependency_upgrade import retain_maintenance_assets
+    from .timing import WAIT_TIMEOUT
+
+    monkeypatch.setenv(
+        "QWENPAW_DEPENDENCY_STATE_DIR",
+        str(tmp_path / "dependency-state"),
+    )
+    monkeypatch.setattr(maintenance, "_STATE_ROOT", None)
+    files = dependency_files
+    before = digest(files.site)
+    operation = {
+        **dict.fromkeys(_PLAN_FIELDS),
+        **_prepare_dependency_operation(files),
+        "approved": True,
+        "status": "waiting_restart",
+        "plugin_id": "offline-upgrade",
+        "plugin_dirs": [str(tmp_path / "plugins")],
+        "capability": "offline-test",
+        "requires_restart": True,
+    }
+    retain_maintenance_assets(files.directory, operation, None)
+    continuation = """
+import asyncio
+import json
+import os
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from qwenpaw.plugins import dependency_maintenance as maintenance
+from qwenpaw.plugins.install_lock import environment_observation
+
+site, directory = map(Path, sys.argv[2:4])
+fail_phase, phase = sys.argv[4:]
+assert maintenance.authorized(site)
+capability = os.environ.pop("QWENPAW_DEPENDENCY_MAINTENANCE")
+try:
+    maintenance.check_admission(site)
+except RuntimeError as exc:
+    assert str(exc).startswith("DEPENDENCY_MAINTENANCE_REQUIRED")
+else:
+    raise AssertionError("Maintenance admitted an unauthorized reader.")
+finally:
+    os.environ["QWENPAW_DEPENDENCY_MAINTENANCE"] = capability
+
+async def observe():
+    async with environment_observation((site,), timeout=0):
+        version = "0.5" if phase == "1" else "1.0"
+        assert (site / "sample_shared_sdk.py").read_text().strip() == (
+            f"VALUE = {version!r}"
+        )
+        print(f"Observed dependency {version}", flush=True)
+
+asyncio.run(observe())
+if phase == fail_phase:
+    raise SystemExit(1)
+if phase == "0":
+    (directory / "continuation.json").write_text(json.dumps({"loaded": True}))
+"""
+    operation["continuation_command"] = [
+        sys.executable,
+        "-I",
+        "-B",
+        "-c",
+        continuation,
+        str(ROOT / "src"),
+        str(files.site),
+        str(files.directory),
+        fail_phase,
+    ]
+    authenticate_plan(files.directory, operation, seal=True)
+    operation_path = files.directory / "operation.json"
+    atomic_json(operation_path, operation)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-S",
+            str(files.directory / "worker/dependency_worker.py"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=WAIT_TIMEOUT,
+        check=False,
+    )
+    assert "Observed dependency 0.5" in result.stdout, result.stderr
+    assert ("Observed dependency 1.0" in result.stdout) == (fail_phase != "1")
+    status = json.loads(operation_path.read_text())
+    journal = files.directory / "journal.json"
+    assert not maintenance.marker(files.site).exists()
+    assert not maintenance.repair_marker(files.site).exists()
+    if not fail_phase:
+        assert result.returncode == 0, result.stderr
+        assert status["status"] == "succeeded"
+        assert files.module.read_text() == "VALUE = '1.0'\n"
+        assert json.loads(journal.read_text())["phase"] == "committed"
+    else:
+        assert result.returncode == 1, result.stderr
+        assert status["status"] == "failed"
+        assert digest(files.site) == before
+        if fail_phase == "1":
+            assert status["error"]["code"] == "DEPENDENCY_VERIFICATION_FAILED"
+            assert not journal.exists()
+        else:
+            assert status["error"]["code"] == "DEPENDENCY_CONTINUATION_FAILED"
+            assert json.loads(journal.read_text())["phase"] == "rolled_back"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "scenario",
