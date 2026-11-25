@@ -82,16 +82,23 @@ def main() -> int:
                 );
             """
             port = None
-            for _ in range(90):
-                port = command(
-                    "POST",
-                    session + "/execute/async",
-                    {
-                        "script": script,
-                        "args": [SEL_INPUT.replace(":visible", "")],
-                    },
-                )
-                if port:
+            deadline = time.monotonic() + 180
+            while time.monotonic() < deadline:
+                if driver.poll() is not None:
+                    raise RuntimeError("WebKitWebDriver exited during startup")
+                try:
+                    port = command(
+                        "POST",
+                        session + "/execute/async",
+                        {
+                            "script": script,
+                            "args": [SEL_INPUT.replace(":visible", "")],
+                        },
+                    )
+                except (RuntimeError, OSError) as exc:
+                    # A busy first launch can time out or reject one script.
+                    port = {"error": str(exc)}
+                if isinstance(port, int):
                     break
                 time.sleep(2)
             if not isinstance(port, int) or not 1 <= port <= 65535:

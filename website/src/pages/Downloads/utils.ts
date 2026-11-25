@@ -123,6 +123,8 @@ export function detectOS(): string | null {
   const userAgent = window.navigator.userAgent.toLowerCase();
   if (userAgent.includes("win")) return "win";
   if (userAgent.includes("mac")) return "mac";
+  // Android user agents also contain "linux"; no desktop build fits them.
+  if (userAgent.includes("android")) return null;
   if (userAgent.includes("linux")) return "linux";
   return null;
 }

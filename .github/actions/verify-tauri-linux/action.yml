@@ -26,7 +26,8 @@ runs:
       run: |
         set -euo pipefail
         sudo apt-get install -y --no-install-recommends webkit2gtk-driver
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade "pip>=26.2.2"
+        python -m pip install --upgrade "certifi>=2026.10.19"
         python -m pip install -r scripts/verify/requirements-verify.txt
         python -m playwright install webkit --with-deps
 

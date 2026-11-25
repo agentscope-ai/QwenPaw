@@ -167,14 +167,20 @@ def test_linux_packaging(tmp_path, status, version, expected):
 
 
 @pytest.mark.parametrize(
-    ("rendered", "close_hangs"),
-    [(True, False), (False, False), (False, True)],
+    ("rendered", "close_hangs", "flaky"),
+    [
+        (True, False, False),
+        (True, False, True),
+        (False, False, False),
+        (False, True, False),
+    ],
 )
 def test_linux_native_window_required_before_web_checks(
     tmp_path,
     monkeypatch,
     rendered,
     close_hangs,
+    flaky,
 ):
     """A working API or separate browser cannot substitute for the native UI."""
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/verify"))
@@ -182,7 +188,13 @@ def test_linux_native_window_required_before_web_checks(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setattr(verifier.Path, "home", lambda: tmp_path)
-    monkeypatch.setattr(verifier.time, "sleep", lambda _: None)
+    clock = [0.0]
+    monkeypatch.setattr(verifier.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
     monkeypatch.setattr(sys, "argv", ["verify_tauri_linux.py"])
     calls = []
 
@@ -200,6 +212,9 @@ def test_linux_native_window_required_before_web_checks(
             )
             value = {"sessionId": "native"}
         elif url.endswith("/execute/async"):
+            if flaky and calls.count((method, url)) == 1:
+                # A slow first launch can time out one WebDriver script.
+                raise RuntimeError("HTTP 500: script timeout")
             value = 8088 if rendered else None
         elif url.endswith("/screenshot"):
             value = "cG5n"

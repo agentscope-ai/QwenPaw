@@ -39,7 +39,7 @@ echo ""
 # ---------------------------------------------------------------- prerequisites
 echo "== Checking prerequisites =="
 missing=()
-for tool in npm node rustc cargo python3 ar tar gzip; do
+for tool in npm node rustc cargo python3 pkg-config ar tar gzip; do
   if command -v "${tool}" >/dev/null 2>&1; then
     echo "  [OK] ${tool}"
   else
@@ -48,7 +48,8 @@ for tool in npm node rustc cargo python3 ar tar gzip; do
   fi
 done
 
-if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
+if command -v pkg-config >/dev/null 2>&1 &&
+  ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
   echo "  [MISSING] webkit2gtk-4.1 (pkg-config)"
   missing+=("libwebkit2gtk-4.1-dev")
 fi
