@@ -15,3 +15,12 @@ def is_ephemeral_request(request: Any) -> bool:
     return value is True or (
         isinstance(value, str) and value.lower() in {"1", "true", "yes"}
     )
+
+
+def session_storage_identity(
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> tuple[str, str, str]:
+    """Match the empty/self user equivalence of legacy session filenames."""
+    return session_id, user_id or session_id, channel

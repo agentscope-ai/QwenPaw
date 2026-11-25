@@ -24,8 +24,8 @@ from typing import (
     Literal,
     Optional,
 )
-from .chats.models import session_storage_identity
 
+from .._session_request import session_storage_identity
 from .replay_store import (
     RECONNECT_REQUIRED_SSE,
     REPLAY_UNAVAILABLE_SSE,
