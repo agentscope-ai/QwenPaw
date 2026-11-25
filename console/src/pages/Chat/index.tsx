@@ -18,6 +18,8 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUISenderActionInfo,
   type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISubmissionContext,
@@ -52,6 +54,7 @@ import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { preserveLiveBubbleIds } from "./chatHistoryRefresh";
 import {
   getDraftStorageKey,
   handoverDraftToSession,
@@ -1524,6 +1527,18 @@ export default function ChatPage() {
     setRefreshKey((version) => version + 1);
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const applyRefreshedHistory = useCallback(
+    (sessionId: string, history: IAgentScopeRuntimeWebUIMessage[]) => {
+      const sdk = chatRef.current?.messages;
+      if (!sdk) return;
+      const previous = sdk.getSessionMessages(sessionId);
+      sdk.setSessionMessages(
+        sessionId,
+        preserveLiveBubbleIds(previous, history),
+      );
+    },
+    [],
+  );
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
@@ -1671,10 +1686,7 @@ export default function ChatPage() {
               signal,
             );
             if (!canSend() || !recovered || recovered.generating) return false;
-            chatRef.current?.messages.setSessionMessages(
-              queueSessionId,
-              recovered.messages,
-            );
+            applyRefreshedHistory(queueSessionId, recovered.messages);
             if (!locateQueue()) return true;
           }
         }
@@ -1765,6 +1777,7 @@ export default function ChatPage() {
       return false;
     },
     [
+      applyRefreshedHistory,
       buildFileList,
       i18n,
       queueSessionId,
@@ -2047,16 +2060,14 @@ export default function ChatPage() {
         return;
       // Update only this Chat through the SDK's public message API. Do not
       // remount the input or write session selection while handing over.
-      chatRef.current?.messages.setSessionMessages(
-        queueSessionId,
-        session.messages,
-      );
+      applyRefreshedHistory(queueSessionId, session.messages);
       pendingHandoffRefreshRef.current = null;
     }).finally(() => {
       if (!controller.signal.aborted) scheduleNextSend();
     });
     return () => controller.abort();
   }, [
+    applyRefreshedHistory,
     isOwner,
     isQueueOnlyTab,
     chatLoading,
@@ -2124,7 +2135,7 @@ export default function ChatPage() {
   const [runningVisit, setRunningVisit] = useState<object | null>(null);
   const [stoppingVisit, setStoppingVisit] = useState<object | null>(null);
   const showDetachedRunStop =
-    runningVisit === queueVisit && !chatLoading && !isSessionTransition;
+    runningVisit === queueVisit && !isSessionTransition;
   const stoppingDetachedRun = stoppingVisit === queueVisit;
   const stopBackendRun = useCallback(async () => {
     if (
@@ -2201,10 +2212,7 @@ export default function ChatPage() {
       ) {
         return false;
       }
-      chatRef.current?.messages.setSessionMessages(
-        queueSessionId,
-        session.messages,
-      );
+      applyRefreshedHistory(queueSessionId, session.messages);
       return true;
     };
     const syncRun = async () => {
@@ -2279,6 +2287,7 @@ export default function ChatPage() {
       document.removeEventListener("visibilitychange", retryWhenVisible);
     };
   }, [
+    applyRefreshedHistory,
     backendChatId,
     isSessionTransition,
     queueSessionId,
@@ -2986,10 +2995,7 @@ export default function ChatPage() {
             if (signal.aborted || queueSessionIdRef.current !== queueSessionId)
               return;
             if (recovered && !recovered.generating) {
-              chatRef.current?.messages.setSessionMessages(
-                queueSessionId,
-                recovered.messages,
-              );
+              applyRefreshedHistory(queueSessionId, recovered.messages);
             }
           }
           if (
@@ -3003,7 +3009,13 @@ export default function ChatPage() {
         });
       }
     },
-    [executeQueuedItem, queueSessionId, selectedAgent, queueKey],
+    [
+      applyRefreshedHistory,
+      executeQueuedItem,
+      queueSessionId,
+      selectedAgent,
+      queueKey,
+    ],
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
@@ -4592,10 +4604,10 @@ export default function ChatPage() {
             {pluginSenderPrefix}
           </>
         ),
-        actionAffix: (
+        actionAffix: ({ loading }: IAgentScopeRuntimeWebUISenderActionInfo) => (
           <>
             <ComposerToolsMenu className={styles.composerToolsToggle} />
-            {showDetachedRunStop && (
+            {showDetachedRunStop && !loading && (
               <Tooltip title={t("chat.composer.stop")}>
                 <Button
                   className={styles.detachedRunStop}

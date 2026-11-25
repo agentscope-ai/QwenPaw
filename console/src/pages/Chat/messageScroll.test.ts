@@ -81,6 +81,19 @@ describe("preserveReverseMessageViewport", () => {
     }
   });
 
+  it("honors return to latest before restored history changes the layout", async () => {
+    const { scroller, addBubble, disconnect } = fixture();
+    try {
+      addBubble("newest-reply", 250, 250);
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event("qwenpaw:chat-scroll-to-latest"));
+      await Promise.resolve();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      disconnect();
+    }
+  });
+
   it("keeps following the newest message after an explicit scroll to bottom", () => {
     const { scroller, resize, disconnect } = fixture();
     try {

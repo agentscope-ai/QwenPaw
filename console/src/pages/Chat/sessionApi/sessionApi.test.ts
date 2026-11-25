@@ -448,6 +448,37 @@ describe("buildUserCard", () => {
 });
 
 describe("history bubble identity", () => {
+  it("uses durable history identity when the API regenerates message ids", () => {
+    const read = (suffix: string) =>
+      T.convertMessages([
+        msg({ id: `user-${suffix}`, metadata: { original_id: "saved-user" } }),
+        msg({
+          id: `reply-${suffix}`,
+          role: "assistant",
+          metadata: { original_id: "saved-reply" },
+        }),
+      ]);
+
+    expect(read("after").map(({ id }) => id)).toEqual(
+      read("before").map(({ id }) => id),
+    );
+  });
+
+  it("gives parts of one stored user message distinct stable IDs", () => {
+    const read = (suffix: string) =>
+      T.convertMessages(
+        [1, 2].map((part) =>
+          msg({
+            id: `wire-${suffix}-${part}`,
+            metadata: { original_id: "saved-user" },
+          }),
+        ),
+      ).map(({ id }) => id);
+
+    expect(new Set(read("first")).size).toBe(2);
+    expect(read("next")).toEqual(read("first"));
+  });
+
   it("keeps reply ids when the same turn is refreshed with more output", () => {
     const user = msg({ id: "turn-1" });
     const output = msg({ id: "out-1", role: "assistant" });

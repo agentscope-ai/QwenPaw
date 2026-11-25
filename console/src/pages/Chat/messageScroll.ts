@@ -5,6 +5,7 @@ const REVERSE_MESSAGE_SCROLL_SELECTOR =
 const LINE_HEIGHT_PX = 16;
 const SCROLL_TOLERANCE_PX = 1;
 const BOTTOM_TOLERANCE_PX = 2;
+const SCROLL_TO_LATEST_EVENT = "qwenpaw:chat-scroll-to-latest";
 
 function clampReverseScroll(scroller: HTMLElement, scrollTop: number): number {
   return Math.min(
@@ -80,6 +81,11 @@ function observeViewport(scroller: HTMLElement) {
     }
   };
 
+  // The SDK is about to swap the history window. Do not restore the old
+  // anchor before the browser dispatches its asynchronous scroll event.
+  const followLatest = () => {
+    viewport = { scrollTop: 0 };
+  };
   const resizeObserver = new ResizeObserver(restore);
   const updateChildren = () => {
     restore();
@@ -88,12 +94,14 @@ function observeViewport(scroller: HTMLElement) {
     for (const child of scroller.children) resizeObserver.observe(child);
   };
   scroller.addEventListener("scroll", handleScroll, { passive: true });
+  scroller.addEventListener(SCROLL_TO_LATEST_EVENT, followLatest);
   updateChildren();
   return {
     updateChildren,
     disconnect() {
       resizeObserver.disconnect();
       scroller.removeEventListener("scroll", handleScroll);
+      scroller.removeEventListener(SCROLL_TO_LATEST_EVENT, followLatest);
     },
   };
 }

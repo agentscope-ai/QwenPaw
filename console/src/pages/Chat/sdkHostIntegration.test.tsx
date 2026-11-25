@@ -7,7 +7,13 @@
  * and host UI extensions. Browser E2E covers SDK rendering and transport.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor, act, fireEvent } from "@testing-library/react";
+import {
+  screen,
+  waitFor,
+  act,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { useSyncExternalStore, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -110,6 +116,7 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: vi.fn((props: any) => {
     capturedOptions = props.options;
+    const actionAffix = props.options?.sender?.actionAffix;
     useEffect(() => {
       const id = props.options?.session?.currentSessionId;
       if (id)
@@ -123,7 +130,9 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof actionAffix === "function"
+          ? actionAffix({ loading: mockSdkInput.loading })
+          : actionAffix}
       </div>
     );
   }),
@@ -1430,6 +1439,20 @@ describe("ChatPage coverage", () => {
 
     const stop = await screen.findByRole("button", { name: "Stop generating" });
     expect(mockSdkInput.loading).toBe(false);
+    // During a reconnect the SDK renders its native Stop before the loading
+    // bridge's effect can notify ChatPage. The affix must use this newer state.
+    const actionAffix = capturedOptions.sender.actionAffix;
+    const reconnecting = renderWithProviders(
+      typeof actionAffix === "function"
+        ? actionAffix({ loading: true })
+        : actionAffix,
+    );
+    expect(
+      within(reconnecting.container).queryByRole("button", {
+        name: "Stop generating",
+      }),
+    ).toBeNull();
+    reconnecting.unmount();
     expect(
       await capturedOptions.sender.beforeSubmit({
         query: "queue while disconnected",

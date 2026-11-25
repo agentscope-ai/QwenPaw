@@ -106,6 +106,7 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
+    const actionAffix = props.options?.sender?.actionAffix;
     useEffect(() => {
       const id = props.options?.session?.currentSessionId;
       if (id) void props.options.session.api.getSession(id);
@@ -133,7 +134,9 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof actionAffix === "function"
+          ? actionAffix({ loading: false })
+          : actionAffix}
       </div>
     );
   }),
