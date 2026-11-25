@@ -13,9 +13,14 @@ from services.project_files.jq_transform import (
     JqTransformError,
 )
 from services.project_files.json_pointer import (
+    MISSING,
     JsonCasConflict,
+    JsonChange,
+    JsonPointerError,
+    apply_changes,
     canonical_json_bytes as cas_json_bytes,
     merge_candidate,
+    value_at,
 )
 from services.project_files.serialization import (
     canonical_json_bytes as project_json_bytes,
@@ -129,3 +134,26 @@ def test_jq_rejects_multiple_outputs() -> None:
 
     assert caught.value.code == "JQ_RESULT_NOT_PROJECT_ROOT"
     assert caught.value.details["resultCount"] == 2
+
+
+@pytest.mark.parametrize(
+    "pointer",
+    [
+        "/items/-1/name",
+        "/items/+1/name",
+        "/items/01/name",
+        "/items/ 1 /name",
+        "/items/1_0/name",
+        "/items/１/name",
+    ],
+)
+def test_non_rfc6901_array_indices_are_rejected_consistently(
+    pointer: str,
+) -> None:
+    doc = {"items": [{"name": "first"}, {"name": "last"}]}
+    assert value_at(doc, pointer) is MISSING
+    with pytest.raises(JsonPointerError):
+        apply_changes(doc, [JsonChange("replace", pointer, "last", "mutated")])
+    assert doc == {"items": [{"name": "first"}, {"name": "last"}]}
+    assert value_at(doc, "/items/0/name") == "first"
+    assert value_at(doc, "/items/1/name") == "last"
