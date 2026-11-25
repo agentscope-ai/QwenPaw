@@ -144,8 +144,35 @@ async def test_image_memory_uses_resolved_capabilities(
     assert calls == expected
 
 
+@pytest.mark.parametrize(
+    "provider_id",
+    ["OLLAMA", ""],
+    ids=["alias", "inherited"],
+)
+@pytest.mark.parametrize("fallback_names", [[], ["vision-fallback"]])
+async def test_equivalent_memory_provider_keeps_main_chain(
+    local_models,
+    make_memory_model_manager,
+    make_memory_profile,
+    provider_id,
+    fallback_names,
+):
+    profile = make_memory_profile(_slot("agent", provider_id), fallback_names)
+    expected, _ = await model_factory.create_model_and_formatter_async(
+        profile.id,
+        agent_config=profile,
+        resize_images_to_max_bytes=True,
+    )
+    actual = await make_memory_model_manager(
+        profile.id,
+    )._update_qwenpaw_model()
+
+    assert _routing_snapshot(actual) == _routing_snapshot(expected)
+    if isinstance(actual, FallbackChatModel):
+        assert actual._fallback_on_any_error is False
+
+
 @pytest.mark.parametrize("output", ["response", "stream", "structured"])
-@pytest.mark.parametrize("provider_id", ["ollama", "OLLAMA", ""])
 @pytest.mark.parametrize(
     ("memory_name", "fallback_names", "main_status", "expected_calls"),
     [
@@ -180,7 +207,6 @@ async def test_memory_routing_preserves_policy_and_metadata(
     make_memory_model_manager,
     make_memory_profile,
     output,
-    provider_id,
     memory_name,
     fallback_names,
     main_status,
@@ -228,7 +254,7 @@ async def test_memory_routing_preserves_policy_and_metadata(
     )
 
     profile = make_memory_profile(
-        _slot(memory_name, provider_id),
+        _slot(memory_name),
         fallback_names,
     )
     manager = make_memory_model_manager(profile.id)
