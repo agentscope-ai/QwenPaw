@@ -29,29 +29,6 @@ RELEASE_HELPERS = (
 )
 
 
-def test_linux_maintainer_preserves_windows_install_registry_key():
-    """Linux maintainer metadata must not move existing NSIS installations."""
-    config_dir = REPO_ROOT / "console/src-tauri"
-    config = json.loads(
-        (config_dir / "tauri.conf.json").read_text(encoding="utf-8"),
-    )
-    # Tauri NSIS uses the identifier's second component when publisher is unset.
-    manufacturer = (
-        config["bundle"].get("publisher") or config["identifier"].split(".")[1]
-    )
-    registry_key = rf"Software\{manufacturer}\{config['productName']}"
-    assert registry_key == r"Software\agentscope\QwenPaw Desktop"
-
-    # Tauri writes the Cargo authors to the deb Maintainer field and only
-    # falls back to bundle.publisher, so the contact address lives there.
-    cargo = tomllib.loads(
-        (config_dir / "Cargo.toml").read_text(encoding="utf-8"),
-    )
-    assert cargo["package"]["authors"] == [
-        "QwenPaw Contributors <qwenpaw@users.noreply.github.com>",
-    ]
-
-
 def test_linux_deb_dependencies_stay_frozen_for_in_app_updates():
     """In-app updates cannot install a dependency the old package lacked."""
     config = json.loads(

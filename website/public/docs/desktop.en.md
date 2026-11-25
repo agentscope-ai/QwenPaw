@@ -8,16 +8,15 @@
 > - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
 > - **Features under development**: Some features may be unstable or missing
 >
-> ✅ The desktop app is built with **Tauri** and supports **in-app updates**.
+> ✅ The desktop app is now built with **Tauri** and ships with a built-in **in-app auto-updater**, so you can upgrade to newer versions without uninstalling and reinstalling.
 >
 > We welcome your feedback to help improve product quality.
 
-**Download**: [Download page][downloads] · [GitHub Releases][github-releases]
+**Download**: [GitHub Releases][releases]
 
 This guide explains how to install and use the QwenPaw Desktop application on Windows, macOS, and Linux.
 
-[downloads]: https://qwenpaw.agentscope.io/downloads/
-[github-releases]: https://github.com/agentscope-ai/QwenPaw/releases
+[releases]: https://qwenpaw.agentscope.io/downloads
 
 ## Important Notice
 
@@ -42,7 +41,7 @@ This guide explains how to install and use the QwenPaw Desktop application on Wi
 ### Installation Steps
 
 1. **Download the installer**
-   Download `QwenPaw-Tauri-<version>-Windows-setup.exe` from the [download page][downloads].
+   Download `QwenPaw-Tauri-<version>-Windows-setup.exe` from the [Release page][releases]
 
 2. **Run the installer**
    Double-click the `.exe` file and follow the installation wizard
@@ -109,7 +108,7 @@ The code is completely open source, and the build process is transparently verif
 ### Installation Steps
 
 1. **Download the archive**
-   Download `QwenPaw-Tauri-<version>-macOS.zip` from the [download page][downloads].
+   Download `QwenPaw-Tauri-<version>-macOS.zip` from the [Release page][releases]
 
 2. **Extract**
    Double-click the `.zip` file to extract and get `QwenPaw Desktop.app`
@@ -247,7 +246,7 @@ A: Currently using:
 
 ### Installation Steps
 
-1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [download page][downloads] or [GitHub Releases][github-releases].
+1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [Release page][releases]
 2. Install it with apt so dependencies resolve automatically:
 
    ```bash
