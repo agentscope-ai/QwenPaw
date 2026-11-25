@@ -67,12 +67,17 @@ class PluginLaunchSpec:
 
 @dataclass(frozen=True)
 class StopResult:
-    """B-internal cleanup evidence, not the application StopReceipt."""
+    """Process cleanup evidence for one worker generation.
+
+    Acknowledgment is None until a component reaches readiness, False while
+    its stop reply is outstanding, and True once the reply is received.
+    """
 
     exited: bool
     returncode: int | None
     forced: bool
     residual: tuple[str, ...] = ()
+    acknowledged: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +186,7 @@ class PluginProcess:
         self._counter = 0
         self._log_bytes = 0
         self._forced = False
+        self._stop_acknowledged: bool | None = None
         self._mode = "run"
         self.dependency_snapshot: (
             DependencySnapshot | DependencyReadEvidence | None
@@ -589,6 +595,7 @@ class PluginProcess:
         self._state, self._platform = "starting", self.initial_state
         self._last_error = None
         self._forced = False
+        self._stop_acknowledged = None
         self._cleanup_task = None
         self._ready = None
         self.observed_hello = None
@@ -867,6 +874,8 @@ class PluginProcess:
                     return
                 if self._mode == "run":
                     self._platform = self.connecting_state
+                if self._mode in {"run", "manage"}:
+                    self._stop_acknowledged = False
                 self._ready.set_result(None)
         elif (
             self._mode != "manage"
@@ -1032,6 +1041,7 @@ class PluginProcess:
             self._process.returncode if self._process else self._returncode,
             self._forced,
             tuple(residual) or ("STOP_PENDING",),
+            acknowledged=self._stop_acknowledged,
         )
 
     async def _stop(self, budget: float, *, previous=None) -> StopResult:
@@ -1100,6 +1110,7 @@ class PluginProcess:
                 or result.get("stopped") is not True
             ):
                 return False
+            self._stop_acknowledged = True
         elif graceful:
             return False
         if peer is not None:
@@ -1140,9 +1151,15 @@ class PluginProcess:
                     self._returncode,
                     False,
                     ("PAYLOAD_STORE_REMAINING",),
+                    acknowledged=self._stop_acknowledged,
                 )
             self._payloads = None
-            return StopResult(True, self._returncode, False)
+            return StopResult(
+                True,
+                self._returncode,
+                False,
+                acknowledged=self._stop_acknowledged,
+            )
         loop = asyncio.get_running_loop()
         deadline = loop.time() + budget
         confirmed = await self._close_peer(budget, graceful=graceful)
@@ -1178,6 +1195,7 @@ class PluginProcess:
             process.returncode,
             forced,
             tuple(residual),
+            acknowledged=self._stop_acknowledged,
         )
 
     async def _release_tree(self, tree: ProcessTree | None) -> None:

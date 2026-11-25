@@ -211,6 +211,8 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
                     workspace_id="two",
                 )
             assert not markers[1].exists()
+            # Keep the join pending beyond the former 2/3-second RPC limit.
+            await asyncio.sleep(1)
             markers[0].with_suffix(".release").touch()
             await stopping
             assert markers[0].with_suffix(".exited").exists()

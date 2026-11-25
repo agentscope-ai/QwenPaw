@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...channel_protocol.artifacts import code_root_digest
+from ...plugins.custody import CHANNEL_SHUTDOWN_SECONDS
 from ...plugins.execution.bootstrap import validate_private_environment
 from ...plugins.execution.process import (  # pylint: disable=unused-import
     PluginProcess,
@@ -54,7 +55,7 @@ class LaunchSpec:
     dependency_paths: tuple[Path, ...] = ()
     enabled: bool = True
     startup_timeout: float = 5.0
-    shutdown_timeout: float = 2.0
+    shutdown_timeout: float = CHANNEL_SHUTDOWN_SECONDS
     runtime_identity: Mapping[str, Any] | None = None
     restart_limit: int = 0
     restart_backoff: float = 0.1

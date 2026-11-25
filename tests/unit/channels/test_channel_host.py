@@ -2,6 +2,7 @@
 """Host lifecycle through real queues, Agents and child workers."""
 
 import asyncio
+from dataclasses import replace
 import importlib.abc
 import json
 import logging
@@ -1647,14 +1648,13 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
     failure,
 ):
     import logging
-    from dataclasses import replace
 
     caplog.set_level(logging.INFO, logger="qwenpaw.plugins.startup")
     host.registry.channel_runtime = replace(
         host.registry.channel_runtime,
         connection_timeout=0.2 if failure == "timeout" else None,
     )
-    await host.workspace("diagnostic")
+    ws = await host.workspace("diagnostic")
     source = host.artifact(fail_start=failure == "failed")
     if failure != "failed":
         code = source / "sample.py"
@@ -1711,6 +1711,15 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
             row["event"] == "worker_exited" and row["returncode"] == 23
             for row in events
         )
+        channel = await ws.channel_manager.get_channel(KEY)
+        receipt = await ws.channel_manager.stop_one(KEY)
+        assert receipt.detail == "CHANNEL_STOP_INCOMPLETE"
+        assert not receipt.stopped and receipt.exited and not receipt.residual
+        assert channel.last_stop_result.acknowledged is False
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+        host.expected_unacknowledged_channel = channel
 
 
 @pytest.mark.asyncio
@@ -1738,7 +1747,11 @@ async def test_failed_worker_update_restores_usable_source_and_config(host):
 
 
 @pytest.mark.asyncio
-async def test_pending_host_state_stop_blocks_replacement_until_cleanup(host):
+async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
+    host.registry.channel_runtime = replace(
+        host.registry.channel_runtime,
+        shutdown_timeout=1.5,
+    )
     ws = await host.workspace("blocked-stop")
     await host.loader.load_plugin_from_path(host.artifact())
     channel, before = await host.identity(ws)
@@ -1754,11 +1767,43 @@ async def test_pending_host_state_stop_blocks_replacement_until_cleanup(host):
         assert not any(
             row["version"] == "2.0.0" for row in rows(host.ledger, "connected")
         )
-        assert host.registry.runtime_owners.leases(KEY)
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+        result = channel.last_stop_result
+        assert result.exited and result.residual == ("HOST_STATE_IO_PENDING",)
+        assert result.forced and result.acknowledged is False
     finally:
         channel._state_lock.release()
     cleanup = await host.loader.unload_plugin(KEY)
-    assert cleanup.quiescent and not alive(before["pid"])
+    result = channel.last_stop_result
+    assert result.exited and result.residual == ()
+    assert result.acknowledged is False
+    assert not alive(before["pid"])
+    assert not cleanup.quiescent and cleanup.needs_restart
+    assert host.registry.runtime_owners.leases(KEY) == (
+        channel._runtime_lease,
+    )
+    host.expected_unacknowledged_channel = channel
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_stop_can_retry_pending_host_state(host):
+    ws = await host.workspace("pending-state")
+    await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    assert (await channel.channel_process.stop()).acknowledged
+    # Only host I/O remains after the worker's real stop reply.
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    async with channel._state_lock:
+        receipt = await ws.channel_manager.stop_one(KEY)
+    assert not receipt.stopped and receipt.exited
+    assert receipt.residual == ("HOST_STATE_IO_PENDING",)
+    assert not alive(before["pid"])
+    assert host.registry.runtime_owners.leases(KEY) == (
+        channel._runtime_lease,
+    )
+    assert (await ws.channel_manager.stop_one(KEY)).stopped
     assert not host.registry.runtime_owners.leases(KEY)
 
 
