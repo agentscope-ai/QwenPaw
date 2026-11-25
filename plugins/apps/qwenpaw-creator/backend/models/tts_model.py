@@ -33,7 +33,7 @@ from urllib.parse import urlparse
 import httpx
 
 from models import config
-from models.media_transport import upload_local_file_to_dashscope_temp
+from models.media_transport import upload_reference_file_for_provider
 from models.tts_capabilities import (
     TtsModelCapability,
     require_capability,
@@ -507,11 +507,13 @@ async def _sample_url(sample_media_url: str, api_key: str, model: str) -> str:
     if parsed.scheme == "file":
         local_path = local_path_from_file_url(sample_media_url)
         media_type = mimetypes.guess_type(local_path.name)[0] or "audio/wav"
-        return await upload_local_file_to_dashscope_temp(
+        return await upload_reference_file_for_provider(
             local_path,
             api_key=api_key,
             model_name=model,
             media_type=media_type,
+            base_url=config.get_tts_base_url(),
+            protocol=config.get_tts_protocol(),
         )
     if parsed.scheme in {"http", "https", "oss"}:
         return sample_media_url

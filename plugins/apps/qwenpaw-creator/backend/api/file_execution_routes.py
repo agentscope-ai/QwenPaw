@@ -24,6 +24,7 @@ from domain.enums import (
 )
 from domain.errors import ConflictError, NotFoundError, StorageIntegrityError
 from schemas.common import StrictModel
+from services.file_agent_runtime import manual_regeneration_hold
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
@@ -440,8 +441,41 @@ async def render_timeline(
     timeline_id: str,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     services: CreatorFileServices = Depends(project_file_services),
+    automatic: bool = False,
 ) -> dict[str, Any]:
-    """User-initiated final video export: deterministic local composition,
+    """Start a local timeline export, respecting a hold for automatic requests."""
+    if automatic:
+        with manual_regeneration_hold.automatic_node(
+            services.root,
+            project_id,
+            f"compose:{timeline_id}",
+        ):
+            await asyncio.to_thread(
+                manual_regeneration_hold.check_automatic,
+                services.root,
+                project_id,
+            )
+            return await _render_timeline(
+                project_id,
+                timeline_id,
+                idempotency_key,
+                services,
+            )
+    return await _render_timeline(
+        project_id,
+        timeline_id,
+        idempotency_key,
+        services,
+    )
+
+
+async def _render_timeline(
+    project_id: str,
+    timeline_id: str,
+    idempotency_key: str | None,
+    services: CreatorFileServices,
+) -> dict[str, Any]:
+    """Deterministic local composition,
     bypassing the Agent pipeline.
 
     Reads all ready R2V/Edit elements of the target Timeline and composes
@@ -520,6 +554,14 @@ async def render_timeline(
             project_id=project_id,
             command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
             target_ref=target_ref,
+        )
+
+        # Validation can run concurrently with a manual regeneration request.
+        # The worker inherits the same hold context for its Run and Task writes.
+        await asyncio.to_thread(
+            manual_regeneration_hold.check_automatic,
+            services.root,
+            project_id,
         )
 
         async def drive() -> None:
@@ -679,6 +721,26 @@ async def list_execution_authorizations(
             _store(services),
             project_id,
         )
+        from services.file_agent_runtime.workgraph_execution import (
+            retire_drifted_workgraph_authorizations,
+        )
+
+        # Stale cards must disappear on the tray's own poll, otherwise a
+        # project edit leaves dead approvals that fail every approve click.
+        # Best-effort: a drift-sweep failure must never blank the whole tray
+        # nor turn this list endpoint into a 500.
+        try:
+            await retire_drifted_workgraph_authorizations(
+                services,
+                _store(services),
+                project_id,
+            )
+        except Exception:
+            _logger.warning(
+                "authorization drift sweep failed for %s",
+                project_id,
+                exc_info=True,
+            )
         records = await asyncio.to_thread(
             _store(services).list_execution_authorizations,
             project_id,
@@ -712,6 +774,83 @@ async def get_execution_authorization(
     return _authorization_view(record)
 
 
+async def _workgraph_authorization_blocked_detail(
+    services: CreatorFileServices,
+    current: ExecutionAuthorizationRecord,
+    node: Any,
+    blocker: str,
+    blocking_reviews: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """可执行的 409 说明：哪个镜头、被什么卡住、去哪里处理。
+
+    前端 ExecutionAuthorizationCard 依赖 details.reason/blockingReviewIds
+    把「继续」置灰并把阻塞的审阅卡排到前面，所以这里只输出结构化事实。
+    媒体准入检查知道它命中的具体审阅；只有其它门禁（媒体槽/同步围栏）
+    才回退到 element 定位符匹配，避免无关资产的审阅把本卡片一直禁用。
+    """
+
+    label = str(getattr(node, "label", "") or node.node_id).strip()
+    target_ref = node.target_ref or (current.target_scope or [None])[0]
+    element_id = (
+        target_ref.removeprefix("element:")
+        if isinstance(target_ref, str) and target_ref.startswith("element:")
+        else ""
+    )
+    review_ids: list[str] = [
+        review_id for review_id in blocking_reviews if review_id
+    ]
+    if blocker == "WAITING_REVIEW" and not review_ids and element_id:
+        try:
+            pending = await asyncio.to_thread(
+                services.reviews.all_pending,
+                current.project_id,
+            )
+        except Exception:  # noqa: BLE001 - 诊断信息不得阻断错误处理
+            pending = []
+        for review in pending:
+            locators = [
+                value
+                for operation in review.operations
+                for value in (operation.ui_locator or {}).values()
+            ]
+            if any(element_id in str(value) for value in locators):
+                review_ids.append(review.review_id)
+    prompt_sync_gap = blocker == "GATED" and bool(
+        getattr(node, "prompt_sync_required", False),
+    )
+    if prompt_sync_gap:
+        message = (
+            f"目标尚未就绪：镜头「{label}」的提示词待同步。"
+            "请打开该镜头的制作工作台，点分镜/视频步骤顶部的"
+            "「保留现有内容并继续」，再点「继续」。"
+        )
+    elif blocker == "WAITING_REVIEW":
+        count = len(review_ids)
+        message = (
+            f"目标尚未就绪：镜头「{label}」"
+            + (f"还有 {count} 项审阅待确认，" if count else "还有审阅待确认，")
+            + "请先在下方审阅卡完成确认，再点「继续」。"
+        )
+    else:
+        message = (
+            f"目标尚未就绪：镜头「{label}」当前状态为 {blocker}。"
+            "请先完成上游制作步骤（或在工作台重新同步该镜头），再点「继续」。"
+        )
+    return {
+        "message": message,
+        "details": {
+            "reason": "not_ready",
+            "blocker": blocker,
+            "nodeId": node.node_id,
+            "nodeLabel": label,
+            "targetRef": target_ref,
+            "promptSyncRequired": prompt_sync_gap,
+            "blockedNodeIds": [node.node_id],
+            "blockingReviewIds": review_ids[:8],
+        },
+    }
+
+
 async def _rebind_workgraph_authorization(
     services: CreatorFileServices,
     store: ProjectExecutionStore,
@@ -724,8 +863,10 @@ async def _rebind_workgraph_authorization(
     from services.file_agent_runtime.driver import _execution_provider_model
     from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
     from services.file_agent_runtime.workgraph_execution import (
+        WORKGRAPH_TARGET_RETIRE_REASON,
         ready_request_context,
         requested_work_node,
+        workgraph_authorization_drift_reason,
     )
 
     scope = current.scope or {}
@@ -745,7 +886,7 @@ async def _rebind_workgraph_authorization(
         != (current.requested_provider, current.requested_model)
     ):
         raise ConflictError("此授权不支持绑定已保存的 WorkGraph 快照")
-    snapshot, _, graph, blocked = await ready_request_context(
+    snapshot, _, graph, blocked, blocked_reviews = await ready_request_context(
         services,
         store,
         current.project_id,
@@ -760,18 +901,61 @@ async def _rebind_workgraph_authorization(
         node is None
         or node.kind not in {"visual", "lineup", "storyboard", "video"}
         or current.target_scope != [node.target_ref]
-        or node.node_id in blocked
-    ):
-        raise ConflictError("授权的 WorkGraph 目标已改变或尚未就绪")
-    plan = requested_work_node(snapshot, node)
-    if (
-        plan.spec.name != current.operation
-        or plan.parameters != scope["parameters"]
-        or _execution_provider_model(plan.spec, plan.parameters)
-        != (current.requested_provider, current.requested_model)
     ):
         raise ConflictError(
+            "授权的 WorkGraph 目标已改变：快照中的节点已不存在或不再匹配。"
+            "请重新发起一次制作请求并批准新的授权，再点「继续」。",
+            details={
+                "reason": "target_changed",
+                "nodeId": workgraph["nodeId"],
+                "targetRef": (current.target_scope or [None])[0],
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
+        )
+    if node.node_id in blocked:
+        blocked_detail = await _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            blocked[node.node_id],
+            blocked_reviews.get(node.node_id, ()),
+        )
+        raise ConflictError(
+            blocked_detail["message"],
+            details=blocked_detail["details"],
+        )
+    plan = requested_work_node(snapshot, node)
+    reason = await workgraph_authorization_drift_reason(
+        services,
+        current.project_id,
+        snapshot,
+        graph,
+        current,
+    )
+    if reason == WORKGRAPH_TARGET_RETIRE_REASON:
+        raise ConflictError(
+            "授权的 WorkGraph 目标已改变：快照中的节点已不存在或不再匹配。"
+            "请重新发起一次制作请求并批准新的授权，再点「继续」。",
+            details={
+                "reason": "target_changed",
+                "nodeId": workgraph["nodeId"],
+                "targetRef": (current.target_scope or [None])[0],
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
+        )
+    if reason is not None:
+        raise ConflictError(
             "执行参数或 provider/model 已改变，必须重新请求授权",
+            details={
+                "reason": "params_changed",
+                "driftReason": reason,
+                "nodeId": node.node_id,
+                "targetRef": node.target_ref,
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
         )
     return {
         "nodeId": node.node_id,

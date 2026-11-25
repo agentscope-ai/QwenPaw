@@ -1255,6 +1255,42 @@ def test_narrative_speech_must_reach_video_prompt_but_sign_text_need_not():
     assert check_changed_r2v_prompt_contracts(project, [pointer])["passed"]
 
 
+@pytest.mark.parametrize(
+    ("video_prompt", "passed"),
+    [
+        (
+            "陈默旁白继续：“还有七天以后。”停顿一秒，旁白说出最后一句：“他们全部倒下。”",
+            True,
+        ),
+        ("旁白：“还有七天以后，他们全部倒下。”", True),
+        ("旁白：“还有七天以后。”", False),
+        ("旁白：“他们全部倒下。”停顿，旁白：“还有七天以后。”", False),
+        ("旁白：“还有七天以后。”屏幕写着“他们全部倒下。”", False),
+        ("旁白：“还有七天以后。”角色没有说“他们全部倒下。”", False),
+        ("旁白：“还有七天以后。”旁白：“他们全部活下来。”", False),
+    ],
+)
+def test_narration_can_span_spoken_segments_without_losing_words(
+    video_prompt,
+    passed,
+):
+    project = _r2v_contract_project(
+        storyboard_prompt="16:9 故事板，1 个分镜格，每格 16:9。",
+        video_prompt=f"[Image 1]提供分镜顺序。{video_prompt}",
+        dialogues=("陈默旁白（画外）：‘还有七天以后，他们全部倒下。’",),
+    )
+    report = check_changed_r2v_prompt_contracts(
+        project,
+        ["/timelines/items/t/elements_by_id/e"],
+    )
+    assert report["passed"] is passed
+    if not passed:
+        assert any(
+            item["code"] == "VIDEO_DIALOGUE_MISSING"
+            for item in report["findings"]
+        )
+
+
 def test_keyframe_count_is_independent_of_shots(monkeypatch) -> None:
     monkeypatch.setattr(
         model_config,

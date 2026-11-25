@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -13,7 +14,7 @@ from pathlib import Path
 import shutil
 import threading
 import time
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.field_blocks import FieldBlockStore
@@ -266,7 +267,7 @@ class CreatorFileServices:
             startup_recovery=startup_recovery,
             startup_review_recovery=startup_review_recovery,
         )
-        services.recover_review_rejection_feedback_messages()
+        services.recover_review_followup_messages()
         return services
 
     def recover_project(
@@ -528,39 +529,67 @@ class CreatorFileServices:
             decision_id=decision_id,
         )
 
-    def recover_review_rejection_feedback_messages(self) -> None:
-        """Replay the rejection-feedback outbox after a process crash.
+    def recover_review_followup_messages(
+        self,
+        project_id: str | None = None,
+    ) -> None:
+        """Replay the review follow-up outbox after a failure or crash.
 
-        A crash can happen after the Review journal is finalized but before
-        its Session message is appended. The deterministic client message ID
-        makes replay safe even when the first append actually succeeded.
+        A failure can happen after the Review journal is finalized but
+        before its Session message is appended (crash, or a follow-up
+        publication error that the decision route degrades to a deferred
+        follow-up). Every FINALIZED journal that was expected to publish a
+        follow-up is replayable, not just rejection feedback: the
+        deterministic client message ID makes replay safe even when the
+        first append actually succeeded.
+
+        A journal finalized while another Review was still pending carries
+        ``followup_expected=False``: that decision deliberately published no
+        ACCEPT resume, and replaying it after the last pending Review clears
+        would queue a second, non-idempotent resume for the same round. The
+        publication entry applies that recorded decision, so replay never
+        has to re-derive it from the live pending set.
         """
 
-        for project_id in self.projects.discover_project_ids():
+        project_ids = (
+            [project_id]
+            if project_id is not None
+            else self.projects.discover_project_ids()
+        )
+        for scoped_project_id in project_ids:
             try:
-                journals = self.reviews.finalized_rejection_feedback_journals(
-                    project_id,
+                journals = self.reviews.finalized_followup_journals(
+                    scoped_project_id,
                 )
             except Exception:
                 logger.exception(
-                    "failed to discover rejection feedback for Project %s",
-                    project_id,
+                    "failed to discover review followups for Project %s",
+                    scoped_project_id,
                 )
                 continue
             for journal in journals:
                 try:
                     self._publish_review_followup(
-                        project_id=project_id,
+                        project_id=scoped_project_id,
                         review_id=journal.review_id,
                         decision_id=journal.decision_id,
+                        # Reuse the outbox already read for this pass so a
+                        # project with many legacy journals does not re-scan
+                        # every journal once per replayed decision.
+                        journals=journals,
                     )
                 except Exception:
                     logger.exception(
-                        "failed to recover rejection feedback %s "
+                        "failed to recover review followup %s "
                         "for Project %s",
                         journal.decision_id,
-                        project_id,
+                        scoped_project_id,
                     )
+
+    def recover_review_rejection_feedback_messages(self) -> None:
+        """Backward-compatible alias for follow-up outbox replay."""
+
+        self.recover_review_followup_messages()
 
     def _followup_conversation_id(
         self,
@@ -616,6 +645,7 @@ class CreatorFileServices:
         journal: Any,
         *,
         auto_continued: list[str] | None = None,
+        journals: list[Any] | None = None,
     ) -> str | None:
         """Render the follow-up text, or ``None`` when none is warranted."""
 
@@ -632,6 +662,13 @@ class CreatorFileServices:
         ):
             # Interrupted text changes already have a mainline-resume
             # message queued behind the review; do not duplicate it.
+            return None
+        # Only the decision recorded as owning the round's follow-up may
+        # publish. Re-deriving this from the live pending set would make a
+        # retried or replayed earlier decision eligible again once the
+        # round cleared, queueing a duplicate resume under a distinct
+        # decision id.
+        if not self._followup_expected(project_id, journal, journals=journals):
             return None
         # A batch can expose several media Reviews at once. Queue exactly
         # one continuation, after the last pending Review resolves, so a
@@ -652,6 +689,75 @@ class CreatorFileServices:
             auto_continued=auto_continued or [],
         )
 
+    def _followup_expected(
+        self,
+        project_id: str,
+        journal: Any,
+        *,
+        journals: list[Any] | None = None,
+    ) -> bool:
+        """Whether this finalized decision owns the round's follow-up.
+
+        The pending-Review gate that governs an ACCEPT resume is only
+        knowable at finalize time, so it is persisted on the journal.
+        Normal publication, idempotent retries and crash recovery all run
+        through this check instead of re-reading the live pending set.
+        """
+
+        if journal.rejection_feedback is not None:
+            return True
+        if journal.followup_expected is not None:
+            return bool(journal.followup_expected)
+        return self._legacy_followup_expected(
+            project_id,
+            journal,
+            journals=journals,
+        )
+
+    def _legacy_followup_expected(
+        self,
+        project_id: str,
+        journal: Any,
+        *,
+        journals: list[Any] | None = None,
+    ) -> bool:
+        """Infer the recorded gate for a journal written before the field.
+
+        Such a journal carries no decision of its own, so read the durable
+        outbox: the resume belongs to the decision finalized last in the
+        same Review round, and every earlier ACCEPT journal there
+        deliberately published none.
+        """
+
+        try:
+            if journals is None:
+                journals = self.reviews.finalized_followup_journals(
+                    project_id,
+                )
+        except Exception:
+            logger.exception(
+                "failed to read review followup journals for Project %s",
+                _log_safe(project_id),
+            )
+            return False
+        round_id = journal.review_before.round_id
+        same_round = [
+            item
+            for item in journals
+            if item.review_before.round_id == round_id
+        ]
+        if not same_round:
+            return False
+        owner = max(
+            same_round,
+            key=lambda item: (
+                item.updated_at,
+                item.review_id,
+                item.decision_id,
+            ),
+        )
+        return owner.decision_id == journal.decision_id
+
     def _publish_review_followup(
         self,
         *,
@@ -659,6 +765,7 @@ class CreatorFileServices:
         review_id: str,
         decision_id: str,
         auto_continued: list[str] | None = None,
+        journals: list[Any] | None = None,
     ) -> ReviewRejectionAction | None:
         """Synchronous implementation shared by HTTP and startup recovery."""
 
@@ -672,6 +779,7 @@ class CreatorFileServices:
             project_id,
             journal,
             auto_continued=auto_continued,
+            journals=journals,
         )
         if text is None:
             return None
@@ -849,6 +957,19 @@ def creator_file_services(root: Path) -> CreatorFileServices:
             services = CreatorFileServices.create(resolved)
             _registry[resolved] = services
         return services
+
+
+@contextmanager
+def preparing_file_services(root: Path) -> Iterator[None]:
+    """Discard this root's registration if startup recovery is interrupted."""
+    try:
+        yield
+    except BaseException:
+        with _registry_lock:
+            services = _registry.pop(root.expanduser().resolve(), None)
+            if services is not None:
+                services.poller.stop()
+        raise
 
 
 def clear_creator_file_service_registry() -> None:

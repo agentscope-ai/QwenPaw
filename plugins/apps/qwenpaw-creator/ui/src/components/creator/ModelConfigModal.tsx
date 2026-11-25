@@ -203,6 +203,7 @@ const LLM_PROTOCOL_FALLBACK_BASE_URLS: Record<string, string> = {
 // AutoComplete, so anything unlisted can still be typed.
 const LLM_PROTOCOL_FALLBACK_MODELS: Record<string, string[]> = {
   "Aliyun Token Plan": [
+    "qwen4-max",
     "qwen3.8-max",
     "qwen3.8-flash",
     "qwen3.7-max",
@@ -1352,11 +1353,26 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     }
   }, [open, loadConfig]);
 
+  // The skills pane keeps its own list state and reports its refresh up, so
+  // that "reload config" can re-pull that list too while the pane is open.
+  const skillsRefreshRef = useRef<(() => Promise<void>) | null>(null);
+
+  const handleSkillsRefreshReady = useCallback(
+    (refresh: (() => Promise<void>) | null) => {
+      skillsRefreshRef.current = refresh;
+    },
+    [],
+  );
+
   const handleReload = useCallback(async () => {
     if (reloading) return;
     setReloading(true);
     try {
       await loadConfig();
+      // Null unless the skills pane is mounted. That refresh surfaces its own
+      // failure inside the pane, so a skill-list problem cannot pass itself
+      // off as a config reload error.
+      await skillsRefreshRef.current?.();
       message.success(t("modelConfig.configReloaded"));
     } catch (err) {
       message.error(
@@ -3836,7 +3852,9 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             gap: 12,
           }}
         >
-          {activePane === "skills" && <SkillsConfigPane />}
+          {activePane === "skills" && (
+            <SkillsConfigPane onRefreshReady={handleSkillsRefreshReady} />
+          )}
           {(activePane === "lang" ||
             activePane === "perception" ||
             activePane === "media") &&

@@ -17,6 +17,7 @@ const FIELD_KEYS: Record<string, string> = {
   prompt: "fileReview.prompt",
   storyboard_prompt: "fileReview.prompt",
   video_prompt: "fileReview.prompt",
+  generate_audio: "fileReview.nativeAudio",
   camera: "fileReview.camera",
   framing: "fileReview.framing",
   narration: "fileReview.narration",
@@ -281,6 +282,10 @@ export function fileReviewPresentation(
   // unknown fields, ids and bookkeeping values stay as semantic summaries.
   if (field) {
     const fieldText = (value: unknown): string | null => {
+      if (last === "generate_audio" && typeof value === "boolean")
+        return i18n.t(
+          value ? "executionAuth.withAudio" : "executionAuth.withoutAudio",
+        );
       if (
         last.endsWith("duration_seconds") &&
         typeof value === "number" &&

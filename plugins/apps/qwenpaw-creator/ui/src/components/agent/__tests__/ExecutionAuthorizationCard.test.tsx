@@ -11,6 +11,8 @@ import { message } from "antd";
 import ExecutionAuthorizationCard from "@/components/agent/ExecutionAuthorizationCard";
 import { CreatorHttpError } from "@/api/creator/client";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { useDecisionFocusStore } from "@/store/decisionFocusStore";
+import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import {
   useProjectSnapshotStore,
   type ProjectSnapshotState,
@@ -42,6 +44,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   useExecutionAuthorizationStore.getState().reset();
   useProjectSnapshotStore.getState().reset();
+  useFileProjectReviewStore.getState().reset();
+  useDecisionFocusStore.getState().clear();
 });
 
 describe("ExecutionAuthorizationCard inline prompt editing", () => {
@@ -82,6 +86,9 @@ describe("ExecutionAuthorizationCard inline prompt editing", () => {
     );
     expect(screen.getByRole("textbox")).toHaveValue("暖色餐厅窗外的橘猫");
     const proceed = screen.getByRole("button", { name: "继续" });
+    // F1/F2: the primary confirmation action shares the decision-button style.
+    expect(proceed).toHaveClass("btn-decision");
+    expect(proceed).toHaveAttribute("data-execution-auth-continue", "");
     expect(proceed).toBeDisabled();
     fireEvent.click(proceed);
     expect(approve).not.toHaveBeenCalled();
@@ -392,7 +399,7 @@ describe("ExecutionAuthorizationCard inline prompt editing", () => {
     await act(async () => finish());
   });
 
-  it("shows the snapshot conflict and refreshes instead of a generic failure", async () => {
+  it("renders the snapshot conflict inline and refreshes instead of a toast", async () => {
     seed(vi.fn());
     const pollOnce = vi.fn().mockResolvedValue(undefined);
     useProjectSnapshotStore.setState({
@@ -427,14 +434,100 @@ describe("ExecutionAuthorizationCard inline prompt editing", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "继续" }));
     await waitFor(() =>
-      expect(warning).toHaveBeenCalledWith(
-        "已保存的项目快照已改变，请重新保存后批准",
-      ),
+      expect(
+        document.querySelector("[data-execution-auth-error]"),
+      ).not.toBeNull(),
     );
+    expect(
+      document.querySelector("[data-execution-auth-error]"),
+    ).toHaveTextContent("已保存的项目快照已改变，请重新保存后批准");
+    expect(warning).not.toHaveBeenCalled();
     expect(pollOnce).toHaveBeenCalledWith("p1");
     expect(error).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "关闭错误提示" }));
+    expect(document.querySelector("[data-execution-auth-error]")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "继续" }));
     await waitFor(() => expect(error).toHaveBeenCalledWith("执行失败，请重试"));
-    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it("greys Continue on a review-blocked 409 and focuses the pending reviews", async () => {
+    seed(vi.fn());
+    const pollOnce = vi.fn().mockResolvedValue(undefined);
+    useProjectSnapshotStore.setState({
+      pollOnce: pollOnce as unknown as ProjectSnapshotState["pollOnce"],
+    });
+    const approve = vi.fn().mockRejectedValue(
+      new CreatorHttpError(409, {
+        message:
+          "目标尚未就绪：镜头「开场分镜」还有 2 项审阅待确认，请先在下方审阅卡完成确认，再点「继续」。",
+        details: {
+          reason: "not_ready",
+          blocker: "WAITING_REVIEW",
+          blockingReviewIds: ["review-1", "review-2"],
+          blockedNodeIds: ["storyboard:r2v-window"],
+        },
+      }),
+    );
+    useExecutionAuthorizationStore.setState({ approve });
+    render(
+      <ExecutionAuthorizationCard
+        authorization={makePendingAuthorization({
+          targetRef: "element:r2v-window",
+          scope: {
+            operation: "image_generation",
+            workGraph: { nodeId: "storyboard:r2v-window" },
+          },
+        })}
+        project={projectDocument}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-execution-auth-error]"),
+      ).not.toBeNull(),
+    );
+    expect(
+      document.querySelector("[data-execution-auth-error]"),
+    ).toHaveTextContent("还有 2 项审阅待确认");
+    const blocked = screen.getByRole("button", { name: "需先完成审阅" });
+    expect(blocked).toBeDisabled();
+    // Blockers are recorded for tray ordering, but focus is only taken when
+    // the user explicitly asks to look at them.
+    expect(useDecisionFocusStore.getState().reviewIds).toEqual([
+      "review-1",
+      "review-2",
+    ]);
+    expect(useDecisionFocusStore.getState().nonce).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "查看待确认项" }));
+    expect(useDecisionFocusStore.getState().nonce).toBe(1);
+    // The 409 handler polls the snapshot itself, so a bare etag change must
+    // not erase the explanation while the blocking reviews still pend.
+    act(() =>
+      useFileProjectReviewStore.setState({
+        projectId: "p1",
+        reviews: [
+          { review_id: "review-1" },
+          { review_id: "review-2" },
+        ] as never,
+        lastGoodAt: "2026-11-17T00:00:00.000Z",
+      }),
+    );
+    act(() => useProjectSnapshotStore.setState({ etag: "etag-4" }));
+    expect(
+      document.querySelector("[data-execution-auth-error]"),
+    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "需先完成审阅" })).toBeDisabled();
+    // Keeping the reviews removes them from the pending list; the stale block
+    // drops and Continue becomes available again without another failed click.
+    act(() =>
+      useFileProjectReviewStore.setState({
+        reviews: [],
+        lastGoodAt: "2026-11-17T00:00:05.000Z",
+      }),
+    );
+    expect(document.querySelector("[data-execution-auth-error]")).toBeNull();
+    expect(screen.getByRole("button", { name: "继续" })).toBeEnabled();
   });
 });
