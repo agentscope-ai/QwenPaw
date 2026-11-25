@@ -194,6 +194,35 @@ function pageRequests(): string[] {
   return searchMarketMock.mock.calls.map(([, page]) => `${String(page)}`);
 }
 
+/** Open the market source picker (antd multiple Select). */
+async function openProviderPicker(): Promise<void> {
+  await act(async () => {
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: zh.skills.marketProviderFilter,
+      }),
+    );
+  });
+}
+
+/**
+ * The popup option whose text contains ``text``. Scoped to the dropdown so a
+ * selected market's chip (same label, outside the popup) is never matched, and
+ * matched by substring because an unavailable option's label carries the reason
+ * after the market name.
+ */
+function providerOption(text: string): HTMLElement {
+  const dropdown = document.querySelector(
+    ".ant-select-dropdown",
+  ) as HTMLElement;
+  const options = Array.from(
+    dropdown.querySelectorAll(".ant-select-item-option"),
+  ) as HTMLElement[];
+  const match = options.find((option) => option.textContent?.includes(text));
+  expect(match, `option for ${text}`).toBeTruthy();
+  return match as HTMLElement;
+}
+
 describe("SkillMarketBrowser paging", () => {
   beforeEach(() => {
     searchMarketMock.mockReset();
@@ -475,7 +504,7 @@ describe("SkillMarketBrowser paging", () => {
     expect(buttonByLabel(zh.skills.marketInstalled)).toBeDisabled();
   });
 
-  it("names the unusable markets together with the host's reason", async () => {
+  it("lists unusable markets as disabled options carrying the host's reason", async () => {
     listProvidersMock.mockResolvedValue({
       providers: [
         provider("QwenPaw"),
@@ -484,12 +513,109 @@ describe("SkillMarketBrowser paging", () => {
       ],
     });
     renderBrowser();
+    await waitFor(() => expect(listProvidersMock).toHaveBeenCalled());
+    await openProviderPicker();
 
-    const notice = await screen.findByText(/Aliyun/);
-    expect(notice.textContent).toContain("access key 未配置");
-    expect(notice.textContent).toContain("ClawHub");
-    // A reachable market is not listed as a problem.
-    expect(notice.textContent).not.toContain("QwenPaw");
+    // Both unconfigured markets stay listed but disabled; a reachable one is
+    // still selectable.
+    const aliyun = providerOption("Aliyun");
+    expect(aliyun.className).toContain("ant-select-item-option-disabled");
+    const clawhub = providerOption("ClawHub");
+    expect(clawhub.className).toContain("ant-select-item-option-disabled");
+    const qwenpaw = providerOption("QwenPaw");
+    expect(qwenpaw.className).not.toContain("ant-select-item-option-disabled");
+
+    // The host's AK/SK reason rides on a hover tooltip over the disabled
+    // option (console-market style), not inline text and not a banner.
+    await act(async () => {
+      fireEvent.mouseEnter(within(aliyun).getByText("Aliyun"));
+    });
+    expect(await screen.findByText("access key 未配置")).toBeTruthy();
+  });
+
+  it("narrows the search to the markets picked in the dropdown", async () => {
+    listProvidersMock.mockResolvedValue({
+      providers: [provider("QwenPaw"), provider("ClawHub")],
+    });
+    renderBrowser();
+    await waitFor(() => expect(listProvidersMock).toHaveBeenCalled());
+    // Default: the picker is empty (all-markets placeholder, no chips) yet the
+    // browse still spans every reachable market, so no filter is sent at all.
+    expect(screen.getByText(zh.skills.marketProviderAll)).toBeTruthy();
+    expect(searchMarketMock).toHaveBeenLastCalledWith("", 1, PAGE_SIZE, LANG);
+
+    await openProviderPicker();
+    // Picking one market re-runs the browse narrowed to just it.
+    await act(async () => {
+      fireEvent.click(providerOption("ClawHub"));
+    });
+
+    expect(searchMarketMock).toHaveBeenLastCalledWith("", 1, PAGE_SIZE, LANG, [
+      "clawhub",
+    ]);
+  });
+
+  it("re-runs the newest submitted term when the source filter changes mid-flight", async () => {
+    listProvidersMock.mockResolvedValue({
+      providers: [provider("QwenPaw"), provider("ClawHub")],
+    });
+    // alpha lands at once while beta is held open, so the filter change can
+    // land during a submitted search. Both beta calls share the gate, hence
+    // releasing it settles the stale one first and the sequence guard has to
+    // be what drops it.
+    let releaseBeta: () => void = () => {};
+    const betaGate = new Promise<void>((resolve) => {
+      releaseBeta = resolve;
+    });
+    searchMarketMock.mockImplementation((query: string, page: number) => {
+      const items = [marketItem(`p${page}-${query || "browse"}`)];
+      return query === "beta"
+        ? betaGate.then(() => searchPage(items, true))
+        : searchPage(items, true);
+    });
+
+    renderBrowser();
+    await waitFor(() => expect(listProvidersMock).toHaveBeenCalled());
+
+    await openProviderPicker();
+    await act(async () => {
+      fireEvent.click(providerOption("ClawHub"));
+    });
+    await submitSearch("alpha");
+    expect(screen.getByText("p1-alpha")).toBeVisible();
+
+    // Submit beta, then change the source filter before beta resolves.
+    await typeDraft("beta");
+    await act(async () => {
+      fireEvent.click(buttonByLabel(zh.common.search));
+    });
+    await openProviderPicker();
+    await act(async () => {
+      // Clicking the already-selected market clears the filter.
+      fireEvent.click(providerOption("ClawHub"));
+    });
+
+    // The filter has to re-run the term the user submitted, not the older one
+    // whose response merely happened to land. Reading the call log rather than
+    // the rows is what separates the two: before the fix the last entry here
+    // is "alpha".
+    expect(searchMarketMock.mock.calls.map(([term]) => term)).toEqual([
+      "",
+      "",
+      "alpha",
+      "beta",
+      "beta",
+    ]);
+
+    await act(async () => {
+      releaseBeta();
+    });
+
+    // The stale beta loses the sequence race, so the rows end up matching the
+    // term still sitting in the input box instead of the superseded one.
+    await waitFor(() => expect(screen.getByText("p1-beta")).toBeVisible());
+    expect(searchBox()).toHaveValue("beta");
+    expect(screen.queryByText("p1-alpha")).toBeNull();
   });
 
   it("shows no market warning when every provider is usable", async () => {

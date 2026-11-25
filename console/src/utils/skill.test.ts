@@ -4,6 +4,7 @@
  * state (e.g. show "synced" for a stale builtin).
  */
 import { describe, it, expect } from "vitest";
+import type { TFunction } from "i18next";
 import {
   getSkillDisplaySource,
   isSkillBuiltin,
@@ -112,7 +113,7 @@ describe("getPoolSkillAutomationState", () => {
 
 describe("getPoolBuiltinStatusLabel", () => {
   // t stub returns the key so assertions read the translation key used
-  const t = ((key: string) => key) as any;
+  const t = ((key: string) => key) as unknown as TFunction;
 
   it("maps each known sync status to its translation key", () => {
     expect(getPoolBuiltinStatusLabel("synced", t)).toBe(
@@ -120,6 +121,9 @@ describe("getPoolBuiltinStatusLabel", () => {
     );
     expect(getPoolBuiltinStatusLabel("outdated", t)).toBe(
       "skillPool.statusOutdated",
+    );
+    expect(getPoolBuiltinStatusLabel("removed", t)).toBe(
+      "skillPool.statusRemoved",
     );
     expect(getPoolBuiltinStatusLabel("not_synced", t)).toBe(
       "skillPool.statusNotSynced",
@@ -137,6 +141,10 @@ describe("getPoolBuiltinStatusLabel", () => {
 });
 
 describe("getPoolBuiltinStatusTone", () => {
+  it("treats a removed builtin source as neutral", () => {
+    expect(getPoolBuiltinStatusTone("removed")).toBe("neutral");
+  });
+
   it("maps outdated to the outdated tone", () => {
     expect(getPoolBuiltinStatusTone("outdated")).toBe("outdated");
   });

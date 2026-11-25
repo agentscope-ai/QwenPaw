@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 import logging
 import subprocess
 import threading
@@ -71,7 +72,32 @@ async def stop_thread(
 
 
 def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=PROCESS_STOP_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=PROCESS_STOP_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"subprocess {desc!r} did not exit "
+                    f"in {PROCESS_STOP_SECONDS:.0f}s",
+                ) from exc
+
+    # A descendant may still hold stdin open after the child has exited.
+    # Close the raw pipe directly to discard pending input without flushing.
+    stdin = getattr(proc, "stdin", None)
+    if isinstance(stdin, io.TextIOWrapper):
+        stdin = stdin.buffer
+    if isinstance(stdin, io.BufferedWriter):
+        stdin = stdin.raw
     for stream in (
+        stdin,
         getattr(proc, "stdout", None),
         getattr(proc, "stderr", None),
     ):
@@ -83,25 +109,83 @@ def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
                 closer()
             except Exception:  # noqa: BLE001
                 logger.debug("Failed to close pipe for %s", desc)
-    if proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=PROCESS_STOP_SECONDS)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        try:
-            proc.wait(timeout=PROCESS_STOP_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            raise TimeoutError(
-                f"subprocess {desc!r} did not exit "
-                f"in {PROCESS_STOP_SECONDS:.0f}s",
-            ) from exc
 
 
 async def stop_subprocess(proc: Any, desc: str) -> None:
-    """Close pipes, terminate, wait, then kill if needed — off the loop."""
+    """Reap the child and close its pipes off the event loop."""
     await run_sync_io(_stop_subprocess_blocking, proc, desc)
+
+
+async def stop_async_process(
+    proc: asyncio.subprocess.Process,
+    desc: str,
+) -> None:
+    """Stop and reap a child without cancelling its exit waiter."""
+    if proc.stdin is not None:
+        stdin = proc.stdin.transport
+        # A graceful close can wait for a descendant to consume queued input.
+        # A closing pipe with no pending writes is already being released.
+        if not stdin.is_closing() or stdin.get_write_buffer_size():
+            stdin.abort()
+    # A paused/full stdout pipe can keep Process.wait() pending even after
+    # the OS child has exited. Teardown discards unread output and releases
+    # pipe transports rather than waiting for an absent terminal consumer.
+    for descriptor in (1, 2):
+        transport = proc._transport.get_pipe_transport(
+            descriptor,
+        )  # pylint: disable=protected-access
+        if transport is not None:
+            transport.close()
+    if proc.returncode is None:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+    waiter = asyncio.create_task(proc.wait())
+    try:
+        _, pending = await asyncio.wait({waiter}, timeout=PROCESS_STOP_SECONDS)
+        if pending:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            _, pending = await asyncio.wait(
+                {waiter},
+                timeout=PROCESS_STOP_SECONDS,
+            )
+            if pending:
+                raise TimeoutError(f"subprocess {desc!r} did not exit")
+        waiter.result()
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+
+
+async def stop_process_tree(proc, tree, desc: str) -> None:
+    """Retain the process group/Job until all members have exited."""
+    loop = asyncio.get_running_loop()
+    for force in (False, True):
+        tree.signal(force=force)
+        deadline = loop.time() + PROCESS_STOP_SECONDS
+        while True:
+            # Reap the leader so it cannot keep the process group alive as a
+            # zombie. Asyncio's child watcher reaps asynchronous children.
+            exited = (
+                proc.returncode is not None
+                if isinstance(proc, asyncio.subprocess.Process)
+                else proc.poll() is not None
+            )
+            if exited and not tree.alive():
+                if isinstance(proc, asyncio.subprocess.Process):
+                    await stop_async_process(proc, desc)
+                else:
+                    await stop_subprocess(proc, desc)
+                tree.close()
+                return
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(0.02)
+    raise TimeoutError(f"process tree {desc!r} still has live members")
 
 
 class ConnectionCloser:

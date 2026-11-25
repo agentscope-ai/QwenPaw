@@ -70,7 +70,7 @@ from .json_pointer import (
 )
 from .locator_map import derive_ui_locator
 from .models import CURRENT_PROJECT_SCHEMA_VERSION, Project
-from .serialization import project_etag
+from .serialization import project_document_etag, project_etag
 from .review_bookkeeping import is_human_review_change
 from .store import ProjectSnapshot, ProjectStore
 
@@ -265,18 +265,19 @@ def _snapshot_document(snapshot: ProjectSnapshot) -> dict[str, Any]:
     Recovery recomputes ``touched_pointers`` the same way -- it normalizes
     ``base.json`` before diffing it against ``candidate.json``.
 
-    Only a source already at ``CURRENT_PROJECT_SCHEMA_VERSION`` is used
-    verbatim; a legacy source below it is not guaranteed to re-hash to its
-    stored ETag once migrated, so those keep the migrated ``model_dump``.
+    An older source also anchors its first migration when its historical
+    encoding reproduces the authority ETag. If it cannot, retain the previous
+    frozen-snapshot behavior.
     Snapshots built in memory (``source_document is None``) also keep the
     ``model_dump`` -- their model already is the authority ``project_etag``
     hashed.
     """
 
     source = snapshot.source_document
-    if (
-        source is not None
-        and source.get("schema_version") == CURRENT_PROJECT_SCHEMA_VERSION
+    if source is not None and (
+        source.get("schema_version") == CURRENT_PROJECT_SCHEMA_VERSION
+        or project_document_etag(source, project=snapshot.project)
+        == snapshot.etag
     ):
         return copy.deepcopy(dict(source))
     return _json(snapshot.project)

@@ -35,6 +35,7 @@ def production_evidence(
     bundle = graph.by_id.get("bundle:project")
     return {
         "generation": graph.generation,
+        "productionStage": project.settings.production_stage,
         "counts": dict(Counter(node.status.value for node in graph.nodes)),
         "requested": [
             node_feedback(node, graph)
@@ -85,22 +86,32 @@ def production_summary(evidence: dict[str, Any], receipt: str = "") -> str:
     lines = ["已核实的制作进度："]
     if receipt:
         lines.append(receipt)
+    # In the script stage every media node is gated by the script itself;
+    # naming that gate matters, because the generic "waiting for earlier
+    # work" wording leaves first-time users without a next action.
+    script_gate = evidence.get("productionStage") == "script"
     nodes = evidence["requested"] or evidence["blockers"]
     for node in nodes[:8]:
-        lines.append(
-            f"- {node['label']}：{_STATUS_LABELS[node['status']]}。",
-        )
+        status = _STATUS_LABELS[node["status"]]
+        if script_gate and node["status"] == "gated":
+            status = "等待确认剧本，尚未开始"
+        lines.append(f"- {node['label']}：{status}。")
     if len(nodes) > 8:
         lines.append(f"另有 {len(nodes) - 8} 项可在创作总览中查看。")
     counts = evidence["counts"]
+    gated_wording = "等待确认剧本" if script_gate else "等待前置内容"
     lines.append(
         "\n当前制作任务："
         f"{counts.get('running', 0)} 项正在生成，"
         f"{counts.get('ready', 0)} 项待派发，"
         f"{counts.get('failed', 0) + counts.get('stale', 0)} 项需要修正或更新，"
-        f"{counts.get('gated', 0)} 项等待前置内容，"
+        f"{counts.get('gated', 0)} 项{gated_wording}，"
         f"{counts.get('waiting_review', 0)} 项等待审阅。",
     )
+    if script_gate and counts.get("gated", 0):
+        lines.append(
+            "剧本尚未确认：请点击蓝图页顶部的「确认剧本并继续」，" "确认后才会开始生成图片／视频。",
+        )
     if evidence["unplannedTimelines"]:
         lines.append(
             f"还有 {len(evidence['unplannedTimelines'])} 个剧情节点尚未拆分镜头，"

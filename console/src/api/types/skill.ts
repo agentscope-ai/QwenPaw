@@ -4,6 +4,7 @@ export type SkillSyncStatus =
   | "-"
   | "synced"
   | "outdated"
+  | "removed"
   | "not_synced"
   | "conflict";
 

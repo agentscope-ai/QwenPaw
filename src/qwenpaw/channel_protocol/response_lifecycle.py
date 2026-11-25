@@ -456,6 +456,26 @@ class ResponseRouteAggregate:
     ) -> ResponseRouteSnapshot:
         """Record recoverable platform evidence after one side effect."""
         snapshot = self._require_active(response_handle)
+        return self._record_resources(snapshot, resource_refs)
+
+    def record_cleanup_delivery(
+        self,
+        response_handle: str,
+        resource_refs: Iterable[ResponseResourceRef],
+    ) -> ResponseRouteSnapshot:
+        """Record delivery evidence for an already admitted cleanup."""
+        snapshot = self._entries.get(response_handle)
+        if (
+            snapshot is None
+            or snapshot.cleanup_state is not ResponseCleanupState.PENDING
+        ):
+            raise ResponseStateError(
+                "RESPONSE_CLOSED",
+                "response cleanup is not pending",
+            )
+        return self._record_resources(snapshot, resource_refs)
+
+    def _record_resources(self, snapshot, resource_refs):
         resources = _merge_refs(snapshot.resource_refs, resource_refs)
         if resources == snapshot.resource_refs:
             return snapshot
@@ -464,7 +484,7 @@ class ResponseRouteAggregate:
             version=snapshot.version + 1,
             resource_refs=resources,
         )
-        self._entries[response_handle] = updated
+        self._entries[snapshot.response_handle] = updated
         return updated
 
     def begin_finish(

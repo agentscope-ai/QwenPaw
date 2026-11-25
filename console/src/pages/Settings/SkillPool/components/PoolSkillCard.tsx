@@ -2,15 +2,13 @@ import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import InlineHelp from "@/components/InlineHelp";
 import { Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import { Dropdown } from "antd";
-import { MoreHorizontal, Send, Trash2 } from "lucide-react";
+import { Check, MoreHorizontal, RefreshCw, Send, Trash2 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import cardStyles from "./PoolSkillCard.module.less";
-import { RefreshCw as SyncOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { PoolSkillSpec } from "../../../../api/types";
 import {
-  getPoolSkillAutomationState,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
@@ -30,7 +28,10 @@ interface PoolSkillCardProps {
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
-  onAutomationQuickAction: (skill: PoolSkillSpec) => void | Promise<void>;
+  onAutomationQuickAction: (
+    skill: PoolSkillSpec,
+    setting: "auto_sync" | "auto_update",
+  ) => void | Promise<void>;
 }
 
 export function PoolSkillCard({
@@ -48,37 +49,7 @@ export function PoolSkillCard({
   const reduced = useReducedMotion();
   const syncTone = getPoolBuiltinStatusTone(skill.sync_status);
   const isBuiltin = isSkillBuiltin(skill.source);
-  const automationState = getPoolSkillAutomationState(skill);
-  let automationTag = "";
-  let automationTagHint = "";
-  let automationActionKey = "skillPool.autoSyncEnableHint";
-
-  if (!isBuiltin) {
-    if (skill.auto_sync) {
-      automationTag = t("skillPool.autoSync");
-      automationTagHint = t("skillPool.autoSyncFlow");
-      automationActionKey = "skillPool.autoSyncDisableHint";
-    }
-  } else if (automationState === "mixed") {
-    automationTag = t(
-      skill.auto_update ? "skillPool.builtinAutoUpdate" : "skillPool.autoSync",
-    );
-    automationTagHint = t(
-      skill.auto_update
-        ? "skillPool.builtinAutoUpdateFlow"
-        : "skillPool.autoSyncFlow",
-    );
-    automationActionKey = "skillPool.automationMixedHint";
-  } else if (automationState === "on") {
-    automationTag = t("skillPool.automationBoth");
-    automationTagHint = `${t("skillPool.builtinAutoUpdateFlow")}; ${t(
-      "skillPool.autoSyncFlow",
-    )}`;
-    automationActionKey = "skillPool.automationDisableHint";
-  } else {
-    automationActionKey = "skillPool.automationEnableHint";
-  }
-  const automationActionHint = t(automationActionKey);
+  const description = skill.description || t("skills.noDescription");
 
   return (
     <motion.div
@@ -94,6 +65,7 @@ export function PoolSkillCard({
         className={cardStyles.card}
         onClick={(event) => {
           if (
+            !event.currentTarget.contains(event.target as Node) ||
             (event.target as Element).closest(
               'button, input, [role="button"], [role="checkbox"]',
             )
@@ -121,15 +93,62 @@ export function PoolSkillCard({
               menu={{
                 items: [
                   {
+                    key: "auto_sync",
+                    label: (
+                      <span className={cardStyles.menuAction}>
+                        {t("skillPool.autoSync")}
+                        {skill.auto_sync && (
+                          <Check size={14} aria-label={t("common.enabled")} />
+                        )}
+                      </span>
+                    ),
+                    icon: <RefreshCw size={15} />,
+                    disabled: automationPending,
+                  },
+                  ...(isBuiltin
+                    ? [
+                        {
+                          key: "auto_update",
+                          label: (
+                            <span className={cardStyles.menuAction}>
+                              {t("skillPool.builtinAutoUpdate")}
+                              {skill.auto_update && (
+                                <Check
+                                  size={14}
+                                  aria-label={t("common.enabled")}
+                                />
+                              )}
+                            </span>
+                          ),
+                          icon: <RefreshCw size={15} />,
+                          disabled: automationPending,
+                        },
+                      ]
+                    : []),
+                  {
+                    key: "broadcast",
+                    label: t("skillPool.broadcast"),
+                    icon: <Send size={15} />,
+                    disabled: automationPending,
+                  },
+                  { type: "divider" },
+                  {
                     key: "delete",
                     label: t("skillPool.delete"),
                     danger: true,
                     icon: <Trash2 size={15} />,
+                    disabled: automationPending,
                   },
                 ],
-                onClick: ({ domEvent }) => {
+                onClick: ({ key, domEvent }) => {
                   domEvent.stopPropagation();
-                  onDelete(skill);
+                  if (key === "auto_sync" || key === "auto_update") {
+                    void onAutomationQuickAction(skill, key);
+                  } else if (key === "broadcast") {
+                    onBroadcast(skill);
+                  } else if (key === "delete") {
+                    onDelete(skill);
+                  }
                 },
               }}
             >
@@ -144,15 +163,14 @@ export function PoolSkillCard({
         <div className={cardStyles.title}>
           <button
             type="button"
+            title={skill.name}
             onClick={() =>
               batchModeEnabled ? onToggleSelect(skill.name) : onEdit(skill)
             }
           >
             {skill.name}
           </button>
-          <InlineHelp>
-            {skill.description || t("skills.noDescription")}
-          </InlineHelp>
+          <InlineHelp>{description}</InlineHelp>
         </div>
         {hasCommunityFeedback(skill.installation_origin) && (
           <CommunityFeedback
@@ -162,15 +180,35 @@ export function PoolSkillCard({
           />
         )}
         <div className={cardStyles.metadata}>
-          <span
-            className={`${styles.statusBadge} ${styles[`status_${syncTone}`]}`}
+          <Tooltip
+            title={
+              skill.sync_status === "removed"
+                ? t("skillPool.statusRemovedHint")
+                : undefined
+            }
+            trigger={["hover", "focus"]}
           >
-            {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-          </span>
+            <span
+              className={`${styles.statusBadge} ${
+                styles[`status_${syncTone}`]
+              }`}
+              tabIndex={skill.sync_status === "removed" ? 0 : undefined}
+            >
+              {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+            </span>
+          </Tooltip>
           {skill.last_updated && (
-            <span>{dayjs(skill.last_updated).fromNow()}</span>
+            <time
+              className={cardStyles.updatedAt}
+              dateTime={skill.last_updated}
+            >
+              {t("skillPool.updatedAgo", {
+                time: dayjs(skill.last_updated).fromNow(),
+              })}
+            </time>
           )}
         </div>
+        <p className={cardStyles.description}>{description}</p>
         {!!skill.tags?.length && (
           <div className={cardStyles.tags}>
             {skill.tags.map((tag) => (
@@ -178,31 +216,6 @@ export function PoolSkillCard({
             ))}
           </div>
         )}
-        <div className={cardStyles.footer}>
-          <Tooltip title={automationTagHint || automationActionHint}>
-            <Button
-              data-testid={`skill-automation-${skill.name}`}
-              aria-label={automationActionHint}
-              aria-pressed={
-                automationState === "mixed" ? "mixed" : automationState === "on"
-              }
-              type="text"
-              icon={<SyncOutlined size={16} />}
-              loading={automationPending}
-              disabled={batchModeEnabled || automationPending}
-              onClick={() => void onAutomationQuickAction(skill)}
-            >
-              {automationTag || t("skillPool.autoSync")}
-            </Button>
-          </Tooltip>
-          <Button
-            disabled={batchModeEnabled}
-            icon={<Send size={15} />}
-            onClick={() => onBroadcast(skill)}
-          >
-            {t("skillPool.broadcast")}
-          </Button>
-        </div>
       </InteractiveCard>
     </motion.div>
   );

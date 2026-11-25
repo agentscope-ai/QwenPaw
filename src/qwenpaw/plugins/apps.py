@@ -2,6 +2,7 @@
 """PawApp declarations and scoped services available to app authors."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from contextlib import AbstractAsyncContextManager
 from typing import (
     Any,
@@ -10,6 +11,7 @@ from typing import (
     Awaitable,
     Callable,
     Mapping,
+    Literal,
     TYPE_CHECKING,
     TypeAlias,
     Union,
@@ -19,6 +21,7 @@ from .events import ChatEvent, StreamMessage, ApprovalSnapshot
 from .tools import ToolContext
 
 if TYPE_CHECKING:
+    from .conversations import ConversationService
     from .sdk import PluginContext
     from .resources import Registration
     from .drivers import DriverContext
@@ -114,6 +117,19 @@ class CancelResult:
 
 
 @dataclass(frozen=True)
+class UploadedFile:
+    """Bounded, immutable uploaded content; filename is untrusted metadata."""
+
+    filename: str
+    content_type: str
+    content: bytes
+
+    @property
+    def size(self) -> int:
+        return len(self.content)
+
+
+@dataclass(frozen=True)
 class HttpRequest:
     method: str
     path: str
@@ -121,6 +137,9 @@ class HttpRequest:
     query: Mapping[str, str]
     headers: Mapping[str, str]
     body: bytes = b""
+    form: Mapping[str, tuple[str | UploadedFile, ...]] = field(
+        default_factory=dict,
+    )
 
     def json(self) -> JSONBody:
         import json
@@ -137,6 +156,15 @@ class HttpResponse:
 
 
 @dataclass(frozen=True)
+class FileResponse:
+    """Download an allowed regular file; the host validates the calling scope."""
+
+    path: str | Path
+    filename: str | None = None
+    media_type: str = "application/octet-stream"
+
+
+@dataclass(frozen=True)
 class StreamingResponse:
     stream: AsyncIterator[str | bytes]
     status: int = 200
@@ -150,6 +178,12 @@ class AppContext(ToolContext):
     user_id: str = ""
     channel: str = "console"
     _services: Any = field(default=None, repr=False, compare=False)
+
+    @property
+    def conversations(self) -> "ConversationService":
+        from .conversations import ConversationService
+
+        return ConversationService(self)
 
     def driver_source(
         self,
@@ -269,6 +303,7 @@ RouteResult: TypeAlias = (
     JSONBody
     | HttpResponse
     | StreamingResponse
+    | FileResponse
     | TaskSnapshot
     | CancelResult
     | SessionSummary
@@ -296,11 +331,28 @@ class PawApp:
         path: str,
         *,
         methods: tuple[str, ...] = ("GET",),
+        body: Literal["bytes", "form"] = "bytes",
+        max_body_bytes: int | None = None,
     ) -> Callable[[RouteHandler], RouteHandler]:
-        """Decorate handler(AppContext, HttpRequest), sync or async."""
+        """Decorate a handler. Forms default to 10 MiB, 16 files, 128 fields.
+
+        Repeated fields preserve order as tuples. Raw byte routes keep their
+        existing behavior unless max_body_bytes is explicitly supplied.
+        """
+        if body not in ("bytes", "form"):
+            raise ValueError("body must be bytes or form")
+        if max_body_bytes is not None and (
+            type(max_body_bytes) is not int or max_body_bytes <= 0
+        ):
+            raise ValueError("max_body_bytes must be a positive integer")
+        limit = (
+            max_body_bytes
+            if max_body_bytes is not None
+            else (10 * 1024 * 1024 if body == "form" else None)
+        )
 
         def register(handler):
-            self._routes.append((path, tuple(methods), handler))
+            self._routes.append((path, tuple(methods), handler, body, limit))
             return handler
 
         return register

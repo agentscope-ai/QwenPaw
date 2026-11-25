@@ -20,11 +20,11 @@
 
 常见循环任务示例：
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01KOSlHG1EBP6mzmTpr_!!6000000000313-2-tps-1734-936.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01GjPOgxjzRSC3FPfU_!!6000000002437-2-tps-1600-1000.png)
 
 常见日程任务示例：
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN01AJU7UV1G0zKh4JqRO_!!6000000000561-2-tps-1728-1266.png)
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01VryD2z5ZAVE3FPfU_!!6000000007589-2-tps-1600-1000.png)
 
 日程任务支持创建 **一次性任务/循环任务指定结束时间/循环任务指定结束次数**，详情见下方创建定时任务。
 
@@ -36,7 +36,7 @@
 
 1. 点击 **创建任务** 按钮。
 
-![todo](https://img.alicdn.com/imgextra/i2/O1CN01bJJo2e1LoydlqxGxu_!!6000000001347-2-tps-1190-1984.png)
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01afg6BTnt3lH3FPfU_!!6000000003187-2-tps-1600-1000.png)
 
 2. 填写信息：
    - **基本信息** —— 给任务一个名称，并打开启用开关。
@@ -75,7 +75,7 @@
 **日历视图:**
 新增 **日历视图**，所有 **日程任务** 会按日期展示在日历中，方便快速查看当天安排与后续计划。点击任务可打开对应的**编辑任务**页面，方便对任务进行修改。
 
-![todo](https://img.alicdn.com/imgextra/i4/O1CN01gMBL7O1MDFdAXkBDa_!!6000000001400-2-tps-2978-1662.png)
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01yw11yMPqcwF3FPfU_!!6000000001131-2-tps-1600-1000.png)
 
 ---
 
@@ -115,7 +115,7 @@ QwenPaw 的[导入](./import) 可以将 Codex、Qoder 定时任务迁入当前�
 
 新增 **从模板创建** 功能，可以先选择 **循环任务** 或 **日程任务** 模板，再按需调整名称、触发时间和消息/请求内容后保存。默认投递到控制台的 cron_job session，UserID 默认为default，可自行修改为需要的投递目标。
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01KOSlHG1EBP6mzmTpr_!!6000000000313-2-tps-1734-936.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01GjPOgxjzRSC3FPfU_!!6000000002437-2-tps-1600-1000.png)
 
 ### 方式三：CLI
 

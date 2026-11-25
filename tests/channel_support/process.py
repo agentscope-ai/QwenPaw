@@ -100,6 +100,12 @@ def runtime_layout(directory, monkeypatch):
     )
     runtime = root / "runtime"
     venv.EnvBuilder(with_pip=False, symlinks=False).create(runtime)
+    # Relocatable macOS Python needs its library beside the copied executable.
+    # venv copies only the executable; retain the realistic frozen layout.
+    library_name = sysconfig.get_config_var("LDLIBRARY")
+    library = Path(sys.base_prefix) / "lib" / str(library_name)
+    if sys.platform == "darwin" and library.is_file():
+        shutil.copy2(library, runtime / "lib" / library.name)
     executable = runtime / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )

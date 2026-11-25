@@ -52,7 +52,15 @@ class _FakeChatModel:
 class _FakeProvider(SimpleNamespace):
     """Provider stub with no additional catalog metadata to resolve."""
 
+    require_api_key = False
     validate_chat_model = provider_module.Provider.validate_chat_model
+    validate_chat_model_override = (
+        provider_module.Provider.validate_chat_model_override
+    )
+    validate_model_selection = (
+        provider_module.Provider.validate_model_selection
+    )
+    model_available = provider_module.Provider.model_available
 
     def resolve_model_info(self, model_id):
         """Return the stub's already configured model information."""
@@ -202,6 +210,7 @@ def test_factory_restores_explicit_context_size(
     provider = DashScopeProvider(
         id="dashscope",
         name="DashScope",
+        api_key="test-key",
         models=[
             provider_module.ModelInfo(
                 id=model_id,

@@ -315,9 +315,12 @@ def _is_media_related_error(text: str) -> bool:
     return any(phrase in text_lower for phrase in _MEDIA_REJECT_PHRASES)
 
 
-def _is_dashscope_provider(base_url: str, protocol: str = "") -> bool:
+def _is_dashscope_provider(base_url: str, protocol: str | None = None) -> bool:
     host = urlparse(base_url).hostname or ""
-    if "dashscope" in host:
+    service, _, domain = host.partition(".")
+    if domain == "aliyuncs.com" and (
+        service == "dashscope" or service.startswith("dashscope-")
+    ):
         return True
     # A MaaS deployment serves the same API but never spells ``dashscope`` in
     # its host; classifying it as a generic gateway would drop local media to
@@ -329,15 +332,28 @@ def _is_dashscope_provider(base_url: str, protocol: str = "") -> bool:
     if not model_config.is_maas_endpoint(base_url):
         return False
     return not model_config.is_token_plan_protocol(
-        protocol or model_config.get_vlm_protocol(),
+        model_config.get_vlm_protocol() if protocol is None else protocol,
     )
 
 
-def uses_dashscope_transport() -> bool:
-    """True when the configured VLM transports local media through the
-    DashScope model-bound temporary OSS upload (48h TTL, <=1GB) instead
-    of inline Base64 data URLs."""
-    return _is_dashscope_provider(model_config.get_vlm_base_url())
+def uses_dashscope_transport(
+    base_url: str = "",
+    protocol: str | None = None,
+) -> bool:
+    """True when local media travels through the DashScope model-bound
+    temporary OSS upload (48h TTL, <=1GB) instead of inline Base64 URLs.
+
+    *base_url* names the endpoint the caller is about to upload for and
+    defaults to the configured VLM. Passing it stops this predicate from
+    disagreeing with the transport the caller actually chose. *protocol*
+    names the credential in use the same way: pass it whenever *base_url*
+    comes from a section other than the VLM, because the upload identity is
+    a property of the key, not of the host.
+    """
+    return _is_dashscope_provider(
+        base_url or model_config.get_vlm_base_url(),
+        protocol,
+    )
 
 
 async def transport_local_media_url(
@@ -346,6 +362,8 @@ async def transport_local_media_url(
     api_key: str,
     model_name: str,
     media_type: str = "",
+    base_url: str = "",
+    protocol: str | None = None,
 ) -> str:
     """Return a URL for *local_path* that the configured VLM can ingest.
 
@@ -363,7 +381,7 @@ async def transport_local_media_url(
         if local_path.suffix.lower() in VIDEO_SUFFIXES
         else "image/png"
     )
-    if uses_dashscope_transport():
+    if uses_dashscope_transport(base_url, protocol):
         return await upload_local_file_to_dashscope_temp(
             local_path,
             api_key=api_key,
@@ -378,7 +396,7 @@ async def _transport_local_media_part(
     api_key: str,
     model_name: str,
     base_url: str,
-    protocol: str = "",
+    protocol: str | None = None,
 ) -> tuple[dict, bool]:
     """Replace a local media URL with a provider-transportable URL.
 
@@ -735,7 +753,11 @@ async def chat_completion(
     api_key = api_key_override or model_config.get_vlm_api_key()
     base_url = base_url_override or model_config.get_vlm_base_url()
     model_name = model_name_override or model_config.get_vlm_model_name()
-    protocol = protocol_override or model_config.get_vlm_protocol()
+    protocol = (
+        model_config.get_vlm_protocol()
+        if protocol_override is None
+        else protocol_override
+    )
     # Anthropic and Gemini gateways always authenticate; OpenAI-compatible
     # gateways may serve free keyless models (e.g. OpenCode Zen), so an
     # empty key is only an error for protocols that require one.

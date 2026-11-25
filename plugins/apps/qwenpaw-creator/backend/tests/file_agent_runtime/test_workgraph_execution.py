@@ -10,6 +10,7 @@ from __future__ import annotations
 from services.file_agent_runtime.workgraph_execution import (
     summarize_workgraph_results,
 )
+from services.project_files.production_stage import SCRIPT_ONLY_MESSAGE
 
 
 def _gated(prompt_sync: bool, missing: list[str]) -> dict:
@@ -35,6 +36,17 @@ def test_summary_names_prompt_sync_gate_without_internal_refs() -> None:
     # The gate is named publicly; the internal dependency ref never leaks.
     assert "visual:scene:home:var:day" not in summary
     # No leftover generic bucket when every item is prompt-sync gated.
+    assert "制作条件尚未满足" not in summary
+
+
+def test_summary_names_script_gate_with_next_action() -> None:
+    summary = summarize_workgraph_results(
+        [_gated(False, [SCRIPT_ONLY_MESSAGE])],
+    )
+    assert "尚未启动制作" in summary
+    assert "1 项等待确认剧本" in summary
+    assert "确认剧本并继续" in summary
+    # The script gate must not fall into the generic bucket.
     assert "制作条件尚未满足" not in summary
 
 
@@ -114,5 +126,35 @@ def test_summary_mixed_branch_review_sync_not_double_counted() -> None:
     assert "已完成制作 1 项" in summary
     assert "1 项等待现有审阅，尚未开始" in summary
     assert "需先同步分镜/提示词" not in summary
+    assert "制作条件尚未满足" not in summary
+    assert "-1" not in summary
+
+
+def test_summary_script_gate_with_sync_flag_not_double_counted() -> None:
+    # H1 regression: the script gate appends SCRIPT_ONLY_MESSAGE but keeps
+    # promptSyncRequired, so a gated storyboard node used to count in both the
+    # prompt-sync and script-gate buckets and the residual went to "-1 项".
+    summary = summarize_workgraph_results(
+        [_gated(True, [SCRIPT_ONLY_MESSAGE])],
+    )
+    assert "1 项需要先同步分镜/提示词内容" in summary
+    assert "等待确认剧本" not in summary
+    assert "制作条件尚未满足" not in summary
+    assert "-1" not in summary
+
+
+def test_summary_mixed_branch_script_gate_sync_not_double_counted() -> None:
+    # Same H1 guard on the mixed branch: a completed task beside a gated node
+    # that also carries the sync flag must not drive the residual negative.
+    summary = summarize_workgraph_results(
+        [
+            {"status": "SUCCEEDED", "taskId": "task-1"},
+            _gated(True, [SCRIPT_ONLY_MESSAGE]),
+        ],
+    )
+    assert "尚未启动制作" not in summary
+    assert "已完成制作 1 项" in summary
+    assert "1 项需先同步分镜/提示词内容，尚未开始" in summary
+    assert "等待确认剧本" not in summary
     assert "制作条件尚未满足" not in summary
     assert "-1" not in summary

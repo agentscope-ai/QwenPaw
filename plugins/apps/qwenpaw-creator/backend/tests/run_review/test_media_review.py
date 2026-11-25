@@ -620,3 +620,112 @@ def test_gather_or_cancel_joins_thread_workers_before_raising() -> None:
         ), "the error propagated before the thread worker finished"
 
     asyncio.run(scenario())
+
+
+def test_missing_binary_skips_review_without_spending_budget(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Issue #8592: a missing ffmpeg is an environment fault, not a review
+    attempt.
+
+    Admitting first consumed the slot's physical budget before the probe
+    failed, so two such faults silently disabled auto-review for that
+    artifact forever.  The preflight check must return before admission and
+    leave the budget untouched.
+    """
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    services = CreatorFileServices.create(tmp_path.resolve())
+    monkeypatch.setenv("CREATOR_MEDIA_REVIEW_ENABLED", "1")
+    monkeypatch.setattr(
+        media_module,
+        "_missing_review_binary",
+        lambda kind: "ffmpeg",
+    )
+    admitted: list[str] = []
+
+    def _spy(*args, **kwargs):
+        admitted.append(str(kwargs.get("slot_id")))
+        return 1
+
+    monkeypatch.setattr(media_module.admission, "admit_media_round", _spy)
+
+    assert (
+        asyncio.run(
+            media_module.run_media_review_loop(
+                services,
+                project_id=PROJECT_ID,
+                published=_published("assets/artifacts/none.png"),
+                kind="r2v_storyboard_image",
+            ),
+        )
+        is None
+    )
+
+    assert admitted == []
+    reports_root = media_module._reports_root(services, PROJECT_ID)
+    assert (
+        admission.media_skip_reason(
+            reports_root,
+            slot_id=SLOT_ID,
+            version_id=VERSION_ID,
+        )
+        != "budget_spent"
+    )
+
+
+@pytest.mark.parametrize(
+    ("binary", "kind"),
+    [
+        ("ffmpeg", "r2v_storyboard_image"),
+        ("ffprobe", "element_video"),
+    ],
+)
+def test_missing_binary_records_an_actionable_skip_note(
+    tmp_path,
+    monkeypatch,
+    binary: str,
+    kind: str,
+) -> None:
+    """Issue #8592 follow-up: the workbench must name the environment fault.
+
+    A warning and a trace are invisible where the artifact is delivered, so
+    the skip reason and the CREATOR_*_PATH override are persisted per slot
+    and superseded as soon as a review round is admitted.
+    """
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    services = CreatorFileServices.create(tmp_path.resolve())
+    monkeypatch.setattr(
+        media_module,
+        "_missing_review_binary",
+        lambda _kind: binary,
+    )
+
+    assert (
+        asyncio.run(
+            media_module.run_media_review_loop(
+                services,
+                project_id=PROJECT_ID,
+                published=_published("assets/artifacts/none.png"),
+                kind=kind,
+            ),
+        )
+        is None
+    )
+
+    reports_root = media_module._reports_root(services, PROJECT_ID)
+    note = admission.media_review_skip_note(
+        reports_root,
+        slot_id=SLOT_ID,
+    )
+    assert note is not None
+    assert note["version_id"] == VERSION_ID
+    assert note["reason"] == f"{binary}_unavailable"
+    assert f"CREATOR_{binary.upper()}_PATH" in note["hint"]
+
+    # The note describes the current output only: an admitted round (a
+    # later version, or this one after the environment was fixed) clears it.
+    assert _admit(reports_root, VERSION_ID) == 1
+    assert (
+        admission.media_review_skip_note(reports_root, slot_id=SLOT_ID) is None
+    )

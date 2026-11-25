@@ -15,7 +15,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from typing import Dict
+from typing import Dict, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,11 @@ class CommandRegistry:
         - Level 15: Insert between high and normal
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        control_resolver: Callable[[str], bool] | None = None,
+    ):
         """Initialize command registry with default priorities."""
         # Predefined priority names → level numbers
         self._priority_names: Dict[str, int] = {
@@ -56,6 +60,7 @@ class CommandRegistry:
 
         # Default priority level for unknown commands
         self._default_level = 20  # normal
+        self._control_resolver = control_resolver
 
         # Register default control commands
         self._register_defaults()
@@ -66,6 +71,7 @@ class CommandRegistry:
         """Register default control commands."""
         # Critical (0): Control commands requiring immediate response
         self.register_command("/stop", priority_level=0)
+        self.register_command("/shell-local", priority_level=0)
 
         # High (10): Daemon commands (/daemon <sub> and short aliases)
         # Full daemon commands
@@ -178,6 +184,9 @@ class CommandRegistry:
         if not query_lower.startswith("/"):
             return False
 
+        if self._control_resolver and self._control_resolver(query):
+            return True
+
         sorted_prefixes = sorted(
             self._command_to_level.keys(),
             key=len,
@@ -237,6 +246,8 @@ class CommandRegistry:
                     )
                     return level
 
+        if self._control_resolver and self._control_resolver(query):
+            return 10
         return self._default_level
 
     def get_priority_name(self, level: int) -> str:

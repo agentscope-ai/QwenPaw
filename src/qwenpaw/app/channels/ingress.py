@@ -217,7 +217,9 @@ class ChannelIngressService:
             if not values or len(set(values)) != len(values):
                 raise ValueError("HOST_INGRESS_RULE_INVALID")
             self.routes[owner] = values
+        self._host_routes = dict(self.routes)
         self._bindings = {}
+        self._sdk_route_owners = set()
         self._retired = set()
         self._client = None
         self._watcher = None
@@ -228,8 +230,29 @@ class ChannelIngressService:
             raise RuntimeError("HOST_INGRESS_ALREADY_ATTACHED")
         registry.channel_ingress_service = self
 
+    def _clear_sdk_routes(self, owner):
+        self.routes.pop(owner, None)
+        self._sdk_route_owners.discard(owner)
+        if owner in self._host_routes:
+            self.routes[owner] = self._host_routes[owner]
+
     def attach(self, proxy):
         """Attach after Manager attaches its exact runtime lease/resource."""
+        owner = (proxy.endpoint_service.plugin_id, proxy.channel)
+        if owner in self._sdk_route_owners:
+            self._clear_sdk_routes(owner)
+        schema = (
+            proxy._registration.description_record.descriptor.config_schema
+        )
+        declared = schema.get("x-qwenpaw-ingress-routes", ())
+        if declared:
+            from ...plugins._channel_ingress import ingress_path
+
+            prefix = ingress_path(*owner)
+            self.routes[owner] = tuple(
+                (route["method"], prefix + route["path"]) for route in declared
+            )
+            self._sdk_route_owners.add(owner)
         if (proxy.endpoint_service.plugin_id, proxy.channel) in self.routes:
             proxy.endpoint_service.forwarder = self
 
@@ -364,6 +387,10 @@ class ChannelIngressService:
                 forward.task.cancel()
 
     def _sweep(self):
+        for owner in tuple(self._sdk_route_owners):
+            row = self.registry.get_channel_registration(owner[1])
+            if row is None or row.plugin_id != owner[0]:
+                self._clear_sdk_routes(owner)
         for binding in tuple(self._bindings.values()):
             if (
                 self._owner(binding.service, binding.reference)
@@ -406,6 +433,11 @@ class ChannelIngressService:
         except (ValueError, UnicodeError):
             raise _Unavailable(400) from None
         if len(selectors) > 1 or selectors == [""]:
+            raise _Unavailable(400)
+        if (
+            request.scope["path"].startswith("/channel-callbacks/")
+            and not selectors
+        ):
             raise _Unavailable(400)
         candidates = [
             binding

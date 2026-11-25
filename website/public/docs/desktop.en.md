@@ -102,7 +102,7 @@ The code is completely open source, and the build process is transparently verif
 - **Operating System**: macOS 14 (Sonoma) or later
 - **Architecture**:
   - ✅ **Apple Silicon (M1/M2/M3/M4)** - Recommended
-  - ⚠️ Intel chips - May works, but may not be able to use built-in local model services
+  - Intel Macs: the macOS desktop release targets Apple Silicon; use the [Python installation](./quickstart) on Intel.
 
 ### Installation Steps
 
@@ -221,7 +221,7 @@ A: Follow the "Bypassing System Security Restrictions" steps above
 A: Drag `QwenPaw Desktop.app` to the Trash, then delete the `~/.qwenpaw` configuration folder
 
 **Q: Can I use it on Intel Mac?**
-A: Yes, but may not be able to use built-in local model services
+A: The desktop release targets Apple Silicon. On Intel, use the [Python installation](./quickstart) and open the web Console. The optional QwenPaw Local plugin has a separate macOS x64 inference engine.
 
 **Q: Why is the app not signed, and why does the system show a risk warning?**
 

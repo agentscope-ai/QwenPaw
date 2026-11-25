@@ -68,6 +68,10 @@ async def _runtime(directory, report):
         return _source_file(filename, directory)
 
     protocols = {
+        ("qwenpaw.plugins.resources", "ResourceScope"): {
+            "__aenter__",
+            "__aexit__",
+        },
         ("qwenpaw.plugins.resources", "Registration"): {
             "__aenter__",
             "__aexit__",
@@ -170,6 +174,15 @@ async def _runtime(directory, report):
 
     previous = sys.getprofile()
     previous_threads = threading.getprofile()
+    manifest = json.loads((directory / "plugin.json").read_text())
+    process_channels = ()
+    if manifest.get("type") == "channel":
+        from .channel_workers import ChannelDefinition
+
+        definition = ChannelDefinition.load(
+            directory / manifest["entry"]["descriptor"],
+        )
+        process_channels = (definition.channel_key,)
     try:
         threading.setprofile(profile)
         with tempfile.TemporaryDirectory(
@@ -177,10 +190,20 @@ async def _runtime(directory, report):
         ) as temporary:
             sys.setprofile(profile)
             try:
-                async with PluginTestHost(Path(temporary)) as host:
-                    stage = "load/activation"
-                    await host.load(directory)
-                    phases.extend(("load:passed", "activation:passed"))
+                async with PluginTestHost(
+                    Path(temporary),
+                    process_channels=process_channels,
+                ) as host:
+                    if process_channels:
+                        stage = "install/probe"
+                        installed = await host.install(directory)
+                        if not installed.ok:
+                            raise RuntimeError("; ".join(installed.errors))
+                        phases.append("install/probe:passed")
+                    else:
+                        stage = "load/activation"
+                        await host.load(directory)
+                        phases.extend(("load:passed", "activation:passed"))
                     stage = "cleanup"
                 phases.append("cleanup:passed")
             finally:
@@ -203,9 +226,15 @@ async def _runtime(directory, report):
         findings=tuple(findings),
         uncovered=(
             *report.uncovered,
-            "Only load/activation/cleanup executed; uncalled handlers, "
-            "dynamic attribute access, pre-existing threads and native "
-            "calls remain unverified",
+            (
+                "Only static channel installation/child probe/cleanup executed; "
+                "platform connections, message handlers and dynamic private calls "
+                "inside subprocesses remain unverified"
+                if process_channels
+                else "Only load/activation/cleanup executed; uncalled handlers, "
+                "dynamic attribute access, pre-existing threads and native "
+                "calls remain unverified"
+            ),
         ),
         runtime_checked=True,
         lifecycle_checks=tuple(phases),
@@ -229,6 +258,11 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--channel-template",
+        type=Path,
+        help="Copy the public process-channel mailbox template to a new directory",
+    )
+    parser.add_argument(
         "--frontend",
         type=Path,
         help="Copy the standalone frontend npm package to this new directory",
@@ -245,8 +279,19 @@ def main(argv=None):
         import shutil
 
         shutil.copytree(Path(__file__).with_name("frontend"), args.frontend)
+    if args.channel_template is not None:
+        import shutil
+
+        shutil.copytree(
+            Path(__file__).with_name("templates") / "channel",
+            args.channel_template,
+        )
     if args.directory is None:
-        if args.template is not None or args.frontend is not None:
+        if (
+            args.template is not None
+            or args.frontend is not None
+            or args.channel_template is not None
+        ):
             return 0
         parser.error("Provide a plugin directory, --template or --frontend")
     report = check_plugin(args.directory)

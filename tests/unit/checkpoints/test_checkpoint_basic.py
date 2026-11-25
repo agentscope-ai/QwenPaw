@@ -153,6 +153,23 @@ def test_shadow_git_preserves_crlf_despite_user_git_rules(
     assert source.read_bytes() == expected
 
 
+@pytest.mark.asyncio
+async def test_shadow_git_creates_snapshot_with_long_ref_path(tmp_path):
+    workspace = tmp_path / ("w" * max(1, 175 - len(str(tmp_path))))
+    workspace.mkdir()
+    (workspace / "sample.txt").write_text("before", encoding="utf-8")
+    engine = CheckpointService(workspace)
+    ref = await engine.make_snapshot(
+        kind="snap",
+        session_id="long-session" * 10,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        name="windows-long-path",
+    )
+    assert len(str(engine.repository.git_dir / (ref + ".lock"))) > 260
+    assert engine.repository.ref_exists(ref)
+
+
 def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
     engine = CheckpointService(tmp_path)
     config = engine.repository.config_file

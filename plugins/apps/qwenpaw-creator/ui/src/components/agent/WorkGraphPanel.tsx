@@ -17,6 +17,7 @@ import type {
 import { navigateToLocator } from "@/routing/locators";
 import { creatorWorkNodeLabel } from "@/lib/creatorPresentation";
 import { taskProgressPercent } from "@/lib/taskPresentation";
+import ProductionStageControl from "@/components/creator/ProductionStageControl";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 
@@ -115,6 +116,7 @@ function NodeRow({
   const dispatching = useWorkGraphStore((state) =>
     Boolean(state.dispatching[node.id]),
   );
+  const [errorExpanded, setErrorExpanded] = useState(false);
   const actionLabel = t(
     `workGraph.actions.${node.kind}.${
       node.status === "failed" ? "retry" : "generate"
@@ -124,6 +126,30 @@ function NodeRow({
     node.dispatchable &&
     node.missing.length === 0 &&
     ["failed", "ready", "stale"].includes(node.status);
+  // A prompt-sync gate is invisible otherwise: the node is gated, shows
+  // "waiting for deps", and the confirm action only exists inside the R2V
+  // workbench regenerate flow, so users hit a dead end. Offer a direct
+  // entry to the workbench where the sync banner lives.
+  const promptSyncGated =
+    node.status === "gated" && Boolean(node.promptSyncRequired);
+  // The script gate shares the generic "waiting for deps" wording with
+  // ordinary dependency waits; naming it points first-time users at the
+  // confirm button instead of leaving them without a next action.
+  const scriptGated =
+    node.status === "gated" && project?.settings.production_stage === "script";
+  const errorText = node.status === "failed" ? (node.error ?? "").trim() : "";
+  // A skipped automatic review leaves a delivered artifact that looks
+  // reviewed-but-clean; naming the environment fault (and the override
+  // variable) is the only actionable next step for the user.
+  const reviewSkip = node.reviewSkip ?? null;
+  const reviewSkipText = reviewSkip
+    ? t("workGraph.reviewSkipped", {
+        reason: t(`workGraph.reviewSkipReasons.${reviewSkip.reason}`, {
+          defaultValue: reviewSkip.reason,
+        }),
+        hint: reviewSkip.hint,
+      })
+    : "";
   const percent =
     !node.manuallyHeld &&
     node.status === "running" &&
@@ -173,11 +199,58 @@ function NodeRow({
           {t(
             node.manuallyHeld
               ? "workGraph.manuallyHeld"
+              : scriptGated
+              ? "agentActivity.waitingScriptConfirm"
               : `agentActivity.${stateKeys[node.status]}`,
           )}
           {percent != null && ` · ${percent}%`}
         </span>
+        {reviewSkipText && (
+          <span
+            role="status"
+            data-work-node-review-skip
+            className="mt-0.5 block text-[11px] text-[var(--color-text-tertiary)]"
+          >
+            {reviewSkipText}
+          </span>
+        )}
+        {errorText && (
+          <span
+            role="status"
+            data-work-node-error
+            title={errorText}
+            onClick={(event) => {
+              // Expand/collapse the full reason instead of navigating away.
+              event.stopPropagation();
+              setErrorExpanded((expanded) => !expanded);
+            }}
+            className={`mt-0.5 block cursor-pointer text-[11px] text-[var(--color-danger)] ${
+              errorExpanded ? "whitespace-pre-line" : "truncate"
+            }`}
+          >
+            {errorText}
+          </span>
+        )}
       </button>
+      {promptSyncGated && (
+        <button
+          type="button"
+          aria-label={`${t("workGraph.actions.promptSync")} · ${publicLabel}`}
+          className="agent-work-action"
+          onClick={() =>
+            // The confirmation banner lives in the Element workbench, not the
+            // plan timeline: force the element route (keeping the timeline
+            // scope so non-primary episodes resolve too).
+            navigateToLocator(projectId, {
+              ...(node.locator ?? {}),
+              page: "element",
+              ...(node.timelineId ? { timelineId: node.timelineId } : {}),
+            })
+          }
+        >
+          {t("workGraph.actions.promptSync")}
+        </button>
+      )}
       {showAction && (
         <button
           type="button"
@@ -201,16 +274,33 @@ function NodeRow({
   );
 }
 export default function WorkGraphPanel({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
   const graph = useWorkGraphStore((state) =>
     state.projectId === projectId ? state.graph : null,
   );
   const refresh = useWorkGraphStore((state) => state.refresh);
+  const project = useProjectSnapshotStore((state) =>
+    state.projectId === projectId ? state.project : null,
+  );
   useEffect(() => {
     void refresh(projectId);
   }, [projectId, refresh]);
   if (!graph || !graph.nodes.length) return null;
+  const scriptPending =
+    project?.settings.production_stage === "script" &&
+    graph.nodes.some((node) => node.status === "gated");
   return (
     <div data-testid="work-graph-panel">
+      {scriptPending && (
+        <div
+          role="status"
+          data-script-gate-notice
+          className="mb-2 flex flex-wrap items-center gap-1.5 rounded border border-[var(--color-border)] px-2 py-1.5 text-[11px] text-[var(--color-text-secondary)]"
+        >
+          <span className="flex-1">{t("workGraph.scriptGateNotice")}</span>
+          <ProductionStageControl projectId={projectId} />
+        </div>
+      )}
       <ul className="space-y-1">
         {graph.nodes.map((node) => (
           <NodeRow key={node.id} node={node} projectId={projectId} />
