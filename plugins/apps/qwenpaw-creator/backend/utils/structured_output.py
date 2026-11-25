@@ -16,44 +16,45 @@ def _strip_fenced_block(text: str) -> str | None:
 
 
 def _find_balanced_json(text: str) -> str:
-    start = next(
-        (index for index, char in enumerate(text) if char in "[{"),
-        -1,
-    )
-    if start < 0:
+    starts = [index for index, char in enumerate(text) if char in "[{"]
+    if not starts:
         raise json.JSONDecodeError("No JSON object or array found", text, 0)
 
-    stack: list[str] = []
-    in_string = False
-    escaped = False
     pairs = {"{": "}", "[": "]"}
+    for start in starts:
+        stack: list[str] = []
+        in_string = False
+        escaped = False
 
-    for index in range(start, len(text)):
-        char = text[index]
+        for index in range(start, len(text)):
+            char = text[index]
 
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
 
-        if char == '"':
-            in_string = True
-        elif char in pairs:
-            stack.append(pairs[char])
-        elif stack and char == stack[-1]:
-            stack.pop()
-            if not stack:
-                return text[start : index + 1]
+            if char == '"':
+                in_string = True
+            elif char in pairs:
+                stack.append(pairs[char])
+            elif stack and char == stack[-1]:
+                stack.pop()
+                if not stack:
+                    candidate = text[start : index + 1]
+                    try:
+                        json.loads(candidate)
+                    except json.JSONDecodeError:
+                        # Balanced prose brackets such as "[note]" are not
+                        # JSON; try the next opening bracket.
+                        break
+                    return candidate
 
-    raise json.JSONDecodeError(
-        "Unterminated JSON object or array",
-        text,
-        start,
-    )
+    raise json.JSONDecodeError("No valid JSON object or array found", text, 0)
 
 
 def extract_json_payload(response_text: str) -> Any:
