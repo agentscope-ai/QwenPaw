@@ -17,6 +17,7 @@ background task, using event-based signaling for reload/stop operations.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from contextlib import AsyncExitStack
 from typing import Any, Literal
@@ -28,7 +29,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
 from .diagnostics import error_summary
-from .mcp_streamable_http import timeout_seconds
+from .mcp_streamable_http import _is_jsonrpc_envelope, timeout_seconds
 from .session import ClientSession
 
 # anyio is a required transitive dependency of the mcp package, so it is
@@ -146,6 +147,98 @@ async def _gather_uncancelled(*tasks: Any) -> None:
     g = asyncio.gather(*tasks, return_exceptions=True)
     n = await _wait_task_uncancelled(g)
     _restore_cancel(asyncio.current_task(), n)
+
+
+# mcp 1.x answers a request the server rejects at the HTTP layer by raising
+# ``httpx.HTTPStatusError`` inside its transport task group: the session is
+# torn down, in-flight calls are reported as a lost connection and the
+# server's reason stays in the logs. Upstream resolves the request with a
+# JSON-RPC error instead (modelcontextprotocol/python-sdk#2047), but only
+# 2.x ships it, so the client below does the same on the httpx client, the
+# one customisation point ``streamable_http_client`` offers.
+_RPC_ERROR_BODY_LIMIT = 500
+_RPC_INTERNAL_ERROR = -32603
+
+
+async def _rpc_error_reply(
+    request: httpx.Request,
+    response: httpx.Response,
+) -> httpx.Response | None:
+    """Answer a JSON-RPC request the server rejected with a JSON-RPC error.
+
+    Returns ``None`` when *response* is not such a rejection, so that the
+    SDK keeps handling it (``initialize``, OAuth 401, session-lost 404).
+    """
+    status = response.status_code
+    if request.method != "POST" or status < 400 or status in (401, 404):
+        return None
+    try:
+        message = json.loads(request.content)
+    except (ValueError, httpx.RequestError):
+        return None
+    # A rejected initialize is a failed connection, not a failed request.
+    if not (
+        _is_jsonrpc_envelope(message)
+        and "id" in message
+        and message.get("method") not in (None, "initialize")
+    ):
+        return None
+    body = await response.aread()
+    await response.aclose()
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        payload = None
+    error = payload.get("error") if _is_jsonrpc_envelope(payload) else None
+    if not isinstance(error, dict):
+        error = {}
+    code = error.get("code")
+    reply: dict[str, Any] = {
+        # The SDK validates the reply, so carry only a usable code.
+        "code": code if type(code) is int else _RPC_INTERNAL_ERROR,
+        "message": f"MCP {message['method']} rejected with HTTP {status}",
+    }
+    reason = (
+        error.get("message")
+        or " ".join(
+            body.decode("utf-8", errors="replace").split(),
+        )[:_RPC_ERROR_BODY_LIMIT]
+    )
+    if reason:
+        reply["message"] += f": {reason}"
+    if "data" in error:
+        reply["data"] = error["data"]
+    return httpx.Response(
+        200,
+        headers={"content-type": "application/json"},
+        content=json.dumps(
+            {"jsonrpc": "2.0", "id": message["id"], "error": reply},
+        ).encode(),
+        request=request,
+    )
+
+
+class _RpcErrorResolvingClient(httpx.AsyncClient):
+    """Keep the session when the server rejects a single request."""
+
+    async def send(
+        self,
+        request: httpx.Request,
+        *,
+        stream: bool = False,
+        auth: Any = httpx.USE_CLIENT_DEFAULT,
+        follow_redirects: Any = httpx.USE_CLIENT_DEFAULT,
+    ) -> httpx.Response:
+        response = await super().send(
+            request,
+            stream=stream,
+            auth=auth,
+            follow_redirects=follow_redirects,
+        )
+        if not stream:
+            return response
+        reply = await _rpc_error_reply(request, response)
+        return reply or response
 
 
 class _MCPClientMixin:
@@ -1074,7 +1167,7 @@ class HttpStatefulClient(_MCPClientMixin):
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
         if self.transport == "streamable_http":
-            http_client = httpx.AsyncClient(
+            http_client = _RpcErrorResolvingClient(
                 headers=self.headers or {},
                 timeout=httpx.Timeout(
                     connect=self.timeout,

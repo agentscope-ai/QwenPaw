@@ -17,7 +17,20 @@ transport, port, evidence = sys.argv[1:]
 mcp = FastMCP("optional-runtime-peer", host="127.0.0.1", port=int(port))
 _sessions = {}
 _requests = []
-_admission = {"blocked": False, "deny": False}
+_admission = {"blocked": False, "deny": False, "reject": None}
+
+
+class _Replay:
+    """Serve a request body buffered for inspection, then pass through."""
+
+    def __init__(self, receive, body):
+        self._receive, self._body = receive, body
+
+    async def __call__(self):
+        body, self._body = self._body, None
+        if body is None:
+            return await self._receive()
+        return {"type": "http.request", "body": body, "more_body": False}
 
 
 class _ObserveSessions:
@@ -42,6 +55,27 @@ class _ObserveSessions:
                         receive,
                         send,
                     )
+                reject = _admission["reject"]
+                if reject:
+                    # Only this tool call is answered at the HTTP layer; the
+                    # session and every other tool keep working.
+                    body = b""
+                    while True:
+                        message = await receive()
+                        body += message.get("body", b"")
+                        if not message.get("more_body"):
+                            break
+                    receive = _Replay(receive, body)
+                    call = json.loads(body)
+                    if (
+                        call.get("method") == "tools/call"
+                        and (call.get("params") or {}).get("name")
+                        == reject["tool"]
+                    ):
+                        return await JSONResponse(
+                            reject["body"],
+                            status_code=reject["status"],
+                        )(scope, receive, send)
 
         async def observed(message):
             if message["type"] == "http.response.start":
