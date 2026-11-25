@@ -50,6 +50,8 @@ import {
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
 import { Avatar, Button, Flex } from "antd";
 import { useTranslation } from "react-i18next";
+import { AlertTriangle } from "lucide-react";
+import { hasTruncatedModelOutput } from "./completionNotice";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import { stripScrollHeadlines } from "./headlineFilter";
@@ -538,6 +540,12 @@ function DefaultHostResponseCard({
           );
         }}
       />
+      {hasTruncatedModelOutput(data) ? (
+        <div role="status" className={styles.completionWarning}>
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{t("chat.outputTruncated")}</span>
+        </div>
+      ) : null}
       {data.error ? <ResponseError data={data.error} /> : null}
       {data.status === "canceled" && !messages.length && !data.error ? (
         <Bubble.Interrupted

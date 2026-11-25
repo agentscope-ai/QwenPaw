@@ -18,7 +18,7 @@ import zipfile
 
 from packaging.version import Version
 
-from generate_plugin_metadata import content_digest, _format_size
+from generate_plugin_metadata import KIND_DIRS, content_digest, _format_size
 
 
 def _packing(root):
@@ -67,6 +67,28 @@ def _archive_identity(payload, kind):
         return record
 
 
+def _mcp_wheel_payload(wheel):
+    """Use the same identity for the market ZIP and the inert wheel resource."""
+    prefix = "qwenpaw/plugins/bundled/optional/mcp/"
+    files = [
+        name
+        for name in wheel.namelist()
+        if name.startswith(prefix) and not name.endswith("/")
+    ]
+    if not files:
+        return None
+    manifest = json.loads(wheel.read(prefix + "plugin.json"))
+    if manifest.get("id") != "qwenpaw-mcp":
+        raise ValueError("Invalid optional MCP wheel identity")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in files:
+            archive.writestr(
+                "qwenpaw-mcp/" + name[len(prefix) :], wheel.read(name)
+            )
+    return buffer.getvalue()
+
+
 def _release_candidates(root, project_root):
     candidates = []
     legacy_host = False
@@ -77,18 +99,13 @@ def _release_candidates(root, project_root):
     if root.is_dir():
         for path in sorted(root.rglob("*.zip")):
             kind = path.parent.parent.name
-            if kind in {
-                "bundle",
-                "tool",
-                "memory",
-                "apps",
-                "channel",
-                "hub",
-                "harness",
-            }:
+            if kind in KIND_DIRS:
                 add(path.read_bytes(), kind, path)
         for path in sorted(root.rglob("*.whl")):
             with zipfile.ZipFile(path) as wheel:
+                mcp = _mcp_wheel_payload(wheel)
+                if mcp is not None:
+                    add(mcp, "protocol")
                 index_name = "qwenpaw/official_channels/index.json"
                 if index_name not in wheel.namelist():
                     metadata_names = [
@@ -153,7 +170,7 @@ def check_release(
     dry_run=False,
     baseline=None,
 ):
-    """Preflight all identities, reserve atomically, then publish immutable ZIPs."""
+    """Preflight all identities, reserve them, then publish immutable ZIPs."""
     candidates, legacy_host = _release_candidates(artifacts_root, project_root)
     if not candidates:
         if legacy_host:
@@ -269,14 +286,10 @@ class OSSStore:
             endpoint,
             bucket_name,
         )
-        # OSS ignores forbid-overwrite on versioned buckets. Never claim safety there.
-        if self.bucket.get_bucket_versioning().status in {
+        self._versioned = self.bucket.get_bucket_versioning().status in {
             "Enabled",
             "Suspended",
-        }:
-            raise ValueError(
-                "Plugin identity bucket must enforce non-overwriting creates"
-            )
+        }
 
     def read(self, key):
         try:
@@ -285,7 +298,7 @@ class OSSStore:
             return None
 
     def create(self, key, data, *, public=False):
-        headers = {"x-oss-forbid-overwrite": "true"}
+        headers = {}
         if public:
             headers.update(
                 {
@@ -293,6 +306,14 @@ class OSSStore:
                     "Cache-Control": "public, max-age=31536000, immutable",
                 }
             )
+        if self._versioned:
+            # OSS ignores forbid-overwrite on versioned buckets. This fallback
+            # relies on publishers sharing the plugins-release concurrency group.
+            existing = self.read(key)
+            if existing is not None:
+                return existing
+        else:
+            headers["x-oss-forbid-overwrite"] = "true"
         try:
             self.bucket.put_object(key, data, headers=headers)
             return data

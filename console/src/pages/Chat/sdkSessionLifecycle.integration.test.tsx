@@ -1504,12 +1504,10 @@ it("borrows the queue entry without storing, restoring or draining queued inputs
     "/media/probe.txt",
   );
   await act(async () => {
-    const result = await host
-      .current()
-      .controller.enqueueQueuedInput({
-        query: "busy forced enqueue",
-        fileList: [],
-      });
+    const result = await host.current().controller.enqueueQueuedInput({
+      query: "busy forced enqueue",
+      fileList: [],
+    });
     expect(result).toMatchObject({ ok: false, reason: "session-not-ready" });
     fixture.streams[0].close();
     await Promise.all(pendingSubmissions);

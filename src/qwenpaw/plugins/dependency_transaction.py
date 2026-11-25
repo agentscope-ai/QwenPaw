@@ -112,7 +112,8 @@ def atomic_json(path, value):
 
 
 def _hash(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def environment_fingerprint(snapshot):
@@ -397,7 +398,11 @@ def prepare_payload(
             raise RuntimeError(
                 "DEPENDENCY_PLAN_UNVERIFIED: shared installed ownership.",
             )
-    from .wheel_additions import _check_installed_tree, _directories
+    from .wheel_additions import (
+        _check_installed_tree,
+        _directories,
+        decode_wheel_record,
+    )
     from .execution.errors import ProtocolValidationError
 
     try:
@@ -452,6 +457,8 @@ def prepare_payload(
                 canonical(prefix / "Scripts").parts,
             }
         }
+        record_path = f"{info}/RECORD"
+        record_text = decode_wheel_record(files[record_path])
         relocated = set()
         if external_scripts:
             # pip-generated launchers are outside site-packages. Preserve them
@@ -464,10 +471,7 @@ def prepare_payload(
                 if old_entrypoints.is_file()
                 else b""
             )
-            record_path = f"{info}/RECORD"
-            record_rows = list(
-                csv.reader(files[record_path].decode().splitlines()),
-            )
+            record_rows = list(csv.reader(record_text.splitlines()))
             for path, evidence in external_scripts.items():
                 script = Path(path)
                 relative = (
@@ -521,13 +525,9 @@ def prepare_payload(
 
             rows = io.StringIO(newline="")
             csv.writer(rows, lineterminator="\n").writerows(record_rows)
-            files[record_path] = rows.getvalue().encode()
-        owned_paths = {
-            row[0]
-            for row in csv.reader(
-                files[f"{info}/RECORD"].decode("utf-8").splitlines(),
-            )
-        }
+            record_text = rows.getvalue()
+            files[record_path] = record_text.encode("utf-8")
+        owned_paths = {row[0] for row in csv.reader(record_text.splitlines())}
         for relative, content in files.items():
             if relative in relocated or relative not in owned_paths:
                 continue

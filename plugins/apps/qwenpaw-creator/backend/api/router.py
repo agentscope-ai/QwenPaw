@@ -33,6 +33,7 @@ from .project_file_routes import router as project_files_router
 from .project_routes import storage_router
 from .project_routes import router as projects_router
 from .skill_routes import router as skill_router
+from .subtitle_style_routes import router as subtitle_styles_router
 from .video_template_routes import router as video_templates_router
 from .voice_routes import router as voice_router
 from .work_graph_routes import router as work_graph_router
@@ -70,6 +71,7 @@ configured_router.include_router(prompt_sync_router)
 configured_router.include_router(model_router)
 configured_router.include_router(observability_router)
 configured_router.include_router(video_templates_router)
+configured_router.include_router(subtitle_styles_router)
 configured_router.include_router(skill_router)
 configured_router.include_router(voice_router)
 router.include_router(configured_router)

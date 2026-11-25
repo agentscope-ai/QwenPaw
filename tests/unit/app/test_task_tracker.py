@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -50,6 +50,32 @@ def _make_stream(events: list[str]):
 # ---------------------------------------------------------------------------
 # get_status / has_active_tasks / list_active_tasks
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_background_task_tracks_until_completion_and_detaches():
+    tracker = TaskTracker()
+    release = asyncio.Event()
+    start = Mock(side_effect=lambda: asyncio.create_task(release.wait()))
+    task = tracker.start_background_task("workflow:report", start)
+    try:
+        assert await tracker.snapshot_active_tasks() == {
+            "workflow:report": task,
+        }
+        assert await tracker.has_active_tasks_excluding(task) is False
+        with pytest.raises(ValueError, match="already tracked"):
+            tracker.start_background_task("workflow:report", start)
+        start.assert_called_once_with()
+        queue = await tracker.attach("workflow:report")
+        release.set()
+        await task
+        assert await tracker.snapshot_active_tasks() == {}
+        assert tracker._runs == {}
+        assert await queue.get() is not None  # Replay boundary.
+        assert await queue.get() is None
+    finally:
+        release.set()
+        await task
 
 
 @pytest.mark.asyncio
@@ -579,6 +605,53 @@ async def test_owned_stream_cancellation_never_stops_successor_run(
 # ---------------------------------------------------------------------------
 # wait_all_done: timeout behaviour
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_channel_handoff_excludes_only_transferable_runs_from_drain():
+    tracker = TaskTracker()
+    owner, other_owner = object(), object()
+    release = asyncio.Event()
+
+    async def stream(_):
+        await release.wait()
+        yield "data: done\n\n"
+
+    try:
+        for key, run_owner, channel, transferable in (
+            ("cron", owner, "wechat", True),
+            ("inbound", owner, "wechat", False),
+            ("other-owner", other_owner, "wechat", False),
+            ("other-channel", owner, "console", False),
+        ):
+            await tracker.attach_or_start(
+                key,
+                None,
+                stream,
+                owner=run_owner,
+                channel_id=channel,
+                channel_handoff_safe=transferable,
+            )
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+            ),
+        ) == {"cron", "inbound"}
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+                channel_handoff=True,
+            ),
+        ) == {"inbound"}
+        assert await tracker.get_status("cron") == "running"
+        assert await tracker.request_stop("cron")
+        assert await tracker.get_status("cron") == "idle"
+        assert await tracker.get_status("inbound") == "running"
+    finally:
+        release.set()
+        await tracker.wait_all_done(1)
 
 
 @pytest.mark.asyncio

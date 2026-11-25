@@ -444,9 +444,9 @@
     "providerTypeWhisperApiDesc": "Use an OpenAI-compatible Whisper API endpoint from a configured provider (e.g. OpenAI, Ollama).",
     "providerTypeLocalWhisper": "Local Whisper",
     "providerTypeLocalWhisperDesc": "Run transcription locally using the openai-whisper Python library. Requires both ffmpeg and openai-whisper to be installed.",
-    "localWhisperReady": "Local Whisper is ready. Both ffmpeg and openai-whisper are installed.",
-    "localWhisperMissing": "Local Whisper is not ready. Missing dependencies must be installed.",
-    "localWhisperMissingDesc": "ffmpeg: {{ffmpeg}} | openai-whisper: {{whisper}}. Install missing dependencies: ffmpeg (system package) and openai-whisper (uv pip install openai-whisper, or install QwenPaw with the [whisper] extra).",
+    "localWhisperInstall": "Instalar plugin",
+    "localWhisperReview": "Revisar alterações de dependências",
+    "localWhisperState_needs_confirmation": "Local Whisper · Aguardando confirmação de dependências",
     "providerLabel": "Whisper API Provedor",
     "providerDescription": "Select which provider to use for audio transcription via the Whisper API. Only providers with a Whisper-compatible endpoint are shown.",
     "providerPlaceholder": "Selecionar a provider...",
@@ -456,7 +456,30 @@
     "modelPlaceholder": "ex.: whisper-1",
     "transcriptionInfoTitle": "How transcription works",
     "transcriptionInfoDesc": "Whisper API transcription uses an OpenAI-compatible /v1/audio/transcriptions endpoint. This requires a configured provider with a Whisper-compatible endpoint — for example, an OpenAI provider. Select a specific provider above to enable transcription.",
-    "transcriptionInfoDescLocal": "Local Whisper transcription runs the openai-whisper library directly on your machine. It requires both ffmpeg (for audio decoding) and the openai-whisper Python package to be installed. No API key or network connection is needed. Install with: uv pip install 'qwenpaw[whisper]'."
+    "transcriptionInfoDescLocal": "O Whisper local funciona neste dispositivo. Clique em Instalar plugin para preparar o plugin e as dependências Python. Se estiver desativado, clique em Ativar plugin. Instale o ffmpeg separadamente. A primeira transcrição baixa o modelo base se ele não estiver no cache. As próximas chamadas reutilizam o cache. Não é necessária uma chave de API.",
+    "localWhisperEnable": "Ativar plugin",
+    "localWhisperManage": "Gerenciar plugin",
+    "localWhisperPlugin": "Plugin",
+    "localWhisperFfmpegHelp": "Instruções de instalação do ffmpeg",
+    "localWhisperModelHint": "O modelo será carregado na primeira transcrição.",
+    "localWhisperDependenciesKept": "As dependências Python foram mantidas. Instale o plugin para usar a transcrição local.",
+    "localWhisperInstallFailed": "A instalação do Whisper local não foi concluída",
+    "localWhisperState_missing": "Whisper local · Não instalado",
+    "localWhisperState_disabled": "Whisper local · Desativado",
+    "localWhisperState_installing": "Preparando o Whisper local. A primeira instalação pode baixar dependências Python grandes.",
+    "localWhisperState_ready": "Whisper local · Plugin e dependências prontos",
+    "localWhisperImportFailed": "Whisper local · A última carga de dependências falhou",
+    "localWhisperState_inactive": "Whisper local · Inativo",
+    "localWhisperState_missing_dependencies": "Whisper local · Dependências ausentes",
+    "localWhisperState_failed": "Whisper local · Indisponível",
+    "localWhisperPlugin_missing": "Não instalado",
+    "localWhisperPlugin_disabled": "Desativado",
+    "localWhisperPlugin_active": "Ativado",
+    "localWhisperPlugin_registered": "Carregando",
+    "localWhisperPlugin_inactive": "Inativo",
+    "localWhisperPlugin_failed": "Falha ao carregar",
+    "localWhisperDependency_installed": "Instalado",
+    "localWhisperDependency_missing": "Não encontrado"
   },
   "backup": {
     "title": "Backups",
@@ -1059,18 +1082,9 @@
     "builtinAutoUpdateFlow": "Pacote integrado → Pool de skills",
     "autoSyncFlow": "Pool de skills → Espaços de trabalho dos agentes",
     "automationBoth": "Atualização + sincronização automáticas",
-    "automationMixedHint": "Abra os detalhes para escolher atualização automática ou sincronização automática.",
-    "automationEnableHint": "Ative a atualização e a sincronização automáticas.",
-    "automationDisableHint": "Desative a atualização e a sincronização automáticas.",
-    "automationEnabled": "Atualização e sincronização automáticas ativadas para {{name}}",
-    "automationDisabled": "Atualização e sincronização automáticas desativadas para {{name}}",
     "automationFailed": "Falha ao atualizar as configurações de automação",
     "automationNeedsAttention": "Configurações salvas. {{count}} item(ns) exigem atenção; veja a Caixa de entrada.",
     "autoSync": "Sincronização automática",
-    "autoSyncEnableHint": "Ative a sincronização automática.",
-    "autoSyncDisableHint": "Desative a sincronização automática.",
-    "autoSyncEnabled": "Sincronização automática ativada para {{name}}",
-    "autoSyncDisabled": "Sincronização automática desativada para {{name}}",
     "autoSyncAgentsPlaceholder": "Todos os agentes com esta skill",
     "autoSyncAgentsHint": "Deixe em branco para sincronizar as cópias existentes ou selecione agentes específicos.",
     "importBuiltin": "Atualizar Integrado Skills",
@@ -1156,13 +1170,17 @@
     "statusUpToDate": "Up-to-date",
     "statusSynced": "Synced",
     "statusOutdated": "Outdated",
+    "statusRemoved": "Skill integrada legada",
+    "statusRemovedHint": "As versões mais recentes do aplicativo não incluem mais esta skill. A cópia que você instalou continua preservada.",
+    "updatedAgo": "Atualizada {{time}}",
     "statusNotSynced": "Not synced",
-    "statusConflict": "Conflict",
+    "statusConflict": "Não é possível comparar versões",
     "renameEntry": "Novo Nome for \"{{name}}\":",
     "builtin": "Integrado",
     "custom": "Personalizado"
   },
   "mcp": {
+    "legacyArchived": "Algumas conexões antigas não foram migradas. Uma cópia de segurança da configuração original foi salva.",
     "title": "MCP Clients",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "A configuração compartilhada do painel é injetada nos Agents de terceiros compatíveis durante a execução.",
@@ -1299,7 +1317,14 @@
     },
     "local": "Local",
     "remote": "Remoto",
-    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP."
+    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP.",
+    "plugin": {
+      "version": "Versão do plugin MCP: {{version}}",
+      "updateAvailable": "O plugin MCP {{version}} está disponível",
+      "update": "Atualizar plugin",
+      "versionCheckUnavailable": "Não foi possível verificar a versão. O MCP pode continuar funcionando.",
+      "frontendRefreshFailed": "O plugin foi atualizado, mas a interface não foi recarregada. Recarregue a página."
+    }
   },
   "heartbeat": {
     "title": "Batimento",
@@ -1629,6 +1654,7 @@
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",
+    "streamingEnabledQQHint": "A saída em streaming está disponível apenas em conversas privadas do QQ (C2C); mensagens de grupos e canais continuam sendo enviadas por completo",
     "autoCollapseThinking": "Recolher Thinking",
     "autoCollapseThinkingTooltip": "Recolher automaticamente o painel de Thinking após o término do streaming. O painel ainda pode ser expandido manualmente.",
     "ackMessage": "Acknowledgment Message",
@@ -1747,7 +1773,7 @@
     "wechatBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "wechatBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
     "wechatBotTokenFile": "Token File Caminho",
-    "wechatBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Caminho do arquivo do token do bot. Deixe em branco para usar wechat/wechat_bot_token no espaço de trabalho deste agente.",
     "wechatMediaDir": "Media Directory",
     "wechatMessageMerge": "Message Merge",
     "wechatMessageMergeTooltip": "Merge multiple reply messages into fewer messages to avoid hitting the WeChat 10-message limit per context_token. When enabled with delay 0, all text replies are merged into a single message sent at the end. A positive delay (in ms) merges adjacent messages within that time window.",
@@ -3773,7 +3799,8 @@
     "regenerate": "Gerar novamente",
     "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
     "canceledWithoutReply": "Cancelado pelo usuário, sem resposta",
-    "turnCanceled": "Interrompido"
+    "turnCanceled": "Interrompido",
+    "outputTruncated": "O modelo atingiu o limite de saída. Esta resposta está incompleta. Peça ao modelo para continuar ou aumente o limite de saída."
   },
   "security": {
     "parent": "Configuracoes",
@@ -4699,6 +4726,11 @@
     "executingAgent": "Agente Executando"
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "Não foi possível identificar uma única origem para a dependência. Consulte o nome do pacote nos logs do aplicativo, corrija o ambiente e tente novamente.",
+      "invalidMetadata": "As informações de instalação das dependências estão incompletas ou inválidas. Consulte os logs do aplicativo, corrija o ambiente e tente novamente.",
+      "failed": "A preparação das dependências não foi concluída. Consulte os logs do aplicativo, resolva o problema e tente novamente."
+    },
     "title": "Gerenciador de Plugins",
     "description": "Instalar, gerenciar e remover plugins sem reiniciar o serviço.",
     "installed": "Plugins Instalados",
@@ -4778,7 +4810,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Protocolo"
   },
   "approvalNotifications": {
     "settingTitle": "Notificações de aprovação na área de trabalho",
@@ -5384,6 +5417,7 @@
     "emojiRecent": "Recentes",
     "emojiAll": "Padrão",
     "emojiCustom": "Leopardo-das-neves",
+    "emojiAnimated": "Leopardo das Neves Fofo",
     "addCommentImage": "Enviar imagem",
     "removeCommentImage": "Remover imagem",
     "commentImageMax": "Você pode adicionar até {{count}} imagens",
@@ -5400,6 +5434,7 @@
     "video": "Vídeo da publicação",
     "imagePreview": "Pré-visualização da imagem",
     "editPost": "Editar",
+    "fromGithub": "Do GitHub",
     "deletePost": "Excluir",
     "editHelp": "Edite na Platform para preservar imagens, vídeos e formatação",
     "deleteTitle": "Excluir esta publicação?",
@@ -5420,6 +5455,9 @@
     "login": "Entrar na Platform",
     "account": "Publicando como {{name}}",
     "postTitle": "Título",
+    "githubLinkLabel": "Repositório do GitHub",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Insira uma URL válida de repositório do GitHub",
     "body": "Corpo",
     "confirm": "Revisei o título e o corpo e concordo em publicar este conteúdo publicamente.",
     "publish": "Publicar",

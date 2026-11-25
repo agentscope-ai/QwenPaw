@@ -97,6 +97,7 @@ def _tool_output_event(call_id: str):
 
 async def _agent_with_stream(monkeypatch, stream):
     agent = QwenPawACPAgent(agent_id="default")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _RecordingConn()
     agent.on_connect(conn)
 

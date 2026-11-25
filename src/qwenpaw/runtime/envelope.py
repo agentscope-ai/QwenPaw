@@ -24,6 +24,7 @@ from ..constant import (
 )
 from .message_convert import _media_type_to_block_type
 from .. import schemas
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -561,6 +562,7 @@ class Envelope:
             state["output_data_blocks"] = {}
             state["accumulated_bytes"] = 0
             state["last_emitted_bytes"] = 0
+            state["output_order"] = []
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
@@ -569,6 +571,10 @@ class Envelope:
                 return
             delta = event.delta or ""
             state["output_text_fragments"].append(delta)
+            order = state["output_order"]
+            if not order or order[-1]["type"] != "text":
+                order.append({"type": "text", "fragments": []})
+            order[-1]["fragments"].append(delta)
             if not self._should_emit_tool_snapshot(state, len(delta)):
                 return
 
@@ -595,6 +601,7 @@ class Envelope:
             url = getattr(event, "url", None)
             b64 = getattr(event, "data", None)
 
+            new_data_block = block_id not in blocks_dict
             if block_id in blocks_dict:
                 existing = blocks_dict[block_id]
                 if b64:
@@ -619,10 +626,12 @@ class Envelope:
                     "type": block_type,
                     "source": source,
                 }
+                state["output_order"].append(blocks_dict[block_id])
 
             if not self._should_emit_tool_snapshot(
                 state,
                 len(b64 or "") + len(url or ""),
+                force=new_data_block,
             ):
                 return
 
@@ -669,6 +678,7 @@ class Envelope:
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
             state.pop("output_text_fragments", None)
+            state.pop("output_order", None)
             yield self._tag_seq(out_message.completed())
 
         # === DATA BLOCK ===
@@ -736,8 +746,25 @@ class Envelope:
             self._completed_message.content.append(content_block)
             yield self._tag_seq(content_block)
 
-        # === MODEL_CALL_END ===
-        elif evt_type == EventType.MODEL_CALL_END.value:
+        # === MODEL_CALL_END / REPLY_END ===
+        elif evt_type in {
+            EventType.MODEL_CALL_END.value,
+            EventType.REPLY_END.value,
+        }:
+            event_metadata = getattr(event, f"metadata", None) or {}
+            if (
+                evt_type == EventType.MODEL_CALL_END.value
+                or COMPLETION_METADATA_KEY in event_metadata
+            ):
+                completion = event_metadata.get(COMPLETION_METADATA_KEY)
+                metadata = dict(self._response.metadata or {})
+                if isinstance(completion, dict):
+                    metadata[COMPLETION_METADATA_KEY] = dict(completion)
+                else:
+                    metadata.pop(COMPLETION_METADATA_KEY, None)
+                self._response.metadata = metadata or None
+            if evt_type == EventType.REPLY_END.value:
+                return
             input_tokens = getattr(event, "input_tokens", 0)
             output_tokens = getattr(event, "output_tokens", 0)
             usage = {
@@ -803,6 +830,8 @@ class Envelope:
     def _should_emit_tool_snapshot(
         state: Dict[str, Any],
         added_bytes: int,
+        *,
+        force: bool = False,
     ) -> bool:
         """Return whether a full tool result snapshot should be emitted.
 
@@ -819,7 +848,7 @@ class Envelope:
         state["accumulated_bytes"] = accumulated
         last_emitted = state.get("last_emitted_bytes", 0)
         now = time.monotonic()
-        if last_emitted:
+        if last_emitted and not force:
             threshold = max(
                 TOOL_RESULT_SNAPSHOT_MIN_BYTES,
                 last_emitted * TOOL_RESULT_SNAPSHOT_GROWTH,
@@ -851,11 +880,14 @@ class Envelope:
         text_acc = "".join(state.get("output_text_fragments", []))
 
         if blocks_dict:
-            output_blocks: list[dict[str, Any]] = list(
-                blocks_dict.values(),
-            )
-            if text_acc:
-                output_blocks.append({"type": "text", "text": text_acc})
+            output_blocks = [
+                (
+                    {"type": "text", "text": "".join(block["fragments"])}
+                    if block["type"] == "text"
+                    else block
+                )
+                for block in state["output_order"]
+            ]
             tool_output: Any = json.dumps(
                 output_blocks,
                 ensure_ascii=False,

@@ -21,6 +21,7 @@ from ...constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from .image_resize import downscale_oversized_images_async
 from .tool_message_utils import _sanitize_tool_messages
 
 # Block types stripped from copied messages during request-time
@@ -397,6 +398,23 @@ def _is_empty_media_block(block: Any) -> bool:
     return not data
 
 
+def omitted_media_marker(peers: list[Any]) -> Any:
+    """Return a "media was removed" text item shaped like *peers*.
+
+    ``tool_result.output`` holds plain dicts in the 1.x message shape and
+    block objects in 2.0. The marker must match the shape of its siblings,
+    otherwise the provider formatter chokes on a mixed list.
+
+    Why this exists: when only *some* media is stripped, the surviving text
+    keeps talking about content the model never received (a ``view_image``
+    result still says "Image loaded: x.png"). Without a marker the model
+    answers as if it had seen the image.
+    """
+    if peers and isinstance(peers[0], dict):
+        return {"type": "text", "text": MEDIA_UNSUPPORTED_PLACEHOLDER}
+    return TextBlock(type="text", text=MEDIA_UNSUPPORTED_PLACEHOLDER)
+
+
 def _strip_media_blocks_in_place(
     msgs: list[Msg],
     *,
@@ -430,6 +448,13 @@ def _strip_media_blocks_in_place(
     else:
         should_strip = _is_media_block
 
+    # Only the blanket "this model takes no media at all" strip gets an
+    # explicit omission marker. Targeted strips (audio/video/document) are
+    # deliberate per-modality decisions and keep their current output shape.
+    mark_omission = not (
+        empty_only or document_only or audio_only or video_only
+    )
+
     for msg in msgs:
         if not isinstance(msg.content, list):
             continue
@@ -461,6 +486,13 @@ def _strip_media_blocks_in_place(
                 stripped_this_message += stripped_count
                 if filtered:
                     replacement: Any = filtered
+                    if stripped_count and mark_omission:
+                        # Keep the surviving text, but make the omission
+                        # explicit: a stale "Image loaded: x.png" would
+                        # otherwise tell the model it saw the image.
+                        replacement = filtered + [
+                            omitted_media_marker(filtered),
+                        ]
                 elif stripped_count:
                     replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
                 else:
@@ -546,6 +578,13 @@ def normalize_messages_for_model_request(
             Used to strip fields that belong to other providers.
         strip_audio: Whether to remove only audio blocks from the request copy.
         strip_video: Whether to remove video blocks before media preparation.
+
+    Returns:
+        A filtered copy. Image downscaling is **not** done here: it decodes,
+    resizes and re-encodes pixels, which must not happen on the event loop and
+    must not happen before the media this request will not send has been
+    dropped. Call :func:`normalize_messages_for_model_request_async` for the
+    complete request preparation.
     """
     normalized = _clone_messages(msgs)
     _omit_rejected_media(normalized)
@@ -588,6 +627,35 @@ def normalize_messages_for_model_request(
     return normalized
 
 
+async def normalize_messages_for_model_request_async(
+    msgs: list[Msg],
+    *,
+    supports_multimodal: bool,
+    target_family: str = "openai",
+    strip_audio: bool = False,
+    strip_video: bool = False,
+) -> list[Msg]:
+    """Prepare a provider request copy, downscaling images off the loop.
+
+    Filtering happens first, so media the target cannot receive is dropped
+    instead of being resized and then discarded — otherwise each later turn
+    carrying that history pays the decode-and-encode cost again.
+    """
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=supports_multimodal,
+        target_family=target_family,
+        strip_audio=strip_audio,
+        strip_video=strip_video,
+    )
+    # Rescale only the request copy: the stored message keeps its original
+    # bytes, so the user can still retrieve the full-resolution image later.
+    await downscale_oversized_images_async(normalized)
+    return normalized
+
+
 __all__ = [
     "normalize_messages_for_model_request",
+    "normalize_messages_for_model_request_async",
+    "omitted_media_marker",
 ]

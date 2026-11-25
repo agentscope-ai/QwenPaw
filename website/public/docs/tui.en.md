@@ -4,7 +4,7 @@ The QwenPaw **TUI** is a full-screen chat interface that runs entirely in your t
 
 It is also the most natural surface for **Coding Mode**: launch it from inside a repo and the agent treats that directory as its workshop.
 
-![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![QwenPaw TUI](https://img.alicdn.com/imgextra/i3/O1CN0165izgXrPBEI2qEhU_!!6000000002338-2-tps-1400-840.png)
 
 ---
 
@@ -29,6 +29,8 @@ qwenpaw tui /path/to/repo     # use an explicit directory
 This enables Coding-Mode prompt and tool behavior **for that TUI session only** — it does not change the project saved in `agent.json` or selected in the Console.
 
 > No separate install or server to manage: the TUI launches its own `qwenpaw acp` backend using the interpreter it ships in, so it always drives the same install/venv as your `qwenpaw` command.
+
+On first use, QwenPaw may install the MCP plugin locally from the bundled resources. The plugin is required for ordinary TUI sessions, and QwenPaw checks its availability when creating or resuming a session and sending messages. If the plugin is disabled, uninstalled, or the local installation fails, open the **Official plugins** page in the QwenPaw Console to install, enable, or repair it, then reconnect the TUI. After a local installation failure, you need to install or repair the plugin manually.
 
 ---
 

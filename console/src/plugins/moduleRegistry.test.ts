@@ -1,7 +1,8 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleRegistry } from "./moduleRegistry";
 
-describe("moduleRegistry optional lookup", () => {
+describe("moduleRegistry", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -34,6 +35,28 @@ describe("moduleRegistry optional lookup", () => {
       moduleRegistry.getOptional("test.optional-export-missing", "default"),
     ).toBeUndefined();
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("retains a plugin's route registration across frontend evaluations", () => {
+    const pluginId = "test.mcp-management";
+    const register = () => {
+      const state = (window.QwenPaw.modules[pluginId] ??= {});
+      const previous = state.management as { dispose: () => void } | undefined;
+      previous?.dispose();
+      const management = { dispose: vi.fn() };
+      state.management = management;
+      return management;
+    };
+
+    try {
+      const first = register();
+      const second = register();
+      expect(first.dispose).toHaveBeenCalledOnce();
+      expect(window.QwenPaw.modules[pluginId].management).toBe(second);
+      expect(second.dispose).not.toHaveBeenCalled();
+    } finally {
+      delete window.QwenPaw.modules[pluginId];
+    }
   });
 
   it("keeps strict lookup diagnostics for a required missing module", () => {

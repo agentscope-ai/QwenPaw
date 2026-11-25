@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from dataclasses import replace
 import hashlib
 import json
+import logging
+from time import monotonic
 import uuid
 
 from qwenpaw.channel_protocol.errors import (
@@ -43,13 +45,16 @@ from qwenpaw.channel_protocol.response_lifecycle import (
     ResponseCleanupState,
     ResponseResourceRef,
     ResponseRouteAggregate,
+    ResponseRouteKind,
     ResponseRouteSnapshot,
     ResponseStateError,
 )
 
 _MAX_ROUTES = 128
+_ROUTE_LOG_INTERVAL = 60.0
 _STREAM_RECEIPTS = 4
 _CHECKPOINT_BYTES = 768 * 1024
+logger = logging.getLogger(__name__)
 
 
 class SharedResponseDriver:
@@ -70,6 +75,8 @@ class SharedResponseDriver:
         self._platform = None
         self._config = {}
         self._routes = ResponseRouteAggregate(max_entries=_MAX_ROUTES)
+        self._next_route_limit_log = monotonic()
+        self._next_retained_route_log = self._next_route_limit_log
         self._locks = {}
         self._checkpoint_lock = asyncio.Lock()
         self._inflight_admissions = {}
@@ -160,16 +167,17 @@ class SharedResponseDriver:
             for old in self._routes.expired_completed():
                 if self._evictable(old):
                     self._routes.commit_gc(old)
-            snapshot, created = self._routes.open(
+            route = ResponseResourceRef.create(
+                self._kind + ".route",
                 handle,
-                [
-                    ResponseResourceRef.create(
-                        self._kind + ".route",
-                        handle,
-                        attrs,
-                    ),
-                ],
+                attrs,
             )
+            try:
+                snapshot, created = self._routes.open(handle, [route])
+            except ResponseStateError as exc:
+                if exc.reason_code == f"RESPONSE_SCOPE_LIMIT":
+                    self._log_route_limit()
+                raise
             try:
                 await self._write_checkpoint()
             except BaseException:
@@ -177,6 +185,44 @@ class SharedResponseDriver:
                     self._routes.rollback_open(handle, snapshot.version)
                 raise
         return handle
+
+    def _log_route_limit(self):
+        now = monotonic()
+        if now < self._next_route_limit_log:
+            return
+        self._next_route_limit_log = now + _ROUTE_LOG_INTERVAL
+        rows = self._routes.snapshots()
+        attempt_kind = f"{self._kind}.attempt"
+        active = unknown_attempt = no_attempt = 0
+        for row in rows:
+            active += row.kind is ResponseRouteKind.ACTIVE
+            attempts = [
+                ref for ref in row.resource_refs if ref.kind == attempt_kind
+            ]
+            no_attempt += not attempts
+            unknown_attempt += any(
+                dict(ref.attributes).get(f"state") == f"unknown"
+                for ref in attempts
+            )
+        logger.warning(
+            f"{self._kind} RESPONSE_SCOPE_LIMIT: "
+            f"routes={len(rows)} limit={self._routes.max_entries} "
+            f"active={active} unknown_attempt={unknown_attempt} "
+            f"no_attempt={no_attempt}",
+        )
+
+    def _log_retained_route(self, handle):
+        now = monotonic()
+        if now < self._next_retained_route_log:
+            return
+        snapshot = self._routes.snapshot(handle)
+        if snapshot is None or snapshot.kind is not ResponseRouteKind.ACTIVE:
+            return
+        self._next_retained_route_log = now + _ROUTE_LOG_INTERVAL
+        logger.warning(
+            f"{self._kind} event.batch route_retained=true "
+            f"reason=HOST_ACK_UNKNOWN",
+        )
 
     async def _receipt(self, operation, handle, snapshot=None):
         return await self._context.peer.call(
@@ -610,7 +656,14 @@ class SharedResponseDriver:
             self._locks[handle] = asyncio.Lock()
         return self._locks[handle]
 
-    async def _admit_event(self, event, created):
+    async def _admit_event(
+        self,
+        event,
+        created,
+        *,
+        detailed=False,
+        connection_generation=None,
+    ):
         if getattr(
             event,
             "actor_unknown",
@@ -621,7 +674,11 @@ class SharedResponseDriver:
             (),
         ):
             raise RpcError(-32602, "Unknown actor capability was not declared")
-        generation = self._connection_generation
+        generation = (
+            self._connection_generation
+            if connection_generation is None
+            else connection_generation
+        )
         policy = RetryPolicy(initial_delay=0.1, max_delay=1.0, max_attempts=5)
         batch = EventBatchParams(uuid.uuid4().hex, (event,))
         uncertain = False
@@ -693,6 +750,8 @@ class SharedResponseDriver:
                     else None
                 )
                 exhausted = not rejected or rejected.retryable
+                if created and uncertain:
+                    self._log_retained_route(event.response_handle)
                 if exhausted:
                     await self._diagnostic("HOST_ADMISSION_EXHAUSTED")
                 if created and not uncertain:
@@ -710,6 +769,8 @@ class SharedResponseDriver:
                         ):
                             self._evict(event.response_handle)
                             await self._checkpoint()
+                if detailed:
+                    return ack, uncertain
                 if not exhausted:
                     return None
                 raise RuntimeError("HOST_ADMISSION_EXHAUSTED")
@@ -945,7 +1006,11 @@ class SharedResponseDriver:
         except asyncio.CancelledError:
             await asyncio.shield(self._checkpoint())
             raise
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                f"{self._kind} delivery result unavailable "
+                f"({type(exc).__name__})",
+            )
             result = self._result(
                 delivery_id,
                 "unknown",
@@ -967,11 +1032,25 @@ class SharedResponseDriver:
         )
         try:
             await self._checkpoint()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"{self._kind} {intent['operation']} checkpoint failed "
+                f"({type(exc).__name__}), delivery result unknown",
+            )
             return self._result(
                 delivery_id,
                 "unknown",
                 "CHECKPOINT_RESULT_UNKNOWN",
+            )
+        operation, state = intent[f"operation"], result[f"state"]
+        if state == f"acknowledged":
+            logger.debug(f"{self._kind} {operation} acknowledged")
+        else:
+            reason = result.get(f"reason_code")
+            retryable = result.get(f"retryable", False)
+            logger.warning(
+                f"{self._kind} {operation} result={state} "
+                f"reason={reason} retryable={retryable}",
             )
         return result
 
@@ -1102,9 +1181,13 @@ class SharedResponseDriver:
             )
             await self._checkpoint()
             try:
-                await await_send(
-                    self._perform_stream_cleanup(ref, resource, sequence),
-                )
+                try:
+                    await await_send(
+                        self._perform_stream_cleanup(ref, resource, sequence),
+                    )
+                finally:
+                    # The cleanup callback may have checkpointed its steps.
+                    snapshot = self._routes.snapshot(snapshot.response_handle)
             except self.delivery_error as exc:
                 if not exc.side_effect_possible:
                     resource["cleanup"] = "failed"
@@ -1132,6 +1215,9 @@ class SharedResponseDriver:
             snapshot = await await_send(
                 self._before_cleanup_complete(snapshot),
             )
+        # Native uncertainty prevents retrying platform effects, not releasing
+        # local resources. A failed local close must keep the live owner.
+        snapshot = await await_send(self._before_local_retirement(snapshot))
         candidate = self._routes.cleanup_candidate(
             snapshot.response_handle,
             snapshot.outcome,
@@ -1151,6 +1237,10 @@ class SharedResponseDriver:
         raise NotImplementedError
 
     async def _before_cleanup_complete(self, snapshot):
+        return snapshot
+
+    async def _before_local_retirement(self, snapshot):
+        """Release local ownership even when native outcomes remain unknown."""
         return snapshot
 
     def _record_cleanup(self, snapshot, delivery_id, resource):

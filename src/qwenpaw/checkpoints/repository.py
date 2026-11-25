@@ -80,6 +80,8 @@ class CheckpointRepository:
             "-c",
             "core.safecrlf=false",
             "-c",
+            "core.longpaths=true",
+            "-c",
             f"core.attributesFile={self.git_attributes_file}",
             *args,
         ]
@@ -147,7 +149,7 @@ class CheckpointRepository:
         if not self.git_dir.exists():
             try:
                 subprocess.run(
-                    ["git", "init", "--bare", str(self.git_dir)],
+                    self._git_command("init", "--bare", str(self.git_dir)),
                     env=self._git_init_env(),
                     capture_output=True,
                     text=True,

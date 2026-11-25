@@ -395,17 +395,19 @@ class TestConfigureWeChat:
 
     def test_bot_token_is_never_prompted(self, io):
         """The token comes from QR login, so asking for it would be wrong."""
-        rec = io(confirms=[True], texts=["~/tok", "", ""])
+        rec = io(confirms=[True], texts=[f"~/tok", f"", f""])
+        token = f"existing-test-token"
 
-        out = cc.configure_wechat(WeChatConfig())
+        out = cc.configure_wechat(WeChatConfig(bot_token=token))
 
-        asked = rec.prompt_texts()
-        assert not any("Token" in text for text in asked)
-        assert out.bot_token_file == "~/tok"
-        assert out.base_url == ""
+        assert out.bot_token == token
+        assert all(token not in str(prompt) for prompt in rec.prompts)
+        assert out.bot_token_file == f"~/tok"
+        assert out.base_url == f""
         # An empty media directory means "disabled", stored as None.
         assert out.media_dir is None
-        assert "QR-code login" in rec.joined_echoes()
+        assert f"QR-code login" in rec.joined_echoes()
+        assert token not in rec.joined_echoes()
         rec.assert_fully_consumed()
 
     def test_media_dir_is_kept_when_given(self, io):

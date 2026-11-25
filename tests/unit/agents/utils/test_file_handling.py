@@ -9,6 +9,7 @@ Covers:
 - download_file_from_base64
 - download_file_from_url
 """
+
 # pylint: disable=protected-access,unused-argument
 
 import os
@@ -30,7 +31,6 @@ from qwenpaw.agents.utils.file_handling import (
     download_file_from_url,
     read_text_file_with_encoding_fallback,
 )
-
 
 # ---------------------------------------------------------------------------
 # read_text_file_with_encoding_fallback

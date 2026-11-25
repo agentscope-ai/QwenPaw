@@ -209,6 +209,7 @@ class PawAppContext:
     _plugin_registry: Any = field(default=None, repr=False)
     _session: Any = field(default=None, repr=False)
     _sse_channel: Any = field(default=None, repr=False)
+    _driver_management_grant: Any = field(default=None, repr=False)
 
     # ─── Chat ───────────────────────────────────────────────────────
 

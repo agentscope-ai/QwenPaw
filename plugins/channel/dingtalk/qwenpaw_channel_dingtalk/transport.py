@@ -139,6 +139,10 @@ class DingTalkTransport(DingTalkPlatform):
         self.at_sender_on_reply = at_sender_on_reply
         self.share_session_in_group = share_session_in_group
         self.endpoint = (endpoint or "").strip().rstrip("/")
+        logger.debug(
+            f"DingTalk transport configured: "
+            f"custom_endpoint={bool(self.endpoint)}",
+        )
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -549,12 +553,8 @@ class DingTalkTransport(DingTalkPlatform):
         is_group = conversation_type == "group"
 
         logger.info(
-            "dingtalk _send_via_open_api: is_group=%s conversation_id=%s "
-            "sender_staff_id=%s text_len=%s",
-            is_group,
-            conversation_id,
-            sender_staff_id,
-            len(text),
+            f"DingTalk OpenAPI send: group={is_group} "
+            f"text_chars={len(text)}",
         )
 
         for chunk in _markdown_chunks(text):
@@ -1259,11 +1259,7 @@ class DingTalkTransport(DingTalkPlatform):
         if prefix and body.strip():
             body = prefix + "  " + body
         if not body.strip() and not media_parts:
-            logger.info(
-                "dingtalk send_content_parts: skip empty content "
-                "to_handle=%s",
-                to_handle[:40] if to_handle else "",
-            )
+            logger.debug(f"DingTalk skipped empty outbound message")
             return
         session_webhook = await self._get_session_webhook_for_send(
             to_handle,
@@ -1634,9 +1630,7 @@ class DingTalkTransport(DingTalkPlatform):
             return
 
         logger.info(
-            "DingTalkChannel.send to_handle=%s len=%s",
-            to_handle,
-            len(text),
+            f"DingTalk text send: text_chars={len(text)}",
         )
 
         # Caller (send_content_parts) already prepends bot_prefix to text.
@@ -1875,6 +1869,7 @@ class DingTalkTransport(DingTalkPlatform):
                         finalize=True,
                     ):
                         raise TimeoutError("DingTalk card outcome is unknown")
+                    logger.info(f"DingTalk reply card acknowledged")
                     body = ""
                     webhook = ""
             if body.strip():
@@ -1904,6 +1899,9 @@ class DingTalkTransport(DingTalkPlatform):
                 if not ok:
                     if webhook:
                         await self._invalidate_session_webhook(to_handle)
+                        logger.info(
+                            f"DingTalk webhook rejected, trying OpenAPI",
+                        )
                     ok = (
                         await self._send_via_open_api(
                             body,
@@ -1915,6 +1913,7 @@ class DingTalkTransport(DingTalkPlatform):
                         else False
                     )
                 if not ok:
+                    logger.warning(f"DingTalk outbound text was rejected")
                     raise ChannelError(
                         channel_name="dingtalk",
                         message="DingTalk send rejected",

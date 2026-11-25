@@ -1321,7 +1321,8 @@
     "regenerate": "Tạo lại",
     "regenerateUnavailable": "Lượt cũ này không có mã yêu cầu. Hãy gửi tin nhắn mới để tiếp tục.",
     "canceledWithoutReply": "Người dùng đã hủy, không có phản hồi",
-    "turnCanceled": "Đã dừng"
+    "turnCanceled": "Đã dừng",
+    "outputTruncated": "Mô hình đã đạt giới hạn đầu ra. Câu trả lời này chưa đầy đủ. Hãy yêu cầu mô hình tiếp tục hoặc tăng giới hạn đầu ra."
   },
   "debug": {
     "title": "Gỡ lỗi",
@@ -1549,6 +1550,7 @@
     "loadFailed": "Không thể tải cài đặt phiên âm giọng nói",
     "saveSuccess": "Đã lưu chế độ âm thanh",
     "saveFailed": "Lưu chế độ âm thanh thất bại",
+    "localWhisperInstallFailed": "Chưa hoàn tất cài đặt Whisper cục bộ",
     "audioModeLabel": "Chế độ âm thanh",
     "audioModeDescription": "Chọn cách xử lý tin nhắn giọng nói từ các kênh trước khi gửi đến mô hình.",
     "modeAuto": "Tự động (Khuyến nghị)",
@@ -2131,6 +2133,7 @@
     "webSearchConfigLoadError": "Không tải được thông tin xác thực của nhà cung cấp này. Thử lại trước khi lưu."
   },
   "mcp": {
+    "legacyArchived": "Một số kết nối cũ chưa được chuyển sang phiên bản mới. Cấu hình gốc đã được sao lưu.",
     "title": "MCP Client",
     "qwenpawManaged": "Do QwenPaw quản lý",
     "qwenpawManagedHint": "Cấu hình dùng chung được đưa vào các Agent bên thứ ba được hỗ trợ khi chạy.",
@@ -2163,7 +2166,14 @@
     "toolSchema": "Mô tả & Tham số",
     "local": "Cục bộ",
     "remote": "Từ xa",
-    "invalidJson": "Nhập JSON hợp lệ có chứa ít nhất một máy chủ MCP."
+    "invalidJson": "Nhập JSON hợp lệ có chứa ít nhất một máy chủ MCP.",
+    "plugin": {
+      "version": "Phiên bản plugin MCP: {{version}}",
+      "updateAvailable": "Có plugin MCP {{version}}",
+      "update": "Cập nhật plugin",
+      "versionCheckUnavailable": "Không thể kiểm tra phiên bản. MCP vẫn có thể hoạt động.",
+      "frontendRefreshFailed": "Plugin đã cập nhật nhưng giao diện chưa tải lại. Hãy tải lại trang."
+    }
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",
@@ -2361,6 +2371,11 @@
     "installing": "Đang cài đặt...",
     "installSuccess": "Cài đặt plugin thành công",
     "installFailed": "Cài đặt plugin thất bại",
+    "dependencyErrors": {
+      "ambiguous": "Không thể xác định nguồn duy nhất của thành phần phụ thuộc. Xem tên gói trong nhật ký ứng dụng, sửa môi trường phụ thuộc rồi thử lại.",
+      "invalidMetadata": "Thông tin cài đặt của thành phần phụ thuộc không đầy đủ hoặc không hợp lệ. Xem nhật ký ứng dụng, sửa môi trường phụ thuộc rồi thử lại.",
+      "failed": "Chưa hoàn tất chuẩn bị các thành phần phụ thuộc. Xem nhật ký ứng dụng, xử lý vấn đề rồi thử lại."
+    },
     "update": "Cập nhật",
     "updateAll": "Cập nhật tất cả",
     "updateSuccess": "Cập nhật plugin thành công",
@@ -2389,7 +2404,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Giao thức"
   },
   "codingMode": {
     "title": "Chế độ Lập trình",
@@ -3488,6 +3504,7 @@
     "sipUsername": "Tên người dùng SIP",
     "streamingEnabledDingtalkHint": "Chỉ có hiệu lực với tin nhắn dạng thẻ",
     "streamingEnabledFeishuHint": "Bật quyền cardkit:card:write trong nền tảng nhà phát triển Feishu",
+    "streamingEnabledQQHint": "Chỉ cuộc trò chuyện riêng QQ (C2C) hỗ trợ xuất streaming; tin nhắn nhóm và kênh vẫn được gửi dưới dạng tin nhắn hoàn chỉnh",
     "sttProvider": "Nhà cung cấp nhận dạng giọng nói",
     "time": "Thời gian",
     "ttsProvider": "Nhà cung cấp tổng hợp giọng nói",
@@ -3501,7 +3518,7 @@
     "usernamePlaceholder": "Nhập tên người dùng (tùy chọn)",
     "voiceSetupGuide": "Tạo tài khoản Twilio và mua số điện thoại. Nhập Account SID, Auth Token từ bảng điều khiển. Phone Number SID nằm trong Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Mở bảng điều khiển Twilio",
-    "wechatBotTokenFileTooltip": "Đường dẫn lưu mã thông báo. Mặc định: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Đường dẫn tệp Bot Token. Để trống để dùng wechat/wechat_bot_token trong không gian làm việc của tác tử.",
     "wechatContextTokenLimit": "WeChat iLink giới hạn mỗi context_token ở 10 phản hồi. Tắt đầu ra suy luận, công cụ hoặc bật gộp tin nhắn để tránh gửi thất bại.",
     "wechatGetQrcode": "Lấy mã QR đăng nhập",
     "wechatLoginSuccess": "Đăng nhập WeChat thành công, đã điền mã thông báo",
@@ -4030,6 +4047,10 @@
     "name": "Tên kỹ năng"
   },
   "skillPool": {
+    "statusRemoved": "Kỹ năng tích hợp cũ",
+    "statusRemovedHint": "Các phiên bản mới của ứng dụng không còn cung cấp kỹ năng này. Bản sao bạn đã cài đặt vẫn được giữ lại.",
+    "statusConflict": "Không thể so sánh phiên bản",
+    "updatedAgo": "Cập nhật {{time}}",
     "description": "Kho kỹ năng cục bộ dùng chung cho kỹ năng tích hợp và tải lên từ workspace.",
     "broadcast": "Phân phối cho Agent",
     "broadcastHint": "Phân phối kỹ năng đến các agent được chọn",
@@ -4042,18 +4063,9 @@
     "builtinAutoUpdateFlow": "Gói tích hợp → Kho kỹ năng",
     "autoSyncFlow": "Kho kỹ năng → Workspace của agent",
     "automationBoth": "Tự động cập nhật + đồng bộ",
-    "automationMixedHint": "Mở chi tiết để chọn tự động cập nhật hoặc tự động đồng bộ.",
-    "automationEnableHint": "Bật tự động cập nhật và tự động đồng bộ.",
-    "automationDisableHint": "Tắt tự động cập nhật và tự động đồng bộ.",
-    "automationEnabled": "Đã bật tự động cập nhật và tự động đồng bộ cho {{name}}",
-    "automationDisabled": "Đã tắt tự động cập nhật và tự động đồng bộ cho {{name}}",
     "automationFailed": "Không thể cập nhật cài đặt tự động hóa",
     "automationNeedsAttention": "Đã lưu. Có {{count}} mục cần xử lý; xem Hộp thư đến.",
     "autoSync": "Tự động đồng bộ",
-    "autoSyncEnableHint": "Bật tự động đồng bộ.",
-    "autoSyncDisableHint": "Tắt tự động đồng bộ.",
-    "autoSyncEnabled": "Đã bật tự động đồng bộ cho {{name}}",
-    "autoSyncDisabled": "Đã tắt tự động đồng bộ cho {{name}}",
     "autoSyncAgentsPlaceholder": "Tất cả agent có kỹ năng này",
     "autoSyncAgentsHint": "Để trống để đồng bộ các bản sao hiện có, hoặc chọn agent cụ thể.",
     "importBuiltin": "Cập nhật kỹ năng tích hợp",
@@ -4400,6 +4412,7 @@
     "emojiRecent": "Gần đây",
     "emojiAll": "Mặc định",
     "emojiCustom": "Báo tuyết",
+    "emojiAnimated": "Báo tuyết dễ thương",
     "addCommentImage": "Tải ảnh lên",
     "removeCommentImage": "Gỡ ảnh",
     "commentImageMax": "Bạn có thể thêm tối đa {{count}} ảnh",
@@ -4416,6 +4429,7 @@
     "video": "Video bài viết",
     "imagePreview": "Xem trước ảnh",
     "editPost": "Sửa",
+    "fromGithub": "Từ GitHub",
     "deletePost": "Xóa",
     "editHelp": "Sửa trên Platform để giữ ảnh, video và định dạng",
     "deleteTitle": "Xóa bài viết này?",
@@ -4436,6 +4450,9 @@
     "login": "Đăng nhập Platform",
     "account": "Đăng với tên {{name}}",
     "postTitle": "Tiêu đề",
+    "githubLinkLabel": "Kho lưu trữ GitHub",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Vui lòng nhập địa chỉ kho lưu trữ GitHub hợp lệ",
     "body": "Nội dung",
     "confirm": "Tôi đã xem lại tiêu đề và nội dung và đồng ý xuất bản công khai nội dung này.",
     "publish": "Xuất bản",

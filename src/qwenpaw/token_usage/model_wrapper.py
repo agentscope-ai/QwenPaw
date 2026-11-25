@@ -24,7 +24,9 @@ def set_conversation_context_tokens(tokens: int | None) -> None:
 
     session_id = get_current_session_id()
     if session_id and not _auxiliary_usage.get():
-        snapshots = TokenRecordingModelWrapper._usage_by_session
+        snapshots = (
+            TokenRecordingModelWrapper._usage_by_session
+        )  # pylint: disable=protected-access
         snapshots[session_id] = {
             **(snapshots.get(session_id) or {}),
             f"context_tokens": tokens,
@@ -191,11 +193,18 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
 
+        # The context meter shows this value per request, so it must be the
+        # full prompt the provider processed: Anthropic reports only the
+        # uncached part in ``input_tokens`` and its cache read/write counters
+        # separately, while OpenAI-style ``prompt_tokens`` already includes
+        # cached tokens (and ``cache_eligible`` equals ``pt`` there).
         usage_data = {
             "provider_id": self._provider_id,
             "model_name": self.model,
             "prompt_tokens": pt,
-            "last_prompt_tokens": pt,
+            "last_prompt_tokens": (
+                cache_eligible if cache_observed and cache_eligible > 0 else pt
+            ),
             "completion_tokens": ct,
             "total_tokens": pt + ct,
             "cache_read_tokens": cache_read,

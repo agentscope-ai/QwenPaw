@@ -21,6 +21,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
+    Literal,
     Optional,
 )
 from .chats.models import session_storage_identity
@@ -93,6 +94,47 @@ def _response_success(sse: str) -> bool | None:
     return None
 
 
+def response_outcome(
+    object_type: object,
+    status: object,
+    error: object,
+) -> Literal["completed", "failed", "cancelled"] | None:
+    """Classify terminal responses and stream errors."""
+    if error:
+        return "failed"
+    if object_type != "response":
+        return None
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    if status == "failed":
+        return "failed"
+    return None
+
+
+def _has_successful_response(events: list[str]) -> bool:
+    """Require a successful response terminal, not just message completion."""
+    for sse in reversed(events):
+        for line in reversed(sse.splitlines()):
+            if not line.startswith(f"data:"):
+                continue
+            try:
+                event = json.loads(line.removeprefix(f"data:"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            outcome = response_outcome(
+                event.get("object"),
+                event.get("status"),
+                event.get("error"),
+            )
+            if outcome is not None:
+                return outcome == "completed"
+    return False
+
+
 @dataclass
 class _RunState:
     """Per-run state (task, queues, replay), guarded by tracker lock."""
@@ -104,6 +146,7 @@ class _RunState:
     finish_time: Optional[datetime] = None
     owner: object | None = None
     channel_id: str | None = None
+    channel_handoff_safe: bool = False
 
 
 class TaskTracker:
@@ -306,6 +349,32 @@ class TaskTracker:
     def lock(self) -> asyncio.Lock:
         return self._lock
 
+    def start_background_task(
+        self,
+        run_key: str,
+        start: Callable[[], asyncio.Task],
+    ) -> asyncio.Task:
+        """Admit and track an externally owned task on the current loop.
+
+        Registration is synchronous so admission cannot race an idle check.
+        The caller must keep the task alive until its resources settle.
+        """
+        state = self._runs.get(run_key)
+        if state is not None and not state.task.done():
+            raise ValueError(f"Task is already tracked: {run_key}")
+        task = start()
+        state = _RunState(task=task)
+        self._runs[run_key] = state
+
+        def finished(_completed):
+            if self._runs.get(run_key) is state:
+                for queue in state.queues:
+                    queue.put_nowait(_SENTINEL)
+                self._runs.pop(run_key)
+
+        task.add_done_callback(finished)
+        return task
+
     async def get_status(self, run_key: str) -> str:
         """Return ``'idle'`` or ``'running'``."""
         async with self._lock:
@@ -377,8 +446,13 @@ class TaskTracker:
         self,
         owner: object | None = None,
         channel_id: str | None = None,
+        *,
+        channel_handoff: bool = False,
     ) -> dict[str, asyncio.Future]:
-        """Return the currently active tasks without tracking later runs."""
+        """Snapshot active tasks; handoff omits only dynamically routed runs.
+
+        The omission affects this drain snapshot, never tracking or stopping.
+        """
         async with self._lock:
             tasks = {
                 run_key: state.task
@@ -386,6 +460,7 @@ class TaskTracker:
                 if self._is_running(state)
                 and (owner is None or state.owner is owner)
                 and (channel_id is None or state.channel_id == channel_id)
+                and not (channel_handoff and state.channel_handoff_safe)
             }
             for identity, writers in self._session_tasks.items():
                 if channel_id is not None and identity[2] != channel_id:
@@ -578,7 +653,9 @@ class TaskTracker:
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
         channel_id: str | None = None,
+        *,
         can_start: Callable[[], Awaitable[bool]] | None = None,
+        channel_handoff_safe: bool = False,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -611,6 +688,7 @@ class TaskTracker:
                 queues=[my_queue],
                 owner=owner,
                 channel_id=channel_id,
+                channel_handoff_safe=channel_handoff_safe,
             )
 
             tracker_ref = weakref.ref(self)

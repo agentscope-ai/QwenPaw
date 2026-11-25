@@ -21,6 +21,9 @@ class ChannelMessage:
     message_id: str = ""
     acl_sender_id: str = ""
     session_scope: Literal["default", "sender", "group"] = "default"
+    sender_name: str = ""
+    thread_id: str = ""
+    actor_unknown: bool = False
 
 
 @dataclass(frozen=True)

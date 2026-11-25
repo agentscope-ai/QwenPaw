@@ -147,9 +147,9 @@ async def test_metadata_is_added_to_existing_stream_outputs():
                     state="success",
                 ),
             ],
-            # The 4-byte data delta stays under the snapshot gate; the
-            # terminal TOOL_RESULT_END snapshot still carries it.
-            [2, 1, 0, 2],
+            # The first data block emits once to preserve content order;
+            # later fragments remain subject to the snapshot gate.
+            [2, 1, 1, 2],
         ),
         (
             [
@@ -358,3 +358,48 @@ async def test_empty_metadata_keeps_existing_content_shape():
 
     assert message["metadata"] is None
     assert "metadata" not in delta
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"selected", f"has_marker"),
+    [
+        ({f"finish_reason": f"stop", f"truncated": False}, True),
+        ({f"finish_reason": f"length", f"truncated": True}, True),
+        (None, True),
+        (None, False),
+    ],
+)
+async def test_reply_completion_preserves_usage_and_unrelated_metadata(
+    selected,
+    has_marker,
+):
+    """Only an explicit reply marker overrides the last model's reason."""
+    envelope = Envelope()
+    key = f"qwenpaw_model_completion"
+    previous = {f"finish_reason": f"length", f"truncated": True}
+    envelope.response.metadata = {f"custom": f"keep"}
+    await _translate(
+        envelope,
+        _event(
+            EventType.MODEL_CALL_END,
+            metadata={key: previous},
+            input_tokens=17,
+            output_tokens=9,
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.REPLY_END,
+            metadata={key: selected} if has_marker else {},
+        ),
+    )
+
+    final = (await _dump(envelope.finalize()))[-1]
+    expected = selected if has_marker else previous
+    assert final[f"metadata"].get(key) == expected
+    if has_marker and selected is None:
+        assert key not in final[f"metadata"]
+    assert final[f"metadata"][f"custom"] == f"keep"
+    assert final[f"usage"] == {f"input_tokens": 17, f"output_tokens": 9}

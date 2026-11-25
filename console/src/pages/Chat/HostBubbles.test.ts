@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
+
+const stylesSource = readFileSync(
+  join(process.cwd(), "src/pages/Chat/HostBubbles.module.less"),
+  "utf8",
+);
 
 describe("host card SDK contract", () => {
   it("exports a callable response card component", () => {
@@ -28,12 +35,12 @@ describe("host card SDK contract", () => {
     const responseElement = result.current;
     // The response card is wrapped so tool cards learn whether the turn
     // ended; its content must stay memoized behind that wrapper.
-    const responseContent = responseElement.props.children.props.children;
+    const responseContent = responseElement.props.children.props.children[0];
 
     expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
     rerender();
     expect(responseContent.type).toBe(
-      result.current.props.children.props.children.type,
+      result.current.props.children.props.children[0].type,
     );
     expect(requestElement.type).toHaveProperty(
       "$$typeof",
@@ -64,5 +71,23 @@ describe("host card SDK contract", () => {
     expect(
       isToolLikeResponseMessageType(AgentScopeRuntimeMessageType.MESSAGE),
     ).toBe(false);
+  });
+});
+
+describe("host bubble layout styles", () => {
+  it("keeps the quote-response wrapper shrinkable so wide blocks scroll in place", () => {
+    const marker = "Fix #8811";
+    const markerIndex = stylesSource.indexOf(marker);
+    const rule = stylesSource.slice(
+      markerIndex,
+      stylesSource.indexOf("}", markerIndex) + 1,
+    );
+
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    expect(rule).toContain(".quoteResponse");
+    // The wrapper must not forward the max-content width of wide tables and
+    // code blocks to the intrinsically sized bubble content (#8811).
+    expect(rule).toMatch(/min-width:\s*0/);
+    expect(rule).toMatch(/max-width:\s*100%/);
   });
 });

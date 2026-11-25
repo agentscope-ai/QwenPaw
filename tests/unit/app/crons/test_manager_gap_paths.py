@@ -618,10 +618,16 @@ class TestRegisterServiceJobs:
             key="compact",
             cron="0 3 * * *",
             callback=AsyncMock(),
+            timezone="Asia/Shanghai",
+            jitter_seconds=10,
         )
         manager._register_service_jobs("memory", [declaration])
         job = manager._scheduler.get_job("_service:memory:compact")
         assert job is not None
+        sdk_job = manager.register_service_job("sdk_example", declaration)
+        for registered in (job, sdk_job):
+            assert str(registered.trigger.timezone) == "Asia/Shanghai"
+            assert registered.trigger.jitter == 10
 
     def test_memory_manager_without_jobs_registers_nothing(self, manager):
         manager._workspace.memory_manager = None
@@ -714,6 +720,7 @@ class TestExecuteOnceBranches:
         manager,
         repo,
         monkeypatch,
+        caplog,
     ):
         job = make_cron_job_spec(job_id="job-1")
         await repo.upsert_job(job)
@@ -743,6 +750,17 @@ class TestExecuteOnceBranches:
         kwargs = inbox.call_args.kwargs
         assert kwargs["event_type"] == "cron_delivery_failed_fallback"
         assert kwargs["payload"]["delivery_error"] == "channel down"
+        records = [
+            r.getMessage()
+            for r in caplog.records
+            if "cron _execute_once:" in r.getMessage()
+        ]
+        assert any(
+            "status=error" in text
+            and "delivery_status=failed" in text
+            and "execution_status=success" in text
+            for text in records
+        )
 
     async def test_execution_exception_marks_error_and_reraises(
         self,

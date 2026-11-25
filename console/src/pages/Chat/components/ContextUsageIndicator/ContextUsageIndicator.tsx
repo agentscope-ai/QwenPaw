@@ -262,6 +262,7 @@ const ContextUsageIndicator: React.FC<{
     >
       <button
         type="button"
+        data-composer-value={formatPercent(contextRate)}
         aria-label={t("chat.turnUsagePopover.ariaLabel", {
           contextRate: formatPercent(contextRate),
           cacheRate: formatPercent(cacheRate),

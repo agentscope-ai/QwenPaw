@@ -105,9 +105,13 @@ class CronExecutor:
         self._workspace = workspace
         self._channel_manager = channel_manager
 
-    async def _send_channel(self, method: str, **kwargs: Any) -> None:
-        manager = getattr(self._workspace, "_manager", None)
-        delivery = getattr(manager, "channel_delivery", None)
+    async def _send_channel(
+        self,
+        method: str,
+        *,
+        delivery: Any,
+        **kwargs: Any,
+    ) -> None:
         if delivery is None:
             await getattr(self._channel_manager, method)(**kwargs)
             return
@@ -130,6 +134,10 @@ class CronExecutor:
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
+        # Pin the routing strategy for this run. Only this route may wait for
+        # a replacement owner without keeping the outgoing channel alive.
+        manager = getattr(self._workspace, "_manager", None)
+        delivery = getattr(manager, "channel_delivery", None)
         run_id = str(uuid.uuid4())
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
         if job.task_type == "agent":
@@ -157,6 +165,7 @@ class CronExecutor:
             try:
                 await self._send_channel(
                     "send_text",
+                    delivery=delivery,
                     channel=target_channel,
                     user_id=target_user_id,
                     session_id=target_session_id,
@@ -274,6 +283,7 @@ class CronExecutor:
                 try:
                     await self._send_channel(
                         "send_event",
+                        delivery=delivery,
                         channel=target_channel,
                         user_id=target_user_id,
                         session_id=target_session_id,
@@ -366,6 +376,7 @@ class CronExecutor:
                 owner=self._workspace,
                 on_finished=chat_manager.mark_chat_finished,
                 channel_id=target_channel,
+                channel_handoff_safe=delivery is not None,
             )
             if not is_new_run:
                 await tracker.detach_subscriber(_chat_spec.id, queue)

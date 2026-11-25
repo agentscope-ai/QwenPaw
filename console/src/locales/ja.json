@@ -823,18 +823,9 @@
     "builtinAutoUpdateFlow": "ビルトインパッケージ → スキルプール",
     "autoSyncFlow": "スキルプール → エージェントのワークスペース",
     "automationBoth": "自動更新 + 自動同期",
-    "automationMixedHint": "詳細を開いて自動更新または自動同期を設定します。",
-    "automationEnableHint": "自動更新と自動同期を有効にします。",
-    "automationDisableHint": "自動更新と自動同期を無効にします。",
-    "automationEnabled": "{{name}} の自動更新と自動同期を有効にしました",
-    "automationDisabled": "{{name}} の自動更新と自動同期を無効にしました",
     "automationFailed": "自動化設定を更新できませんでした",
     "automationNeedsAttention": "保存しました。{{count}} 件は受信トレイで確認してください。",
     "autoSync": "自動同期",
-    "autoSyncEnableHint": "自動同期を有効にします。",
-    "autoSyncDisableHint": "自動同期を無効にします。",
-    "autoSyncEnabled": "{{name}} の自動同期を有効にしました",
-    "autoSyncDisabled": "{{name}} の自動同期を無効にしました",
     "autoSyncAgentsPlaceholder": "このスキルがあるすべてのエージェント",
     "autoSyncAgentsHint": "空欄なら既存のコピーを同期します。特定のエージェントも選択できます。",
     "importBuiltin": "ビルトインを取り込む",
@@ -917,13 +908,17 @@
     "statusUpToDate": "最新",
     "statusSynced": "同期済み",
     "statusOutdated": "古いです",
+    "statusRemoved": "旧組み込みスキル",
+    "statusRemovedHint": "新しいバージョンのアプリにはこのスキルは含まれません。インストール済みのコピーは保持されています。",
+    "updatedAgo": "{{time}}に更新",
     "statusNotSynced": "未同期",
-    "statusConflict": "競合",
+    "statusConflict": "バージョンを比較できません",
     "renameEntry": "\"{{name}}\" の新しい名前：",
     "builtin": "組み込み",
     "custom": "カスタム"
   },
   "mcp": {
+    "legacyArchived": "一部の古い接続設定は移行されませんでした。元の設定はバックアップ済みです。",
     "title": "MCPクライアント",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "統合コントロールプレーンで管理し、対応するサードパーティエージェントへ実行時に注入します。",
@@ -1060,7 +1055,14 @@
     },
     "local": "ローカル",
     "remote": "リモート",
-    "invalidJson": "MCP サーバーを少なくとも 1 つ含む有効な JSON を入力してください。"
+    "invalidJson": "MCP サーバーを少なくとも 1 つ含む有効な JSON を入力してください。",
+    "plugin": {
+      "version": "MCP プラグインのバージョン: {{version}}",
+      "updateAvailable": "MCP プラグイン {{version}} を利用できます",
+      "update": "プラグインを更新",
+      "versionCheckUnavailable": "バージョンを確認できません。MCP は引き続き利用できます。",
+      "frontendRefreshFailed": "プラグインは更新されましたが画面を更新できません。ページを再読み込みしてください。"
+    }
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -1390,6 +1392,7 @@
     "streamingEnabled": "ストリーミング出力",
     "streamingEnabledDingtalkHint": "メッセージタイプがCardの場合のみ有効",
     "streamingEnabledFeishuHint": "Feishuオープンプラットフォームの権限管理ページでcardkit:card:write権限を有効にする必要があります",
+    "streamingEnabledQQHint": "ストリーミング出力はQQの個別チャット（C2C）のみで利用できます。グループとギルドのメッセージは従来どおり完了後に送信されます",
     "autoCollapseThinking": "思考内容を折りたたむ",
     "autoCollapseThinkingTooltip": "思考内容のストリーミング終了後に自動で折りたたみます。手動で展開することもできます。",
     "ackMessage": "即時確認メッセージ",
@@ -1504,7 +1507,7 @@
     "wechatBotTokenTooltip": "QRコードログイン後に取得したBearerトークン。空の場合は起動時にQRコードログインが案内されます。",
     "wechatBotTokenPlaceholder": "QRログイン後に自動入力、または手動で貼り付け",
     "wechatBotTokenFile": "Tokenファイルパス",
-    "wechatBotTokenFileTooltip": "Botトークンの保存パス。デフォルトは ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Bot トークンファイルのパス。空欄の場合は、このエージェントのワークスペース内の wechat/wechat_bot_token を使用します。",
     "wechatMediaDir": "メディアディレクトリ",
     "wechatMessageMerge": "メッセージ統合",
     "wechatMessageMergeTooltip": "複数の返信メッセージを統合して送信し、WeChat の context_token あたり10件のメッセージ制限を回避します。遅延を0に設定すると、すべてのテキスト返信がリクエスト終了時に1つのメッセージに統合されます。正の遅延値（ミリ秒）は、その時間内の隣接メッセージを統合します。",
@@ -3516,7 +3519,8 @@
     "regenerate": "再生成",
     "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
     "canceledWithoutReply": "ユーザーがキャンセルしました（返信なし）",
-    "turnCanceled": "停止済み"
+    "turnCanceled": "停止済み",
+    "outputTruncated": "モデルの出力が上限に達したため、この回答は不完全です。続きを回答するよう依頼するか、出力上限を引き上げてください。"
   },
   "security": {
     "parent": "設定",
@@ -4403,9 +4407,9 @@
     "providerTypeWhisperApiDesc": "設定済みプロバイダー（OpenAI、Ollama など）の OpenAI 互換 Whisper API エンドポイントを使用します。",
     "providerTypeLocalWhisper": "ローカル Whisper",
     "providerTypeLocalWhisperDesc": "ローカルにインストールされた openai-whisper Python ライブラリで文字起こしを実行します。ffmpeg と openai-whisper の両方のインストールが必要です。",
-    "localWhisperReady": "ローカル Whisper は準備完了です。ffmpeg と openai-whisper がインストールされています。",
-    "localWhisperMissing": "ローカル Whisper は準備ができていません。不足している依存関係をインストールしてください。",
-    "localWhisperMissingDesc": "ffmpeg: {{ffmpeg}} | openai-whisper: {{whisper}}。不足している依存関係をインストールしてください：ffmpeg（システムパッケージ）と openai-whisper（uv pip install openai-whisper、または QwenPaw を [whisper] エクストラ付きでインストール）。",
+    "localWhisperInstall": "プラグインをインストール",
+    "localWhisperReview": "依存関係の変更を確認",
+    "localWhisperState_needs_confirmation": "Local Whisper · 依存関係の変更の確認待ち",
     "providerLabel": "Whisper API プロバイダー",
     "providerDescription": "Whisper API による音声文字起こしに使用するプロバイダーを選択します。Whisper 対応エンドポイントを持つプロバイダーのみ表示されます。",
     "providerPlaceholder": "プロバイダーを選択...",
@@ -4415,7 +4419,30 @@
     "modelPlaceholder": "例: whisper-1",
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
-    "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'qwenpaw[whisper]'。"
+    "transcriptionInfoDescLocal": "ローカル Whisper はこの端末で動作します。「プラグインをインストール」でプラグインと Python 依存関係を準備します。無効な場合は「プラグインを有効化」を押してください。ffmpeg は別途インストールしてください。初回の文字起こしでは、キャッシュがない場合に base モデルをダウンロードします。以後はキャッシュを再利用します。API キーは不要です。",
+    "localWhisperEnable": "プラグインを有効化",
+    "localWhisperManage": "プラグインを管理",
+    "localWhisperPlugin": "プラグイン",
+    "localWhisperFfmpegHelp": "ffmpeg のインストール手順",
+    "localWhisperModelHint": "モデルは最初の文字起こし時に読み込まれます。",
+    "localWhisperDependenciesKept": "Python 依存関係は保持されています。ローカル文字起こしにはプラグインをインストールしてください。",
+    "localWhisperInstallFailed": "ローカル Whisper のインストールが完了していません",
+    "localWhisperState_missing": "ローカル Whisper · 未インストール",
+    "localWhisperState_disabled": "ローカル Whisper · 無効",
+    "localWhisperState_installing": "ローカル Whisper を準備中です。初回は大きな Python 依存関係をダウンロードする場合があります。",
+    "localWhisperState_ready": "ローカル Whisper · プラグインと依存関係の準備完了",
+    "localWhisperImportFailed": "ローカル Whisper · 前回の依存関係の読み込みに失敗",
+    "localWhisperState_inactive": "ローカル Whisper · 未起動",
+    "localWhisperState_missing_dependencies": "ローカル Whisper · 依存関係が不足",
+    "localWhisperState_failed": "ローカル Whisper · 利用不可",
+    "localWhisperPlugin_missing": "未インストール",
+    "localWhisperPlugin_disabled": "無効",
+    "localWhisperPlugin_active": "有効",
+    "localWhisperPlugin_registered": "読み込み中",
+    "localWhisperPlugin_inactive": "未起動",
+    "localWhisperPlugin_failed": "読み込み失敗",
+    "localWhisperDependency_installed": "インストール済み",
+    "localWhisperDependency_missing": "見つかりません"
   },
   "acp": {
     "title": "ACP プロトコル連携",
@@ -4647,6 +4674,11 @@
     "executingAgent": "実行エージェント"
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "依存パッケージのインストール元を一意に特定できません。アプリのログでパッケージ名を確認し、環境を修復して再試行してください。",
+      "invalidMetadata": "依存パッケージのインストール情報が不完全または無効です。アプリのログを確認し、環境を修復して再試行してください。",
+      "failed": "依存パッケージの準備が完了しませんでした。アプリのログを確認し、問題を解決して再試行してください。"
+    },
     "title": "プラグインマネージャー",
     "description": "サービスを再起動せずにプラグインのインストール、管理、削除を行います。",
     "installed": "インストール済みプラグイン",
@@ -4726,7 +4758,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "プロトコル"
   },
   "approvalNotifications": {
     "settingTitle": "承認のデスクトップ通知",
@@ -5332,6 +5365,7 @@
     "emojiRecent": "最近",
     "emojiAll": "デフォルト",
     "emojiCustom": "ユキヒョウ",
+    "emojiAnimated": "かわいいユキヒョウ",
     "addCommentImage": "画像をアップロード",
     "removeCommentImage": "画像を削除",
     "commentImageMax": "画像は最大 {{count}} 枚まで追加できます",
@@ -5348,6 +5382,7 @@
     "video": "投稿動画",
     "imagePreview": "画像プレビュー",
     "editPost": "編集",
+    "fromGithub": "GitHub より",
     "deletePost": "削除",
     "editHelp": "画像・動画・書式を保持するには Platform で編集してください",
     "deleteTitle": "この投稿を削除しますか？",
@@ -5368,6 +5403,9 @@
     "login": "Platform にサインイン",
     "account": "{{name}} として公開",
     "postTitle": "タイトル",
+    "githubLinkLabel": "GitHub リポジトリ",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "有効なGitHubリポジトリのURLを入力してください",
     "body": "本文",
     "confirm": "タイトルと本文を確認し、この内容を公開することに同意します。",
     "publish": "公開",

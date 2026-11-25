@@ -78,6 +78,51 @@ def worker_logs(caplog, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["relative", "absolute", "empty", "literal", "explicit"],
+)
+async def test_worker_ca_paths_preserve_origin_and_absolute_spelling(
+    tmp_path,
+    monkeypatch,
+    process,
+    kind,
+):
+    # The child starts in code_root, not this parent directory.
+    monkeypatch.chdir(tmp_path)
+    if kind == "absolute":
+        directory = str(tmp_path / "证书 CA") + os.sep + "."
+        filename = directory + os.sep + "ca.pem"
+        expected_dir, expected_file = directory, filename
+    elif kind == "empty":
+        directory = filename = expected_dir = expected_file = ""
+    else:
+        directory = "~/证书 $CA %CA%" if kind == "literal" else "证书 CA"
+        filename = directory + os.sep + "ca.pem"
+        expected_dir = str(tmp_path / directory)
+        expected_file = str(tmp_path / filename)
+    monkeypatch.setenv("SSL_CERT_DIR", directory)
+    monkeypatch.setenv("SSL_CERT_FILE", filename)
+    private = {"SSL_CERT_DIR": "./plugin 证书"} if kind == "explicit" else {}
+    if private:
+        expected_dir = "./plugin 证书"
+    spec, _ = launch(tmp_path, private_env=private)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        f"assert os.environ.get('SSL_CERT_DIR') == {expected_dir!r}\n"
+        f"assert os.environ.get('SSL_CERT_FILE') == {expected_file!r}\n"
+        + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
+    assert (await process.start(spec))["state"] == "ready"
+    assert await process.call("sample.echo", {"ca": "available"}) == {
+        "ca": "available",
+    }
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
     tmp_path,
     process,
@@ -1468,6 +1513,172 @@ def test_dependency_preparation_rejects_protected_environment(
     assert _inventory(tmp_path) == before
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["install", "upgrade"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unrelated",
+        "direct",
+        "transitive",
+        "resolved",
+        "excluded",
+        "collision",
+        "duplicate",
+    ],
+)
+async def test_bundled_incomplete_metadata_checks_only_needed_providers(
+    tmp_path,
+    monkeypatch,
+    dependency_files,
+    entry,
+    case,
+):
+    from qwenpaw.plugins.loader import PluginLoader
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+    from qwenpaw.plugins.wheel_additions import validate_additions
+    from .test_manifest_dependencies import write_wheel
+
+    files = dependency_files
+    snapshot = _dependency_snapshot(files)
+    bundled = tmp_path / "bundle/site"
+    (bundled / "qoder_agent_sdk-1.0.9.dist-info/licenses").mkdir(parents=True)
+    if case == "duplicate":
+        for version in ("1.0", "2.0"):
+            info = bundled / f"duplicate-{version}.dist-info"
+            info.mkdir()
+            (info / "METADATA").write_text(
+                f"Name: duplicate\nVersion: {version}\n",
+            )
+    if case == "transitive":
+        snapshot.distributions["sample-shared-sdk"]["requires_dist"] = (
+            "qoder-agent-sdk",
+        )
+    if case == "collision":
+        (bundled / "fresh_helper.py").write_text("VALUE = 'bundled'\n")
+    context = DependencyEnvironmentContext(
+        snapshot.executable,
+        ROOT / "src",
+        (files.site, bundled),
+        files.site,
+        (bundled,),
+    )
+    requirements = [
+        "sample-shared-sdk==1.0"
+        if entry == "upgrade"
+        else "sample-shared-sdk>=0.5",
+    ]
+    requirements.append("fresh-helper")
+    if case == "direct":
+        requirements.append("qoder-agent-sdk")
+    if case == "excluded":
+        requirements.append('qoder-agent-sdk; python_version < "2"')
+    source = tmp_path / "plugin"
+    source.mkdir()
+    declaration = source / "requirements.txt"
+    declaration.write_text("\n".join(requirements) + "\n")
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    helper = write_wheel(
+        fresh,
+        "fresh-helper",
+        metadata_headers="Requires-Dist: qoder-agent-sdk\n"
+        if case == "resolved"
+        else "",
+    )
+    wheels = [helper]
+    if case == "resolved":
+        wheels.append(
+            _local_dependency_wheel(
+                tmp_path / "resolved",
+                "qoder-agent-sdk",
+                "2.0",
+                {"qoder_agent_sdk.py": b"VALUE = 2\n"},
+            ),
+        )
+    before = _inventory(bundled), _inventory(files.site)
+    reached = []
+
+    async def run(command, _plugin_id):
+        reached.append("resolver")
+        destination = Path(command[command.index("--wheel-dir") + 1])
+        for wheel in wheels:
+            shutil.copy2(wheel, destination / wheel.name)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    async def validate(_process, _spec, **kwargs):
+        # Exercise the real archive/import collision check at the write gate.
+        reached.append("gate")
+        with validate_additions(
+            kwargs["wheels"],
+            replace(
+                snapshot,
+                sites=(*snapshot.sites, *map(str, kwargs["collision_sites"])),
+            ),
+            files.site,
+        )[0]:
+            pass
+
+    async def prepare():
+        if entry == "install":
+            loader = PluginLoader([])
+            monkeypatch.setattr(loader, "_run_dependency_install_command", run)
+            monkeypatch.setattr(
+                "qwenpaw.plugins.loader.require_pip",
+                lambda *_args, **_kwargs: True,
+            )
+            monkeypatch.setattr(
+                "qwenpaw.plugins.dependency_gate.prepare_shared_dependencies",
+                validate,
+            )
+            await loader._acquire_dependency_wheels(
+                SimpleNamespace(),
+                SimpleNamespace(
+                    python_executable=snapshot.executable,
+                    code_root=source,
+                ),
+                snapshot,
+                files.site,
+                "test-metadata",
+                declaration,
+                dependency_context=context,
+            )
+        else:
+            DependencyUpgradeManager._prepare_resolution(
+                files.directory,
+                snapshot,
+                requirements,
+                declaration,
+                context,
+            )
+            reached.append("resolver")
+            for wheel in (files.wheel, *wheels):
+                shutil.copy2(wheel, files.directory / "wheels" / wheel.name)
+            DependencyUpgradeManager._prepare_payload(
+                files.directory,
+                snapshot,
+                requirements,
+                files.site,
+                context,
+            )
+
+    errors = {
+        "direct": "DEPENDENCY_METADATA_INVALID",
+        "transitive": "DEPENDENCY_METADATA_INVALID",
+        "resolved": "DEPENDENCY_METADATA_INVALID",
+        "duplicate": "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+        "collision": "DEPENDENCY_RESTART_REQUIRED",
+    }
+    if case in errors:
+        with pytest.raises(ProtocolValidationError, match=errors[case]):
+            await prepare()
+        assert bool(reached) == (case in {"resolved", "collision"})
+    else:
+        await prepare()
+        assert "resolver" in reached
+    assert (_inventory(bundled), _inventory(files.site)) == before
+
+
 @pytest.mark.parametrize("scripts", ["bin", "Scripts"])
 def test_overlay_rejects_record_outside_target(
     tmp_path,
@@ -1567,12 +1778,22 @@ def test_policy_change_blocks_verify_and_publish(tmp_path, dependency_files):
         assert not maintenance.repair_marker(files.site).exists()
 
 
-@pytest.mark.parametrize("scripts", ["bin", "Scripts"])
+@pytest.mark.parametrize(
+    ("scripts", "file_backed_record"),
+    [("bin", False), ("Scripts", False), ("bin", True)],
+)
 def test_native_launcher_publish_and_exact_rollback(
     tmp_path,
+    monkeypatch,
     dependency_files,
     scripts,
+    file_backed_record,
 ):
+    if file_backed_record:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.wheel_additions._IN_MEMORY_BYTES",
+            128,
+        )
     files = dependency_files
     files.site.rename(files.prefix / "site-packages")
     files.site = files.prefix / "site-packages"

@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import logging
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ JSONRPC_INTERNAL_ERROR = -32603
 RPC_REQUEST_ID_IN_USE = -32020
 RPC_BACKPRESSURE = -32021
 _TASK_SHUTDOWN_TIMEOUT = 0.1
+
+
+logger = logging.getLogger(__name__)
 
 
 def _reject_non_finite(value: str) -> object:
@@ -135,6 +139,7 @@ class _RequestCancellation:
     """Track cancellation independently from task exception handling."""
 
     requested: bool = False
+    replying: bool = False
 
 
 @dataclass
@@ -558,6 +563,11 @@ class RpcPeer:
                 result = publication.result
             if cancellation.requested:
                 raise asyncio.CancelledError
+            # A plain handler has completed. Late cancellation must not
+            # interrupt its frame write and close the shared transport.
+            # Provisional publications retain their abort protocol.
+            if publication is None:
+                cancellation.replying = True
             await self._send(
                 RpcResponse(request.id, result=result),
                 publication=publication,
@@ -602,7 +612,11 @@ class RpcPeer:
                 "request cancelled",
                 data={"reason_code": "REQUEST_CANCELLED"},
             )
-        except Exception as exc:
+        except Exception:
+            logger.exception(
+                "Unhandled error in RPC handler for method %r",
+                request.method,
+            )
             if await self._abort_response_publication(
                 publication,
                 response_sent,
@@ -615,7 +629,6 @@ class RpcPeer:
                 "internal error",
                 data={"reason_code": "INTERNAL_ERROR"},
             )
-            _ = exc
         finally:
             _CURRENT_CANCELLATION.reset(token)
 
@@ -681,7 +694,11 @@ class RpcPeer:
         except ProtocolValidationError:
             return
         incoming = self._incoming.get(cancel.request_id)
-        if incoming is not None and not incoming.task.done():
+        if (
+            incoming is not None
+            and not incoming.task.done()
+            and not incoming.cancellation.replying
+        ):
             incoming.cancellation.requested = True
             incoming.task.cancel()
 
@@ -697,6 +714,9 @@ class RpcPeer:
         """Send one JSON-RPC error response when an ID is available."""
         if (request_id is None and not allow_null_id) or self._closed:
             return
+        cancellation = _CURRENT_CANCELLATION.get()
+        if cancellation is not None:
+            cancellation.replying = True
         with contextlib.suppress(RpcClosedError):
             await self._send(
                 RpcResponse(

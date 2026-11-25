@@ -35,4 +35,5 @@ LangString qwenpawCliPathMissing ${LANG_PORTUGUESEBR} "qwenpaw.exe was not found
 LangString qwenpawCliPathUpdateFailed ${LANG_PORTUGUESEBR} "Failed to update user PATH"
 LangString qwenpawPrepareInstallFailed ${LANG_PORTUGUESEBR} "Não foi possível preparar a instalação ou remoção do QwenPaw.$\n$\nConfira os detalhes abaixo. Feche os processos listados e clique em Repetir após resolver o problema. Clique em Cancelar para interromper.$\n$\nResultado: $0"
 LangString qwenpawPowerShellStartFailed ${LANG_PORTUGUESEBR} "Não foi possível iniciar o Windows PowerShell. O script de preparação não foi executado."
+LangString qwenpawInstallIncomplete ${LANG_PORTUGUESEBR} "A instalação não foi concluída. Execute o instalador novamente para restaurar o comando qwenpaw."
 LangString qwenpawRestoreInstallStateFailed ${LANG_PORTUGUESEBR} "Não foi possível restaurar o inicializador do Native Messaging; o QwenPaw tentará novamente na inicialização"
