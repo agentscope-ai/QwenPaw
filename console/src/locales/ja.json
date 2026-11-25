@@ -4657,6 +4657,7 @@
     "preRestoreBackupNo": "いいえ、直接復元",
     "preRestoreBackupDesc": "復元前に自動作成されたバックアップ",
     "preRestoreBackupFailed": "復元前バックアップの作成に失敗しました",
+    "preRestoreBackupFailedHint": "復元は開始されていません。このダイアログを閉じて、次の操作を選び直してください。",
     "preRestoreBackupSuccess": "復元前バックアップが作成されました。ID：{{id}}",
     "creatingPreRestoreBackup": "復元前バックアップを作成中...",
     "skipAndRestore": "スキップして復元を続行",

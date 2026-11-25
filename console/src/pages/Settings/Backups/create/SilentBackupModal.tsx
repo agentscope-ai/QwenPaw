@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Button, Modal } from "antd";
+import { Alert, Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
 import { useBackupRunner } from "../shared/useBackupRunner";
@@ -48,7 +48,11 @@ export default function SilentBackupModal({
 
   return (
     <Modal
-      title={t("backup.creatingPreRestoreBackup")}
+      title={t(
+        runner.failed
+          ? "backup.preRestoreBackupFailed"
+          : "backup.creatingPreRestoreBackup",
+      )}
       open={target !== null}
       onCancel={runner.loading ? runner.cancel : onClose}
       footer={
@@ -69,10 +73,14 @@ export default function SilentBackupModal({
       closable={false}
       maskClosable={false}
     >
-      <BackupProgress
-        progress={runner.progress}
-        progressMsg={runner.progressMsg}
-      />
+      {runner.failed ? (
+        <Alert type="error" message={t("backup.preRestoreBackupFailedHint")} />
+      ) : (
+        <BackupProgress
+          progress={runner.progress}
+          progressMsg={runner.progressMsg}
+        />
+      )}
     </Modal>
   );
 }

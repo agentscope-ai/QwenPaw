@@ -1067,6 +1067,7 @@
     "preRestoreBackupNo": "No, restore directly",
     "preRestoreBackupDesc": "Auto-created backup before restore",
     "preRestoreBackupFailed": "Failed to create pre-restore backup",
+    "preRestoreBackupFailedHint": "Restore has not started. Close this dialog to choose how to proceed.",
     "preRestoreBackupSuccess": "Pre-restore backup created successfully, ID: {{id}}",
     "creatingPreRestoreBackup": "Creating pre-restore backup...",
     "skipAndRestore": "Skip and continue to restore",

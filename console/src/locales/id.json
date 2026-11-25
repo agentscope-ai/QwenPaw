@@ -2789,6 +2789,8 @@
     "scopeSecretsHint": "Mencakup rahasia penyedia model (kunci API), variabel lingkungan, dan informasi sensitif lainnya",
     "createSuccess": "Cadangan berhasil dibuat",
     "createFailed": "Gagal membuat cadangan",
+    "preRestoreBackupFailed": "Gagal membuat cadangan sebelum pemulihan",
+    "preRestoreBackupFailedHint": "Pemulihan belum dimulai. Tutup dialog ini untuk memilih langkah selanjutnya.",
     "restoreTitle": "Pulihkan Cadangan",
     "restoreFullWarning": "Pemulihan penuh akan sepenuhnya mengganti semua konten instance saat ini (termasuk semua agen, konfigurasi global, kumpulan skill, dan rahasia). Tindakan ini tidak dapat dibatalkan. Fitur terkait tidak tersedia selama pemulihan. Silakan mulai ulang layanan setelah pemulihan selesai.",
     "restoreWarningModify": "Pemulihan akan mengubah konfigurasi saat ini. Tindakan ini tidak dapat dibatalkan.",

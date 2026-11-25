@@ -44,7 +44,12 @@ import {
 import type { BackupMeta } from "@/api/types/backup";
 
 const runnerStore = vi.hoisted(() => {
-  const initial = { loading: false, progress: 0, progressMsg: "" };
+  const initial = {
+    loading: false,
+    failed: false,
+    progress: 0,
+    progressMsg: "",
+  };
   let state: typeof initial = { ...initial };
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((l) => l());
@@ -292,12 +297,22 @@ describe("SilentBackupModal", () => {
     expect(runnerStore.cancel).toHaveBeenCalledTimes(1);
   });
 
-  it("lets the user leave when the backup stops without succeeding", () => {
+  it("replaces progress with failure guidance and allows closing", () => {
     runnerStore.set({ loading: true });
     const onClose = vi.fn();
     const onSuccess = vi.fn();
     renderModal({ target: makeTarget(), onClose, onSuccess });
-    act(() => runnerStore.set({ loading: false }));
+    expect(screen.getByTestId("backup-progress")).toBeInTheDocument();
+
+    act(() => runnerStore.set({ loading: false, failed: true }));
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "backup.preRestoreBackupFailed",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "backup.preRestoreBackupFailedHint",
+    );
+    expect(screen.queryByTestId("backup-progress")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onSuccess).not.toHaveBeenCalled();

@@ -3946,6 +3946,8 @@
   "backup": {
     "title": "Sao lưu",
     "description": "Sao lưu và khôi phục workspace và cấu hình agent.",
+    "preRestoreBackupFailed": "Không thể tạo bản sao lưu trước khi khôi phục",
+    "preRestoreBackupFailedHint": "Quá trình khôi phục chưa bắt đầu. Hãy đóng hộp thoại này để chọn cách tiếp tục.",
     "create": "Tạo bản sao lưu",
     "import": "Nhập",
     "export": "Xuất",

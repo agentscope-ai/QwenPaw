@@ -29,6 +29,7 @@ export function useBackupRunner({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState("");
@@ -98,6 +99,7 @@ export function useBackupRunner({
     cancelRequestedRef.current = false;
     setCancelling(false);
     setLoading(false);
+    setFailed(false);
     setProgress(0);
     setProgressMsg("");
   };
@@ -115,6 +117,7 @@ export function useBackupRunner({
 
   const execute = async (getInitial: () => Promise<BackupJobSnapshot>) => {
     setLoading(true);
+    setFailed(false);
     setProgress(0);
     setProgressMsg(t("backup.progressStarting"));
 
@@ -144,6 +147,7 @@ export function useBackupRunner({
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
+      setFailed(true);
       message.error(t("backup.createFailed"));
     } finally {
       setLoading(false);
@@ -179,6 +183,7 @@ export function useBackupRunner({
 
   return {
     loading,
+    failed,
     cancelling,
     progress,
     progressMsg: cancelling ? t("confirmation.cancellingBackup") : progressMsg,

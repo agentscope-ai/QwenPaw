@@ -173,6 +173,7 @@ describe("useBackupRunner", () => {
       });
 
       expect(result.current.loading).toBe(false);
+      expect(result.current.failed).toBe(!resumeActiveOnStartFailure);
       if (resumeActiveOnStartFailure) {
         expect(apiMocks.streamBackupJob).toHaveBeenCalledWith(
           otherJob.job_id,
@@ -189,6 +190,32 @@ describe("useBackupRunner", () => {
       }
     },
   );
+
+  it("reports a failed job and clears the failure on the next attempt", async () => {
+    apiMocks.startBackupJob
+      .mockResolvedValueOnce({ ...runningSnapshot, status: "failed" })
+      .mockResolvedValueOnce(completedSnapshot);
+    const onSuccess = vi.fn();
+    const onClose = vi.fn();
+    const { result } = renderHook(() =>
+      useBackupRunner({ onSuccess, onClose }),
+    );
+
+    await act(async () => {
+      await result.current.start(data);
+    });
+
+    expect(result.current.failed).toBe(true);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.start(data);
+    });
+
+    expect(result.current.failed).toBe(false);
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
 
   it("waits for terminal cancellation, even after the request is accepted", async () => {
     apiMocks.startBackupJob.mockResolvedValue(runningSnapshot);
@@ -235,6 +262,7 @@ describe("useBackupRunner", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSuccess).not.toHaveBeenCalled();
     expect(result.current.loading).toBe(false);
+    expect(result.current.failed).toBe(false);
     expect(result.current.progress).toBe(0);
     expect(result.current.progressMsg).toBe("");
   });
