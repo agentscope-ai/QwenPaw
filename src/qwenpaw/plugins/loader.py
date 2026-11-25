@@ -483,6 +483,43 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             loader.registry.configure_channel_runtime(channel_runtime)
         return loader
 
+    @classmethod
+    async def create_for_registration(
+        cls,
+        plugin_dirs,
+        include_channel_descriptors=False,
+    ):
+        """Select the environment needed to register public contributions."""
+        runtime = PluginRegistry().channel_runtime
+        # Desktop plugins share the bundled channel dependency environment.
+        if runtime is None and (include_channel_descriptors or _is_frozen()):
+            from .channel_bootstrap import resolve_default_channel_runtime
+
+            cancel = threading.Event()
+            token = install_cancel.set(cancel)
+            try:
+                worker = asyncio.create_task(
+                    run_sync_io(
+                        resolve_default_channel_runtime,
+                        load_send_policy=False,
+                    ),
+                )
+                runtime = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # Wake the install lock before waiting for the worker to exit.
+                cancel.set()
+                await run_async_to_completion(
+                    asyncio.gather(worker, return_exceptions=True),
+                )
+                raise
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                # Doctor can still inspect descriptors and report a missing runtime.
+                if not include_channel_descriptors:
+                    raise
+            finally:
+                install_cancel.reset(token)
+        return await cls.create(plugin_dirs, channel_runtime=runtime)
+
     async def _publish_dependency_site(self, target, *, validate=None):
         if validate is None:
             validate = _capture_runtime_selection(
@@ -2328,6 +2365,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             targets = await self._python_backend.prepare_dependency_targets(
                 (binding.registration or binding).description,
             )
+            if self.registry.channel_runtime is None:
+                from .dependency_recovery import recover_additions
+
+                await run_sync_io(recover_additions, targets.targets)
             await run_sync_io(lease_environment, targets.targets)
             targets.validate()
         return await self.load_plugin(
@@ -5910,7 +5951,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         await self.publish_provider_definitions(plugin_id)
         await self._project_control_commands(plugin_id)
 
-    async def publish_provider_definitions(self, plugin_id: str) -> None:
+    async def publish_provider_definitions(
+        self,
+        plugin_id: str,
+        persist_migrations: bool = True,
+    ) -> None:
         """Publish provider definitions without startup hooks or connections."""
         providers = [
             (pid, reg)
@@ -5928,6 +5973,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     label=reg.label,
                     base_url=reg.base_url,
                     metadata=reg.metadata,
+                    persist_migrations=persist_migrations,
                 )
 
     async def _project_control_commands(self, plugin_id: str) -> None:

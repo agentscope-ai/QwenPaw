@@ -609,6 +609,7 @@ class ProviderManagerPersistenceMixin(
         base_url: str,
         *,
         metadata: Dict,
+        persist_migrations: bool = True,
     ) -> None:
         """Register a plugin provider without blocking the event loop."""
         provider_key = self._ensure_plugin_provider_id_available(provider_id)
@@ -630,6 +631,7 @@ class ProviderManagerPersistenceMixin(
                 base_url,
                 metadata=metadata,
                 saved_config_path=provider_path,
+                persist_migrations=persist_migrations,
             )
             if revision != self._provider_revision(provider_key):
                 return
@@ -644,8 +646,9 @@ class ProviderManagerPersistenceMixin(
         *,
         metadata: Dict,
         saved_config_path: Path,
+        persist_migrations: bool,
     ) -> dict:
-        """Build plugin registration data without touching shared state."""
+        """Restore provider settings and optionally save the migrated snapshot."""
         default_models = []
         if hasattr(provider_class, "get_default_models"):
             try:
@@ -683,7 +686,7 @@ class ProviderManagerPersistenceMixin(
                     provider_info,
                     provider_class.model_validate(saved_config),
                 )
-                if snapshot_migrated:
+                if snapshot_migrated and persist_migrations:
                     provider_persistence.write_snapshot_payload(
                         snapshot,
                         saved_config_path,

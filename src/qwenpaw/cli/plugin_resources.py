@@ -42,7 +42,10 @@ def ensure_resources(capability):
             session.load_registration(manifest, source)
             if capability == "providers":
                 session.run(
-                    session.loader.publish_provider_definitions(manifest.id),
+                    session.loader.publish_provider_definitions(
+                        manifest.id,
+                        persist_migrations=False,
+                    ),
                 )
         except (click.Abort, click.exceptions.Exit):
             raise

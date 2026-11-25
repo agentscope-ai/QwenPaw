@@ -257,12 +257,16 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
     assert result.exit_code == 0, result.output
     assert "--source" in result.output and "Examples:" in result.output
     assert not data.exists()
+    runtime_dir = tmp_path / "plugin_runtime"
+    assert not runtime_dir.exists()
+    runtime_dir.write_text("unavailable")
     model = data / "models" / "example" / "small" / "weights.gguf"
     model.parent.mkdir(parents=True)
     model.write_bytes(b"GGUF")
     result = runner.invoke(cli, ["models", "local"])
     assert result.exit_code == 0, (result.output, result.exception)
     assert "example/small" in result.output
+    runtime_dir.unlink()
     result = runner.invoke(
         cli,
         ["models", "remove-local", "example/small"],
@@ -854,6 +858,59 @@ def test_deep_doctor_mixed_channel_registration(
     assert not fresh_registry.runtime_owners.leases()
 
 
+async def test_cancelling_channel_runtime_setup_releases_its_lock_wait(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+):
+    import asyncio
+
+    from qwenpaw.config import utils
+    from qwenpaw.plugins import channel_bootstrap
+    from qwenpaw.plugins.install_lock import (
+        environment_install_lock_path,
+        plugin_install_lock,
+    )
+    from qwenpaw.plugins.loader import PluginLoader
+
+    monkeypatch.setattr(
+        utils,
+        "get_config_path",
+        lambda: tmp_path / "config.json",
+    )
+    target = channel_bootstrap.plugin_runtime_site(tmp_path / "plugin_runtime")
+    loop = asyncio.get_running_loop()
+    resolving = asyncio.Event()
+    resolve = channel_bootstrap.resolve_default_channel_runtime
+
+    def notify_resolving(**kwargs):
+        loop.call_soon_threadsafe(resolving.set)
+        return resolve(**kwargs)
+
+    monkeypatch.setattr(
+        channel_bootstrap,
+        "resolve_default_channel_runtime",
+        notify_resolving,
+    )
+    with plugin_install_lock(environment_install_lock_path(target)):
+        registration = asyncio.create_task(
+            PluginLoader.create_for_registration(
+                [tmp_path / "plugins"],
+                include_channel_descriptors=True,
+            ),
+        )
+        try:
+            await asyncio.wait_for(resolving.wait(), timeout=3)
+        finally:
+            registration.cancel()
+            done, _ = await asyncio.wait({registration}, timeout=3)
+
+    with pytest.raises(asyncio.CancelledError):
+        await registration
+    assert registration in done
+    assert fresh_registry.channel_runtime is None
+
+
 def test_missing_parent_reports_plugin_path_without_loading_entry(
     tmp_path,
     monkeypatch,
@@ -947,26 +1004,18 @@ def test_required_subcommand_fails_without_activating_plugin(monkeypatch):
     assert "Missing command" in result.output
 
 
-@pytest.mark.parametrize(
-    "mode",
-    ["command", "invoke", "group-invoke", "lazy", "alias", "nested"],
-)
-def test_plugin_command_registers_runs_and_cleans_up(
+@pytest.fixture
+def terminal_plugins(
     tmp_path,
     monkeypatch,
     fresh_registry,
     bounded_dependency_environment,
-    mode,
 ):
     from qwenpaw import constant
     from qwenpaw.cli import plugin_commands
-    from qwenpaw.cli.plugin_session import PluginSession
     from qwenpaw.config import utils
-    from qwenpaw.plugins import api
 
     plugins = tmp_path / "plugins"
-    source = tmp_path / "source"
-    (source / "skills").mkdir(parents=True)
     monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
     monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
     monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
@@ -984,6 +1033,11 @@ def test_plugin_command_registers_runs_and_cleans_up(
     }
     config = tmp_path / "config.json"
     config.write_text(json.dumps(settings), encoding="utf-8")
+    return plugins
+
+
+def _write_terminal_plugin(source, mode):
+    (source / "skills").mkdir(parents=True)
     (source / "plugin.json").write_text(
         json.dumps(
             {
@@ -1097,11 +1151,107 @@ plugin = Plugin()
         encoding="utf-8",
     )
 
+
+def test_terminal_plugin_install_disable_and_uninstall(
+    tmp_path,
+    monkeypatch,
+    terminal_plugins,
+    fresh_registry,
+):
+    from qwenpaw.plugins import api
+
+    runner = CliRunner()
+    source = tmp_path / "source"
+    _write_terminal_plugin(source, "command")
+    args = ["models", "example"]
+    assert runner.invoke(cli, args).exit_code == 2
+    result = runner.invoke(cli, ["plugin", "install", str(source)])
+    assert result.exit_code == 0, (result.output, result.exception)
+    source = terminal_plugins / "terminal-example"
+    assert source.is_dir()
+    record_tool_factory("terminal-example", "backend_tool", {"enabled": True})
+    inventory = inventory_path("terminal-example")
+    saved = inventory.read_bytes()
+    events = source / "events"
+    for help_args in (["--help"], ["models", "--help"]):
+        result = runner.invoke(cli, help_args)
+        assert result.exit_code == 0, result.output
+    assert "Example status" in result.output
+    assert not events.exists()
+
     def unexpected_install(*args, **kwargs):
         pytest.fail("A terminal command executed host installation setup")
 
     monkeypatch.setattr(api, "_write_tool_config", unexpected_install)
     monkeypatch.setattr(PluginApi, "_do_install_skills", unexpected_install)
+    assert runner.invoke(cli, [*args, "--help"]).exit_code == 0
+    assert events.read_text().splitlines() == ["register"]
+    events.unlink()
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert events.read_text().splitlines() == [
+        "register",
+        "activate",
+        "run",
+        "close",
+    ]
+    assert inventory.read_bytes() == saved
+    config = tmp_path / "config.json"
+    settings = json.loads(config.read_text())
+    settings["plugins"] = {"terminal-example": {"enabled": False}}
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    assert (
+        "Example status" not in runner.invoke(cli, ["models", "--help"]).output
+    )
+    assert runner.invoke(cli, args).exit_code == 2
+    result = runner.invoke(
+        cli,
+        ["plugin", "uninstall", "terminal-example"],
+        input="y\n",
+    )
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert not source.exists()
+    assert not inventory.exists()
+    assert not fresh_registry.leftover_registrations("terminal-example")
+    assert (
+        "Example status" not in runner.invoke(cli, ["models", "--help"]).output
+    )
+    assert runner.invoke(cli, args).exit_code == 2
+
+    def unexpected_plugin_scan(*args, **kwargs):
+        pytest.fail("A core command unnecessarily scanned plugins")
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.discovery.discover_plugins",
+        unexpected_plugin_scan,
+    )
+    assert (
+        runner.invoke(cli, ["models", "config-key", "--help"]).exit_code == 0
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "subcommand"),
+    [
+        ("invoke", []),
+        ("group-invoke", []),
+        ("lazy", ["status"]),
+        ("alias", ["alias"]),
+        ("nested", ["nested", "status"]),
+    ],
+)
+def test_plugin_command_routing_owns_execution(
+    mode,
+    subcommand,
+    terminal_plugins,
+    fresh_registry,
+    monkeypatch,
+):
+    from qwenpaw.cli.plugin_session import PluginSession
+
+    source = terminal_plugins / "terminal-example"
+    _write_terminal_plugin(source, mode)
+    events = source / "events"
     execute_calls = []
     execute = PluginSession.execute
 
@@ -1117,30 +1267,7 @@ plugin = Plugin()
 
     monkeypatch.setattr(PluginSession, "execute", track_execution)
     runner = CliRunner()
-    args = ["models", "example"]
-    if mode not in {"command", "invoke", "group-invoke"}:
-        args.extend(
-            {
-                "lazy": ["status"],
-                "alias": ["alias"],
-                "nested": ["nested", "status"],
-            }[mode],
-        )
-    assert runner.invoke(cli, args).exit_code == 2
-    result = runner.invoke(cli, ["plugin", "install", str(source)])
-    assert result.exit_code == 0, (result.output, result.exception)
-    source = plugins / "terminal-example"
-    assert source.is_dir()
-    record_tool_factory("terminal-example", "backend_tool", {"enabled": True})
-    inventory = inventory_path("terminal-example")
-    saved = inventory.read_bytes()
-    events = source / "events"
-    for help_args in (["--help"], ["models", "--help"]):
-        result = runner.invoke(cli, help_args)
-        assert result.exit_code == 0, result.output
-    assert "Example status" in result.output
-    assert not events.exists()
-
+    args = ["models", "example", *subcommand]
     result = runner.invoke(cli, [*args, "--help"])
     assert result.exit_code == 0, result.output
     assert events.read_text().splitlines() == ["register"]
@@ -1173,41 +1300,9 @@ plugin = Plugin()
             expected.append("invoke-active")
         assert events.read_text().splitlines() == [*expected, "run", "close"]
         assert execute_calls == ["terminal-example"]
-        assert inventory.read_bytes() == saved
         assert not fresh_registry.leftover_registrations("terminal-example")
         with source_writer(source):
             pass
-
-    settings["plugins"] = {"terminal-example": {"enabled": False}}
-    config.write_text(json.dumps(settings), encoding="utf-8")
-    assert (
-        "Example status" not in runner.invoke(cli, ["models", "--help"]).output
-    )
-    assert runner.invoke(cli, args).exit_code == 2
-    result = runner.invoke(
-        cli,
-        ["plugin", "uninstall", "terminal-example"],
-        input="y\n",
-    )
-    assert result.exit_code == 0, (result.output, result.exception)
-    assert not source.exists()
-    assert not inventory.exists()
-    assert not fresh_registry.leftover_registrations("terminal-example")
-    assert (
-        "Example status" not in runner.invoke(cli, ["models", "--help"]).output
-    )
-    assert runner.invoke(cli, args).exit_code == 2
-
-    def unexpected_plugin_scan(*args, **kwargs):
-        pytest.fail("A core command unnecessarily scanned plugins")
-
-    monkeypatch.setattr(
-        "qwenpaw.plugins.discovery.discover_plugins",
-        unexpected_plugin_scan,
-    )
-    assert (
-        runner.invoke(cli, ["models", "config-key", "--help"]).exit_code == 0
-    )
 
 
 def test_cli_cleanup_keeps_memory_implementations_unloaded(tmp_path):
@@ -1568,6 +1663,13 @@ plugin = Plugin()
     assert manager.register_plugin_provider_async.await_count == (
         1 if capability == "providers" and not cancelled else 0
     )
+    if capability == "providers" and not cancelled:
+        assert (
+            manager.register_plugin_provider_async.await_args.kwargs[
+                "persist_migrations"
+            ]
+            is False
+        )
     assert (source / "cleaned").exists()
     assert not fresh_registry.runtime_owners.leases()
     assert not fresh_registry.leftover_registrations(source.name)

@@ -685,7 +685,7 @@ def _plugin_configure(
     return current
 
 
-def get_channel_configurators() -> dict:
+def get_channel_configurators(catalog=None) -> dict:
     """Return channel configurators (built-in + plugin get_configurator)."""
     available = get_available_channels()
     registry = get_channel_registry()
@@ -696,7 +696,8 @@ def get_channel_configurators() -> dict:
         for key, row in PluginRegistry().get_channel_catalog().items()
         if row.description_record is not None
     }
-    catalog = get_configurable_channel_catalog()
+    if catalog is None:
+        catalog = get_configurable_channel_catalog()
     available = tuple(dict.fromkeys((*available, *descriptors, *catalog)))
     out = {
         k: v for k, v in _ALL_CHANNEL_CONFIGURATORS.items() if k in available
@@ -782,9 +783,9 @@ def configure_channels_interactive(config: Config) -> None:
     Mutates *config.channels* in-place.
     """
     _load_channel_plugins_for_cli()
-    configurators = get_channel_configurators()
-    registry = get_channel_registry()
     catalog = get_configurable_channel_catalog()
+    configurators = get_channel_configurators(catalog)
+    registry = get_channel_registry()
     click.echo("\n=== Channel Configuration ===")
 
     while True:

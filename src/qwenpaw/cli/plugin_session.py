@@ -76,22 +76,13 @@ class PluginSession:
         from fastapi import FastAPI
 
         from ..config.utils import get_plugins_dir
-        from ..plugins.channel_bootstrap import resolve_default_channel_runtime
         from ..plugins.loader import PluginLoader
-        from ..plugins.registry import PluginRegistry
 
-        runtime = PluginRegistry().channel_runtime
-        if runtime is None:
-            try:
-                runtime = resolve_default_channel_runtime(
-                    load_send_policy=False,
-                )
-            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
-                # Passive descriptor discovery also works without a channel runtime.
-                if not self.include_channel_descriptors:
-                    raise
         loader = self.run(
-            PluginLoader.create([get_plugins_dir()], channel_runtime=runtime),
+            PluginLoader.create_for_registration(
+                [get_plugins_dir()],
+                include_channel_descriptors=self.include_channel_descriptors,
+            ),
         )
         if loader.registry.get_plugin_http_app() is None:
             loader.registry.set_plugin_http_app(FastAPI())
