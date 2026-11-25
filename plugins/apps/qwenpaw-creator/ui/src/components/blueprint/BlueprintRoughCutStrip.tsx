@@ -454,7 +454,9 @@ export default function BlueprintRoughCutStrip({
                   {finalUrl && (
                     <a
                       href={finalUrl}
-                      download={`${timelineId.replace(/:/g, "_")}-final.mp4`}
+                      download={`${(groupLabel || timelineId)
+                        .replace(/[\\/:*?"<>|]/g, "_")
+                        .trim()}-final.mp4`}
                       data-roughcut-download={timelineId}
                       title={t("blueprint.downloadFinalCut")}
                       className="ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-accent)]"

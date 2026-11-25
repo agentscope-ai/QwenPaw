@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -200,9 +201,9 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
             assert alive(other_pid)
             # Two independent stops each fit a join but take 7s in sequence.
             markers[0].with_suffix(".slow").touch()
-            stopping = asyncio.create_task(
-                host.stop_channel(keys[0], workspace_id="one"),
-            )
+            manager = (await host._workspace("one")).channel_manager
+            assert manager is not None
+            stopping = asyncio.create_task(manager.stop_one(keys[0]))
             await eventually(
                 lambda: markers[0].with_suffix(".waiting").exists(),
                 timeout=5,
@@ -219,7 +220,9 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
                 )
             assert not markers[1].exists()
             markers[0].with_suffix(".release").touch()
-            await stopping
+            receipt = await stopping
+            assert receipt.stopped and receipt.exited, receipt
+            assert not receipt.forced, receipt
             assert markers[0].with_suffix(".exited").exists()
             assert markers[0].with_suffix(".second.exited").exists()
             assert not alive(pid)
@@ -244,7 +247,6 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
 
 @pytest.mark.asyncio
 async def test_management_claim_retained_during_cancelled_cleanup(tmp_path):
-    from dataclasses import replace
     from qwenpaw.app.channels.management import (
         ChannelManagementService,
         ManagementError,

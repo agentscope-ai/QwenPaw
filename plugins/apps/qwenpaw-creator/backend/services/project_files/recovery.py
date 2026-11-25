@@ -52,6 +52,7 @@ from .commit import (
     _candidate_hash,
     _review_operation_id,
     _runtime_change,
+    _runtime_path_segment,
     _update_manual_edit_buffer,
     _validate_same_round,
     is_protected_pointer,
@@ -291,6 +292,7 @@ class ProjectCommitRecoveryCoordinator:
     ) -> TransactionRecoveryOutcome:
         transaction_id = transaction_root.name
         state_before: CommitJournalState | None = None
+        inputs = None
         try:
             entry_stat = transaction_root.lstat()
             if is_link_stat(entry_stat) or not stat.S_ISDIR(
@@ -357,7 +359,45 @@ class ProjectCommitRecoveryCoordinator:
                         )
                     except Exception:  # noqa: BLE001 - unreadable snapshot
                         skip_terminal = True
-                if skip_terminal:
+                incomplete_policy = (
+                    self._incomplete_frozen_round_policy(
+                        transaction_root,
+                        runtime_root,
+                        probe_journal,
+                    )
+                    if skip_terminal
+                    else None
+                )
+                if incomplete_policy is ReviewPolicy.REQUIRE_REVIEW:
+                    # A durable review boundary still needs an actionable
+                    # decision. Propagate a failed proof as an integrity
+                    # outcome, leaving the journal and the evidence in place.
+                    inputs = self._load_inputs(
+                        project_id,
+                        runtime_root,
+                        transaction_root,
+                    )
+                elif (
+                    skip_terminal
+                    and (
+                        probe_journal.state
+                        is CommitJournalState.PROJECT_REPLACED
+                        or incomplete_policy is not None
+                    )
+                    and isinstance(probe_base, Mapping)
+                    and isinstance(probe_base.get("schema_version"), int)
+                    and 0
+                    < probe_base["schema_version"]
+                    < CURRENT_PROJECT_SCHEMA_VERSION
+                ):
+                    # The first migration and an original historical writer
+                    # can both leave a fully provable publication behind.
+                    inputs = self._verified_frozen_publication(
+                        project_id,
+                        runtime_root,
+                        transaction_root,
+                    )
+                if skip_terminal and inputs is None:
                     state_after = probe_journal.state
                     if (
                         probe_journal.state
@@ -393,7 +433,7 @@ class ProjectCommitRecoveryCoordinator:
                         detail="terminal transaction (frozen-model snapshots)",
                     )
 
-            inputs = self._load_inputs(
+            inputs = inputs or self._load_inputs(
                 project_id,
                 runtime_root,
                 transaction_root,
@@ -526,6 +566,77 @@ class ProjectCommitRecoveryCoordinator:
                 state_after=state_before,
                 detail=f"{type(exc).__name__}: {exc}",
             )
+
+    @staticmethod
+    def _incomplete_frozen_round_policy(
+        transaction_root: Path,
+        runtime_root: Path,
+        journal: ProjectCommitJournal,
+    ) -> ReviewPolicy | None:
+        if (
+            journal.state is CommitJournalState.ABORTED
+            or journal.round_id is None
+        ):
+            return None
+        round_id = _runtime_path_segment(journal.round_id)
+        transaction_round = AtomicJsonRecordStore(
+            transaction_root / "round.json",
+            ChangeRoundRecord,
+        ).read_or_none()
+        aggregate = AtomicJsonRecordStore(
+            runtime_root / "change-rounds" / round_id / "round.json",
+            ChangeRoundRecord,
+        ).read_or_none()
+        record = aggregate or transaction_round
+        if record is None:
+            return None
+        if (
+            record.round_id != round_id
+            or record.project_id != journal.project_id
+        ):
+            raise _IntegrityProblem(
+                "Frozen review Round identity conflicts with journal",
+            )
+        if transaction_round is not None and aggregate is not None:
+            _validate_same_round(aggregate, transaction_round)
+        if record.status is TransactionStatus.ACTIVE:
+            return record.review_policy
+        if record.status is TransactionStatus.PENDING_REVIEW:
+            review = (
+                runtime_root / "reviews" / f"review-{round_id}" / "review.json"
+            )
+            if (
+                journal.state is CommitJournalState.PROJECT_REPLACED
+                or not review.is_file()
+                or not (runtime_root / "state.json").is_file()
+            ):
+                return record.review_policy
+        return None
+
+    def _verified_frozen_publication(
+        self,
+        project_id: str,
+        runtime_root: Path,
+        transaction_root: Path,
+    ) -> _RecoveryInputs | None:
+        """Verify publication from frozen snapshots and the live Project authority."""
+        try:
+            inputs = self._load_inputs(
+                project_id,
+                runtime_root,
+                transaction_root,
+            )
+            if inputs.final_data is None:
+                return None
+            self._prove_current_is_published(
+                inputs,
+                self.store.read(project_id),
+            )
+        except (
+            Exception
+        ):  # Unverifiable frozen history keeps its original handling.
+            return None
+        return inputs
 
     def _load_inputs(
         self,
@@ -682,6 +793,8 @@ class ProjectCommitRecoveryCoordinator:
                 journal.diff_semantics,
                 base_data,
                 base_project,
+                candidate_data,
+                journal.touched_pointers,
             ),
             candidate_data,
         )
@@ -854,6 +967,7 @@ class ProjectCommitRecoveryCoordinator:
                     inputs.journal.diff_semantics,
                     inputs.latest_data,
                     inputs.latest_project,
+                    inputs.final_data,
                 ),
                 inputs.final_data,
             )
@@ -872,6 +986,8 @@ class ProjectCommitRecoveryCoordinator:
                 inputs.journal.diff_semantics,
                 inputs.base_data,
                 inputs.base_project,
+                inputs.candidate_data,
+                inputs.journal.touched_pointers,
             ),
             inputs.candidate_data,
         )
@@ -1440,10 +1556,50 @@ def _replace_journal(
     )
 
 
+def _writer_document(
+    project: Project,
+    writer: dict[str, Any],
+    touched_pointers: list[str],
+) -> dict[str, Any]:
+    """Reproduce the model dump of the writer that prepared these snapshots.
+
+    The final snapshot is the writer's canonical model dump. A candidate
+    predating publication has the same shape except for explicitly requested
+    removals. Only fields introduced by the other edition differ here.
+    """
+    document = project.model_dump(mode="json")
+    for field, empty in (
+        ("narrative_edges", []),
+        ("interactive_presentation", None),
+    ):
+        if field not in writer and f"/{field}" not in touched_pointers:
+            document.pop(field, None)
+        elif field not in document:
+            # A linear reader accepts only the interactive writer's empty
+            # presentation. Its validated source supplies the original shape.
+            document[field] = writer.get(field, empty)
+    if (
+        "name_source" not in writer
+        and "/name_source" not in touched_pointers
+        and "interactive_presentation" not in writer
+    ):
+        # The linear writer preceding both provenance and native audio did
+        # not serialize these fields, even inside whole-element change values.
+        document.pop("name_source", None)
+        for timeline in document["timelines"]["items"].values():
+            for element in timeline["elements_by_id"].values():
+                creation = element["creation"]
+                if creation["type"] in {"r2v", "t2v", "i2v"}:
+                    creation.pop("generate_audio", None)
+    return document
+
+
 def _diff_base_document(
     diff_semantics: int,
     base_data: dict[str, Any],
     base_project: Project,
+    writer: dict[str, Any],
+    touched_pointers: list[str],
 ) -> dict[str, Any]:
     """Base document to diff, matching the journal's recorded semantics.
 
@@ -1459,7 +1615,16 @@ def _diff_base_document(
     """
 
     if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
-        return base_project.model_dump(mode="json")
+        version = writer.get("schema_version")
+        if (
+            isinstance(version, int)
+            and version == base_data.get("schema_version")
+            and version < CURRENT_PROJECT_SCHEMA_VERSION
+        ):
+            # The historical before/after pair has one writer schema. Verify
+            # its own pointers and value hashes without inserting v10 defaults.
+            return base_data
+        return _writer_document(base_project, writer, touched_pointers)
     return base_data
 
 
@@ -1467,17 +1632,22 @@ def _diff_latest_document(
     diff_semantics: int,
     latest_data: dict[str, Any] | None,
     latest_project: Project | None,
+    writer: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Pre-publish latest document to diff; see :func:`_diff_base_document`.
 
     ``None`` when the transaction never prepared a ``latest.json`` snapshot.
     """
 
-    if latest_project is None:
+    if latest_project is None or latest_data is None:
         return None
-    if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
-        return latest_project.model_dump(mode="json")
-    return latest_data
+    return _diff_base_document(
+        diff_semantics,
+        latest_data,
+        latest_project,
+        writer,
+        [],
+    )
 
 
 def _business_changes(before: Any, after: Any) -> tuple[JsonChange, ...]:
@@ -1511,6 +1681,7 @@ def _prepared_business_changes(
                 inputs.journal.diff_semantics,
                 inputs.latest_data,
                 inputs.latest_project,
+                inputs.final_data,
             ),
             inputs.final_data,
         )
@@ -1519,6 +1690,8 @@ def _prepared_business_changes(
             inputs.journal.diff_semantics,
             inputs.base_data,
             inputs.base_project,
+            inputs.candidate_data,
+            inputs.journal.touched_pointers,
         ),
         inputs.candidate_data,
     )

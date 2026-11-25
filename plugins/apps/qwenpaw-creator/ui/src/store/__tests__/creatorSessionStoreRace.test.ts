@@ -72,6 +72,27 @@ describe("Creator Session async project/conversation isolation", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the refreshed error when an older failure arrives on the stream", async () => {
+    bind("p1", "c1");
+    const error = {
+      code: "LATEST",
+      message: "latest failure",
+      retryable: false,
+    };
+    store().ingestEvent(ev(1, "agent.run.started"));
+    installMockFetch(
+      bootstrapRoutes({ session: { lastEventSeq: 4, status: "ERROR", error } }),
+    );
+    await store().refreshSession();
+
+    const delayed = ev(2, "agent.run.failed", {
+      error: { ...error, message: "old failure" },
+    });
+    store().ingestEvent(delayed);
+    expect(store().events).toContainEqual(delayed);
+    expect(store().session).toMatchObject({ lastEventSeq: 4, error });
+  });
+
   it("drops an old send acceptance after switching projects", async () => {
     const pending = stubPending();
     bind("p1", "conversation-p1");

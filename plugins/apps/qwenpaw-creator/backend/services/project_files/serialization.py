@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from .migrations import ProjectMigrationError, migrate_project_document
-from .models import Project, R2VCreation
+from .models import LinearPresentation, Project, R2VCreation
 
 
 class CanonicalJsonError(ValueError):
@@ -164,13 +164,24 @@ def _source_document_data(value: Any, model_value: Any) -> Any:
             if isinstance(model_value, R2VCreation):
                 fields.insert(fields.index("recipe"), "shots")
                 fields.append("min_dialogue_ratio")
+            if isinstance(model_value, Project):
+                position = fields.index("assets")
+                fields[position:position] = [
+                    "narrative_edges",
+                    "interactive_presentation",
+                ]
             ordered = {
                 name: (
                     _retired_shots_data(value[name])
                     if isinstance(model_value, R2VCreation) and name == "shots"
                     else _source_document_data(
                         value[name],
-                        getattr(model_value, name, None),
+                        (
+                            LinearPresentation()
+                            if isinstance(model_value, Project)
+                            and name == "interactive_presentation"
+                            else getattr(model_value, name, None)
+                        ),
                     )
                 )
                 for name in fields

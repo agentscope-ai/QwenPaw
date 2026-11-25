@@ -221,11 +221,28 @@ def _request_fingerprint(
     timeline: Timeline,
     *,
     guidance: str,
+    legacy: bool = False,
 ) -> str:
     # Every persisted input that reaches the prompt must be covered here;
     # otherwise an edited input silently replays a stale version. The user's
     # explicit rewrite guidance is an input too — identical retries of the
     # same guidance still replay, but new guidance must reach the model.
+    project_inputs = (
+        ()
+        if legacy
+        else (
+            project.name,
+            project.description,
+            project.scenario,
+            str(
+                (
+                    project.settings.target_duration_seconds or ""
+                    if not timeline.planned_duration_seconds
+                    else ""
+                ),
+            ),
+        )
+    )
     digest = hashlib.sha256(
         "\x1f".join(
             [
@@ -234,6 +251,7 @@ def _request_fingerprint(
                 timeline.synopsis,
                 timeline.description,
                 str(timeline.planned_duration_seconds or ""),
+                *project_inputs,
                 project.strategy.creative_brief,
                 project.strategy.audience,
                 project.strategy.creative_direction,
@@ -250,17 +268,17 @@ def _request_fingerprint(
 
 
 def _existing_replay(
-    services: CreatorFileServices,
     project: Project,
-    timeline_id: str,
+    timeline: Timeline,
     fingerprint: str,
     *,
+    guidance: str,
     etag: str,
     generation: int,
 ) -> FileScriptExecutionResult | None:
     """同输入防重算：选中版本的 input_fingerprint 命中且未 stale 即复放。"""
 
-    del services
+    timeline_id = timeline.timeline_id
     slot = project.assets.artifact_slots_by_id.get(
         timeline_script_slot_id(timeline_id),
     )
@@ -269,10 +287,18 @@ def _existing_replay(
     version = project.assets.artifact_versions_by_id.get(
         slot.selected_version_id,
     )
-    if (
-        version is None
-        or version.stale
-        or version.input_fingerprint != fingerprint
+    if version is None or version.stale:
+        return None
+    # Unchanged drafts from older Creator projects retain their stored
+    # fingerprint. Normal authoring edits invalidate those selections.
+    if version.input_fingerprint != fingerprint and (
+        version.input_fingerprint
+        != _request_fingerprint(
+            project,
+            timeline,
+            guidance=guidance,
+            legacy=True,
+        )
     ):
         return None
     return FileScriptExecutionResult(
@@ -295,6 +321,7 @@ def _publish_script_version(
     idempotency_key: str,
     fingerprint: str,
     provenance_refs: list[str],
+    guidance: str,
 ) -> FileScriptExecutionResult:
     """落盘 markdown 文件并通过提交边界写回索引（commit 时全量校验）。"""
 
@@ -310,6 +337,12 @@ def _publish_script_version(
         base = services.projects.read(project_id)
         if timeline_id not in base.project.timelines.items:
             raise ValidationError(f"timeline 已不存在: {timeline_id}")
+        timeline = base.project.timelines.items[timeline_id]
+        if (
+            _request_fingerprint(base.project, timeline, guidance=guidance)
+            != fingerprint
+        ):
+            raise ValidationError("剧本生成期间创作依据已变更，旧结果未发布")
         working = base.project.model_copy(deep=True)
         version = add_script_version(
             working,
@@ -402,10 +435,10 @@ async def execute_file_script_command(
     revision = len(slot.version_ids) if slot is not None else 0
     idempotency_key = f"{idempotency_key}:{fingerprint[:16]}:r{revision}"
     replay = _existing_replay(
-        services,
         project,
-        timeline_id,
+        timeline,
         fingerprint,
+        guidance=guidance,
         etag=snapshot.etag,
         generation=snapshot.generation,
     )
@@ -455,6 +488,7 @@ async def execute_file_script_command(
         idempotency_key=idempotency_key,
         fingerprint=fingerprint,
         provenance_refs=intelligence_refs,
+        guidance=guidance,
     )
 
 

@@ -1341,7 +1341,12 @@ class FfmpegLocalMediaRunner:
             # apad references [0:a]; sources without an audio stream
             # (common for generated R2V footage) must keep the optional
             # 0:a? mapping or ffmpeg rejects the whole filtergraph.
-            has_audio = not is_still_image and self._probe_has_audio(item.path)
+            mute_audio = item.original_sound.strip().casefold() == "mute"
+            has_audio = (
+                not mute_audio
+                and not is_still_image
+                and self._probe_has_audio(item.path)
+            )
             freeze_audio = freeze_duration > 0 and has_audio
             retime_audio = item.playback_rate != 1.0 and has_audio
             placement_filter = self._placement_filter(
@@ -1393,7 +1398,9 @@ class FfmpegLocalMediaRunner:
             )
 
             # Map audio if present
-            if freeze_audio or retime_audio:
+            if mute_audio:
+                ffmpeg_args.append("-an")
+            elif freeze_audio or retime_audio:
                 ffmpeg_args.extend(["-map", "[a]"])
             else:
                 ffmpeg_args.extend(["-map", "0:a?"])
@@ -2044,7 +2051,7 @@ class FfmpegLocalMediaRunner:
                 item.original_sound.strip()
                 for item in spec.inputs
                 if item.original_sound.strip().casefold()
-                not in {"", "preserve"}
+                not in {"", "preserve", "mute"}
             },
         )
         if unsupported_original_sound:
@@ -3286,6 +3293,9 @@ def _timeline_execution(
                 original_sound=(
                     element.creation.original_sound
                     if isinstance(element.creation, EditCreation)
+                    else "mute"
+                    if getattr(element.creation, "generate_audio", True)
+                    is False
                     else "preserve"
                 ),
                 location=(
