@@ -166,10 +166,12 @@ async def test_shadow_git_creates_snapshot_with_long_ref_path(tmp_path):
     workspace = tmp_path / ("w" * max(1, 175 - len(str(tmp_path))))
     workspace.mkdir()
     (workspace / "sample.txt").write_text("before", encoding="utf-8")
+    session_id = "long-session" * 10
+    _write_session(workspace, "before", session_id=session_id)
     engine = CheckpointService(workspace)
     ref = await engine.make_snapshot(
         kind="snap",
-        session_id="long-session" * 10,
+        session_id=session_id,
         user_id=USER_ID,
         channel=CHANNEL,
         name="windows-long-path",
