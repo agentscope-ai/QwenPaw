@@ -44,7 +44,7 @@ from ..utils.system_info import summarize_python_environment
 from .base_path import (
     BasePathMiddleware,
     ConsoleIndexResponse,
-    normalize_base_path,
+    initialize_server_base_path,
 )
 from .auth import (
     AuthMiddleware,
@@ -94,6 +94,7 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+_BASE_PATH = initialize_server_base_path()
 
 
 async def _shutdown_plugins(app: FastAPI) -> None:
@@ -863,8 +864,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.info("Application shutdown complete")
         startup_display.stop()
 
-
-_BASE_PATH = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
 
 app = FastAPI(
     lifespan=lifespan,

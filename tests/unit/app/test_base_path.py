@@ -55,6 +55,18 @@ def test_normalize_base_path_rejects_ambiguous_paths(value):
         normalize_base_path(value)
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["/app\tname", "/app\x1fname", "/app\x7fname", "/app\n"],
+)
+def test_normalize_base_path_rejects_control_characters(value):
+    with pytest.raises(
+        ValueError,
+        match="QWENPAW_BASE_PATH.*control characters",
+    ):
+        normalize_base_path(value)
+
+
 def test_forwarding_binding_preserves_optional_base_path():
     fields = {
         "route_query_key": "_qp_endpoint",
@@ -259,3 +271,53 @@ def test_production_app_serves_api_console_and_assets_below_base_path(
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_saved_base_path_keeps_agent_calls_aligned_until_restart(tmp_path):
+    env = {
+        **os.environ,
+        "QWENPAW_BASE_PATH": "/current",
+        "QWENPAW_WORKING_DIR": str(tmp_path / "work"),
+        "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
+        "QWENPAW_AUTH_ENABLED": "false",
+        "QWENPAW_TELEMETRY_DISABLED": "1",
+    }
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        from urllib.parse import urlsplit
+
+        from fastapi.testclient import TestClient
+        from qwenpaw.app._app import app
+        from qwenpaw.agents.tools.agent_management import resolve_agent_api_endpoint
+        from qwenpaw.browser.control_link.chrome.ws_handler import resolve_default_ws_url
+
+        client = TestClient(app)
+        active, inactive = sys.argv[1:]
+        if active == '/current':
+            response = client.patch(
+                '/current/api/envs', json={'QWENPAW_BASE_PATH': '/next'},
+            )
+            assert response.status_code == 200, response.text
+            assert {'key': 'QWENPAW_BASE_PATH', 'value': '/next'} in response.json()
+
+        assert os.environ['QWENPAW_BASE_PATH'] == active
+        agent_api = urlsplit(resolve_agent_api_endpoint()).path
+        assert agent_api == f'{active}/api', agent_api
+        assert client.get(f'{agent_api}/version').status_code == 200
+        assert client.get(f'{inactive}/api/version').status_code == 404
+        bridge_path = urlsplit(resolve_default_ws_url()).path
+        assert bridge_path == f'{active}/api/ws/chrome', bridge_path
+        """,
+    )
+    for active, inactive in [("/current", "/next"), ("/next", "/current")]:
+        result = subprocess.run(
+            [sys.executable, "-c", script, active, inactive],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr

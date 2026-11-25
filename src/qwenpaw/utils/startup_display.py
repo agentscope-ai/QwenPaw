@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Fancy startup display utilities using rich."""
 import logging
-import os
 from typing import Optional, Tuple, cast
 
 from rich import box
@@ -19,7 +18,7 @@ from rich.progress import (
 )
 from rich.tree import Tree
 
-from ..app.base_path import normalize_base_path
+from ..app.base_path import get_runtime_base_path
 
 
 def _safe_print(console: Console, *args, **kwargs) -> None:
@@ -262,7 +261,7 @@ def _build_startup_panel(
     )
     if api_info:
         host, port = api_info
-        base_path = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+        base_path = get_runtime_base_path()
         url = f"http://{host}:{port}{base_path}"
         tree.add(
             f"[dim]Address:[/dim] [blue underline]{url}[/blue underline]",

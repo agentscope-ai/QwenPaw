@@ -6,7 +6,7 @@ Persistence strategy (two layers):
 1. **envs.json** – canonical store, survives process restarts.
 2. **os.environ** – injected into the current Python process so that
    ``os.getenv()`` and child subprocesses (``subprocess.run``, etc.)
-   can read them immediately.
+   can read them immediately, except for settings applied only at startup.
 """
 from __future__ import annotations
 
@@ -167,11 +167,18 @@ def _sync_environ(
     old: dict[str, str],
     new: dict[str, str],
 ) -> None:
-    """Synchronise ``os.environ``: set *new*, remove stale *old*."""
+    """Sync live variables without changing the serving process's mount."""
     for key, old_value in old.items():
+        if env_key_identity(key) == _BASE_PATH_ENV:
+            continue
         if key not in new and os.environ.get(key) == old_value:
             _remove_from_environ(key)
-    _apply_to_environ(new, overwrite=True)
+    live = {
+        key: value
+        for key, value in new.items()
+        if env_key_identity(key) != _BASE_PATH_ENV
+    }
+    _apply_to_environ(live, overwrite=True)
 
 
 # ------------------------------------------------------------------
@@ -307,7 +314,7 @@ def save_envs(
     envs: dict[str, str],
     path: Optional[Path] = None,
 ) -> None:
-    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
+    """Write encrypted envs.json and sync live vars to ``os.environ``."""
     path, migrate_legacy = _resolve_envs_path(path)
     with get_sync_path_lock(path):
         if migrate_legacy:

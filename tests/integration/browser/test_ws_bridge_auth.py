@@ -17,11 +17,12 @@ from qwenpaw.browser.control_link.chrome.bridge import NMBridge
     ("base_path", "expected_path"),
     [("/app", "/app"), ("/my console", "/my%20console")],
 )
-def test_default_ws_url_includes_runtime_base_path(
+def test_standalone_ws_url_uses_configured_base_path(
     monkeypatch,
     base_path: str,
     expected_path: str,
 ) -> None:
+    monkeypatch.setattr("qwenpaw.app.base_path._server_base_path", None)
     monkeypatch.setattr(
         "qwenpaw.config.utils.read_last_api",
         lambda: ("127.0.0.1", 8088),
@@ -73,7 +74,7 @@ def test_nm_bridge_accepts_correct_token_below_base_path(
     app = FastAPI()
     app.add_middleware(BasePathMiddleware, base_path=base_path)
     app.include_router(ws_handler.ws_router, prefix="/api")
-    monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
+    monkeypatch.setattr("qwenpaw.app.base_path._server_base_path", base_path)
     monkeypatch.setattr(
         "qwenpaw.config.utils.read_last_api",
         lambda: ("127.0.0.1", 8088),

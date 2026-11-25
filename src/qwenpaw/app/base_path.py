@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from html import escape
 from pathlib import Path
+from unicodedata import category
 from urllib.parse import unquote
 
 from fastapi import Response
@@ -14,11 +16,18 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 _BASE_HREF_TOKEN = b'<base href="/" />'
 _BASE_PATH_JSON_TOKEN = b'window.__qpBase = "";'
+_BASE_PATH_ENV = "QWENPAW_BASE_PATH"
+_server_base_path: str | None = None
 
 
 def normalize_base_path(value: str | None) -> str:
     """Return a canonical absolute path prefix, or an empty root prefix."""
-    path = (value or "").strip()
+    raw_path = value or ""
+    if any(category(char) == "Cc" for char in raw_path):
+        raise ValueError(
+            "QWENPAW_BASE_PATH must not contain control characters",
+        )
+    path = raw_path.strip()
     if not path or path == "/":
         return ""
     if not path.startswith("/"):
@@ -39,6 +48,20 @@ def normalize_base_path(value: str | None) -> str:
     ):
         raise ValueError("QWENPAW_BASE_PATH contains an invalid path segment")
     return path
+
+
+def initialize_server_base_path() -> str:
+    """Resolve the serving process's prefix after loading startup settings."""
+    global _server_base_path  # pylint: disable=global-statement
+    _server_base_path = normalize_base_path(os.environ.get(_BASE_PATH_ENV))
+    return _server_base_path
+
+
+def get_runtime_base_path() -> str:
+    """Use the active server mount, or the environment in standalone callers."""
+    if _server_base_path is not None:
+        return _server_base_path
+    return normalize_base_path(os.environ.get(_BASE_PATH_ENV))
 
 
 class BasePathMiddleware:

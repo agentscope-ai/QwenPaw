@@ -60,22 +60,23 @@
       var target = hostRequestUrl(url);
       if (target) {
         if (input instanceof Request) {
-          if (input.bodyUsed && (!init || !("body" in init))) {
-            return Promise.reject(new TypeError("Request body is already used"));
+          var replayInit = Object.assign({}, init);
+          for (var key of [
+            "method", "headers", "mode", "credentials", "cache", "redirect",
+            "referrer", "referrerPolicy", "integrity", "keepalive", "duplex",
+            "signal",
+          ]) {
+            var option = Object.prototype.hasOwnProperty.call(replayInit, key)
+              ? replayInit[key]
+              : (init == null ? undefined : init[key]);
+            replayInit[key] = option === undefined ? input[key] : option;
           }
-          var replayInit = Object.assign(
-            {
-              method: input.method,
-              headers: input.headers,
-              duplex: input.duplex,
-            },
-            init,
-          );
-          var signal = Object.prototype.hasOwnProperty.call(replayInit, "signal")
-            ? replayInit.signal
-            : (init == null ? undefined : init.signal);
-          replayInit.signal = signal === undefined ? input.signal : signal;
-          if (!("body" in replayInit) && !input.bodyUsed && input.body !== null) {
+          var body = init == null ? undefined : init.body;
+          if (body !== undefined) {
+            replayInit.body = body;
+          } else if (input.bodyUsed) {
+            throw new TypeError("Request body is already used");
+          } else if (input.body !== null) {
             replayInit.body = await input.arrayBuffer();
           }
           input = target;

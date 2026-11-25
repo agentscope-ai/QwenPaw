@@ -162,6 +162,72 @@ def test_data_context_console_preserves_nested_base_path(page: Page) -> None:
     }
 
 
+@pytest.mark.ui_smoke
+@pytest.mark.p1
+@pytest.mark.plugins
+@pytest.mark.test_id("DATA-BASE-PATH-002")
+@pytest.mark.parametrize("prefix", ["", "/qwenpaw"], ids=["root", "mounted"])
+def test_data_context_bridge_preserves_request_options(page: Page, prefix: str):
+    origin = "https://qwenpaw.test"
+    context_path = "/api/frontend_plugin/qwenpaw-data/files/ui/dist/context-console/index.html"
+    page.route(
+        f"{origin}{prefix}{context_path}",
+        lambda route: route.fulfill(body="<html></html>", content_type="text/html"),
+    )
+    page.goto(f"{origin}{prefix}{context_path}")
+    page.evaluate(
+        """() => {
+            window.fetch = async (input, init) => {
+                const request = new Request(input, init);
+                return {
+                    url: request.url,
+                    credentials: request.credentials,
+                    redirect: request.redirect,
+                    cache: request.cache,
+                    mode: request.mode,
+                    referrerPolicy: request.referrerPolicy,
+                    integrity: request.integrity,
+                    keepalive: request.keepalive,
+                };
+            };
+        }""",
+    )
+    app_dir = Path(__file__).resolve().parents[2] / "plugins/apps/qwenpaw-data"
+    page.add_script_tag(path=app_dir / "scripts/context-console/paw-bridge.js")
+
+    preserved, overridden = page.evaluate(
+        """async () => {
+            const request = new Request('/api/qwenpaw-data/context/status?probe=1', {
+                credentials: 'omit', redirect: 'manual', cache: 'no-store',
+                mode: 'same-origin', referrerPolicy: 'no-referrer',
+                integrity: 'sha256-test', keepalive: true,
+            });
+            const init = Object.assign(Object.create({redirect: 'error'}), {
+                credentials: 'include', cache: 'reload', keepalive: false,
+                referrerPolicy: undefined,
+            });
+            return [await fetch(request), await fetch(request, init)];
+        }""",
+    )
+    assert preserved == {
+        "url": f"{origin}{prefix}/api/qwenpaw-data/context/status?probe=1",
+        "credentials": "omit",
+        "redirect": "manual",
+        "cache": "no-store",
+        "mode": "same-origin",
+        "referrerPolicy": "no-referrer",
+        "integrity": "sha256-test",
+        "keepalive": True,
+    }
+    assert overridden == {
+        **preserved,
+        "credentials": "include",
+        "redirect": "error",
+        "cache": "reload",
+        "keepalive": False,
+    }
+
+
 # ============================================================================
 # PLUGIN-001 P0 — Plugin Manager page loads
 # ============================================================================

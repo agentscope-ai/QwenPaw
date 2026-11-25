@@ -41,8 +41,9 @@ def test_startup_display_renders_progress_on_terminal() -> None:
         display.stop()
 
 
-def test_startup_display_includes_runtime_base_path(monkeypatch) -> None:
-    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+def test_startup_display_uses_active_base_path(monkeypatch) -> None:
+    monkeypatch.setattr("qwenpaw.app.base_path._server_base_path", "/app")
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/next")
     output = StringIO()
     Console(file=output, color_system=None, width=100).print(
         _build_startup_panel(

@@ -39,12 +39,13 @@ set the runtime base path before starting QwenPaw:
 QWENPAW_BASE_PATH=/qwenpaw qwenpaw app
 ```
 
-The prefix must be an absolute URL path without a query or fragment. Nested
-prefixes such as `/apps/qwenpaw` are supported. Use decoded path segments, not
-percent-encoded values such as `/apps/%71wenpaw`. Leave it unset or set it to `/`
-for the existing root and `/console` behavior. The same runtime setting covers
-SPA routes, static assets, API requests, and WebSockets; no frontend rebuild is
-required.
+The prefix must be an absolute URL path without a query, fragment, or control
+characters. Nested prefixes such as `/apps/qwenpaw` are supported. Use decoded
+path segments, not percent-encoded values such as `/apps/%71wenpaw`. Leave it
+unset or set it to `/` for the existing root and `/console` behavior. The same
+runtime setting covers SPA routes, static assets, API requests, and WebSockets;
+no frontend rebuild is required. Changes saved in the Console's environment
+settings take effect after restarting QwenPaw.
 
 Configure the proxy to preserve the prefix when forwarding requests. Do not use
 a path-stripping proxy directive. For example, with Caddy:
