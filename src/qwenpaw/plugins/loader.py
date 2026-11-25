@@ -714,7 +714,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 raise ProcessError("SOURCE_UNAVAILABLE")
             yield record
 
-    def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
+    def discover_plugins(
+        self,
+        include_uninstalled=False,
+    ) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
 
         Returns:
@@ -724,6 +727,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             discover_plugins(
                 self.plugin_dirs,
                 load_manifest=self._load_manifest,
+                include_uninstalled=include_uninstalled,
             ).plugins,
         )
 
@@ -789,12 +793,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             registration,
             attach=False,
         ) as token:
-            snapshot = await self.lifecycle.prepare_backend(
-                registration,
-                allow_install=allow_install,
-                probe=False,
-            )
-            await self._admit_dependencies(registration, token, snapshot)
+            try:
+                snapshot = await self.lifecycle.prepare_backend(
+                    registration,
+                    allow_install=allow_install,
+                    probe=False,
+                )
+                await self._admit_dependencies(registration, token, snapshot)
+            except RuntimeError as exc:
+                # Install and repair retain the entry that requested a replacement.
+                exc.dependency_entry = "backend"
+                raise
 
     # Early decisions preserve boot/check-only and shared installation safety.
     # pylint: disable-next=too-many-return-statements
@@ -1400,6 +1409,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         wheel_tags=wheel_tags,
                         dependency_context=context if frozen else None,
                         installer_identity=installer_identity,
+                        entry="backend",
                     )
                 if frozen:
                     await self._publish_dependency_site(
@@ -1435,6 +1445,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         wheel_tags=None,
         dependency_context=None,
         installer_identity=None,
+        entry=None,
     ):
         """Build/stage wheels; the shared gate owns actual package writes."""
         async with self._dependency_install_scope(
@@ -1608,7 +1619,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
                 origin = Path(source_path or spec.code_root)
                 if await run_sync_io((origin / "plugin.json").is_file):
-                    binding = await manager._binding(origin)
+                    binding = await manager._binding(origin, entry)
                     candidates = await manager._consumer_candidates(
                         binding,
                         snapshot,
@@ -1793,6 +1804,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         origin,
                         force=force,
                         prepared=prepared,
+                        entry=entry,
                     )
                     raise DependencyUpgradeRequired(operation)
 
@@ -2631,6 +2643,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     (manifest, path)
                     for manifest, path in await run_sync_io(
                         self.discover_plugins,
+                        include_uninstalled=True,
                     )
                     if manifest.id == plugin_id
                 ),
@@ -2739,8 +2752,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """
         from ..utils.io_utils import run_sync_io
 
+        from .settings import is_plugin_enabled, read_plugin_intent
+
         await self._recover_startup_transactions()
-        discovered = await run_sync_io(self.discover_plugins)
+        discovered = await run_sync_io(
+            self.discover_plugins,
+            include_uninstalled=True,
+        )
 
         for manifest, plugin_dir in discovered:
             if (
@@ -2748,22 +2766,21 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 or manifest.id in exclude
             ):
                 continue
-            from .settings import (
-                is_plugin_enabled,
-                read_plugin_intent,
-            )
-
-            try:
-                if read_plugin_intent(
-                    manifest.id,
-                    plugins_dir=self.plugin_dirs[0],
-                ):
-                    continue
-            except (OSError, ValueError):
-                logger.warning("Invalid plugin intent; skipping plugin")
-                continue
             async with self.plugin_lifecycle(manifest.id):
                 if manifest.id in self._loaded_plugins:
+                    continue
+                try:
+                    if await run_sync_io(
+                        read_plugin_intent,
+                        manifest.id,
+                        plugins_dir=self.plugin_dirs[0],
+                    ):
+                        continue
+                except (OSError, ValueError):
+                    logger.warning(
+                        "Invalid uninstall intent for '%s'",
+                        manifest.id,
+                    )
                     continue
                 self.registry.remember_harness_manifest(
                     manifest.id,
@@ -5351,7 +5368,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         source_path = self._find_installed_plugin_dir(plugin_id)
         if source_path is None:
-            discovered = await asyncio.to_thread(self.discover_plugins)
+            discovered = await asyncio.to_thread(
+                self.discover_plugins,
+                include_uninstalled=True,
+            )
             source_path = next(
                 (
                     path

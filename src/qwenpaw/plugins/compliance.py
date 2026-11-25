@@ -577,24 +577,9 @@ def check_plugin(directory: str | Path) -> CheckReport:
         if entry and not (directory / entry).is_file():
             raise ValueError("Declared backend entry does not exist")
         if manifest.get("type") == "channel":
-            from .channel_workers import ChannelDefinition
-            from .channel_adapter import _contained_file
             from ._channel_check import check_channel_package
 
-            descriptor_entry = (manifest.get("entry") or {}).get("descriptor")
-            if not isinstance(descriptor_entry, str):
-                raise ValueError("Static channel entry requires a descriptor")
-            definition = ChannelDefinition.load(
-                _contained_file(directory, descriptor_entry),
-            )
-            findings.extend(
-                check_channel_package(
-                    directory,
-                    definition,
-                    descriptor_entry=descriptor_entry,
-                    declaration=manifest.get("sdk") or {},
-                ),
-            )
+            findings.extend(check_channel_package(directory, parsed_manifest))
     except (
         OSError,
         ValueError,

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from typing import Optional
 
 import click
@@ -107,11 +108,10 @@ def configure_provider_api_key_interactive(
     provider_id: str | None = None,
 ) -> str:
     """Interactively configure a provider's API key. Returns provider_id."""
-    from .http import explicit_runtime_url
-    from .plugin_resources import plugin_provider_url
+    from .http import selected_runtime_url
 
     prompt = "Select provider to configure API key:"
-    target = explicit_runtime_url(click.get_current_context(silent=True))
+    target = selected_runtime_url(click.get_current_context(silent=True))
     if target is not None:
         return _configure_runtime_provider(target, provider_id, prompt)
 
@@ -125,9 +125,6 @@ def configure_provider_api_key_interactive(
             provider_identity_key(provider_id),
         )
         provider = saved
-    target = plugin_provider_url(manager, provider_id, saved)
-    if target is not None:
-        return _configure_runtime_provider(target, provider_id, prompt)
     if provider is None:
         click.echo(
             click.style(
@@ -159,9 +156,7 @@ def configure_provider_api_key_interactive(
 
 
 def _configure_runtime_provider(target, provider_id, prompt):
-    from .plugin_resources import provider_api
-
-    with provider_api(target) as api:
+    with _provider_api(target) as api:
         providers = None
         if provider_id is None:
             providers = _runtime_providers(api)
@@ -191,12 +186,30 @@ def _configure_runtime_provider(target, provider_id, prompt):
     return provider_id
 
 
-def _model_setup_api():
-    from .http import explicit_runtime_url
-    from .plugin_resources import provider_api
+@contextmanager
+def _provider_api(target):
+    from .http import client
 
-    return provider_api(
-        explicit_runtime_url(click.get_current_context(silent=True)),
+    if target is None:
+        yield None
+        return
+
+    import httpx
+
+    try:
+        with client(target) as api:
+            yield api
+    except httpx.HTTPError as exc:
+        raise click.ClickException(
+            f"Cannot access provider on {target}: {exc}",
+        ) from exc
+
+
+def _model_setup_api():
+    from .http import selected_runtime_url
+
+    return _provider_api(
+        selected_runtime_url(click.get_current_context(silent=True)),
     )
 
 
@@ -324,12 +337,13 @@ def _prompt_add_models(provider_id, defn, api):
 
 
 def _add_setup_model(provider_id, model, api):
-    from .plugin_resources import add_provider_model, post_provider_model
-
     if api is None:
-        add_provider_model(_manager(), provider_id, model)
+        asyncio.run(_manager().add_model_to_provider(provider_id, model))
     else:
-        post_provider_model(api, provider_id, model)
+        api.post(
+            f"models/{provider_identity_key(provider_id)}/models",
+            json=model.model_dump(mode="json", exclude_unset=True),
+        ).raise_for_status()
 
 
 def _pick_model_from_list(
@@ -737,7 +751,6 @@ def remove_provider_cmd(provider_id: str, yes: bool) -> None:
 @click.option("--model-name", "-n", required=True, help="Model display name")
 def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
     """Add a model to any provider (built-in or custom)."""
-    manager = _manager()
     # Prevent manual model addition for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -750,16 +763,12 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
         raise SystemExit(1)
 
     try:
-        provider = manager.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found.")
-        from .plugin_resources import add_provider_model
-
-        add_provider_model(
-            manager,
-            provider_id,
-            ModelInfo(id=model_id, name=model_name),
-        )
+        with _model_setup_api() as api:
+            _add_setup_model(
+                provider_id,
+                ModelInfo(id=model_id, name=model_name),
+                api,
+            )
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -773,7 +782,6 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
 @click.option("--model-id", "-m", required=True, help="Model identifier")
 def remove_model_cmd(provider_id: str, model_id: str) -> None:
     """Remove a user-added model from any provider."""
-    manager = _manager()
     # Prevent manual model removal for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -786,12 +794,21 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         raise SystemExit(1)
 
     try:
-        provider = manager.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found.")
-        from .plugin_resources import delete_provider_model
+        with _model_setup_api() as api:
+            if api is None:
+                asyncio.run(
+                    _manager().delete_model_from_provider(
+                        provider_id,
+                        model_id,
+                    ),
+                )
+            else:
+                from urllib.parse import quote
 
-        delete_provider_model(manager, provider_id, model_id)
+                api.delete(
+                    f"models/{provider_identity_key(provider_id)}/models/"
+                    f"{quote(model_id, safe='')}",
+                ).raise_for_status()
         click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))

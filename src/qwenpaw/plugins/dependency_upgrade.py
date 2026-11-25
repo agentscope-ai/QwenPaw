@@ -317,6 +317,7 @@ async def stage_dependency_refusal(loader, source_path, error, *, force=False):
     operation = await dependency_upgrades(loader).stage(
         source_path,
         force=force,
+        entry=getattr(error, "dependency_entry", None),
     )
     raise DependencyUpgradeRequired(operation) from error
 
@@ -448,7 +449,7 @@ class DependencyUpgradeManager:
                 shutil.rmtree(directory / name, ignore_errors=True)
             return self._public(operation)
 
-    async def _binding(self, source):
+    async def _binding(self, source, entry=None):
         _, manifest = await run_sync_io(
             self.loader.read_source_manifest,
             source,
@@ -459,7 +460,9 @@ class DependencyUpgradeManager:
         if not compatible:
             _refuse("DEPENDENCY_PLAN_UNVERIFIED", message)
         return await run_sync_io(
-            self.loader.backend_resolver.resolve,
+            self.loader.backend_resolver.resolve_registration
+            if entry == "backend"
+            else self.loader.backend_resolver.resolve,
             source,
             manifest,
         )
@@ -663,26 +666,36 @@ class DependencyUpgradeManager:
 
     async def _consumer_candidates(self, binding, snapshot):
         """Cheap declarations and current coordination roots, never full audits."""
-        from .execution_backend import BackendBinding
-
         result = []
+        resolver = self.loader.backend_resolver
         for manifest, source in await run_sync_io(
             self.loader.discover_plugins,
         ):
             if manifest.id == binding.description.manifest.id:
                 continue
             try:
-                backend = self.loader.backend_resolver.select(manifest)
-                describe = getattr(
-                    backend,
-                    "describe_candidate",
-                    backend.describe,
+                entries = await run_sync_io(
+                    resolver.describe_candidates,
+                    source,
+                    manifest,
                 )
-                description = await run_sync_io(describe, source, manifest)
-                prepared = await backend.prepare_dependency_targets(
-                    description,
-                )
-                prepared.validate()
+                for candidate in entries:
+                    prepared = (
+                        await candidate.backend.prepare_dependency_targets(
+                            candidate.description,
+                        )
+                    )
+                    prepared.validate()
+                    result.append(
+                        {
+                            "binding": candidate,
+                            "prepared": prepared,
+                            "plugin_id": manifest.id,
+                            "source": source,
+                            "requirements": candidate.description.requirements,
+                            "sites": tuple(map(str, prepared.targets)),
+                        },
+                    )
             except (RuntimeError, ValueError, OSError):
                 result.append(
                     {
@@ -693,17 +706,6 @@ class DependencyUpgradeManager:
                         "risk": f"{manifest.id}: inactive dependency environment unavailable; verify before enabling.",
                     },
                 )
-                continue
-            result.append(
-                {
-                    "binding": BackendBinding(backend, description),
-                    "prepared": prepared,
-                    "plugin_id": manifest.id,
-                    "source": source,
-                    "requirements": description.requirements,
-                    "sites": tuple(map(str, prepared.targets)),
-                },
-            )
         return result
 
     @staticmethod
@@ -775,6 +777,7 @@ class DependencyUpgradeManager:
             return await self._legacy_prepare_consumer_targets()
         binding = await self._binding(
             self._directory(operation["id"]) / "source",
+            operation.get("dependency_entry"),
         )
         candidates = await self._consumer_candidates(binding, snapshot)
         targets = [
@@ -892,10 +895,11 @@ class DependencyUpgradeManager:
         for row in candidates:
             if row.get("risk"):
                 continue
+            candidate = row["binding"]
             other = await run_sync_io(
-                self.loader.backend_resolver.resolve,
+                candidate.refresh,
                 row["source"],
-                row["binding"].description.manifest,
+                candidate.description.manifest,
             )
             row["prepared"].validate()
             key = (type(other.backend), row["sites"])
@@ -918,7 +922,7 @@ class DependencyUpgradeManager:
                             _source_hash,
                             row["source"],
                         ),
-                        "requirements": list(other.description.requirements),
+                        "requirements": list(row["requirements"]),
                         "environment": observed.to_mapping(),
                     },
                 )
@@ -1469,9 +1473,9 @@ class DependencyUpgradeManager:
             str(constraints),
             "-r",
             str(resolver),
-            "-r",
-            str(requirements_path),
         ]
+        if requirements_path is not None and requirements_path.is_file():
+            command.extend(["-r", str(requirements_path)])
         return fingerprint, command
 
     @classmethod
@@ -1674,12 +1678,52 @@ class DependencyUpgradeManager:
             authenticate_plan(directory, operation, seal=True)
         cls._save(directory, operation)
 
-    async def stage(self, source_path, force=False, *, prepared=None):
+    async def stage(
+        self,
+        source_path,
+        force=False,
+        *,
+        prepared=None,
+        entry=None,
+    ):
         """Prepare a plan under the shared install timeout and cancellation."""
         async with self.loader._dependency_install_scope(Path(source_path)):
-            return await self._stage(source_path, force, prepared=prepared)
+            return await self._stage(source_path, force, prepared, entry)
 
-    async def _stage(self, source_path, force=False, *, prepared=None):
+    @staticmethod
+    async def _installation_requirements(runtime, selected, target):
+        """Include each entry whose packages will share the installation site."""
+        from .dependency_requirements import host_requirements
+
+        registration = runtime.registration
+        public = registration or (
+            runtime
+            if not runtime.description.manifest.entry.descriptor
+            else None
+        )
+        requirements = []
+        for binding in (runtime, registration):
+            if binding is None:
+                continue
+            if binding is not selected:
+                roots = await binding.backend.prepare_dependency_targets(
+                    binding.description,
+                )
+                roots.validate()
+                if target not in roots.targets:
+                    continue
+            description = binding.description
+            requirements.extend(description.requirements)
+            if (
+                binding is public
+                and description.manifest.optional_dependencies
+            ):
+                requirements.extend(
+                    host_requirements(description.manifest),
+                )
+        return requirements
+
+    async def _stage(self, source_path, force, prepared, entry):
         operation_id = uuid4().hex
         directory = self.root / operation_id
         try:
@@ -1689,18 +1733,23 @@ class DependencyUpgradeManager:
                 source_path,
                 directory,
             )
-            binding = await self._binding(source)
-            plugin_id = binding.description.manifest.id
-            parsed = await run_sync_io(
-                parse_requirements_file,
-                binding.description.requirements_path,
+            runtime = await self._binding(source)
+            registration = runtime.registration
+            binding = (
+                registration
+                if entry == "backend" and registration
+                else runtime
             )
-            if parsed.unsupported:
-                _refuse(
-                    "DEPENDENCY_PLAN_UNVERIFIED",
-                    "Unsupported dependency declarations: "
-                    + ", ".join(parsed.unsupported),
-                )
+            plugin_id = binding.description.manifest.id
+            path = binding.description.requirements_path
+            if path is not None:
+                parsed = await run_sync_io(parse_requirements_file, path)
+                if parsed.unsupported:
+                    _refuse(
+                        "DEPENDENCY_PLAN_UNVERIFIED",
+                        "Unsupported dependency declarations: "
+                        + ", ".join(parsed.unsupported),
+                    )
             snapshot = await binding.backend.audit_dependencies(
                 binding.description,
             )
@@ -1721,11 +1770,16 @@ class DependencyUpgradeManager:
                     "DEPENDENCY_PLAN_UNVERIFIED",
                     "The dependency installation site is ambiguous.",
                 )
+            declared = await self._installation_requirements(
+                runtime,
+                binding,
+                target,
+            )
             wheel_tags = await run_sync_io(context.inspect_executor)
             requirements = await run_sync_io(
                 _resolution_requirements,
                 snapshot,
-                binding.description.requirements,
+                declared,
             )
             excluded_tokens = ()
             if prepared is not None:
@@ -1830,7 +1884,7 @@ class DependencyUpgradeManager:
                 expanded = await run_sync_io(
                     _resolution_requirements,
                     snapshot,
-                    binding.description.requirements,
+                    declared,
                     proposed=inventory,
                     changed=changed,
                 )
@@ -1911,6 +1965,7 @@ class DependencyUpgradeManager:
             operation = {
                 "id": operation_id,
                 "policy_version": 3,
+                "dependency_entry": entry,
                 "plugin_id": plugin_id,
                 "status": "needs_confirmation",
                 "changes": changes,
@@ -2210,7 +2265,10 @@ async def continue_operation(directory, *, preflight=False):
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: retained source changed.",
             )
-        binding = await manager._binding(source)
+        binding = await manager._binding(
+            source,
+            operation.get("dependency_entry"),
+        )
         observed = await binding.backend.audit_dependencies(
             binding.description,
         )

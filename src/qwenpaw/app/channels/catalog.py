@@ -142,6 +142,7 @@ def _catalog_files():
         bundled_channel_description,
         bundled_channel_versions,
     )
+    from ...plugins.settings import read_plugin_intent
 
     descriptions = {}
     installed = {}
@@ -159,10 +160,14 @@ def _catalog_files():
         except (OSError, ValueError, KeyError) as exc:
             descriptions[plugin_id] = str(exc)
         manifest_path = plugins_dir / plugin_id / "plugin.json"
-        installed[plugin_id] = manifest_path.is_file()
-        if not installed[plugin_id]:
-            continue
+        installed[plugin_id] = False
         try:
+            if not manifest_path.is_file() or read_plugin_intent(
+                plugin_id,
+                plugins_dir=plugins_dir,
+            ):
+                continue
+            installed[plugin_id] = True
             if version_error is not None:
                 raise ValueError(version_error)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

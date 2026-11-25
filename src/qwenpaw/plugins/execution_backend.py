@@ -383,6 +383,30 @@ class BackendResolver:
             else None,
         )
 
+    def describe_candidates(self, source_path, manifest):
+        """Read the package declarations for each installed execution environment."""
+        backend = self.select(manifest)
+        if manifest.entry.descriptor:
+            describe = getattr(backend, "describe_candidate", backend.describe)
+            driver = BackendBinding(backend, describe(source_path, manifest))
+            if not manifest.entry.backend:
+                return (driver,)
+            return (
+                driver,
+                self._installed_registration(source_path, manifest),
+            )
+        return (self._installed_registration(source_path, manifest),)
+
+    def _installed_registration(self, source_path, manifest):
+        backend = self._python_backend
+        requires = manifest.registration_dependency_groups
+        if not requires:
+            return self.resolve_registration(source_path, manifest)
+        return BackendBinding(
+            backend,
+            backend.describe_requirements(source_path, manifest, requires),
+        )
+
     def select(self, manifest):
         """Select the trusted adapter without hashing unrelated source trees."""
         backend = self._python_backend

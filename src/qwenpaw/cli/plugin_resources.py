@@ -1,80 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Discover terminal resources and route provider updates to their owner."""
+"""Discover plugin resources for built-in terminal commands."""
 
-import asyncio
-from contextlib import contextmanager
 
 import click
-
-
-def plugin_provider_url(manager, provider_id, saved=None):
-    """Find the runtime responsible for a registered or saved plugin provider."""
-    from ..providers.provider import provider_identity_key
-    from .http import selected_runtime_url
-
-    provider_key = provider_identity_key(provider_id)
-    is_plugin = (
-        provider_key in getattr(manager, "plugin_providers", {})
-        or saved is not None
-    )
-    return (
-        selected_runtime_url(click.get_current_context(silent=True))
-        if is_plugin
-        else None
-    )
-
-
-@contextmanager
-def provider_api(target):
-    from .http import client
-
-    if target is None:
-        yield None
-        return
-
-    import httpx
-
-    try:
-        with client(target) as api:
-            yield api
-    except httpx.HTTPError as exc:
-        raise click.ClickException(
-            f"Cannot access provider on {target}: {exc}",
-        ) from exc
-
-
-def add_provider_model(manager, provider_id, model):
-    """Submit a model addition to the provider owner."""
-    with provider_api(plugin_provider_url(manager, provider_id)) as api:
-        if api is not None:
-            post_provider_model(api, provider_id, model)
-            return
-    asyncio.run(manager.add_model_to_provider(provider_id, model))
-
-
-def post_provider_model(api, provider_id, model):
-    from ..providers.provider import provider_identity_key
-
-    api.post(
-        f"models/{provider_identity_key(provider_id)}/models",
-        json=model.model_dump(mode="json", exclude_unset=True),
-    ).raise_for_status()
-
-
-def delete_provider_model(manager, provider_id, model_id):
-    """Submit a model removal to the provider owner."""
-    from urllib.parse import quote
-    from ..providers.provider import provider_identity_key
-
-    with provider_api(plugin_provider_url(manager, provider_id)) as api:
-        if api is not None:
-            response = api.delete(
-                f"models/{provider_identity_key(provider_id)}/models/"
-                f"{quote(model_id, safe='')}",
-            )
-            response.raise_for_status()
-            return
-    asyncio.run(manager.delete_model_from_provider(provider_id, model_id))
 
 
 def ensure_resources(capability):

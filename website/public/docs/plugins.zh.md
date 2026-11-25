@@ -2764,6 +2764,13 @@ pydantic>=2.0.0
 互相冲突的约束会使检查或依赖解析失败。建议只在一处维护同一项依赖，避免重复声明。
 这里的 `dependencies` 指 Python 包，不是其他插件 ID 或运行时服务依赖。
 
+对于独立进程运行的频道，schema v3 允许 driver 和 CLI 共用一份包声明。
+在 `plugin.json` 的 `sdk.capabilities` 加入 `dependencies`，并声明
+`"optional_dependencies": {"transport": ["example-sdk>=2"]}`。
+在 `channel.json` 设置 `"schema_version": 3` 和 `"requires": ["transport"]`。
+发送消息的 CLI 也可以声明 `"requires": ["transport"]`。只读配置的状态命令可以省略该字段。
+用到 SDK 的代码再导入它。已有的 v2 频道继续从 `requirements.txt` 读取 driver 依赖。
+
 显式安装、更新或修复时，框架检查并安装缺失依赖。开机只检查，不自动安装；缺失依赖会
 使该插件加载失败。可调用 `POST /api/plugins/{plugin_id}/repair-dependencies` 修复；
 停用的插件修复后仍保持停用。与受保护宿主包冲突的版本会被拒绝，需先解决环境冲突。

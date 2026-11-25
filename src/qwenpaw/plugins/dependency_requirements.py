@@ -49,15 +49,9 @@ def resolve_optional_dependencies(groups, requires) -> tuple[str, ...]:
 
 def host_requirements(manifest) -> tuple[str, ...]:
     """Select packages for declared host contributions during installation."""
-    requires = []
-    for declaration in (
-        *manifest.get("cli", ()),
-        *manifest.get("extensions", ()),
-    ):
-        requires.extend(declaration.get("requires", ()))
     return resolve_optional_dependencies(
-        manifest.get("optional_dependencies", {}),
-        requires,
+        manifest.optional_dependencies,
+        manifest.registration_dependency_groups,
     )
 
 

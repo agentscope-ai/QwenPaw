@@ -111,10 +111,13 @@ class PluginSession:
         if key in self.records:
             return self.records[key]
         from ..plugins.discovery import read_manifest
+        from ..plugins.settings import read_plugin_intent
         from ..plugins.source_usage import source_reader
         from .plugin_cli import read_settings
 
         self.sources.enter_context(source_reader(source))
+        if read_plugin_intent(key, plugins_dir=source.parent):
+            raise click.ClickException(f"Plugin '{key}' was uninstalled")
         fresh = read_manifest(source / "plugin.json")
         if fresh != manifest:
             raise click.ClickException("Plugin source changed; retry command")

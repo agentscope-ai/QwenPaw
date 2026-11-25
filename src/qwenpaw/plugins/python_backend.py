@@ -393,7 +393,7 @@ class PythonBackend:
             from .dependency_gate import SharedDependencyError
 
             additional = (
-                host_requirements(description.manifest.model_dump(mode="json"))
+                host_requirements(description.manifest)
                 if allow_install
                 and getattr(
                     description.manifest,

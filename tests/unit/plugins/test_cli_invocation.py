@@ -51,6 +51,26 @@ def test_unreadable_plugin_does_not_block_builtin_commands(
         assert result.exit_code == 0, (result.output, result.exception)
 
 
+def test_uninstall_after_discovery_with_source_still_on_disk(tmp_path):
+    import click
+    from qwenpaw.cli.plugin_session import PluginSession
+    from qwenpaw.plugins.discovery import discover_plugins
+    from qwenpaw.plugins.settings import record_plugin_uninstall
+
+    source = tmp_path / "example"
+    source.mkdir()
+    (source / "plugin.json").write_text('{"id":"example","version":"1"}')
+    ((manifest, path),) = discover_plugins([tmp_path]).plugins
+    record_plugin_uninstall(manifest.id, plugins_dir=tmp_path)
+    assert not discover_plugins([tmp_path]).plugins
+    session = PluginSession()
+    try:
+        with pytest.raises(click.ClickException, match="was uninstalled"):
+            session.load_registration(manifest, path)
+    finally:
+        session.close()
+
+
 def test_local_commands_use_plugin_ownership_and_existing_model_files(
     tmp_path,
     monkeypatch,

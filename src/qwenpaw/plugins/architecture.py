@@ -216,6 +216,17 @@ class PluginManifest(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 
+    @property
+    def registration_dependency_groups(self) -> tuple[str, ...]:
+        """Groups installed for this plugin's public CLI and extensions."""
+        return tuple(
+            dict.fromkeys(
+                name
+                for declaration in (*self.cli, *self.extensions)
+                for name in declaration.requires
+            ),
+        )
+
     def declares_extension(self, point: str) -> bool:
         """Select a host contract without importing contribution code."""
         return any(item.point == point for item in self.extensions)

@@ -1024,9 +1024,7 @@ def test_channel_install_resolves_only_declared_host_capability_groups(
     descriptor = json.loads(
         (ROOT / "plugins/channel/feishu/channel.json").read_text(),
     )
-    descriptor.pop("requirements_file")
     descriptor.update(
-        schema_version=3,
         requires=[],
         channel_key="extension-contract",
         entrypoint={

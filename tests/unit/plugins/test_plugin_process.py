@@ -1389,6 +1389,7 @@ async def test_shared_upgrade_resolves_paired_dependencies(
     scenario,
 ):
     import hashlib
+    import json
 
     host = await Host.create(tmp_path, monkeypatch)
     wheels = tmp_path / "wheels"
@@ -1462,7 +1463,16 @@ async def test_shared_upgrade_resolves_paired_dependencies(
             with zipfile.ZipFile(old_tool) as archive:
                 archive.extractall(host.site)
             goal = "paired-tool>=2"
-        (source / "requirements.txt").write_text(goal + "\n")
+        public_entry = scenario == "helper-only"
+        if public_entry:
+            manifest = json.loads((source / "plugin.json").read_text())
+            manifest["entry"]["backend"] = "main.py"
+            manifest["dependencies"] = [goal]
+            (source / "main.py").write_text("")
+            (source / "plugin.json").write_text(json.dumps(manifest))
+        (source / "requirements.txt").write_text(
+            ("sample-shared-sdk>=1" if public_entry else goal) + "\n",
+        )
 
         # Bound the observed metadata to the fixture's actual installed tree.
         async def audit(_description):
@@ -1483,6 +1493,21 @@ async def test_shared_upgrade_resolves_paired_dependencies(
             "audit_dependencies",
             audit,
         )
+        if public_entry:
+            monkeypatch.setattr(
+                host.loader._python_backend,
+                "audit_dependencies",
+                audit,
+            )
+            monkeypatch.setattr(
+                host.loader._python_backend,
+                "dependency_environment",
+                lambda _description, _snapshot: (
+                    DependencyEnvironmentContext.from_runtime(
+                        host.registry.channel_runtime,
+                    )
+                ),
+            )
         calls = []
 
         def offline(command, **kwargs):
@@ -1554,9 +1579,15 @@ async def test_shared_upgrade_resolves_paired_dependencies(
                     len(calls) == 2
                 )  # One preference failure + one hard-only solve; stage reuses wheels.
             else:
-                result = await manager.stage(source)
+                result = await manager.stage(
+                    source,
+                    entry="backend" if public_entry else None,
+                )
             assert result["status"] == "needs_confirmation"
             operation = manager._read(result["id"])
+            if public_entry:
+                assert operation["dependency_entry"] == "backend"
+                assert goal in calls[-1]
             for name in ("sample-shared-sdk", "paired-helper"):
                 assert operation["proposed"][name]["version"] == "2.0"
             assert {row["name"] for row in result["changes"]} == {
@@ -2219,6 +2250,25 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
     (site / "neighbor.txt").write_bytes(b"preserve unrelated bytes\x00")
     before, mode = digest(site), module.stat().st_mode
     source = host.artifact(sdk=True)
+    if scenario == "different_audit_order":
+        # Exercise manifest-only driver requirements through stage and apply.
+        manifest_path = source / "plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["sdk"] = {
+            "version": "1.2.0",
+            "capabilities": ["dependencies"],
+        }
+        requirements = source / "requirements.txt"
+        manifest["optional_dependencies"] = {
+            "transport": requirements.read_text().splitlines(),
+        }
+        manifest_path.write_text(json.dumps(manifest))
+        channel_path = source / "channel.json"
+        descriptor = json.loads(channel_path.read_text())
+        descriptor.pop("requirements_file")
+        descriptor.update(schema_version=3, requires=["transport"])
+        channel_path.write_text(json.dumps(descriptor))
+        requirements.unlink()
     published = tmp_path / "published-sdk"
     if broken_source:
         (source / "sample.py").write_text(

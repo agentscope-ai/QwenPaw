@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Read installed plugin sources without constructing execution services.
 
-Discovery describes files, not runtime availability. Consumers apply enabled
-settings and host-version policy before admission. Invalid manifests are
-reported independently so one broken installation does not hide its peers.
+Discovery honors persisted uninstall intent. Recovery can also inspect leftover
+sources. Consumers apply enabled settings and host-version policy. One invalid
+source produces a diagnostic while its peers remain discoverable.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Callable, Iterable
 
 from .architecture import PluginManifest
 from .sdk_version import validate_sdk
+from .settings import read_plugin_intent
 
 logger = logging.getLogger(__name__)
 PAWPORT_MARKER = ".qwenpaw-pawport.json"
@@ -64,6 +65,7 @@ def read_manifest(manifest_path: Path) -> PluginManifest:
 def discover_plugins(
     plugin_dirs: Iterable[Path],
     load_manifest: Callable[[Path], PluginManifest] = read_manifest,
+    include_uninstalled: bool = False,
 ) -> DiscoveryResult:
     """Scan direct children using the host's installed-source conventions.
 
@@ -73,6 +75,7 @@ def discover_plugins(
     """
     plugins = []
     issues = []
+    plugin_dirs = tuple(plugin_dirs)
     for directory in plugin_dirs:
         directory = Path(directory)
         try:
@@ -99,6 +102,11 @@ def discover_plugins(
                 if not manifest_path.exists():
                     continue
                 manifest = load_manifest(manifest_path)
+                if not include_uninstalled and read_plugin_intent(
+                    manifest.id,
+                    plugins_dir=plugin_dirs[0],
+                ):
+                    continue
             except Exception as exc:  # noqa: BLE001
                 issues.append(DiscoveryIssue(source, str(exc)))
                 logger.error(

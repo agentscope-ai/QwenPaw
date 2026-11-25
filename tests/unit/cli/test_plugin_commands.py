@@ -1042,6 +1042,7 @@ def test_offline_force_dependency_failure_preserves_old(
         wheel_tags=None,
         dependency_context=None,
         installer_identity=None,
+        entry=None,
     ):
         calls.append((requirements_file, plugin_id, target))
         assert requirements_file == source / "requirements.txt"

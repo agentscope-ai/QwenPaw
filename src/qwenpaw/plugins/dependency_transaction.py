@@ -42,6 +42,7 @@ _PLAN_FIELDS = (
     "host_bundle_identity",
     "dependency_state_dir",
     "policy_version",
+    "dependency_entry",
 )
 
 
@@ -77,6 +78,7 @@ def authenticate_plan(directory, operation, *, seal=False):
                 "host_bundle_identity",
                 "dependency_state_dir",
                 "policy_version",
+                "dependency_entry",
             }
         },
         sort_keys=True,
@@ -1210,7 +1212,10 @@ async def apply_operation(manager, operation_id, wait_for_readers=False):
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: retained source changed after review.",
                 )
-            binding = await manager._binding(source)
+            binding = await manager._binding(
+                source,
+                operation.get("dependency_entry"),
+            )
             fresh = await binding.backend.audit_dependencies(
                 binding.description,
             )

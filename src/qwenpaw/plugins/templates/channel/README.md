@@ -9,7 +9,7 @@ python -m qwenpaw.plugins.check ./my-channel --runtime
 
 `--runtime` 验证真实子进程中的导入和驱动签名，执行安装与清理，不连接平台。实际生命周期可用 `PluginTestHost(root, process_channels=("example-sdk-mailbox",))`、`install()`、`start_channel()`、`send_channel()`、`stop_channel()` 和 `uninstall()` 验证。
 
-接入平台时，更改 plugin.json/channel.json 中的名称与入口，在 requirements.txt 声明正常第三方依赖：
+接入平台时，更改 plugin.json/channel.json 中的名称与入口，有第三方 SDK 时，在 plugin.json 的 sdk.capabilities 加入 `dependencies`，在 `optional_dependencies` 声明包组（如 `{"transport": ["example-sdk>=2"]}`），在 channel.json 设置 `"requires": ["transport"]`：
 
 - `start(ch)` 建立平台连接，把任务、线程、连接登记到 `ch.resources`，按实际连接状态调用 `report_status()`。
 - 平台收到消息后，构造公共 `ChannelMessage`，包含真实操作者、稳定消息编号和会话编号，调用 `await ch.receive(message)`。接受入队不等于模型处理完毕；重试继续使用原消息编号。

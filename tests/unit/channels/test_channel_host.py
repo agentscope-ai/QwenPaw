@@ -357,7 +357,7 @@ def test_channel_dependency_declarations_round_trip(version, dependency):
         / "plugins/channel/feishu/channel.json"
     )
     raw = json.loads(path.read_text())
-    raw.pop("requirements_file")
+    raw.pop("requires")
     raw.update(schema_version=version, **dependency)
     descriptor = SharedChannelDescriptor.from_mapping(raw)
     assert descriptor.to_mapping() == raw

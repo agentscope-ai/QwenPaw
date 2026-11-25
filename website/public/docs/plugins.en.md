@@ -2504,6 +2504,14 @@ the check or dependency resolution. Prefer maintaining each dependency in one
 place to avoid duplicate declarations. These are Python package dependencies,
 not other plugin IDs or runtime service dependencies.
 
+For a process-backed channel, schema v3 lets the driver and a CLI command
+share a package declaration. Add `dependencies` to `sdk.capabilities` and
+`"optional_dependencies": {"transport": ["example-sdk>=2"]}` to `plugin.json`.
+Set `"schema_version": 3` and `"requires": ["transport"]` in `channel.json`.
+A CLI command that sends messages can also declare `"requires": ["transport"]`.
+A status command that only reads configuration can omit it. Import the SDK
+in the code that uses it. Existing schema v2 drivers read `requirements.txt`.
+
 SDK and legacy plugins share the framework's dependency checks, installation, and
 post-install verification; the `sdk` declaration does not select a separate installer.
 Satisfied requirements and inapplicable environment markers need no network access.

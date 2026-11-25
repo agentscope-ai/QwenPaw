@@ -132,12 +132,16 @@ class FakeManager:
         self.activated.append((pid, model))
 
     async def add_model_to_provider(self, provider_id, model):
+        if provider_id not in self._providers:
+            raise ValueError(f"Provider '{provider_id}' not found.")
         ok, message = await self._providers[provider_id].add_model(model)
         if not ok:
             raise ValueError(message)
         self.saved.append(provider_id)
 
     async def delete_model_from_provider(self, provider_id, model_id):
+        if provider_id not in self._providers:
+            raise ValueError(f"Provider '{provider_id}' not found.")
         ok, message = await self._providers[provider_id].delete_model(model_id)
         if not ok:
             raise ValueError(message)
@@ -1131,7 +1135,7 @@ def test_config_wizard_uses_selected_app_through_activation(
                 return httpx.Response(200, json={"active_llm": None})
             assert path == "/api/models/example/config"
             return httpx.Response(200, json=provider)
-        payload = json.loads(request.content)
+        payload = json.loads(request.content) if request.content else None
         writes.append((request.method, path, payload))
         if path == "/api/models/example/models":
             provider["models"].append(payload)
@@ -1150,9 +1154,11 @@ def test_config_wizard_uses_selected_app_through_activation(
         "prompt_choice",
         lambda prompt_text, options, default: options[0],
     )
+    monkeypatch.setattr(http, "local_runtime_url", lambda: "http://selected")
+    target = [] if shared else ["--host", "selected"]
     result = CliRunner().invoke(
         cli,
-        ["--host", "selected", "models", "config"],
+        [*target, "models", "config"],
         input="http://new\ny\nremote-model\nRemote model\nn\nn\n",
     )
     assert result.exit_code == 0, (result.output, result.exception)
@@ -1169,6 +1175,13 @@ def test_config_wizard_uses_selected_app_through_activation(
             {"provider_id": pid, "model": "remote-model", "scope": "global"},
         ),
     ]
+    for args, method in (
+        (["add-model", pid, "-m", "another", "-n", "Another"], "POST"),
+        (["remove-model", pid, "-m", "another"], "DELETE"),
+    ):
+        result = CliRunner().invoke(cli, [*target, "models", *args])
+        assert result.exit_code == 0, result.exception
+        assert writes[-1][0] == method
     assert not manager.activated and not manager.saved
 
 
