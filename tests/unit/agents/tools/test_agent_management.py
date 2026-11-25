@@ -139,6 +139,58 @@ def test_build_agent_chat_request_reuses_session_id_when_provided():
     assert prefix_added is True
 
 
+def test_build_agent_chat_request_attributes_message_to_current_user(
+    monkeypatch,
+):
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_user_id",
+        lambda: "u1",
+    )
+
+    (
+        _session_id,
+        payload,
+        _prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        session_id="existing-session",
+        from_agent="bot_a",
+    )
+
+    # Issue #8078: using the caller agent id as user_id makes the console
+    # router auto-register the target session as a separate chat.
+    assert payload["user_id"] == "u1"
+
+
+def test_build_agent_chat_request_omits_user_id_without_user_context(
+    monkeypatch,
+):
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_user_id",
+        lambda: None,
+    )
+
+    (
+        _session_id,
+        payload,
+        _prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        from_agent="bot_a",
+    )
+
+    # The console router coerces an empty user_id to its default user.
+    assert payload["user_id"] == ""
+
+
 def test_list_agents_data_uses_shared_client(monkeypatch):
     fake_client = _FakeClient(
         get_response=_FakeResponse(
