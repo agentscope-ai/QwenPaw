@@ -20,6 +20,12 @@ import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
+from ..checkpoints.runtime import RUNTIME as checkpoints
+from ..plugins._identity import (
+    bind_request_runtime,
+    from_runtime,
+    request_identity,
+)
 from ..services.session_config import (
     SessionProjectDirsUnavailable,
     resolve_runtime_parameters,
@@ -75,38 +81,58 @@ class Runtime:
             )
         ctx = self._build_context(request)
         try:
-            parameters, resolved = await resolve_runtime_parameters(ctx)
-        except (
-            ValueError,
-            ConfigurationException,
-            SessionProjectDirsUnavailable,
-        ) as error:
-            envelope = Envelope(session_id=ctx.session_id)
-            async for event in envelope.error_envelope(
-                str(error),
-                "CONFIGURATION_ERROR",
-            ):
-                yield event
-            raise
-        ctx.parameters = parameters
-        ctx.agent_config = parameters.config
-        ctx.project_directories = resolved
-        provider_uses = ProviderTurn()
-        stream = self._run(ctx)
-        exhausted = object()
-        try:
-            while True:
-                with parameters.scope(), provider_uses.bind():
-                    event = await anext(stream, exhausted)
-                if event is exhausted:
-                    break
-                yield event
-        finally:
             try:
-                with parameters.scope(), provider_uses.bind():
-                    await stream.aclose()
+                await checkpoints.wait_for_query(self.workspace)
+                parameters, resolved = await resolve_runtime_parameters(ctx)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                envelope = Envelope(session_id=ctx.session_id)
+                async for event in envelope.cancel_envelope():
+                    yield event
+                raise
+            except (
+                ValueError,
+                ConfigurationException,
+                SessionProjectDirsUnavailable,
+            ) as error:
+                envelope = Envelope(session_id=ctx.session_id)
+                async for event in envelope.error_envelope(
+                    str(error),
+                    "CONFIGURATION_ERROR",
+                ):
+                    yield event
+                raise
+            ctx.parameters = parameters
+            ctx.agent_config = parameters.config
+            ctx.project_directories = resolved
+            provider_uses = ProviderTurn()
+            stream = self._run(ctx)
+            exhausted = object()
+            try:
+                while True:
+                    with (
+                        parameters.scope(),
+                        provider_uses.bind(),
+                        bind_request_runtime(ctx),
+                    ):
+                        event = await anext(stream, exhausted)
+                    if event is exhausted:
+                        break
+                    yield event
             finally:
-                await provider_uses.close()
+                try:
+                    with (
+                        parameters.scope(),
+                        provider_uses.bind(),
+                        bind_request_runtime(ctx),
+                    ):
+                        await stream.aclose()
+                finally:
+                    await provider_uses.close()
+        finally:
+            if isinstance(request, AgentRequest):
+                request._channel_control_state = (
+                    None  # pylint: disable=protected-access
+                )
 
     async def _run(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -191,7 +217,6 @@ class Runtime:
                 )
                 await record_agent_activity()
                 from ..providers.model_selection import runtime_model_context
-                from ..plugins._identity import from_runtime, request_identity
 
                 exhausted = object()
                 async with aclosing(executor.run(ctx.input_msgs)) as events:
@@ -290,23 +315,17 @@ class Runtime:
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
-            try:
-                agent = getattr(ctx, "agent", None)
-                if agent is not None and hasattr(agent, "close"):
-                    try:
-                        await agent.close()
-                    except Exception:  # pylint: disable=broad-except
-                        logger.warning(
-                            "runtime: agent.close() failed session=%s",
-                            getattr(ctx, "session_id", ""),
-                            exc_info=True,
-                        )
-                await hooks.run(Phase.FINALLY, ctx)
-            finally:
-                if isinstance(ctx.request, AgentRequest):
-                    ctx.request._channel_control_state = (
-                        None  # pylint: disable=protected-access
+            agent = getattr(ctx, "agent", None)
+            if agent is not None and hasattr(agent, "close"):
+                try:
+                    await agent.close()
+                except Exception:  # pylint: disable=broad-except
+                    logger.warning(
+                        "runtime: agent.close() failed session=%s",
+                        getattr(ctx, "session_id", ""),
+                        exc_info=True,
                     )
+            await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
 

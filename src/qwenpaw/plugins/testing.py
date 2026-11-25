@@ -619,17 +619,12 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
                 save_dir=str(path / "sessions"),
             )
             from ..hooks.session import SessionPrepareHook, SessionSaveHook
-            from ..checkpoints.hooks import CheckpointQueryGateHook
             from ..runtime.builtin_commands import (
                 collect_builtin_command_specs,
             )
 
             workspace.bootstrap_plugins(
-                builtin_hook_clses=[
-                    CheckpointQueryGateHook,
-                    SessionPrepareHook,
-                    SessionSaveHook,
-                ],
+                builtin_hook_clses=[SessionPrepareHook, SessionSaveHook],
                 builtin_command_specs=collect_builtin_command_specs(),
             )
             self._workspaces[workspace_id] = workspace

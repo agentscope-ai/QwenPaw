@@ -27,6 +27,7 @@ from ...runtime.tool_registry import ToolRegistry
 if TYPE_CHECKING:
     from ...loop.gates import StopHandlerRegistration
     from ...modes.base import AgentMode
+    from ...modes.catalog import ModeEntry
     from ...runtime.hooks import HookContext
 
 
@@ -41,7 +42,10 @@ class WorkspacePlugins:
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
-    session_modes: dict[str, str] = field(default_factory=dict, repr=False)
+    session_modes: dict[str, ModeEntry] = field(
+        default_factory=dict,
+        repr=False,
+    )
     _pending_modes: list["AgentMode"] = field(default_factory=list, repr=False)
     stop_handlers: list["StopHandlerRegistration"] = field(
         default_factory=list,

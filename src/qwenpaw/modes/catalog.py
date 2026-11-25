@@ -34,6 +34,14 @@ class ModeActivation:
         return f"/{self.command} {text}"
 
 
+@dataclass(frozen=True)
+class ModeEntry:
+    """Track whether a session should retry its automatic mode command."""
+
+    mode_id: str
+    retry: bool = False
+
+
 def _resolve_mode(
     workspace: Any,
     mode_id: str,
@@ -60,32 +68,37 @@ def resolve_mode_activation(workspace: Any, mode_id: str) -> ModeActivation:
 
 
 async def dispatch_session_command(ctx: HookContext, text: str) -> Msg | None:
-    """Dispatch commands and record mode entry only after activation."""
+    """Apply automatic mode entry once, retrying failed automatic attempts."""
     plugins = ctx.workspace.plugins
     dispatch = plugins.slash_command_registry.dispatch
     mode_id = ctx.agent_config.agent_mode
     session_id = ctx.session_id
-    started = plugins.session_modes
-    if started.get(session_id) == mode_id:
-        return await dispatch(text, ctx)
-    previous_mode = started.pop(session_id, None)
+    entries = plugins.session_modes
     if mode_id is None:
+        entries.pop(session_id, None)
+        return await dispatch(text, ctx)
+    handled = ModeEntry(mode_id)
+    previous = entries.get(session_id)
+    if previous == handled:
         return await dispatch(text, ctx)
 
     mode, activation = _resolve_mode(ctx.workspace, mode_id)
-    restored = (
-        previous_mode is None and mode_id == ctx.parameters.restored_mode
-    )
+    restored = previous is None and mode_id == ctx.parameters.restored_mode
     if restored or not activation.command or mode.is_active(ctx):
-        started[session_id] = mode_id
+        entries[session_id] = handled
         return await dispatch(text, ctx)
 
+    retry = ModeEntry(mode_id, retry=True)
     prepared = activation.prepare_message(text)
-    if prepared != text:
-        rewrite_user_msg(ctx, prepared, preserve_non_text=True)
+    if prepared == text:
+        if previous != retry:
+            entries[session_id] = handled
+        return await dispatch(text, ctx)
+    rewrite_user_msg(ctx, prepared, preserve_non_text=True)
+    entries[session_id] = retry
     result = await dispatch(prepared, ctx)
     if mode.is_active(ctx):
-        started[session_id] = mode_id
+        entries[session_id] = handled
     return result
 
 

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from ..hooks.base import LifecycleHook
@@ -34,30 +33,6 @@ def _last_user_text(ctx: HookContext) -> str:
 def is_slash_like_input(text: str) -> bool:
     """Return whether *text* should be treated as slash-command input."""
     return (text or "").lstrip().startswith("/")
-
-
-class CheckpointQueryGateHook(LifecycleHook):
-    """Block new requests while checkpoint maintenance holds the gate."""
-
-    phase = Phase.PRE_DISPATCH
-    name = "checkpoint_query_gate"
-    priority = 20
-
-    async def run(self, ctx: HookContext) -> HookResult:
-        try:
-            if ctx.workspace is not None:
-                engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
-                task = asyncio.current_task()
-                if task is not None:
-                    engine._query_waiters.add(task)
-                try:
-                    await engine.query_gate.wait()
-                finally:
-                    if task is not None:
-                        engine._query_waiters.discard(task)
-        except Exception:
-            logger.exception("Checkpoint query gate failed")
-        return HookResult()
 
 
 class CheckpointAutoSnapshotHook(LifecycleHook):
@@ -91,6 +66,5 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
 
 __all__ = [
     "CheckpointAutoSnapshotHook",
-    "CheckpointQueryGateHook",
     "is_slash_like_input",
 ]

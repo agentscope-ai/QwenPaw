@@ -13,13 +13,15 @@ from ..config.context import current_runtime_parameters
 from ..config.runtime import RuntimeParameters
 from ..config.overrides import merge_overrides
 from ..config.utils import load_config
-from ..providers.model_selection import (
-    request_model_override,
-    resolve_model_slot_override,
-)
+from ..providers.model_selection import request_model_override
 from ..utils.io_utils import run_sync_io
 from .project_directory import agent_project_dirs_from_config
-from .session_thinking import apply_chat_model_settings, get_session_chat
+from .session_thinking import (
+    chat_thinking_overrides,
+    get_session_chat,
+    select_chat_model,
+    with_session_model,
+)
 from .session_state import load_session_state
 
 if TYPE_CHECKING:
@@ -54,12 +56,17 @@ async def resolve_runtime_parameters(ctx: HookContext):
             global_config=await run_sync_io(load_config),
         )
     chat = await get_session_chat(ctx)
-    profile = await apply_chat_model_settings(
-        supplied.profile,
-        chat.meta if chat else None,
-    )
-    parameters = replace(supplied, profile=profile)
+    meta = chat.meta if chat else None
     request = ctx.request
+    slot, source = select_chat_model(
+        meta,
+        model_override=request_model_override(request),
+    )
+    parameters = supplied
+    if source == "session":
+        profile = await run_sync_io(with_session_model, supplied.profile, slot)
+        parameters = replace(supplied, profile=profile)
+
     request_context = getattr(request, "request_context", None) or {}
     overrides: dict[str, Any] = {}
     if request_context.get("coding_mode") is True:
@@ -69,11 +76,8 @@ async def resolve_runtime_parameters(ctx: HookContext):
                 "coding_mode": {"enabled": True},
             },
         )
-    selected = request_model_override(request)
-    if selected is not None:
-        slot = resolve_model_slot_override(selected)
-        if slot is not None:
-            overrides["active_model"] = slot.model_dump()
+    if source == "request" and slot is not None:
+        overrides["active_model"] = slot.model_dump()
     if overrides:
         parameters = parameters.with_overrides(overrides)
 
@@ -88,13 +92,23 @@ async def resolve_runtime_parameters(ctx: HookContext):
         mode_defaults = activation.config
     parameters = replace(parameters, mode_defaults=mode_defaults)
 
+    explicit = merge_overrides(parameters.defaults, parameters.overrides)
     config = parameters.config
+    thinking = await chat_thinking_overrides(config, meta)
+    if thinking:
+        inherited = {
+            key: value
+            for key, value in thinking.items()
+            if key not in explicit and key not in mode_defaults
+        }
+        if inherited:
+            parameters = parameters.with_overrides(inherited)
+            config = parameters.config
     ctx.session_state = await load_session_state(ctx, config)
     saved_modes = (ctx.session_state or {}).get("mode_state")
     if isinstance(saved_modes, dict):
         ctx.mode_state = {**saved_modes, **getattr(ctx, "mode_state", {})}
     session_dirs = await _session_project_dirs(ctx)
-    explicit = merge_overrides(parameters.defaults, parameters.overrides)
     if {"project_dir", "project_dirs"}.intersection(explicit):
         session_dirs = None
     state = (getattr(ctx, "mode_state", {}) or {}).get("mission", {})

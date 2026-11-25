@@ -265,6 +265,7 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
     assert captured == {
         "agent_id": "agent-1",
         "agent_config": config,
+        "model_slot_override": None,
     }
 
 
@@ -313,6 +314,20 @@ async def test_request_model_is_resolved_before_validation_and_build(
         "_collect_driver_tools_and_prompts",
         AsyncMock(return_value=([], [])),
     )
+    monkeypatch.setattr(
+        session_config,
+        "get_session_chat",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                meta={
+                    "runtime_context": {
+                        "model": {"provider_id": "chat", "model": "saved"},
+                        "thinking": {"request:selected": {"level": "low"}},
+                    },
+                },
+            ),
+        ),
+    )
     request = SimpleNamespace(request_context={})
     if location == "direct":
         request.model_slot_override = selected
@@ -328,12 +343,13 @@ async def test_request_model_is_resolved_before_validation_and_build(
     )
     with RuntimeParameters(profile=config).scope():
         parameters, _ = await session_config.resolve_runtime_parameters(ctx)
+    ctx.parameters = parameters
     ctx.agent_config = parameters.config
 
     def build_model(cfg, model_slot_override=None):
         assert cfg.active_model == selected
-        assert cfg.thinking_level == "inherit"
-        assert model_slot_override is None
+        assert cfg.thinking_level == "low"
+        assert model_slot_override == selected
         raise RuntimeError("selected model reached factory")
 
     monkeypatch.setattr(builder, "build_model", build_model)

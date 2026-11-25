@@ -32,6 +32,8 @@ async def bound(call):
             chat.channel,
             chat.user_id,
         )
+    elif (runtime := workspace_ops._runtime()) is not None:
+        workspace = runtime.workspace
     else:
         manager = call._plugin._loader.registry.get_workspace_manager()
         workspace = (

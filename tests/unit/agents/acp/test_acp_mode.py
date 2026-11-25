@@ -23,7 +23,7 @@ from qwenpaw.config.config import (
 from qwenpaw.modes.custom_loop import load_custom_loop_modes
 from qwenpaw.modes.goal import GoalMode
 from qwenpaw.modes.mission import MissionMode
-from qwenpaw.modes.catalog import dispatch_session_command
+from qwenpaw.modes.catalog import ModeEntry, dispatch_session_command
 
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 
@@ -89,7 +89,7 @@ async def test_restored_session_does_not_restart_mode(
         ctx = _context(agent, "Continue", sid, workspace, tmp_path)
         assert await dispatch_session_command(ctx, "Continue") is None
         assert not workspace.plugins.active_mode_names(ctx)
-        assert workspace.plugins.session_modes[sid] == "goal"
+        assert workspace.plugins.session_modes[sid] == ModeEntry("goal")
 
         goal = next(
             mode for mode in workspace.plugins.modes if mode.name == "goal"
@@ -104,13 +104,16 @@ async def test_restored_session_does_not_restart_mode(
         ctx = _context(agent, task, sid, workspace, tmp_path)
         rejected = await dispatch_session_command(ctx, task)
         assert "End the active goal mode" in rejected.content[0].text
-        assert sid not in workspace.plugins.session_modes
+        retry = ModeEntry("mission", retry=True)
+        assert workspace.plugins.session_modes[sid] == retry
 
+        await dispatch_session_command(ctx, "/help")
+        assert workspace.plugins.session_modes[sid] == retry
         await goal.on_conversation_reset(ctx)
         await restore(cwd=str(tmp_path), session_id=sid)
         ctx = _context(agent, task, sid, workspace, tmp_path)
         assert await dispatch_session_command(ctx, task) is None
-        assert workspace.plugins.session_modes[sid] == "mission"
+        assert workspace.plugins.session_modes[sid] == ModeEntry("mission")
         assert workspace.plugins.active_mode_names(ctx) == {"mission"}
         active_mission = ctx.mode_state["mission"]
         assert await dispatch_session_command(ctx, "Continue") is None
@@ -182,11 +185,18 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
         assert any(reg.is_active() for reg in workspace.plugins.stop_handlers)
         assert ctx.input_msgs[0].content[0].text == task
         assert await dispatch_session_command(ctx, "Continue") is None
-        assert workspace.plugins.session_modes[ctx.session_id] == selected.id
+        assert workspace.plugins.session_modes[ctx.session_id] == ModeEntry(
+            selected.id,
+        )
 
     explicit = await agent.new_session(cwd=str(tmp_path))
     ctx = _context(agent, "/new", explicit.session_id, workspace, tmp_path)
     with scoped_session_id(explicit.session_id):
         assert await dispatch_session_command(ctx, "/new") is None
         assert ctx.input_msgs[0].content[0].text == "/new"
-        assert ctx.session_id not in workspace.plugins.session_modes
+        assert workspace.plugins.session_modes[ctx.session_id] == ModeEntry(
+            selected.id,
+        )
+        ctx = _context(agent, task, explicit.session_id, workspace, tmp_path)
+        assert await dispatch_session_command(ctx, task) is None
+        assert not workspace.plugins.active_mode_names(ctx)

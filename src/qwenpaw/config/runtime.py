@@ -206,6 +206,22 @@ class RuntimeParameters:
         """Give consumers a detached, fully validated execution snapshot."""
         return self._config.model_copy(deep=True)
 
+    @property
+    def model_slot_override(self) -> ModelSlotConfig | None:
+        """Preserve an explicit model selection for the Provider factory."""
+        slot = self._config.active_model
+        if (
+            slot is not None
+            and slot.provider_id
+            and slot.model
+            and (
+                self.overrides.get("active_model")
+                or self.defaults.get("active_model")
+            )
+        ):
+            return slot.model_copy()
+        return None
+
     def with_overrides(self, values: Mapping) -> Self:
         """Replace the snapshot atomically after validating the new layer."""
         if not isinstance(values, Mapping):

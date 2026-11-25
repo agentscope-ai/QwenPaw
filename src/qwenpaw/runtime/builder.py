@@ -425,9 +425,13 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
+        parameters = getattr(ctx, "parameters", None)
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
+            model_slot_override=(
+                parameters.model_slot_override if parameters else None
+            ),
         )
 
         ctx.extras[f"active_model_display_name"] = getattr(
@@ -604,6 +608,7 @@ class AgentBuilder:
     def build_model(
         self,
         agent_config: Any,
+        model_slot_override: Any = None,
     ) -> tuple[Any, Any]:
         """Create model and formatter using the factory method."""
         from ..agents.model_factory import create_model_and_formatter
@@ -611,6 +616,7 @@ class AgentBuilder:
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
             agent_config=agent_config,
+            model_slot_override=model_slot_override,
         )
         if formatter is not None:
             innermost = model

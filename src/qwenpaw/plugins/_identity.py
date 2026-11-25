@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """Internal bridges from trusted host request contexts."""
 
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 from .context import RequestContext
 
 if TYPE_CHECKING:
+    from ..runtime.hooks import HookContext
     from .tools import ToolContext
 
 request_identity: ContextVar[RequestContext | None] = ContextVar(
@@ -18,6 +20,36 @@ control_context: ContextVar[tuple["ToolContext", object] | None] = ContextVar(
     "sdk_control_context",
     default=None,
 )
+
+_request_runtime: ContextVar["HookContext | None"] = ContextVar(
+    "sdk_request_runtime",
+    default=None,
+)
+
+
+@contextmanager
+def bind_request_runtime(runtime: "HookContext"):
+    """Expose the executing workspace only inside its request."""
+    token = _request_runtime.set(runtime)
+    try:
+        yield
+    finally:
+        _request_runtime.reset(token)
+
+
+def bound_runtime(identity: RequestContext) -> "HookContext | None":
+    """Return the live turn for an exact conversation identity."""
+    runtime = _request_runtime.get()
+    if (
+        runtime is not None
+        and identity.session_id
+        and identity.user_id
+        and getattr(runtime.workspace, "agent_id", None)
+        == identity.workspace_id
+        and identity == from_runtime(runtime)
+    ):
+        return runtime
+    return None
 
 
 def from_runtime(runtime) -> RequestContext:
