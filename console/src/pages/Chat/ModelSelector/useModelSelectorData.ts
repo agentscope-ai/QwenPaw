@@ -24,8 +24,7 @@ export function useModelSelectorData({
 }: UseModelSelectorDataOptions) {
   const localCatalog = useProviderCatalog(false);
   const catalog = providerCatalog ?? localCatalog;
-  const hasSharedCatalog = providerCatalog !== undefined;
-  const { load: loadProviders, setProviders } = catalog;
+  const { load: loadProviders, loadForPicker, setProviders } = catalog;
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
     null,
   );
@@ -57,7 +56,7 @@ export function useModelSelectorData({
         const result = await modelSelectorApi.loadModelSelectorData(
           agentId,
           {
-            listProviders: () => loadProviders(refresh),
+            listProviders: refresh ? () => loadProviders(true) : loadForPicker,
             getActiveModels: providerApi.getActiveModels,
           },
           session,
@@ -85,6 +84,7 @@ export function useModelSelectorData({
       session?.chatId,
       applyActiveModels,
       loadProviders,
+      loadForPicker,
     ],
   );
 
@@ -96,12 +96,12 @@ export function useModelSelectorData({
 
   useEffect(() => {
     setActiveModels(null);
-    void fetchData(!hasSharedCatalog);
+    void fetchData(false);
     return () => {
       providersRequestRef.current += 1;
       activeRequestRef.current += 1;
     };
-  }, [fetchData, hasSharedCatalog]);
+  }, [fetchData]);
 
   return {
     activeModels,

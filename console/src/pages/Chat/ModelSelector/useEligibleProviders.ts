@@ -12,6 +12,7 @@ import {
 export function useProviderCatalog(enabled: boolean) {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
   const cached = useRef<ProviderInfo[] | null>(null);
+  const opened = useRef(false);
   const pending = useRef<Promise<ProviderInfo[]> | null>(null);
   const publish = useCallback((list: ProviderInfo[]) => {
     cached.current = list;
@@ -53,7 +54,12 @@ export function useProviderCatalog(enabled: boolean) {
   useEffect(() => {
     if (enabled) void load().catch(() => {});
   }, [enabled, load]);
-  return { providers, load, setProviders: update };
+  const loadForPicker = useCallback(() => {
+    const request = pending.current ?? load(opened.current);
+    opened.current = true;
+    return request;
+  }, [load]);
+  return { providers, load, loadForPicker, setProviders: update };
 }
 
 export type ProviderCatalog = ReturnType<typeof useProviderCatalog>;

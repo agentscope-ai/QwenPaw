@@ -1,6 +1,6 @@
 import { ModelPickerPopover } from "./ModelPickerPopover";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Button, Spin } from "antd";
 import { ChevronRight } from "lucide-react";
 import type { ModelSlotConfig, ModelType } from "@/api/types";
@@ -32,12 +32,7 @@ export function ModelChoice({
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
-  const opened = useRef(false);
   const setOpen = (next: boolean) => {
-    if (next && !open) {
-      if (opened.current) void providerCatalog?.load(true).catch(() => {});
-      opened.current = true;
-    }
     setLocalOpen(next);
     onOpenChange?.(next);
   };
