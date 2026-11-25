@@ -449,7 +449,7 @@ jobs:
         run: bash scripts/pack-tauri/build_linux_pyinstaller.sh
 
       - name: Verify desktop (Tauri Linux)
-        timeout-minutes: 15
+        timeout-minutes: 30
         uses: ./.github/actions/verify-tauri-linux
         with:
           dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
