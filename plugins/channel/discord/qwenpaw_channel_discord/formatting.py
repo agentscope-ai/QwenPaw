@@ -64,7 +64,10 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
         line_with_nl = line + "\n"
         stripped = line.strip()
 
-        # Detect fence toggle.
+        # Detect fence toggle.  Keep the state *before* this line: a
+        # flush triggered by this line closes/reopens the fence that the
+        # buffered lines are in, not the one this line opens or closes.
+        prev_fence = fence_open
         if _FENCE_RE.match(stripped):
             if fence_open:
                 fence_open = ""
@@ -76,15 +79,16 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
         # suffix that _flush() appends.
         reserved = fence_close_len if fence_open else 0
         if current and current_len + len(line_with_nl) + reserved > max_len:
-            saved_fence = fence_open
+            next_fence = fence_open
+            fence_open = prev_fence
             _flush()
             current_len = 0
             # Re-open the fence in the next chunk.
-            if saved_fence:
-                fence_open = saved_fence
-                reopener = saved_fence + "\n"
+            if prev_fence:
+                reopener = prev_fence + "\n"
                 current.append(reopener)
                 current_len += len(reopener)
+            fence_open = next_fence
 
         # Single line exceeds max_len -> hard-split.
         if len(line_with_nl) > max_len:
