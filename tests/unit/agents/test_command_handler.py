@@ -1020,18 +1020,21 @@ async def test_compact_uses_manual_force_context_config() -> None:
 @pytest.mark.asyncio
 async def test_compact_failure_suggests_retrying() -> None:
     agent = _make_agent()
-    agent.state.context = [_msg("user", "Keep this context")]
-    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
-    agent.compress_context = AsyncMock(side_effect=TimeoutError("model timed out"))
+    message = _msg("user", "Keep this context")
+    agent.state.context = [message]
+    agent.context_config = None
+    error = TimeoutError("model timed out")
+    agent.compress_context = AsyncMock(side_effect=error)
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
-    handler._get_agent_config = lambda: _make_config(strategy="scroll")
+    handler._get_agent_config = _make_config
 
     reply = await handler.handle_command("/compact")
+    text = reply.get_text_content()
 
-    assert "model timed out" in reply.get_text_content()
-    assert "try again" in reply.get_text_content().lower()
-    assert "/clear" not in reply.get_text_content()
-    assert len(agent.state.context) == 1
+    assert str(error) in text
+    assert "Try again with `/compact`" in text
+    assert "/clear" not in text
+    assert agent.state.context == [message]
 
 
 @pytest.mark.asyncio
