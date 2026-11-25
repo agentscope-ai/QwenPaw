@@ -41,6 +41,7 @@ import {
   Copy,
   Paperclip as SparkAttachmentLine,
   Settings as SettingOutlined,
+  Square,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
@@ -197,7 +198,10 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  preserveReverseMessageViewport,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -1796,6 +1800,10 @@ export default function ChatPage() {
         return;
       requested = true;
       void recoverLegacyDraftQueue(queueKey, ctrl.signal)
+        .catch((error) => {
+          if (!ctrl.signal.aborted)
+            console.error("Unable to recover legacy chat queue", error);
+        })
         .then(() => {
           if (ctrl.signal.aborted) return;
           return holdOwnershipLock(
@@ -1809,7 +1817,7 @@ export default function ChatPage() {
         })
         .catch((error) => {
           if (!ctrl.signal.aborted)
-            console.error("Unable to recover chat queue", error);
+            console.error("Unable to acquire chat queue ownership", error);
         });
       // Only a valid loaded session can be classified as a queue-only tab.
       fallbackTimer = setTimeout(() => setOwnershipResolved(true), 300);
@@ -2113,6 +2121,43 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const [runningVisit, setRunningVisit] = useState<object | null>(null);
+  const [stoppingVisit, setStoppingVisit] = useState<object | null>(null);
+  const showDetachedRunStop =
+    runningVisit === queueVisit && !chatLoading && !isSessionTransition;
+  const stoppingDetachedRun = stoppingVisit === queueVisit;
+  const stopBackendRun = useCallback(async () => {
+    if (
+      !backendChatId ||
+      queueVisitRef.current !== queueVisit ||
+      !isChatActiveRef.current
+    ) {
+      return;
+    }
+    setStoppingVisit(queueVisit);
+    try {
+      // A disconnected run can outlive the SDK's sender loading state.
+      const canceled = await chatRef.current?.execution.cancel({
+        sessionId: queueSessionId,
+      });
+      if (canceled?.status === "failed") throw canceled.error;
+      if (!canceled || canceled.status === "not-found") {
+        await chatApi.stopChat(backendChatId, selectedAgent);
+        markTurnStopped(queueSessionId);
+      }
+      setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+    } catch (error) {
+      if (queueVisitRef.current === queueVisit) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("chat.composer.stopFailed"),
+        );
+      }
+    } finally {
+      setStoppingVisit((visit) => (visit === queueVisit ? null : visit));
+    }
+  }, [backendChatId, message, queueSessionId, queueVisit, selectedAgent, t]);
   const activeRunSyncRef = useRef({
     key: "",
     sawRunning: false,
@@ -2172,6 +2217,7 @@ export default function ChatPage() {
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
+        setRunningVisit(runStatus.status === "running" ? queueVisit : null);
 
         if (runStatus.status === "running") {
           const firstRunningObservation = !syncState.sawRunning;
@@ -2236,6 +2282,7 @@ export default function ChatPage() {
     backendChatId,
     isSessionTransition,
     queueSessionId,
+    queueVisit,
     selectedAgent,
     usesQwenPawBackend,
   ]);
@@ -3936,6 +3983,11 @@ export default function ChatPage() {
     };
   }, [i18n.language, isMobile]);
 
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (root) return preserveReverseMessageViewport(root);
+  }, [queueKey]);
+
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
     if (!root) return;
@@ -4543,6 +4595,17 @@ export default function ChatPage() {
         actionAffix: (
           <>
             <ComposerToolsMenu className={styles.composerToolsToggle} />
+            {showDetachedRunStop && (
+              <Tooltip title={t("chat.composer.stop")}>
+                <Button
+                  className={styles.detachedRunStop}
+                  aria-label={t("chat.composer.stop")}
+                  icon={<Square size="1em" />}
+                  loading={stoppingDetachedRun}
+                  onClick={() => void stopBackendRun()}
+                />
+              </Tooltip>
+            )}
             <span className={styles.senderActionAffix} data-composer-actions>
               {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
                 <span
@@ -4991,6 +5054,9 @@ export default function ChatPage() {
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
+    showDetachedRunStop,
+    stoppingDetachedRun,
+    stopBackendRun,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,

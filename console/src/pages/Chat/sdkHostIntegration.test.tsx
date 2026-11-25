@@ -123,6 +123,7 @@ vi.mock("@agentscope-ai/chat", () => ({
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
+        {props.options?.sender?.actionAffix}
       </div>
     );
   }),
@@ -427,6 +428,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
   MAX_QUEUE_SIZE: 100,
   STORAGE_PREFIX: "chat.queue.",
   getLatestQueuedSessionIdForAgent: vi.fn(() => undefined),
+  recoverLegacyDraftQueue: vi.fn(() => Promise.resolve()),
   withSendLock: vi.fn(async (_key: string, fn: () => any) => fn()),
   holdOwnershipLock: vi.fn((_key: string, cb: () => void, _signal: any) => {
     if (mockOwnershipState.acquire) cb();
@@ -520,11 +522,18 @@ vi.mock("./approvalPayload", () => ({
 vi.mock("../../api/modules/chatProjectDirectory", () => ({
   chatProjectDirectoryApi: {
     get: vi.fn(() => Promise.resolve({ project_dir: "/project" })),
+    getProjectDirs: vi.fn(() => Promise.resolve({ project_dirs: [] })),
   },
 }));
 
 vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: {
+    getDirs: vi.fn(() =>
+      Promise.resolve({
+        project_dirs: [],
+        workspace_dir: "/home/user/workspace",
+      }),
+    ),
     get: vi.fn(() =>
       Promise.resolve({
         path: "/home/user",
@@ -1408,6 +1417,35 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("can queue input and stop a backend run after SDK loading is lost", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    mockOwnershipState.acquire = false;
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await waitFor(() => expect(holdOwnershipLock).toHaveBeenCalled());
+    await act(async () => window.dispatchEvent(new Event("online")));
+
+    const stop = await screen.findByRole("button", { name: "Stop generating" });
+    expect(mockSdkInput.loading).toBe(false);
+    expect(
+      await capturedOptions.sender.beforeSubmit({
+        query: "queue while disconnected",
+        fileList: [],
+      }),
+    ).toEqual({ proceed: false, clear: true });
+    expect(mockQueueEnqueue).toHaveBeenCalledWith(
+      "test-session",
+      expect.objectContaining({ text: "queue while disconnected" }),
+    );
+    fireEvent.click(stop);
+    await waitFor(() =>
+      expect(chatApi.stopChat).toHaveBeenCalledWith("test-session", "default"),
+    );
+  });
+
   // ── reconnect callback → calls fetch ───────────────────────────────────
   it("reconnect callback invokes fetch with reconnect body", async () => {
     renderWithProviders(<ChatPage />, {
@@ -1880,6 +1918,34 @@ describe("ChatPage coverage", () => {
       );
     } finally {
       session.lastActiveChatId = previous;
+    }
+  });
+
+  it("still acquires the send lock when legacy draft recovery fails", async () => {
+    const { holdOwnershipLock, recoverLegacyDraftQueue } = await import(
+      "@/stores/messageQueueStore"
+    );
+    vi.mocked(recoverLegacyDraftQueue).mockRejectedValueOnce(
+      new Error("legacy migration unavailable"),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+      await waitFor(() =>
+        expect(holdOwnershipLock).toHaveBeenCalledWith(
+          "draft:default",
+          expect.any(Function),
+          expect.any(AbortSignal),
+        ),
+      );
+      expect(
+        await capturedOptions.sender.beforeSubmit({
+          query: "send despite failed legacy migration",
+          fileList: [],
+        }),
+      ).toMatchObject({ proceed: true });
+    } finally {
+      log.mockRestore();
     }
   });
 

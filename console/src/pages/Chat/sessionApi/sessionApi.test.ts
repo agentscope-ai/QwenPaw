@@ -447,6 +447,31 @@ describe("buildUserCard", () => {
   });
 });
 
+describe("history bubble identity", () => {
+  it("keeps reply ids when the same turn is refreshed with more output", () => {
+    const user = msg({ id: "turn-1" });
+    const output = msg({ id: "out-1", role: "assistant" });
+    const before = T.convertMessages([user, output]);
+    const after = T.convertMessages([
+      user,
+      output,
+      msg({ id: "out-2", role: "assistant" }),
+    ]);
+
+    expect(after[1].id).toBe(before[1].id);
+    expect(after[1].id).not.toBe(after[0].id);
+    expect(after[1].cards?.[0].data.id).toBe(before[1].cards?.[0].data.id);
+  });
+
+  it("anchors history before the first user turn to its first output id", () => {
+    const output = msg({ id: "out-1", role: "assistant" });
+    const before = T.convertMessages([output]);
+    const after = T.convertMessages([output, msg({ id: "turn-2" })]);
+
+    expect(after[0].id).toBe(before[0].id);
+  });
+});
+
 describe("isLocalTimestamp", () => {
   it("recognizes local timestamp-random ids", () => {
     expect(T.isLocalTimestamp("1735689600000-abc12")).toBe(true);

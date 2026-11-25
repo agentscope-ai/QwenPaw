@@ -263,6 +263,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   terminal?: { status?: string; error?: unknown },
+  id = generateId(),
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -290,13 +291,13 @@ const buildResponseCard = (
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
 
   return {
-    id: generateId(),
+    id,
     role: ROLE_ASSISTANT,
     cards: [
       {
         code: CARD_RESPONSE,
         data: {
-          id: `response_${generateId()}`,
+          id: `response_${id}`,
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
@@ -330,8 +331,10 @@ const convertMessages = (
 
   while (i < len) {
     let terminal: { status?: string; error?: unknown } | undefined;
+    let userId: unknown;
     if (messages[i].role === ROLE_USER) {
       const user = messages[i++];
+      userId = user.id;
       const meta = user.metadata as Record<string, any> | undefined;
       terminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
       result.push(buildUserCard(user));
@@ -344,7 +347,14 @@ const convertMessages = (
       terminal?.status === "failed" ||
       terminal?.status === "canceled"
     ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+      const firstOutputId = outputMsgs[0]?.id;
+      const replyId =
+        typeof userId === "string" && userId
+          ? `reply-to-${userId}`
+          : typeof firstOutputId === "string" && firstOutputId
+          ? `reply-from-${firstOutputId}`
+          : undefined;
+      result.push(buildResponseCard(outputMsgs, terminal, replyId));
     }
   }
 

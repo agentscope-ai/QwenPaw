@@ -4158,7 +4158,8 @@
       },
       "attach": "添加附件",
       "send": "发送消息",
-      "stop": "停止生成"
+      "stop": "停止生成",
+      "stopFailed": "未能停止当前运行，请重试。"
     },
     "emptyOutputError": "助手返回了空响应。",
     "commands": {
