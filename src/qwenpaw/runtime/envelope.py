@@ -502,13 +502,19 @@ class Envelope:
             state["output_message"] = out_message
             state["output_text_fragments"] = []
             state["output_data_blocks"] = {}
+            state["output_order"] = []
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["output_text_fragments"].append(event.delta or "")
+            delta = event.delta or ""
+            state["output_text_fragments"].append(delta)
+            order = state["output_order"]
+            if not order or order[-1]["type"] != "text":
+                order.append({"type": "text", "fragments": []})
+            order[-1]["fragments"].append(delta)
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -557,6 +563,7 @@ class Envelope:
                     "type": block_type,
                     "source": source,
                 }
+                state["output_order"].append(blocks_dict[block_id])
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -601,6 +608,7 @@ class Envelope:
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
             state.pop("output_text_fragments", None)
+            state.pop("output_order", None)
             yield self._tag_seq(out_message.completed())
 
         # === DATA BLOCK ===
@@ -762,11 +770,14 @@ class Envelope:
         text_acc = "".join(state.get("output_text_fragments", []))
 
         if blocks_dict:
-            output_blocks: list[dict[str, Any]] = list(
-                blocks_dict.values(),
-            )
-            if text_acc:
-                output_blocks.append({"type": "text", "text": text_acc})
+            output_blocks = [
+                (
+                    {"type": "text", "text": "".join(block["fragments"])}
+                    if block["type"] == "text"
+                    else block
+                )
+                for block in state["output_order"]
+            ]
             tool_output: Any = json.dumps(
                 output_blocks,
                 ensure_ascii=False,

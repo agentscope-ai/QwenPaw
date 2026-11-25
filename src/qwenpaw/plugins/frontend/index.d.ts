@@ -60,3 +60,54 @@ export interface AppTasks {
   cancel(runId: string, options?: PawRequestOptions): Promise<CancelResult>;
 }
 export declare function tasks(appId: string): AppTasks;
+
+/** @since 1.2.0 An explicitly selected main conversation in this workspace. */
+export interface CheckpointScope extends PawRequestOptions {
+  chatId: string;
+  agentId: string;
+}
+/** @since 1.2.0 */
+export interface CheckpointEntry {
+  id: string;
+  kind: string;
+  name: string;
+  timestamp_ms: number;
+  description: string;
+  is_current: boolean;
+}
+/** @since 1.2.0 */
+export interface SnapshotResult {
+  id: string;
+  timestamp_ms: number;
+}
+/** @since 1.2.0 */
+export interface RestoreOptions extends CheckpointScope {
+  include_memory?: boolean;
+  include_files?: boolean;
+  files?: string[];
+}
+/** @since 1.2.0 */
+export interface RestoreResult {
+  id: string;
+  dry_run: boolean;
+  restored_paths: string[];
+  deleted_paths: string[];
+  file_paths: string[];
+  include_memory: boolean;
+  include_files: boolean;
+}
+/** @since 1.2.0 */
+export interface CheckpointClient {
+  timeline(
+    options: CheckpointScope & { limit?: number },
+  ): Promise<CheckpointEntry[]>;
+  snapshot(name: string, options: CheckpointScope): Promise<SnapshotResult>;
+  previewRestore(
+    target: string,
+    options: RestoreOptions,
+  ): Promise<RestoreResult>;
+  /** Waits for native host confirmation; abort cancels a pending request. */
+  restore(target: string, options: RestoreOptions): Promise<RestoreResult>;
+}
+/** @since 1.2.0 Requires the app's standard checkpoint capability. */
+export declare function checkpoints(appId: string): CheckpointClient;

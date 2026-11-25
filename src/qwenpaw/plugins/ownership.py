@@ -15,6 +15,10 @@ class RuntimeSourceBusyError(RuntimeError):
     """A source mutation or retained lease excludes the requested operation."""
 
 
+class RuntimeIdentityConflictError(RuntimeError):
+    """Another retained runtime owns the same declared resource."""
+
+
 @dataclass(frozen=True)
 class RuntimeKey:
     """A capability slot in a stable scope, independent of its owner."""
@@ -147,7 +151,9 @@ class RuntimeOwners:
             set(claims).intersection(entry.identity_claims)
             for entry in self._entries.values()
         ):
-            raise RuntimeError("RUNTIME_IDENTITY_ALREADY_OWNED; needs_restart")
+            raise RuntimeIdentityConflictError(
+                "RUNTIME_IDENTITY_ALREADY_OWNED; needs_restart",
+            )
         code_root = Path(code_root).resolve()
         if dependency_owner is not None:
             parent = (

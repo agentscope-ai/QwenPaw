@@ -167,14 +167,23 @@ class ProviderBinding:
     @asynccontextmanager
     async def invocation(self, provider, deadline=None, *, owner=None):
         from ..config.context import get_current_session_id
+        from ._identity import request_identity
         from ._workspace import current_workspace_id
 
         self.guard()
+        identity = request_identity.get()
         async with self.context._invocation(
-            workspace_id=current_workspace_id(),
-            session_id=get_current_session_id() or "",
+            workspace_id=(
+                identity.workspace_id if identity else current_workspace_id()
+            ),
+            session_id=(
+                identity.session_id
+                if identity
+                else get_current_session_id() or ""
+            ),
             owner=owner,
             deadline=deadline,
+            identity=identity,
         ) as base:
             values = dict(self.context._api.config)
             values["api_key"] = provider.api_key

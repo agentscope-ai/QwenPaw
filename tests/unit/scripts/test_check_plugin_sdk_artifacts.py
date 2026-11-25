@@ -17,6 +17,15 @@ import yaml
 pytestmark = pytest.mark.p1
 
 
+def test_selected_author_suite_rejects_harness_host_tests(tmp_path):
+    source = Path(__file__).resolve().parents[3]
+    prepare = runpy.run_path(
+        str(source / "scripts/check_plugin_sdk_artifacts.py"),
+    )["prepare_author_tests"]
+    with pytest.raises(AssertionError):
+        prepare(source, tmp_path, ["test_sdk_harness_host.py"])
+
+
 def test_acceptance_suites_collect_outside_checkout(tmp_path):
     source = Path(__file__).resolve().parents[3]
     checker = runpy.run_path(

@@ -265,7 +265,14 @@ async def update_outbound_media(
     if workspace_dir is not None:
         root = Path(workspace_dir).absolute() / "media" / "outbound"
         candidates = []
-        for part in content_parts:
+        pending_parts = list(content_parts)
+        while pending_parts:
+            part = pending_parts.pop()
+            if part.get("type") == "tool_result" and isinstance(
+                part.get("output"),
+                list,
+            ):
+                pending_parts.extend(part["output"])
             kind = part.get("type")
             locator = part.get("data" if kind == "audio" else f"{kind}_url")
             if not isinstance(locator, str) or not (
