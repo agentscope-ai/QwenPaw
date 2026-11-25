@@ -15,6 +15,7 @@ from services.web_grounding import pipeline as web_grounding
 from services.web_grounding import staging
 from services.web_grounding import triage as grounding_triage
 from services.web_grounding import verification
+from services.web_grounding.common import as_list
 from services.web_grounding.providers import search as provider_search
 from services.web_grounding.providers import adapters
 
@@ -1534,3 +1535,10 @@ def test_visual_verification_names_the_protocol_of_the_credential_it_borrows(
 
     assert seen["api_key_override"] == "sk-token-plan"
     assert seen["protocol_override"] == "Aliyun Token Plan"
+
+
+def test_as_list_drops_none_items():
+    assert as_list(["alpha", None, " ", "beta"]) == ["alpha", "beta"]
+    assert as_list((None,)) == []
+    assert as_list(["None"]) == ["None"]
+    assert as_list(None) == []

@@ -23,7 +23,11 @@ def as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value] if value.strip() else []
     if isinstance(value, (list, tuple, set)):
-        return [str(item).strip() for item in value if str(item).strip()]
+        return [
+            str(item).strip()
+            for item in value
+            if item is not None and str(item).strip()
+        ]
     return [str(value).strip()] if str(value).strip() else []
 
 
