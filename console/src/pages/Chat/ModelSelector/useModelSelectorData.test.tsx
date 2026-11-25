@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
+import { providerApi } from "../../../api/modules/provider";
 import { modelSelectorApi } from "./modelSelectorApi";
 import { useModelSelectorData } from "./useModelSelectorData";
 
@@ -40,9 +41,10 @@ describe("useModelSelectorData", () => {
         name: "OpenAI",
       } as ProviderInfo,
     ];
+    vi.spyOn(providerApi, "listProviders").mockResolvedValueOnce(providers);
     vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
-      (_agent, _source, _session, onProviders, onActiveModels) => {
-        onProviders?.(providers);
+      async (_agent, source, _session, onProviders, onActiveModels) => {
+        onProviders?.(await source!.listProviders());
         return initial.promise.then((result) => {
           if (result.activeModels) onActiveModels?.(result.activeModels);
           return result;

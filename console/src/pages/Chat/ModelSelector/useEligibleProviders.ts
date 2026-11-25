@@ -21,9 +21,9 @@ export function useProviderCatalog(enabled: boolean) {
   }, []);
   const load = useCallback(
     (refresh = false): Promise<ProviderInfo[]> => {
+      if (pending.current) return pending.current;
       if (!refresh && cached.current !== null)
         return Promise.resolve(cached.current);
-      if (pending.current) return pending.current;
       pending.current = providerApi
         .listProviders()
         .then((list) => {

@@ -1181,14 +1181,21 @@ describe("ModelSelector", () => {
         screen.getByText("gpt-new", { selector: "output" }),
       ).toBeInTheDocument();
       expect(providerApi.listProviders).toHaveBeenCalledTimes(2);
+      vi.mocked(providerApi.listProviders).mockResolvedValueOnce([
+        {
+          ...mockProvider,
+          models: [{ ...first, id: "replacement", name: "Replacement" }],
+        },
+      ]);
       await user.click(button);
+      expect(await screen.findByText("Replacement")).toBeInTheDocument();
       await user.click(
         await screen.findByRole("button", {
           name: "agentConfig.memoryModelUseMain",
         }),
       );
       expect(button).toHaveTextContent("agentConfig.memoryModelUseMain");
-      expect(providerApi.listProviders).toHaveBeenCalledTimes(2);
+      expect(providerApi.listProviders).toHaveBeenCalledTimes(3);
     },
   );
 

@@ -61,9 +61,8 @@ export function useModelSelectorData({
             getActiveModels: providerApi.getActiveModels,
           },
           session,
-          (value) => {
+          () => {
             if (providersRequestId !== providersRequestRef.current) return;
-            setProviders(value);
             setLoading(false);
           },
           (value) => {
@@ -86,7 +85,6 @@ export function useModelSelectorData({
       session?.chatId,
       applyActiveModels,
       loadProviders,
-      setProviders,
     ],
   );
 
