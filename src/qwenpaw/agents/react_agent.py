@@ -1385,9 +1385,9 @@ class QwenPawAgent(Agent):
                 self._set_formatter_audio_strip(True)
             elif media_payload_retry:
                 logger.warning(
-                    "_reasoning failed because the provider rejected the "
-                    "media payload itself (%s); stripping media from the "
-                    "retry request. Stored history remains unchanged, and "
+                    "_reasoning failed with media in the request (%s); "
+                    "stripping media from the retry request. "
+                    "Stored history remains unchanged, and "
                     "no capability loss is cached.",
                     e,
                 )
@@ -1606,7 +1606,7 @@ class QwenPawAgent(Agent):
 
     @staticmethod
     def _is_media_payload_rejection_error(exc: Exception) -> bool:
-        """Return whether the provider rejected this media payload.
+        """Return whether a rejection warrants one media-free retry.
 
         Covers the request-scoped media limits documented by
         ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS`` — too many images, a
@@ -1616,15 +1616,28 @@ class QwenPawAgent(Agent):
         anything about the model, so recovery is a media-free retry, never
         a cached model-wide ``rejects_media`` capability loss.
 
+        Also covers the generic 400 reported in #8887. The caller requires
+        evidence that media was actually sent before this can trigger.
+
         This matters for session health: the offending block is replayed
         from history on every later turn, so an unrecovered payload
         rejection returns the same 400 until the media is repaired in the
         stored context (see the caller in :meth:`_reasoning`).
         """
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        body = getattr(exc, "body", None)
+        if extract_status_code(exc) == 400 and isinstance(body, dict):
+            message = body.get("message")
+            if (
+                isinstance(message, str)
+                and message.strip().lower() == "invalid request parameters"
+                and body.get("param") in (None, "")
+            ):
+                return True
+
         error_str = " ".join(str(exc).lower().split())
         if not any(noun in error_str for noun in _MEDIA_PAYLOAD_MEDIA_NOUNS):
-            return False
-        if QwenPawAgent._is_content_safety_error(exc):
             return False
         return any(
             signal in error_str for signal in _MEDIA_PAYLOAD_REJECTION_SIGNALS

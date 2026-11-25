@@ -33,6 +33,7 @@ from agentscope.message import (
 
 from qwenpaw.agents import model_factory
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.agents.tools import view_media
 from qwenpaw.agents.tools.send_file import send_file_to_user
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
@@ -517,6 +518,23 @@ def _error(status: int, message: str) -> httpx.Response:
     )
 
 
+def _mimo_bad_request(
+    status: int = 400,
+    param: str = "",
+) -> httpx.Response:
+    return httpx.Response(
+        status,
+        json={
+            "error": {
+                "code": str(status),
+                "message": "Invalid request parameters",
+                "param": param,
+                "type": "BadRequestError",
+            },
+        },
+    )
+
+
 def _parts(messages: list[dict]) -> list[dict]:
     return [
         part
@@ -671,6 +689,107 @@ def _assert_recovery(session, video_counts, learned):
     } == {"video": False, "audio": False, "media": False}
 
 
+async def test_generic_400_with_historical_tool_video_recovers_each_turn(
+    video_session,
+    monkeypatch,
+    tmp_path,
+):
+    session = video_session
+    agent = session.agent
+    monkeypatch.setattr(
+        view_media,
+        "_check_multimodal_support",
+        lambda modality: True,
+    )
+    clip = tmp_path / "history.mp4"
+    clip.write_bytes(b"video")
+    video = await view_media.view_video(str(clip))
+    archive = tmp_path / "attachment.zip"
+    archive.write_bytes(b"zip")
+    sent = await send_file_to_user(str(archive))
+    # Windows can report this MIME type instead of application/zip.
+    sent.content[0].source.media_type = "application/x-zip-compressed"
+
+    agent.state.context = [
+        Msg(name="user", role="user", content=[TextBlock(text="Inspect")]),
+    ]
+    agent.state.context.extend(
+        Msg(
+            name="agent",
+            role="assistant",
+            content=[
+                ToolCallBlock(id=name, name=name, input="{}"),
+                ToolResultBlock(id=name, name=name, output=result.content),
+            ],
+        )
+        for name, result in [
+            ("view_video", video),
+            ("send_file_to_user", sent),
+        ]
+    )
+    agent.state.context.append(
+        Msg(name="agent", role="assistant", content=[TextBlock(text="OK")]),
+    )
+
+    for question in ("Continue", "One more question"):
+        agent.state.context.append(
+            Msg(name="user", role="user", content=[TextBlock(text=question)]),
+        )
+        before = _dump_context(agent.state.context)
+        session.errors.append(_mimo_bad_request())
+        events = [event async for event in agent._reasoning()]
+
+        assert events[-1].content[0].text == "done"
+        assert _dump_context(agent.state.context) == before
+
+    assert [
+        [part["type"] for part in _parts(request) if part["type"] != "text"]
+        for request in session.requests
+    ] == [["video_url"], [], ["video_url"], []]
+    for request in session.requests:
+        tool_results = {
+            msg["tool_call_id"]: msg["content"]
+            for msg in request
+            if msg["role"] == "tool"
+        }
+        assert "Video loaded: history.mp4" in tool_results["view_video"]
+        assert "attachment.zip" in tool_results["send_file_to_user"]
+        assert "File sent successfully." in tool_results["send_file_to_user"]
+    for key in ("rejects_video", "rejects_audio", "rejects_media"):
+        assert not session.cache.get("test:video", key, False)
+    assert not agent.formatter._qwenpaw_force_strip_media
+
+
+@pytest.mark.parametrize(
+    ("status", "param"),
+    [(422, ""), (400, "temperature")],
+)
+async def test_generic_error_with_media_but_wrong_status_or_named_parameter(
+    video_session,
+    status,
+    param,
+):
+    session = video_session
+    session.errors.append(_mimo_bad_request(status, param))
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2], learned=False)
+
+
+async def test_generic_400_media_free_retry_is_attempted_only_once(
+    video_session,
+):
+    session = video_session
+    session.errors.extend([_mimo_bad_request(), _mimo_bad_request()])
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+    assert [
+        model_factory._count_wire_media_blocks(request)
+        for request in session.requests
+    ] == [4, 0]
+    assert not session.agent.formatter._qwenpaw_force_strip_media
+
+
 @pytest.mark.parametrize(
     ("status", "message"),
     [(422, _VIDEO_SCHEMA_ERROR), (400, _VIDEO_ZERO_LIMIT)],
@@ -763,13 +882,24 @@ async def test_failed_video_retry_does_not_learn_or_mutate_history(
     assert [msg.model_dump() for msg in session.agent.state.context] == before
 
 
-async def test_schema_error_without_wire_video_does_not_retry(video_session):
+@pytest.mark.parametrize(
+    ("make_error", "match"),
+    [
+        (lambda: _error(422, _VIDEO_SCHEMA_ERROR), "unknown variant"),
+        (_mimo_bad_request, "Invalid request parameters"),
+    ],
+)
+async def test_media_fallback_without_wire_media_does_not_retry(
+    video_session,
+    make_error,
+    match,
+):
     session = video_session
     session.agent.state.context = [
         Msg(name="user", role="user", content=[TextBlock(text="hello")]),
     ]
-    session.errors.append(_error(422, _VIDEO_SCHEMA_ERROR))
-    with pytest.raises(APIStatusError, match="unknown variant"):
+    session.errors.append(make_error())
+    with pytest.raises(APIStatusError, match=match):
         _ = [event async for event in session.agent._reasoning()]
     assert len(session.requests) == 1
     assert session.cache.get("test:video", "rejects_video", False) is False
