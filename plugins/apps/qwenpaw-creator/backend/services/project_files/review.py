@@ -119,6 +119,249 @@ class ReviewDecisionConflict(ReviewDecisionError):
     pass
 
 
+def _mapping_at(document: Any, *path: str) -> Mapping[str, Any]:
+    current: Any = document
+    for key in path:
+        if not isinstance(current, Mapping):
+            return {}
+        current = current.get(key)
+    return current if isinstance(current, Mapping) else {}
+
+
+def _collection_items(document: Any, *path: str) -> list[dict[str, Any]]:
+    """Members of one ``EntityCollection`` below ``path``."""
+    return [
+        item
+        for item in _mapping_at(document, *path, "items").values()
+        if isinstance(item, dict)
+    ]
+
+
+def _without_ids(value: Any, removed: set[str]) -> list[Any] | None:
+    """Pruned copy of one id list, or ``None`` when no id was removed."""
+    if not isinstance(value, list):
+        return None
+    kept = [
+        item
+        for item in value
+        if not (isinstance(item, str) and item in removed)
+    ]
+    return kept if len(kept) != len(value) else None
+
+
+def _removed_artifact_version_ids(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> set[str]:
+    """Artifact versions a rejection rollback removes from the Project."""
+    before_ids = set(_mapping_at(before, "assets", "artifact_versions_by_id"))
+    after_ids = set(_mapping_at(after, "assets", "artifact_versions_by_id"))
+    return before_ids - after_ids
+
+
+@dataclass(frozen=True)
+class _RollbackDamage:
+    """Bindings a rejection cannot prune without destroying accepted work."""
+
+    emptied_slots: set[str]
+    payload_lost_elements: list[str]
+
+
+def _keeps_overlay_payload(creation: Mapping[str, Any]) -> bool:
+    """Whether an Overlay Element still has text or a prompt to draw."""
+    return bool(
+        str(creation.get("text") or "").strip()
+        or str(creation.get("prompt") or "").strip(),
+    )
+
+
+def _prune_artifact_references(
+    document: dict[str, Any],
+    removed: set[str],
+) -> _RollbackDamage:
+    """Drop soft references to artifact versions a rejection deletes.
+
+    A later commit may reference an artifact version the still-pending
+    round created; rejecting that round deletes the version, and a leftover
+    reference fails Project validation, which used to lock the Review
+    forever (issue #8592).  Visual variants, cast lineups and artifact slots
+    merely *point* at an artifact, so dropping the id is the cleanup a human
+    would do by hand.  Timeline render sources are deliberately absent here:
+    deleting an Element is destruction, so those are reported instead by
+    :func:`_assert_rollback_references_survive`.
+
+    The timeline inventory mirrors ``ProjectStore._detach_element_references``
+    (i2v first frame, s2v portrait/audio, overlay references); keep both in
+    sync.  An overlay whose only payload is the rejected artifact keeps its
+    reference, because a text-free Overlay fails Project validation.
+
+    Returns what the rollback would leave broken; pre-existing empty slots
+    are ignored so an unrelated legacy slot cannot block a decision.
+    """
+    emptied_slots: set[str] = set()
+    payload_lost_elements: list[str] = []
+    for entity in _collection_items(document, "visual", "entities"):
+        if entity.get("selected_artifact_version_id") in removed:
+            entity["selected_artifact_version_id"] = None
+        for variant in _collection_items(entity, "variants"):
+            for field in (
+                "reference_artifact_version_ids",
+                "generated_artifact_version_ids",
+            ):
+                pruned = _without_ids(variant.get(field), removed)
+                if pruned is not None:
+                    variant[field] = pruned
+            if variant.get("selected_artifact_version_id") in removed:
+                variant["selected_artifact_version_id"] = None
+    for lineup in _collection_items(document, "visual", "cast_lineups"):
+        for field in (
+            "reference_artifact_version_ids",
+            "generated_artifact_version_ids",
+        ):
+            pruned = _without_ids(lineup.get(field), removed)
+            if pruned is not None:
+                lineup[field] = pruned
+        if lineup.get("selected_artifact_version_id") in removed:
+            lineup["selected_artifact_version_id"] = None
+    for slot_id, slot in _mapping_at(
+        document,
+        "assets",
+        "artifact_slots_by_id",
+    ).items():
+        if not isinstance(slot, dict):
+            continue
+        pruned = _without_ids(slot.get("version_ids"), removed)
+        if pruned is not None:
+            slot["version_ids"] = pruned
+            if not pruned:
+                emptied_slots.add(str(slot_id))
+        if slot.get("selected_version_id") in removed:
+            slot["selected_version_id"] = None
+    for timeline in _collection_items(document, "timelines"):
+        if str(timeline.get("timeline_id") or "").startswith("snapshot:"):
+            # Frozen snapshots validate against the assets of their moment.
+            continue
+        for element_id, element in _mapping_at(
+            timeline,
+            "elements_by_id",
+        ).items():
+            creation = (
+                element.get("creation") if isinstance(element, dict) else None
+            )
+            if not isinstance(creation, dict):
+                continue
+            for field in (
+                "storyboard_reference_version_ids",
+                "video_reference_version_ids",
+            ):
+                pruned = _without_ids(creation.get(field), removed)
+                if pruned is not None:
+                    creation[field] = pruned
+            # The i2v first frame and the s2v portrait/audio inputs are
+            # exact ArtifactVersion references (migrations fill them from
+            # the storyboard slot), so a single value is pruned like a list.
+            for field in (
+                "first_frame_version_id",
+                "portrait_version_id",
+                "audio_version_id",
+            ):
+                if creation.get(field) in removed:
+                    creation[field] = None
+            pruned = _without_ids(
+                creation.get("reference_version_ids"),
+                removed,
+            )
+            if pruned is not None:
+                if pruned or _keeps_overlay_payload(creation):
+                    creation["reference_version_ids"] = pruned
+                else:
+                    payload_lost_elements.append(str(element_id))
+    return _RollbackDamage(emptied_slots, payload_lost_elements)
+
+
+def _assert_rollback_references_survive(
+    document: Mapping[str, Any],
+    removed: set[str],
+    damage: _RollbackDamage,
+) -> None:
+    """Refuse a rollback whose remaining references are structural.
+
+    These bindings cannot be pruned without destroying accepted work, so
+    the decision fails with the element/slot the user has to resolve first
+    instead of an opaque validation 422.
+    """
+    slots = _mapping_at(document, "assets", "artifact_slots_by_id")
+    if damage.emptied_slots:
+        raise ReviewDecisionConflict(
+            "无法回滚：产物槽 "
+            f"{sorted(damage.emptied_slots)[0]} 会变成空槽。"
+            "请接受这一轮变更，或先删除该产物",
+        )
+    if damage.payload_lost_elements:
+        lost_element = sorted(damage.payload_lost_elements)[0]
+        raise ReviewDecisionConflict(
+            f"无法回滚：时间线叠加元素 {lost_element} 的唯一素材是被拒绝的产物。"
+            "请先为该元素补充文字或提示词，或改为接受这一轮变更",
+        )
+    for timeline in _collection_items(document, "timelines"):
+        if str(timeline.get("timeline_id") or "").startswith("snapshot:"):
+            continue
+        elements = _mapping_at(timeline, "elements_by_id")
+        for element_id, element in elements.items():
+            if not isinstance(element, dict):
+                continue
+            render_source = element.get("render_source")
+            if not isinstance(render_source, Mapping):
+                continue
+            if (
+                render_source.get("type") == "artifact_version"
+                and render_source.get("version_id") in removed
+            ):
+                raise ReviewDecisionConflict(
+                    f"无法回滚：时间线元素 {element_id} 仍在渲染被拒绝的"
+                    "产物。请先移除或替换该元素，再拒绝这一轮变更",
+                )
+            if render_source.get("type") != "element_output":
+                continue
+            output_element = elements.get(render_source.get("element_id"))
+            output = _mapping_at(output_element, "outputs").get(
+                render_source.get("output_name"),
+            )
+            slot_id = (
+                _mapping_at(output).get("slot_id")
+                if isinstance(output, Mapping)
+                else None
+            )
+            slot = slots.get(slot_id) if isinstance(slot_id, str) else None
+            if isinstance(slot, Mapping) and not slot.get(
+                "selected_version_id",
+            ):
+                # The current document is valid, so an Element output
+                # without a selected version can only be this rollback
+                # pruning that selection away.
+                raise ReviewDecisionConflict(
+                    f"无法回滚：时间线元素 {element_id} 渲染的输出槽 "
+                    f"{slot_id} 将没有选中的产物。"
+                    "请先为该槽选择其它产物，或移除这个元素",
+                )
+
+
+def _first_model_error(error: Exception) -> str:
+    """The first human-readable pydantic message, or the error text."""
+    errors = getattr(error, "errors", None)
+    first: Any = None
+    if callable(errors):
+        try:
+            first = errors()[0]
+        except (IndexError, KeyError, TypeError):
+            first = None
+    if isinstance(first, Mapping):
+        message = first.get("msg")
+        if isinstance(message, str) and message:
+            return message
+    return str(error)
+
+
 class ReviewDecisionItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -294,6 +537,16 @@ class ReviewDecisionJournal(BaseModel):
     resulting_etag: str | None = None
     final_review: ReviewRecord | None = None
     event: ReviewDecisionEvent | None = None
+    # Whether this decision is the one expected to publish the round's
+    # follow-up message.  Persisted at finalize because the pending-Review
+    # gate that governs an ACCEPT resume is only knowable at that instant;
+    # replaying every FINALIZED journal after the last pending Review clears
+    # would otherwise queue a second resume for an earlier decision in the
+    # same round (distinct decision ids defeat message-id idempotency).
+    # ``None`` marks a journal written before this field existed: its
+    # follow-up ownership is inferred from the round's finalized journals,
+    # so an upgrade never replays an earlier decision's suppressed resume.
+    followup_expected: bool | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -626,6 +879,35 @@ class ProjectReviewService:
                 for _store, journal in journals
                 if journal.state is ReviewDecisionJournalState.FINALIZED
                 and journal.rejection_feedback is not None
+            ),
+            key=lambda item: (
+                item.created_at,
+                item.review_id,
+                item.decision_id,
+            ),
+        )
+
+    def finalized_followup_journals(
+        self,
+        project_id: str,
+    ) -> list[ReviewDecisionJournal]:
+        """Return every finalized decision eligible for follow-up replay.
+
+        A decision that committed but whose follow-up publication failed
+        (or was interrupted by a crash) must stay replayable from the
+        journal outbox; deterministic client message IDs make the replay
+        idempotent at Session admission.
+        """
+
+        self.store.read(project_id)
+        journals, _integrity_outcomes = self._discover_decision_journals(
+            project_id,
+        )
+        return sorted(
+            (
+                journal
+                for _store, journal in journals
+                if journal.state is ReviewDecisionJournalState.FINALIZED
             ),
             key=lambda item: (
                 item.created_at,
@@ -1097,13 +1379,22 @@ class ProjectReviewService:
             if compensation_required:
                 # Reject invalid partial rollbacks before publishing a durable
                 # decision. A failed schema check must not lock this Review.
-                Project.model_validate(
-                    apply_changes(
-                        current.project.model_dump(mode="json"),
-                        rejection_changes,
-                    ),
-                    context={"reject_retired_authoring_fields": True},
-                )
+                try:
+                    Project.model_validate(
+                        apply_changes(
+                            current.project.model_dump(mode="json"),
+                            rejection_changes,
+                        ),
+                        context={"reject_retired_authoring_fields": True},
+                    )
+                except ValueError as exc:
+                    # A bare pydantic error reaches the UI as a 422 with
+                    # empty details; name the unresolved reference instead.
+                    raise ReviewDecisionError(
+                        "无法回滚这一轮变更："
+                        f"{_first_model_error(exc)}。"
+                        "请改为一并接受这一轮，或先清理相关引用后再拒绝",
+                    ) from exc
             timestamp = datetime.now(UTC)
             rejection_targets = self._rejection_targets(
                 review=review,
@@ -1463,10 +1754,18 @@ class ProjectReviewService:
             resolved=journal.final_review.status is ReviewStatus.RESOLVED,
             resolved_round_id=journal.final_review.round_id,
         )
+        # A rejection feedback message is published regardless of other
+        # pending Reviews; an ACCEPT resume only belongs to the decision
+        # that clears the last pending Review of the round.
+        followup_expected = (
+            journal.rejection_feedback is not None
+            or self.active(project_id) is None
+        )
         finalized = ReviewDecisionJournal.model_validate(
             journal.model_copy(
                 update={
                     "state": ReviewDecisionJournalState.FINALIZED,
+                    "followup_expected": followup_expected,
                     "updated_at": datetime.now(UTC),
                 },
             ).model_dump(mode="python"),
@@ -1682,6 +1981,25 @@ class ProjectReviewService:
                 collection["order"],
                 collection["items"],
                 operation.before,
+            )
+        # Rejecting an artifact-producing round deletes its versions.  A
+        # later commit may already reference one of them; leaving that
+        # reference behind invalidates the rollback and locks the Review
+        # forever (issue #8592).  Prune soft references and report the
+        # structural bindings the user has to resolve first.
+        removed_versions = _removed_artifact_version_ids(
+            current_data,
+            candidate,
+        )
+        if removed_versions:
+            damage = _prune_artifact_references(
+                candidate,
+                removed_versions,
+            )
+            _assert_rollback_references_survive(
+                candidate,
+                removed_versions,
+                damage,
             )
         return list(diff_json(current_data, candidate))
 

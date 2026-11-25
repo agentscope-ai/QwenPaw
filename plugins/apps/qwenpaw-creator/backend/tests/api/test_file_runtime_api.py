@@ -371,6 +371,65 @@ def test_file_execution_routes_list_and_cancel(tmp_path, run_scenario) -> None:
     assert replay.json() == cancelled.json()
 
 
+def test_automatic_timeline_render_respects_manual_hold(
+    tmp_path,
+    monkeypatch,
+    run_scenario,
+):
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        ManualRegenerationHoldStore,
+    )
+    from services.file_agent_runtime.work_graph import WorkNode, WorkNodeStatus
+
+    app, services, _, _ = _app(tmp_path)
+    source = WorkNode(
+        node_id="video:shot",
+        kind="video",
+        label="shot",
+        status=WorkNodeStatus.DONE,
+    )
+    compose = WorkNode(
+        node_id="compose:timeline:main",
+        kind="compose",
+        label="compose",
+        status=WorkNodeStatus.READY,
+        deps=(source.node_id,),
+    )
+    holds = ManualRegenerationHoldStore(services.root)
+    holds.admitted(holds.begin("project-1", source, (source, compose)))
+    assert holds.is_held("project-1", compose.node_id)
+    calls = []
+
+    async def fake_execute(*_args, **_kwargs):
+        calls.append("render")
+
+    monkeypatch.setattr(
+        "services.media_files.local_execution.execute_file_local_media_command",
+        fake_execute,
+    )
+    monkeypatch.setattr(
+        "services.media_files.local_execution.validate_local_media_execution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    async def scenario(client):
+        url = "/projects/project-1/timelines/timeline%3Amain/render"
+        blocked = await client.post(
+            url,
+            params={"automatic": True},
+            headers={"Idempotency-Key": "auto"},
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["details"]["code"] == "MANUAL_REGENERATION_HOLD"
+        assert not calls
+        manual = await client.post(url, headers={"Idempotency-Key": "manual"})
+        assert manual.status_code == 202
+        await asyncio.sleep(0)
+        assert calls == ["render"]
+
+    run_scenario(app, scenario)
+
+
 def test_timeline_render_dispatches_once_and_returns_before_completion(
     tmp_path,
     monkeypatch,
@@ -705,7 +764,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
             review_policy="auto_fix",
             caused_by_request_id="setup",
         )
-        snapshot, _, graph, _ = await ready_request_context(
+        snapshot, _, graph, _, _ = await ready_request_context(
             services,
             executions,
             "project-1",
@@ -853,7 +912,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                 caused_by_request_id="pending-review",
                 caused_by_message_seq=2,
             )
-        fresh, _, current_graph, blocked = await ready_request_context(
+        fresh, _, current_graph, blocked, _ = await ready_request_context(
             services,
             executions,
             "project-1",
@@ -881,7 +940,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                     "confirmed_node_id": node.node_id,
                 },
             ):
-                _, _, _, gates = await ready_request_context(
+                _, _, _, gates, _ = await ready_request_context(
                     services,
                     executions,
                     "project-1",
@@ -962,6 +1021,31 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
             ), response.text
             assert current.status is ExecutionAuthorizationStatus.PENDING
             assert current.decision is None
+            if change in {"review", "not-ready"}:
+                # The client renders these details inline; a bare message would
+                # force it back to a truncated toast with no next step.
+                body = response.json()
+                assert body["message"].startswith("目标尚未就绪")
+                assert body["details"]["reason"] == "not_ready"
+                assert body["details"]["nodeId"] == node.node_id
+                assert body["details"]["targetRef"] == "element:e1"
+                assert isinstance(body["details"]["blockingReviewIds"], list)
+                if change == "review":
+                    assert body["details"]["blocker"] == "WAITING_REVIEW"
+                    # Exactly the creative Review that gates every node is
+                    # named, never the project's whole pending list.
+                    pending_ids = [
+                        review.review_id
+                        for review in services.reviews.all_pending(
+                            "project-1",
+                        )
+                    ]
+                    assert body["details"]["blockingReviewIds"] == pending_ids
+                    assert "审阅" in body["message"]
+                else:
+                    assert body["details"]["blocker"] == "GATED"
+                    assert body["details"]["promptSyncRequired"] is False
+                    assert "GATED" in body["message"]
             if change == "stale-etag":
                 payload["projectEtag"] = fresh.etag
                 retried = await client.post(
@@ -980,3 +1064,82 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
         assert executions.list_tasks("project-1") == []
 
     run_scenario(app, scenario)
+
+
+def test_asset_authorization_names_only_the_review_that_actually_blocks() -> (
+    None
+):
+    """Two unrelated assets must not disable each other's Continue button.
+
+    Asset and cast targets carry no ``element:`` ref, so the old locator
+    fallback credited every pending Review and the card stayed disabled
+    until an unrelated sibling asset was decided. The media admission check
+    reports the Review it hit; only that one may be reported as blocking.
+    """
+
+    from types import SimpleNamespace
+
+    from api.file_execution_routes import (
+        _workgraph_authorization_blocked_detail,
+    )
+
+    reviews = [
+        SimpleNamespace(review_id="review-a", operations=[]),
+        SimpleNamespace(review_id="review-b", operations=[]),
+    ]
+    services = SimpleNamespace(
+        reviews=SimpleNamespace(all_pending=lambda project_id: reviews),
+    )
+    current = SimpleNamespace(
+        project_id="project-1",
+        target_scope=["asset:a"],
+    )
+    node = SimpleNamespace(
+        node_id="visual:asset-a",
+        label="素材 A",
+        target_ref="asset:a",
+    )
+
+    detail = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            "WAITING_REVIEW",
+            ("review-a",),
+        ),
+    )
+    assert detail["details"]["blockingReviewIds"] == ["review-a"]
+
+    # No identified Review: an asset target must not blame unrelated pending
+    # Reviews, or the card would stay disabled until they all clear.
+    broad = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            "WAITING_REVIEW",
+        ),
+    )
+    assert broad["details"]["blockingReviewIds"] == []
+
+    # Element targets keep the legacy locator fallback.
+    reviews[0].operations = [
+        SimpleNamespace(
+            ui_locator={"field": "/elements/e1/creation/video_prompt"},
+        ),
+    ]
+    element_node = SimpleNamespace(
+        node_id="video:e1",
+        label="镜头 1",
+        target_ref="element:e1",
+    )
+    fallback = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            element_node,
+            "WAITING_REVIEW",
+        ),
+    )
+    assert fallback["details"]["blockingReviewIds"] == ["review-a"]

@@ -163,6 +163,7 @@ def test_failed_receipt_reaches_agent_and_cannot_be_narrated_as_submitted(
             {
                 "visual:hero:v:battle": "FAILED",
             },
+            {},
         )
 
     monkeypatch.setattr(dm, "ready_request_context", context)
@@ -566,6 +567,7 @@ def test_prompt_sync_gated_request_surfaces_diagnostic_fields(
                 [],
                 graph,
                 {"storyboard:e1": "GATED"},
+                {},
             )
 
         monkeypatch.setattr(dm, "ready_request_context", fake_context)
@@ -660,7 +662,13 @@ def test_post_approval_prompt_sync_gate_surfaces_diagnostic_fields(
         reads = {"n": 0}
 
         async def fake_context(svcs, execs, pid, **kwargs):
-            snapshot, tasks, graph, blocked = await real_context(
+            (
+                snapshot,
+                tasks,
+                graph,
+                blocked,
+                blocked_reviews,
+            ) = await real_context(
                 svcs,
                 execs,
                 pid,
@@ -669,7 +677,7 @@ def test_post_approval_prompt_sync_gate_surfaces_diagnostic_fields(
             reads["n"] += 1
             if reads["n"] == 1:
                 # First read: the visual node is READY and enters ``plans``.
-                return snapshot, tasks, graph, blocked
+                return snapshot, tasks, graph, blocked, blocked_reviews
             # Post-approval re-check: flip the selected node to prompt-sync
             # GATED, as if the prompts were edited while approval was open.
             # ``asset:hero`` is a visual node; prompt_sync_required is forced
@@ -698,7 +706,13 @@ def test_post_approval_prompt_sync_gate_surfaces_diagnostic_fields(
                     if node.target_ref == "asset:hero"
                 },
             }
-            return snapshot, tasks, gated_graph, gated_blocked
+            return (
+                snapshot,
+                tasks,
+                gated_graph,
+                gated_blocked,
+                blocked_reviews,
+            )
 
         monkeypatch.setattr(dm, "ready_request_context", fake_context)
 
@@ -834,7 +848,7 @@ def test_agent_workgraph_request_cannot_bypass_manual_hold(
             model_client=CallbackAgentChatClient(model),
             poll_interval_seconds=0.01,
         )
-        _, _, graph, _ = await dm.ready_request_context(
+        _, _, graph, _, _ = await dm.ready_request_context(
             services,
             runtime.executions,
             "probe-project",
@@ -1079,7 +1093,7 @@ def test_saved_prompt_authorization_rebinding(
             pause_after_approval,
         )
         try:
-            initial, _, graph, _ = await dm.ready_request_context(
+            initial, _, graph, _, _ = await dm.ready_request_context(
                 services,
                 runtime.executions,
                 "probe-project",
@@ -1117,12 +1131,13 @@ def test_saved_prompt_authorization_rebinding(
                     scope,
                     " Warm golden lighting.",
                 )
-            snapshot, _, saved_graph, blocked = await dm.ready_request_context(
+            context = await dm.ready_request_context(
                 services,
                 runtime.executions,
                 "probe-project",
                 check_media_budget=False,
             )
+            snapshot, _, saved_graph, blocked, _ = context
             saved_node = saved_graph.by_id[node.node_id]
             held = scope != "visual" and not case.startswith("unchanged")
             if held:
@@ -1171,14 +1186,14 @@ def test_saved_prompt_authorization_rebinding(
                     frontend_edit_hold.hold_remaining("probe-project", "e1")
                     > 0
                 )
-                _, _, _, still_blocked = await dm.ready_request_context(
+                _, _, _, still_blocked, _ = await dm.ready_request_context(
                     services,
                     runtime.executions,
                     "probe-project",
                     check_media_budget=False,
                 )
                 assert still_blocked[node.node_id] == "EDIT_IN_PROGRESS"
-                _, _, _, confirmed_blocked = await dm.ready_request_context(
+                _, _, _, confirmed_blocked, _ = await dm.ready_request_context(
                     services,
                     runtime.executions,
                     "probe-project",
@@ -1215,7 +1230,7 @@ def test_saved_prompt_authorization_rebinding(
                     review_policy="auto_fix",
                     caused_by_request_id="later-setting",
                 )
-                latest, _, latest_graph, _ = await dm.ready_request_context(
+                latest, _, latest_graph, _, _ = await dm.ready_request_context(
                     services,
                     runtime.executions,
                     "probe-project",

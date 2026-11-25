@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { message } from "antd";
 import {
   Check,
@@ -18,7 +27,9 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useDecisionFocusStore } from "@/store/decisionFocusStore";
 import { creatorTargetLabel } from "@/lib/creatorPresentation";
+import { showBackendFeedback } from "@/lib/creatorFeedback";
 import { pendingUserReviewOperations } from "@/lib/fileProjectReviewDecisions";
 import ExecutionAuthorizationCard from "./ExecutionAuthorizationCard";
 import FileProjectReviewPanel, {
@@ -34,6 +45,35 @@ import i18n from "@/i18n";
  * reviews are ordinary (may collapse into a summary bar without interrupting
  * the conversation).
  */
+
+// Review bodies (diffs, media previews) are hard to read at the default cap,
+// so the tray edge is draggable. Mirrors the creation overview: the dragged
+// height lives in the dock UI store and drives a flex-basis through a CSS var.
+const TRAY_MIN_HEIGHT = 120;
+const TRAY_KEYBOARD_STEP = 16;
+const FEED_MIN_HEIGHT = 120;
+
+function trayHeightBounds(section: HTMLElement) {
+  const dock = section.closest<HTMLElement>("[data-agent-dock]");
+  if (!dock || !dock.clientHeight) {
+    return { min: TRAY_MIN_HEIGHT, max: Number.POSITIVE_INFINITY };
+  }
+  // Only the dock's flex-growing child (the conversation feed) can give up
+  // space, so the ceiling is the tray's current height plus that slack.
+  let slack = 0;
+  for (const child of Array.from(dock.children)) {
+    if (child === section) continue;
+    if (Number.parseFloat(getComputedStyle(child).flexGrow) > 0) {
+      slack += child.getBoundingClientRect().height;
+    }
+  }
+  const max = section.getBoundingClientRect().height + slack - FEED_MIN_HEIGHT;
+  return { min: TRAY_MIN_HEIGHT, max: Math.max(TRAY_MIN_HEIGHT, max) };
+}
+
+function clampTrayHeight(height: number, bounds: { min: number; max: number }) {
+  return Math.round(Math.min(bounds.max, Math.max(bounds.min, height)));
+}
 
 type TrayItem =
   | {
@@ -74,7 +114,7 @@ function trayItemsOf(
   ];
 }
 
-export default function DecisionTray({ projectId }: { projectId: string }) {
+function DecisionTray({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const authorizations = useExecutionAuthorizationStore((state) => state.items);
   const authProjectId = useExecutionAuthorizationStore(
@@ -86,6 +126,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
       state.projectId === projectId ? state.reviews : null,
     ) ?? [];
   const decide = useFileProjectReviewStore((state) => state.decide);
+  const pollOnce = useFileProjectReviewStore((state) => state.pollOnce);
   const project = useProjectSnapshotStore((state) =>
     state.projectId === projectId ? state.project : null,
   );
@@ -109,11 +150,77 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
       ),
     [fileReviews],
   );
-  const items = useMemo(
-    () => trayItemsOf(pendingAuths, pendingReviews, project),
-    [pendingAuths, pendingReviews, project],
-  );
+  const blockingReviewIds = useDecisionFocusStore((state) => state.reviewIds);
+  const focusNonce = useDecisionFocusStore((state) => state.nonce);
+  const items = useMemo(() => {
+    const all = trayItemsOf(pendingAuths, pendingReviews, project);
+    if (blockingReviewIds.length === 0) return all;
+    const priority = new Set(blockingReviewIds);
+    const blocking = all.filter(
+      (item) => item.kind === "review" && priority.has(item.review.review_id),
+    );
+    if (blocking.length === 0) return all;
+    // A blocked authorization is only held up by these reviews; surface them
+    // first so keeping them is one click away instead of two pages deep.
+    return [
+      ...blocking,
+      ...all.filter(
+        (item) =>
+          !(item.kind === "review" && priority.has(item.review.review_id)),
+      ),
+    ];
+  }, [blockingReviewIds, pendingAuths, pendingReviews, project]);
   const urgent = pendingAuths.length > 0;
+
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const trayHeight = useAgentDockUiStore((state) => state.decisionTrayHeight);
+  const setTrayHeight = useAgentDockUiStore(
+    (state) => state.setDecisionTrayHeight,
+  );
+  const beginTrayResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const section = sectionRef.current;
+    if (!section || event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = section.getBoundingClientRect().height;
+    const bounds = trayHeightBounds(section);
+    const onMove = (moveEvent: PointerEvent) => {
+      // The tray is anchored to the dock bottom, so dragging UP grows it.
+      setTrayHeight(
+        clampTrayHeight(startHeight + (startY - moveEvent.clientY), bounds),
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+  const nudgeTrayHeight = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const section = sectionRef.current;
+    if (!section) return;
+    // ArrowUp grows the bottom-anchored tray; ArrowDown shrinks it.
+    const direction =
+      event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    setTrayHeight(
+      clampTrayHeight(
+        section.getBoundingClientRect().height + direction * TRAY_KEYBOARD_STEP,
+        trayHeightBounds(section),
+      ),
+    );
+  };
+  // Mirrors the creation overview: a dragged height is exposed as a CSS var
+  // and turned into flex-basis by globals.css — that is what actually resizes
+  // a flex item inside the dock (an inline max-height never did).
+  const resized = !collapsed && trayHeight != null;
+  const traySectionStyle = resized
+    ? ({ "--decision-tray-height": `${trayHeight}px` } as CSSProperties)
+    : undefined;
 
   const [filter, setFilter] = useState<"all" | "auth" | "review">("all");
   const [listMode, setListMode] = useState(false);
@@ -122,6 +229,23 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
   const [batchBusy, setBatchBusy] = useState(false);
   const previousAuthCount = useRef(0);
   const firstAuthKey = items.find((item) => item.kind === "auth")?.key ?? null;
+  // One timer owns the flash state: effect cleanup must not cancel a running
+  // flash while the same nonce keeps the effect from re-arming it.
+  const flashTimer = useRef<number | null>(null);
+  const triggerFlash = () => {
+    setFlash(true);
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => {
+      flashTimer.current = null;
+      setFlash(false);
+    }, 2200);
+  };
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
 
   // Blocking item arrived: force-expand the tray, focus the newest production
   // confirmation and flash to draw attention.
@@ -132,10 +256,28 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     setCollapsed(false);
     setFilter("all");
     if (firstAuthKey) setFocusKey(firstAuthKey);
-    setFlash(true);
-    const timer = window.setTimeout(() => setFlash(false), 2200);
-    return () => window.clearTimeout(timer);
+    triggerFlash();
   }, [firstAuthKey, pendingAuths.length, setCollapsed]);
+
+  // The blocked authorization asked the tray to surface the reviews holding it
+  // up: expand, focus the first blocking review and flash the tray. The nonce
+  // guard keeps later snapshots from re-stealing focus.
+  const handledFocusNonce = useRef(0);
+  useEffect(() => {
+    if (focusNonce === 0 || focusNonce === handledFocusNonce.current) return;
+    handledFocusNonce.current = focusNonce;
+    setCollapsed(false);
+    setFilter("all");
+    const priority = new Set(blockingReviewIds);
+    const target =
+      items.find(
+        (item) => item.kind === "review" && priority.has(item.review.review_id),
+      ) ??
+      items.find((item) => item.kind === "review") ??
+      items[0];
+    if (target) setFocusKey(target.key);
+    triggerFlash();
+  }, [blockingReviewIds, focusNonce, items, setCollapsed]);
 
   const visible = useMemo(
     () =>
@@ -175,22 +317,63 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
 
   const acceptAllReviews = async () => {
     setBatchBusy(true);
+    let kept = 0;
+    const failures: string[] = [];
     try {
       for (const review of pendingReviews) {
         const operations = pendingUserReviewOperations(review);
         if (operations.length === 0) continue;
-        await decide(
-          projectId,
-          review.review_id,
-          operations.map((operation) => ({
-            operation_id: operation.operation_id,
-            decision: "ACCEPT",
-          })),
+        const reconciledBefore =
+          useFileProjectReviewStore.getState().reconciledDecision?.at;
+        try {
+          await decide(
+            projectId,
+            review.review_id,
+            operations.map((operation) => ({
+              operation_id: operation.operation_id,
+              decision: "ACCEPT",
+            })),
+          );
+          kept += 1;
+        } catch (error) {
+          // Per-item isolation: earlier keeps already committed, so report
+          // exactly what landed instead of a blanket failure toast. A review
+          // leaving the pending list proves nothing about this decision —
+          // another tab may have rejected it. Only the store's reconciliation
+          // stamp (set after a poll shows this decision's operations are no
+          // longer pending) may credit a failed submit as kept; ``decide``
+          // awaits it before rejecting.
+          await pollOnce(projectId).catch(() => undefined);
+          const reconciled =
+            useFileProjectReviewStore.getState().reconciledDecision;
+          if (
+            reconciled &&
+            reconciled.reviewId === review.review_id &&
+            reconciled.at !== reconciledBefore
+          ) {
+            kept += 1;
+            continue;
+          }
+          failures.push(
+            error instanceof Error
+              ? error.message
+              : t("fileReview.public.decisionFailed"),
+          );
+        }
+      }
+      if (failures.length === 0) {
+        message.success(t("decisionTray.allReviewChangesKept"));
+      } else {
+        showBackendFeedback(
+          "warning",
+          t("decisionTray.batchPartialKept", {
+            kept,
+            failed: failures.length,
+            reason: failures[0],
+          }),
+          t("decisionTray.batchPartialTitle"),
         );
       }
-      message.success(t("decisionTray.allReviewChangesKept"));
-    } catch (error) {
-      message.error(t("fileReview.public.decisionFailed"));
     } finally {
       setBatchBusy(false);
     }
@@ -208,9 +391,13 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
 
   return (
     <section
+      ref={sectionRef}
       data-decision-tray
+      data-resized={resized || undefined}
+      style={traySectionStyle}
       data-decision-tray-urgent={urgent ? "true" : undefined}
       data-decision-tray-collapsed={collapsed ? "true" : undefined}
+      data-decision-tray-focused={focused?.key}
       className={`border-t border-[var(--color-border)] ${
         urgent && collapsed
           ? "bg-[var(--color-warning-soft)]"
@@ -269,6 +456,22 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
         />
       </button>
 
+      {!collapsed && (
+        <div
+          data-decision-tray-resize
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t("decisionTray.dragToResize")}
+          title={t("decisionTray.dragToResize")}
+          tabIndex={0}
+          className="decision-tray-resize group flex h-2 shrink-0 cursor-ns-resize touch-none items-center justify-center"
+          onPointerDown={beginTrayResize}
+          onKeyDown={nudgeTrayHeight}
+          onDoubleClick={() => setTrayHeight(null)}
+        >
+          <span className="pointer-events-none h-0.5 w-8 rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+        </div>
+      )}
       {!collapsed && (
         <div className="px-3.5 pb-2.5">
           {authError && (
@@ -342,7 +545,10 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           )}
 
           {listMode ? (
-            <div className="agent-decision-scroll max-h-[28vh] space-y-2 overflow-y-auto pr-0.5">
+            <div
+              data-decision-tray-body
+              className="agent-decision-scroll max-h-[28vh] space-y-2 overflow-y-auto pr-0.5"
+            >
               {visible.map((item) => (
                 <div key={item.key}>{renderCard(item)}</div>
               ))}
@@ -367,6 +573,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
               {focused && (
                 <div
                   key={focused.key}
+                  data-decision-tray-body
                   className="agent-decision-scroll decision-tray-card-in max-h-[28vh] overflow-y-auto"
                 >
                   {renderCard(focused)}
@@ -416,7 +623,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                       disabled={batchBusy}
                       onClick={() => void acceptAllReviews()}
                       title={t("decisionTray.keepAllReviewChanges")}
-                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-success)] disabled:opacity-50"
+                      className="btn-decision flex items-center gap-1"
                     >
                       <Check className="h-3 w-3" />
                       {t("decisionTray.keepAll")}
@@ -431,3 +638,5 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     </section>
   );
 }
+
+export default memo(DecisionTray);

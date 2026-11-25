@@ -383,6 +383,7 @@ def _run_materialize(worker, monkeypatch, stub, provider_result=None):
     task = SimpleNamespace(project_id=PROJECT_ID, task_id="task-materialize")
     claim = SimpleNamespace(
         provider_result=provider_result or {"result_url": "https://x/v.mp4"},
+        request={},
     )
 
     async def scenario():
@@ -757,6 +758,78 @@ def test_unrelated_commit_during_render_does_not_quarantine(
         ELEMENT_ID
     ]
     assert element.outputs["main"].slot_id == f"element:{ELEMENT_ID}:main"
+
+
+@pytest.mark.parametrize("muted", [False, True])
+def test_resume_admitted_video_from_before_project_audio_control(
+    tmp_path,
+    monkeypatch,
+    muted,
+):
+    from unittest.mock import AsyncMock
+
+    services = _services(tmp_path, monkeypatch)
+    task_id = _dispatch(services).task_id
+    provider = AsyncMock()
+    provider.submit.return_value = "paid-once"
+    worker = FileR2VExecutionService(services, provider=provider)
+    # Captured from the same admitted fixture written by Creator b4e148a16.
+    historical = "sha256:813f46236c95cc475293f2e12f19c079f53e98be2be57a86aa628b7aa5fbb955"
+
+    def restore_historical_fingerprint(state):
+        return state.model_copy(
+            update={
+                "request": {
+                    **state.request,
+                    "projectInputFingerprint": historical,
+                },
+            },
+        )
+
+    state = worker._update_state_sync(
+        PROJECT_ID,
+        task_id,
+        restore_historical_fingerprint,
+    )
+    if muted:
+        base = services.projects.read(PROJECT_ID)
+        candidate = base.project.model_dump(mode="json")
+        elements = candidate["timelines"]["items"]["timeline:main"][
+            "elements_by_id"
+        ]
+        elements[ELEMENT_ID]["creation"]["generate_audio"] = False
+        services.commits.commit(
+            base=base,
+            candidate=candidate,
+            origin=ChangeOrigin.FRONTEND_EDIT,
+            review_policy=ReviewPolicy.AUTO_FIX,
+        )
+    task = worker.executions.get_task(PROJECT_ID, task_id)
+    assert asyncio.run(worker._submit(task, state)) is (not muted)
+    assert provider.submit.await_count == (0 if muted else 1)
+
+
+def test_native_audio_edit_quarantines_an_in_flight_video(
+    tmp_path,
+    monkeypatch,
+):
+    services = _services(tmp_path, monkeypatch)
+
+    def mute(candidate):
+        timeline = candidate["timelines"]["items"]["timeline:main"]
+        timeline["elements_by_id"][ELEMENT_ID]["creation"][
+            "generate_audio"
+        ] = False
+
+    task = _run_video(services, _MutatingR2VProvider(services, mute))
+    assert task.status.value == "QUARANTINED"
+    assert task.error["code"] == "PROJECT_INPUT_SNAPSHOT_STALE"
+    project = services.projects.read(PROJECT_ID).project
+    element = project.timelines.items["timeline:main"].elements_by_id[
+        ELEMENT_ID
+    ]
+    assert element.creation.generate_audio is False
+    assert "main" not in element.outputs
 
 
 def test_changed_render_inputs_during_render_still_quarantine(
