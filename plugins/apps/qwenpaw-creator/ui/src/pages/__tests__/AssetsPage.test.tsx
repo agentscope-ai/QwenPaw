@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Modal, message } from "antd";
 import AssetsPage, {
   GenerationPromptEditor,
+  characterVariantCardName,
   visualEntityPromptTarget,
   VoiceGenerationModal,
 } from "@/pages/AssetsPage";
@@ -289,6 +290,52 @@ describe("AssetsPage Project projection", () => {
     expect(
       screen.queryByRole("button", { name: "交给 Agent" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("titles character-variant cards with the character name, never the description", () => {
+    // Regression: the title used to echo `requirements` -- the same text the
+    // card already shows as its description -- and, before that, the English
+    // id slug ("Wet"). The title is now the character name; multiple looks
+    // get a short tag (默认造型 / 造型N) instead of repeating the description.
+    const project = cloneProject();
+    const entity = project.visual.entities.items.cat;
+    entity.variants.order.push("variant:cat:wet");
+    entity.variants.items["variant:cat:wet"] = {
+      ...entity.variants.items["variant:cat:default"],
+      variant_id: "variant:cat:wet",
+      requirements: "淋湿后的造型：毛发贴在身上",
+      generated_artifact_version_ids: [],
+      selected_artifact_version_id: null,
+    };
+    seedProject(project);
+    installMockFetch(ingestRoutes());
+    renderPage();
+
+    expect(
+      screen.getByRole("heading", { name: "圆润大橘猫 · 默认造型" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "圆润大橘猫 · 造型2" }),
+    ).toBeInTheDocument();
+    // The title must not duplicate the description line.
+    expect(
+      screen.queryByRole("heading", { name: /淋湿后的造型/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Wet")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the bare character name when a variant is absent from order", () => {
+    // Regression: the old fallback produced "小周 · 小周" when a variant
+    // existed in ``items`` but not ``order`` (reachable via artifact cards).
+    const entity = cloneProject().visual.entities.items.cat;
+    entity.variants.order.push("variant:cat:wet");
+    const ghost = {
+      ...entity.variants.items["variant:cat:default"],
+      variant_id: "variant:cat:ghost",
+    };
+    entity.variants.items["variant:cat:ghost"] = ghost;
+
+    expect(characterVariantCardName(entity, ghost)).toBe(entity.name);
   });
 
   it("filters locally without requiring a separate backend asset projection", () => {

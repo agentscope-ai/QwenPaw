@@ -205,6 +205,7 @@ interface CreatorSessionState {
   connectionState: CreatorConnectionState;
   stopping: boolean;
   isReplaying: boolean;
+  replayUntilSeq: number;
   error: string | null;
   stream: CreatorEventStream | null;
   rateLimitRetry: RateLimitRetryState | null;
@@ -442,6 +443,7 @@ function defaultState() {
     connectionState: "disconnected" as CreatorConnectionState,
     stopping: false,
     isReplaying: false,
+    replayUntilSeq: 0,
     error: null,
     stream: null as CreatorEventStream | null,
     rateLimitRetry: null as RateLimitRetryState | null,
@@ -451,7 +453,6 @@ function defaultState() {
 export const useCreatorSessionStore = create<CreatorSessionState>(
   (set, get) => {
     let lifecycleGeneration = 0;
-    let replayUntilSeq = 0;
     let sessionRefreshGeneration = 0;
     let messageRefreshEpoch = 0;
     let pendingMessageRefresh: { epoch: number; after: number } | null = null;
@@ -685,7 +686,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
           // the feed cascading downward, which AgentDock now handles directly
           // by suppressing bottom-follow during replay.
           const resumeAfter = sameProject ? state.lastEventSeq : 0;
-          replayUntilSeq = sessionResponse.session.lastEventSeq;
+          const replayUntilSeq = sessionResponse.session.lastEventSeq;
           let conversations = conversationPage.items;
           let activeConversationId =
             preferredConversationId &&
@@ -748,6 +749,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
               ),
               hasMoreMessages: page.nextBefore != null,
               lastEventSeq: resumeAfter,
+              replayUntilSeq,
               loading: false,
               stopping: false,
             };
@@ -1525,7 +1527,11 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   streamingAssistantMessages = remaining;
                 }
               }
-              if (event.type === "agent.run.failed" && session) {
+              if (
+                event.type === "agent.run.failed" &&
+                session &&
+                event.seq > session.lastEventSeq
+              ) {
                 const errorPayload = event.data.error as
                   | {
                       code?: string;
@@ -1762,7 +1768,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
                   : ((event.data.status ?? event.data.to) as
                       | CreatorSessionView["status"]
                       | undefined);
-              if (status && session) {
+              if (status && session && event.seq > session.lastEventSeq) {
                 session = { ...session, status, lastEventSeq: event.seq };
                 if (
                   status === "IDLE" ||
@@ -1777,7 +1783,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             }
           });
           const lastEventSeq = accepted.at(-1)!.seq;
-          if (session && session.lastEventSeq !== lastEventSeq)
+          if (session && session.lastEventSeq < lastEventSeq)
             session = { ...session, lastEventSeq };
           const combinedEvents = [...current.events, ...accepted];
           const recentStart = Math.max(0, combinedEvents.length - 500);
@@ -1794,7 +1800,7 @@ export const useCreatorSessionStore = create<CreatorSessionState>(
             events,
             lastEventSeq,
           };
-          if (current.isReplaying && lastEventSeq >= replayUntilSeq)
+          if (current.isReplaying && lastEventSeq >= current.replayUntilSeq)
             patch.isReplaying = false;
           if (messages !== current.messages) patch.messages = messages;
           if (

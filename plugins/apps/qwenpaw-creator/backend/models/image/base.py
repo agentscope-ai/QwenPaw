@@ -32,7 +32,7 @@ from models.concurrency import model_slot
 from models.reference_markers import ReferenceMarkerSpec
 from services.runtime_files.atomic_store import atomic_replace_bytes
 from utils.logger import setup_logger
-from utils.exceptions import ModelError
+from utils.exceptions import ModelError, redact_urls
 from utils.paths import media_url_for, unique_task_work_path
 from utils.remote_download import download_remote_file
 
@@ -451,6 +451,97 @@ def is_content_refusal(message: str) -> bool:
     return any(marker in folded for marker in CONTENT_REFUSAL_MARKERS)
 
 
+# Provider rejections that mean "I could not fetch your reference image".
+# They are deterministic for the same inputs: the stored pre-signed URL
+# outlived its grant (issue #8592) or points at bytes the provider cannot
+# reach, so retrying the same request cannot succeed.
+REFERENCE_DOWNLOAD_FAILURE_MARKERS = (
+    "failed to download image",
+    "download image failed",
+    "failed to download the image",
+    "image download failed",
+    "failed to fetch image",
+    "invalid image url",
+    "image url is invalid",
+    "url expired",
+    "urlexpired",
+    "image is not accessible",
+)
+
+REFERENCE_DOWNLOAD_ADVICE = (
+    "The provider could not fetch a reference image, which is "
+    "deterministic for the same inputs and is not a model configuration "
+    "problem. A stored pre-signed source URL has most likely expired: "
+    "regenerate or reselect the reference image so a fresh local copy is "
+    "uploaded, then retry."
+)
+
+# Structured task-error code for this class of failure. Provider prose quotes
+# the storage's HTTP 403, so a reader that only pattern-matched status numbers
+# would send the user to model settings; the workbench keys its next-step hint
+# off this code instead of the text.
+REFERENCE_DOWNLOAD_ERROR_CODE = "REFERENCE_DOWNLOAD_FAILED"
+
+
+def is_reference_download_failure(message: str) -> bool:
+    """Whether a provider error means a reference image was unreachable."""
+
+    folded = (message or "").casefold()
+    return any(
+        marker in folded for marker in REFERENCE_DOWNLOAD_FAILURE_MARKERS
+    )
+
+
+# The object store answering 5xx says nothing about the stored grant: the
+# pre-signed URL is still valid and the same request can succeed once the
+# store recovers. Only a number tied to a status marker counts - a bare
+# three-digit number could be an image dimension (e.g. "512x512").
+_TRANSIENT_STORAGE_STATUS = re.compile(
+    r"\b(?:http(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*5\d{2}\b"
+    r"|\b5\d{2}\s+(?:service unavailable|internal server error|"
+    r"bad gateway|gateway time-?out)\b",
+    re.IGNORECASE,
+)
+
+
+def is_transient_reference_download_failure(message: str) -> bool:
+    """Whether a download failure names a transient object-store 5xx."""
+
+    return _TRANSIENT_STORAGE_STATUS.search(message or "") is not None
+
+
+def reference_download_model_error(
+    detail: str,
+    model_name: str,
+    *,
+    prefix: str,
+) -> ModelError | None:
+    """Classify a provider failure that names an unreachable reference image.
+
+    Shared by the sync HTTP branch and the async task poll so both paths
+    make the same decision. Provider text echoes the reference URL, and an
+    object-storage pre-signed URL (``OSSAccessKeyId``/``Signature``) is a
+    usable grant, so the detail is scrubbed before it reaches the task
+    error, trace or log. A reference download failure is deterministic for
+    the same inputs: retrying cannot succeed, so the error is never
+    retryable. The one exception is an explicit storage 5xx: that failure
+    is transient, so it is left for the caller's retryable classification.
+    Returns ``None`` when the text names no download failure.
+    """
+
+    scrubbed = redact_urls(detail or "")
+    if not is_reference_download_failure(scrubbed):
+        return None
+    if is_transient_reference_download_failure(scrubbed):
+        return None
+    return ModelError(
+        f"{prefix}: {scrubbed[:500]}. {REFERENCE_DOWNLOAD_ADVICE}",
+        model_name=model_name,
+        retryable=False,
+        code=REFERENCE_DOWNLOAD_ERROR_CODE,
+    )
+
+
 def format_http_error_detail(response: httpx.Response) -> str:
     body_text = response.text.strip()
     if body_text:
@@ -500,7 +591,7 @@ def persist_image_bytes(img_bytes: bytes, model_name: str, source: str) -> str:
 
 async def download_remote_image(remote_url: str, model_name: str) -> str:
     """Download a remote image URL and persist it in current Task scratch."""
-    logger.info(f"Image generated (url) | url={remote_url[:80]}")
+    logger.info(f"Image generated (url) | url={redact_urls(remote_url)[:80]}")
     try:
         async with httpx.AsyncClient(
             timeout=60,
@@ -552,9 +643,12 @@ def _logged_model_error(message: str, model_name: str) -> ModelError:
 
     The message doubles as the persisted task error that the transient
     classifier matches, so it must always carry a detail — an empty one
-    once turned a plain network blip into a deterministic wall.
+    once turned a plain network blip into a deterministic wall.  Provider
+    responses echo request URLs, so credentials are scrubbed before the
+    text is logged or persisted (issue #8592).
     """
 
+    message = redact_urls(message)
     logger.error(message)
     return ModelError(message, model_name=model_name)
 
@@ -858,10 +952,28 @@ class BaseImageModel(ABC):
                 self.model_name,
             )
         except httpx.HTTPStatusError as e:
-            detail = format_http_error_detail(e.response)
+            # Upstream bodies echo the reference URL, and object-storage
+            # signatures in that URL are a usable grant; scrub before the
+            # detail reaches the task error, trace or log.
+            detail = redact_urls(format_http_error_detail(e.response))
             logger.error(
                 f"Image generation HTTP error: {e.response.status_code} - {detail[:500]}",
             )
+            # A 4xx provider rejection that names the reference download is
+            # deterministic: the stored pre-signed URL is dead, not flaky.
+            # Upstream 5xx means the object store had a transient failure,
+            # so those stay retryable.
+            if e.response.status_code < 500:
+                reference_error = reference_download_model_error(
+                    detail,
+                    self.model_name,
+                    prefix=(
+                        "Image generation failed with status "
+                        f"{e.response.status_code}"
+                    ),
+                )
+                if reference_error is not None:
+                    raise reference_error
             raise ModelError(
                 f"Image generation failed with status {e.response.status_code}: "
                 f"{detail[:500]}. "

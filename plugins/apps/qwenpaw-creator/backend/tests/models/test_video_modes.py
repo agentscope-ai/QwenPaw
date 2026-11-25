@@ -1094,8 +1094,7 @@ def test_token_plan_wan_reference_inlines_base64(
         raise AssertionError("Token Plan video reference reached uploads")
 
     monkeypatch.setattr(
-        video_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         refuse_upload,
     )
 
@@ -1162,8 +1161,7 @@ def test_token_plan_wan_oversized_reference_downscales(
         raise AssertionError("Token Plan video reference reached uploads")
 
     monkeypatch.setattr(
-        video_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         refuse_upload,
     )
     raw = _noise_png_bytes()
@@ -1249,8 +1247,7 @@ def test_wan_reference_media_uses_dashscope_temp_upload(
         return "oss://dashscope-instant/ref.png"
 
     monkeypatch.setattr(
-        video_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         fake_upload,
     )
 

@@ -1,4 +1,10 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import type {
   ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -20,12 +26,14 @@ export type MentionInputDraft = Array<
   string | { mention: MentionRef } | { selection: SelectionAttachment }
 >;
 
+export interface MentionInputContent {
+  text: string;
+  refs: MentionRef[];
+  selections: SelectionAttachment[];
+}
+
 export interface MentionInputHandle {
-  getContent: () => {
-    text: string;
-    refs: MentionRef[];
-    selections: SelectionAttachment[];
-  };
+  getContent: () => MentionInputContent;
   insertMention: (obj: MentionRef) => void;
   insertSelection: (selection: SelectionAttachment) => void;
   clear: () => void;
@@ -41,11 +49,23 @@ interface MentionInputProps {
   disabled?: boolean;
   onQueryChange?: (query: string | null) => void;
   onSubmit?: () => void;
-  onChange?: (value: string) => void;
+  /**
+   * Fires with the freshly serialized content. The second argument lets callers
+   * read refs/selections without walking the contentEditable a second time:
+   * a per-keystroke `getContent()` was a full extra DOM traversal.
+   */
+  onChange?: (value: string, content: MentionInputContent) => void;
   mentionOpen?: boolean;
   onMentionNavigate?: (direction: 1 | -1) => void;
   onMentionConfirm?: () => void;
   onMentionClose?: () => void;
+  /**
+   * Fires once, as the editor unmounts, with its structured draft (null when
+   * empty). The parent cannot read the handle from its own cleanup: passive
+   * effect teardown runs after refs are detached, so only the editor itself
+   * can serialize its content on the way out.
+   */
+  onUnmountDraft?: (draft: MentionInputDraft | null) => void;
 }
 
 // Kept as complete literals so Tailwind includes classes injected into the editor DOM.
@@ -181,12 +201,17 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
       onMentionNavigate,
       onMentionConfirm,
       onMentionClose,
+      onUnmountDraft,
     },
     ref,
   ) {
     const { t } = useTranslation();
     const resolvedPlaceholder = placeholder ?? t("agent.inputPlaceholder");
     const editorRef = useRef<HTMLDivElement>(null);
+    // The draft as of the last serialization. Unmount reporting must not read
+    // the DOM: React detaches refs before the passive cleanup runs, so the
+    // editor is already gone by the time this component is torn down.
+    const latestDraft = useRef<MentionInputDraft>([]);
     const savedRange = useRef<Range | null>(null);
     const composing = useRef(false);
     const [empty, setEmpty] = useState(true);
@@ -207,13 +232,21 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
       const editor = editorRef.current;
       const content = editor
         ? serialize(editor)
-        : { text: "", refs: [], selections: [] };
+        : { text: "", refs: [], selections: [], draft: [] };
+      // Derived from the same serialization instead of a second textContent
+      // read plus a querySelector: `refs`/`selections` are exactly the
+      // [data-ref]/[data-sel] pills serialize already collected.
       setEmpty(
-        !editor ||
-          ((editor.textContent ?? "").trim() === "" &&
-            !editor.querySelector("[data-ref], [data-sel]")),
+        content.text.trim() === "" &&
+          content.refs.length === 0 &&
+          content.selections.length === 0,
       );
-      onChange?.(content.text);
+      latestDraft.current = content.draft;
+      onChange?.(content.text, {
+        text: content.text,
+        refs: content.refs,
+        selections: content.selections,
+      });
     };
 
     const saveRange = () => {
@@ -398,6 +431,23 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
       }
       saveRange();
     };
+
+    // The editor is the only layer that can still serialize its content when
+    // the dock folds. Keying this cleanup off the callback identity would also
+    // fire on every parent re-render that hands down a fresh callback, writing
+    // a stale draft back into the store mid-edit. Keep the latest callback in
+    // a ref and report solely on the real unmount.
+    const reportUnmountDraft = useRef(onUnmountDraft);
+    reportUnmountDraft.current = onUnmountDraft;
+    useEffect(
+      () => () => {
+        const report = reportUnmountDraft.current;
+        if (!report) return;
+        const draft = latestDraft.current;
+        report(draft.length ? draft : null);
+      },
+      [],
+    );
 
     useImperativeHandle(ref, () => ({
       getContent: () => {

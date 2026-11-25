@@ -4422,7 +4422,7 @@ class FileCreatorAgentRuntime:
         targets, kinds = parse_request_targets(arguments, project_id)
         fence = _EpochFence(self, project_id, run_id, epoch)
         fence.assert_alive()
-        snapshot, _, graph, blocked = await ready_request_context(
+        snapshot, _, graph, blocked, _ = await ready_request_context(
             self.services,
             self.executions,
             project_id,
@@ -4615,6 +4615,7 @@ class FileCreatorAgentRuntime:
                     tasks,
                     current_graph,
                     current_blocked,
+                    _,
                 ) = await ready_request_context(
                     self.services,
                     self.executions,
@@ -6292,7 +6293,10 @@ class FileCreatorAgentRuntime:
                 "subagent.accepted",
                 parent_run_id,
                 request,
-                {**common, "task": delegated.task},
+                # `task` is reserved for TaskView rows on the UI side; the
+                # delegation brief must use its own key so the two shapes
+                # never collide under one namespace.
+                {**common, "delegationText": delegated.task},
             )
             if handle.cancel_reason is not None:
                 return await _settle_revoked(announce=True)
@@ -8558,68 +8562,13 @@ class FileCreatorAgentRuntime:
         project_id: str,
         tool_arguments: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Tool arguments adjusted so the estimate matches what is billed.
-
-        ``video_edit`` ignores the tool's ``durationSeconds``: the provider
-        bills the input video's own length (truncated to its documented
-        keep-window), so the estimate reads that duration from the exact
-        version instead of the requested one.
-        """
-
-        arguments = dict(tool_arguments)
-        if spec.provider_kind != "video":
-            return arguments
-        if str(arguments.get("mode") or "").strip().casefold() != "video_edit":
-            return arguments
-        video_ref = str(arguments.get("videoRef") or "").strip()
-        if not video_ref:
-            return arguments
-        from models.video_capabilities import (
-            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+        """Tool arguments adjusted so the estimate matches what is billed."""
+        return await billing_arguments_for(
+            self.services,
+            project_id=project_id,
+            spec=spec,
+            tool_arguments=tool_arguments,
         )
-        from services.media_files.r2v_execution import (
-            effective_video_duration_seconds,
-        )
-
-        try:
-            snapshot = await asyncio.to_thread(
-                self.services.projects.read,
-                project_id,
-            )
-            # Same resolver execution uses, so a probed-only asset is priced
-            # and authorized on the duration it will actually be billed for.
-            duration = await asyncio.to_thread(
-                effective_video_duration_seconds,
-                snapshot.project,
-                self.services.projects.project_root(project_id),
-                video_ref,
-            )
-        # Expected resolution failures (missing version, unreadable
-        # metadata) fall back to "unknown duration", which surfaces as a
-        # readable ValidationError below. Programming errors must propagate
-        # instead of masquerading as a bad user request.
-        except (CreatorError, ValueError, OSError) as error:
-            logger.warning(
-                "could not resolve the video_edit input duration | "
-                "project=%s ref=%s: %s",
-                project_id,
-                video_ref,
-                error,
-            )
-            duration = None
-        if not duration:
-            # Never offer an approvable price for terms we cannot verify:
-            # execution rejects an unknown video_edit length anyway, so fail
-            # here instead of authorizing the unverified requested duration.
-            raise ValidationError(
-                "无法确定 videoRef 的时长，video_edit 按输入视频计费，"
-                "因此无法给出可批准的费用；请重新引入该视频以补齐元数据后重试",
-            )
-        arguments["durationSeconds"] = min(
-            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
-            max(1, round(duration)),
-        )
-        return arguments
 
     async def _await_execution_authorization(
         self,
@@ -9566,6 +9515,11 @@ class FileCreatorAgentRuntime:
         (consecutive-resume cap, no-progress breaker) prevent runaway loops.
         """
 
+        # The scheduler only runs in the autonomous (allow-all) mode. In the
+        # default ask mode this reconcile tick must stay a no-op: deriving the
+        # work graph on every poll interval costs a project read plus a task
+        # scan per second, and the prompt-sync notice below would wake a paid
+        # model turn for a decision that only a human can make.
         if not self.work_scheduler.enabled():
             return
         records = await asyncio.to_thread(self.runs.list, project_id)
@@ -9595,6 +9549,20 @@ class FileCreatorAgentRuntime:
             tasks=task_records,
             media_models=(get_image_model_name(), get_video_model_name()),
         )
+        # D4: prompt-sync 门只能由人在工作台显式确认。如果 Agent 已结束
+        # （Session IDLE）而图里仍卡着 gated + promptSyncRequired 的节点，
+        # 用户看不到任何提示就会永远停在这里；用与
+        # NODE_DETERMINISTIC_FAILURE 相同的通知总线补一条可执行的告知。
+        # request_id 含节点指纹，由 outbox 全历史去重，不会反复投递。
+        await self._notify_prompt_sync_deadlock(
+            project_id,
+            [
+                node
+                for node in graph.nodes
+                if node.status is WorkNodeStatus.GATED
+                and getattr(node, "prompt_sync_required", False)
+            ],
+        )
         unfinished_nodes = graph.unfinished()
         if not unfinished_nodes:
             # Check for deterministic failures that may need scheduler wake-up
@@ -9615,6 +9583,59 @@ class FileCreatorAgentRuntime:
             conversation_id=last.conversation_id,
             run_id=last.run_id,
         )
+
+    async def _notify_prompt_sync_deadlock(
+        self,
+        project_id: str,
+        gated_nodes: Sequence[Any],
+    ) -> None:
+        """Tell the user which shots are stuck behind the prompt-sync gate.
+
+        The gate only clears through an explicit confirm in the workbench, so a
+        run that ended with gated nodes leaves nothing else to move the
+        project. Emit one durable next-step notification (same bus as
+        ``NODE_DETERMINISTIC_FAILURE``) naming the shots and the button. The
+        request id folds in node fingerprints and the outbox deduplicates
+        against its full history, so repeated reconcile ticks stay quiet while
+        a genuinely new gate still gets its own message.
+        """
+
+        if not gated_nodes:
+            return
+        labels: list[str] = []
+        for node in gated_nodes:
+            label = str(getattr(node, "label", "") or node.node_id).strip()
+            if label and label not in labels:
+                labels.append(label)
+        identity = "|".join(
+            sorted(
+                f"{node.node_id}@{getattr(node, 'dispatch_fingerprint', '')}"
+                for node in gated_nodes
+            ),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+        text = (
+            "制作已停在「提示词待同步」这一步，以下镜头不会自动继续："
+            f"{'、'.join(labels[:8])}。\n"
+            "请打开对应镜头的制作工作台（在蓝图/工作图中点该镜头的「去同步」），"
+            "在分镜或视频步骤顶部点「保留现有内容并继续」，同步完成后再继续生成。"
+        )
+        try:
+            await self.notifications.notify(
+                project_id,
+                kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                request_id=f"prompt-sync-deadlock-{digest}",
+                text=text,
+                payload={
+                    "gate": "prompt_sync",
+                    "nodeIds": [node.node_id for node in gated_nodes][:12],
+                },
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "prompt-sync deadlock notification failed: project=%s",
+                project_id,
+            )
 
     async def _queue_mainline_resume(
         self,
@@ -9746,6 +9767,21 @@ class FileCreatorAgentRuntime:
         )
         if active_review is not None:
             return session
+        # A decision that committed but whose follow-up publication failed
+        # leaves the Session paused with no continuation queued. Replay the
+        # durable journal outbox before resolving the pause so the follow-up
+        # message (if any) is admitted and dispatched by this reconcile.
+        try:
+            await asyncio.to_thread(
+                self.services.recover_review_followup_messages,
+                project_id,
+            )
+        except Exception:
+            logger.exception(
+                "review followup replay failed during convergence: "
+                "project=%s",
+                project_id,
+            )
         try:
             return await asyncio.to_thread(
                 self.sessions.resolve_pending_review,
@@ -11449,6 +11485,79 @@ def _specialist_tool_invocation_id(
         arguments,
         invocation_id=call_id if name == "ai_edit" else None,
     )
+
+
+async def billing_arguments_for(
+    services: Any,
+    *,
+    project_id: str,
+    spec: SpecialistToolSpec,
+    tool_arguments: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Tool arguments adjusted so the estimate matches what is billed.
+
+    ``video_edit`` ignores the tool's ``durationSeconds``: the provider
+    bills the input video's own length (truncated to its documented
+    keep-window), so the estimate reads that duration from the exact
+    version instead of the requested one. Approval drift checks reuse
+    this helper so recorded billing terms and live terms share one
+    definition.
+    """
+
+    arguments = dict(tool_arguments)
+    if spec.provider_kind != "video":
+        return arguments
+    if str(arguments.get("mode") or "").strip().casefold() != "video_edit":
+        return arguments
+    video_ref = str(arguments.get("videoRef") or "").strip()
+    if not video_ref:
+        return arguments
+    from models.video_capabilities import (
+        HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+    )
+    from services.media_files.r2v_execution import (
+        effective_video_duration_seconds,
+    )
+
+    try:
+        snapshot = await asyncio.to_thread(
+            services.projects.read,
+            project_id,
+        )
+        # Same resolver execution uses, so a probed-only asset is priced
+        # and authorized on the duration it will actually be billed for.
+        duration = await asyncio.to_thread(
+            effective_video_duration_seconds,
+            snapshot.project,
+            services.projects.project_root(project_id),
+            video_ref,
+        )
+    # Expected resolution failures (missing version, unreadable
+    # metadata) fall back to "unknown duration", which surfaces as a
+    # readable ValidationError below. Programming errors must propagate
+    # instead of masquerading as a bad user request.
+    except (CreatorError, ValueError, OSError) as error:
+        logger.warning(
+            "could not resolve the video_edit input duration | "
+            "project=%s ref=%s: %s",
+            project_id,
+            video_ref,
+            error,
+        )
+        duration = None
+    if not duration:
+        # Never offer an approvable price for terms we cannot verify:
+        # execution rejects an unknown video_edit length anyway, so fail
+        # here instead of authorizing the unverified requested duration.
+        raise ValidationError(
+            "无法确定 videoRef 的时长，video_edit 按输入视频计费，"
+            "因此无法给出可批准的费用；请重新引入该视频以补齐元数据后重试",
+        )
+    arguments["durationSeconds"] = min(
+        HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+        max(1, round(duration)),
+    )
+    return arguments
 
 
 def _execution_provider_model(
