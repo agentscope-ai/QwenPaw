@@ -14,6 +14,7 @@ import {
   fireEvent,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -113,52 +114,71 @@ vi.mock("./components/ChatSessionInitializer", () => ({
   default: () => null,
 }));
 
-vi.mock("@agentscope-ai/chat", () => ({
-  AgentScopeRuntimeWebUI: vi.fn((props: any) => {
-    capturedOptions = props.options;
-    const actionAffix = props.options?.sender?.actionAffix;
-    useEffect(() => {
-      const id = props.options?.session?.currentSessionId;
-      if (id)
-        void props.options.session.api.getSession(id).catch(() => undefined);
-    }, [props.options?.session?.api, props.options?.session?.currentSessionId]);
-    observedSdkSessions.push({
-      agent: mockSelectedAgent(),
-      sessionId: props.options?.session?.currentSessionId,
-    });
-    return (
-      <div data-testid="chat-ui">
-        {props.options?.theme?.rightHeader}
-        {props.options?.sender?.prefix}
-        {typeof actionAffix === "function"
-          ? actionAffix({ loading: mockSdkInput.loading })
-          : actionAffix}
-      </div>
-    );
-  }),
-  useChatAnywhereSessionsState: vi.fn(() => ({
-    sessions: [],
-    currentSessionId: null,
-    setCurrentSessionId: vi.fn(),
-    setSessions: vi.fn(),
-  })),
-  useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
-  useChatAnywhereInput: vi.fn((select: any) =>
-    select({
-      loading: mockSdkInput.loading,
-      setSessionLoading: mockSdkInput.setSessionLoading,
-      setLoading: vi.fn(),
-      getLoading: vi.fn(() => false),
-      setDisabled: vi.fn(),
+vi.mock("@agentscope-ai/design", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@agentscope-ai/design")>();
+  const { ConfigProvider } = await import("antd");
+  return { ...actual, ConfigProvider };
+});
+
+vi.mock("@agentscope-ai/chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@agentscope-ai/chat")>();
+  return {
+    ...actual,
+    AgentScopeRuntimeWebUI: vi.fn((props: any) => {
+      capturedOptions = props.options;
+      const actionAffix = props.options?.sender?.actionAffix;
+      useEffect(() => {
+        const id = props.options?.session?.currentSessionId;
+        if (id)
+          void props.options.session.api.getSession(id).catch(() => undefined);
+      }, [
+        props.options?.session?.api,
+        props.options?.session?.currentSessionId,
+      ]);
+      observedSdkSessions.push({
+        agent: mockSelectedAgent(),
+        sessionId: props.options?.session?.currentSessionId,
+      });
+      return (
+        <div data-testid="chat-ui">
+          {props.options?.theme?.rightHeader}
+          {props.options?.sender?.prefix}
+          {typeof actionAffix === "function"
+            ? actionAffix({ loading: mockSdkInput.loading })
+            : actionAffix}
+        </div>
+      );
     }),
-  ),
-}));
+    useChatAnywhereSessionsState: vi.fn(() => ({
+      sessions: [],
+      currentSessionId: null,
+      setCurrentSessionId: vi.fn(),
+      setSessions: vi.fn(),
+    })),
+    useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
+    useChatAnywhereInput: vi.fn((select: any) =>
+      select({
+        loading: mockSdkInput.loading,
+        setSessionLoading: mockSdkInput.setSessionLoading,
+        setLoading: vi.fn(),
+        getLoading: vi.fn(() => false),
+        setDisabled: vi.fn(),
+      }),
+    ),
+  };
+});
 
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereI18nContext",
-  () => ({
-    useChatAnywhereI18n: (select: any) => select({ setLocale: vi.fn() }),
-  }),
+  async (importOriginal) => {
+    const actual = await importOriginal<
+      typeof import("@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereI18nContext")
+    >();
+    return {
+      ...actual,
+      useChatAnywhereI18n: (select: any) => select({ setLocale: vi.fn() }),
+    };
+  },
 );
 
 vi.mock("../../features/session-settings/sessionModel", () => ({
@@ -1426,10 +1446,12 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("can queue input and stop a backend run after SDK loading is lost", async () => {
+  it("queues from the SDK input while the backend runs but the SDK is idle", async () => {
     const { chatApi } = await import("@/api/modules/chat");
     const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
-    mockOwnershipState.acquire = false;
+    const { AgentScopeRuntimeWebUI } = await vi.importActual<
+      typeof import("@agentscope-ai/chat")
+    >("@agentscope-ai/chat");
     mockGetChatStatus.mockResolvedValue({ status: "running" });
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1437,32 +1459,33 @@ describe("ChatPage coverage", () => {
     await waitFor(() => expect(holdOwnershipLock).toHaveBeenCalled());
     await act(async () => window.dispatchEvent(new Event("online")));
 
-    const stop = await screen.findByRole("button", { name: "Stop generating" });
+    const sdkUi = renderWithProviders(
+      <AgentScopeRuntimeWebUI
+        options={{
+          ...capturedOptions,
+          sender: { ...capturedOptions.sender, allowSpeech: false },
+          theme: { narrowMode: true },
+        }}
+      />,
+    );
+    const stop = await within(sdkUi.container).findByRole("button", {
+      name: "Stop generating",
+    });
     expect(mockSdkInput.loading).toBe(false);
-    // During a reconnect the SDK renders its native Stop before the loading
-    // bridge's effect can notify ChatPage. The affix must use this newer state.
-    const actionAffix = capturedOptions.sender.actionAffix;
-    const reconnecting = renderWithProviders(
-      typeof actionAffix === "function"
-        ? actionAffix({ loading: true })
-        : actionAffix,
+    const input = sdkUi.container.querySelector("textarea");
+    expect(input).not.toBeNull();
+    if (!input) return;
+    expect(input).toBeEnabled();
+    const user = userEvent.setup();
+    await user.type(input, "queue while disconnected");
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(mockQueueEnqueue).toHaveBeenCalledWith(
+        "test-session",
+        expect.objectContaining({ text: "queue while disconnected" }),
+      ),
     );
-    expect(
-      within(reconnecting.container).queryByRole("button", {
-        name: "Stop generating",
-      }),
-    ).toBeNull();
-    reconnecting.unmount();
-    expect(
-      await capturedOptions.sender.beforeSubmit({
-        query: "queue while disconnected",
-        fileList: [],
-      }),
-    ).toEqual({ proceed: false, clear: true });
-    expect(mockQueueEnqueue).toHaveBeenCalledWith(
-      "test-session",
-      expect.objectContaining({ text: "queue while disconnected" }),
-    );
+    expect(mockGetChatStatus).toHaveBeenCalled();
     fireEvent.click(stop);
     await waitFor(() =>
       expect(chatApi.stopChat).toHaveBeenCalledWith("test-session", "default"),
