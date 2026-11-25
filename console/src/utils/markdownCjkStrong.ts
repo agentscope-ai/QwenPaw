@@ -90,20 +90,29 @@ const PATTERNS: ReadonlyArray<RegExp> = [
 type Hit = { start: number; end: number };
 
 function findHits(source: string): Hit[] {
-  const hits: Hit[] = [];
+  const candidates: Hit[] = [];
   for (const pattern of PATTERNS) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(source)) !== null) {
       const start = match.index;
       const end = start + match[0].length;
-      if (hits.some((hit) => start < hit.end && end > hit.start)) continue;
       const body = source.slice(start + 2, end - 2);
       if (!HAS_WORD.test(body)) continue;
-      hits.push({ start, end });
+      candidates.push({ start, end });
     }
   }
-  hits.sort((left, right) => left.start - right.start);
+  if (candidates.length === 0) return candidates;
+
+  // `**` and `__` cannot overlap (different characters), so sorting and then
+  // comparing only against the previous kept hit is enough — the previous
+  // `hits.some(...)` was quadratic on a paragraph with many spans.
+  candidates.sort((left, right) => left.start - right.start);
+  const hits: Hit[] = [candidates[0]];
+  for (let index = 1; index < candidates.length; index += 1) {
+    const previous = hits[hits.length - 1];
+    if (candidates[index].start >= previous.end) hits.push(candidates[index]);
+  }
   return hits;
 }
 
@@ -123,7 +132,26 @@ function rawOf(token: Token): string {
   return (token as Token & { raw?: string }).raw ?? "";
 }
 
-/** Tokens covering `[from, to)`, slicing partial text tokens and keeping the rest intact. */
+/** First span whose end is past `offset`; spans are sorted and contiguous. */
+function firstSpanEndingAfter(spans: Span[], offset: number): number {
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (spans[mid].end <= offset) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+/**
+ * Tokens covering `[from, to)`, slicing partial text tokens and keeping the
+ * rest intact.
+ *
+ * Starts at the first span that reaches `from` and stops once a span begins at
+ * or after `to`. Scanning the whole array here made `rewriteInline` quadratic:
+ * it calls this twice per hit, and a long paragraph has one hit per `<br>`.
+ */
 function sliceTokens(
   tokens: Token[],
   spans: Span[],
@@ -131,7 +159,12 @@ function sliceTokens(
   to: number,
 ): Token[] {
   const out: Token[] = [];
-  for (let index = 0; index < tokens.length; index += 1) {
+  if (from >= to) return out;
+  for (
+    let index = firstSpanEndingAfter(spans, from);
+    index < tokens.length && spans[index].start < to;
+    index += 1
+  ) {
     const start = Math.max(spans[index].start, from);
     const end = Math.min(spans[index].end, to);
     if (end <= start) continue;
@@ -149,9 +182,16 @@ function sliceTokens(
   return out;
 }
 
+/** Index of the span containing `offset`, or -1. Spans are sorted. */
 function tokenIndexAt(spans: Span[], offset: number): number {
-  for (let index = 0; index < spans.length; index += 1) {
-    if (offset >= spans[index].start && offset < spans[index].end) return index;
+  let low = 0;
+  let high = spans.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const span = spans[mid];
+    if (offset < span.start) high = mid - 1;
+    else if (offset >= span.end) low = mid + 1;
+    else return mid;
   }
   return -1;
 }
@@ -182,6 +222,24 @@ function rewriteInline(tokens: Token[]): boolean {
   if (!hits.length) return false;
 
   const spans = spansOf(tokens);
+  // Nearest raw-HTML token on either side of every index. The element guard
+  // needs to look past inline nodes (`<kbd>`x` **键。**值</kbd>`), and walking
+  // outwards per candidate made this quadratic on a paragraph with no HTML at
+  // all: every candidate scanned the whole array to the start and to the end.
+  const previousHtml = new Int32Array(tokens.length);
+  const nextHtml = new Int32Array(tokens.length);
+  {
+    let last = -1;
+    for (let index = 0; index < tokens.length; index += 1) {
+      previousHtml[index] = last;
+      if (tokens[index].type === "html") last = index;
+    }
+    let next = -1;
+    for (let index = tokens.length - 1; index >= 0; index -= 1) {
+      nextHtml[index] = next;
+      if (tokens[index].type === "html") next = index;
+    }
+  }
   const usable = hits.filter((hit) => {
     const openIndex = tokenIndexAt(spans, hit.start);
     const closeIndex = tokenIndexAt(spans, hit.end - 1);
@@ -199,20 +257,20 @@ function rewriteInline(tokens: Token[]): boolean {
     for (let index = openIndex; index <= closeIndex; index += 1) {
       if (!SPANNABLE.has(tokens[index].type)) return false;
     }
-    // A text token sitting between an opening and a *matching* closing raw-HTML
-    // tag is the content of that element (`<kbd>**甲。**乙</kbd>`), which stock
-    // leaves literal. Only a real tag pair counts: `<br>` is a void element, so
-    // in `**甲。**乙<br>**丙。**丁<br>` the delimiters sit between two `<br>`
-    // tokens and must still recover.
-    if (
-      tokens[openIndex - 1]?.type === "html" &&
-      tokens[closeIndex + 1]?.type === "html"
-    ) {
+    // A candidate sitting inside a raw-HTML element (`<kbd>**甲。**乙</kbd>`)
+    // is literal content that stock leaves alone. The enclosing tags need not
+    // be adjacent: `<kbd>`x` **键。**值</kbd>` puts a codespan between the
+    // opening tag and the candidate. Refuse only when the nearest html tokens
+    // on either side form a matching open/close pair — `<br>` is a void
+    // element, so `**甲。**乙<br>**丙。**丁<br>` still recovers on both sides.
+    const beforeTag = previousHtml[openIndex];
+    const afterTag = nextHtml[closeIndex];
+    if (beforeTag >= 0 && afterTag >= 0) {
       const opening = /^<([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^>]*)?>$/.exec(
-        tokens[openIndex - 1].raw,
+        rawOf(tokens[beforeTag]),
       );
       const closing = /^<\/([a-zA-Z][a-zA-Z0-9-]*)\s*>$/.exec(
-        tokens[closeIndex + 1].raw,
+        rawOf(tokens[afterTag]),
       );
       if (
         opening &&
@@ -278,6 +336,15 @@ function walkBlocks(tokens: Token[] | undefined): void {
     if (Array.isArray(nested)) {
       if (rewriteInline(nested)) continue;
       walkBlocks(nested);
+    }
+    // A footnote definition keeps its body in `content` (an inline array),
+    // not in `tokens`, so the walk above never reached it and
+    // `[^1]: **甲。**乙` kept its asterisks. `content` is a string on every
+    // other token, so the array check is what identifies the definitions.
+    const footnoteBody = (token as Token & { content?: unknown }).content;
+    if (Array.isArray(footnoteBody)) {
+      if (rewriteInline(footnoteBody as Token[])) continue;
+      walkBlocks(footnoteBody as Token[]);
     }
     const items = (token as Token & { items?: Token[] }).items;
     if (Array.isArray(items)) {

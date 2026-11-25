@@ -696,4 +696,32 @@ describe("protected inline boundaries through ChatMarkdown", () => {
     expect(strongTexts(sdk.container)).toEqual([]);
     expect(strongTexts(app.container)).toEqual(["甲。", "丙。"]);
   });
+
+  it("recovers inside a footnote definition body", () => {
+    // `[^1]: **甲。**乙` keeps its children in the footnote token's `content`
+    // array, which the block walk never descended into, so the definition body
+    // stayed literal while the same text inline was recovered.
+    const content = "正文[^1]\n\n[^1]: **甲。**乙";
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(app.container)).toEqual(["甲。"]);
+    expect(app.container.textContent ?? "").not.toContain("*");
+  });
+
+  it("does not recover inside a raw HTML element across an inline code span", () => {
+    // `<kbd>`x` **键。**值</kbd>` puts a codespan between the opening tag and
+    // the candidate. The guard used to inspect only the adjacent tokens, so
+    // this recovered and contradicted stock.
+    const content = "<kbd>`x` **键。**值</kbd>";
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(app.container)).toEqual([]);
+    expect(app.container.textContent ?? "").toContain("**");
+  });
+
+  it("still recovers on both sides of a void tag", () => {
+    // `<br>` is void: a candidate between two `<br>` tokens is not element
+    // content, so both spans must recover.
+    const content = "**甲。**乙<br>**丙。**丁";
+    const app = render(<ChatMarkdown content={content} />);
+    expect(strongTexts(app.container)).toEqual(["甲。", "丙。"]);
+  });
 });
