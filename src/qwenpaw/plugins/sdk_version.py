@@ -37,6 +37,7 @@ SDK_CAPABILITIES = frozenset(
         "cli",
         "extensions",
         "dependencies",
+        "themeTokens",
     },
 )
 
@@ -95,6 +96,10 @@ def validate_sdk(declaration, plugin_id=None):
         raise SDKCompatibilityError("harnesses requires SDK version >= 1.1.0")
     if "drivers" in capabilities and requested < Version("1.2.0"):
         raise SDKCompatibilityError("drivers requires SDK version >= 1.2.0")
+    if "themeTokens" in capabilities and requested < Version("1.2.0"):
+        raise SDKCompatibilityError(
+            "themeTokens requires SDK version >= 1.2.0",
+        )
     secrets = declaration.get("secrets", [])
     if not isinstance(secrets, list) or not all(
         isinstance(name, str) and name for name in secrets

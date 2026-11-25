@@ -60,21 +60,65 @@ export const ChatList = {
 export type ChatListField = (typeof ChatList)[keyof typeof ChatList];
 
 /**
- * Theme token override keys.
+ * Theme token override keys, split by the SDK version that introduced them.
  *
  * Semantic roles from `styles/tokens.css`, WITHOUT the `--app-` prefix, so a
  * plugin writes `{ surface: { light, dark } }` instead of reaching into the
- * raw custom-property namespace. The set is closed on purpose: plugins may
- * override these six roles only, which keeps the API surface small and lets
- * the remaining `--app-*` roles stay an implementation detail.
+ * raw custom-property namespace. The set stays closed on purpose: only the
+ * roles listed here may be overridden, so the remaining `--app-*` names stay
+ * an implementation detail.
+ *
+ * `CORE` shipped with the first slice and needs no declaration. `EXTENDED`
+ * arrived later, so a plugin that uses one has to declare the `themeTokens`
+ * SDK capability (`src/qwenpaw/plugins/sdk_version.py`), which requires
+ * `sdk.version >= 1.2.0`.
  */
-export const ThemeTokens = {
+export const CORE_THEME_TOKENS = {
   bg: "bg",
   surface: "surface",
   surfaceRaised: "surface-raised",
   border: "border",
   text: "text",
   textSecondary: "text-secondary",
+} as const;
+
+export const EXTENDED_THEME_TOKENS = {
+  surfaceSubtle: "surface-subtle",
+  surfaceSunken: "surface-sunken",
+  shellBg: "shell-bg",
+  textTertiary: "text-tertiary",
+  textQuaternary: "text-quaternary",
+  borderSubtle: "border-subtle",
+  borderStrong: "border-strong",
+  accent: "accent",
+  accentHover: "accent-hover",
+  accentActive: "accent-active",
+  accentSoft: "accent-soft",
+  accentSoftHover: "accent-soft-hover",
+  accentFaint: "accent-faint",
+  accentRing: "accent-ring",
+  accentBorder: "accent-border",
+  accentText: "accent-text",
+  success: "success",
+  successBg: "success-bg",
+  successBorder: "success-border",
+  successText: "success-text",
+  warning: "warning",
+  warningBg: "warning-bg",
+  warningBorder: "warning-border",
+  warningText: "warning-text",
+  error: "error",
+  errorBg: "error-bg",
+  errorBorder: "error-border",
+  errorText: "error-text",
+  infoBg: "info-bg",
+  infoBorder: "info-border",
+  infoText: "info-text",
+} as const;
+
+export const ThemeTokens = {
+  ...CORE_THEME_TOKENS,
+  ...EXTENDED_THEME_TOKENS,
 } as const;
 
 export type ThemeTokenKey = (typeof ThemeTokens)[keyof typeof ThemeTokens];
