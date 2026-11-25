@@ -16,6 +16,104 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.cli import shutdown_cmd
+from qwenpaw.plugins.channel_workers import ChannelDefinition
+from tests.channel_support.process import alive
+from tests.channel_support.sdk import make_channel
+
+
+def test_app_lifespan_waits_for_channel_worker(tmp_path):
+    key = "slow-shutdown"
+    source = tmp_path / key
+    marker = tmp_path / "worker.pid"
+    make_channel(
+        source,
+        textwrap.dedent(
+            """
+            import os
+            import threading
+            import time
+            from pathlib import Path
+            from qwenpaw.plugins.channel_workers import ChannelDriver
+
+            class Driver(ChannelDriver):
+                async def start(self, ch):
+                    marker = Path(ch.config["marker"])
+                    marker.write_text(str(os.getpid()))
+                    for index in range(3):
+                        stop = threading.Event()
+                        def run(stop=stop, index=index):
+                            stop.wait()
+                            time.sleep(4.25)
+                            marker.with_suffix(f".{index}.exited").touch()
+                        ch.resources.child().thread(run, stop=stop)
+                    await ch.report_status("connected")
+
+                async def send(self, ch, response):
+                    raise AssertionError("Unexpected delivery during shutdown")
+            """,
+        ),
+        ChannelDefinition(
+            key,
+            {"en": "Slow shutdown", "zh": "延时退出"},
+            "driver:Driver",
+            {"type": "object", "properties": {"marker": {"type": "string"}}},
+            ("marker",),
+            ("channel.generic.v1",),
+        ),
+        capabilities=["channels", "resources"],
+    )
+    script = textwrap.dedent(
+        """
+        import asyncio
+        import sys
+        from pathlib import Path
+        from qwenpaw.app._app import app
+        from qwenpaw.config.config import load_agent_config, save_agent_config
+
+        async def run():
+            source, marker = map(Path, sys.argv[1:])
+            async with app.router.lifespan_context(app):
+                await app.state.startup_ready.wait()
+                ws = await app.state.multi_agent_manager.get_agent("default")
+                config = load_agent_config("default")
+                setattr(config.channels, source.name, {
+                    "enabled": True, "marker": str(marker),
+                })
+                save_agent_config("default", config)
+                ws._config = config
+                await app.state.plugin_loader.load_plugin_from_path(source)
+                await ws.channel_manager.start_one(source.name, config)
+                assert marker.exists()
+                channel = await ws.channel_manager.get_channel(source.name)
+            assert channel.last_stop_result.acknowledged is True
+            assert not channel.last_stop_result.forced
+
+        asyncio.run(run())
+        """,
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(source), str(marker)],
+        env={
+            **os.environ,
+            "QWENPAW_WORKING_DIR": str(tmp_path / "app"),
+            "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
+            "QWENPAW_BACKUP_DIR": str(tmp_path / "backups"),
+            "QWENPAW_RUNNING_IN_CONTAINER": "true",
+            "QWENPAW_TELEMETRY_DISABLED": "true",
+        },
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not alive(int(marker.read_text()))
+    assert sorted(p.name for p in tmp_path.glob("*.exited")) == [
+        "worker.0.exited",
+        "worker.1.exited",
+        "worker.2.exited",
+    ]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")

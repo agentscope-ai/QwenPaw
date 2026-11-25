@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 
+import psutil
 import pytest
 import pytest_asyncio
 
@@ -1745,6 +1746,46 @@ async def test_failed_worker_update_restores_usable_source_and_config(host):
     await host.emit(ws, room="restored")
     await eventually(lambda: bool(rows(host.ledger, "finished")))
     assert rows(host.ledger, "sent")[-1]["room"] == "restored"
+
+
+@pytest.mark.asyncio
+async def test_explicit_restart_recovers_reaped_channel(host):
+    from qwenpaw.plugins.lifecycle import QuiescenceError
+
+    ws = await host.workspace("crash-recovery")
+    await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    manager = ws.channel_manager
+    lease = channel._runtime_lease
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    for _ in range(2):
+        receipt = await manager.stop_one(KEY)
+        assert receipt.detail == "CHANNEL_STOP_INCOMPLETE"
+        assert not receipt.stopped and receipt.exited and not receipt.residual
+        assert channel.last_stop_result.acknowledged is False
+        assert host.registry.runtime_owners.leases(KEY) == (lease,)
+
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    async with channel._state_lock:
+        with pytest.raises(QuiescenceError) as error:
+            await manager.restart_channel(KEY)
+        assert error.value.receipt.residual == ("HOST_STATE_IO_PENDING",)
+        assert host.registry.runtime_owners.leases(KEY) == (lease,)
+
+    assert await manager.restart_channel(KEY) == {
+        "channel": KEY,
+        "status": "restarted",
+        "detail": "Channel restarted",
+    }
+    successor, after = await host.identity(ws)
+    assert after["config"] == before["config"]
+    assert alive(after["pid"]) and after["pid"] != before["pid"]
+    assert successor._runtime_lease.generation > lease.generation
+    assert host.registry.runtime_owners.leases(KEY) == (
+        successor._runtime_lease,
+    )
+    assert channel.last_stop_result.acknowledged is False
 
 
 @pytest.mark.asyncio

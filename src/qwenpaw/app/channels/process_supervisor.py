@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...channel_protocol.artifacts import code_root_digest
-from ...plugins.custody import CHANNEL_SHUTDOWN_SECONDS
+from ...shutdown import CHANNEL_SHUTDOWN_SECONDS
 from ...plugins.execution.bootstrap import validate_private_environment
 from ...plugins.execution.process import (  # pylint: disable=unused-import
     PluginProcess,

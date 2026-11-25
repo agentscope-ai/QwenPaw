@@ -112,13 +112,15 @@ class Driver(ChannelDriver):
                 stop.wait()
                 marker.with_suffix(".waiting").touch()
                 if marker.with_suffix(".slow").exists():
-                    time.sleep(3.5)
+                    time.sleep(4.25)
                 while not marker.with_suffix(".release").exists():
                     time.sleep(0.01)
                 marker.with_suffix(exit_suffix).touch()
             ch.resources.thread(run, stop=stop)
         register_thread(".exited")
         register_thread(".second.exited")
+        register_thread(".third.exited")
+        register_thread(".fourth.exited")
         await ch.report_status("connected")
 
     async def send(self, ch, response):
@@ -199,7 +201,7 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
             )
             other_pid = int(markers[2].read_text())
             assert alive(other_pid)
-            # Two independent stops each fit a join but take 7s in sequence.
+            # Four independent stops fit one join but take 17s in sequence.
             markers[0].with_suffix(".slow").touch()
             manager = (await host._workspace("one")).channel_manager
             assert manager is not None
@@ -225,6 +227,8 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
             assert not receipt.forced, receipt
             assert markers[0].with_suffix(".exited").exists()
             assert markers[0].with_suffix(".second.exited").exists()
+            assert markers[0].with_suffix(".third.exited").exists()
+            assert markers[0].with_suffix(".fourth.exited").exists()
             assert not alive(pid)
             await host.start_channel(
                 keys[1],

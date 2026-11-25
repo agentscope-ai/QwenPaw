@@ -11,6 +11,7 @@ from typing import Optional
 
 import click
 
+from ..shutdown import SERVER_SHUTDOWN_SECONDS
 from .process_utils import (
     _is_qwenpaw_wrapper_process,
     _process_table,
@@ -22,10 +23,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
 _SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
-# Uvicorn may spend 5 seconds draining requests before lifespan shutdown
-# starts. The application then has a 12-second dependent-shutdown watchdog;
-# leave 3 seconds for signal delivery, scheduling, and process exit.
-_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 20.0
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
@@ -288,7 +285,7 @@ def _force_terminate_windows_process(pid: int) -> None:
 
 def _terminate_pid(
     pid: int,
-    timeout_sec: float = _GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+    timeout_sec: float = SERVER_SHUTDOWN_SECONDS,
     process: subprocess.Popen[str] | None = None,
 ) -> bool:
     """Terminate a process tree gracefully, then force kill if needed.

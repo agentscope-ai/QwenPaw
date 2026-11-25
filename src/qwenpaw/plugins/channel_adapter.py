@@ -28,7 +28,7 @@ from ..channel_protocol.shared import (
     _read_requirements,
 )
 from .architecture import PluginManifest, PluginType
-from .custody import CHANNEL_SHUTDOWN_SECONDS
+from ..shutdown import CHANNEL_SHUTDOWN_SECONDS
 
 CHANNEL_RUNTIME_NOT_INTEGRATED = "channel_runtime_not_integrated"
 

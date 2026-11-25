@@ -32,6 +32,7 @@ from ..constant import (
 )
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from ..shutdown import WORKSPACE_SHUTDOWN_SECONDS
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
@@ -71,7 +72,6 @@ from .routers.channel_callbacks import channel_callbacks_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
-_WORKSPACE_SHUTDOWN_DEADLINE_SECONDS = 12.0
 
 # Uvicorn imports this module inside the serving process. Under ``--reload``
 # that is a spawned child, distinct from the CLI/reloader process, so it must
@@ -165,7 +165,7 @@ async def _stop_workspaces_after_dependents(
     app: FastAPI,
     import_jobs: Any,
     *,
-    deadline_sec: float = _WORKSPACE_SHUTDOWN_DEADLINE_SECONDS,
+    deadline_sec: float = WORKSPACE_SHUTDOWN_SECONDS,
 ) -> None:
     """Stop workspace dependents, hard-exiting if they cannot quiesce."""
     completed = threading.Event()
