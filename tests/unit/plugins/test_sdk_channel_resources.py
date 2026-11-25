@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -133,7 +134,10 @@ class Driver(ChannelDriver):
 
 
 @pytest.mark.asyncio
-async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
+async def test_actual_host_retains_claim_until_worker_thread_exits(
+    tmp_path,
+    monkeypatch,
+):
     keys = ("sdk-owner", "sdk-other-owner")
     sources = []
     for key in keys:
@@ -152,6 +156,16 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
         tmp_path / "host",
         process_channels=keys,
     ) as host:
+        registry = host._loader.registry
+        runtime = registry.channel_runtime
+        assert runtime is not None
+        # The stop RPC gets one third of this budget. Allow time for the
+        # conflicting start to be rejected before we release the thread.
+        monkeypatch.setattr(
+            registry,
+            "channel_runtime",
+            replace(runtime, shutdown_timeout=6),
+        )
         try:
             for source in sources:
                 result = await host.install(source)
@@ -193,9 +207,9 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
             )
             other_pid = int(markers[2].read_text())
             assert alive(other_pid)
-            stopping = asyncio.create_task(
-                host.stop_channel(keys[0], workspace_id="one"),
-            )
+            manager = (await host._workspace("one")).channel_manager
+            assert manager is not None
+            stopping = asyncio.create_task(manager.stop_one(keys[0]))
             await eventually(
                 lambda: markers[0].with_suffix(".waiting").exists(),
                 timeout=5,
@@ -212,7 +226,9 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
                 )
             assert not markers[1].exists()
             markers[0].with_suffix(".release").touch()
-            await stopping
+            receipt = await stopping
+            assert receipt.stopped and receipt.exited, receipt
+            assert not receipt.forced, receipt
             assert markers[0].with_suffix(".exited").exists()
             assert not alive(pid)
             await host.start_channel(
@@ -236,7 +252,6 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
 
 @pytest.mark.asyncio
 async def test_management_claim_retained_during_cancelled_cleanup(tmp_path):
-    from dataclasses import replace
     from qwenpaw.app.channels.management import (
         ChannelManagementService,
         ManagementError,
