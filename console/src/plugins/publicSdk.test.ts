@@ -4,6 +4,7 @@ import {
   forApp,
   getHost,
   tasks,
+  checkpoints,
   type PawRequestOptions,
 } from "../../../src/qwenpaw/plugins/frontend/index.js";
 
@@ -37,6 +38,60 @@ const supported = {
 };
 
 describe("published plugin SDK runtime", () => {
+  it("binds checkpoints to an explicit conversation and preserves cancellation", async () => {
+    const { api } = hostWith({
+      ...supported,
+      sdk_version: "1.2.0",
+      capabilities: ["checkpoints"],
+    });
+    const signal = new AbortController().signal;
+    const client = checkpoints("author-app");
+    const options = { chatId: "selected-chat", agentId: "one", signal };
+    await client.timeline({ ...options, limit: 7 });
+    expect(api.get).toHaveBeenLastCalledWith("/checkpoints/timeline", {
+      headers: { "X-Chat-Id": "selected-chat" },
+      query: { agent_id: "one", limit: 7 },
+      signal,
+    });
+    await client.previewRestore("commit", options);
+    expect(api.post).toHaveBeenLastCalledWith(
+      "/checkpoints/restore/preview",
+      { target: "commit", include_memory: false, include_files: false },
+      {
+        headers: { "X-Chat-Id": "selected-chat" },
+        query: { agent_id: "one" },
+        signal,
+      },
+    );
+    await client.restore("commit", {
+      ...options,
+      include_files: true,
+      files: ["report.txt"],
+    });
+    expect(api.post.mock.calls[api.post.mock.calls.length - 1]?.[1]).toEqual({
+      target: "commit",
+      include_memory: false,
+      include_files: true,
+      files: ["report.txt"],
+    });
+  });
+
+  it("requires a selected conversation, workspace, and advertised support", async () => {
+    const { api } = hostWith(supported);
+    const client = checkpoints("author-app");
+    await expect(
+      client.timeline({ chatId: "", agentId: "one" }),
+    ).rejects.toThrow(/conversation/);
+    await expect(
+      client.timeline({ chatId: "chat", agentId: " " }),
+    ).rejects.toThrow(/workspace/);
+    expect(api.get).not.toHaveBeenCalled();
+    await expect(
+      client.restore("commit", { chatId: "chat", agentId: "one" }),
+    ).rejects.toThrow(/advertised/);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("requires an actual host and binds the requested app", () => {
     Reflect.deleteProperty(window, "QwenPaw");
     expect(() => getHost()).toThrow(/unavailable/);

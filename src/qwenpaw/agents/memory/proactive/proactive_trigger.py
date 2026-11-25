@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, Optional, Any
 
+from ....runtime.turn_context import detached_turn_context
 from .proactive_types import ProactiveConfig
 from .proactive_responder import generate_proactive_response
 from .proactive_utils import (
@@ -60,7 +61,10 @@ def enable_proactive_for_session(
 
     # Start the proactive trigger loop if not already running
     if session_id not in proactive_tasks or proactive_tasks[session_id].done():
-        task = asyncio.create_task(_run_trigger_loop(session_id))
+        task = asyncio.create_task(
+            _run_trigger_loop(session_id),
+            context=detached_turn_context(),
+        )
         proactive_tasks[session_id] = task
 
     return f"Proactive mode enabled with {idle_minutes} minute idle threshold."

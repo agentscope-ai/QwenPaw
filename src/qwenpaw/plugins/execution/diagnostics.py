@@ -31,7 +31,11 @@ class StartupDiagnostics:
             clean = _clean
         self._clean = clean
         self._write = write or (
-            lambda text: print(text, file=sys.stderr, flush=True)
+            lambda text, _event, _critical: print(
+                text,
+                file=sys.stderr,
+                flush=True,
+            )
         )
         self._secrets = []
 
@@ -56,6 +60,7 @@ class StartupDiagnostics:
         capability = os.environ.get("QWENPAW_DEPENDENCY_MAINTENANCE")
         if capability:
             self._secrets.append(capability)
+        self._secrets = sorted(set(self._secrets), key=len, reverse=True)
         self.identity = {
             key: self._safe(packet.get(key))
             for key in (
@@ -118,21 +123,25 @@ class StartupDiagnostics:
             if threading.excepthook is thread_error:
                 threading.excepthook = thread_hook
 
+    def clean_log(self, text: str) -> str:
+        """Redact launch secrets and URL credentials from worker output."""
+        for secret in self._secrets:
+            text = text.replace(secret, f"[REDACTED]")
+        text = _URL.sub(
+            lambda match: re.sub(
+                r"(?<=//)[^/@]+@",
+                f"[REDACTED]@",
+                match[0],
+            )
+            .split(f"?", 1)[0]
+            .split(f"#", 1)[0],
+            text,
+        )
+        return self._clean(text)
+
     def _safe(self, value, *, limit=256):
         if isinstance(value, str):
-            for secret in sorted(set(self._secrets), key=len, reverse=True):
-                value = value.replace(secret, "[REDACTED]")
-            value = _URL.sub(
-                lambda match: re.sub(
-                    r"(?<=//)[^/@]+@",
-                    "[REDACTED]@",
-                    match[0],
-                )
-                .split("?", 1)[0]
-                .split("#", 1)[0],
-                value,
-            )
-            return self._clean(value)[:limit]
+            return self.clean_log(value)[:limit]
         if isinstance(value, dict):
             return {key: self._safe(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
@@ -157,7 +166,11 @@ class StartupDiagnostics:
                 **self._safe(fields),
             }
             prefix = ERROR_PREFIX if critical else "startup_diagnostic "
-            self._write(prefix + json.dumps(row, ensure_ascii=True))
+            self._write(
+                prefix + json.dumps(row, ensure_ascii=True),
+                event,
+                critical,
+            )
         except Exception:
             # Diagnostics cannot replace the original error or stop cleanup.
             pass

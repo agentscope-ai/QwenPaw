@@ -287,9 +287,12 @@ class TestStripMediaBlocksFromMemory:
         agent = _agent_with_context([msg])
         removed = agent._strip_media_blocks_from_memory()
         assert removed == 1
-        # the media item removed from nested output
-        assert len(tool_result.output) == 1
+        # The media item is removed from the nested output, and an explicit
+        # marker records the omission so the surviving "kept" text cannot be
+        # read as "the media is still there".
+        assert len(tool_result.output) == 2
         assert tool_result.output[0].text == "kept"
+        assert tool_result.output[-1].text == MEDIA_UNSUPPORTED_PLACEHOLDER
 
     def test_nested_all_media_replaced_with_placeholder(self):
         tool_result = ToolResultBlock(

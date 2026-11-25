@@ -1,0 +1,684 @@
+# -*- coding: utf-8 -*-
+"""Class-based local model downloader."""
+
+from __future__ import annotations
+
+import fnmatch
+import logging
+import shutil
+import uuid
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+from queue import Empty
+from typing import Any, Optional
+
+import httpx
+
+from qwenpaw.plugins import SDKError
+
+from . import hardware as system_info
+from .model_types import (
+    DownloadSource,
+    LocalModelInfo,
+    PICCOLO_REPO_IDS,
+    PICCOLO_DOWNLOAD_PATTERNS,
+)
+
+from .download_manager import (
+    DownloadProgressTracker,
+    DownloadProgressUpdate,
+    ProcessDownloadTask,
+    DownloadTaskResult,
+    DownloadTaskStatus,
+    ProcessDownloadController,
+    ProcessDownloadTaskSpec,
+)
+from .workers import ModelDownloads
+
+logger = logging.getLogger(__name__)
+
+
+def repository_for_source(repo_id: str, source: DownloadSource) -> str:
+    """Resolve the official mirror while leaving third-party IDs intact."""
+    owner, separator, name = repo_id.partition("/")
+    if (
+        separator
+        and owner in {"agentscope-ai", "AgentScope"}
+        and name.startswith(("Piccolo-", "QwenPaw-Flash-"))
+        and source != DownloadSource.AUTO
+    ):
+        owner = (
+            "AgentScope"
+            if source == DownloadSource.MODELSCOPE
+            else "agentscope-ai"
+        )
+        return f"{owner}/{name}"
+    return repo_id
+
+
+class ModelManager(ModelDownloads):
+    """A manager for downloading local models with progress tracking."""
+
+    def __init__(
+        self,
+        *,
+        data_dir: Path,
+    ) -> None:
+        self._model_dir = data_dir / "models"
+        self._download_tmp_dir = data_dir / "tmp"
+        self._progress = DownloadProgressTracker()
+        self._download_controller = ProcessDownloadController(
+            progress=self._progress,
+        )
+
+    def get_recommended_models(self) -> list[LocalModelInfo]:
+        """Recommend model names from the current machine capacity."""
+        memory_gb = self._detect_available_memory_gb()
+
+        if memory_gb < 4:
+            return []
+
+        if memory_gb <= 8:
+            models = [
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-2B-Q4_K_M",
+                    name="QwenPaw-Flash-2B-Q4_K_M",
+                    size_bytes=1560460768,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-2B-Q8_0",
+                    name="QwenPaw-Flash-2B-Q8_0",
+                    size_bytes=2552356320,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+            ]
+        elif memory_gb <= 16:
+            models = [
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-4B-Q4_K_M",
+                    name="QwenPaw-Flash-4B-Q4_K_M",
+                    size_bytes=3066384736,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-4B-Q8_0",
+                    name="QwenPaw-Flash-4B-Q8_0",
+                    size_bytes=5157833056,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+            ]
+        else:
+            models = [
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-9B-Q4_K_M",
+                    name="QwenPaw-Flash-9B-Q4_K_M",
+                    size_bytes=5476080128,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+                LocalModelInfo(
+                    id="agentscope-ai/QwenPaw-Flash-9B-Q8_0",
+                    name="QwenPaw-Flash-9B-Q8_0",
+                    size_bytes=10590617600,
+                    source=DownloadSource.HUGGINGFACE,
+                ),
+            ]
+
+        # Q4 may require a reduced context on smaller machines.
+        if memory_gb >= 24:
+            models.extend(
+                [
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-27B-Q4_K_M",
+                        name="QwenPaw-Flash-27B-Q4_K_M",
+                        size_bytes=16547398880,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-35B-A3B-Q4_K_M",
+                        name="QwenPaw-Flash-35B-A3B-Q4_K_M",
+                        size_bytes=21166757824,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                ],
+            )
+        if memory_gb >= 48:
+            models.extend(
+                [
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-27B-Q8_0",
+                        name="QwenPaw-Flash-27B-Q8_0",
+                        size_bytes=28595762400,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                    LocalModelInfo(
+                        id="agentscope-ai/QwenPaw-Flash-35B-A3B-Q8_0",
+                        name="QwenPaw-Flash-35B-A3B-Q8_0",
+                        size_bytes=36903139264,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                ],
+            )
+
+        for size, minimum_memory, weight_bytes in (
+            (4, 16, 4482403872),
+            (9, 24, 9527502656),
+            (27, 48, 28595764992),
+        ):
+            if memory_gb >= minimum_memory:
+                models.append(
+                    LocalModelInfo(
+                        id=f"agentscope-ai/Piccolo-{size}B-Q8_0",
+                        name=f"Piccolo-{size}B-Q8_0",
+                        model_type="decision",
+                        size_bytes=weight_bytes,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                )
+
+        # Leave room for full-prompt attention and runtime buffers.
+        for size, minimum_memory, weight_bytes in (
+            (4, 24, 8424394496),
+            (9, 32, 17920698400),
+            (27, 80, 53808284096),
+        ):
+            if memory_gb >= minimum_memory:
+                models.append(
+                    LocalModelInfo(
+                        id=f"agentscope-ai/Piccolo-{size}B-BF16",
+                        name=f"Piccolo-{size}B-BF16",
+                        model_type="decision",
+                        size_bytes=weight_bytes,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                )
+
+        models.extend(
+            replace(
+                model,
+                id=repository_for_source(model.id, DownloadSource.MODELSCOPE),
+                source=DownloadSource.MODELSCOPE,
+            )
+            for model in list(models)
+        )
+        return [
+            replace(model, downloaded=self.is_downloaded(model.id))
+            for model in models
+        ]
+
+    def _check_model_exists(self, model_id: str) -> bool:
+        """Check if a model directory contains .gguf files."""
+        local_path = self._model_dir.joinpath(*model_id.split("/"))
+        return local_path.exists() and any(local_path.glob("*.gguf"))
+
+    def get_model_dir(self, model_id: str) -> Path:
+        """Get the expected local path for a given model id."""
+        return self._model_dir.joinpath(*model_id.split("/"))
+
+    def is_downloaded(self, model_id: str) -> bool:
+        """Check if a model id is already downloaded."""
+        return self._check_model_exists(model_id)
+
+    def list_downloaded_models(self) -> list[LocalModelInfo]:
+        """Return all downloaded local model repositories."""
+        model_root = self._model_dir
+        if not model_root.exists():
+            return []
+
+        models: list[LocalModelInfo] = []
+        for repo_id, entry in self._downloaded_repositories().items():
+            size_bytes = self._calculate_downloaded_size(entry)
+            is_piccolo = repo_id in PICCOLO_REPO_IDS
+            models.append(
+                LocalModelInfo(
+                    id=repo_id,
+                    name=(
+                        repo_id.rsplit("/", maxsplit=1)[-1]
+                        if is_piccolo
+                        else repo_id
+                    ),
+                    model_type="decision" if is_piccolo else "chat",
+                    source=(
+                        DownloadSource.MODELSCOPE
+                        if repo_id.startswith(
+                            (
+                                "AgentScope/Piccolo-",
+                                "AgentScope/QwenPaw-Flash-",
+                            ),
+                        )
+                        else (
+                            DownloadSource.HUGGINGFACE
+                            if repo_id.startswith("agentscope-ai/")
+                            else DownloadSource.AUTO
+                        )
+                    ),
+                    size_bytes=size_bytes,
+                    downloaded=True,
+                ),
+            )
+
+        return models
+
+    def remove_downloaded_model(
+        self,
+        model_id: str,
+        running_model_id: str | None = None,
+    ) -> None:
+        """Delete a downloaded local model by repo id or directory name."""
+        repositories = self._downloaded_repositories()
+        model_dirs = repositories.values()
+        model_dir = repositories.get(model_id)
+        if model_dir is None:
+            # A repository ID can also address its exact on-disk directory.
+            model_dir = next(
+                (
+                    path
+                    for path in model_dirs
+                    if self._infer_repo_id_from_path(path) == model_id
+                ),
+                None,
+            )
+        if model_dir is None:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
+
+        root = self._model_dir.resolve()
+        model_path = root / model_dir.relative_to(self._model_dir)
+        if model_path.resolve() != model_path:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
+        if any(
+            path != model_dir and path.is_relative_to(model_dir)
+            for path in model_dirs
+        ):
+            raise SDKError(
+                "Cannot delete a directory that contains another model",
+            )
+        if running_model_id is not None:
+            running_path = self.get_model_dir(running_model_id).resolve()
+            if model_path.is_relative_to(running_path) or any(
+                path.exists() and path.samefile(model_path)
+                for path in (running_path, *running_path.parents)
+            ):
+                raise SDKError("Cannot delete a model while it is running")
+
+        shutil.rmtree(model_path)
+        self._cleanup_empty_parent_dirs(model_path.parent, root)
+
+    def start_download(
+        self,
+        model_id: str,
+        source: DownloadSource | None = None,
+    ) -> None:
+        """Start downloading the selected model into the target directory."""
+        logger.info("Starting download for [%s] %s", source, model_id)
+        if self._is_download_active():
+            raise RuntimeError("A model download is already in progress.")
+
+        resolved_source = (
+            self._resolve_download_source()
+            if source is None or source == DownloadSource.AUTO
+            else source
+        )
+        repo_id = repository_for_source(model_id, resolved_source)
+        final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
+        # TODO: Consider worker-side checks if SDK memory use is significant.
+        total_bytes = self._estimate_download_size(
+            repo_id=repo_id,
+            source=resolved_source,
+        )
+        has_gguf, error_msg = self._check_gguf_exists(
+            repo_id=repo_id,
+            source=resolved_source,
+        )
+        if not has_gguf:
+            raise ValueError(error_msg)
+
+        task_id = uuid.uuid4().hex
+        staging_dir = self._download_tmp_dir / task_id
+        payload = {
+            "repo_id": repo_id,
+            "source": resolved_source.value,
+            "staging_dir": str(staging_dir),
+        }
+        spec = ProcessDownloadTaskSpec(
+            process_name=f"qwenpaw-model-download-{task_id}",
+            task=ProcessDownloadTask(
+                target=type(self)._download_worker,
+                payload=payload,
+                progress_probe=lambda: DownloadProgressUpdate(
+                    downloaded_bytes=self._calculate_downloaded_size(
+                        staging_dir,
+                    ),
+                    total_bytes=total_bytes,
+                    model_name=repo_id,
+                    source=resolved_source.value,
+                ),
+                finalize_result=lambda result: self._finalize_download_result(
+                    result,
+                    staging_dir=staging_dir,
+                    final_dir=final_dir,
+                ),
+                cleanup=lambda: self._cleanup_path(staging_dir),
+            ),
+            model_name=repo_id,
+            source=resolved_source.value,
+            total_bytes=total_bytes,
+        )
+        self._download_controller.start(spec)
+
+    def download_model(
+        self,
+        model_id: str,
+        source: DownloadSource | None = None,
+    ) -> None:
+        self.start_download(model_id, source=source)
+
+    def get_download_progress(self) -> dict[str, Any]:
+        """Return the current download progress."""
+        return self._download_controller.snapshot()
+
+    def cancel_download(self) -> None:
+        """Cancel the current download task."""
+        self._download_controller.cancel()
+
+    def _is_download_active(self) -> bool:
+        """Return whether a download process is still active."""
+        return self._download_controller.is_active()
+
+    def _finalize_download_result(
+        self,
+        result: DownloadTaskResult,
+        *,
+        staging_dir: Path,
+        final_dir: Path,
+    ) -> tuple[DownloadTaskResult, int | None]:
+        if result.status != DownloadTaskStatus.COMPLETED:
+            return result, None
+        local_path = self._promote_staging_directory(
+            staging_dir=staging_dir,
+            final_dir=final_dir,
+            local_path=Path(result.local_path or staging_dir),
+        )
+        downloaded_bytes = self._calculate_downloaded_size(final_dir)
+        return (
+            DownloadTaskResult(
+                status=result.status,
+                local_path=str(local_path),
+            ),
+            downloaded_bytes,
+        )
+
+    def _estimate_download_size(
+        self,
+        repo_id: str,
+        source: DownloadSource,
+    ) -> Optional[int]:
+        """Best-effort total byte estimation for progress."""
+        if source == DownloadSource.HUGGINGFACE:
+            return self._estimate_huggingface_size(
+                repo_id=repo_id,
+            )
+        return self._estimate_modelscope_size(
+            repo_id=repo_id,
+        )
+
+    def _check_gguf_exists(
+        self,
+        repo_id: str,
+        source: DownloadSource,
+    ) -> tuple[bool, str]:
+        """Return whether the remote repository contains at least one GGUF."""
+        if source == DownloadSource.HUGGINGFACE:
+            return self._check_huggingface_gguf_exists(
+                repo_id=repo_id,
+            )
+        return self._check_modelscope_gguf_exists(
+            repo_id=repo_id,
+        )
+
+    def _estimate_huggingface_size(
+        self,
+        repo_id: str,
+    ) -> Optional[int]:
+        """Estimate total download bytes from Hugging Face metadata."""
+        try:
+            from huggingface_hub import HfApi
+        except ImportError:
+            return None
+
+        try:
+            info = HfApi().repo_info(
+                repo_id=repo_id,
+                repo_type="model",
+                files_metadata=True,
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return None
+
+        siblings = getattr(info, "siblings", None) or []
+        total = 0
+        found = False
+        for sibling in siblings:
+            name = getattr(sibling, "rfilename", None)
+            size = getattr(sibling, "size", None)
+            if not isinstance(name, str) or not isinstance(size, int):
+                continue
+            if name.startswith("."):
+                continue
+            if repo_id in PICCOLO_REPO_IDS and not any(
+                fnmatch.fnmatch(name, pattern)
+                for pattern in PICCOLO_DOWNLOAD_PATTERNS
+            ):
+                continue
+            total += size
+            found = True
+        return total if found else None
+
+    def _estimate_modelscope_size(
+        self,
+        repo_id: str,
+    ) -> Optional[int]:
+        """Estimate total download bytes from ModelScope metadata."""
+        try:
+            from modelscope_hub import HubApi, HubError
+        except ImportError:
+            return None
+
+        try:
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
+            return None
+
+        if repo_id in PICCOLO_REPO_IDS:
+            files = [
+                file
+                for file in files
+                if any(
+                    fnmatch.fnmatch(file.path, pattern)
+                    for pattern in PICCOLO_DOWNLOAD_PATTERNS
+                )
+            ]
+        return sum(file.size for file in files) if files else None
+
+    def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            from huggingface_hub import HfApi
+            from huggingface_hub.errors import RepositoryNotFoundError
+        except ImportError:
+            return False, "`huggingface_hub` is not installed"
+        try:
+            files = HfApi().list_repo_files(repo_id=repo_id)
+            if any(f.endswith(".gguf") for f in files):
+                return True, ""
+            return (
+                False,
+                (
+                    f"{repo_id} is not supported by Llama.cpp because it does "
+                    "not contain any .gguf files."
+                ),
+            )
+        except RepositoryNotFoundError:
+            return False, f"Repository {repo_id} not found"
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            return False, f"Error when checking repository: {e}"
+
+    def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            from modelscope_hub import HubApi, HubError
+        except ImportError:
+            return False, "`modelscope-hub` is not installed"
+        try:
+            files = HubApi().list_repo_files(repo_id, repo_type="model")
+        except (HubError, OSError, RuntimeError, TypeError, ValueError):
+            return False, f"Failed to fetch info from {repo_id}"
+
+        if any(file.path.endswith(".gguf") for file in files):
+            return True, ""
+        return (
+            False,
+            (
+                f"{repo_id} is not supported by Llama.cpp because it does "
+                "not contain any .gguf files."
+            ),
+        )
+
+    def _resolve_download_source(self) -> DownloadSource:
+        """Choose Hugging Face when reachable, otherwise use ModelScope."""
+        if self._probe_huggingface():
+            return DownloadSource.HUGGINGFACE
+        return DownloadSource.MODELSCOPE
+
+    def _detect_available_memory_gb(self) -> float:
+        """Prefer VRAM when available, otherwise use system memory."""
+        gpu_memory_gb = system_info.get_vram_size_gb()
+        if gpu_memory_gb > 0:
+            return gpu_memory_gb
+        return system_info.get_memory_size_gb()
+
+    def _probe_huggingface(self) -> bool:
+        """Return whether Hugging Face is reachable from this machine."""
+        try:
+            response = httpx.get(
+                "https://huggingface.co",
+                follow_redirects=True,
+                timeout=5,
+            )
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 500
+
+    @staticmethod
+    def _drain_queue_message(queue: Any) -> Optional[dict[str, Any]]:
+        """Return the latest worker message, if available."""
+        if queue is None:
+            return None
+
+        latest = None
+        while True:
+            try:
+                latest = queue.get_nowait()
+            except Empty:
+                return latest
+
+    @staticmethod
+    def _calculate_downloaded_size(path: Path) -> int:
+        """Compute currently materialized bytes on disk."""
+        if not path.exists():
+            return 0
+        if path.is_file():
+            return path.stat().st_size
+        return sum(
+            entry.stat().st_size
+            for entry in path.rglob("*")
+            if entry.is_file()
+        )
+
+    @staticmethod
+    def _promote_staging_directory(
+        staging_dir: Path,
+        final_dir: Path,
+        local_path: Path,
+    ) -> Path:
+        """Move a finished staged download into the final directory."""
+        if final_dir.exists():
+            shutil.rmtree(final_dir)
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staging_dir), str(final_dir))
+
+        if local_path == staging_dir:
+            return final_dir
+        return final_dir / local_path.relative_to(staging_dir)
+
+    def _downloaded_repositories(self) -> dict[str, Path]:
+        """Map standalone and owner/repository model IDs to their directories."""
+        roots = []
+        for entry in sorted(self._model_dir.rglob("*")):
+            if not entry.is_dir() or self._is_temporary_download_dir(entry):
+                continue
+            parts = entry.relative_to(self._model_dir).parts
+            if len(parts) > 2 and any(root in entry.parents for root in roots):
+                continue
+            if not self._looks_like_model_root(entry):
+                continue
+            # A standalone model may share its top-level folder with separate
+            # owner/repository entries. Each repository owns its nested weights.
+            pattern = (
+                "*.gguf"
+                if len(parts) == 1 and not entry.is_symlink()
+                else "**/*.gguf"
+            )
+            if any(
+                not weight.name.lower().startswith("mmproj")
+                and not self._is_temporary_download_dir(weight)
+                and weight.is_file()
+                for weight in entry.glob(pattern)
+            ):
+                roots.append(entry)
+
+        counts = Counter(
+            root.relative_to(self._model_dir).parts[0] for root in roots
+        )
+        repositories = {}
+        for root in roots:
+            parent = root.parent
+            if (
+                root.name == "weights"
+                and parent.parent == self._model_dir
+                and counts[parent.name] == 1
+                and not root.is_symlink()
+                and self._looks_like_model_root(parent)
+                and all(
+                    child.suffix.lower() == ".gguf" for child in root.iterdir()
+                )
+            ):
+                # A legacy standalone model keeps its metadata above weights/.
+                repositories[parent.name] = root
+            else:
+                repositories[self._infer_repo_id_from_path(root)] = root
+        return repositories
+
+    def _is_temporary_download_dir(self, path: Path) -> bool:
+        return any(
+            part.startswith(".") or part.endswith(".downloading")
+            for part in path.relative_to(self._model_dir).parts
+        )
+
+    def _looks_like_model_root(self, path: Path) -> bool:
+        visible_children = [
+            child for child in path.iterdir() if not child.name.startswith(".")
+        ]
+        return any(not child.is_dir() for child in visible_children)
+
+    def _infer_repo_id_from_path(self, model_dir: Path) -> str:
+        relative_path = model_dir.relative_to(self._model_dir)
+        return "/".join(relative_path.parts)
+
+    @staticmethod
+    def _cleanup_empty_parent_dirs(path: Path, root: Path) -> None:
+        while path != root and path.exists():
+            if any(path.iterdir()):
+                return
+            path.rmdir()
+            path = path.parent

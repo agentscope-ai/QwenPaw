@@ -1,4 +1,5 @@
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import { useEffect, useState, useMemo } from "react";
 import {
   Form,
@@ -187,6 +188,12 @@ export function AgentModal({
       okText={t("common.save")}
       cancelText={t("common.cancel")}
     >
+      {editingAgent && (
+        <MCPFeatureStatus
+          agentId={editingAgent.id}
+          active={open && !!mailMode && mailMode !== "none"}
+        />
+      )}
       <Form form={form} layout="vertical" autoComplete="off">
         <AgentBackendFields form={form} open={open} />
 

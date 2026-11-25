@@ -51,6 +51,8 @@ export interface InstallPluginResult {
   description: string;
   author?: string;
   loaded: boolean;
+  enabled?: boolean;
+  status?: string;
   message: string;
 }
 

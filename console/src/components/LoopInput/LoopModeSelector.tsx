@@ -139,8 +139,11 @@ export function LoopModeSelector({
           )}
           {!compact && (
             <>
-              <span>{modeName}</span>
-              <span className={styles.activeState}>
+              <span data-composer-collapse-content>{modeName}</span>
+              <span
+                className={styles.activeState}
+                data-composer-collapse-content
+              >
                 {t(`loop.${sessionState}`)}
               </span>
             </>
@@ -288,6 +291,7 @@ export function LoopModeSelector({
       aria-label={t("loop.selectorAria")}
       className={[styles.modeTrigger, className].filter(Boolean).join(" ")}
       disabled={switching || (catalogLoading && availableModes.length === 0)}
+      title={compact ? resolveLoopModeName(selectedMode, t, lang) : undefined}
       onClick={isMobile ? () => setOpen((current) => !current) : undefined}
       type="button"
     >
@@ -298,13 +302,15 @@ export function LoopModeSelector({
       )}
       {!compact && (
         <>
-          <span>{resolveLoopModeName(selectedMode, t, lang)}</span>
+          <span data-composer-collapse-content>
+            {resolveLoopModeName(selectedMode, t, lang)}
+          </span>
           {canSwitchAdvisor && (
-            <span className={styles.activeState}>
+            <span className={styles.activeState} data-composer-collapse-content>
               {t("loop.awaiting_user")}
             </span>
           )}
-          <ChevronDown size={13} />
+          <ChevronDown data-composer-collapse-content size={13} />
         </>
       )}
     </button>

@@ -30,6 +30,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from .provider_turn import ProviderTurn
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,26 @@ class Runtime:
         self.workspace = workspace
         self.app_services = app_services
 
-    async def run(  # pylint: disable=too-many-branches,too-many-statements
+    async def run(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Stream one agent turn and release its Provider resources."""
+        provider_uses = ProviderTurn()
+        events = self._run(request)
+        exhausted = object()
+        try:
+            while True:
+                with provider_uses.bind():
+                    event = await anext(events, exhausted)
+                if event is exhausted:
+                    break
+                yield event
+        finally:
+            try:
+                with provider_uses.bind():
+                    await events.aclose()
+            finally:
+                await provider_uses.close()
+
+    async def _run(  # pylint: disable=too-many-branches,too-many-statements
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
@@ -148,6 +168,7 @@ class Runtime:
                 )
                 await record_agent_activity()
                 from ..providers.model_selection import runtime_model_context
+                from ..plugins._identity import from_runtime, request_identity
 
                 exhausted = object()
                 async with aclosing(executor.run(ctx.input_msgs)) as events:
@@ -157,7 +178,13 @@ class Runtime:
                         with runtime_model_context(
                             getattr(ctx.agent, "model", None),
                         ):
-                            ev = await anext(events, exhausted)
+                            identity_token = request_identity.set(
+                                from_runtime(ctx),
+                            )
+                            try:
+                                ev = await anext(events, exhausted)
+                            finally:
+                                request_identity.reset(identity_token)
                         if ev is exhausted:
                             break
                         yield ev
@@ -240,17 +267,17 @@ class Runtime:
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
-            agent = getattr(ctx, "agent", None)
-            if agent is not None and hasattr(agent, "close"):
-                try:
-                    await agent.close()
-                except Exception:  # pylint: disable=broad-except
-                    logger.warning(
-                        "runtime: agent.close() failed session=%s",
-                        getattr(ctx, "session_id", ""),
-                        exc_info=True,
-                    )
             try:
+                agent = getattr(ctx, "agent", None)
+                if agent is not None and hasattr(agent, "close"):
+                    try:
+                        await agent.close()
+                    except Exception:  # pylint: disable=broad-except
+                        logger.warning(
+                            "runtime: agent.close() failed session=%s",
+                            getattr(ctx, "session_id", ""),
+                            exc_info=True,
+                        )
                 await hooks.run(Phase.FINALLY, ctx)
             finally:
                 if isinstance(request, AgentRequest):

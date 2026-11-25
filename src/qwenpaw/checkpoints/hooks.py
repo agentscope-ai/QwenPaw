@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ..hooks.base import LifecycleHook
@@ -46,7 +47,14 @@ class CheckpointQueryGateHook(LifecycleHook):
         try:
             if ctx.workspace is not None:
                 engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
-                await engine.query_gate.wait()
+                task = asyncio.current_task()
+                if task is not None:
+                    engine._query_waiters.add(task)
+                try:
+                    await engine.query_gate.wait()
+                finally:
+                    if task is not None:
+                        engine._query_waiters.discard(task)
         except Exception:
             logger.exception("Checkpoint query gate failed")
         return HookResult()

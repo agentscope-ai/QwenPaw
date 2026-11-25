@@ -24,6 +24,7 @@ import { Button, Form, Modal, Select } from "@agentscope-ai/design";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import api from "../../../api";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
@@ -661,6 +662,7 @@ function ACPPage() {
   return (
     <div className={styles.channelsPage}>
       {renderPageHeader(true)}
+      <MCPFeatureStatus agentId={selectedAgent} refreshKey={loadedConfig} />
       <section className={stylesACP.intro}>
         <div className={stylesACP.connection} aria-label={t("acp.intro")}>
           <span>

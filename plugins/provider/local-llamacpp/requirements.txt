@@ -1,0 +1,2 @@
+modelscope-hub>=0.7.1
+huggingface_hub>=0.20.0

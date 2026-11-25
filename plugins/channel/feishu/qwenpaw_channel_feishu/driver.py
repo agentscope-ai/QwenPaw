@@ -8,6 +8,7 @@ import asyncio
 from collections import OrderedDict
 import hashlib
 import json
+import logging
 from pathlib import Path
 import uuid
 
@@ -21,6 +22,8 @@ from qwenpaw.channel_protocol.shared_response_driver import (
 )
 from .errors import FeishuDeliveryError
 from .utils import sender_display_string, short_session_id_from_full_id
+
+logger = logging.getLogger(__name__)
 
 _STATE_KEY = "feishu.shared.responses"
 _RECEIVE_KEY = "feishu.shared.receive_ids"
@@ -103,16 +106,16 @@ class FeishuDriver(SharedResponseDriver):
             await self._card(value)
 
         await self._context.set_platform_state("connecting")
+        logger.info(f"Feishu WebSocket connecting")
         try:
             await self._platform.connect(message, card)
             self._connected = True
             await self._context.set_platform_state("connected")
+            logger.info(f"Feishu WebSocket connected")
         finally:
             ready.set()
 
     async def _supervise(self):
-        import logging
-
         delay = 1.0
         try:
             while not self._stopping:
@@ -121,6 +124,7 @@ class FeishuDriver(SharedResponseDriver):
                 self._connection_generation += 1
                 await self._context.set_platform_state("disconnected")
                 while not self._stopping:
+                    logger.info(f"Feishu WebSocket reconnecting in {delay:g}s")
                     await asyncio.sleep(delay)
                     if self._stopping:
                         break
@@ -132,16 +136,19 @@ class FeishuDriver(SharedResponseDriver):
                             break
                         await self._connect()
                     except Exception:
-                        logging.getLogger(__name__).warning(
-                            "Feishu reconnect cleanup or connection failed; "
-                            "retrying",
+                        logger.warning(
+                            f"Feishu reconnect cleanup or connection failed; "
+                            f"retrying",
                             exc_info=True,
                         )
                         delay = min(30.0, delay * 2)
                     else:
                         delay = 1.0
                         break
-        except Exception:
+        except Exception as exc:
+            logger.error(
+                f"Feishu connection supervisor failed ({type(exc).__name__})",
+            )
             self._connected = False
             await self._context.set_platform_state("failed")
 
@@ -157,6 +164,7 @@ class FeishuDriver(SharedResponseDriver):
             await self._platform.close()
             self._platform = None
         await self._context.set_platform_state("disconnected")
+        logger.info(f"Feishu channel stopped")
 
     def _require_connected(self):
         if not self._connected or self._stopping or self._platform is None:
@@ -184,6 +192,7 @@ class FeishuDriver(SharedResponseDriver):
     def _target(self, handle, meta):
         neutral = decode_reply_target(str(handle))
         if meta.get("feishu_receive_id"):
+            logger.debug(f"Feishu using explicit outbound target")
             return [
                 meta.get("feishu_receive_id_type") or "open_id",
                 meta["feishu_receive_id"],
@@ -199,12 +208,14 @@ class FeishuDriver(SharedResponseDriver):
         if value.startswith("feishu:sw:"):
             key = value[len("feishu:sw:") :]
             if key in self._receive_ids:
+                logger.debug(f"Feishu outbound target found in receive cache")
                 return self._receive_ids[key]
             if key.startswith("feishu:open_id:"):
+                logger.debug(f"Feishu using legacy open ID route")
                 return ["open_id", key[len("feishu:open_id:") :]]
             suffix = key.split("#", 1)[-1] if "#" in key else ""
             if len(suffix) >= 4:
-                return next(
+                target = next(
                     (
                         pair
                         for pair in self._receive_ids.values()
@@ -212,6 +223,10 @@ class FeishuDriver(SharedResponseDriver):
                     ),
                     None,
                 )
+                logger.debug(
+                    f"Feishu legacy route suffix matched={target is not None}",
+                )
+                return target
             return None
         for kind in ("open_id", "chat_id"):
             if value.startswith("feishu:" + kind + ":"):
@@ -245,7 +260,10 @@ class FeishuDriver(SharedResponseDriver):
                         self._receive_ids[key] = [first, second]
             while len(self._receive_ids) > 256:
                 self._receive_ids.popitem(last=False)
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError) as exc:
+            logger.warning(
+                f"Feishu receive cache load failed ({type(exc).__name__})",
+            )
             return
 
     async def _open_route(self, handle, target, meta):
@@ -291,6 +309,7 @@ class FeishuDriver(SharedResponseDriver):
             meta["session_id"] = params["session_id"]
         target = self._target(params["to_handle"], meta)
         if not target:
+            logger.warning(f"Feishu outbound receive target unavailable")
             raise RpcError(
                 RPC_LIFECYCLE_ERROR,
                 "outbound target unavailable",
@@ -343,6 +362,7 @@ class FeishuDriver(SharedResponseDriver):
             and self._config.get("require_mention")
             and not meta["bot_mentioned"]
         ) or self._config.get("group_disabled" if group else "dm_disabled"):
+            logger.debug(f"Feishu inbound event ignored by channel policy")
             return
         await self._emit(
             event_id,
@@ -358,6 +378,7 @@ class FeishuDriver(SharedResponseDriver):
         operator = str(value.get("operator_open_id") or "")
         request_id = str(value.get("request_id") or "")
         if action not in {"approve", "deny"} or not operator or not request_id:
+            logger.debug(f"Feishu approval callback missing required fields")
             return
         ctx = dict(value.get("session_ctx") or {})
         meta = {
@@ -431,14 +452,28 @@ class FeishuDriver(SharedResponseDriver):
         )
         admission = await self._admit_event(event, created)
         if admission is None:
+            if kind == f"approval_action":
+                logger.warning(f"Feishu approval callback admission failed")
             return
         ack, uncertain = admission
+        if kind == f"approval_action":
+            accepted = event_id in ack.accepted_event_ids
+            logger.info(
+                f"Feishu approval callback: accepted={accepted} "
+                f"admission_uncertain={uncertain}",
+            )
         for alias in (meta["session_id"], actor, meta["feishu_chat_id"]):
             if alias:
                 self._receive_ids[alias] = target
         while len(self._receive_ids) > 256:
             self._receive_ids.popitem(last=False)
-        await self._state("put", _RECEIVE_KEY, dict(self._receive_ids))
+        try:
+            await self._state("put", _RECEIVE_KEY, dict(self._receive_ids))
+        except Exception as exc:
+            logger.warning(
+                f"Feishu receive cache save failed ({type(exc).__name__})",
+            )
+            raise
         if event_id in ack.accepted_event_ids and kind == "message":
             await self._platform.add_reaction(
                 meta["feishu_message_id"],
@@ -488,6 +523,10 @@ class FeishuDriver(SharedResponseDriver):
                 elif part["type"] in {"image", "file", "audio", "video"}:
                     media.append(part)
             body = "\n".join(texts).strip()
+            logger.debug(
+                f"Feishu outbound message: text_parts={len(texts)} "
+                f"media_parts={len(media)}",
+            )
             if params.approval:
                 message_id = await platform.send_approval(
                     *target,

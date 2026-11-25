@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from apscheduler.events import EVENT_JOB_MAX_INSTANCES
+from apscheduler.schedulers.base import STATE_PAUSED
 
 from qwenpaw.app.crons.contracts import ServiceCronJob
 
@@ -96,6 +97,81 @@ def cron_workspace(tmp_path, monkeypatch):
         return workspace, repo, channels
 
     return make
+
+
+@pytest.mark.parametrize("cancel_reload", [False, True])
+async def test_reload_resumes_crons_only_after_driver_activation(
+    cron_workspace,
+    monkeypatch,
+    cancel_reload,
+):
+    old, _, _ = cron_workspace("old")
+    new, _, _ = cron_workspace("new")
+    activating, release, fired = (
+        asyncio.Event(),
+        asyncio.Event(),
+        asyncio.Event(),
+    )
+    ready = False
+    observed = []
+
+    async def activate():
+        nonlocal ready
+        activating.set()
+        await release.wait()
+        ready = True
+
+    async def due_job():
+        observed.append(ready)
+        fired.set()
+
+    start = new.start
+
+    async def start_candidate():
+        await start()
+        new._service_manager.services["driver_manager"] = SimpleNamespace(
+            activate_registered_protocols=activate,
+        )
+        new.cron_manager._scheduler.add_job(due_job, "date", id="due")
+
+    new.start = start_candidate
+    manager = MultiAgentManager()
+    manager.agents[old.agent_id] = old
+    manager._create_workspace = MagicMock(return_value=new)
+    manager._setup_workspace_plugins = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(
+                profiles={
+                    old.agent_id: SimpleNamespace(
+                        workspace_dir=str(new.workspace_dir),
+                    ),
+                },
+            ),
+        ),
+    )
+    await old.start()
+    pending = asyncio.create_task(manager.reload_agent(old.agent_id))
+    try:
+        await asyncio.wait_for(activating.wait(), 5)
+        assert manager.agents[old.agent_id] is new
+        assert new.cron_manager._scheduler.state == STATE_PAUSED
+        assert not fired.is_set()
+        if cancel_reload:
+            pending.cancel()
+        release.set()
+        if cancel_reload:
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            assert await pending
+        await asyncio.wait_for(fired.wait(), 5)
+        assert observed == [True]
+    finally:
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await manager.stop_all()
 
 
 @pytest.mark.asyncio
@@ -813,6 +889,7 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
             stop=AsyncMock(),
             prepare_stop=AsyncMock(return_value=False),
             set_enqueue=MagicMock(),
+            set_workspace=MagicMock(),
             send_event=AsyncMock(),
         )
 
@@ -822,6 +899,16 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
     new_channels = ChannelManager([new_transport])
     old, repo, _ = cron_workspace("old-owner", old_channels)
     new, _, _ = cron_workspace("new-owner", new_channels)
+    # Production binds channels to the workspace and registers cron runs by
+    # chat ID. Both are required to exercise the tracker drain during handoff.
+    old_channels.set_workspace(old)
+    new_channels.set_workspace(new)
+    old._service_manager.services["chat_manager"] = SimpleNamespace(
+        get_or_create_chat=AsyncMock(
+            return_value=SimpleNamespace(id="owner-handoff-chat"),
+        ),
+        mark_chat_finished=AsyncMock(),
+    )
     entered, release = asyncio.Event(), asyncio.Event()
     yielded = asyncio.Event()
     handoff_entered, finish_handoff = asyncio.Event(), asyncio.Event()

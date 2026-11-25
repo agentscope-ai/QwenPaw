@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Safety state-machine tests using the real monitor and temporary JSON."""
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 
 import asyncio
@@ -15,6 +16,15 @@ from fastapi import FastAPI
 from qwenpaw.app.routers.mail_access_control import router
 from qwenpaw.config.config import AgentMailPushRule
 from .test_monitor import EventRecorder, FakeImapConn, _service
+
+
+@pytest.fixture(autouse=True)
+def _available_mcp(monkeypatch):
+    """The mailbox domain fixtures run with an available host protocol."""
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: True,
+    )
 
 
 @pytest.fixture

@@ -4,8 +4,10 @@
 
 配置频道有两种方式：
 
-- **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
+- **控制台**（推荐）— 在 [控制台](./console) 的 **设置 → 频道** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.qwenpaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
+
+频道卡片可在插件未安装时显示。如果配置抽屉提示 **插件未安装**，请先安装并启用相应插件。填写凭据或编辑配置文件不会安装插件；保存后请从消息平台发送一条测试消息，确认能够收发。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -58,9 +60,9 @@
 
 **方法1**: 在console前端配置
 
-从“控制→频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
+从“设置 → 频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
 
-![console](https://img.alicdn.com/imgextra/i4/O1CN01YVQdZe1WsbXoxJOnJ_!!6000000002844-2-tps-3822-2070.png)
+![钉钉 频道配置表单](https://img.alicdn.com/imgextra/i2/O1CN01xgvNYBmJwLK3FPfU_!!6000000001613-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -253,7 +255,7 @@
 如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 QwenPaw 服务，才能继续配置长链接的操作。
-> ![console](https://img.alicdn.com/imgextra/i3/O1CN01KCQj1b1z8utMnRr6y_!!6000000006670-2-tps-3822-2070.png)
+> ![飞书 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01bDowJoZWrUD3FPfU_!!6000000001100-2-tps-1600-1000.png)
 
 ### 机器人权限建议
 
@@ -324,9 +326,9 @@
 
 4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
 
-   - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
+   - 进入 **设置 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![控制台](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
+     ![iMessage 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01g6l8HHvgwwE3FPfU_!!6000000004684-2-tps-1600-1000.png)
 
    - 填写智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）：
 
@@ -396,9 +398,9 @@
 
 **方法1**: 在console前端配置
 
-从“控制→频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
+从“设置 → 频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i1/O1CN01kRdzN61HBLu9LghUV_!!6000000000719-2-tps-3822-2070.png)
+![Discord 频道配置表单](https://img.alicdn.com/imgextra/i1/O1CN01NCkuuFXmiQE3FPfU_!!6000000008118-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -490,7 +492,7 @@
 
 或者也可以在console前端填写：
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01FJrXGd1dNBgbrPZMf_!!6000000003723-2-tps-3822-2070.png)
+![QQ 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN0183I5SWimOAD3FPfU_!!6000000005536-2-tps-1600-1000.png)
 
 ---
 
@@ -599,7 +601,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **方法一**在console填写
 
-![console](https://img.alicdn.com/imgextra/i1/O1CN01pyx6Ma1YMCl1kMnje_!!6000000003044-2-tps-3822-2070.png)
+![企业微信 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN014OkqorNtkkE3FPfU_!!6000000002265-2-tps-1600-1000.png)
 
 **方法二**在 `agent.json` 填写（如 `~/.qwenpaw/workspaces/default/agent.json`）
 
@@ -643,7 +645,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 ### 工作原理
 
-- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.qwenpaw/wechat_bot_token`），后续启动无需重复扫码。
+- **登录方式**：控制台扫码后把 Bot Token 保存到当前智能体的 `agent.json`。如果配置和 token 文件里都没有凭据，渠道会在启动时发起扫码，成功后把 token 写入文件。
 - **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
 - **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
 
@@ -663,7 +665,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
   "enabled": true,
   "bot_prefix": "[BOT]",
   "bot_token": "your_bot_token",
-  "bot_token_file": "~/.qwenpaw/wechat_bot_token",
+  "bot_token_file": "",
   "base_url": "",
   "media_dir": "~/.qwenpaw/media",
   "dm_policy": "open",
@@ -673,12 +675,14 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **微信个人专属字段说明：**
 
-| 字段             | 类型   | 默认值                        | 说明                                                |
-| ---------------- | ------ | ----------------------------- | --------------------------------------------------- |
-| `bot_token`      | string | `""`                          | 扫码登录后获取的 Bearer Token；留空则启动时引导扫码 |
-| `bot_token_file` | string | `~/.qwenpaw/wechat_bot_token` | Token 持久化路径，下次启动自动读取                  |
-| `base_url`       | string | 官方默认地址                  | iLink API 地址，一般留空使用默认值                  |
-| `media_dir`      | string | `~/.qwenpaw/media`            | 接收到的图片、文件保存目录                          |
+| 字段             | 类型   | 默认值                                | 说明                                                            |
+| ---------------- | ------ | ------------------------------------- | --------------------------------------------------------------- |
+| `bot_token`      | string | `""`                                  | 扫码授权后得到的 Bearer Token，启动时优先使用                   |
+| `bot_token_file` | string | `<workspace>/wechat/wechat_bot_token` | 配置未填写 Bot Token 时读取的文件，也是启动扫码成功后的保存位置 |
+| `base_url`       | string | 官方默认地址                          | iLink API 地址，一般留空使用默认值                              |
+| `media_dir`      | string | `~/.qwenpaw/media`                    | 接收到的图片、文件保存目录                                      |
+
+回复缓存固定保存在各自工作区的 `wechat/wechat_context_tokens.json`。如果升级前只依赖数据根目录下的 `wechat_bot_token`，可以重新扫码，或将旧文件的完整路径填入对应智能体的 `bot_token_file`。收到新消息后会建立新的回复缓存。
 
 ### 环境变量方式
 
@@ -687,7 +691,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 ```bash
 WECHAT_CHANNEL_ENABLED=1
 WECHAT_BOT_TOKEN=your_bot_token
-WECHAT_BOT_TOKEN_FILE=~/.qwenpaw/wechat_bot_token
+WECHAT_BOT_TOKEN_FILE=
 WECHAT_MEDIA_DIR=~/.qwenpaw/media
 WECHAT_DM_POLICY=open
 WECHAT_GROUP_POLICY=open
@@ -714,9 +718,9 @@ WECHAT_GROUP_POLICY=open
 
 **方法1**: 在console前端配置
 
-从"控制→频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
+从"设置 → 频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01wrQfVo1QmIOUaWqoW_!!6000000002018-2-tps-3822-2070.png)
+![Telegram 频道配置表单](https://img.alicdn.com/imgextra/i4/O1CN01Bmu451TLMrG3FPfU_!!6000000002958-2-tps-1600-1000.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -887,7 +891,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 **方式一：** 在 Console 中配置
 
-前往 **控制 → 频道**，点击 **Matrix**，启用后填写：
+前往 **设置 → 频道**，点击 **Matrix**，启用后填写：
 
 - **Homeserver URL** — 例如 `https://matrix.org`
 - **User ID** — 例如 `@mybot:matrix.org`
@@ -1060,7 +1064,7 @@ cloudflared tunnel --url http://localhost:8088
 
 **方式一：** 在 Console 中配置
 
-前往 **控制 → 频道**，点击 **Voice**，启用后填写：
+前往 **设置 → 频道**，点击 **Voice**，启用后填写：
 
 - **Twilio Account SID**：从 Twilio Dashboard 获取
 - **Twilio Auth Token**：从 Twilio Dashboard 获取
@@ -1163,7 +1167,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **设置 → 频道 → SIP**：启用，填入 DashScope API Key，点击 **保存**。其他字段全部留空即可 — `sip_server` 留空时 QwenPaw 自动启动内置注册服务器，STT/TTS 默认使用 `aliyun`，语音模型自动选择默认音色。
 
 QwenPaw 会自动重启 SIP 频道，终端中会看到：
 
@@ -1213,7 +1217,7 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **控制 → 频道 → SIP**：启用，SIP 模式选 **Production (LiveKit)**，填写以下 4 个字段：
+打开 **http://127.0.0.1:8088/** → **设置 → 模型**：配置模型提供商和 API Key。然后进入 **设置 → 频道 → SIP**：启用，SIP 模式选 **Production (LiveKit)**，填写以下 4 个字段：
 
 - **LiveKit URL**（如 `wss://<your-project>.livekit.cloud`）
 - **LiveKit API Key**
@@ -1269,7 +1273,7 @@ Dev 模式使用 `pyVoIP` — 一个纯 Python SIP 库。
 
 **方式一：** 在控制台中配置
 
-进入 **控制 → 频道**，点击 **SIP**，选择 **Dev (pyVoIP)** 模式。`sip_server` 留空使用内置注册服务器，或填写外部 SIP 服务器地址。点击 **保存**。
+进入 **设置 → 频道**，点击 **SIP**，选择 **Dev (pyVoIP)** 模式。`sip_server` 留空使用内置注册服务器，或填写外部 SIP 服务器地址。点击 **保存**。
 
 **方式二：** 编辑 agent 工作区 `agent.json`
 
@@ -1490,7 +1494,7 @@ https://xxxx.ngrok-free.app/api/messages
 - **App Password**：第一步的 Client Secret Value
 - **Tenant ID**：第一步的 Directory (tenant) ID
 
-![控制台 Azure Bot 配置抽屉界面](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+![Azure Bot 频道配置表单](https://img.alicdn.com/imgextra/i1/O1CN01NlDQrR0izBH3FPfU_!!6000000002504-2-tps-1600-1000.png)
 
 **方法 2：** 修改 `agent.json`
 
@@ -1622,7 +1626,7 @@ https://xxxx.ngrok-free.app/api/messages
 
 **方法 1：** 在控制台中配置
 
-转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
+转到 **设置 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
 
 **方法 2：** 编辑代理工作区 `agent.json`
 

@@ -223,6 +223,33 @@ export function overlayContentKind(
   return creation.text?.trim() ? "copy" : "motion";
 }
 
+/**
+ * Pet footage marks, mirroring `models.is_pet_content_type`: the launch form
+ * writes `pet_video` while the composer's bubble styling spells it `pets`, so
+ * classification accepts both and stays in step with the backend predicate.
+ */
+const PET_CONTENT_TYPES = new Set(["pets", "pet_video"]);
+
+export function isPetContent(contentType?: string | null): boolean {
+  return contentType !== undefined && PET_CONTENT_TYPES.has(contentType);
+}
+
+/**
+ * Whether an overlay is a subtitle for bulk subtitle work — the UI mirror of
+ * `models.is_subtitle_overlay`, which the backend toggle and the v9->v10
+ * caption_role stamping both use.  A pet-OS bubble is deliberately not a
+ * subtitle: the prompts leave its caption_role empty and give it a dedicated
+ * layout, so the toolbar must not hide or restamp it.
+ */
+export function isSubtitleOverlay(
+  creation: OverlayCreationDocument,
+  contentType?: string | null,
+): boolean {
+  if (!creation.text?.trim()) return false;
+  if (creation.caption_role) return true;
+  return !(isPetContent(contentType) && creation.vibe !== "summary");
+}
+
 export function classifyElementTrack(
   element: TimelineElementDocument,
 ): TimelineTrackType | null {

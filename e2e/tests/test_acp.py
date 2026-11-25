@@ -18,6 +18,7 @@ Run command: pytest tests/test_acp.py -v
 from __future__ import annotations
 
 import logging
+import re
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -34,6 +35,20 @@ ACP_CREATE_BUTTON = (
 )
 ACP_CARD_SELECTOR = '[class*="channelsGrid"] [class*="card"]'
 ACP_DIALOG_SELECTOR = '[role="dialog"]:visible'
+
+
+def navigate_to_acp_config(page: Page):
+    """Dismiss the MCP prompt before testing ACP configuration controls."""
+    with page.expect_response(lambda response: response.url.endswith("/api/mcp-plugin")) as status:
+        page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded")
+    response = status.value
+    assert response.ok, f"MCP status returned HTTP {response.status}"
+    if not response.json()["available"]:
+        prompt = page.get_by_role("dialog").filter(
+            has_text=re.compile(r"MCP plugin required|需要 MCP 插件"),
+        )
+        prompt.get_by_role("button", name=re.compile(r"^(Later|稍后)$")).click()
+        expect(prompt).to_be_hidden()
 
 
 # ============================================================================
@@ -150,8 +165,7 @@ class TestCreateACPDrawerForm:
         try:
             # 1. Navigate to ACP page
             log_test_step("1. Navigate to ACP page")
-            page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+            navigate_to_acp_config(page)
 
             # 2. Click create button
             log_test_step("2. Click create button")
@@ -271,8 +285,7 @@ class TestACPToggleSwitch:
         try:
             # 1. Navigate to ACP page
             log_test_step("1. Navigate to ACP page")
-            page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+            navigate_to_acp_config(page)
 
             # 2. Find toggle on ACP card
             log_test_step("2. Find toggle on ACP card")
@@ -469,8 +482,7 @@ class TestEditACPConfig:
         try:
             # 1. Navigate to ACP page
             log_test_step("1. Navigate to ACP page")
-            page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+            navigate_to_acp_config(page)
 
             # 2. Click the first ACP card
             log_test_step("2. Click the first ACP card")
@@ -581,8 +593,7 @@ class TestCreateAndDeleteCustomACP:
         try:
             # 1. Navigate to ACP page
             log_test_step("1. Navigate to ACP page")
-            page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+            navigate_to_acp_config(page)
 
             initial_cards = page.locator(ACP_CARD_SELECTOR).all()
             initial_count = len(initial_cards)
@@ -738,8 +749,7 @@ class TestBuiltinACPProtection:
         try:
             # 1. Navigate to ACP page
             log_test_step("1. Navigate to ACP page")
-            page.goto(f"{config.base_url}/acp", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
+            navigate_to_acp_config(page)
 
             # 2. Switch to Builtin tab
             log_test_step("2. Find builtin ACP card")

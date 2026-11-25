@@ -12,8 +12,10 @@ routed by :mod:`models.tts_capabilities`:
   through one ``voice-enrollment`` surface bound to the synthesis model itself.
 
 Character voices therefore come from either an audio sample (clone) or a plain
-text description (design); the newest models of both families have no system
-voices, so designing one is the only way to speak with them.
+text description (design). Each synthesis model publishes its own system
+voices, recorded in :mod:`models.tts_capabilities`; only
+``cosyvoice-v3.5-plus`` has none, so a created voice is the only way to speak
+with it.
 """
 
 from __future__ import annotations
@@ -32,7 +34,11 @@ import httpx
 
 from models import config
 from models.media_transport import upload_local_file_to_dashscope_temp
-from models.tts_capabilities import TtsModelCapability, require_capability
+from models.tts_capabilities import (
+    TtsModelCapability,
+    require_capability,
+    resolve_system_voice,
+)
 from utils.exceptions import ModelError
 from utils.logger import setup_logger
 from utils.paths import local_path_from_file_url
@@ -214,6 +220,35 @@ def _websocket_handshake_status(
     return status, retryable
 
 
+def _websocket_endpoint(base_url: str | None) -> str:
+    """The websocket endpoint this one synthesis call should use.
+
+    ``dashscope.base_websocket_api_url`` is process-global and the SDK reads it
+    when a ``SpeechSynthesizer`` is constructed, so writing it for a Token Plan
+    call would leave every later synthesis pointed at that host: a failed,
+    never-saved ``/models/test`` probe is enough, and the next Bailian call
+    would then hand its saved key and script to the probe endpoint. Binding the
+    URL per instance keeps the choice local to this call, which is what the
+    SDK's own ``url`` parameter is for.
+
+    Token Plan rejects the public dashscope websocket host outright (measured
+    401 for an ``sk-sp-`` key) and serves ``/api-ws/v1/inference`` on its own
+    host; every other configured base keeps the SDK default.
+    """
+    # Lazy import, matching the synthesis call below: the SDK is only needed
+    # once a websocket voice is actually being driven.
+    import dashscope
+
+    default = dashscope.base_websocket_api_url
+    tts_base = base_url or config.get_tts_base_url()
+    if not config.is_token_plan_endpoint(tts_base):
+        return default
+    host = urlparse(
+        tts_base if "://" in tts_base else f"//{tts_base}",
+    ).hostname
+    return f"wss://{host}/api-ws/v1/inference" if host else default
+
+
 def _synthesize_over_websocket(
     *,
     model: str,
@@ -221,6 +256,7 @@ def _synthesize_over_websocket(
     text: str,
     api_key: str,
     speech_rate: float = 1.0,
+    base_url: str | None = None,
 ) -> tuple[bytes, str]:
     """Stream one utterance from the CosyVoice family over WebSocket.
 
@@ -268,6 +304,7 @@ def _synthesize_over_websocket(
         format=AudioFormat.MP3_24000HZ_MONO_256KBPS,
         speech_rate=speech_rate,
         callback=_Collector(),
+        url=_websocket_endpoint(base_url),
     )
     try:
         synthesizer.streaming_call(text)
@@ -314,6 +351,19 @@ def _synthesize_over_websocket(
     return audio, "audio/mpeg"
 
 
+def _voice_preview(voices: tuple[str, ...], limit: int = 8) -> str:
+    """A short, honest sample of a voice list for error text.
+
+    One model publishes 88 system voices; dumping them into a message that
+    lands in the agent transcript teaches the model to guess at a long list of
+    near-identical names instead of reading the configured one.
+    """
+
+    if len(voices) <= limit:
+        return ", ".join(voices)
+    return f"{', '.join(voices[:limit])}, ... ({len(voices)} in total)"
+
+
 async def synthesize(
     text: str,
     *,
@@ -344,19 +394,31 @@ async def synthesize(
         active_voice = voice_id
     else:
         model = capability.model
-        active_voice = (voice or "").strip() or config.get_tts_voice()
+        requested = (voice or "").strip()
+        configured = config.get_tts_voice()
         if not capability.has_system_voices:
             raise ValueError(
                 f"{model} has no system voices; create a character voice "
                 "first and synthesize with its voice id",
             )
-        if active_voice not in capability.system_voices:
+        active_voice = resolve_system_voice(capability, requested, configured)
+        if active_voice is None:
             # Fail fast on a made-up voice name: the provider would reject
             # it anyway, but only after the call burned an execution
             # authorization round-trip.
             raise ValueError(
-                f"unknown voice {active_voice!r} for {model}; available "
-                f"system voices: {', '.join(capability.system_voices)}",
+                f"unknown voice {requested!r} for {model}; its system "
+                f"voices are {_voice_preview(capability.system_voices)}",
+            )
+        if not requested and active_voice != configured.strip():
+            # The deployment default is not this model's voice; say what was
+            # actually spoken, because it is what gets recorded on the asset.
+            logger.warning(
+                "TTS default voice %r is not a system voice of %s; narrating "
+                "with %s instead",
+                configured,
+                model,
+                active_voice,
             )
     transport = require_capability(model).transport
     rate = 1.0 if speech_rate is None else float(speech_rate)

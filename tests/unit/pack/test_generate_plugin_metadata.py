@@ -86,6 +86,28 @@ def test_complete_plugin_packs_and_reports_no_failures(tmp_path) -> None:
     assert (tmp_path / "dist" / "apps" / "demo" / "demo-1.0.0.zip").is_file()
 
 
+def test_local_whisper_packs_for_the_official_catalog(tmp_path) -> None:
+    index, failed = packer.discover_and_pack(
+        REPOSITORY_ROOT / "plugins",
+        tmp_path,
+        "/files/plugins",
+        only=["local-whisper"],
+    )
+
+    assert not failed
+    (entry,) = index["files"].values()
+    assert entry["plugin_id"] == "local-whisper"
+    assert entry["platform"] == "transcription"
+    assert entry["qwenpaw_version"] == {"min": "2.3.1"}
+    archive = f"bundle/local-whisper/local-whisper-{entry['version']}.zip"
+    assert entry["url"] == f"/files/plugins/{archive}"
+    with zipfile.ZipFile(tmp_path / archive) as plugin_zip:
+        assert {
+            "local-whisper/plugin.py",
+            "local-whisper/plugin.json",
+        } <= set(plugin_zip.namelist())
+
+
 @pytest.mark.parametrize(
     "category,manifest,files",
     [
