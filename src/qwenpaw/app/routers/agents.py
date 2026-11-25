@@ -25,7 +25,10 @@ from ...agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
 from ...agents.memory.action_provider import MemoryActionProvider
-from ...agents.memory.reme_tags import MAX_MEMORY_TAG_QUERY_LENGTH
+from ...agents.memory.reme_tags import (
+    MAX_MEMORY_TAG_QUERY_LENGTH,
+    TagIndexUnavailableError,
+)
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..mail.driver_config import (
     ENTERPRISE_MAIL_PROVIDERS as _ENTERPRISE_MAIL_PROVIDERS,
@@ -1807,6 +1810,21 @@ async def _run_memory_tag_action(
         response = await memory_manager.run_action(action, **kwargs)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TagIndexUnavailableError as exc:
+        # The tag index is a derived, optional index.  Report it as a structured
+        # failure so the Console can explain why the pane is empty and offer the
+        # rebuild path, instead of collapsing into a generic error.
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "tag_index_unavailable",
+                "message": "Memory tag index is unavailable",
+                "rebuild": {
+                    "endpoint": f"/agents/{agent_id}/memory/reindex",
+                    "scopes": ["all", "embedding"],
+                },
+            },
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
