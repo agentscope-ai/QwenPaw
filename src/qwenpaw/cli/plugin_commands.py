@@ -68,21 +68,32 @@ def _echo_dependency_operation(operation):
         )
 
 
-def _structured_dependency_failure(detail):
-    if not isinstance(detail, dict):
-        return False
-    operation = detail.get("operation")
-    if detail.get("code") == "DEPENDENCY_UPGRADE_REQUIRED" and isinstance(
-        operation,
-        dict,
-    ):
-        _echo_dependency_operation(operation)
-        return True
-    if str(detail.get("code", "")).startswith("DEPENDENCY_"):
-        click.echo(detail.get("message") or detail["code"], err=True)
-        for instruction in detail.get("instructions") or ():
-            click.echo(instruction, err=True)
-        return True
+def _report_install_http_error(
+    exc: httpx.HTTPStatusError,
+    action: str,
+) -> bool:
+    """Print the backend response. A pending upgrade can resume by ID."""
+    try:
+        detail = exc.response.json().get("detail", str(exc))
+    except (ValueError, AttributeError):
+        detail = str(exc)
+    if isinstance(detail, dict):
+        code = detail.get("code", "")
+        operation = detail.get("operation")
+        if code == "DEPENDENCY_UPGRADE_REQUIRED" and isinstance(
+            operation,
+            dict,
+        ):
+            _echo_dependency_operation(operation)
+            return operation["status"] == "needs_confirmation"
+        if str(code).startswith("DEPENDENCY_"):
+            click.echo(detail.get("message") or code, err=True)
+            for instruction in detail.get("instructions") or ():
+                click.echo(instruction, err=True)
+            return False
+    click.echo(f"❌ API {action} failed: {detail}", err=True)
+    if os.environ.get("QWENPAW_RUNTIME_ID"):
+        raise click.ClickException(str(exc)) from exc
     return False
 
 
@@ -119,10 +130,11 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
         force: Unload existing plugin first if already loaded
 
     Returns:
-        ``True`` on success, ``False`` otherwise
+        ``True`` for installation or a pending upgrade, ``False`` on failure
     """
     base = _get_api_base()
     if base is None:
+        click.echo("Running backend endpoint is unavailable.", err=True)
         return False
 
     try:
@@ -135,18 +147,9 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
             response.raise_for_status()
             body = response.json()
         _echo_install_result(body, source)
-        return True
+        return body.get("status") != "failed"
     except httpx.HTTPStatusError as exc:
-        try:
-            detail = exc.response.json().get("detail", str(exc))
-        except Exception:
-            detail = str(exc)
-        if _structured_dependency_failure(detail):
-            return False
-        click.echo(f"❌ API install failed: {detail}", err=True)
-        if os.environ.get("QWENPAW_RUNTIME_ID"):
-            raise click.ClickException(str(exc)) from exc
-        return False
+        return _report_install_http_error(exc, "install")
     except Exception as exc:
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -162,10 +165,11 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         force: Unload existing plugin first if already loaded
 
     Returns:
-        ``True`` on success, ``False`` otherwise
+        ``True`` for installation or a pending upgrade, ``False`` on failure
     """
     base = _get_api_base()
     if base is None:
+        click.echo("Running backend endpoint is unavailable.", err=True)
         return False
 
     # Build a minimal multipart/form-data body by hand so we avoid
@@ -200,18 +204,9 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
             response.raise_for_status()
             result = response.json()
         _echo_install_result(result, zip_path.name)
-        return True
+        return result.get("status") != "failed"
     except httpx.HTTPStatusError as exc:
-        try:
-            detail = exc.response.json().get("detail", str(exc))
-        except Exception:
-            detail = str(exc)
-        if _structured_dependency_failure(detail):
-            return False
-        click.echo(f"❌ API upload failed: {detail}", err=True)
-        if os.environ.get("QWENPAW_RUNTIME_ID"):
-            raise click.ClickException(str(exc)) from exc
-        return False
+        return _report_install_http_error(exc, "upload")
     except Exception as exc:
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -495,28 +490,22 @@ def install(source: str, force: bool):
         click.echo(
             "QwenPaw is running — using hot-install via API...",
         )
-        is_url = source.startswith(("http://", "https://"))
-        if is_url:
-            # API accepts URLs directly
-            _api_install_plugin(source, force=force)
+        if source.startswith(("http://", "https://")):
+            accepted = _api_install_plugin(source, force=force)
         else:
-            # Check whether the local path is a directory or a zip
             source_path = Path(source).resolve()
-            if not source_path.exists():
-                click.echo(
-                    f"❌ Path not found: {source}",
-                    err=True,
-                )
-                return
-            if source_path.is_file() and source_path.suffix == ".zip":
-                _api_upload_plugin(source_path, force=force)
-            elif source_path.is_dir():
-                _api_install_plugin(str(source_path), force=force)
+            if source_path.is_dir():
+                accepted = _api_install_plugin(str(source_path), force=force)
+            elif source_path.is_file() and source_path.suffix == ".zip":
+                accepted = _api_upload_plugin(source_path, force=force)
+            elif not source_path.exists():
+                raise click.ClickException(f"Path not found: {source}")
             else:
-                click.echo(
-                    "❌ Source must be a directory or a .zip file.",
-                    err=True,
+                raise click.ClickException(
+                    "Source must be a directory or a .zip file.",
                 )
+        if not accepted:
+            raise click.exceptions.Exit(1)
         return
 
     # ── Offline install (app is not running) ─────────────────────────

@@ -460,13 +460,65 @@ class TestInstallCommandHotPath:
         res = CliRunner().invoke(pc.plugin, ["install", str(d)])
         assert res.exit_code == 0
 
+    @pytest.mark.parametrize(
+        ("source", "status", "body", "exit_code", "message"),
+        [
+            (
+                "plugin.zip",
+                409,
+                {"detail": {"code": "DEPENDENCY_UNSATISFIED"}},
+                1,
+                "DEPENDENCY_UNSATISFIED",
+            ),
+            (
+                "https://x/p.zip",
+                409,
+                {
+                    "detail": {
+                        "code": "DEPENDENCY_UPGRADE_REQUIRED",
+                        "operation": {
+                            "id": "op1",
+                            "status": "needs_confirmation",
+                        },
+                    },
+                },
+                0,
+                "qwenpaw plugin dependency-upgrade apply op1",
+            ),
+            (".", 200, {"status": "failed"}, 1, "installation: failed"),
+            (".", 200, {"status": "inactive"}, 0, "installation: inactive"),
+        ],
+    )
+    def test_backend_install_outcome(
+        self,
+        monkeypatch,
+        tmp_path,
+        source,
+        status,
+        body,
+        exit_code,
+        message,
+    ):
+        monkeypatch.setattr(pc, "_is_running", lambda: True)
+        _patch_base(monkeypatch)
+        _patch_transport(
+            monkeypatch,
+            lambda req: httpx.Response(status, json=body),
+        )
+        (tmp_path / "plugin.zip").touch()
+        if not source.startswith("https://"):
+            source = str(tmp_path / source)
+        res = CliRunner().invoke(pc.plugin, ["install", source])
+        assert res.exit_code == exit_code
+        assert message in res.output
+
     def test_missing_path_errors(self, monkeypatch, tmp_path):
         monkeypatch.setattr(pc, "_is_running", lambda: True)
         res = CliRunner().invoke(
             pc.plugin,
             ["install", str(tmp_path / "nope")],
         )
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "Path not found" in res.output
 
     def test_unsupported_file_type(self, monkeypatch, tmp_path):
@@ -474,7 +526,7 @@ class TestInstallCommandHotPath:
         f = tmp_path / "p.tar.gz"
         f.write_bytes(b"x")
         res = CliRunner().invoke(pc.plugin, ["install", str(f)])
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "directory or a .zip" in res.output
 
 
