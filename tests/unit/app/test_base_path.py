@@ -26,19 +26,28 @@ from qwenpaw.channel_protocol.models import HostForwardingBinding
     [
         (None, ""),
         ("", ""),
+        ("/", ""),
         (" / ", ""),
+        (" /demo ", "/demo"),
         ("/app/qwenpaw/web/", "/app/qwenpaw/web"),
+        (" /my console/ ", "/my console"),
         ("/app/中文/", "/app/中文"),
+        ("/demo /中文/", "/demo /中文"),
     ],
 )
 def test_normalize_base_path(value, expected):
-    assert normalize_base_path(value) == expected
+    normalized = normalize_base_path(value)
+    assert normalized == expected
+    assert normalize_base_path(normalized) == normalized
 
 
 @pytest.mark.parametrize(
     "value",
     [
         "app/qwenpaw",
+        "/demo /",
+        " /demo /// ",
+        "/demo\u00a0/",
         "/app//qwenpaw",
         "/app/../admin",
         "/app/%2e%2e/admin",
@@ -208,6 +217,29 @@ def test_console_index_escapes_html_attributes_and_inline_script(tmp_path):
         assert '"><script>alert(1)</script>' not in response.text
         assert response.text.count("<script>") == 1
         assert response.text.count("</script>") == 1
+
+
+def test_production_app_rejects_noncanonical_base_path_at_startup(tmp_path):
+    env = {
+        **os.environ,
+        "QWENPAW_BASE_PATH": "/demo /",
+        "QWENPAW_WORKING_DIR": str(tmp_path / "work"),
+        "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
+        "QWENPAW_TELEMETRY_DISABLED": "1",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", "from qwenpaw.app import _app"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert (
+        "ValueError: QWENPAW_BASE_PATH must not end with whitespace"
+        in result.stderr
+    )
 
 
 def test_production_app_serves_api_console_and_assets_below_base_path(

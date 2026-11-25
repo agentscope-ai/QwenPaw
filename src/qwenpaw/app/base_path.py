@@ -41,6 +41,10 @@ def normalize_base_path(value: str | None) -> str:
             "QWENPAW_BASE_PATH must use decoded path segments, not percent encoding",
         )
     path = path.rstrip("/")
+    if path and path[-1].isspace():
+        raise ValueError(
+            "QWENPAW_BASE_PATH must not end with whitespace after removing trailing slashes",
+        )
     segments = [unquote(segment) for segment in path.split("/")[1:]]
     if any(
         segment in ("", ".", "..") or "/" in segment or "\\" in segment

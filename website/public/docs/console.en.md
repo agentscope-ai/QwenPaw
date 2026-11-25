@@ -41,8 +41,10 @@ QWENPAW_BASE_PATH=/qwenpaw qwenpaw app
 
 The prefix must be an absolute URL path without a query, fragment, or control
 characters. Nested prefixes such as `/apps/qwenpaw` are supported. Use decoded
-path segments, not percent-encoded values such as `/apps/%71wenpaw`. Leave it
-unset or set it to `/` for the existing root and `/console` behavior. The same
+path segments, not percent-encoded values such as `/apps/%71wenpaw`. Spaces
+inside a name are allowed (`/my console/`), but a space immediately before
+the trailing slash (`/demo /`) prevents startup. Leave the prefix unset or set
+it to `/` for the existing root and `/console` behavior. The same
 runtime setting covers SPA routes, static assets, API requests, and WebSockets;
 no frontend rebuild is required. Changes saved in the Console's environment
 settings take effect after restarting QwenPaw.
