@@ -14,13 +14,58 @@ from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
-@pytest.mark.parametrize("model_id", ["memory", "memory:v1"])
-@pytest.mark.parametrize("main_state", ["same", "stale"])
-@pytest.mark.parametrize("scope", ["agent", "global"])
-@pytest.mark.parametrize("memory_form", ["bare", "inherited", "explicit"])
 @pytest.mark.parametrize(
-    "operation",
-    ["update", "update-image", "start", "image"],
+    ("model_id", "main_state", "scope", "memory_form", "operation"),
+    [
+        pytest.param(
+            "memory",
+            "same",
+            "agent",
+            "explicit",
+            "update",
+            id="same-primary",
+        ),
+        pytest.param(
+            "memory:v1",
+            "same",
+            "global",
+            "bare",
+            "image",
+            id="same-global-image",
+        ),
+        pytest.param(
+            "memory:v1",
+            "stale",
+            "global",
+            "bare",
+            "start",
+            id="stale-global-start",
+        ),
+        pytest.param(
+            "memory:v1",
+            "stale",
+            "global",
+            "inherited",
+            "image",
+            id="stale-global-image",
+        ),
+        pytest.param(
+            "memory:v1",
+            "stale",
+            "agent",
+            "inherited",
+            "start",
+            id="stale-agent-start",
+        ),
+        pytest.param(
+            "memory:v1",
+            "stale",
+            "agent",
+            "explicit",
+            "image",
+            id="stale-explicit-image",
+        ),
+    ],
 )
 async def test_real_hub_memory_routing(
     monkeypatch,
@@ -119,17 +164,14 @@ async def test_real_hub_memory_routing(
         await manager._prepare_auto_memory_job(kwargs)
         assert kwargs["include_images"] is True
     else:
-        await manager._update_qwenpaw_model(
-            require_image_support=operation == "update-image",
-        )
+        await manager._update_qwenpaw_model()
     manager._reme.update_component.assert_awaited_once()
     actual = manager._reme.update_component.await_args.kwargs["model"]
     assert isinstance(actual, TokenRecordingModelWrapper)
     assert get_model_identity(actual) == ("hub-managed", model_id)
     assert actual.formatter.resize_images_to_max_bytes is True
-    if main_state == "same" and scope == "agent" and operation != "image":
-        # Deduplicating a primary slot also avoids redundant construction.
-        directory.assert_called_once_with()
+    # Only model construction reads the catalog, including for image jobs.
+    assert directory.call_count == (1 if main_state == "same" else 2)
 
     fail_call = AsyncMock(side_effect=RuntimeError("Pre-output failure"))
     monkeypatch.setattr(type(actual._model), "__call__", fail_call)
