@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Start Context after its Auth and Host table dependencies are ready."""
 
 import asyncio
@@ -12,20 +13,30 @@ from qwenpaw_data_auth.auth_api import auth_temporary_access
 from qwenpaw_data_auth.database import get_db, workspaces
 from sqlalchemy import or_, update
 
+
 def initialize_service_workspace(config):
     bootstrap_local(replace(config, mode="local"))
     # Existing server tools use the original graph configured by the operator.
     # Private PawApp workspaces get a separate registered graph route.
     with get_db(config.control_plane_dsn) as db:
         db.execute(
-            update(workspaces).where(
-                workspaces.c.id == "default", workspaces.c.tenant_id == "default",
-                or_(workspaces.c.endpoint_ref.is_(None), workspaces.c.endpoint_ref == ""),
-                or_(workspaces.c.secret_ref.is_(None), workspaces.c.secret_ref == ""),
-            ).values(
+            update(workspaces)
+            .where(
+                workspaces.c.id == "default",
+                workspaces.c.tenant_id == "default",
+                or_(
+                    workspaces.c.endpoint_ref.is_(None),
+                    workspaces.c.endpoint_ref == "",
+                ),
+                or_(
+                    workspaces.c.secret_ref.is_(None),
+                    workspaces.c.secret_ref == "",
+                ),
+            )
+            .values(
                 endpoint_ref="env:NEO4J_URI",
                 secret_ref="env:QWENPAW_DATA_LOCAL_GRAPH_CREDENTIALS",
-            )
+            ),
         )
         db.commit()
 
@@ -39,7 +50,10 @@ def create_app():
     async def managed_lifespan(application):
         # Engine needs the allocated Context port. Prepare its shared tables
         # before Context validates them on first boot.
-        await asyncio.to_thread(initialize_service_workspace, application.state.auth_config)
+        await asyncio.to_thread(
+            initialize_service_workspace,
+            application.state.auth_config,
+        )
         try:
             await init_db()
         finally:
@@ -49,5 +63,9 @@ def create_app():
 
     app.router.lifespan_context = managed_lifespan
     # Engine workers use this private service-authenticated endpoint.
-    app.add_api_route("/api/auth/temporary-access", auth_temporary_access, methods=["POST"])
+    app.add_api_route(
+        "/api/auth/temporary-access",
+        auth_temporary_access,
+        methods=["POST"],
+    )
     return app

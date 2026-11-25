@@ -459,7 +459,9 @@ async def test_proxy_set_active_persists_selection(monkeypatch) -> None:
     assert saved and saved[-1].datasources.active_id == "pg-demo"
     scope = await module.console_scope(request)
     proxy.assert_awaited_once_with(
-        "datasources/active", request, user_id=module.identity_namespace(scope),
+        "datasources/active",
+        request,
+        user_id=module.identity_namespace(scope),
     )
 
 

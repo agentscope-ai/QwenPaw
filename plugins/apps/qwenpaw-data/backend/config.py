@@ -363,10 +363,13 @@ def context_service_env() -> dict[str, str]:
     config = load_config()
     return {
         **_context_env_values(config),
-        "QWENPAW_DATA_LOCAL_GRAPH_CREDENTIALS": json.dumps({
-            "user": config.neo4j.user, "password": config.neo4j.password,
-            "database": config.neo4j.database,
-        }),
+        "QWENPAW_DATA_LOCAL_GRAPH_CREDENTIALS": json.dumps(
+            {
+                "user": config.neo4j.user,
+                "password": config.neo4j.password,
+                "database": config.neo4j.database,
+            },
+        ),
         "QWENPAW_DATA_ENV_FILE": str(ENV_FILE_PATH),
         "MODEL_CONFIG_PATH": str(MODELS_JSON_PATH),
     }

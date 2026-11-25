@@ -11,7 +11,15 @@ import inspect
 import json
 import logging
 from http import HTTPStatus
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+)
 
 import httpx
 
@@ -83,7 +91,9 @@ class EngineClient:
     async def _base_and_headers(self) -> tuple[str, Dict[str, str]]:
         try:
             endpoint = self._endpoint()
-            base_url, token = await endpoint if inspect.isawaitable(endpoint) else endpoint
+            base_url, token = (
+                await endpoint if inspect.isawaitable(endpoint) else endpoint
+            )
         except RuntimeError as exc:
             raise EngineUnavailableError(str(exc)) from exc
         if not base_url:

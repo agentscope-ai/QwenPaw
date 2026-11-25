@@ -44,7 +44,13 @@ _SSE_PATH_RE = re.compile(r"/api/v1/sessions/[^/]+/chats/[^/]+/events/?\Z")
 class EngineGateway:
     """Proxy for the engine's session/chat API, including SSE streams."""
 
-    def __init__(self, service: ManagedService, managed_token: str, *, workspace_token=None):
+    def __init__(
+        self,
+        service: ManagedService,
+        managed_token: str,
+        *,
+        workspace_token=None,
+    ):
         self._service = service
         self._managed_token = managed_token
         self._workspace_token = workspace_token
@@ -204,8 +210,13 @@ class EngineGateway:
         if user_id is None:
             return {}
         if self._workspace_token is None:
-            raise HTTPException(503, "Engine delegated identity is not configured")
-        return {"Authorization": f"Bearer {await self._workspace_token(user_id)}"}
+            raise HTTPException(
+                503,
+                "Engine delegated identity is not configured",
+            )
+        return {
+            "Authorization": f"Bearer {await self._workspace_token(user_id)}",
+        }
 
     def _build_request(
         self,

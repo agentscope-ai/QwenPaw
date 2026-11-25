@@ -58,7 +58,13 @@ _CONTEXT_PATH_RE = re.compile(
 
 
 class ContextGateway:
-    def __init__(self, service: ManagedService, managed_token: str, *, workspace_token=None):
+    def __init__(
+        self,
+        service: ManagedService,
+        managed_token: str,
+        *,
+        workspace_token=None,
+    ):
         self._service = service
         self._managed_token = managed_token
         self._workspace_token = workspace_token
@@ -178,9 +184,16 @@ class ContextGateway:
         )
         headers = dict(kwargs.pop("headers", {}) or {})
         user_id = kwargs.pop("user_id", None)
-        if user_id or (self._workspace_token and not self._service.is_external and path != "/api/health"):
+        if user_id or (
+            self._workspace_token
+            and not self._service.is_external
+            and path != "/api/health"
+        ):
             if self._workspace_token is None:
-                raise HTTPException(503, "Context delegated identity is not configured")
+                raise HTTPException(
+                    503,
+                    "Context delegated identity is not configured",
+                )
             token = await self._workspace_token(user_id)
         if token:
             headers["Authorization"] = f"Bearer {token}"

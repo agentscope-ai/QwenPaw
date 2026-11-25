@@ -275,7 +275,8 @@ async def test_proxy_refuses_engine_without_session_scope_capability():
 
     gateway = _gateway_class()(
         SimpleNamespace(is_external=False, base_url="http://engine"),
-        "test-token", workspace_token=workspace_token,
+        "test-token",
+        workspace_token=workspace_token,
     )
     seen = []
 

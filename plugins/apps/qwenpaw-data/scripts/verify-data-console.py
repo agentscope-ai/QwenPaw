@@ -121,7 +121,9 @@ def parse_build_info(path: Path) -> dict[str, str]:
         if not values["package_version"]:
             raise ValidationError("package_version is required")
         if not WHEEL_RE.fullmatch(values["wheel_filename"]):
-            raise ValidationError("wheel_filename must be a console wheel name")
+            raise ValidationError(
+                "wheel_filename must be a console wheel name",
+            )
     for key in HASH_KEYS[version]:
         if not HASH_RE.fullmatch(values[key]):
             raise ValidationError(f"{key} must be a SHA-256 digest")

@@ -162,7 +162,9 @@ async def _on_before_start() -> None:
 # Engine and Context share the control plane, but retain separate service tokens.
 ENGINE_HOME = APP_DATA_DIR / "engine"
 _DATA_AUTH_HOME = APP_DATA_DIR / "data-auth"
-_DATA_DB_URL = f"sqlite+aiosqlite:///{(_DATA_AUTH_HOME / 'control_plane.db').as_posix()}"
+_DATA_DB_URL = (
+    f"sqlite+aiosqlite:///{(_DATA_AUTH_HOME / 'control_plane.db').as_posix()}"
+)
 _data_service_secret = secrets.token_urlsafe(48)
 # Shared signing material lets Engine-issued short-lived workspace tokens work
 # in Context. Only the server-side managed children receive it.
@@ -172,12 +174,18 @@ _identity_lock = asyncio.Lock()
 
 async def _workspace_access_token(identity: str | None) -> str:
     if _engine_service.is_external != _context_service.is_external:
-        raise HTTPException(503, "Engine and Context must share an identity plane")
+        raise HTTPException(
+            503,
+            "Engine and Context must share an identity plane",
+        )
     if _context_service.is_external:
         auth_url = os.getenv("QWENPAW_DATA_AUTH_URL", "").rstrip("/")
         secret = os.getenv("QWENPAW_DATA_SERVICE_SECRET", "")
         if not auth_url or not secret:
-            raise HTTPException(503, "Configure the external Data Auth URL and service secret")
+            raise HTTPException(
+                503,
+                "Configure the external Data Auth URL and service secret",
+            )
     else:
         try:
             auth_url = _context_service.base_url
@@ -188,10 +196,15 @@ async def _workspace_access_token(identity: str | None) -> str:
     # Only server-side tools request the original local service identity.
     scope = (
         {"tenant_id": "pawapp", "user_id": identity, "workspace_id": identity}
-        if identity is not None else
-        {"tenant_id": "default", "user_id": "__default__", "workspace_id": "default"}
+        if identity is not None
+        else {
+            "tenant_id": "default",
+            "user_id": "__default__",
+            "workspace_id": "default",
+        }
     )
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+
         async def exchange():
             return await client.post(
                 f"{auth_url}/api/auth/temporary-access",
@@ -201,11 +214,18 @@ async def _workspace_access_token(identity: str | None) -> str:
 
         try:
             response = await exchange()
-            if response.status_code == 404 and identity is not None and not _context_service.is_external:
+            if (
+                response.status_code == 404
+                and identity is not None
+                and not _context_service.is_external
+            ):
                 await _provision_workspace(identity)
                 response = await exchange()
         except httpx.RequestError as exc:
-            raise HTTPException(503, "Data Auth service is unavailable") from exc
+            raise HTTPException(
+                503,
+                "Data Auth service is unavailable",
+            ) from exc
     if response.status_code in (401, 403, 404):
         raise HTTPException(403, "Data workspace access denied")
     if response.status_code != 200:
@@ -219,18 +239,31 @@ async def _workspace_access_token(identity: str | None) -> str:
 async def _provision_workspace(identity: str) -> None:
     async with _identity_lock:
         process = await asyncio.create_subprocess_exec(
-            str(context_python()), str(Path(__file__).with_name("delegated_identity.py")),
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL,
+            str(context_python()),
+            str(Path(__file__).with_name("delegated_identity.py")),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            await asyncio.wait_for(process.communicate(json.dumps({
-                "home": str(_DATA_AUTH_HOME), "identity": identity,
-            }).encode()), timeout=30)
+            await asyncio.wait_for(
+                process.communicate(
+                    json.dumps(
+                        {
+                            "home": str(_DATA_AUTH_HOME),
+                            "identity": identity,
+                        },
+                    ).encode(),
+                ),
+                timeout=30,
+            )
         except TimeoutError:
             process.kill()
             await process.wait()
-            raise HTTPException(503, "Data workspace identity initialization timed out")
+            raise HTTPException(
+                503,
+                "Data workspace identity initialization timed out",
+            )
         if process.returncode:
             raise HTTPException(403, "Data workspace identity is unavailable")
 
@@ -296,7 +329,11 @@ _context_service = managed_service(
         "QWENPAW_DATA_CONTEXT_TOKEN"
     ),
 )
-_gateway = ContextGateway(_context_service, _context_token, workspace_token=_workspace_access_token)
+_gateway = ContextGateway(
+    _context_service,
+    _context_token,
+    workspace_token=_workspace_access_token,
+)
 
 _engine_token = secrets.token_urlsafe(32)
 
@@ -401,7 +438,11 @@ _engine_service = managed_service(
         "QWENPAW_DATA_ENGINE_TOKEN"
     ),
 )
-_engine_gateway = EngineGateway(_engine_service, _engine_token, workspace_token=_workspace_access_token)
+_engine_gateway = EngineGateway(
+    _engine_service,
+    _engine_token,
+    workspace_token=_workspace_access_token,
+)
 
 
 async def _engine_endpoint() -> tuple[str, str]:
@@ -430,7 +471,11 @@ async def _runtime_models(scope):
             "Set databridge.source to 'local' in PawApp model-settings and "
             "select the workspace provider in the Data Console.",
         )
-    local_roles = [role for role in ("analysis", "lightweight") if models.get(role) is None]
+    local_roles = [
+        role
+        for role in ("analysis", "lightweight")
+        if models.get(role) is None
+    ]
     if local_roles:
         effective = (await _describe_models(scope))["effective"]
         for role in local_roles:
@@ -792,7 +837,11 @@ async def _describe_models(scope):
             choice = result["settings"][role]
             if role == "databridge" and choice["source"] == "local":
                 config = (
-                    await _gateway.json("GET", "/api/system/model-config/", user_id=identity)
+                    await _gateway.json(
+                        "GET",
+                        "/api/system/model-config/",
+                        user_id=identity,
+                    )
                 )["llm"]
                 model = config.get("model")
                 provider = None
@@ -889,8 +938,11 @@ async def embedded_auth_status(request: Request) -> dict:
 @router.get("/identity/api/auth/me")
 async def embedded_auth_me(request: Request) -> dict:
     scope = await console_scope(request)
-    result = await _engine_gateway.json("GET", "/api/v1/console/identity",
-        user_id=identity_namespace(scope))
+    result = await _engine_gateway.json(
+        "GET",
+        "/api/v1/console/identity",
+        user_id=identity_namespace(scope),
+    )
     result["display_name"] = scope.principal_id
     result["active_workspace_name"] = scope.workspace_id
     return result
@@ -936,8 +988,11 @@ async def _proxy_set_active_datasource(
         payload = json.loads(await request.body() or b"{}")
     except ValueError:
         payload = None
-    response = await _gateway.proxy(path, request,
-        user_id=identity_namespace(await console_scope(request)))
+    response = await _gateway.proxy(
+        path,
+        request,
+        user_id=identity_namespace(await console_scope(request)),
+    )
     if response.status_code < 400 and isinstance(payload, dict):
         config = load_config()
         config.datasources.active_id = str(
@@ -952,8 +1007,11 @@ async def _proxy_delete_datasource(
     request: Request,
 ) -> Response:
     """Forward a datasource deletion and drop a stale active selection."""
-    response = await _gateway.proxy(path, request,
-        user_id=identity_namespace(await console_scope(request)))
+    response = await _gateway.proxy(
+        path,
+        request,
+        user_id=identity_namespace(await console_scope(request)),
+    )
     if response.status_code < 400:
         deleted_id = path.rstrip("/").rsplit("/", 1)[-1]
         config = load_config()
@@ -986,7 +1044,11 @@ async def context_proxy(path: str, request: Request) -> Any:
     if request.method == "DELETE" and _DATASOURCE_ITEM_RE.search(path):
         return await _proxy_delete_datasource(path, request)
     scope = await console_scope(request)
-    return await _gateway.proxy(path, request, user_id=identity_namespace(scope))
+    return await _gateway.proxy(
+        path,
+        request,
+        user_id=identity_namespace(scope),
+    )
 
 
 @router.api_route(
@@ -1230,28 +1292,49 @@ async def test_config_target(
         from openai import AsyncOpenAI, OpenAIError
 
         if not draft.get("base_url") or not draft.get("model"):
-            return {"ok": False, "error": "Enter the provider URL and model to test this key."}
+            return {
+                "ok": False,
+                "error": "Enter the provider URL and model to test this key.",
+            }
         try:
             async with AsyncOpenAI(
-                api_key=draft["api_key"], base_url=draft["base_url"],
-                http_client=httpx.AsyncClient(follow_redirects=False), timeout=15, max_retries=0,
+                api_key=draft["api_key"],
+                base_url=draft["base_url"],
+                http_client=httpx.AsyncClient(follow_redirects=False),
+                timeout=15,
+                max_retries=0,
             ) as client:
                 if target == "embedding":
-                    result = await client.embeddings.create(model=draft["model"], input=["test"])
-                    return {"ok": True, "error": None, "detected_dim": len(result.data[0].embedding)}
+                    result = await client.embeddings.create(
+                        model=draft["model"],
+                        input=["test"],
+                    )
+                    return {
+                        "ok": True,
+                        "error": None,
+                        "detected_dim": len(result.data[0].embedding),
+                    }
                 await client.chat.completions.create(
-                    model=draft["model"], messages=[{"role": "user", "content": "Reply OK."}],
+                    model=draft["model"],
+                    messages=[{"role": "user", "content": "Reply OK."}],
                     max_tokens=8,
                 )
                 return {"ok": True, "error": None, "detected_dim": None}
         except (OpenAIError, ValueError, IndexError, httpx.HTTPError) as exc:
-            return {"ok": False, "error": f"Provider test failed ({type(exc).__name__})"}
+            return {
+                "ok": False,
+                "error": f"Provider test failed ({type(exc).__name__})",
+            }
 
     try:
         result = await _gateway.json(
             "POST",
             f"/api/system/model-config/{target}/test",
-            body={key: draft[key] for key in ("provider_id", "model", "dim", "base_url") if key in draft},
+            body={
+                key: draft[key]
+                for key in ("provider_id", "model", "dim", "base_url")
+                if key in draft
+            },
         )
     except HTTPException as exc:
         # Covers the sidecar startup window and transport failures; the
@@ -1280,13 +1363,26 @@ async def qwenpaw_data_search_context(
     # 0.4 exposes metadata retrieval separately from research/graph exploration.
     # Keep datasource/domain filters explicit; do not replace them with a prompt.
     params = {"query": query, "datasource_id": datasource_id, "domain": domain}
-    metrics = await _gateway.json("GET", "/api/v1/cm/search-metrics", params=params)
-    dimensions = await _gateway.json("GET", "/api/v1/cm/dimensions", params={
-        "name": query, "datasource_id": datasource_id, "domain": domain,
-    })
-    return {"kind": "metadata_context", "metrics": metrics, "dimensions": dimensions,
-            "scope": {"datasource_id": datasource_id, "domain": domain}}
-
+    metrics = await _gateway.json(
+        "GET",
+        "/api/v1/cm/search-metrics",
+        params=params,
+    )
+    dimensions = await _gateway.json(
+        "GET",
+        "/api/v1/cm/dimensions",
+        params={
+            "name": query,
+            "datasource_id": datasource_id,
+            "domain": domain,
+        },
+    )
+    return {
+        "kind": "metadata_context",
+        "metrics": metrics,
+        "dimensions": dimensions,
+        "scope": {"datasource_id": datasource_id, "domain": domain},
+    }
 
 
 async def qwenpaw_data_list_domains(datasource_id: str = "") -> Any:
@@ -1299,10 +1395,19 @@ async def qwenpaw_data_explore_entity(
     datasource_id: str = "",
     domain: str = "",
 ) -> Any:
-    result = await qwenpaw_data_search_context(entity_name, datasource_id, domain)
-    return {**result, "entity_name": entity_name,
-            "limitation": "Metadata lookup only; relationship traversal and deep entity research are not provided by this compatibility tool."}
-
+    result = await qwenpaw_data_search_context(
+        entity_name,
+        datasource_id,
+        domain,
+    )
+    return {
+        **result,
+        "entity_name": entity_name,
+        "limitation": (
+            "Metadata lookup only; relationship traversal and deep entity "
+            "research are not provided by this compatibility tool."
+        ),
+    }
 
 
 async def qwenpaw_data_execute_sql(
@@ -1312,7 +1417,9 @@ async def qwenpaw_data_execute_sql(
 ) -> Any:
     if not 1 <= max_rows <= 1000:
         raise HTTPException(422, "max_rows must be between 1 and 1000")
-    datasource_id = datasource_id.strip() or load_config().datasources.active_id
+    datasource_id = (
+        datasource_id.strip() or load_config().datasources.active_id
+    )
     if not datasource_id:
         raise HTTPException(422, "Select a datasource before executing SQL")
     body: dict[str, Any] = {"sql": sql, "max_rows": max_rows}

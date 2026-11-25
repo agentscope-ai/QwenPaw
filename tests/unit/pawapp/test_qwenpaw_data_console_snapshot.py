@@ -149,15 +149,26 @@ def test_data_console_verifier_rejects_bridge_drift(tmp_path: Path) -> None:
         verifier.validate(root, canonical)
 
 
-def test_data_console_verifier_rejects_invalid_wheel_hash(tmp_path: Path) -> None:
+def test_data_console_verifier_rejects_invalid_wheel_hash(
+    tmp_path: Path,
+) -> None:
     verifier, root = _snapshot(tmp_path)
     info = root / "BUILD_INFO"
-    info.write_text("\n".join((
-        "format_version=2", "source_project=qwenpaw-data-console",
-        "package_version=0.4.1.dev0", "wheel_filename=qwenpaw_data_console-0.4.1.dev0-py3-none-any.whl",
-        "wheel_sha256=invalid", f"bridge_sha256={verifier.sha256(root / 'paw-bridge.js')}",
-        "gateway_base=/api/qwenpaw-data/engine", "context_console_url=/context#",
-    )) + "\n")
+    info.write_text(
+        "\n".join(
+            (
+                "format_version=2",
+                "source_project=qwenpaw-data-console",
+                "package_version=0.4.1.dev0",
+                "wheel_filename=qwenpaw_data_console-0.4.1.dev0-py3-none-any.whl",
+                "wheel_sha256=invalid",
+                f"bridge_sha256={verifier.sha256(root / 'paw-bridge.js')}",
+                "gateway_base=/api/qwenpaw-data/engine",
+                "context_console_url=/context#",
+            ),
+        )
+        + "\n",
+    )
     verifier.write_checksums(root)
     with pytest.raises(verifier.ValidationError, match="wheel_sha256"):
         verifier.validate(root, None)
