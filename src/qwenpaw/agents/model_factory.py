@@ -2792,6 +2792,11 @@ def _install_model_formatter(
             or model_info.supports_multimodal is not False
         ),
     )
+    object.__setattr__(
+        formatter,
+        "qwenpaw_supports_image",
+        model_info is not None and model_info.supports_image is True,
+    )
     model.formatter = formatter
     return formatter
 

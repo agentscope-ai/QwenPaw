@@ -253,7 +253,6 @@ async def test_gemini_without_api_key_falls_back_and_reme_starts(
     ],
 )
 async def test_image_jobs_exclude_unsafe_main_model_fallback(
-    monkeypatch,
     main_supports_images,
     memory_supports_images,
     expect_fallback,
@@ -267,13 +266,11 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
         memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
         factory=factory,
     )
-    monkeypatch.setattr(
-        "qwenpaw.agents.prompt.get_model_supports_image",
-        lambda model: (
-            memory_supports_images
-            if model is memory_model
-            else main_supports_images
-        ),
+    main_model.formatter = SimpleNamespace(
+        qwenpaw_supports_image=main_supports_images is True,
+    )
+    memory_model.formatter = SimpleNamespace(
+        qwenpaw_supports_image=memory_supports_images is True,
     )
 
     actual_model = await manager._update_qwenpaw_model(

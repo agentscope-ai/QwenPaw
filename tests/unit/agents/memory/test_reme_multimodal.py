@@ -13,8 +13,6 @@ from agentscope.message import Base64Source, DataBlock, UserMsg
 from qwenpaw.agents.memory import reme_light_memory_manager as memory_module
 from qwenpaw.agents.memory.reme_config import get_reme_app_config
 from qwenpaw.config.config import AgentProfileConfig, ReMeLightMemoryConfig
-from qwenpaw.providers.model_info import ModelInfo
-from qwenpaw.providers.provider_manager import ProviderManager
 
 
 def _image_message():
@@ -40,28 +38,7 @@ def memory_job(monkeypatch):
         AsyncMock(return_value=agent_config),
     )
     model = SimpleNamespace(model="vision:v1", model_key="custom:vision:v1")
-    metadata = ModelInfo(
-        id="vision:v1",
-        name="Custom vision model",
-        supports_image=True,
-        source="user",
-    )
-    # Include a different chat model to catch accidental global/session lookup.
-    provider = SimpleNamespace(
-        resolve_model_info=lambda model_id: (
-            metadata if model_id == metadata.id else ModelInfo(id=model_id)
-        ),
-    )
-    providers = SimpleNamespace(
-        get_provider=lambda provider_id: (
-            provider if provider_id == "custom" else None
-        ),
-        get_active_model=lambda: SimpleNamespace(
-            provider_id="custom",
-            model="chat-only",
-        ),
-    )
-    monkeypatch.setattr(ProviderManager, "_instance", providers)
+    model.formatter = SimpleNamespace(qwenpaw_supports_image=True)
     factory = AsyncMock(return_value=(model, None))
     monkeypatch.setattr(
         memory_module,
@@ -105,7 +82,6 @@ def memory_job(monkeypatch):
         manager=manager,
         config=config,
         model=model,
-        metadata=metadata,
         factory=factory,
     )
 
@@ -133,9 +109,7 @@ async def test_images_require_setting_and_actual_memory_model_support(
     expected,
 ):
     memory_job.config.auto_memory_include_images = enabled
-    memory_job.metadata.supports_image = supports_image
-    # Generic multimodal support can mean audio/video; it cannot allow images.
-    memory_job.metadata.supports_multimodal = True
+    memory_job.model.formatter.qwenpaw_supports_image = supports_image is True
     manager = memory_job.manager
     message = _image_message()
 

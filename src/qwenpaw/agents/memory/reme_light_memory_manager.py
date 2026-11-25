@@ -87,6 +87,15 @@ if TYPE_CHECKING:
     from reme import ReMe
     from reme.application import Response
 
+
+def _supports_images(model: Any) -> bool:
+    return getattr(
+        getattr(model, "formatter", None),
+        "qwenpaw_supports_image",
+        False,
+    )
+
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -634,8 +643,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     exc,
                 )
             else:
-                from ..prompt import get_model_supports_image
-
                 memory_identity = get_model_identity(memory_model)
                 if (
                     main_model is not None
@@ -649,16 +656,8 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     if (
                         fallback is not None
                         and require_image_support
-                        and (
-                            await run_sync_io(
-                                get_model_supports_image,
-                                memory_model,
-                            )
-                            and not await run_sync_io(
-                                get_model_supports_image,
-                                fallback,
-                            )
-                        )
+                        and _supports_images(memory_model)
+                        and not _supports_images(fallback)
                     ):
                         # Never send memory images to a text-only main model.
                         fallback = None
@@ -687,8 +686,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
         The caller holds the LLM job lock through preparation and execution.
         """
-        from ..prompt import get_model_supports_image
-
         config = await run_sync_io(self._load_memory_config)
         enabled = bool(config.auto_memory_include_images)
         requested = kwargs.get("include_images", True) is not False
@@ -704,10 +701,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             require_image_support=enabled and requested and has_images,
         )
         # Inspect the exact job model, including its image-safe fallbacks.
-        supports_images = bool(
-            model is not None
-            and await run_sync_io(get_model_supports_image, model),
-        )
+        supports_images = _supports_images(model)
         kwargs["include_images"] = enabled and supports_images and requested
         if has_images:
             logger.info(
