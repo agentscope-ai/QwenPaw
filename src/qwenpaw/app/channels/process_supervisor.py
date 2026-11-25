@@ -94,6 +94,10 @@ class ChannelProcess(PluginProcess):
     component_states = {"connecting", "connected", "disconnected", "failed"}
     failed_reason = "PLATFORM_START_FAILED"
 
+    def _stop_rpc_budget(self, budget: float) -> float:
+        """Allow serial driver cleanup and reserve time to reap the tree."""
+        return budget - min(2.0, budget / 3)
+
     def _launch_environment(self) -> dict[str, str]:
         """Project this runtime's resolved paths into channel workers only."""
         from ...constant import WORKING_DIR

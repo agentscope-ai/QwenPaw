@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -1753,7 +1754,15 @@ async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
         shutdown_timeout=1.5,
     )
     ws = await host.workspace("blocked-stop")
-    await host.loader.load_plugin_from_path(host.artifact())
+    artifact = host.artifact()
+    if os.name != "nt":
+        # Require escalation to SIGKILL after the graceful RPC times out.
+        with (artifact / "sample.py").open("a", encoding="utf-8") as driver:
+            driver.write(
+                "\nimport signal\n"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+            )
+    await host.loader.load_plugin_from_path(artifact)
     channel, before = await host.identity(ws)
     source = (host.installed / "sample.py").read_bytes()
     await channel._state_lock.acquire()
@@ -1773,6 +1782,8 @@ async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
         result = channel.last_stop_result
         assert result.exited and result.residual == ("HOST_STATE_IO_PENDING",)
         assert result.forced and result.acknowledged is False
+        if os.name != "nt":
+            assert result.returncode == -signal.SIGKILL
     finally:
         channel._state_lock.release()
     cleanup = await host.loader.unload_plugin(KEY)

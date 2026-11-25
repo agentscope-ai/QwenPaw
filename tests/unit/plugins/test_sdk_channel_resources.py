@@ -105,14 +105,19 @@ class Driver(ChannelDriver):
     async def start(self, ch):
         marker = Path(ch.config["marker"])
         marker.write_text(str(os.getpid()))
-        stop = threading.Event()
-        def run():
-            stop.wait()
-            marker.with_suffix(".waiting").touch()
-            while not marker.with_suffix(".release").exists():
-                time.sleep(0.01)
-            marker.with_suffix(".exited").touch()
-        ch.resources.thread(run, stop=stop)
+        def register_thread(exit_suffix):
+            stop = threading.Event()
+            def run():
+                stop.wait()
+                marker.with_suffix(".waiting").touch()
+                if marker.with_suffix(".slow").exists():
+                    time.sleep(3.5)
+                while not marker.with_suffix(".release").exists():
+                    time.sleep(0.01)
+                marker.with_suffix(exit_suffix).touch()
+            ch.resources.thread(run, stop=stop)
+        register_thread(".exited")
+        register_thread(".second.exited")
         await ch.report_status("connected")
 
     async def send(self, ch, response):
@@ -193,6 +198,8 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
             )
             other_pid = int(markers[2].read_text())
             assert alive(other_pid)
+            # Two independent stops each fit a join but take 7s in sequence.
+            markers[0].with_suffix(".slow").touch()
             stopping = asyncio.create_task(
                 host.stop_channel(keys[0], workspace_id="one"),
             )
@@ -211,11 +218,10 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
                     workspace_id="two",
                 )
             assert not markers[1].exists()
-            # Keep the join pending beyond the former 2/3-second RPC limit.
-            await asyncio.sleep(1)
             markers[0].with_suffix(".release").touch()
             await stopping
             assert markers[0].with_suffix(".exited").exists()
+            assert markers[0].with_suffix(".second.exited").exists()
             assert not alive(pid)
             await host.start_channel(
                 keys[1],

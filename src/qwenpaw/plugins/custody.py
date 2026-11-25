@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
 
 TASK_STOP_SECONDS = 5.0
 THREAD_STOP_SECONDS = 5.0
-# The stop RPC gets one third of the channel's total shutdown budget.
-CHANNEL_SHUTDOWN_SECONDS = 3 * (THREAD_STOP_SECONDS + 1.0)
+CHANNEL_SHUTDOWN_SECONDS = 18.0
 PROCESS_STOP_SECONDS = 10.0
 WATCH_STOP_SECONDS = 5.0
 CONNECTION_STOP_SECONDS = 5.0
