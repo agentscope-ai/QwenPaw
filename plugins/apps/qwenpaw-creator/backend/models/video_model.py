@@ -22,7 +22,7 @@ from models.media_transport import (
     downscale_image_to_budget,
     read_reference_media,
     reference_media_data_url,
-    upload_local_file_to_dashscope_temp,
+    upload_reference_file_for_provider,
 )
 from models.video_capabilities import (
     HAPPYHORSE_MAX_DURATION_SECONDS,
@@ -244,15 +244,18 @@ async def _resolve_reference_media_url(
                 if url.startswith("/generated/")
                 else local_path_from_file_url(url)
             )
-            resolved_url = await upload_local_file_to_dashscope_temp(
+            resolved_url = await upload_reference_file_for_provider(
                 media_path,
                 api_key=model_config.get_video_api_key(),
                 model_name=model_name,
                 media_type=media_type,
+                base_url=model_config.get_video_base_url(),
+                protocol=model_config.get_video_protocol(),
             )
             logger.info(
-                f"Uploaded reference media to DashScope temp storage | backend={backend}, "
-                f"filename={filename}, url={resolved_url[:100]}",
+                "Prepared reference media | backend=%s, filename=%s",
+                backend,
+                filename,
             )
             return resolved_url, kind
 

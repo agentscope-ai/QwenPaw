@@ -304,6 +304,97 @@ describe("R2V Workbench page", () => {
     ).toBeInTheDocument();
   });
 
+  it("surfaces the prompt-sync gate and clears it through the explicit confirm button", async () => {
+    // Problem 4 (deadlock): the workbench used to show no sync state at all
+    // and only the later regenerate call was rejected. The gate must be
+    // visible here with a button that re-stamps the baseline in place.
+    let storyboardStatus: "needs_update" | "current" = "needs_update";
+    const { calls } = installMockFetch([
+      ...modelRoutes("wan2.7-r2v").filter(
+        (route) => route.match !== "/prompt-sync?stage=",
+      ),
+      {
+        match: "/prompt-sync?stage=storyboard",
+        method: "GET",
+        response: {
+          get json() {
+            return {
+              status: storyboardStatus,
+              baselineToken: "baseline-gate",
+              narrative: (
+                projectDocument.timelines.items["timeline:main"].elements_by_id[
+                  "r2v-window"
+                ].creation as { narrative: string }
+              ).narrative,
+              changedSources: [],
+              suggestedSource: null,
+              storyboardPrompt: "暖色餐厅窗外的橘猫",
+              videoPrompt: "镜头缓慢推近，橘猫眨眼",
+            };
+          },
+        },
+      },
+      {
+        match: "/prompt-sync?stage=video",
+        method: "GET",
+        response: {
+          json: {
+            status: "current",
+            baselineToken: "verified-current",
+            narrative: "",
+            changedSources: [],
+            suggestedSource: null,
+            storyboardPrompt: "",
+            videoPrompt: "",
+          },
+        },
+      },
+      {
+        match: "/prompt-sync/confirm?stage=storyboard",
+        method: "POST",
+        response: {
+          get json() {
+            storyboardStatus = "current";
+            return { status: "current" };
+          },
+        },
+      },
+    ]);
+    const { container } = renderWorkbench();
+
+    const banner = await waitFor(() => {
+      const node = container.querySelector(
+        '[data-prompt-sync-gate="storyboard"]',
+      );
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    expect(banner).toHaveTextContent(
+      "剧本已更新，这组提示词需要重新同步后才能继续生成。",
+    );
+
+    fireEvent.click(
+      container.querySelector('[data-prompt-sync-confirm="storyboard"]')!,
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.method === "POST" &&
+            call.url.endsWith("/prompt-sync/confirm?stage=storyboard"),
+        ),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-prompt-sync-gate="storyboard"]'),
+      ).toBeNull(),
+    );
+    expect(
+      await screen.findByText("提示词已同步，可以继续生成。"),
+    ).toBeInTheDocument();
+  });
+
   it("round-trips between the Plan detail CTA and the workbench", async () => {
     renderWorkbench("/project/p1/plan?element=r2v-window");
 

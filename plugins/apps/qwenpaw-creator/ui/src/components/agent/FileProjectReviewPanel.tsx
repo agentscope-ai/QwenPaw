@@ -208,6 +208,7 @@ export default function FileProjectReviewPanel({
     const field = locator.field ?? fallbackField ?? undefined;
     navigateToLocator(projectId, locator, {
       review: true,
+      reviewId: review.review_id,
       field: field ?? undefined,
       description: t("fileReview.reviewOrViewChanges"),
     });
@@ -251,7 +252,8 @@ export default function FileProjectReviewPanel({
             type="button"
             disabled={busy || pending.length === 0}
             onClick={() => void submit(pending, "ACCEPT")}
-            className="rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--color-bg-primary)] disabled:opacity-50"
+            data-file-review-keep-all=""
+            className="btn-decision"
           >
             {mediaLocator ? t("fileReview.keep") : t("fileReview.keepAll")}
           </button>
@@ -425,13 +427,13 @@ function MediaReviewBody({
             <video
               src={mediaUrl}
               controls
-              className="max-h-48 w-full object-contain"
+              className="max-h-[45vh] w-full object-contain"
             />
           ) : (
             <img
               src={mediaUrl}
               alt={mediaLabel(locator)}
-              className="max-h-48 w-full object-contain"
+              className="max-h-[45vh] w-full object-contain"
             />
           )
         ) : (

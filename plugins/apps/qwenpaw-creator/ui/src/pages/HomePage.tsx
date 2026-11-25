@@ -1,4 +1,11 @@
-import { useEffect, useState, useCallback, memo, useRef } from "react";
+import {
+  useEffect,
+  useState,
+  useReducer,
+  useCallback,
+  memo,
+  useRef,
+} from "react";
 import { Modal, message, Tooltip, Button, Space } from "antd";
 import {
   Film,
@@ -28,6 +35,7 @@ import {
   CreatorHttpError,
   newClientId,
 } from "@/api/creator";
+import { invalidateCreatorListReads } from "@/api/creator/client";
 import { useModelConfigStore } from "@/store/modelConfigStore";
 import { useRecreateStore } from "@/store/recreateStore";
 import { useRouter, useSearchParams } from "@/routing/navigation";
@@ -267,10 +275,17 @@ export default function HomePage() {
     modelConfig === null ||
     Boolean(modelConfig.llm.enabled && modelConfig.llm.model_name);
 
-  const fetchProjects = useCallback(
-    async (sort: SortField = sortBy, order: "asc" | "desc" = sortOrder) => {
+  const [listRevision, reloadList] = useReducer((n: number) => n + 1, 0);
+  const refreshProjects = useCallback(() => {
+    invalidateCreatorListReads("/projects");
+    reloadList();
+  }, []);
+  useEffect(() => {
+    let current = true;
+    async function loadProjects() {
       try {
-        const data = await listProjects(100, 0, sort, order);
+        const data = await listProjects(100, 0, sortBy, sortOrder);
+        if (!current) return;
         const projectList = data.items || [];
         setProjects(projectList);
         // Fetch tasks for each project to determine if there's active background work.
@@ -291,19 +306,18 @@ export default function HomePage() {
             }
           }),
         );
-        setProjectsWithActiveTasks(activeTaskProjects);
+        if (current) setProjectsWithActiveTasks(activeTaskProjects);
       } catch {
-        message.error(t("home.loadFailed"));
+        if (current) message.error(t("home.loadFailed"));
       } finally {
-        setLoading(false);
+        if (current) setLoading(false);
       }
-    },
-    [sortBy, sortOrder, t],
-  );
-
-  useEffect(() => {
-    void fetchProjects();
-  }, [fetchProjects]);
+    }
+    void loadProjects();
+    return () => {
+      current = false;
+    };
+  }, [listRevision, sortBy, sortOrder, t]);
 
   // Set which view to display based on a search parameter. Strip the param
   // after consuming it, but bail when it's absent so the strip-induced
@@ -343,7 +357,7 @@ export default function HomePage() {
                 try {
                   await deleteProject(project.projectId, false);
                   message.success(t("home.deleteSuccess"));
-                  fetchProjects();
+                  refreshProjects();
                   modal.destroy();
                 } catch {
                   message.error(t("home.deleteFailed"));
@@ -369,7 +383,7 @@ export default function HomePage() {
                     try {
                       await deleteProject(project.projectId, true);
                       message.success(t("home.deleteAllDataSuccess"));
-                      fetchProjects();
+                      refreshProjects();
                     } catch {
                       message.error(t("home.deleteAllDataFailed"));
                     }
@@ -383,7 +397,7 @@ export default function HomePage() {
         ),
       });
     },
-    [fetchProjects],
+    [refreshProjects, t],
   );
 
   const handleCopy = useCallback(
@@ -408,13 +422,13 @@ export default function HomePage() {
         }
         if (error instanceof CreatorHttpError && error.status === 404) {
           message.error(t("home.projectGone"));
-          fetchProjects();
+          refreshProjects();
           return;
         }
         message.error(t("home.copyFailed"));
       }
     },
-    [router, fetchProjects],
+    [refreshProjects, router, t],
   );
 
   const handleRecreate = useCallback(
@@ -428,29 +442,26 @@ export default function HomePage() {
         // real cause and drop the stale row instead of a generic failure.
         if (error instanceof CreatorHttpError && error.status === 404) {
           message.error(t("home.projectGone"));
-          fetchProjects();
+          refreshProjects();
           return;
         }
         message.error(t("home.recreateFailed"));
       }
     },
-    [fetchProjects],
+    [refreshProjects, t],
   );
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value as SortField;
       setSortBy(value);
-      fetchProjects(value, sortOrder);
     },
-    [fetchProjects, sortOrder],
+    [],
   );
 
   const handleSortOrderToggle = useCallback(() => {
-    const newOrder = sortOrder === "asc" ? "desc" : "asc";
-    setSortOrder(newOrder);
-    fetchProjects(sortBy, newOrder);
-  }, [fetchProjects, sortBy, sortOrder]);
+    setSortOrder((order) => (order === "asc" ? "desc" : "asc"));
+  }, []);
 
   const formatDate = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
@@ -745,7 +756,7 @@ export default function HomePage() {
       <ProjectImporter
         open={importerOpen}
         onClose={() => setImporterOpen(false)}
-        onImported={() => fetchProjects()}
+        onImported={refreshProjects}
       />
       <HomeTour />
     </div>

@@ -216,10 +216,22 @@ describe("file-native Project Review store", () => {
         { ...operation2, decision: "REJECTED" },
       ],
     });
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("response lost"))
-      .mockResolvedValueOnce(response(200, resolved, { ETag: '"token-2"' }));
+    let decisionAttempts = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/runtime/reviews/active")) {
+        // The lost response never committed: the review is still pending.
+        return Promise.resolve(
+          activeResponse(
+            review("token-1", 3, { operations: [op1, operation2] }),
+          ),
+        );
+      }
+      decisionAttempts += 1;
+      if (decisionAttempts === 1)
+        return Promise.reject(new Error("response lost"));
+      return Promise.resolve(response(200, resolved, { ETag: '"token-2"' }));
+    });
     vi.stubGlobal("fetch", fetchMock);
     seed([review("token-1", 3, { operations: [op1, operation2] })]);
     const decisions = [
@@ -240,12 +252,19 @@ describe("file-native Project Review store", () => {
     ).resolves.toMatchObject({ status: "RESOLVED" });
 
     const firstBody = bodyOf(fetchMock, 0);
-    const secondBody = bodyOf(fetchMock, 1);
+    const secondBody = bodyOf(fetchMock, 2);
     expect(firstBody.decisionId).toBe(secondBody.decisionId);
     expect(firstBody.decisions).toEqual(secondBody.decisions);
     expect(firstBody.rejectionFeedback).toEqual(feedback);
     expect(secondBody.rejectionFeedback).toEqual(feedback);
-    for (const index of [0, 1]) {
+    // The ambiguous failure triggered one reconciliation poll; both decision
+    // POSTs still reuse the same Idempotency-Key.
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/runtime/reviews/active"),
+      ),
+    ).toHaveLength(1);
+    for (const index of [0, 2]) {
       expect(headerOf(fetchMock, index, "Idempotency-Key")).toBe(
         firstBody.decisionId,
       );
@@ -324,4 +343,106 @@ describe("file-native Project Review store", () => {
       expect(store().decisionInFlight).toBe(false);
     },
   );
+
+  it("credits a failed keep only when the recorded decision is accepted", async () => {
+    // The response can be lost after the server committed. A batch caller
+    // may only credit that keep when the fresh review records this
+    // decision as accepted.
+    const op1 = review().operations[0];
+    const operation2 = {
+      ...op1,
+      json_pointer: "/story/description",
+      operation_id: "operation-2",
+    } as const;
+    const accepted = review("token-2", 3, {
+      operations: [{ ...op1, decision: "ACCEPTED" }, operation2],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(activeResponse(accepted));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review("token-1", 3, { operations: [op1, operation2] })]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    expect(store().reconciledDecision).toMatchObject({ reviewId: "review-1" });
+    expect(store().unconfirmedDecision).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/runtime/reviews/active"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("never credits a keep another tab recorded as rejected", async () => {
+    const op1 = review().operations[0];
+    const operation2 = {
+      ...op1,
+      json_pointer: "/story/description",
+      operation_id: "operation-2",
+    } as const;
+    const rejected = review("token-2", 3, {
+      operations: [{ ...op1, decision: "REJECTED" }, operation2],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(activeResponse(rejected));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review("token-1", 3, { operations: [op1, operation2] })]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    // Leaving the pending set is not proof this keep landed: the fresh
+    // review must show it accepted, and here it shows the opposite.
+    expect(store().reconciledDecision).toBeNull();
+    expect(store().unconfirmedDecision).toBeNull();
+    expect(store().reviews[0].operations[0].decision).toBe("REJECTED");
+  });
+
+  it("marks the outcome unconfirmed when the review only left the queue", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(response(204));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review()]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    expect(store().reconciledDecision).toBeNull();
+    expect(store().unconfirmedDecision).toMatchObject({ reviewId: "review-1" });
+    expect(store().reviews).toEqual([]);
+  });
+
+  it("never reconciles a CAS conflict: another tab decided first", async () => {
+    // The stale-token retry only covers explicit keeps of identical
+    // operations; here the round token did not rotate, so the 409 stands.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(409, { code: "CAS_CONFLICT" }))
+      .mockResolvedValueOnce(activeResponse(review()));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review()]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toMatchObject({ code: "CAS_CONFLICT" });
+    // No reconciliation poll: a conflict is a definite pre-commit rejection,
+    // so nothing in the batch may credit this review as kept.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store().reconciledDecision).toBeNull();
+  });
 });

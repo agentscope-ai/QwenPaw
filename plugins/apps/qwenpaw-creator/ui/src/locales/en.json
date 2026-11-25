@@ -59,7 +59,9 @@
     "marketSearchFailed": "Search failed",
     "marketSource": "Source",
     "marketAuthor": "Author",
-    "marketProviderUnavailable": "These markets are unavailable: {{providers}}",
+    "marketProviderAll": "All markets",
+    "marketProviderFilter": "Filter by market",
+    "marketProviderUnavailableReason": "Currently unavailable",
     "importUrlSourceHint": "Supported sources",
     "importUrlSourceDetected": "Detected: {{source}}",
     "importUrlSourceUnknown": "Unrecognized source URL; you can still try importing."
@@ -672,6 +674,7 @@
     "unselected": "Unselected",
     "stale": "Stale",
     "staleDescription": "The Project content this artifact depends on has changed",
+    "generationFailed": "Generation failed",
     "selectDetail": "Select an item to view details",
     "selectDetailDesc": "Shows versions, references and artifact status saved in the Project.",
     "ref": "Reference",
@@ -713,6 +716,7 @@
     "visualSetting": "Visual setting",
     "expired": "Expired",
     "defaultLook": "Default look",
+    "lookN": "Look {{n}}",
     "visualSettingSuffix": "visual setting",
     "byOwner": "By Ownership",
     "viewInBlueprint": "View in video script",
@@ -998,7 +1002,13 @@
       "preparationRunning": "Preparing generation content now",
       "preparationFailed": "Generation preparation needs attention",
       "automaticWaiting": "Preparing generation · {{seconds}}s elapsed",
-      "changedBeforeGeneration": "Content changed after synchronization. Regenerate with the latest edits."
+      "changedBeforeGeneration": "Content changed after synchronization. Regenerate with the latest edits.",
+      "gateNeedsUpdate": "The script changed; this prompt set must be synchronized before generation can continue.",
+      "gateNeedsConfirmation": "The script or prompts changed; confirm them before generation can continue.",
+      "keepAndContinue": "Keep current content and continue",
+      "gateConfirming": "Synchronizing prompts…",
+      "gateConfirmed": "Prompts synchronized; generation can continue.",
+      "gateConfirmFailed": "Prompt synchronization failed: {{detail}}"
     },
     "editorChangedTitle": "The prompt was updated elsewhere",
     "editorChangedDescription": "Your edits are preserved. Reload the latest text, or explicitly keep your edits before completing.",
@@ -1252,6 +1262,12 @@
     "laneLineup": "Lineup",
     "laneCompose": "Final Composition",
     "waitingDeps": "Waiting on {{count}} dependencies",
+    "scriptGateNotice": "Script not confirmed. Images and video will not start until you confirm it.",
+    "reviewSkipped": "Automatic review was skipped: {{reason}}. {{hint}}",
+    "reviewSkipReasons": {
+      "ffmpeg_unavailable": "ffmpeg is unavailable, so media evidence cannot be extracted",
+      "ffprobe_unavailable": "ffprobe is unavailable, so video details cannot be read"
+    },
     "retry": "Retry",
     "generate": "Generate",
     "productionProgress": "Production progress {{done}}/{{total}}",
@@ -1285,7 +1301,8 @@
       "compose": {
         "generate": "Compose final film",
         "retry": "Recompose final film"
-      }
+      },
+      "promptSync": "Go to sync"
     }
   },
   "decisionTray": {
@@ -1311,7 +1328,10 @@
     "decisionIndex": "#{{index}}: {{label}}",
     "nextDecision": "Next decision",
     "keepAllReviewChanges": "Keep all review changes (production confirm needs separate decision)",
-    "keepAll": "Keep All"
+    "keepAll": "Keep All",
+    "batchPartialTitle": "Some reviews kept",
+    "batchPartialKept": "Kept {{kept}}, {{failed}} failed: {{reason}}",
+    "dragToResize": "Drag to resize the review area"
   },
   "executionAuth": {
     "title": "High-cost Media Execution",
@@ -1343,6 +1363,12 @@
     "pricingModel": "(Priced by {{model}})",
     "continue": "Continue",
     "cancel": "Cancel",
+    "needReviewFirst": "Review required first",
+    "needReviewFirstHint": "The linked review cards still have pending changes. Use \"View pending reviews\" to finish them, then press Continue.",
+    "viewPendingReviews": "View pending reviews",
+    "dismissError": "Dismiss error",
+    "promptSyncRequired": "Prompts need syncing",
+    "openWorkbench": "Go sync",
     "checkpointConfirm": "Creative confirmation",
     "checkpointPlan": "Plan confirmation",
     "checkpointDesign": "Design confirmation",
@@ -1370,6 +1396,7 @@
     "creativeBrief": "Creative Brief",
     "creativeDirection": "Creative Direction",
     "prompt": "Prompt",
+    "nativeAudio": "Native video audio",
     "camera": "Camera",
     "framing": "Framing",
     "duration": "Duration",
@@ -1439,6 +1466,8 @@
       "updated": "{{kind}} updated",
       "syncUnavailable": "Review status could not be refreshed. Please try again.",
       "decisionFailed": "Could not save your review decision. Please try again.",
+      "decisionReconciled": "Your last review decision actually took effect — no need to retry.",
+      "decisionUnconfirmed": "Your last review decision is unconfirmed: the review left the queue, but this decision could not be verified. Refresh to check the result.",
       "referenceImages": "Reference images",
       "referencesUpdated": "Reference images updated",
       "versionRecord": "Version history",
@@ -2176,7 +2205,21 @@
     "requestFailed": "Creator request failed ({{status}})",
     "projectValidationFailed": "project.json validation failed",
     "newConversation": "New conversation",
-    "userCancel": "User cancelled"
+    "userCancel": "User cancelled",
+    "backendUnavailable": "The Creator service is not ready or disconnected. Please retry shortly"
+  },
+  "backendStatus": {
+    "title": "Creator service not ready",
+    "desc": "The local Creator service is unreachable right now. If you just upgraded or installed the plugin, wait a few seconds and check again; if it keeps failing, follow the steps below.",
+    "step1": "Confirm the QwenPaw app is still running and the plugin is enabled",
+    "step2": "Open Settings → Tools and inspect the QwenPaw Creator load error",
+    "step3": "Restart QwenPaw and check again",
+    "retry": "Check again",
+    "checking": "Checking the Creator service…",
+    "banner": "The Creator service is not ready; data on this page may be incomplete",
+    "blocked": "Service not ready; changes cannot be submitted right now",
+    "browseOnly": "Browse existing content only",
+    "errorDetail": "Error details"
   },
   "lib": {
     "prepareCallTool": "Preparing to call tools: {{names}}",
@@ -2348,6 +2391,9 @@
     "scriptPanelTitle": "Script · {{title}}",
     "scriptVersion": "{{count}} versions",
     "scriptStaleChip": "Stale",
+    "staleScriptAction": "Re-confirm script",
+    "staleScriptConfirmFocused": "Located “Confirm script and continue”; confirm it to resume production",
+    "staleScriptConfirmMissing": "Confirm button not found: the script may already be confirmed, or this is not the blueprint page",
     "requestChanges": "Request changes",
     "requestChangesDraft": "Please revise the script of “{{title}}”: ",
     "requestChangesPrefilled": "Drafted in the assistant composer — add your feedback and send",
@@ -2473,6 +2519,7 @@
     "viewResult": "View result",
     "continue": "Continue creating",
     "waitingDeps": "Waiting for earlier work",
+    "waitingScriptConfirm": "Waiting for script confirmation",
     "ready": "Ready to create",
     "stale": "Needs updating",
     "currentStage": "Current step",
@@ -2514,7 +2561,9 @@
     "ready": "Your work at a glance",
     "empty": "Core operations will appear here when you start creating.",
     "finishingSource": "Understanding saved, finishing up",
-    "activeWork": "In progress"
+    "activeWork": "In progress",
+    "retry": "Retry",
+    "openModelConfig": "Open model config"
   },
   "agentProgress": {
     "composeNeedsUpdate": "Final cut needs updating",

@@ -260,14 +260,21 @@ async def market_search(
     page: int = 1,
     limit: int = 20,
     lang: str = "en",
+    providers: str = "",
 ) -> dict[str, Any]:
-    """Search skill market providers for matching skills."""
+    """Search skill market providers for matching skills.
+
+    ``providers`` is an optional comma-separated subset of market keys (the
+    UI's source filter); empty means every reachable market, the default.
+    """
+    selected = [key.strip() for key in providers.split(",") if key.strip()]
     try:
         results, has_more, totals = await search_skills(
             query=query,
             page=page,
             limit=limit,
             lang=lang,
+            providers=selected or None,
         )
     except MarketUnavailable as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
