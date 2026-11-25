@@ -17,6 +17,7 @@ from os import PathLike
 from typing import Any, Callable, ParamSpec, TypeVar
 from types import SimpleNamespace
 
+from ..process_ownership import managed_launch
 from . import custody
 from .errors import ResourceError
 
@@ -344,8 +345,10 @@ class ResourceScope:  # pylint: disable=protected-access
         if tree:
             self._tree_options(kwargs)
         # ResourceScope owns deferred process exit, not this stack frame.
-        # pylint: disable-next=consider-using-with
-        process = subprocess.Popen(args, **kwargs)  # noqa: S603
+        with managed_launch(kwargs) as started:
+            # pylint: disable-next=consider-using-with
+            process = subprocess.Popen(args, **kwargs)  # noqa: S603
+            started(process.pid)
         owned_tree = None
 
         async def close():
@@ -417,7 +420,7 @@ class ResourceScope:  # pylint: disable=protected-access
         Descendants must not detach into a new session.
         """
         self._check()
-        options = {}
+        options: dict[str, Any] = {"env": env}
         if tree:
             self._tree_options(options)
         owned_tree = None
@@ -425,15 +428,16 @@ class ResourceScope:  # pylint: disable=protected-access
 
         async def spawn():
             nonlocal owned_tree, process
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                cwd=cwd,
-                env=env,
-                stdin=stdin,
-                stdout=stdout,
-                stderr=stderr,
-                **options,
-            )
+            with managed_launch(options) as started:
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    cwd=cwd,
+                    stdin=stdin,
+                    stdout=stdout,
+                    stderr=stderr,
+                    **options,
+                )
+                started(process.pid)
             if tree:
                 owned_tree = self._process_tree(process.pid)
             return process

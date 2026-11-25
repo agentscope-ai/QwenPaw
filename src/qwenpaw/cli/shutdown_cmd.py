@@ -12,6 +12,7 @@ from typing import Optional
 import click
 import psutil
 
+from ..process_ownership import observe_backend
 from ..shutdown import SERVER_SHUTDOWN_SECONDS
 from .process_utils import (
     _is_qwenpaw_wrapper_process,
@@ -227,14 +228,19 @@ def _terminate_backend_unix(
     try:
         root = psutil.Process(pid)
         if process is not None and process.poll() is not None:
-            return True
-    except psutil.NoSuchProcess:
-        if process is not None:
-            process.poll()
-        return True
-    except psutil.AccessDenied:
+            return False
+        with observe_backend(root) as ownership:
+            return _stop_observed_backend(
+                root,
+                process,
+                timeout_sec,
+                ownership,
+            )
+    except (OSError, psutil.Error, ValueError):
         return False
 
+
+def _stop_observed_backend(root, process, timeout_sec, ownership):
     def descendants(parent):
         try:
             if parent.is_running():
@@ -245,20 +251,18 @@ def _terminate_backend_unix(
 
     def wait_until(deadline, *, force=False):
         signalled = set()
-        while pending:
+        while True:
             # Reparented workers can still spawn their own descendants.
             discovered = set()
             for member in pending:
                 if member not in discovered:
                     discovered.update(descendants(member))
             pending.update(discovered)
-            if force:
-                for member in pending - signalled:
-                    try:
-                        member.kill()
-                    except psutil.NoSuchProcess:
-                        pass
-                    signalled.add(member)
+            for member in pending.difference(known, (root,)):
+                try:
+                    known[member] = member.create_time()
+                except psutil.NoSuchProcess:
+                    known[member] = None
             if process is not None:
                 process.poll()  # Reap the desktop wrapper's direct child.
             for member in tuple(pending):
@@ -271,26 +275,36 @@ def _terminate_backend_unix(
                 except psutil.NoSuchProcess:
                     pass
                 pending.remove(member)
+            if ownership is not None and (not pending or force):
+                members, verified = ownership.members(known)
+                pending.update(members)
+                if not pending and verified:
+                    return True
+            elif not pending:
+                return False
+            if force:
+                for member in pending - signalled:
+                    try:
+                        member.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                    signalled.add(member)
             remaining = deadline - time.monotonic()
-            if not pending or remaining <= 0:
-                break
+            if remaining <= 0:
+                return False
             time.sleep(min(remaining, 0.1))
 
     deadline = time.monotonic() + timeout_sec
+    pending = {root, *descendants(root)}
+    known = {}
     try:
-        # Process handles check PID and creation time before sending signals.
-        pending = {root, *descendants(root)}
-        try:
-            root.terminate()
-        except psutil.NoSuchProcess:
-            pass
-        wait_until(deadline)
-        wait_until(time.monotonic() + 2.0, force=True)
-        if process is not None:
-            process.poll()
-        return not pending
-    except psutil.AccessDenied:
-        return False
+        root.terminate()
+    except psutil.NoSuchProcess:
+        pass
+    return wait_until(deadline) or wait_until(
+        time.monotonic() + 2.0,
+        force=True,
+    )
 
 
 def _signal_process_windows(pid: int) -> bool:

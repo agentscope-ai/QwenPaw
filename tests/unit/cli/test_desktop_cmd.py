@@ -71,8 +71,12 @@ def test_shutdown_backend_reaps_graceful_child_without_reaper() -> None:
     script = (
         "import signal, sys\n"
         "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
-        "print('ready', flush=True)\n"
-        "signal.pause()\n"
+        "from qwenpaw.process_ownership import backend_instance\n"
+        "with backend_instance():\n"
+        "    try:\n"
+        "        print('ready', flush=True)\n"
+        "        signal.pause()\n"
+        "    except SystemExit: pass\n"
     )
     proc = subprocess.Popen(  # pylint: disable=consider-using-with
         [sys.executable, "-u", "-c", script],
@@ -95,7 +99,7 @@ def test_shutdown_backend_reaps_graceful_child_without_reaper() -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
-def test_shutdown_backend_force_fallback_reaps_child() -> None:
+def test_reaped_unregistered_backend_reports_failure() -> None:
     script = (
         "import signal\n"
         "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
@@ -110,7 +114,7 @@ def test_shutdown_backend_force_fallback_reaps_child() -> None:
     try:
         assert proc.stdout is not None
         assert proc.stdout.readline().strip() == "ready"
-        assert shutdown_cmd._terminate_pid(
+        assert not shutdown_cmd._terminate_pid(
             proc.pid,
             timeout_sec=0.2,
             process=proc,

@@ -11,6 +11,7 @@ import sys
 import textwrap
 import threading
 import time
+from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 
@@ -20,6 +21,11 @@ from click.testing import CliRunner
 
 from qwenpaw.cli import shutdown_cmd
 from qwenpaw.plugins.channel_workers import ChannelDefinition
+from qwenpaw.process_ownership import (
+    backend_instance,
+    managed_launch,
+    observe_backend,
+)
 from tests.channel_support.process import alive
 from tests.channel_support.sdk import make_channel
 
@@ -176,88 +182,105 @@ def test_app_shutdown_drains_two_workers_after_another_crashes(tmp_path):
     assert max(starts) < min(finishes)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
-@pytest.mark.parametrize("stubborn", [False, True])
-def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn):
-    marker = tmp_path / "exited"
-    pid_file = tmp_path / "last.pid"
-    worker_code = textwrap.dedent(
-        """
-        import subprocess
-        import sys
-        import time
-        from pathlib import Path
-
-        sys.stdin.buffer.read()  # EOF when the backend exits.
-        child = subprocess.Popen(
-            [sys.executable, "-c", sys.argv[1], *sys.argv[2:4]],
-            stdin=subprocess.PIPE, start_new_session=True,
-        )
-        Path(sys.argv[4]).write_text(str(child.pid))
-        # Remain observable across multiple CLI polling intervals.
-        time.sleep(0.5)
-        """,
-    )
-    backend_code = textwrap.dedent(
-        """
-        import signal
-        import subprocess
-        import sys
-
-        worker = subprocess.Popen(
-            [sys.executable, "-c", *sys.argv[1:]],
-            stdin=subprocess.PIPE, start_new_session=True,
-        )
-        print(worker.pid, flush=True)
-        signal.pause()
-        """,
-    )
+@contextmanager
+def _orphan_backend(marker, mode, delay):
+    script = Path(__file__).with_name("fixtures") / "orphan_backend.py"
     with subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            backend_code,
-            worker_code,
-            textwrap.dedent(
-                """
-                import sys
-                import time
-                from pathlib import Path
-
-                sys.stdin.buffer.read()  # EOF when the middle worker exits.
-                time.sleep(float(sys.argv[1]))
-                Path(sys.argv[2]).touch()
-                """,
-            ),
-            "60" if stubborn else "0.1",
-            str(marker),
-            str(pid_file),
-        ],
+        [sys.executable, script, "backend", mode, str(delay), marker],
         stdout=subprocess.PIPE,
         text=True,
     ) as backend:
-        worker = psutil.Process(int(backend.stdout.readline()))
+        worker = None
+        pid_file = marker.with_suffix(".pid")
         try:
-            assert shutdown_cmd._terminate_pid(
-                backend.pid,
-                timeout_sec=2,
-                process=backend,
-                backend=True,
-            )
-            assert backend.returncode == -signal.SIGTERM
-            assert not alive(worker.pid)
-            assert not alive(int(pid_file.read_text()))
-            assert marker.exists() == (not stubborn)
+            worker = psutil.Process(int(backend.stdout.readline()))
+            yield backend, worker
         finally:
-            if pid_file.exists() and alive(int(pid_file.read_text())):
-                psutil.Process(int(pid_file.read_text())).kill()
-            if worker.is_running():
+            if worker is not None and worker.is_running():
                 try:
                     worker.kill()
                 except psutil.NoSuchProcess:
                     pass
             if backend.poll() is None:
                 backend.kill()
+            if pid_file.exists() and alive(int(pid_file.read_text())):
+                psutil.Process(int(pid_file.read_text())).kill()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
+@pytest.mark.parametrize("stubborn", [False, True])
+@pytest.mark.parametrize("mode", ["raw", "sdk"])
+def test_backend_exit_waits_for_orphaned_worker(tmp_path, stubborn, mode):
+    marker = tmp_path / "exited"
+    with _orphan_backend(marker, mode, 60 if stubborn else 0.1) as pair:
+        backend, worker = pair
+        stopped = shutdown_cmd._terminate_pid(
+            backend.pid,
+            timeout_sec=2,
+            process=backend,
+            backend=True,
+        )
+        assert backend.returncode == -signal.SIGTERM
+        assert not alive(worker.pid)
+        leaf = int(marker.with_suffix(".pid").read_text())
+        assert stopped == (mode == "sdk")
+        if stopped:
+            assert not alive(leaf)
+            assert marker.exists() == (not stubborn)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX reparenting")
+def test_shutdown_only_reaps_sessions_of_the_target_backend(tmp_path):
+    with _orphan_backend(tmp_path / "other", "sdk", 0.1) as other:
+        with _orphan_backend(tmp_path / "target", "sdk", 60) as target:
+            backend, _ = target
+            assert shutdown_cmd._terminate_pid(
+                backend.pid,
+                timeout_sec=1,
+                process=backend,
+                backend=True,
+            )
+        backend, worker = other
+        assert backend.poll() is None
+        assert alive(worker.pid)
+        assert shutdown_cmd._terminate_pid(
+            backend.pid,
+            timeout_sec=2,
+            process=backend,
+            backend=True,
+        )
+        assert (tmp_path / "other").exists()
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or sys.version_info < (3, 11),
+    reason="POSIX Popen process_group support",
+)
+def test_incomplete_launch_blocks_receipt_for_an_empty_group():
+    root = psutil.Process()
+    with backend_instance(), observe_backend(root) as ownership:
+        options = {"process_group": 0}
+        with managed_launch(options) as started:
+            with subprocess.Popen(
+                [sys.executable, "-c", "import sys; sys.stdin.read()"],
+                stdin=subprocess.PIPE,
+                **options,
+            ) as child:
+                try:
+                    started(child.pid)
+                    member = psutil.Process(child.pid)
+                    assert ownership.members({}) == ({member}, True)
+                    # A prior generation with this PGID owns no live members.
+                    stale = {child.pid: member.create_time() - 1}
+                    assert ownership._live_members({}, stale, {}) == (
+                        set(),
+                        True,
+                    )
+                finally:
+                    child.communicate(input=b"")
+        with managed_launch({"start_new_session": True}):
+            assert ownership.members({}) == (set(), False)
+        assert ownership.members({}) == (set(), False)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
@@ -286,6 +309,7 @@ def test_cli_waits_for_request_import_and_workspace_drains(
         from fastapi import FastAPI
 
         from qwenpaw.app._app import _stop_workspaces_after_dependents
+        from qwenpaw.process_ownership import backend_instance, managed_launch
 
         ready = Path(sys.argv[1])
         request_started = Path(sys.argv[2])
@@ -311,10 +335,19 @@ def test_cli_waits_for_request_import_and_workspace_drains(
 
         @asynccontextmanager
         async def lifespan(app):
-            worker = await asyncio.create_subprocess_exec(
-                sys.executable, "-c", sys.argv[6], sys.argv[7],
-                stdin=asyncio.subprocess.PIPE, start_new_session=True,
-            )
+            with backend_instance():
+                async with serving(app):
+                    yield
+
+        @asynccontextmanager
+        async def serving(app):
+            options = {"start_new_session": True}
+            with managed_launch(options) as started:
+                worker = await asyncio.create_subprocess_exec(
+                    sys.executable, "-c", sys.argv[6], sys.argv[7],
+                    stdin=asyncio.subprocess.PIPE, **options,
+                )
+                started(worker.pid)
             app.state.multi_agent_manager = WorkspaceManager(worker)
             temp = ready.with_suffix(".tmp")
             temp.write_text(str(worker.pid), encoding="utf-8")

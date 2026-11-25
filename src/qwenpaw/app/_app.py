@@ -32,6 +32,7 @@ from ..constant import (
 )
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from ..process_ownership import backend_instance
 from ..shutdown import WORKSPACE_SHUTDOWN_SECONDS
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
@@ -245,7 +246,14 @@ async def _stop_browser_runtime(app: FastAPI) -> None:
 
 
 @asynccontextmanager
-async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
+async def lifespan(app: FastAPI):
+    with backend_instance():
+        async with _application_lifespan(app):
+            yield
+
+
+@asynccontextmanager
+async def _application_lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
 ):
     startup_start_time = time.time()

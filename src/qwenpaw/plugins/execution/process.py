@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ...process_ownership import managed_launch
 from ...utils.io_utils import run_async_to_completion, run_sync_io
 
 from .bootstrap import (
@@ -743,21 +744,26 @@ class PluginProcess:
             else None
         )
         logs = WorkerLogs(spec, self._mode, channel_clean=channel_clean)
-        spawn = asyncio.create_task(
-            asyncio.create_subprocess_exec(
-                spec.python_executable,
-                "-I",
-                "-B",
-                str(worker),
-                str(os.getpid()),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=environment,
-                cwd=str(spec.code_root),
-                **options,
-            ),
-        )
+        options["env"] = environment
+
+        async def launch():
+            with managed_launch(options) as started:
+                child = await asyncio.create_subprocess_exec(
+                    spec.python_executable,
+                    "-I",
+                    "-B",
+                    str(worker),
+                    str(os.getpid()),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(spec.code_root),
+                    **options,
+                )
+                started(child.pid)
+                return child
+
+        spawn = asyncio.create_task(launch())
         self._spawn_task = spawn
         self._spawn_error = None
         spawn.add_done_callback(lambda task: self._spawn_done(task, logs))
