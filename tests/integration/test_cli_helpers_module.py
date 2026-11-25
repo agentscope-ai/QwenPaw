@@ -92,9 +92,10 @@ def test_channel_mask_long_keeps_prefix() -> None:
 @pytest.mark.p1
 def test_get_channel_names_returns_dict() -> None:
     """Channel name map returns strings for registered channels."""
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
     from qwenpaw.cli.channels_cmd import _get_channel_names
 
-    names = _get_channel_names()
+    names = _get_channel_names(get_configurable_channel_catalog())
     assert isinstance(names, dict)
     for key, value in names.items():
         assert isinstance(key, str)

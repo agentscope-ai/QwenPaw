@@ -143,6 +143,7 @@ def _catalog_files():
         bundled_channel_versions,
     )
     from ...plugins.settings import read_plugin_intent
+    from ...plugins.updates import is_update_source_available
 
     descriptions = {}
     installed = {}
@@ -159,13 +160,16 @@ def _catalog_files():
             descriptions[plugin_id] = bundled_channel_description(plugin_id)
         except (OSError, ValueError, KeyError) as exc:
             descriptions[plugin_id] = str(exc)
-        manifest_path = plugins_dir / plugin_id / "plugin.json"
+        source = plugins_dir / plugin_id
+        manifest_path = source / "plugin.json"
         installed[plugin_id] = False
         try:
             if not manifest_path.is_file() or read_plugin_intent(
                 plugin_id,
                 plugins_dir=plugins_dir,
             ):
+                continue
+            if not is_update_source_available(plugin_id, source):
                 continue
             installed[plugin_id] = True
             if version_error is not None:
@@ -198,9 +202,15 @@ def _catalog_files():
         if not manifest.entry.descriptor:
             continue
         try:
+            if not is_update_source_available(manifest.id, source):
+                continue
             if not check_plugin_version_compat(manifest)[0]:
                 continue
-            descriptions[manifest.id] = describe_channel(source, manifest)
+            descriptions[manifest.id] = describe_channel(
+                source,
+                manifest,
+                include_revision=False,
+            )
             installed[manifest.id] = True
         except (OSError, ValueError, KeyError) as exc:
             # Malformed metadata cannot define a form. Saved settings remain

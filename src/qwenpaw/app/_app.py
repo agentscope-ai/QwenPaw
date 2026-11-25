@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -962,8 +962,16 @@ def read_root():
 
 
 @app.get("/api/version")
-def get_version():
-    """Return the current application version (public-safe payload)."""
+def get_version(request: Request, response: Response):
+    """Report the version and optionally acknowledge a local profile probe."""
+    from ..utils.runtime_api import PROFILE_PROBE_HEADER, profile_probe_reply
+
+    probe = request.headers.get(PROFILE_PROBE_HEADER)
+    if probe:
+        reply = profile_probe_reply(probe)
+        if reply is not None:
+            response.headers[PROFILE_PROBE_HEADER] = reply
+            response.headers["Cache-Control"] = "no-store"
     return {
         "version": __version__,
     }

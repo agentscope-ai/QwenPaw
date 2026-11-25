@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+import os
 from typing import Optional
 
 import click
@@ -13,6 +14,7 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ..providers.hub_managed import PROVIDER_ID as HUB_PROVIDER_ID
 from ..providers.provider import (
     ModelInfo,
     Provider,
@@ -47,6 +49,9 @@ def _api_key_prefixes(provider: ProviderInfo) -> list[str]:
 def _is_configured(provider: ProviderInfo) -> bool:
     if provider.is_local:
         return True
+    if provider.id == HUB_PROVIDER_ID:
+        # The App exposes organization grants while keeping its endpoint private.
+        return bool(provider.all_models())
     if not provider.base_url:
         return False
     if provider.require_api_key and not provider.api_key:
@@ -108,13 +113,14 @@ def configure_provider_api_key_interactive(
     provider_id: str | None = None,
 ) -> str:
     """Interactively configure a provider's API key. Returns provider_id."""
-    from .http import selected_runtime_url
+    with _model_setup_api() as api:
+        return _configure_provider_api_key(provider_id, api)
 
+
+def _configure_provider_api_key(provider_id, api):
     prompt = "Select provider to configure API key:"
-    target = selected_runtime_url(click.get_current_context(silent=True))
-    if target is not None:
-        return _configure_runtime_provider(target, provider_id, prompt)
-
+    if api is not None:
+        return _configure_runtime_provider(api, provider_id, prompt)
     manager = _manager()
     if provider_id is None:
         provider_id = _select_provider_interactive(prompt)
@@ -155,40 +161,58 @@ def configure_provider_api_key_interactive(
     return provider_id
 
 
-def _configure_runtime_provider(target, provider_id, prompt):
-    with _provider_api(target) as api:
-        providers = None
-        if provider_id is None:
+def _configure_runtime_provider(api, provider_id, prompt):
+    providers = None
+    if provider_id is None:
+        providers = _runtime_providers(api)
+        provider_id = _choose_provider(providers, prompt)
+    key = provider_identity_key(provider_id)
+    path = f"models/{key}/config"
+    response = api.get(path)
+    if response.status_code == 405:
+        # Older Apps only support PUT here and list active providers at /models.
+        if providers is None:
             providers = _runtime_providers(api)
-            provider_id = _choose_provider(providers, prompt)
-        key = provider_identity_key(provider_id)
-        path = f"models/{key}/config"
-        response = api.get(path)
-        if response.status_code == 405:
-            # Older Apps only support PUT here and list active providers at /models.
-            if providers is None:
-                providers = _runtime_providers(api)
-            provider = next(
-                (p for p in providers if provider_identity_key(p.id) == key),
-                None,
+        provider = next(
+            (p for p in providers if provider_identity_key(p.id) == key),
+            None,
+        )
+        if provider is None:
+            raise click.ClickException(
+                f"Provider '{provider_id}' is unavailable on {api.base_url}.",
             )
-            if provider is None:
-                raise click.ClickException(
-                    f"Provider '{provider_id}' is unavailable on {target}.",
-                )
-        else:
-            response.raise_for_status()
-            provider = ProviderInfo.model_validate(response.json())
-        changes = _prompt_provider_config(provider)
-        if changes:
-            api.put(path, json=changes).raise_for_status()
+    else:
+        response.raise_for_status()
+        provider = ProviderInfo.model_validate(response.json())
+    changes = _prompt_provider_config(provider)
+    if changes:
+        api.put(
+            path,
+            json={**changes, "auto_discover": False},
+        ).raise_for_status()
     _show_provider_config(provider, changes)
     return provider_id
 
 
 @contextmanager
-def _provider_api(target):
-    from .http import client
+def _model_setup_api():
+    from .http import (
+        client,
+        explicit_runtime_url,
+        local_runtime_url,
+    )
+    from ..utils.http import is_loopback_url
+
+    ctx = click.get_current_context(silent=True)
+    explicit = explicit_runtime_url(ctx)
+    standalone = not os.getenv("QWENPAW_RUNTIME_ID")
+    local = (
+        local_runtime_url()
+        if ctx is not None
+        and (explicit is None or (standalone and is_loopback_url(explicit)))
+        else None
+    )
+    target = explicit or local
 
     if target is None:
         yield None
@@ -198,19 +222,26 @@ def _provider_api(target):
 
     try:
         with client(target) as api:
-            yield api
+            # Standalone commands also have permission to edit their profile
+            # on disk. Choose that path before prompts or any API writes.
+            if (
+                standalone
+                and target == local
+                and is_loopback_url(target)
+                and api.get("models").status_code == 401
+            ):
+                click.echo(
+                    "The local App requires sign-in. Using this profile "
+                    "on disk.",
+                    err=True,
+                )
+                yield None
+            else:
+                yield api
     except httpx.HTTPError as exc:
         raise click.ClickException(
             f"Cannot access provider on {target}: {exc}",
         ) from exc
-
-
-def _model_setup_api():
-    from .http import selected_runtime_url
-
-    return _provider_api(
-        selected_runtime_url(click.get_current_context(silent=True)),
-    )
 
 
 def _setup_provider(provider_id, api):
@@ -232,8 +263,8 @@ def _setup_provider(provider_id, api):
     return provider
 
 
-def _runtime_providers(api):
-    response = api.get("models")
+def _runtime_providers(api, view="stored"):
+    response = api.get("models", params={"view": view})
     response.raise_for_status()
     return [ProviderInfo.model_validate(info) for info in response.json()]
 
@@ -297,11 +328,10 @@ def _show_provider_config(provider, changes):
     click.echo(f"✓ {provider.name} — " + ", ".join(fields))
 
 
-def _add_models_interactive(provider_id: str) -> None:
+def _add_models_interactive(provider_id: str, api) -> None:
     """Interactively add models to a provider after configuration."""
-    with _model_setup_api() as api:
-        defn = _setup_provider(provider_id, api)
-        _prompt_add_models(provider_id, defn, api)
+    defn = _setup_provider(provider_id, api)
+    _prompt_add_models(provider_id, defn, api)
 
 
 def _prompt_add_models(provider_id, defn, api):
@@ -340,10 +370,23 @@ def _add_setup_model(provider_id, model, api):
     if api is None:
         asyncio.run(_manager().add_model_to_provider(provider_id, model))
     else:
-        api.post(
+        response = api.post(
             f"models/{provider_identity_key(provider_id)}/models",
             json=model.model_dump(mode="json", exclude_unset=True),
-        ).raise_for_status()
+        )
+        if response.status_code in (404, 409):
+            try:
+                detail = response.json()["detail"]
+            except (ValueError, TypeError, KeyError):
+                detail = None
+            # Older Apps used 404 for both missing providers and model rejections.
+            if isinstance(detail, str) and (
+                response.status_code == 409
+                or detail == f"Model '{model.id}' already exists"
+                or detail.startswith(f"Model '{model.id}' cannot be added:")
+            ):
+                raise ValueError(detail)
+        response.raise_for_status()
 
 
 def _pick_model_from_list(
@@ -463,15 +506,17 @@ def _model_choices(api):
             _filter_eligible(_all_provider_objects(manager)),
             manager.get_active_model(),
         )
+    return _filter_eligible(_runtime_providers(api)), _runtime_active_model(
+        api,
+    )
+
+
+def _runtime_active_model(api):
     from ..config.config import ActiveModelsInfo
 
-    providers = _runtime_providers(api)
     response = api.get("models/active", params={"scope": "global"})
     response.raise_for_status()
-    return (
-        _filter_eligible(providers),
-        ActiveModelsInfo.model_validate(response.json()).active_llm,
-    )
+    return ActiveModelsInfo.model_validate(response.json()).active_llm
 
 
 def _configure_llm_slot(use_defaults, api):
@@ -489,8 +534,8 @@ def _configure_llm_slot(use_defaults, api):
                 fg="yellow",
             ),
         )
-        pid = configure_provider_api_key_interactive()
-        _add_models_interactive(pid)
+        pid = _configure_provider_api_key(None, api)
+        _add_models_interactive(pid, api)
         eligible, current_slot = _model_choices(api)
         if not eligible:
             click.echo(
@@ -555,26 +600,24 @@ def _configure_llm_slot(use_defaults, api):
 def configure_providers_interactive(*, use_defaults: bool = False) -> None:
     """Full interactive setup: configure provider → add models →
     activate LLM."""
-    if use_defaults:
-        configure_llm_slot_interactive(use_defaults=True)
-        return
-
-    click.echo("\n--- Provider Configuration ---")
-    while True:
-        pid = configure_provider_api_key_interactive()
-
-        with _model_setup_api() as api:
+    with _model_setup_api() as api:
+        if use_defaults:
+            _configure_llm_slot(True, api)
+            return
+        click.echo("\n--- Provider Configuration ---")
+        while True:
+            pid = _configure_provider_api_key(None, api)
             defn = _setup_provider(pid, api)
             if defn.is_local or pid == "ollama":
                 click.echo(f"\n--- Activate {defn.name} Model ---")
-                configure_llm_slot_interactive()
+                _configure_llm_slot(False, api)
                 return
             _prompt_add_models(pid, defn, api)
-        if not click.confirm("Configure another provider?", default=False):
-            break
+            if not click.confirm("Configure another provider?", default=False):
+                break
 
-    click.echo("\n--- Activate LLM Model ---")
-    configure_llm_slot_interactive()
+        click.echo("\n--- Activate LLM Model ---")
+        _configure_llm_slot(False, api)
 
 
 @click.group("models")
@@ -585,10 +628,25 @@ def models_group() -> None:
 @models_group.command("list")
 def list_cmd() -> None:
     """Show all providers and their current configuration."""
-    manager = _manager()
+    with _model_setup_api() as api:
+        if api is None:
+            manager = _manager()
+            providers = _all_provider_objects(manager)
+            unavailable = manager.saved_plugin_provider_infos().values()
+            llm = manager.get_active_model()
+        else:
+            providers = _runtime_providers(api)
+            # Older Apps ignore the view parameter and return registered providers.
+            registered = {provider_identity_key(info.id) for info in providers}
+            unavailable = [
+                info
+                for info in _runtime_providers(api, "unavailable")
+                if provider_identity_key(info.id) not in registered
+            ]
+            llm = _runtime_active_model(api)
 
     click.echo("\n=== Providers ===")
-    for defn in _all_provider_objects(manager):
+    for defn in providers:
         cur_url, cur_key = defn.base_url, defn.api_key
 
         tag = (
@@ -632,20 +690,19 @@ def list_cmd() -> None:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
-    for info in manager.saved_plugin_provider_infos().values():
+    for info in unavailable:
         click.echo(f"\n  {info.name} ({info.id}) [plugin unavailable]")
         click.echo(f"  {'base_url':16s}: {info.base_url or '(not set)'}")
         click.echo(
             f"  {'api_key':16s}: {_mask_api_key(info.api_key) or '(not set)'}",
         )
-        for model in info.models + info.extra_models:
+        for model in info.all_models():
             click.echo(f"    - {model.name} ({model.id})")
 
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
     click.echo(f"{'═' * 44}")
 
-    llm = manager.get_active_model()
     if llm and llm.provider_id and llm.model:
         click.echo(f"  {'LLM':16s}: {llm.provider_id} / {llm.model}")
     else:
@@ -684,20 +741,32 @@ def add_provider_cmd(
     api_key_prefix: str,
 ) -> None:
     """Add a new custom provider."""
-    manager = _manager()
+    info = ProviderInfo(
+        id=provider_id,
+        name=name,
+        base_url=base_url,
+        api_key_prefix=api_key_prefix,
+        is_custom=True,
+    )
     try:
-        provider_info = asyncio.run(
-            manager.add_custom_provider(
-                ProviderInfo(
-                    id=provider_id,
-                    name=name,
-                    base_url=base_url,
-                    api_key_prefix=api_key_prefix,
-                    is_custom=True,
-                    chat_model="OpenAIChatModel",
-                ),
-            ),
-        )
+        with _model_setup_api() as api:
+            if api is None:
+                provider_info = asyncio.run(
+                    _manager().add_custom_provider(info),
+                )
+            else:
+                response = api.post(
+                    "models/custom-providers",
+                    json={
+                        "id": info.id,
+                        "name": info.name,
+                        "default_base_url": info.base_url,
+                        "api_key_prefix": info.api_key_prefix,
+                        "auto_discover": False,
+                    },
+                )
+                response.raise_for_status()
+                provider_info = ProviderInfo.model_validate(response.json())
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -720,25 +789,25 @@ def add_provider_cmd(
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def remove_provider_cmd(provider_id: str, yes: bool) -> None:
     """Remove a custom provider."""
-    manager = _manager()
-    if provider_id in manager.builtin_providers:
-        click.echo(
-            click.style(
-                f"Error: '{provider_id}' is a built-in provider and "
-                "cannot be removed.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
-    if not yes:
-        if not click.confirm(
-            f"Delete custom provider '{provider_id}' and all its models?",
-        ):
-            return
     try:
-        ok = manager.remove_custom_provider(provider_id)
-        if not ok:
-            raise ValueError(f"Custom provider '{provider_id}' not found.")
+        with _model_setup_api() as api:
+            if api is None and provider_id in _manager().builtin_providers:
+                raise ValueError(
+                    f"'{provider_id}' is a built-in provider and cannot be removed.",
+                )
+            if not yes and not click.confirm(
+                f"Delete custom provider '{provider_id}' and all its models?",
+            ):
+                return
+            if api is None:
+                if not _manager().remove_custom_provider(provider_id):
+                    raise ValueError(
+                        f"Custom provider '{provider_id}' not found.",
+                    )
+            else:
+                api.delete(
+                    f"models/custom-providers/{provider_identity_key(provider_id)}",
+                ).raise_for_status()
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc

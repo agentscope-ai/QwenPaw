@@ -64,6 +64,7 @@ class CliCatalog:
         from ..config.utils import get_plugins_dir
         from ..plugins.discovery import DiscoveryIssue, discover_plugins
         from ..plugins.settings import is_plugin_enabled
+        from ..plugins.updates import is_update_source_available
         from .._version_compat import check_plugin_version_compat
 
         self.mounts = {}
@@ -79,6 +80,12 @@ class CliCatalog:
         discovered = discover_plugins([get_plugins_dir()])
         self.issues = discovered.issues
         for manifest, source in discovered.plugins:
+            try:
+                if not is_update_source_available(manifest.id, source):
+                    continue
+            except (OSError, ValueError) as exc:
+                self.issues += (DiscoveryIssue(source, str(exc)),)
+                continue
             raw = self.settings.get(manifest.id)
             if raw is not None and not isinstance(raw, dict):
                 self.issues += (

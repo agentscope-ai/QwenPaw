@@ -61,22 +61,46 @@ def explicit_runtime_url(ctx: click.Context | None) -> str | None:
     return None
 
 
-def selected_runtime_url(ctx: click.Context | None) -> str | None:
-    """Return the explicit or running App that owns CLI mutations."""
-    return explicit_runtime_url(ctx) or (local_runtime_url() if ctx else None)
+def local_runtime_url(require_verified: bool = False) -> str | None:
+    """Find the profile's App; destructive local operations require a known owner."""
+    from ..config.utils import read_last_api
+    from ..utils.runtime_api import (
+        PROFILE_PROBE_HEADER,
+        new_profile_probe,
+        read_runtime_api,
+    )
 
-
-def local_runtime_url() -> str | None:
-    """Find the App associated with this local working directory."""
-    from ..config.utils import is_qwenpaw_running, read_last_api
-    from ..utils.runtime_api import read_runtime_api
-
-    endpoint = read_runtime_api()
-    if endpoint is None and os.getenv("QWENPAW_RUNTIME_ID"):
+    managed = read_runtime_api()
+    if managed is None and os.getenv("QWENPAW_RUNTIME_ID"):
         raise click.ClickException("Managed runtime endpoint is unavailable")
-    if endpoint is None and is_qwenpaw_running():
-        endpoint = read_last_api()
+    endpoint = managed or read_last_api()
     if endpoint is None:
         return None
     host, port = endpoint
-    return str(httpx.URL(scheme="http", host=host.strip("[]"), port=port))
+    target = str(httpx.URL(scheme="http", host=host.strip("[]"), port=port))
+    if managed is not None:
+        return target
+
+    probe = new_profile_probe()
+    nonce = probe.partition(".")[0]
+    try:
+        with api_client(target, timeout=1) as api, api.stream(
+            "GET",
+            "/api/version",
+            headers={PROFILE_PROBE_HEADER: probe},
+        ) as response:
+            if (
+                response.is_success
+                and response.headers.get(PROFILE_PROBE_HEADER) == nonce
+            ):
+                return target
+    except httpx.ConnectError:
+        return None
+    except httpx.HTTPError:
+        pass
+    if require_verified:
+        raise click.ClickException(
+            f"Cannot verify which profile owns the App at {target}. "
+            "Stop or upgrade that App before continuing.",
+        )
+    return None

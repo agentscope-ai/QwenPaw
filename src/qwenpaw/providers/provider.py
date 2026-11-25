@@ -1530,18 +1530,21 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         mock_secret: bool = True,
         *,
         include_candidates: bool = True,
+        include_unselected_models: bool = False,
     ) -> ProviderInfo:
         """Build metadata off the event loop, loading candidates on demand."""
         return await run_sync_io(
             self._build_info,
             mock_secret,
             include_candidates,
+            include_unselected_models,
         )
 
     def _build_info(
         self,
         mock_secret: bool,
         include_candidates: bool,
+        include_unselected_models: bool = False,
     ) -> ProviderInfo:
         """Serialize a provider without retaining runtime clients."""
         api_key = self.masked_api_key() if mock_secret else self.api_key
@@ -1631,7 +1634,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             models=[
                 serialize_model(model)
                 for model in self.models
-                if model.id not in removed and self.automatically_listed(model)
+                if model.id not in removed
+                and (
+                    include_unselected_models
+                    or self.automatically_listed(model)
+                )
             ],
             extra_models=[
                 serialize_model(model)

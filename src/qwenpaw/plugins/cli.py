@@ -54,7 +54,11 @@ class CliContext:
 
     @asynccontextmanager
     async def local_runtime_api(self) -> AsyncIterator[AsyncClient | None]:
-        """Open the API of this workspace's running App, or yield None offline."""
+        """Open this profile's App, or yield None when its endpoint is offline.
+
+        A responding endpoint with a different or unverified owner raises
+        an error before the command can use shared files offline.
+        """
         if self._local_runtime_api is None:
             yield None
         else:

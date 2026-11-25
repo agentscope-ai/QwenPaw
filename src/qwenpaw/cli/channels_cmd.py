@@ -16,6 +16,7 @@ from ..app.channels.catalog import get_configurable_channel_catalog
 from ..app.channels.registry import get_channel_registry
 from ..config import get_available_channels, load_config
 from ..config.config import (
+    BaseChannelConfig,
     Config,
     ConsoleConfig,
     DiscordConfig,
@@ -60,7 +61,7 @@ _ALL_CHANNEL_NAMES = {
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
 
 
-def _get_channel_names() -> dict[str, str]:
+def _get_channel_names(catalog) -> dict[str, str]:
     """Return channel key -> display name (built-in + plugins)."""
     available = get_available_channels()
     registry = get_channel_registry()
@@ -77,7 +78,7 @@ def _get_channel_names() -> dict[str, str]:
     for key, row in PluginRegistry().get_channel_catalog().items():
         if row.description_record is not None:
             out[key] = row.label or key.replace("_", " ").title()
-    for key, row in get_configurable_channel_catalog().items():
+    for key, row in catalog.items():
         out.setdefault(key, row.get("label") or key.replace("_", " ").title())
     return out
 
@@ -891,6 +892,27 @@ def _channel_enabled(ch) -> bool:
     return False
 
 
+def _channel_display_fields(config, metadata):
+    """Show declared settings and mask fields marked as credentials."""
+    fields = {
+        field["name"]: field.get("type")
+        for field in (metadata.get("config_fields") or ())
+    }
+    properties = metadata.get("config_schema", {}).get("properties", {})
+    public_fields = fields.keys() | BaseChannelConfig.model_fields.keys()
+    for name, value in _channel_config_fields(config):
+        if isinstance(config, dict) and name not in public_fields:
+            continue
+        schema = properties.get(name, {})
+        secret = (
+            name in _SECRET_FIELDS
+            or fields.get(name) == "password"
+            or schema.get("writeOnly") is True
+            or schema.get("format") == "password"
+        )
+        yield name, _mask(str(value)) if secret else value
+
+
 @channels_group.command("list")
 @click.option(
     "--agent-id",
@@ -911,7 +933,8 @@ def list_cmd(agent_id: str) -> None:
         extra = (
             getattr(agent_config.channels, "__pydantic_extra__", None) or {}
         )
-        names = _get_channel_names()
+        catalog = get_configurable_channel_catalog()
+        names = _get_channel_names(catalog)
         unavailable = set(extra) - names.keys()
         for key in unavailable:
             names[key] = key
@@ -933,12 +956,12 @@ def list_cmd(agent_id: str) -> None:
             click.echo(f"  {name}  [{status}]{availability}")
             click.echo(f"{'─' * 40}")
 
-            for field_name, value in _channel_config_fields(ch):
-                display = (
-                    _mask(str(value))
-                    if field_name in _SECRET_FIELDS
-                    else value
-                )
+            if key in unavailable:
+                continue
+            for field_name, display in _channel_display_fields(
+                ch,
+                catalog.get(key, {}),
+            ):
                 click.echo(f"  {field_name:20s}: {display}")
 
         click.echo()

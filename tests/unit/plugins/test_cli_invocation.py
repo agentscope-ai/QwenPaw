@@ -71,6 +71,138 @@ def test_uninstall_after_discovery_with_source_still_on_disk(tmp_path):
         session.close()
 
 
+@pytest.mark.parametrize(
+    "phase,expected",
+    [
+        ("staging", "1"),
+        ("swapping", None),
+        ("committed", "2"),
+        (None, "1"),
+    ],
+)
+def test_cli_never_mounts_an_unpublished_update_source(
+    tmp_path,
+    monkeypatch,
+    phase,
+    expected,
+):
+    from qwenpaw import constant
+    from qwenpaw.config import utils
+    from qwenpaw.plugins import updates
+
+    plugin_id = "update-example"
+    plugins = tmp_path / "plugins"
+    target = plugins / plugin_id
+    staging = updates.update_staging_path(target, plugin_id)
+    backup = updates.allocate_update_backup_path(target, plugin_id)
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+
+    def write_plugin(directory, version):
+        directory.mkdir(parents=True)
+        (directory / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": plugin_id,
+                    "version": version,
+                    "entry": {"backend": "main.py"},
+                    "sdk": {"version": "1.2.0", "capabilities": ["cli"]},
+                    "cli": [{"id": "status", "path": [plugin_id]}],
+                },
+            ),
+            encoding="utf-8",
+        )
+        (directory / "main.py").write_text(
+            "import click\n"
+            "from qwenpaw.plugins.cli import CliSpec\n"
+            "class Plugin:\n"
+            "    def register(self, ctx):\n"
+            "        @click.command()\n"
+            "        def status():\n"
+            f"            click.echo('version {version}')\n"
+            "        ctx.register_cli(CliSpec('status', lambda _: status))\n"
+            "plugin = Plugin()\n",
+            encoding="utf-8",
+        )
+
+    swapped = phase in {"swapping", "committed"}
+    write_plugin(target, "2" if swapped else "1")
+    write_plugin(staging, "2")
+    if swapped or phase is None:
+        write_plugin(backup, "1")
+    if phase:
+        updates.write_updating_marker(
+            plugin_id,
+            target_path=target,
+            backup_path=backup,
+            staging_path=staging,
+            phase="swapping" if phase == "committed" else phase,
+            old_version="1",
+        )
+        if phase == "committed":
+            updates.mark_update_committed(plugin_id)
+    journal = updates.marker_path(plugin_id, create=False)
+    before = journal.read_bytes() if phase else None
+
+    runner = CliRunner()
+    help_result = runner.invoke(cli, ["--help"])
+    assert help_result.exit_code == 0, help_result.output
+    assert (plugin_id in help_result.output) == (expected is not None)
+    result = runner.invoke(cli, [plugin_id])
+    if expected is None:
+        assert result.exit_code == 2, result.output
+    else:
+        assert result.exit_code == 0, result.output
+        assert f"version {expected}" in result.output
+    assert staging.is_dir() and backup.is_dir() == (swapped or phase is None)
+    if phase:
+        assert journal.read_bytes() == before
+    else:
+        assert not journal.parent.exists()
+
+    if swapped:
+        recovery = updates.recover_interrupted_updates(plugin_id=plugin_id)
+        assert not recovery.failures
+        result = runner.invoke(cli, [plugin_id])
+        assert result.exit_code == 0, result.output
+        assert f"version {expected or '1'}" in result.output
+
+
+def test_update_after_discovery_prevents_registration(tmp_path, monkeypatch):
+    import click
+    from qwenpaw import constant
+    from qwenpaw.cli.plugin_session import PluginSession
+    from qwenpaw.plugins import updates
+    from qwenpaw.plugins.discovery import read_manifest
+
+    target = tmp_path / "plugins" / "example"
+    target.mkdir(parents=True)
+    (target / "plugin.json").write_text(
+        '{"id":"example","version":"2","entry":{"backend":"main.py"}}',
+        encoding="utf-8",
+    )
+    (target / "main.py").write_text(
+        "raise AssertionError('Uncommitted plugin ran')",
+        encoding="utf-8",
+    )
+    manifest = read_manifest(target / "plugin.json")
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    updates.write_updating_marker(
+        manifest.id,
+        target_path=target,
+        backup_path=target.with_name("example.bak"),
+        phase="swapping",
+        old_version="1",
+    )
+    session = PluginSession()
+    try:
+        with pytest.raises(click.ClickException, match="update is incomplete"):
+            session.load_registration(manifest, target)
+    finally:
+        session.close()
+
+
 def test_local_commands_use_plugin_ownership_and_existing_model_files(
     tmp_path,
     monkeypatch,
@@ -86,6 +218,7 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
     import httpx
 
     from qwenpaw import constant
+    from qwenpaw.cli import http
     from qwenpaw.cli.doctor_registry import doctor_contributions
     from qwenpaw.config import utils
     from qwenpaw.plugins.local_model_legacy import bundled_local_source
@@ -139,10 +272,16 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
 
     requests = []
     slow = False
+    requires_login = False
 
     async def runtime(request):
         requests.append(request)
         if request.method == "DELETE":
+            if requires_login:
+                return httpx.Response(
+                    401,
+                    json={"detail": "Not authenticated"},
+                )
             return httpx.Response(
                 409,
                 json={"detail": "Cannot delete a model while it is running"},
@@ -200,9 +339,52 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
     assert requests[-1].url.params["model_id"] == "example/small"
     assert requests[-1].headers["X-QwenPaw-Runtime-Token"] == "test-token"
     monkeypatch.delenv("QWENPAW_RUNTIME_ID")
+
+    monkeypatch.setattr(utils, "read_last_api", lambda: ("127.0.0.1", 54321))
+    owner = "old"
+
+    def version(request):
+        assert request.url.path == "/api/version"
+        if owner == "offline":
+            raise httpx.ConnectError("not listening", request=request)
+        headers = {}
+        if owner != "old":
+            with monkeypatch.context() as profile:
+                if owner == "other":
+                    profile.setattr(constant, "SECRET_DIR", tmp_path / "other")
+                header = runtime_api.PROFILE_PROBE_HEADER
+                reply = runtime_api.profile_probe_reply(
+                    request.headers[header],
+                )
+                if reply is not None:
+                    headers[header] = reply
+        return httpx.Response(200, json={"version": "test"}, headers=headers)
+
+    monkeypatch.setattr(
+        http,
+        "api_client",
+        lambda url, **options: httpx.Client(
+            base_url=url,
+            transport=httpx.MockTransport(version),
+        ),
+    )
+    for owner, requires_login, message in (
+        ("old", False, "Cannot verify which profile"),
+        ("other", False, "Cannot verify which profile"),
+        ("same", False, "Cannot delete a model while it is running"),
+        ("same", True, "Not authenticated"),
+    ):
+        before = len(requests)
+        result = runner.invoke(cli, remove)
+        assert result.exit_code == 1 and model.exists(), result.output
+        assert message in result.output
+        assert len(requests) - before == (1 if owner == "same" else 0)
+
+    owner = "offline"
+    before = len(requests)
     result = runner.invoke(cli, remove)
     assert result.exit_code == 0, (result.output, result.exception)
-    assert not model.exists()
+    assert not model.exists() and len(requests) == before
     settings["plugins"]["local-llamacpp"]["enabled"] = False
     config.write_text(json.dumps(settings), encoding="utf-8")
     assert runner.invoke(cli, ["models", "local"]).exit_code == 2
@@ -428,12 +610,10 @@ def _install_capability_plugin(tmp_path, monkeypatch, requirement, channel):
                 / "plugins/channel/telegram/channel.json"
             ).read_text(),
         )
-        descriptor.pop("requirements_file")
         descriptor["capabilities"] = sorted(
             [*descriptor["capabilities"], "channel.management.verify.v1"],
         )
         descriptor.update(
-            schema_version=3,
             requires=["transport"],
             channel_key="dependency-example",
         )

@@ -3459,10 +3459,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if self._has_runtime_custody(plugin_id):
             raise RuntimeError("RUNTIME_STILL_OWNED; needs_restart")
         from ..utils.io_utils import run_async_to_completion, run_sync_io
-        from .updates import allocate_update_backup_path, write_updating_marker
+        from .updates import (
+            allocate_update_backup_path,
+            update_staging_path,
+            write_updating_marker,
+        )
 
         await self._recover_or_refuse_prepared_update(plugin_id)
-        staging = old_path.with_name(old_path.name + f".{plugin_id}.staging")
+        staging = update_staging_path(old_path, plugin_id)
         instance = self.lifecycle.get_instance(plugin_id)
         has_runtime = instance is not None and instance.has_runtime_ledger()
 
@@ -3716,7 +3720,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if self._has_runtime_custody(plugin_id):
             failed.errors.append("CHANNEL_INSTANCE_STILL_OWNED; needs_restart")
             return failed
-        from .updates import live_prepared_backup
+        from .updates import live_prepared_backup, update_staging_path
 
         backup = backup or await run_sync_io(live_prepared_backup, plugin_id)
         if self._has_runtime_custody(plugin_id):
@@ -3728,9 +3732,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     plugin_id,
                     old_path,
                     backup,
-                    old_path.with_name(
-                        old_path.name + f".{plugin_id}.staging",
-                    ),
+                    update_staging_path(old_path, plugin_id),
                     clear_marker_if_restored=False,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -4279,7 +4281,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             install_dir,
         )
 
-        from .updates import live_prepared_backup
+        from .updates import live_prepared_backup, update_staging_path
 
         old_source = (
             await run_sync_io(live_prepared_backup, plugin_id) or target_dir
@@ -4430,9 +4432,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
-        staging_hint = target_dir.with_name(
-            target_dir.name + f".{plugin_id}.staging",
-        )
+        staging_hint = update_staging_path(target_dir, plugin_id)
         files_committed = False
         retained = None
         try:

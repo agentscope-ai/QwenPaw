@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
+    ModelAdditionError,
 )
 
 from ..agent_context import get_agent_for_request
@@ -170,7 +171,7 @@ class ProviderConfigRequest(BaseModel):
 
 
 def _should_auto_discover(
-    body: ProviderConfigRequest,
+    body: ProviderConfigRequest | CreateCustomProviderRequest,
     provider: object | None,
 ) -> bool:
     """Return whether a saved provider should start discovery."""
@@ -209,6 +210,7 @@ class CreateCustomProviderRequest(BaseModel):
     api_key_prefix: str = Field(default="")
     chat_model: CustomChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
+    auto_discover: bool = True
 
     @field_validator("id")
     @classmethod
@@ -320,6 +322,27 @@ async def _load_agent_model(
     return agent_config.active_model
 
 
+def _setup_provider_info(info: ProviderInfo) -> ProviderInfo:
+    """Expose the connection status and stored model lists used for setup."""
+    return ProviderInfo(
+        id=info.id,
+        name=info.name,
+        base_url=info.base_url,
+        api_key=info.masked_api_key(),
+        api_key_prefix=info.api_key_prefix,
+        api_key_prefixes=info.api_key_prefixes,
+        freeze_url=info.freeze_url,
+        require_api_key=info.require_api_key,
+        is_custom=info.is_custom,
+        is_local=info.is_local,
+        enabled=info.enabled,
+        chat_model=info.chat_model,
+        models=info.models,
+        extra_models=info.extra_models,
+        removed_model_ids=info.removed_model_ids,
+    )
+
+
 @router.get(
     "",
     response_model=List[ProviderInfo],
@@ -327,8 +350,17 @@ async def _load_agent_model(
 )
 async def list_all_providers(
     manager: ProviderManager = Depends(get_provider_manager),
+    view: Literal["selected", "stored", "unavailable"] = "selected",
 ) -> List[ProviderInfo]:
-    return await manager.list_provider_info()
+    if view == "selected":
+        return await manager.list_provider_info()
+    if view == "unavailable":
+        saved = await run_sync_io(manager.saved_plugin_provider_infos)
+        return [_setup_provider_info(info) for info in saved.values()]
+    providers = await manager.list_provider_info(
+        include_unselected_models=True,
+    )
+    return [_setup_provider_info(info) for info in providers]
 
 
 @router.get(
@@ -504,7 +536,7 @@ async def create_custom_provider_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     provider = await run_sync_io(manager.get_provider, body.id)
-    if _should_auto_discover(ProviderConfigRequest(), provider):
+    if _should_auto_discover(body, provider):
         prepared = await manager.prepare_provider_model_discovery(body.id)
         if prepared is not None:
             background_tasks.add_task(
@@ -769,6 +801,8 @@ async def add_model_endpoint(
             provider_id=provider_id,
             model_info=ModelInfo(**model_payload),
         )  # Validate provider exists and add model
+    except ModelAdditionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider

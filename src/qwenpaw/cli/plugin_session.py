@@ -113,11 +113,14 @@ class PluginSession:
         from ..plugins.discovery import read_manifest
         from ..plugins.settings import read_plugin_intent
         from ..plugins.source_usage import source_reader
+        from ..plugins.updates import is_update_source_available
         from .plugin_cli import read_settings
 
         self.sources.enter_context(source_reader(source))
         if read_plugin_intent(key, plugins_dir=source.parent):
             raise click.ClickException(f"Plugin '{key}' was uninstalled")
+        if not is_update_source_available(key, source):
+            raise click.ClickException(f"Plugin '{key}' update is incomplete")
         fresh = read_manifest(source / "plugin.json")
         if fresh != manifest:
             raise click.ClickException("Plugin source changed; retry command")
@@ -153,7 +156,10 @@ class PluginSession:
 
         @asynccontextmanager
         async def local_runtime_api():
-            target = await run_sync_io(local_runtime_url)
+            target = await run_sync_io(
+                local_runtime_url,
+                require_verified=True,
+            )
             if target is None:
                 yield None
             else:

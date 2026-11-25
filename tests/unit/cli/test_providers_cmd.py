@@ -176,6 +176,16 @@ class TestIsConfigured:
         p = FakeProvider("p", is_local=True, base_url="")
         assert pcmd._is_configured(p) is True
 
+    def test_managed_provider_uses_granted_models(self):
+        info = ProviderInfo(
+            id="hub-managed",
+            name="Hub",
+            require_api_key=False,
+        )
+        assert not pcmd._is_configured(info)
+        info.models.append(ModelInfo(id="granted", name="Granted"))
+        assert pcmd._is_configured(info)
+
     def test_api_without_base_url(self):
         assert pcmd._is_configured(FakeProvider("p", base_url="")) is False
 
@@ -366,11 +376,11 @@ class TestConfigureProviderApiKeyInteractive:
 class TestAddModelsInteractive:
     def test_unknown_provider_exits(self, manager):
         with pytest.raises(SystemExit):
-            pcmd._add_models_interactive("ghost")
+            pcmd._add_models_interactive("ghost", None)
 
     def test_ollama_returns_immediately(self, manager):
         manager._providers["ollama"] = FakeProvider("ollama")
-        pcmd._add_models_interactive("ollama")  # no prompts -> returns
+        pcmd._add_models_interactive("ollama", None)  # no prompts -> returns
 
     def test_add_flow_then_stop(self, manager, monkeypatch, capsys):
         p = FakeProvider("p1")
@@ -387,7 +397,7 @@ class TestAddModelsInteractive:
             "prompt",
             lambda *a, **kw: next(prompts),
         )
-        pcmd._add_models_interactive("p1")
+        pcmd._add_models_interactive("p1", None)
         assert [m.id for m in p.added] == ["m-1"]
         assert "m-1" in capsys.readouterr().out
         assert manager.saved == ["p1"]
@@ -407,7 +417,7 @@ class TestAddModelsInteractive:
             "prompt",
             lambda *a, **kw: next(prompts),
         )
-        pcmd._add_models_interactive("p1")
+        pcmd._add_models_interactive("p1", None)
         assert [m.id for m in p.added] == ["m-2"]
 
     def test_duplicate_model_reports_error(self, manager, monkeypatch):
@@ -425,7 +435,7 @@ class TestAddModelsInteractive:
             "prompt",
             lambda *a, **kw: next(prompts),
         )
-        pcmd._add_models_interactive("p1")
+        pcmd._add_models_interactive("p1", None)
         assert p.added == []
 
     def test_add_model_exception_handled(self, manager, monkeypatch):
@@ -448,7 +458,7 @@ class TestAddModelsInteractive:
             "prompt",
             lambda *a, **kw: next(prompts),
         )
-        pcmd._add_models_interactive("p1")  # must not raise
+        pcmd._add_models_interactive("p1", None)  # must not raise
 
 
 class TestPickHelpers:
@@ -560,10 +570,14 @@ class TestConfigureLlmSlotInteractive:
     ):
         monkeypatch.setattr(
             pcmd,
-            "configure_provider_api_key_interactive",
-            lambda provider_id=None: "p1",
+            "_configure_provider_api_key",
+            lambda provider_id, api: "p1",
         )
-        monkeypatch.setattr(pcmd, "_add_models_interactive", lambda pid: None)
+        monkeypatch.setattr(
+            pcmd,
+            "_add_models_interactive",
+            lambda pid, api: None,
+        )
         manager._providers.clear()  # nothing becomes eligible
         with pytest.raises(SystemExit) as exc:
             pcmd.configure_llm_slot_interactive()
@@ -659,8 +673,8 @@ class TestConfigureProvidersInteractive:
         seen = []
         monkeypatch.setattr(
             pcmd,
-            "configure_llm_slot_interactive",
-            lambda use_defaults=False: seen.append(use_defaults),
+            "_configure_llm_slot",
+            lambda use_defaults, api: seen.append(use_defaults),
         )
         pcmd.configure_providers_interactive(use_defaults=True)
         assert seen == [True]
@@ -675,13 +689,13 @@ class TestConfigureProvidersInteractive:
         activated = []
         monkeypatch.setattr(
             pcmd,
-            "configure_provider_api_key_interactive",
-            lambda provider_id=None: "qwenpaw-local",
+            "_configure_provider_api_key",
+            lambda provider_id, api: "qwenpaw-local",
         )
         monkeypatch.setattr(
             pcmd,
-            "configure_llm_slot_interactive",
-            lambda use_defaults=False: activated.append(True),
+            "_configure_llm_slot",
+            lambda use_defaults, api: activated.append(True),
         )
         pcmd.configure_providers_interactive()
         assert activated == [True]
@@ -689,8 +703,8 @@ class TestConfigureProvidersInteractive:
     def test_unknown_provider_after_config_exits(self, manager, monkeypatch):
         monkeypatch.setattr(
             pcmd,
-            "configure_provider_api_key_interactive",
-            lambda provider_id=None: "ghost",
+            "_configure_provider_api_key",
+            lambda provider_id, api: "ghost",
         )
         with pytest.raises(SystemExit):
             pcmd.configure_providers_interactive()
@@ -704,8 +718,8 @@ class TestConfigureProvidersInteractive:
         manager._providers["p1"] = p
         monkeypatch.setattr(
             pcmd,
-            "configure_provider_api_key_interactive",
-            lambda provider_id=None: "p1",
+            "_configure_provider_api_key",
+            lambda provider_id, api: "p1",
         )
         added = []
         monkeypatch.setattr(
@@ -717,8 +731,8 @@ class TestConfigureProvidersInteractive:
         activated = []
         monkeypatch.setattr(
             pcmd,
-            "configure_llm_slot_interactive",
-            lambda use_defaults=False: activated.append(True),
+            "_configure_llm_slot",
+            lambda use_defaults, api: activated.append(True),
         )
         pcmd.configure_providers_interactive()
         assert added == ["p1"]
@@ -1094,7 +1108,64 @@ def test_config_key_reads_and_writes_the_explicit_target(
     )
     assert result.exit_code == 0, (result.output, result.exception)
     assert "http://remote-base" in result.output
-    assert calls == [("GET", None)] + ([("PUT", expected)] if expected else [])
+    assert calls == [("GET", None)] + (
+        [("PUT", {**expected, "auto_discover": False})] if expected else []
+    )
+
+
+@pytest.mark.parametrize(
+    "options,allow_local",
+    [
+        (["--host", "127.0.0.1", "--port", "8123"], True),
+        (["--host", "127.0.0.1", "--port", "9123"], False),
+    ],
+)
+def test_models_cli_preserves_local_access_under_web_auth(
+    monkeypatch,
+    manager,
+    options,
+    allow_local,
+):
+    import httpx
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
+    manager._providers["example"] = FakeProvider(
+        "example",
+        require_api_key=False,
+    )
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(401)
+
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    monkeypatch.setattr(
+        http,
+        "local_runtime_url",
+        lambda: "http://127.0.0.1:8123",
+    )
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    result = CliRunner().invoke(
+        cli,
+        [*options, "models", "config-key", "example"],
+        input="http://changed\n",
+    )
+    assert result.exit_code == (0 if allow_local else 1), result.output
+    if allow_local:
+        assert all(request.method == "GET" for request in requests)
+        assert manager.updated == [("example", {"base_url": "http://changed"})]
+    else:
+        assert all(request.url.port == 9123 for request in requests)
+        assert not manager.updated and not manager.saved
 
 
 @pytest.mark.parametrize("shared", [False, True])
@@ -1123,8 +1194,10 @@ def test_config_wizard_uses_selected_app_through_activation(
         "models": [],
     }
     writes = []
+    running = "http://selected"
 
     def respond(request):
+        nonlocal running
         assert request.url.host == "selected"
         path = request.url.path
         if request.method == "GET":
@@ -1137,6 +1210,8 @@ def test_config_wizard_uses_selected_app_through_activation(
             return httpx.Response(200, json=provider)
         payload = json.loads(request.content) if request.content else None
         writes.append((request.method, path, payload))
+        if path == "/api/models/example/config":
+            running = "http://another-app"
         if path == "/api/models/example/models":
             provider["models"].append(payload)
         return httpx.Response(200, json={})
@@ -1154,7 +1229,7 @@ def test_config_wizard_uses_selected_app_through_activation(
         "prompt_choice",
         lambda prompt_text, options, default: options[0],
     )
-    monkeypatch.setattr(http, "local_runtime_url", lambda: "http://selected")
+    monkeypatch.setattr(http, "local_runtime_url", lambda: running)
     target = [] if shared else ["--host", "selected"]
     result = CliRunner().invoke(
         cli,
@@ -1163,7 +1238,11 @@ def test_config_wizard_uses_selected_app_through_activation(
     )
     assert result.exit_code == 0, (result.output, result.exception)
     assert writes == [
-        ("PUT", "/api/models/example/config", {"base_url": "http://new"}),
+        (
+            "PUT",
+            "/api/models/example/config",
+            {"base_url": "http://new", "auto_discover": False},
+        ),
         (
             "POST",
             "/api/models/example/models",
@@ -1175,14 +1254,57 @@ def test_config_wizard_uses_selected_app_through_activation(
             {"provider_id": pid, "model": "remote-model", "scope": "global"},
         ),
     ]
-    for args, method in (
-        (["add-model", pid, "-m", "another", "-n", "Another"], "POST"),
-        (["remove-model", pid, "-m", "another"], "DELETE"),
-    ):
-        result = CliRunner().invoke(cli, [*target, "models", *args])
-        assert result.exit_code == 0, result.exception
-        assert writes[-1][0] == method
     assert not manager.activated and not manager.saved
+
+
+def test_custom_provider_lifecycle_uses_the_selected_app(monkeypatch):
+    import json
+    import httpx
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
+    requests = []
+    monkeypatch.setattr(
+        pcmd,
+        "_manager",
+        lambda: pytest.fail("selected App owns the provider"),
+    )
+
+    def respond(request):
+        assert request.url.host == "selected"
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/models/custom-providers":
+            body = json.loads(request.content)
+            assert body["default_base_url"] == "http://provider"
+            assert body["auto_discover"] is False
+            return httpx.Response(201, json=body)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    for args in (
+        ["add-provider", "example", "-n", "Example", "-u", "http://provider"],
+        ["add-model", "example", "-m", "m", "-n", "Model"],
+        ["remove-model", "example", "-m", "m"],
+        ["remove-provider", "example", "--yes"],
+    ):
+        result = CliRunner().invoke(
+            cli,
+            ["--host", "selected", "models", *args],
+        )
+        assert result.exit_code == 0, result.output
+    assert requests == [
+        ("POST", "/api/models/custom-providers"),
+        ("POST", "/api/models/example/models"),
+        ("DELETE", "/api/models/example/models/m"),
+        ("DELETE", "/api/models/custom-providers/example"),
+    ]
 
 
 @pytest.mark.parametrize("listed", [True, False])
@@ -1417,3 +1539,235 @@ def test_plugin_model_command_persists_owned_snapshot(
     assert [model.id for model in restored.extra_models] == (
         ["demo"] if action == "add" else []
     )
+
+
+def test_selected_app_lists_and_activates_stored_models(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from qwenpaw.app.routers.providers import router
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    remote = ProviderManager()
+    provider = remote.get_provider("deepseek")
+    first, second = provider.models[:2]
+    provider.api_key = "example-provider-key"
+    remote.builtin_providers = {provider.id: provider}
+    snapshot = ProviderInfo(
+        id="unavailable",
+        name="Unavailable",
+        api_key="retained-key",
+    )
+    (remote.plugin_path / "unavailable.json").write_text(
+        snapshot.model_dump_json(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(remote, "maybe_probe_multimodal", lambda *args: None)
+    monkeypatch.setattr(
+        pcmd,
+        "_manager",
+        lambda: pytest.fail("read local profile"),
+    )
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.state.provider_manager = remote
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: TestClient(app, base_url=url + "/api/"),
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/api/models").json()[0]["models"] == []
+        unavailable = client.get("/api/models", params={"view": "unavailable"})
+        assert unavailable.json()[0]["api_key"] == "******"
+        url = "/api/models/deepseek/models"
+        model = {"id": "custom-model", "name": "Custom"}
+        assert client.post(url, json=model).status_code == 201
+        rejected = client.post(url, json=model)
+        assert rejected.status_code == 409
+        assert "already exists" in rejected.json()["detail"]
+
+    def choose(prompt, options, default):
+        if prompt == "Select LLM model:":
+            assert first.name in options
+            return second.name
+        return options[0]
+
+    monkeypatch.setattr(pcmd, "prompt_choice", choose)
+    runner = CliRunner()
+    args = ["--host", "selected", "models"]
+    selected = runner.invoke(cli, [*args, "set-llm"])
+    assert selected.exit_code == 0, (selected.output, selected.exception)
+    assert remote.get_active_model().model == second.id
+    listed = runner.invoke(cli, [*args, "list"])
+    assert listed.exit_code == 0, (listed.output, listed.exception)
+    assert f"{provider.id} / {second.id}" in listed.output
+    assert f"{first.name} ({first.id})" in listed.output
+    assert "Unavailable (unavailable) [plugin unavailable]" in listed.output
+    assert (
+        provider.api_key not in listed.output
+        and snapshot.api_key not in listed.output
+    )
+
+
+@pytest.mark.parametrize(
+    "status,detail,expected_exit",
+    [
+        (409, "Model 'one' already exists", 0),
+        (404, "Model 'one' already exists", 0),
+        (404, "Model 'one' cannot be added: permission_denied", 0),
+        (404, "Provider 'example' not found", 1),
+        (503, "Service unavailable", 1),
+    ],
+)
+def test_add_model_wizard_only_retries_model_conflicts(
+    monkeypatch,
+    status,
+    detail,
+    expected_exit,
+):
+    import httpx
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
+    provider = ProviderInfo(
+        id="example",
+        name="Example",
+        base_url="http://example",
+        require_api_key=False,
+        models=[ModelInfo(id="one", name="One")],
+    )
+
+    def respond(request):
+        if request.method == "POST":
+            return httpx.Response(status, json={"detail": detail})
+        if request.url.path.endswith("/active"):
+            return httpx.Response(200, json={"active_llm": None})
+        return httpx.Response(
+            200,
+            json=(
+                [provider.model_dump()]
+                if request.url.path.endswith("/models")
+                else provider.model_dump()
+            ),
+        )
+
+    monkeypatch.setattr(
+        http,
+        "client",
+        lambda url: httpx.Client(
+            base_url=url + "/api/",
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    monkeypatch.setattr(
+        pcmd,
+        "prompt_choice",
+        lambda prompt, options, default: options[0],
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["--host", "selected", "models", "config"],
+        input="\ny\none\nOne\nn\nn\n",
+    )
+    assert result.exit_code == expected_exit, result.output
+    if expected_exit == 0:
+        assert detail in result.output
+        assert "LLM: Example / one" in result.output
+    else:
+        assert "Cannot access provider" in result.output
+
+
+@pytest.mark.parametrize(
+    "server,target",
+    [
+        ("same", "app"),
+        ("other-working", "disk"),
+        ("other-secrets", "disk"),
+        ("old", "disk"),
+        ("offline", "disk"),
+        ("sign-in", "disk"),
+    ],
+)
+def test_implicit_provider_write_verifies_the_recorded_app(
+    monkeypatch,
+    tmp_path,
+    manager,
+    server,
+    target,
+):
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from qwenpaw import constant
+    from qwenpaw.app._app import get_version
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+    from qwenpaw.config import utils
+    from qwenpaw.utils.runtime_api import PROFILE_PROBE_HEADER
+
+    monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
+    monkeypatch.setattr(utils, "read_last_api", lambda: ("127.0.0.1", 8123))
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path / "working")
+    monkeypatch.setattr(constant, "SECRET_DIR", tmp_path / "secret")
+    app = FastAPI()
+    app.get("/api/version")(get_version)
+    requests = []
+
+    def respond(request):
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/version":
+            if server == "offline":
+                raise httpx.ConnectError("not listening", request=request)
+            if server == "old":
+                return httpx.Response(200, json={"version": "old"})
+            with monkeypatch.context() as profile, TestClient(app) as backend:
+                if server == "other-working":
+                    profile.setattr(
+                        constant,
+                        "WORKING_DIR",
+                        tmp_path / "other",
+                    )
+                if server == "other-secrets":
+                    profile.setattr(constant, "SECRET_DIR", tmp_path / "other")
+                response = backend.get(
+                    "/api/version",
+                    headers={
+                        PROFILE_PROBE_HEADER: request.headers[
+                            PROFILE_PROBE_HEADER
+                        ],
+                    },
+                )
+                assert set(response.json()) == {"version"}
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    json=response.json(),
+                )
+        if request.method == "GET":
+            return httpx.Response(401 if server == "sign-in" else 200)
+        assert server == "same"
+        return httpx.Response(201, json={"id": "new", "name": "New"})
+
+    monkeypatch.setattr(
+        http,
+        "api_client",
+        lambda url, **options: httpx.Client(
+            base_url=url,
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["models", "add-provider", "new", "-n", "New"],
+    )
+    assert result.exit_code == 0, result.output
+    assert ("new" in manager._providers) == (target == "disk")
+    expected = [("GET", "/api/version")]
+    if server in {"same", "sign-in"}:
+        expected.append(("GET", "/api/models"))
+    if target == "app":
+        expected.append(("POST", "/api/models/custom-providers"))
+    assert requests == expected

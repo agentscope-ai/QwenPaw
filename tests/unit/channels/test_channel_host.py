@@ -341,6 +341,74 @@ def test_static_channel_catalog_preserves_registered_and_first_owners(
         host.registry.unregister_channel(key)
 
 
+@pytest.mark.parametrize("plugin_id", [KEY, "third-party"])
+@pytest.mark.parametrize("commit", [False, True], ids=["rollback", "commit"])
+def test_channel_catalog_uses_published_source(host, plugin_id, commit):
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
+    from qwenpaw.plugins import updates
+    from qwenpaw.plugins.settings import (
+        persist_plugin_settings,
+        record_plugin_uninstall,
+    )
+
+    def row():
+        return get_configurable_channel_catalog([plugin_id])[plugin_id]
+
+    target = host.installed.parent / plugin_id
+    staging = updates.update_staging_path(target, plugin_id)
+    backup = updates.allocate_update_backup_path(target, plugin_id)
+    persist_plugin_settings(plugin_id, enabled=False)
+    missing_label = row()["label"]
+    for directory, version in ((target, "0.0.1"), (staging, "0.0.2")):
+        shutil.copytree(host.artifact(version), directory)
+        path = directory / "plugin.json"
+        manifest = json.loads(path.read_text())
+        manifest["id"] = plugin_id
+        path.write_text(json.dumps(manifest))
+        path = directory / "channel.json"
+        descriptor = json.loads(path.read_text())
+        descriptor.update(
+            channel_key=plugin_id,
+            label={"en": version, "zh": version},
+        )
+        path.write_text(json.dumps(descriptor))
+
+    def mark(phase):
+        updates.write_updating_marker(
+            plugin_id,
+            target_path=target,
+            backup_path=backup,
+            staging_path=staging,
+            phase=phase,
+            old_version="0.0.1",
+        )
+
+    mark("staging")
+    assert row()["label"] == "0.0.1"
+    mark("swapping")
+    target.rename(backup)
+    staging.rename(target)
+    unavailable = row()
+    assert unavailable["label"] == missing_label
+    assert unavailable["availability"] == "missing_code"
+    assert "update" not in unavailable
+    assert backup.exists()
+
+    if commit:
+        updates.mark_update_committed(plugin_id)
+    else:
+        assert updates.recover_interrupted_updates(plugin_id=plugin_id) == [
+            plugin_id,
+        ]
+    published = row()
+    assert published["label"] == ("0.0.2" if commit else "0.0.1")
+    assert published["availability"] == "disabled"
+
+    record_plugin_uninstall(plugin_id, plugins_dir=target.parent)
+    assert row()["availability"] == "missing_code"
+    assert target.exists()
+
+
 @pytest.mark.parametrize(
     "version,dependency",
     [
