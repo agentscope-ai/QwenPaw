@@ -68,25 +68,28 @@ def _apply_session(
         raise ValueError("Session configuration must be an object")
     values = _session_values(config, SessionConfig)
     patch = deepcopy(dict(overrides))
-    if fallback_model is not None:
+    fallback = (
+        fallback_model.model_dump() if fallback_model is not None else None
+    )
+    if fallback is not None:
         active_model = config.active_model
         if active_model is not None:
             values["active_model"] = merge_overrides(
-                fallback_model.model_dump(),
+                fallback,
                 active_model.model_dump(exclude_unset=True),
             )
         elif isinstance(patch.get("active_model"), dict):
-            values["active_model"] = fallback_model.model_dump()
-    if (
-        "active_model" in patch
-        and merge_overrides(values, patch)["active_model"]
-        != values["active_model"]
+            values["active_model"] = fallback
+    merged = merge_overrides(values, patch)
+    if "active_model" in patch and (
+        (merged["active_model"] or fallback)
+        != (values["active_model"] or fallback)
     ):
-        values.update(thinking_level="inherit", thinking_budget=None)
-    candidate = SessionConfig.model_validate(
-        merge_overrides(values, patch),
-        strict=True,
-    )
+        merged.update(
+            thinking_level=patch.get("thinking_level", "inherit"),
+            thinking_budget=patch.get("thinking_budget"),
+        )
+    candidate = SessionConfig.model_validate(merged, strict=True)
     _check_fields(patch, candidate, "session")
     if "project_dir" in patch and candidate.project_dir:
         directory = candidate.project_dir
@@ -205,6 +208,24 @@ class RuntimeParameters:
     def config(self) -> AgentProfileConfig:
         """Give consumers a detached, fully validated execution snapshot."""
         return self._config.model_copy(deep=True)
+
+    @property
+    def needs_model_fallback(self) -> bool:
+        """Check whether a model override can inherit the global slot."""
+        if self.fallback_model is not None:
+            return False
+        layers = (self.mode_defaults, self.defaults, self.overrides)
+        overrides = [
+            layer["active_model"]
+            for layer in layers
+            if "active_model" in layer
+        ]
+        active = self.profile.active_model
+        return bool(overrides) and (
+            active is None
+            or not (active.provider_id and active.model)
+            or None in overrides
+        )
 
     @property
     def model_slot_override(self) -> ModelSlotConfig | None:

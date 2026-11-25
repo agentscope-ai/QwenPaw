@@ -596,6 +596,10 @@ class QwenPawACPAgent(Agent):
         ):
             fallback = ProviderManager.get_instance().get_active_model()
             return replace(parameters, fallback_model=fallback)
+        if parameters.needs_model_fallback:
+            fallback = ProviderManager.get_instance().active_model
+            if fallback is not None:
+                return replace(parameters, fallback_model=fallback)
         return parameters
 
     async def _install_runtime_provider(self) -> None:

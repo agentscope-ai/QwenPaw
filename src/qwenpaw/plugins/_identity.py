@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
+from ..runtime.turn_context import current_request_runtime
 from .context import RequestContext
 
 if TYPE_CHECKING:
@@ -21,25 +22,20 @@ control_context: ContextVar[tuple["ToolContext", object] | None] = ContextVar(
     default=None,
 )
 
-_request_runtime: ContextVar["HookContext | None"] = ContextVar(
-    "sdk_request_runtime",
-    default=None,
-)
-
 
 @contextmanager
 def bind_request_runtime(runtime: "HookContext"):
     """Expose the executing workspace only inside its request."""
-    token = _request_runtime.set(runtime)
+    token = current_request_runtime.set(runtime)
     try:
         yield
     finally:
-        _request_runtime.reset(token)
+        current_request_runtime.reset(token)
 
 
 def bound_runtime(identity: RequestContext) -> "HookContext | None":
     """Return the live turn for an exact conversation identity."""
-    runtime = _request_runtime.get()
+    runtime = current_request_runtime.get()
     if (
         runtime is not None
         and identity.session_id

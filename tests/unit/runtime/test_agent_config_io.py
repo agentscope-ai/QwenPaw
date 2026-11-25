@@ -271,12 +271,14 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("location", ["direct", "context"])
+@pytest.mark.parametrize("thinking", ["saved", "same", "different"])
 async def test_request_model_is_resolved_before_validation_and_build(
     monkeypatch,
     location,
+    thinking,
     tmp_path,
 ):
-    """A request override works even when no agent/global default exists."""
+    """Explicit model selection keeps reasoning attached to the model."""
     from unittest.mock import AsyncMock
     from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 
@@ -286,12 +288,17 @@ async def test_request_model_is_resolved_before_validation_and_build(
         thinking_level="high",
     )
     selected = ModelSlotConfig(provider_id="request", model="selected")
+    inherited = {
+        "saved": None,
+        "same": selected,
+        "different": ModelSlotConfig(provider_id="request", model="other"),
+    }[thinking]
     monkeypatch.setattr(config_module, "load_agent_config", lambda _: config)
     monkeypatch.setattr(
         "qwenpaw.services.session_thinking.ProviderManager.get_instance",
         lambda: SimpleNamespace(
-            active_model=None,
-            get_active_model=lambda: None,
+            active_model=inherited,
+            get_active_model=lambda: inherited,
         ),
     )
     monkeypatch.setattr(
@@ -322,7 +329,11 @@ async def test_request_model_is_resolved_before_validation_and_build(
                 meta={
                     "runtime_context": {
                         "model": {"provider_id": "chat", "model": "saved"},
-                        "thinking": {"request:selected": {"level": "low"}},
+                        "thinking": (
+                            {"request:selected": {"level": "low"}}
+                            if thinking == "saved"
+                            else {}
+                        ),
                     },
                 },
             ),
@@ -348,7 +359,14 @@ async def test_request_model_is_resolved_before_validation_and_build(
 
     def build_model(cfg, model_slot_override=None):
         assert cfg.active_model == selected
-        assert cfg.thinking_level == "low"
+        assert (
+            cfg.thinking_level
+            == {
+                "saved": "low",
+                "same": "high",
+                "different": "inherit",
+            }[thinking]
+        )
         assert model_slot_override == selected
         raise RuntimeError("selected model reached factory")
 

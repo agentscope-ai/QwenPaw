@@ -14,6 +14,7 @@ from ..config.runtime import RuntimeParameters
 from ..config.overrides import merge_overrides
 from ..config.utils import load_config
 from ..providers.model_selection import request_model_override
+from ..providers.provider_manager import ProviderManager
 from ..utils.io_utils import run_sync_io
 from .project_directory import agent_project_dirs_from_config
 from .session_thinking import (
@@ -91,6 +92,12 @@ async def resolve_runtime_parameters(ctx: HookContext):
         )
         mode_defaults = activation.config
     parameters = replace(parameters, mode_defaults=mode_defaults)
+    if parameters.needs_model_fallback:
+        fallback = await run_sync_io(
+            lambda: ProviderManager.get_instance().active_model,
+        )
+        if fallback is not None:
+            parameters = replace(parameters, fallback_model=fallback)
 
     explicit = merge_overrides(parameters.defaults, parameters.overrides)
     config = parameters.config

@@ -184,12 +184,20 @@ async def test_acp_config_precedence_and_instance_isolation(
         **{ACP_CONFIG_META_KEY: {"active_model": {"model": "pinned"}}},
     )
     assert partial.models.current_model_id == "test:pinned"
-    monkeypatch.setattr(
-        ProviderManager.get_instance(),
-        "get_active_model",
-        lambda: ModelSlotConfig(provider_id="global", model="default"),
-    )
+    global_model = ModelSlotConfig(provider_id="global", model="default")
+    manager = ProviderManager.get_instance()
+    monkeypatch.setattr(manager, "active_model", global_model)
+    monkeypatch.setattr(manager, "get_active_model", lambda: global_model)
     refreshed = base.model_copy(update={"active_model": None})
+    same = await agent.new_session(
+        cwd=str(tmp_path),
+        **{ACP_CONFIG_META_KEY: {"active_model": global_model.model_dump()}},
+    )
+    await agent.prompt([text_block("same model")], same.session_id)
+    assert workspace.configs[-1].active_model == global_model
+    assert workspace.configs[-1].thinking_level == "budget"
+    assert workspace.configs[-1].thinking_budget == 4096
+
     await agent.prompt([text_block("pinned model")], partial.session_id)
     assert workspace.configs[-1].active_model == ModelSlotConfig(
         provider_id="global",
@@ -197,6 +205,7 @@ async def test_acp_config_precedence_and_instance_isolation(
     )
     await agent.prompt([text_block("selected model")], first.session_id)
     assert workspace.configs[-1].active_model == selected
+    assert workspace.configs[-1].thinking_level == "off"
 
 
 async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
