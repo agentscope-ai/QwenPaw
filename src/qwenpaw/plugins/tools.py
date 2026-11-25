@@ -18,10 +18,13 @@ from typing import (
 from .messages import ContentBlock
 from .resources import ResourceScope
 from .storage import PluginConfig, PluginStorage, MediaStore
+from .context import RequestContext
 
 if TYPE_CHECKING:
     from .logging import PluginLogger
     from .models import ModelService
+    from .workspace import WorkspaceService
+    from .checkpoints import CheckpointService
     from .sdk import PluginContext
 
 
@@ -71,6 +74,10 @@ class ToolContext:
     media: MediaStore
     resources: ResourceScope
     deadline: float | None = None
+    identity: RequestContext = field(
+        default_factory=RequestContext,
+        kw_only=True,
+    )
     _is_cancelled: Callable[[], bool] = field(
         default=lambda: False,
         repr=False,
@@ -90,10 +97,28 @@ class ToolContext:
         return PluginLogger(self)
 
     @property
+    def checkpoints(self) -> CheckpointService:
+        from .checkpoints import CheckpointService
+
+        return CheckpointService(self)
+
+    @property
     def models(self) -> ModelService:
         from .models import ModelService
 
         return ModelService(self)
+
+    @property
+    def workspace_ops(self) -> WorkspaceService:
+        from .workspace import WorkspaceService
+
+        return WorkspaceService(self)
+
+    async def select_shell_backend(self, name: str | None) -> None:
+        """Select an owned backend for this chat, or explicitly return to local."""
+        from ._shell import select_backend
+
+        await select_backend(self, name)
 
     @property
     def cancelled(self) -> bool:

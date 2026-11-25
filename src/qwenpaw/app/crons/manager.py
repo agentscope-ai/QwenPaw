@@ -751,25 +751,9 @@ class CronManager(ManagerBase):
             declared_ids.add(job_id)
 
             try:
-                parts = declaration.cron.split()
-                if len(parts) != 5:
-                    raise ValueError("cron must have exactly 5 fields")
-                minute, hour, day, month, day_of_week = parts
-                trigger = CronTrigger(
-                    minute=minute,
-                    hour=hour,
-                    day=day,
-                    month=month,
-                    day_of_week=day_of_week,
-                    timezone=self._scheduler.timezone,
-                    jitter=declaration.jitter_seconds or None,
-                )
-                self._scheduler.add_job(
-                    self._run_service_job,
-                    trigger=trigger,
-                    id=job_id,
-                    args=[source, declaration],
-                    misfire_grace_time=declaration.misfire_grace_seconds,
+                self.register_service_job(
+                    source,
+                    declaration,
                     replace_existing=True,
                 )
                 logger.info(
@@ -795,6 +779,41 @@ class CronManager(ManagerBase):
                 "source/key must be non-empty and cannot contain ':'",
             )
         return f"{SERVICE_JOB_ID_PREFIX}{source}:{key}"
+
+    def register_service_job(
+        self,
+        source: str,
+        declaration: ServiceCronJob,
+        *,
+        replace_existing: bool = False,
+    ):
+        """Schedule a service job and return the exact registration."""
+        job_id = self._service_job_id(source, declaration.key)
+        if (
+            not replace_existing
+            and self._scheduler.get_job(job_id) is not None
+        ):
+            raise ValueError(f"Service job already registered: {job_id}")
+        trigger = CronTrigger.from_crontab(
+            declaration.cron,
+            timezone=declaration.timezone or self._scheduler.timezone,
+        )
+        trigger.jitter = declaration.jitter_seconds or None
+        return self._scheduler.add_job(
+            self._run_service_job,
+            trigger=trigger,
+            id=job_id,
+            args=[source, declaration],
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=declaration.misfire_grace_seconds,
+            replace_existing=replace_existing,
+        )
+
+    def unregister_service_job(self, job) -> None:
+        """Do not revoke a replacement owned by another generation."""
+        if self._scheduler.get_job(job.id) is job:
+            self._scheduler.remove_job(job.id)
 
     async def run_job(self, job_id: str) -> None:
         """Trigger a job to run in the background (fire-and-forget).
@@ -1144,7 +1163,11 @@ class CronManager(ManagerBase):
     ) -> None:
         """Run a service-contributed job with common scheduler behavior."""
         try:
-            await declaration.callback()
+            result = await declaration.callback()
+            if result is not None and not result.success:
+                raise RuntimeError(
+                    result.text[:65536] or "Service job reported failure",
+                )
             logger.debug(
                 "%s cron job executed successfully: %s",
                 source,

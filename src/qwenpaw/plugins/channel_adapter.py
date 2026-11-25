@@ -218,6 +218,7 @@ class ChannelDescription:
         dependency_paths: tuple[Path, ...] = (),
         runtime_identity=None,
         workspace_dir: Path | None = None,
+        workspace_id: str | None = None,
         on_reply_sent=None,
         display_config=None,
         no_text_debounce: bool = True,
@@ -236,6 +237,19 @@ class ChannelDescription:
             raise ValueError("CHANNEL_PREPARATION_STALE")
         values = prepared_config.config
         environment = prepared_config.private_env
+        from ..constant import WORKING_DIR, DEFAULT_MEDIA_DIR
+        import hashlib
+
+        scope_id = (
+            str(Path(workspace_dir).resolve())
+            if workspace_dir is not None
+            else None
+        )
+        workspace_id = workspace_id or scope_id
+        workspace_key = hashlib.sha256(
+            (workspace_id or "").encode(),
+        ).hexdigest()
+        data_suffix = Path(self.plugin_id) / "workspaces" / workspace_key
         spec = LaunchSpec(
             python_executable=python_executable,
             support_root=Path(support_root),
@@ -257,11 +271,10 @@ class ChannelDescription:
             send_timeout=send_timeout,
             private_env=environment,
             plugin_id=self.plugin_id,
-            workspace_id=(
-                str(Path(workspace_dir).resolve())
-                if workspace_dir is not None
-                else None
-            ),
+            workspace_id=scope_id,
+            sdk_workspace_id=workspace_id,
+            sdk_storage_root=WORKING_DIR / "plugin-data" / data_suffix,
+            sdk_media_root=DEFAULT_MEDIA_DIR / "plugins" / data_suffix,
         )
         return IsolatedChannelProxy(
             process,

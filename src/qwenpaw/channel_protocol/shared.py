@@ -471,22 +471,26 @@ def validate_channel_contract(channel_key: str, capabilities) -> None:
     from .models import (
         CONTENT_SOURCE_CAPABILITY,
         SEMANTIC_PARTS_CAPABILITY,
+        STRUCTURED_PARTS_CAPABILITY,
         RAW_COMPLETED_TEXT_CAPABILITY,
         UNKNOWN_ACTOR_CAPABILITY,
         APPROVAL_RESOLUTION_CAPABILITY,
         TEXT_MERGE_CAPABILITY,
         AUTH_QRCODE_CAPABILITY,
+        RUN_EVENTS_CAPABILITY,
     )
 
     tags = set(capabilities)
     for supported in (
         CONTENT_SOURCE_CAPABILITY,
         SEMANTIC_PARTS_CAPABILITY,
+        STRUCTURED_PARTS_CAPABILITY,
         RAW_COMPLETED_TEXT_CAPABILITY,
         UNKNOWN_ACTOR_CAPABILITY,
         APPROVAL_RESOLUTION_CAPABILITY,
         TEXT_MERGE_CAPABILITY,
         AUTH_QRCODE_CAPABILITY,
+        RUN_EVENTS_CAPABILITY,
     ):
         prefix = supported.rsplit(".", 1)[0] + "."
         claimed = {item for item in tags if item.startswith(prefix)}

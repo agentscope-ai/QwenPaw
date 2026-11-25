@@ -64,12 +64,12 @@ subprocess.run(
     check=True,
     env=environment,
 )
-for name in ("@types/react", "@types/prop-types", "csstype"):
+for name in ("@types/react", "@types/prop-types", "csstype", "typescript"):
     shutil.copytree(args.dependencies / name, root / "node_modules" / name)
 (root / "author.ts").write_text(
     """
 import {
-  SDK_VERSION, getHost, forApp, tasks, capabilities,
+  SDK_VERSION, getHost, forApp, tasks, capabilities, checkpoints,
   type TaskSnapshot, type CancelResult, type PluginRouteDeclaration,
   type HarnessSettingsProps, type HarnessFrontendExtension,
 } from "@qwenpaw/plugin-sdk";
@@ -86,6 +86,27 @@ const harness: HarnessFrontendExtension = {
 host.harnesses.register("author", harness).dispose();
 window.QwenPaw.harnesses.register("author", harness).dispose();
 const app = forApp("author-app");
+const draft = host.chat.composer.read();
+if (draft) {
+  host.chat.composer.replace(draft, "Improved prompt");
+  // @ts-expect-error Draft snapshots are readonly.
+  draft.text = "other";
+}
+// @ts-expect-error No arbitrary session reader exists on the composer.
+host.chat.composer.read("other-session");
+// @ts-expect-error Unknown methods must be rejected.
+host.chat.composer.replaceAll("text");
+// @ts-expect-error Workspace IDs are strings.
+void host.host.selectAgent(42);
+const model = { provider_id: "provider", model_id: "model" };
+// @ts-expect-error PawApp chats use the Agent's configured model.
+void app.chat("hello", { model });
+// @ts-expect-error PawApp tasks use the Agent's configured model.
+void tasks("author-app").start({ message: "hello", model });
+// @ts-expect-error Restore requires an explicitly selected conversation.
+void checkpoints("author-app").restore("checkpoint", { agentId: "default" });
+// @ts-expect-error Selected files are paths.
+void checkpoints("author-app").previewRestore("checkpoint", { agentId: "default", chatId: "chat", files: true });
 const legacyRoute: PluginRouteDeclaration = {
   path: "/plugin/author/legacy", component: () => null, label: "Legacy label",
 };
@@ -142,6 +163,52 @@ for mode, resolution in (("NodeNext", "NodeNext"), ("ESNext", "bundler")):
     results[resolution] = {
         "returncode": result.returncode,
         "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+(root / "author.ts").write_text(
+    """
+import {getHost, checkpoints} from "@qwenpaw/plugin-sdk";
+const host = getHost();
+const draft = host.chat.composer.read();
+if (draft) host.chat.composer.replace(draft, "Improved");
+void host.host.selectAgent("default");
+void host.chat.composer.model();
+void checkpoints("author-app").timeline({agentId: "default", chatId: "selected"});
+""",
+)
+for minimum, expected in (("1.0.0", 1), ("1.1.0", 1), ("1.2.0", 0)):
+    (root / "plugin.json").write_text(
+        json.dumps(
+            {"id": "author", "version": "0.1.0", "sdk": {"version": minimum}},
+        ),
+    )
+    result = subprocess.run(
+        [
+            str(root / "node_modules/.bin/qwenpaw-sdk-check"),
+            "plugin.json",
+            "tsconfig.json",
+        ],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip(), (
+        result.returncode,
+        result.stdout,
+        result.stderr,
+    )
+    report = json.loads(result.stdout)
+    matched = result.returncode == expected and (
+        report["ok"]
+        if expected == 0
+        else len([f for f in report["findings"] if f["rule"] == "sdk-version"])
+        >= 6
+    )
+    results[f"minimum-{minimum}"] = {
+        "returncode": 0 if matched else 1,
+        "checker_exit_code": result.returncode,
+        "report": report,
         "stderr": result.stderr,
     }
 (root / "results.json").write_text(json.dumps(results, indent=2))

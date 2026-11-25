@@ -46,6 +46,8 @@ import {
 } from "./hooks";
 import { hostFetch } from "./fetch";
 import { submitChat } from "./chatSubmit";
+import { composer } from "./composer";
+import { selectAgent } from "./selectAgent";
 import { openExternalLink } from "../../utils/openExternalLink";
 import type { ChatCodeBlockProps, ChatSubmitInput } from "../types/qwenpaw";
 
@@ -124,6 +126,7 @@ interface ResponsePartial {
 }
 
 export interface QwenPawChatNamespace {
+  composer: typeof composer;
   codeBlock(
     pluginId: string,
     language: string,
@@ -420,6 +423,7 @@ function makeChatNamespace(): QwenPawChatNamespace {
     codeBlock: (pid, language, component) =>
       chatExtensions.addCodeBlock(pid, language, component),
     submit: submitChat,
+    composer,
     toolRender: (pid, toolName, render) => {
       // Mirror to existing pluginSystem.toolRenderers so the old
       // `usePlugins().toolRenderConfig` path keeps producing the same map.
@@ -466,6 +470,7 @@ export function installHostSdk(): void {
   if (!host.useSelectedAgent) host.useSelectedAgent = useHostSelectedAgent;
   if (!host.useCurrentSession) host.useCurrentSession = useHostCurrentSession;
   if (!host.getSelectedAgentId) host.getSelectedAgentId = getSelectedAgentId;
+  if (!host.selectAgent) host.selectAgent = selectAgent;
   if (!host.getCurrentSessionId) host.getCurrentSessionId = getCurrentSessionId;
   if (!host.fetch) host.fetch = hostFetch;
   if (!host.openExternalLink) host.openExternalLink = openExternalLink;

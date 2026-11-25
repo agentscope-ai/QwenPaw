@@ -90,7 +90,10 @@ from ..utils.media_paths import (
 _model_creation_observer = ContextVar("model_creation_observer", default=None)
 
 
-def _create_provider_model(provider, model_id):
+def _create_provider_model(provider, model_id, *, explicit=False):
+    if explicit:
+        provider.validate_chat_model_override(model_id)
+    provider.validate_chat_model(model_id)
     observer = _model_creation_observer.get()
     if observer is not None:
         observer.before_create(provider)
@@ -2433,7 +2436,6 @@ def _apply_model_fallbacks(
         # from being built: skip the slot instead of propagating.
         try:
             with agent_thinking_level(thinking_level, thinking_budget):
-                fallback_provider.validate_chat_model(fallback_slot.model)
                 fallback_model = _create_provider_model(
                     fallback_provider,
                     fallback_slot.model,
@@ -2500,8 +2502,11 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         settings.thinking_level,
         settings.thinking_budget,
     ):
-        provider.validate_chat_model(selected.model)
-        model = _create_provider_model(provider, selected.model)
+        model = _create_provider_model(
+            provider,
+            selected.model,
+            explicit=explicit,
+        )
     _ensure_model_context_size(model, provider, selected.model)
     formatter = _install_model_formatter(
         model,
@@ -2536,7 +2541,8 @@ def create_model_and_formatter(
             If None, tries to get from context, then falls back to global.
         model_slot_override: Optional per-request model override. When
             provided, it takes precedence over the agent's persisted
-            ``active_model``. Accepts a ``ModelSlotConfig``, a dict matching
+            ``active_model`` and must refer to an available configured chat
+            model. Accepts a ``ModelSlotConfig``, a dict matching
             its schema, or a string of the form ``"<provider_id>:<model>"``.
             The model name itself may contain ``:`` (e.g. version tags);
             only the first ``:`` is treated as the separator.
@@ -2563,7 +2569,8 @@ def create_model_and_formatter(
     settings = _load_agent_model_settings(agent_id, agent_config)
     model_slot = settings.model_slot
     slot = resolve_model_slot_override(model_slot_override)
-    if slot is not None and slot.provider_id and slot.model:
+    explicit = slot is not None and bool(slot.provider_id and slot.model)
+    if explicit:
         model_slot = slot
 
     if hub_mode() and model_slot is None:
@@ -2572,7 +2579,7 @@ def create_model_and_formatter(
         model, formatter = _create_hub_model_and_formatter(
             settings,
             model_slot,
-            explicit=slot is not None,
+            explicit=explicit,
         )
         if resize_images_to_max_bytes and isinstance(
             formatter,
@@ -2596,8 +2603,11 @@ def create_model_and_formatter(
         settings.thinking_level,
         settings.thinking_budget,
     ):
-        provider.validate_chat_model(model_slot.model)
-        model = _create_provider_model(provider, model_slot.model)
+        model = _create_provider_model(
+            provider,
+            model_slot.model,
+            explicit=explicit,
+        )
     provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     selected_model_id = model_slot.model
 
