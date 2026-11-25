@@ -11,9 +11,12 @@ import sys
 import textwrap
 import threading
 import time
+from functools import partial
 from pathlib import Path
 
+import psutil
 import pytest
+from click.testing import CliRunner
 
 from qwenpaw.cli import shutdown_cmd
 from qwenpaw.plugins.channel_workers import ChannelDefinition
@@ -117,13 +120,16 @@ def test_app_lifespan_waits_for_channel_worker(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
+@pytest.mark.parametrize("stalled", [False, True], ids=["graceful", "forced"])
 def test_cli_waits_for_request_import_and_workspace_drains(
     tmp_path,
     monkeypatch,
+    stalled,
 ):
     ready = tmp_path / "ready"
     request_started = tmp_path / "request_started"
     workspace_stopped = tmp_path / "workspace_stopped"
+    worker_stopped = tmp_path / "worker_stopped"
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0))
         port = reserved.getsockname()[1]
@@ -147,18 +153,31 @@ def test_cli_waits_for_request_import_and_workspace_drains(
 
         class ImportJobs:
             async def shutdown(self):
+                if sys.argv[5] == "stalled":
+                    await asyncio.Event().wait()
                 await asyncio.sleep(0.7)
                 return True
 
         class WorkspaceManager:
+            def __init__(self, worker):
+                self.worker = worker
+
             async def stop_all(self):
                 await asyncio.sleep(0.7)
+                await self.worker.communicate(input=b"stop")
+                assert self.worker.returncode == 0
                 workspace_stopped.write_text("stopped", encoding="utf-8")
 
         @asynccontextmanager
         async def lifespan(app):
-            app.state.multi_agent_manager = WorkspaceManager()
-            ready.write_text("ready", encoding="utf-8")
+            worker = await asyncio.create_subprocess_exec(
+                sys.executable, "-c", sys.argv[6], sys.argv[7],
+                stdin=asyncio.subprocess.PIPE, start_new_session=True,
+            )
+            app.state.multi_agent_manager = WorkspaceManager(worker)
+            temp = ready.with_suffix(".tmp")
+            temp.write_text(str(worker.pid), encoding="utf-8")
+            temp.replace(ready)
             try:
                 yield
             finally:
@@ -197,11 +216,26 @@ def test_cli_waits_for_request_import_and_workspace_drains(
             str(request_started),
             str(workspace_stopped),
             str(port),
+            "stalled" if stalled else "graceful",
+            textwrap.dedent(
+                """
+                import signal
+                import sys
+                from pathlib import Path
+
+                if sys.stdin.buffer.read() == b"stop":
+                    Path(sys.argv[1]).touch()
+                else:
+                    signal.pause()
+                """,
+            ),
+            str(worker_stopped),
         ],
         env=env,
         start_new_session=True,
     )
     held_socket = None
+    worker = None
     try:
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline and not ready.exists():
@@ -209,6 +243,7 @@ def test_cli_waits_for_request_import_and_workspace_drains(
                 pytest.fail(f"server exited early: {proc.returncode}")
             time.sleep(0.05)
         assert ready.exists()
+        worker = psutil.Process(int(ready.read_text()))
 
         while time.monotonic() < deadline:
             try:
@@ -225,29 +260,42 @@ def test_cli_waits_for_request_import_and_workspace_drains(
             time.sleep(0.05)
         assert request_started.exists()
 
-        original_signal = shutdown_cmd._signal_process_tree_unix
-        signals = []
-
-        def record_signal(pid, sig):
-            signals.append(sig)
-            original_signal(pid, sig)
-
-        monkeypatch.setattr(
-            shutdown_cmd,
-            "_signal_process_tree_unix",
-            record_signal,
-        )
+        assert alive(worker.pid)
+        # Scope the CLI to the test listener on this machine.
+        monkeypatch.setattr(shutdown_cmd, "_find_frontend_dev_pids", set)
+        monkeypatch.setattr(shutdown_cmd, "_find_desktop_wrapper_pids", set)
+        if stalled:
+            monkeypatch.setattr(
+                shutdown_cmd,
+                "_terminate_pid",
+                partial(shutdown_cmd._terminate_pid, timeout_sec=0.4),
+            )
         reaper = threading.Thread(target=proc.wait, daemon=True)
         reaper.start()
 
-        assert shutdown_cmd._terminate_pid(proc.pid, timeout_sec=3.0)
+        result = CliRunner().invoke(
+            shutdown_cmd.shutdown_cmd,
+            ["--port", str(port)],
+        )
+        assert result.exit_code == 0, result.output
         reaper.join(timeout=1)
-        assert proc.returncode in (0, -signal.SIGTERM)
-        assert workspace_stopped.read_text(encoding="utf-8") == "stopped"
-        assert signals == [signal.SIGTERM]
+        assert not alive(worker.pid)
+        if stalled:
+            assert proc.returncode == -signal.SIGKILL
+            assert not worker_stopped.exists()
+            assert not workspace_stopped.exists()
+        else:
+            assert proc.returncode in (0, -signal.SIGTERM)
+            assert worker_stopped.exists()
+            assert workspace_stopped.read_text(encoding="utf-8") == "stopped"
     finally:
         if held_socket is not None:
             held_socket.close()
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
+        if worker is not None and worker.is_running():
+            try:
+                worker.kill()
+            except psutil.NoSuchProcess:
+                pass

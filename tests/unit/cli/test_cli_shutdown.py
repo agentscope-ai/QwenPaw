@@ -14,6 +14,12 @@ from qwenpaw.cli.shutdown_cmd import (
 
 
 def test_shutdown_command_stops_backend_and_frontend(monkeypatch) -> None:
+    targets = []
+
+    def terminate(pid, *, backend):
+        targets.append((pid, backend))
+        return True
+
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._listening_pids_for_port",
         lambda _port: {1001},
@@ -32,7 +38,7 @@ def test_shutdown_command_stops_backend_and_frontend(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_pid",
-        lambda _pid: True,
+        terminate,
     )
 
     result = CliRunner().invoke(cli, ["shutdown"])
@@ -40,6 +46,7 @@ def test_shutdown_command_stops_backend_and_frontend(monkeypatch) -> None:
     assert result.exit_code == 0
     assert "1001" in result.output
     assert "2002" in result.output
+    assert targets == [(1001, True), (2002, False)]
 
 
 def test_shutdown_command_reports_failure(monkeypatch) -> None:
@@ -61,7 +68,7 @@ def test_shutdown_command_reports_failure(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_pid",
-        lambda _pid: False,
+        lambda _pid, **_kwargs: False,
     )
 
     result = CliRunner().invoke(cli, ["shutdown"])
@@ -97,7 +104,7 @@ def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
 def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     termination_order: list[int] = []
 
-    def terminate_pid(pid: int) -> bool:
+    def terminate_pid(pid: int, **_kwargs) -> bool:
         termination_order.append(pid)
         return True
 
@@ -301,8 +308,9 @@ def test_find_windows_wrapper_ancestor_pids(monkeypatch) -> None:
     assert _find_windows_wrapper_ancestor_pids({24692}) == {1052}
 
 
-def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
-    calls: list[tuple[int, object]] = []
+@pytest.mark.parametrize("backend", [True, False])
+def test_terminate_pid_force_kills_on_unix(monkeypatch, backend) -> None:
+    calls = []
     wait_calls: list[tuple[float, float]] = []
     waits = iter([False, True])
 
@@ -316,23 +324,25 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
         lambda _pid: True,
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.shutdown_cmd._signal_process_tree_unix",
-        lambda pid, sig: calls.append((pid, sig)),
+        "qwenpaw.cli.shutdown_cmd._signal_process_unix",
+        lambda pid, sig, *, tree: calls.append((pid, sig, tree)),
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._wait_for_pid_exit",
         wait_for_exit,
     )
 
-    assert _terminate_pid(4242) is True
+    assert _terminate_pid(4242, backend=backend) is True
     assert calls == [
         (
             4242,
             shutdown_cmd_module._SIGTERM,  # pylint: disable=protected-access
+            not backend,
         ),
         (
             4242,
             shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
+            True,
         ),
     ]
     budget = shutdown_cmd_module.SERVER_SHUTDOWN_SECONDS

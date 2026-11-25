@@ -207,18 +207,19 @@ def _wait_for_pid_exit(
     return not _pid_exists(pid)
 
 
-def _signal_process_tree_unix(pid: int, sig: signal.Signals) -> None:
-    """Send a signal to a Unix process and its descendants."""
-    descendants = sorted(_child_pids_unix(pid), reverse=True)
-    for child_pid in descendants:
+def _signal_process_unix(
+    pid: int,
+    sig: signal.Signals,
+    *,
+    tree: bool,
+) -> None:
+    """Signal the target, optionally including its descendants."""
+    descendants = sorted(_child_pids_unix(pid), reverse=True) if tree else []
+    for target in [*descendants, pid]:
         try:
-            os.kill(child_pid, sig)
+            os.kill(target, sig)
         except OSError:
             continue
-    try:
-        os.kill(pid, sig)
-    except OSError:
-        pass
 
 
 def _signal_process_windows(pid: int) -> bool:
@@ -287,6 +288,8 @@ def _terminate_pid(
     pid: int,
     timeout_sec: float = SERVER_SHUTDOWN_SECONDS,
     process: subprocess.Popen[str] | None = None,
+    *,
+    backend: bool = False,
 ) -> bool:
     """Terminate a process tree gracefully, then force kill if needed.
 
@@ -319,7 +322,8 @@ def _terminate_pid(
                 timeout_sec=max(0.0, deadline - time.monotonic()),
             )
     else:
-        _signal_process_tree_unix(pid, _SIGTERM)
+        # The backend owns worker shutdown RPCs and their acknowledgments.
+        _signal_process_unix(pid, _SIGTERM, tree=not backend)
 
     if wait_for_exit(max(0.0, deadline - time.monotonic()), 0.2):
         return True
@@ -330,17 +334,21 @@ def _terminate_pid(
             return True
         _force_terminate_windows_process(pid)
     else:
-        _signal_process_tree_unix(pid, _SIGKILL)
+        _signal_process_unix(pid, _SIGKILL, tree=True)
 
     return wait_for_exit(2.0, 0.1)
 
 
-def _stop_pid_set(pids: set[int]) -> tuple[list[int], list[int]]:
+def _stop_pid_set(
+    pids: set[int],
+    *,
+    backend: bool = False,
+) -> tuple[list[int], list[int]]:
     """Stop a set of PIDs and return (stopped, failed)."""
     stopped: list[int] = []
     failed: list[int] = []
     for pid in sorted(pids):
-        if _terminate_pid(pid):
+        if _terminate_pid(pid, backend=backend):
             stopped.append(pid)
         else:
             failed.append(pid)
@@ -399,7 +407,7 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
     # Windows the server owns the lifespan and its PID-scoped shutdown event;
     # stopping the supervisor first can leave it waiting on the server until
     # the graceful deadline expires and the whole tree is force-terminated.
-    backend_stopped, backend_failed = _stop_pid_set(backend_pids)
+    backend_stopped, backend_failed = _stop_pid_set(backend_pids, backend=True)
     wrapper_stopped, wrapper_failed = _stop_pid_set(
         wrapper_pids - set(backend_stopped),
     )

@@ -38,7 +38,8 @@ def test_shutdown_backend_process_uses_shared_graceful_shutdown(
     proc = _Process()
     terminated: list[tuple[int, _Process]] = []
 
-    def terminate(pid: int, *, process: _Process) -> bool:
+    def terminate(pid: int, *, process: _Process, backend: bool) -> bool:
+        assert backend
         terminated.append((pid, process))
         return True
 
@@ -59,16 +60,14 @@ def test_shutdown_backend_process_reports_failed_force_fallback(
     monkeypatch.setattr(
         desktop_cmd,
         "_terminate_pid",
-        lambda _pid, *, process: False,
+        lambda _pid, **_kwargs: False,
     )
 
     assert _shutdown_backend_process(proc) is False
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
-def test_shutdown_backend_reaps_graceful_child_without_reaper(
-    monkeypatch,
-) -> None:
+def test_shutdown_backend_reaps_graceful_child_without_reaper() -> None:
     script = (
         "import signal, sys\n"
         "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
@@ -80,18 +79,6 @@ def test_shutdown_backend_reaps_graceful_child_without_reaper(
         stdout=subprocess.PIPE,
         text=True,
     )
-    signals: list[signal.Signals] = []
-    original_signal = shutdown_cmd._signal_process_tree_unix
-
-    def record_signal(pid: int, sig: signal.Signals) -> None:
-        signals.append(sig)
-        original_signal(pid, sig)
-
-    monkeypatch.setattr(
-        shutdown_cmd,
-        "_signal_process_tree_unix",
-        record_signal,
-    )
     try:
         assert proc.stdout is not None
         assert proc.stdout.readline().strip() == "ready"
@@ -99,7 +86,6 @@ def test_shutdown_backend_reaps_graceful_child_without_reaper(
         assert _shutdown_backend_process(proc) is True
         assert time.monotonic() - start < 3.0
         assert proc.returncode == 0
-        assert signals == [signal.SIGTERM]
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -109,7 +95,7 @@ def test_shutdown_backend_reaps_graceful_child_without_reaper(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal behavior")
-def test_shutdown_backend_force_fallback_reaps_child(monkeypatch) -> None:
+def test_shutdown_backend_force_fallback_reaps_child() -> None:
     script = (
         "import signal\n"
         "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
@@ -121,18 +107,6 @@ def test_shutdown_backend_force_fallback_reaps_child(monkeypatch) -> None:
         stdout=subprocess.PIPE,
         text=True,
     )
-    signals: list[signal.Signals] = []
-    original_signal = shutdown_cmd._signal_process_tree_unix
-
-    def record_signal(pid: int, sig: signal.Signals) -> None:
-        signals.append(sig)
-        original_signal(pid, sig)
-
-    monkeypatch.setattr(
-        shutdown_cmd,
-        "_signal_process_tree_unix",
-        record_signal,
-    )
     try:
         assert proc.stdout is not None
         assert proc.stdout.readline().strip() == "ready"
@@ -140,9 +114,9 @@ def test_shutdown_backend_force_fallback_reaps_child(monkeypatch) -> None:
             proc.pid,
             timeout_sec=0.2,
             process=proc,
+            backend=True,
         )
         assert proc.returncode == -signal.SIGKILL
-        assert signals == [signal.SIGTERM, signal.SIGKILL]
     finally:
         if proc.poll() is None:
             proc.kill()
