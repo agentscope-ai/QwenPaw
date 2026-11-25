@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vendor the canonical IO helper into the two official Harness plugins."""
+"""Vendor the canonical IO helper into the official Harness plugins."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-VENDORS = ("codex", "qoder")
+VENDORS = ("codex", "qoder", "agy")
 HEADER = (
     "# Generated from plugins/harness/_shared/io_helpers.py; do not edit.\n"
     "# Update the shared source, then run:\n"
