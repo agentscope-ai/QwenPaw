@@ -20,6 +20,11 @@ import httpx
 from ..config import utils as config_utils
 from ..utils.runtime_api import api_client, read_runtime_api
 
+from ..plugins.archive import (
+    find_plugin_root,
+    safe_extract_zip as _safe_extract_zip,
+)
+from ..plugins.discovery import read_manifest
 from ..plugins.validation import (
     validate_plugin_module as _validate_plugin_module,
 )
@@ -63,21 +68,32 @@ def _echo_dependency_operation(operation):
         )
 
 
-def _structured_dependency_failure(detail):
-    if not isinstance(detail, dict):
-        return False
-    operation = detail.get("operation")
-    if detail.get("code") == "DEPENDENCY_UPGRADE_REQUIRED" and isinstance(
-        operation,
-        dict,
-    ):
-        _echo_dependency_operation(operation)
-        return True
-    if str(detail.get("code", "")).startswith("DEPENDENCY_"):
-        click.echo(detail.get("message") or detail["code"], err=True)
-        for instruction in detail.get("instructions") or ():
-            click.echo(instruction, err=True)
-        return True
+def _report_install_http_error(
+    exc: httpx.HTTPStatusError,
+    action: str,
+) -> bool:
+    """Print the backend response. A pending upgrade can resume by ID."""
+    try:
+        detail = exc.response.json().get("detail", str(exc))
+    except (ValueError, AttributeError):
+        detail = str(exc)
+    if isinstance(detail, dict):
+        code = detail.get("code", "")
+        operation = detail.get("operation")
+        if code == "DEPENDENCY_UPGRADE_REQUIRED" and isinstance(
+            operation,
+            dict,
+        ):
+            _echo_dependency_operation(operation)
+            return operation["status"] == "needs_confirmation"
+        if str(code).startswith("DEPENDENCY_"):
+            click.echo(detail.get("message") or code, err=True)
+            for instruction in detail.get("instructions") or ():
+                click.echo(instruction, err=True)
+            return False
+    click.echo(f"❌ API {action} failed: {detail}", err=True)
+    if os.environ.get("QWENPAW_RUNTIME_ID"):
+        raise click.ClickException(str(exc)) from exc
     return False
 
 
@@ -95,7 +111,13 @@ def _get_api_base() -> Optional[str]:
     if api_info is None:
         return None
     host, port = api_info
-    return f"http://{host}:{port}/api"
+    address = httpx.URL(
+        scheme="http",
+        host=host.strip("[]"),
+        port=port,
+        path="/api",
+    )
+    return str(address)
 
 
 def _api_install_plugin(source: str, force: bool = False) -> bool:
@@ -108,10 +130,11 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
         force: Unload existing plugin first if already loaded
 
     Returns:
-        ``True`` on success, ``False`` otherwise
+        ``True`` for installation or a pending upgrade, ``False`` on failure
     """
     base = _get_api_base()
     if base is None:
+        click.echo("Running backend endpoint is unavailable.", err=True)
         return False
 
     try:
@@ -124,18 +147,9 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
             response.raise_for_status()
             body = response.json()
         _echo_install_result(body, source)
-        return True
+        return body.get("status") != "failed"
     except httpx.HTTPStatusError as exc:
-        try:
-            detail = exc.response.json().get("detail", str(exc))
-        except Exception:
-            detail = str(exc)
-        if _structured_dependency_failure(detail):
-            return False
-        click.echo(f"❌ API install failed: {detail}", err=True)
-        if os.environ.get("QWENPAW_RUNTIME_ID"):
-            raise click.ClickException(str(exc)) from exc
-        return False
+        return _report_install_http_error(exc, "install")
     except Exception as exc:
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -151,10 +165,11 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         force: Unload existing plugin first if already loaded
 
     Returns:
-        ``True`` on success, ``False`` otherwise
+        ``True`` for installation or a pending upgrade, ``False`` on failure
     """
     base = _get_api_base()
     if base is None:
+        click.echo("Running backend endpoint is unavailable.", err=True)
         return False
 
     # Build a minimal multipart/form-data body by hand so we avoid
@@ -189,18 +204,9 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
             response.raise_for_status()
             result = response.json()
         _echo_install_result(result, zip_path.name)
-        return True
+        return result.get("status") != "failed"
     except httpx.HTTPStatusError as exc:
-        try:
-            detail = exc.response.json().get("detail", str(exc))
-        except Exception:
-            detail = str(exc)
-        if _structured_dependency_failure(detail):
-            return False
-        click.echo(f"❌ API upload failed: {detail}", err=True)
-        if os.environ.get("QWENPAW_RUNTIME_ID"):
-            raise click.ClickException(str(exc)) from exc
-        return False
+        return _report_install_http_error(exc, "upload")
     except Exception as exc:
         if os.environ.get("QWENPAW_RUNTIME_ID"):
             raise click.ClickException(str(exc)) from exc
@@ -260,7 +266,7 @@ def _is_running() -> bool:
     return is_qwenpaw_running()
 
 
-def _offline_channel_transaction(
+def _offline_plugin_transaction(
     plugin_id,
     *,
     source_path=None,
@@ -354,27 +360,6 @@ def _offline_channel_transaction(
         raise click.ClickException(str(exc)) from exc
 
 
-def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
-    """Safely extract zip file, preventing Zip Slip attacks.
-
-    Args:
-        zip_ref: ZipFile object
-        extract_path: Target extraction directory
-
-    Raises:
-        ValueError: If any zip member attempts path traversal
-    """
-    extract_resolved = extract_path.resolve()
-    for member in zip_ref.namelist():
-        member_path = (extract_path / member).resolve()
-        if not member_path.is_relative_to(extract_resolved):
-            raise ValueError(
-                f"Zip Slip detected: {member} attempts to extract "
-                f"outside target directory",
-            )
-    zip_ref.extractall(extract_path)
-
-
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
     """Download and extract plugin from URL.
 
@@ -402,13 +387,10 @@ def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
             _safe_extract_zip(zip_ref, temp_dir)
         click.echo("✓ Downloaded and extracted")
 
-        # Find the plugin directory (should be the only directory or root)
-        plugin_dirs = [d for d in temp_dir.iterdir() if d.is_dir()]
-        if len(plugin_dirs) == 1:
-            return plugin_dirs[0], temp_dir
-        if (temp_dir / "plugin.json").exists():
-            return temp_dir, temp_dir
-        raise ValueError("Invalid plugin archive structure")
+        return find_plugin_root(temp_dir), temp_dir
+    except BaseException:
+        shutil.rmtree(temp_dir)
+        raise
     finally:
         # Clean up zip file
         zip_path.unlink()
@@ -494,9 +476,9 @@ def apply_channel_preset(name, offline):
 def install(source: str, force: bool):
     """Install a plugin from local path or URL.
 
-    When QwenPaw is running, the plugin is hot-loaded immediately via
-    the API (no restart required).  When QwenPaw is stopped, the
-    plugin files are copied and will be loaded on next start.
+    A running App handles installation and asks for confirmation if a shared
+    package needs an upgrade. When the App is stopped, the plugin files are
+    installed for loading on the next start.
 
     Examples:
         qwenpaw plugin install examples/plugins/idealab-provider
@@ -508,28 +490,22 @@ def install(source: str, force: bool):
         click.echo(
             "QwenPaw is running — using hot-install via API...",
         )
-        is_url = source.startswith(("http://", "https://"))
-        if is_url:
-            # API accepts URLs directly
-            _api_install_plugin(source, force=force)
+        if source.startswith(("http://", "https://")):
+            accepted = _api_install_plugin(source, force=force)
         else:
-            # Check whether the local path is a directory or a zip
             source_path = Path(source).resolve()
-            if not source_path.exists():
-                click.echo(
-                    f"❌ Path not found: {source}",
-                    err=True,
-                )
-                return
-            if source_path.is_file() and source_path.suffix == ".zip":
-                _api_upload_plugin(source_path, force=force)
-            elif source_path.is_dir():
-                _api_install_plugin(str(source_path), force=force)
+            if source_path.is_dir():
+                accepted = _api_install_plugin(str(source_path), force=force)
+            elif source_path.is_file() and source_path.suffix == ".zip":
+                accepted = _api_upload_plugin(source_path, force=force)
+            elif not source_path.exists():
+                raise click.ClickException(f"Path not found: {source}")
             else:
-                click.echo(
-                    "❌ Source must be a directory or a .zip file.",
-                    err=True,
+                raise click.ClickException(
+                    "Source must be a directory or a .zip file.",
                 )
+        if not accepted:
+            raise click.exceptions.Exit(1)
         return
 
     # ── Offline install (app is not running) ─────────────────────────
@@ -550,7 +526,7 @@ def install(source: str, force: bool):
             return
 
     try:
-        record = _offline_channel_transaction(
+        record = _offline_plugin_transaction(
             None,
             source_path=source_path,
             force=force,
@@ -728,7 +704,8 @@ def uninstall(plugin_id: str):
         ):
             click.echo("Cancelled.")
             return
-        _api_uninstall_plugin(resolved_id)
+        if not _api_uninstall_plugin(resolved_id):
+            raise click.exceptions.Exit(1)
         return
 
     plugin_id = resolved_id
@@ -750,7 +727,7 @@ def uninstall(plugin_id: str):
         return
 
     try:
-        _offline_channel_transaction(plugin_id)
+        _offline_plugin_transaction(plugin_id)
     except Exception as exc:
         raise click.ClickException(
             f"Failed to uninstall plugin: {exc}",
@@ -765,33 +742,22 @@ def validate(path: str):
     plugin_path = Path(path).resolve()
 
     if not plugin_path.exists():
-        click.echo(f"❌ Path not found: {path}", err=True)
-        return
+        raise click.ClickException(f"Path not found: {path}")
 
     # Check plugin.json
     manifest_path = plugin_path / "plugin.json"
     if not manifest_path.exists():
-        click.echo("❌ plugin.json not found", err=True)
-        return
+        raise click.ClickException("plugin.json not found")
 
     try:
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-
-        # Validate required fields
-        required_fields = ["id", "name", "version"]
-        for field in required_fields:
-            if field not in manifest:
-                click.echo(f"❌ Missing required field: {field}", err=True)
-                return
-
-        # Check entry points
-        entry = manifest.get("entry", {})
-        backend_entry = entry.get("backend")
-        if backend_entry:
-            _validate_plugin_module(manifest["id"], plugin_path, backend_entry)
-
-        frontend_entry = entry.get("frontend")
+        manifest = read_manifest(manifest_path)
+        if manifest.entry.backend:
+            _validate_plugin_module(
+                manifest.id,
+                plugin_path,
+                manifest.entry.backend,
+            )
+        frontend_entry = manifest.entry.frontend
         if frontend_entry:
             frontend_path = plugin_path / frontend_entry
             if not frontend_path.exists():
@@ -801,13 +767,13 @@ def validate(path: str):
                 )
 
         click.echo("✅ Plugin validation passed")
-        click.echo(f"\nPlugin: {manifest['name']} (v{manifest['version']})")
-        click.echo(f"ID: {manifest['id']}")
+        click.echo(f"\nPlugin: {manifest.name} (v{manifest.version})")
+        click.echo(f"ID: {manifest.id}")
 
     except json.JSONDecodeError as e:
-        click.echo(f"❌ Invalid JSON in plugin.json: {e}", err=True)
+        raise click.ClickException(f"Invalid JSON in plugin.json: {e}") from e
     except Exception as e:
-        click.echo(f"❌ Validation failed: {e}", err=True)
+        raise click.ClickException(f"Validation failed: {e}") from e
 
 
 @plugin.group("dependency-upgrade")
@@ -826,17 +792,24 @@ def _dependency_operation(action, operation_id):
         try:
             with api_client(base, timeout=300) as client:
                 path = f"plugins/dependency-upgrades/{operation_id}"
-                response = (
-                    client.get(path)
-                    if action == "status"
-                    else (
-                        client.post(path + "/apply")
-                        if action == "apply"
-                        else client.delete(path)
+                if action == "apply":
+                    response = client.post(
+                        path + "/apply",
+                        params={"background": "true"},
                     )
-                )
+                elif action == "status":
+                    response = client.get(path)
+                else:
+                    response = client.delete(path)
                 response.raise_for_status()
                 operation = response.json()
+            if response.status_code == 202:
+                click.echo(f"Dependency upgrade {operation_id} accepted.")
+                click.echo(
+                    "Check the result with: qwenpaw plugin dependency-upgrade "
+                    f"status {operation_id}",
+                )
+                return
         except httpx.HTTPError as exc:
             raise click.ClickException(
                 "Dependency operation failed through the running backend; "
@@ -867,55 +840,33 @@ def _dependency_operation(action, operation_id):
         try:
             manager, operation = asyncio.run(run())
             if action == "apply" and operation["status"] == "waiting_restart":
-                import subprocess
-
-                # Offline maintenance consumes the manager's authenticated record.
-                # pylint: disable=protected-access
-                script = (
-                    manager._directory(operation_id)
-                    / "worker/dependency_worker.py"
-                )
-                worker_python = manager._read(operation_id)["worker_python"]
-                # pylint: enable=protected-access
-                options = (
-                    {"start_new_session": True}
-                    if os.name != "nt"
-                    else {
-                        "creationflags": getattr(
-                            subprocess,
-                            "CREATE_NEW_PROCESS_GROUP",
-                            0,
-                        ),
-                    }
-                )
-                with (script.parent.parent / "worker.log").open("ab") as log:
-                    # The maintenance worker waits for this CLI to exit; a
-                    # Popen context manager would wait for it and deadlock.
-                    subprocess.Popen(  # pylint: disable=consider-using-with
-                        [worker_python, "-I", "-S", str(script)],
-                        stdin=subprocess.DEVNULL,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        **options,
-                    )
-                operation[
-                    "message"
-                ] = "Maintenance starts when this CLI exits. Query this operation for its result."
+                operation = manager.start_maintenance_worker(operation_id)
         except Exception as exc:
             raise click.ClickException(str(exc)) from exc
     _echo_dependency_operation(operation)
-    return operation
+    if operation["status"] == "failed" and action in {"apply", "status"}:
+        error = operation.get("error") or {}
+        raise click.ClickException(
+            error.get("message")
+            or error.get("code")
+            or "Dependency upgrade failed.",
+        )
 
 
 @dependency_upgrade.command("status")
 @click.argument("operation_id")
 def dependency_upgrade_status(operation_id):
+    """Show upgrade progress and the final result."""
     _dependency_operation("status", operation_id)
 
 
 @dependency_upgrade.command("apply")
 @click.argument("operation_id")
 def dependency_upgrade_apply(operation_id):
+    """Approve the upgrade.
+
+    If the App reports 'accepted', use 'status' to check the result.
+    """
     _dependency_operation("apply", operation_id)
 
 

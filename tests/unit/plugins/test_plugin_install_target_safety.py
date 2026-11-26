@@ -19,6 +19,7 @@ from qwenpaw.installation_origin import (
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.lifecycle import UnloadMode
+from qwenpaw.plugins.source_usage import SourceBusyError, source_reader
 from qwenpaw.plugins.updates import (
     marker_path,
     recover_interrupted_updates,
@@ -76,6 +77,33 @@ def _residual_install(
     loader = PluginLoader([target.parent])
     loader.registry = registry
     return loader, source, target
+
+
+@pytest.mark.asyncio
+async def test_install_checks_readers_at_installed_and_requested_locations(
+    tmp_path,
+    fresh_registry,
+    monkeypatch,
+):
+    loader, source, installed = _residual_install(
+        tmp_path,
+        fresh_registry,
+        monkeypatch,
+    )
+    shutil.copyfile(source / "plugin.json", installed / "plugin.json")
+    original = _snapshot(installed)
+    target = tmp_path / "second-location" / "demo"
+    for busy in (installed, target):
+        with source_reader(busy), pytest.raises(SourceBusyError):
+            await loader.load_plugin_from_path(
+                source,
+                install_dir=target.parent,
+                force=True,
+            )
+    assert _snapshot(installed) == original
+    assert not target.exists()
+    with source_reader(installed), source_reader(target):
+        assert loader.get_loaded_plugin("demo") is None
 
 
 @pytest.mark.asyncio

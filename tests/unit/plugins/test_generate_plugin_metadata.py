@@ -364,6 +364,36 @@ def test_real_harness_archives_contain_own_entries_and_frontends(
         assert index["files"][f"{plugin_id}-1.0.0"]["platform"] == "harness"
 
 
+def test_channel_template_packages_named_dependencies_and_public_entry(
+    tmp_path,
+):
+    from qwenpaw.plugins.channel_workers import ChannelDefinition
+    from qwenpaw.plugins.compliance import check_plugin
+
+    source = tmp_path / "mailbox"
+    template = REPO_ROOT / "src/qwenpaw/plugins/templates/channel"
+    shutil.copytree(template, source)
+    manifest_path = source / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["entry"]["backend"] = "plugin.py"
+    manifest["sdk"]["capabilities"].append("dependencies")
+    manifest["optional_dependencies"] = {"transport": ["packaging"]}
+    manifest_path.write_text(json.dumps(manifest))
+    (source / "plugin.py").write_text("def register(api): pass")
+    path = source / "channel.json"
+    data = json.loads(path.read_text())
+    data["requires"] = ["transport"]
+    path.write_text(json.dumps(data))
+    assert ChannelDefinition.load(path).to_dict()["requires"] == ["transport"]
+    assert check_plugin(source).ok
+    archive = tmp_path / "mailbox.zip"
+    _zip_plugin(source, archive, manifest)
+    with zipfile.ZipFile(archive) as packaged:
+        names = [Path(name).name for name in packaged.namelist()]
+    assert {"plugin.py", "driver.py", "channel.json"} <= set(names)
+    assert "requirements.txt" not in names
+
+
 def test_private_channel_zip_preserves_runtime_and_source_manifest(tmp_path):
     """Local zipper supports private previews while honoring exclusions."""
     plugin_dir = tmp_path / "channel-preview"

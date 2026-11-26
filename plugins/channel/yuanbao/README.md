@@ -1,6 +1,6 @@
 # Yuanbao (元宝)
 
-This official channel plugin connects to Tencent Yuanbao with sign-token authentication and its binary protobuf WebSocket gateway. Install through QwenPaw's channel plugin installer, then configure `app_id`, `app_secret` and enable the channel in the intended workspace. `api_domain` and `ws_url` support existing custom gateways. Dependencies are declared only in `requirements.txt`.
+This official channel plugin connects to Tencent Yuanbao with sign-token authentication and its binary protobuf WebSocket gateway. Install through QwenPaw's channel plugin installer, then configure `app_id`, `app_secret` and enable the channel in the intended workspace. `api_domain` and `ws_url` support existing custom gateways. Dependencies are declared in the `transport` group in `plugin.json`.
 
 The descriptor retains all 23 configuration fields, including display, mention and access policy settings. Access control and Agent execution run in the shared host. Group sessions keep the original group code; direct sessions keep the last eight account characters. Reply routes retain complete native account IDs. Existing `workspace/yuanbao_sessions.json` is read and merged atomically; without a workspace the legacy location is `media_dir.parent/yuanbao_sessions.json`. Invalid existing files are preserved. Authentication, sessions and downloaded media remain after disabling the plugin.
 

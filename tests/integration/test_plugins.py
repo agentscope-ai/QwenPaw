@@ -128,9 +128,6 @@ def _build_sample_plugin_zip(
     }
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Real bundles have plugin.json + entry.backend at the archive
-        # root inside a per-plugin directory; replicate that shape so
-        # _find_plugin_dir in plugins.py can locate the manifest.
         zf.writestr(f"{plugin_id}/plugin.json", json.dumps(manifest))
         zf.writestr(f"{plugin_id}/plugin.py", _SAMPLE_BACKEND_PY)
     return buf.getvalue()

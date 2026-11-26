@@ -46,7 +46,7 @@ class ChannelDefinition:
 
     entrypoint is ``package.module:ClassName``. The JSON representation retains
     the host's nested runner entrypoint. Capabilities must be sorted, unique
-    protocol names; requirements remain in requirements.txt next to this file.
+    protocol names. Pass requires to select named plugin dependency groups.
     SDK version and capabilities are declared separately in plugin.json.
     """
 
@@ -59,6 +59,7 @@ class ChannelDefinition:
     authorization_fields: tuple[str, ...] = ()
     exclusive_resources: tuple[ChannelExclusiveResource, ...] = ()
     ingress_routes: tuple[ChannelIngressRoute, ...] = ()
+    requires: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         from ._events import freeze
@@ -74,6 +75,8 @@ class ChannelDefinition:
         object.__setattr__(self, "config_fields", tuple(self.config_fields))
         object.__setattr__(self, "capabilities", tuple(self.capabilities))
         object.__setattr__(self, "ingress_routes", tuple(self.ingress_routes))
+        if self.requires is not None:
+            object.__setattr__(self, "requires", tuple(self.requires))
         object.__setattr__(
             self,
             "authorization_fields",
@@ -126,7 +129,14 @@ class ChannelDefinition:
             )
         descriptor = SharedChannelDescriptor.from_mapping(
             {
-                "schema_version": 2,
+                **(
+                    {
+                        "schema_version": 2,
+                        "requirements_file": "requirements.txt",
+                    }
+                    if self.requires is None
+                    else {"schema_version": 3, "requires": list(self.requires)}
+                ),
                 "channel_key": self.channel_key,
                 "label": dict(self.label),
                 "process_mode": "runner_process",
@@ -136,7 +146,6 @@ class ChannelDefinition:
                     "module": module,
                     "qualname": qualname,
                 },
-                "requirements_file": "requirements.txt",
                 "config_schema": schema,
                 "config_fields": list(self.config_fields),
                 "capabilities": list(self.capabilities),
@@ -188,6 +197,9 @@ class ChannelDefinition:
                     (),
                 )
             ),
+            descriptor.requires
+            if descriptor.requirements_file is None
+            else None,
         )
 
 
