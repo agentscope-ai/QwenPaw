@@ -10,7 +10,11 @@ from typing import Any, AsyncGenerator
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 
-from .model_error_policy import classify_model_error, is_fallback_eligible
+from .model_error_policy import (
+    ModelErrorDecision,
+    classify_model_error,
+    is_fallback_eligible,
+)
 from .stream_progress import has_meaningful_stream_content
 
 logger = logging.getLogger(__name__)
@@ -211,7 +215,7 @@ class FallbackChatModel(ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         last_error: Exception | None = None
-        fallback_events: list[dict[str, str]] = []
+        fallback_events: list[dict[str, Any]] = []
         token: Token | None = self._begin_request()
         try:
             for index, model in enumerate(self._models):
@@ -224,7 +228,12 @@ class FallbackChatModel(ChatModelBase):
                         raise
                     following = self._models[index + 1]
                     fallback_events.append(
-                        self._record_fallback(model, following, exc),
+                        self._record_fallback(
+                            model,
+                            following,
+                            exc,
+                            index + 1,
+                        ),
                     )
                     continue
                 if isinstance(response, AsyncGenerator):
@@ -243,6 +252,9 @@ class FallbackChatModel(ChatModelBase):
                     response,
                     fallback_events,
                     model,
+                    fallback_summary=(
+                        fallback_events[-1] if fallback_events else None
+                    ),
                 )
             assert last_error is not None
             raise last_error
@@ -256,9 +268,17 @@ class FallbackChatModel(ChatModelBase):
         index: int,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        fallback_events: list[dict[str, str]],
+        fallback_events: list[dict[str, Any]],
         reset_token: Token,
     ) -> AsyncGenerator[ChatResponse, None]:
+        # The last hop event doubles as the fallback summary: it carries
+        # the serving model's position and the reason it was selected.
+        # It is remembered separately because ``fallback_events`` is
+        # drained after the first annotated chunk, while the summary
+        # must stay on every chunk up to and including the last one.
+        last_event: dict[str, Any] | None = (
+            fallback_events[-1] if fallback_events else None
+        )
         try:
             current = stream
             current_index = index
@@ -275,6 +295,7 @@ class FallbackChatModel(ChatModelBase):
                             chunk,
                             fallback_events,
                             current_model,
+                            fallback_summary=last_event,
                         )
                         fallback_events = []
                     return
@@ -292,12 +313,15 @@ class FallbackChatModel(ChatModelBase):
                     kwargs,
                     fallback_events,
                 )
+                if fallback_events:
+                    last_event = fallback_events[-1]
                 current_model = self._models[current_index]
                 if not isinstance(response, AsyncGenerator):
                     yield self._annotate_response(
                         response,
                         fallback_events,
                         current_model,
+                        fallback_summary=last_event,
                     )
                     return
                 current = response
@@ -310,7 +334,7 @@ class FallbackChatModel(ChatModelBase):
         error: Exception,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        fallback_events: list[dict[str, str]],
+        fallback_events: list[dict[str, Any]],
     ) -> tuple[ChatResponse | AsyncGenerator[ChatResponse, None], int]:
         """Start the next usable fallback, skipping pre-stream failures."""
         last_error = error
@@ -318,7 +342,12 @@ class FallbackChatModel(ChatModelBase):
             current_model = self._models[next_index - 1]
             next_model = self._models[next_index]
             fallback_events.append(
-                self._record_fallback(current_model, next_model, last_error),
+                self._record_fallback(
+                    current_model,
+                    next_model,
+                    last_error,
+                    next_index,
+                ),
             )
             self._activate_model(next_model)
             try:
@@ -343,15 +372,81 @@ class FallbackChatModel(ChatModelBase):
         current: ChatModelBase,
         following: ChatModelBase,
         exc: Exception,
-    ) -> dict[str, str]:
-        """Log one fallback hop and publish it to the request sink."""
+        chain_position: int,
+    ) -> dict[str, Any]:
+        """Log one fallback hop and publish it to the request sink.
+
+        ``chain_position`` is the zero-based index of ``following`` in
+        the configured chain (0 is the primary, 1 the first fallback).
+        """
         self._log_fallback(current, following, exc)
-        event = self._fallback_event(current, following, exc)
+        event = self._fallback_event(
+            current,
+            following,
+            exc,
+            chain_position,
+            self._models[0],
+        )
         sink = _FALLBACK_NOTICE_SINK.get()
         if sink is not None:
             sink["events"].append(dict(event))
             sink["actual_model"] = self._actual_model_dict(following)
         return event
+
+    @staticmethod
+    def _safe_fallback_reason(decision: ModelErrorDecision) -> str:
+        """Format a user-safe fallback reason for one failure.
+
+        The classified error kind plus the HTTP status when known, e.g.
+        ``"transient (503)"``.  Raw exception text is never used:
+        provider errors can embed API keys, bearer tokens, or private
+        URLs, and this string reaches user-visible metadata.
+        """
+        if decision.status_code is not None:
+            return f"{decision.kind} ({decision.status_code})"
+        return decision.kind
+
+    @classmethod
+    def _fallback_event(
+        cls,
+        current: ChatModelBase,
+        following: ChatModelBase,
+        exc: Exception,
+        chain_position: int,
+        primary: ChatModelBase,
+    ) -> dict[str, Any]:
+        """Build one fallback hop event (issue #8103, Option A).
+
+        Besides the existing identifiers, each event carries the four
+        Option A fields so the same dict serves both the response
+        metadata (``qwenpaw_model_fallbacks``) and the fallback-notice
+        sink that reaches the Console and channel notifiers:
+
+        - ``model_requested``: the primary model's name, i.e. the
+          model the user asked for.
+        - ``model_used``: the name of the model that served this hop.
+        - ``fallback_reason``: safe reason string (see
+          :meth:`_safe_fallback_reason`).
+        - ``fallback_chain_position``: zero-based index of the serving
+          model in the configured chain (0 = primary, 1 = first
+          fallback).  It is the serving model's index, not the number
+          of exceptions seen: candidates can be skipped.
+        """
+        decision = classify_model_error(exc)
+        from_provider_id, from_model_id = cls._model_identity(current)
+        to_provider_id, to_model_id = cls._model_identity(following)
+        return {
+            "type": "model_fallback",
+            "from_provider_id": from_provider_id,
+            "from_model_id": from_model_id,
+            "to_provider_id": to_provider_id,
+            "to_model_id": to_model_id,
+            "reason_kind": decision.kind,
+            "model_requested": str(getattr(primary, "model", "unknown")),
+            "model_used": str(getattr(following, "model", "unknown")),
+            "fallback_reason": cls._safe_fallback_reason(decision),
+            "fallback_chain_position": chain_position,
+        }
 
     @staticmethod
     def _model_identity(model: ChatModelBase) -> tuple[str, str]:
@@ -362,24 +457,6 @@ class FallbackChatModel(ChatModelBase):
             return provider_id, key or name
         provider_id, model_id = key.split(":", maxsplit=1)
         return provider_id, model_id
-
-    @classmethod
-    def _fallback_event(
-        cls,
-        current: ChatModelBase,
-        following: ChatModelBase,
-        exc: Exception,
-    ) -> dict[str, str]:
-        from_provider_id, from_model_id = cls._model_identity(current)
-        to_provider_id, to_model_id = cls._model_identity(following)
-        return {
-            "type": "model_fallback",
-            "from_provider_id": from_provider_id,
-            "from_model_id": from_model_id,
-            "to_provider_id": to_provider_id,
-            "to_model_id": to_model_id,
-            "reason_kind": classify_model_error(exc).kind,
-        }
 
     @classmethod
     def _actual_model_dict(cls, active_model: ChatModelBase) -> dict[str, Any]:
@@ -397,10 +474,36 @@ class FallbackChatModel(ChatModelBase):
     @staticmethod
     def _annotate_response(
         response: ChatResponse,
-        events: list[dict[str, str]],
+        events: list[dict[str, Any]],
         active_model: ChatModelBase | None = None,
+        *,
+        fallback_summary: dict[str, Any] | None = None,
     ) -> ChatResponse:
-        if not events and active_model is None:
+        """Attach fallback transparency metadata to a response.
+
+        The existing ``qwenpaw_model_fallbacks`` / ``qwenpaw_actual_model``
+        keys are untouched.  When a fallback happened in this request,
+        ``fallback_summary`` is the last hop event (the transition to
+        the serving model) and four top-level Option A keys (#8103) are
+        added so direct provider consumers can see the switch without
+        digging into the event list:
+
+        - ``model_used``: name of the model that served the response.
+        - ``model_requested``: name of the primary model, i.e. the
+          model the user asked for.
+        - ``fallback_reason``: safe reason for the hop that selected
+          the serving model (see :meth:`_safe_fallback_reason`).
+        - ``fallback_chain_position``: zero-based index of the serving
+          model in the configured chain (0 = primary, 1 = first
+          fallback).
+
+        The summary is passed separately from ``events`` because the
+        streaming path drains ``events`` after the first annotated
+        chunk while the summary must stay on every chunk up to and
+        including the last one.  When no fallback happened the summary
+        is ``None`` and no fallback keys are added.
+        """
+        if not events and active_model is None and fallback_summary is None:
             return response
         metadata = dict(getattr(response, "metadata", None) or {})
         if events:
@@ -409,6 +512,13 @@ class FallbackChatModel(ChatModelBase):
             metadata[
                 "qwenpaw_actual_model"
             ] = FallbackChatModel._actual_model_dict(active_model)
+        if fallback_summary is not None:
+            metadata["model_used"] = fallback_summary["model_used"]
+            metadata["model_requested"] = fallback_summary["model_requested"]
+            metadata["fallback_reason"] = fallback_summary["fallback_reason"]
+            metadata["fallback_chain_position"] = fallback_summary[
+                "fallback_chain_position"
+            ]
         response.metadata = metadata
         return response
 
@@ -431,7 +541,7 @@ class FallbackChatModel(ChatModelBase):
         **kwargs: Any,
     ) -> Any:
         last_error: Exception | None = None
-        fallback_events: list[dict[str, str]] = []
+        fallback_events: list[dict[str, Any]] = []
         token = self._begin_request()
         try:
             for index, model in enumerate(self._models):
@@ -445,6 +555,9 @@ class FallbackChatModel(ChatModelBase):
                         response,
                         fallback_events,
                         model,
+                        fallback_summary=(
+                            fallback_events[-1] if fallback_events else None
+                        ),
                     )
                 except Exception as exc:
                     last_error = exc
@@ -452,7 +565,12 @@ class FallbackChatModel(ChatModelBase):
                         raise
                     following = self._models[index + 1]
                     fallback_events.append(
-                        self._record_fallback(model, following, exc),
+                        self._record_fallback(
+                            model,
+                            following,
+                            exc,
+                            index + 1,
+                        ),
                     )
             assert last_error is not None
             raise last_error
