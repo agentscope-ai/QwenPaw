@@ -26,7 +26,7 @@ from agentscope.tool import ToolChunk
 
 from ...tools.utils import truncate_text_output  # repo-standard output bound
 from ....runtime.tool_registry import ToolDescriptor
-from ....utils.io_utils import run_sync_io
+from ....utils.io_utils import run_async_to_completion, run_sync_io
 
 # Directory holding memoryspace.py — added to the cell's sys.path so the
 # sandboxed process imports it by bare module name.
@@ -276,8 +276,16 @@ async def _run_subprocess(
             proc.communicate(),
             timeout=timeout_s,
         )
-    except asyncio.TimeoutError:
-        proc.kill()
+    except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+        # Stopping the await does not stop the child. Drain its pipes and
+        # reap it before releasing the recall cell, even if cancelled again.
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await run_async_to_completion(proc.communicate())
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         return "", f"recall_history_python timed out after {timeout_s}s", -1
     return (
         out.decode("utf-8", "replace"),
