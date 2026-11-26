@@ -16,7 +16,6 @@ import json
 import logging
 from pathlib import Path
 import posixpath
-import re
 import sys
 import threading
 import time
@@ -52,6 +51,7 @@ from .utils import (
     extract_post_image_keys,
     extract_post_media_file_keys,
     extract_post_text,
+    has_md_table_row,
     normalize_feishu_md,
 )
 
@@ -1204,11 +1204,7 @@ class LarkOapiPlatform:
         *,
         reply_message_id: str = "",
     ) -> list[str]:
-        if not reply_message_id and re.search(
-            r"^\s*\|",
-            body,
-            re.MULTILINE,
-        ):
+        if not reply_message_id and has_md_table_row(body):
             message_ids = []
             try:
                 for chunk in build_interactive_content_chunks(body):
