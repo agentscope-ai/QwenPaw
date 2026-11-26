@@ -201,3 +201,80 @@ async def test_duplicate_callback_and_stop_gateway(discord):
     task = driver._platform._task
     await driver.stop()
     assert client.closed and task.done() and driver._platform is None
+
+
+def test_chunk_text_does_not_duplicate_boundary_fence():
+    chunk_text = module("discord", "formatting").chunk_text
+    text = (
+        "intro line one is here\n"
+        "intro line two is here too\n"
+        "```python\n"
+        "x = 1\n"
+        "```\n"
+        "after"
+    )
+
+    assert chunk_text(text, max_len=60) == [
+        "intro line one is here\nintro line two is here too",
+        "```python\nx = 1\n```\nafter",
+    ]
+
+
+def test_chunk_text_closes_and_reopens_fence_between_chunks():
+    chunk_text = module("discord", "formatting").chunk_text
+    text = "before\n```python\nfirst = 1\nsecond = 2\n```\nafter"
+
+    assert chunk_text(text, max_len=40) == [
+        "before\n```python\nfirst = 1\n```",
+        "```python\nsecond = 2\n```\nafter",
+    ]
+
+
+def test_chunk_text_boundary_fence_respects_message_limit():
+    chunk_text = module("discord", "formatting").chunk_text
+    text = "a" * 1998 + "\n```python\nx = 1\n```"
+
+    assert chunk_text(text) == [f"a" * 1998, f"```python\nx = 1\n```"]
+
+
+@pytest.mark.parametrize(f"sizes", [(1986,), (1986, 4), (1986, 1986, 128)])
+def test_chunk_text_splits_long_line_within_code_fence(sizes):
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    code_parts = [f"{index}" * size for index, size in enumerate(sizes)]
+    line = f"".join(code_parts)
+    text = f"```python\nx = 1\n{line}\n```"
+
+    assert chunk_text(text) == [
+        f"```python\nx = 1\n```",
+        *(f"```python\n{part}\n```" for part in code_parts),
+    ]
+
+
+def test_chunk_text_padded_closing_fence_respects_message_limit():
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    closing_fence = f"```" + f" " * 1990
+    text = f"```python\nx = 1\n{closing_fence}"
+
+    chunks = chunk_text(text)
+
+    assert chunks[0] == f"```python\nx = 1\n```"
+    assert all(len(chunk) <= 2000 for chunk in chunks)
+
+
+def test_chunk_text_preserves_blank_line_at_fence_boundary():
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    code = f"x" * 1991
+    text = f"```\n{code}\n\ny\n```"
+
+    assert chunk_text(text) == [f"```\n{code}\n```", f"```\n\ny\n```"]
+
+
+def test_chunk_text_preserves_blank_line_at_plain_text_boundary():
+    chunk_text = module(f"discord", f"formatting").chunk_text
+    text = f"xx\nx\nx\n\nxx"
+    max_len = 4
+
+    chunks = chunk_text(text, max_len=max_len)
+
+    assert f"\n".join(chunks) == text
+    assert all(len(chunk) <= max_len for chunk in chunks)
