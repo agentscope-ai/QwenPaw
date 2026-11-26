@@ -52,6 +52,7 @@
     "katex": "^0.16.47",
     "lexical": "0.48.0",
     "lucide-react": "^0.562.0",
+    "mammoth": "^1.13.0",
     "mermaid": "^11.12.2",
     "monaco-editor": "0.55.1",
     "motion": "^12.42.2",
