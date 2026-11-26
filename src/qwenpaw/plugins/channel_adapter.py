@@ -27,6 +27,7 @@ from ..channel_protocol.shared import (
     SharedChannelDescriptor,
 )
 from .architecture import PluginManifest, PluginType
+from ..shutdown import CHANNEL_SHUTDOWN_SECONDS
 
 CHANNEL_RUNTIME_NOT_INTEGRATED = "channel_runtime_not_integrated"
 
@@ -59,7 +60,7 @@ class ChannelRuntimeSettings:
     dependency_paths: tuple[Path, ...] = ()
     # Includes dependency-origin validation and the platform SDK's import.
     startup_timeout: float = 10.0
-    shutdown_timeout: float = 2.0
+    shutdown_timeout: float = CHANNEL_SHUTDOWN_SECONDS
     admission_timeout: float = 30.0
     dependency_install_target: Path | None = None
     runtime_identity: Mapping[str, Any] | None = None
@@ -222,7 +223,7 @@ class ChannelDescription:
         display_config=None,
         no_text_debounce: bool = True,
         startup_timeout: float = 5.0,
-        shutdown_timeout: float = 2.0,
+        shutdown_timeout: float = CHANNEL_SHUTDOWN_SECONDS,
         config_source: str = "config",
         connection_timeout: float | None = None,
         send_timeout: float = DEFAULT_SEND_TIMEOUT,

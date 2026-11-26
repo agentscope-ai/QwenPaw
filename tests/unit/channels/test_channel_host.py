@@ -2,16 +2,19 @@
 """Host lifecycle through real queues, Agents and child workers."""
 
 import asyncio
+from dataclasses import replace
 import importlib.abc
 import json
 import logging
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import threading
 
+import psutil
 import pytest
 import pytest_asyncio
 
@@ -2113,8 +2116,38 @@ async def test_application_shutdown_reaps_workers_and_preserves_installed_code(
     pids = [(await host.identity(ws))[1]["pid"] for ws in workspaces]
     from qwenpaw.plugins.lifecycle import UnloadMode
 
+    activity = host.loader.lifecycle.activity(KEY)
+    entered = asyncio.Event()
+    events = []
+
+    async def request():
+        with activity.invocation():
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("request finished")
+
+    async def flush():
+        for ws in workspaces:
+            channel = await ws.channel_manager.get_channel(KEY)
+            await channel.send(ws.agent_id, "shutting down")
+            events.append(ws.agent_id)
+
+    host.registry.register_shutdown_hook(KEY, "flush", flush)
+    task = asyncio.create_task(request())
+    await entered.wait()
     reports = await host.loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
-    assert reports and all(report.quiescent for report in reports)
+    assert task.cancelled()
+    assert events == ["request finished", "first", "second"]
+    assert [
+        (row["pid"], row["room"], list(texts(row["content_parts"])))
+        for row in rows(host.ledger, "sent")
+    ] == [
+        (pids[0], "first", ["shutting down"]),
+        (pids[1], "second", ["shutting down"]),
+    ]
+    assert reports and all(r.clean and r.quiescent for r in reports)
     assert all(not alive(pid) for pid in pids)
     assert not host.registry.runtime_owners.leases(KEY)
     assert (host.installed / "sample.py").is_file()
@@ -2137,14 +2170,13 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
     failure,
 ):
     import logging
-    from dataclasses import replace
 
     caplog.set_level(logging.INFO, logger="qwenpaw.plugins.startup")
     host.registry.channel_runtime = replace(
         host.registry.channel_runtime,
         connection_timeout=0.2 if failure == "timeout" else None,
     )
-    await host.workspace("diagnostic")
+    ws = await host.workspace("diagnostic")
     source = host.artifact(fail_start=failure == "failed")
     if failure != "failed":
         code = source / "sample.py"
@@ -2201,6 +2233,15 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
             row["event"] == "worker_exited" and row["returncode"] == 23
             for row in events
         )
+        channel = await ws.channel_manager.get_channel(KEY)
+        receipt = await ws.channel_manager.stop_one(KEY)
+        assert receipt.detail == "CHANNEL_STOP_INCOMPLETE"
+        assert not receipt.stopped and receipt.exited and not receipt.residual
+        assert channel.last_stop_result.acknowledged is False
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+        host.expected_unacknowledged_channel = channel
 
 
 @pytest.mark.asyncio
@@ -2243,9 +2284,147 @@ async def test_failed_worker_update_restores_usable_source_and_config(
 
 
 @pytest.mark.asyncio
-async def test_pending_host_state_stop_blocks_replacement_until_cleanup(host):
-    ws = await host.workspace("blocked-stop")
+async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
+    from qwenpaw.plugins.lifecycle import UnloadMode, UnloadReport
+
+    mode = UnloadMode.SHUTDOWN
+    ws = await host.workspace("shutdown-crash")
     await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    expected_error = [f"{KEY}: CHANNEL_STOP_INCOMPLETE"]
+    observed = []
+
+    async def hook():
+        observed.append(await ws.channel_manager.get_channel(KEY))
+
+    host.registry.register_shutdown_hook(KEY, "before-stop", hook)
+    async with channel._state_lock:
+        reports = await host.loader.lifecycle.unload_all(mode)
+        assert reports == [
+            UnloadReport(
+                KEY,
+                mode,
+                clean=False,
+                errors=expected_error,
+                quiescent=False,
+                needs_restart=True,
+            ),
+        ]
+        assert channel.last_stop_result.residual == ("HOST_STATE_IO_PENDING",)
+        assert observed == [channel]
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+    reports = await host.loader.lifecycle.unload_all(mode)
+    assert reports == [
+        UnloadReport(KEY, mode, clean=False, errors=expected_error),
+    ]
+    assert channel.last_stop_result.acknowledged is False
+    assert observed == [channel]
+    assert not host.registry.runtime_owners.leases(KEY)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_io", [False, True])
+async def test_uninstall_recovers_crashed_channel(host, pending_io, caplog):
+    ws = await host.workspace("uninstall-crash")
+    source = host.artifact()
+    descriptor = source / "channel.json"
+    spec = json.loads(descriptor.read_text(encoding="utf-8"))
+    spec["config_schema"]["x-qwenpaw-exclusive-resources"] = [
+        {"namespace": "test.account", "fields": ["app_id"]},
+    ]
+    descriptor.write_text(json.dumps(spec), encoding="utf-8")
+    await host.loader.load_plugin_from_path(source)
+    channel, before = await host.identity(ws)
+    host.expected_unacknowledged_channel = channel
+    leases = host.registry.runtime_owners.leases(KEY)
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    if pending_io:
+        channel._launch_spec = replace(
+            channel._launch_spec,
+            shutdown_timeout=0.2,
+        )
+        async with channel._state_lock:
+            blocked = await host.loader.unload_plugin(KEY, delete_files=True)
+            assert not blocked.quiescent and blocked.needs_restart
+            assert host.registry.runtime_owners.leases(KEY) == leases
+            assert host.installed.exists()
+
+    report = await host.loader.unload_plugin(KEY, delete_files=True)
+    assert report.clean and report.quiescent, report
+    assert not host.installed.exists()
+    assert host.registry.runtime_owners.leases(KEY) == ()
+    assert await ws.channel_manager.get_channel(KEY) is None
+    assert channel.last_stop_result.acknowledged is False
+    assert "without a stop reply" in caplog.text
+    await host.loader.load_plugin_from_path(source)
+    _, successor = await host.identity(ws)
+    assert successor["pid"] != before["pid"] and alive(successor["pid"])
+
+
+@pytest.mark.asyncio
+async def test_explicit_restart_recovers_reaped_channel(host):
+    from qwenpaw.plugins.lifecycle import QuiescenceError
+
+    ws = await host.workspace("crash-recovery")
+    await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    manager = ws.channel_manager
+    lease = channel._runtime_lease
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    for _ in range(2):
+        receipt = await manager.stop_one(KEY)
+        assert receipt.detail == "CHANNEL_STOP_INCOMPLETE"
+        assert not receipt.stopped and receipt.exited and not receipt.residual
+        assert channel.last_stop_result.acknowledged is False
+        assert host.registry.runtime_owners.leases(KEY) == (lease,)
+
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    async with channel._state_lock:
+        with pytest.raises(QuiescenceError) as error:
+            await manager.restart_channel(KEY)
+        assert error.value.receipt.residual == ("HOST_STATE_IO_PENDING",)
+        assert host.registry.runtime_owners.leases(KEY) == (lease,)
+
+    assert await manager.restart_channel(KEY) == {
+        "channel": KEY,
+        "status": "restarted",
+        "detail": "Channel restarted",
+    }
+    successor, after = await host.identity(ws)
+    assert after["config"] == before["config"]
+    assert alive(after["pid"]) and after["pid"] != before["pid"]
+    assert successor._runtime_lease.generation > lease.generation
+    assert host.registry.runtime_owners.leases(KEY) == (
+        successor._runtime_lease,
+    )
+    assert channel.last_stop_result.acknowledged is False
+
+
+@pytest.mark.asyncio
+async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
+    from qwenpaw.plugins.lifecycle import UnloadMode
+
+    host.registry.channel_runtime = replace(
+        host.registry.channel_runtime,
+        shutdown_timeout=1.5,
+    )
+    ws = await host.workspace("blocked-stop")
+    artifact = host.artifact()
+    if os.name != "nt":
+        # Require escalation to SIGKILL after the graceful RPC times out.
+        with (artifact / "sample.py").open("a", encoding="utf-8") as driver:
+            driver.write(
+                "\nimport signal\n"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n",
+            )
+    await host.loader.load_plugin_from_path(artifact)
     channel, before = await host.identity(ws)
     source = (host.installed / "sample.py").read_bytes()
     await channel._state_lock.acquire()
@@ -2259,11 +2438,52 @@ async def test_pending_host_state_stop_blocks_replacement_until_cleanup(host):
         assert not any(
             row["version"] == "2.0.0" for row in rows(host.ledger, "connected")
         )
-        assert host.registry.runtime_owners.leases(KEY)
+        assert host.registry.runtime_owners.leases(KEY) == (
+            channel._runtime_lease,
+        )
+        result = channel.last_stop_result
+        assert result.exited and result.residual == ("HOST_STATE_IO_PENDING",)
+        assert result.forced and result.acknowledged is False
+        if os.name != "nt":
+            assert result.returncode == -signal.SIGKILL
     finally:
         channel._state_lock.release()
     cleanup = await host.loader.unload_plugin(KEY)
-    assert cleanup.quiescent and not alive(before["pid"])
+    result = channel.last_stop_result
+    assert result.exited and result.residual == ()
+    assert result.acknowledged is False
+    assert not alive(before["pid"])
+    assert not cleanup.quiescent and cleanup.needs_restart
+    assert host.registry.runtime_owners.leases(KEY) == (
+        channel._runtime_lease,
+    )
+    # Retrying shutdown after the forced exit must preserve the failed stop.
+    reports = await host.loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+    assert len(reports) == 1
+    assert reports[0].quiescent and not reports[0].clean
+    assert reports[0].failed_channel_stops == [
+        f"{KEY}: CHANNEL_STOP_INCOMPLETE",
+    ]
+    assert not host.registry.runtime_owners.leases(KEY)
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_stop_can_retry_pending_host_state(host):
+    ws = await host.workspace("pending-state")
+    await host.loader.load_plugin_from_path(host.artifact())
+    channel, before = await host.identity(ws)
+    assert (await channel.channel_process.stop()).acknowledged
+    # Only host I/O remains after the worker's real stop reply.
+    channel._launch_spec = replace(channel._launch_spec, shutdown_timeout=0.2)
+    async with channel._state_lock:
+        receipt = await ws.channel_manager.stop_one(KEY)
+    assert not receipt.stopped and receipt.exited
+    assert receipt.residual == ("HOST_STATE_IO_PENDING",)
+    assert not alive(before["pid"])
+    assert host.registry.runtime_owners.leases(KEY) == (
+        channel._runtime_lease,
+    )
+    assert (await ws.channel_manager.stop_one(KEY)).stopped
     assert not host.registry.runtime_owners.leases(KEY)
 
 
