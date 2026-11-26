@@ -14,7 +14,7 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { openHtmlFile } from "../../utils/openHtmlFile";
 
 vi.mock("../../utils/openHtmlFile", () => ({
-  openHtmlFile: vi.fn(),
+  openHtmlFile: vi.fn().mockResolvedValue({ opened: true, mode: "native" }),
 }));
 
 vi.mock("../../utils/openExternalLink", () => ({
