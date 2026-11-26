@@ -59,7 +59,12 @@ def test_permanent_http_errors_do_not_fallback(status: int) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["quota exceeded", "insufficient quota", "insufficient_quota"],
+    [
+        "quota exceeded",
+        "quota_exceeded",
+        "insufficient quota",
+        "insufficient_quota",
+    ],
 )
 def test_client_quota_errors_fallback_without_retry(message: str) -> None:
     decision = classify_model_error(HttpError(400, message))
@@ -74,7 +79,12 @@ def test_client_quota_errors_fallback_without_retry(message: str) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["rate limit exceeded", "rate_limit_exceeded", "too many requests"],
+    [
+        "rate limit exceeded",
+        "rate_limit_exceeded",
+        "too many requests",
+        "too_many_requests",
+    ],
 )
 def test_client_rate_limit_messages_allow_retry_and_fallback(
     message: str,
@@ -122,6 +132,60 @@ def test_structured_quota_code_fallbacks_without_retry() -> None:
     )
 
     decision = classify_model_error(error)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+def test_top_level_structured_quota_code_fallbacks_without_retry() -> None:
+    request = httpx.Request("POST", "https://example.invalid")
+    response = httpx.Response(400, request=request)
+    error = openai.BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={"code": "insufficient_quota"},
+    )
+
+    decision = classify_model_error(error)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+async def test_openai_string_quota_error_fallbacks_without_retry() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": "quota_exceeded"},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(_handler)
+    async with httpx.AsyncClient(
+        transport=transport,
+        trust_env=False,
+    ) as http_client:
+        client = openai.AsyncOpenAI(
+            api_key="dummy",
+            base_url="https://example.invalid/v1",
+            http_client=http_client,
+            max_retries=0,
+        )
+        with pytest.raises(openai.BadRequestError) as exc_info:
+            await client.chat.completions.create(
+                model="primary",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+    decision = classify_model_error(exc_info.value)
 
     assert asdict(decision) == {
         "kind": "quota_exceeded",

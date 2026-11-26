@@ -139,6 +139,7 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
                 marker in message
                 for marker in (
                     "quota exceeded",
+                    "quota_exceeded",
                     "insufficient quota",
                     "insufficient_quota",
                 )
@@ -157,6 +158,7 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
                     "rate limit exceeded",
                     "rate_limit_exceeded",
                     "too many requests",
+                    "too_many_requests",
                 )
             )
         )
