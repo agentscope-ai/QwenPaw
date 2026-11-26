@@ -1,6 +1,7 @@
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
+  formatChunkDiagnostic,
   readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
@@ -70,11 +71,10 @@ export function installStartupMonitor(
   const readinessController = new AbortController();
   const placeholder = () => document.querySelector("#root .qwenpaw-boot");
   const diagnosticText = () =>
-    JSON.stringify(
-      { current: diagnostic, beforeAutomaticReload: previous },
-      null,
-      2,
-    );
+    formatChunkDiagnostic({
+      current: diagnostic,
+      beforeAutomaticReload: previous,
+    });
 
   function element<K extends keyof HTMLElementTagNameMap>(tag: K, text = "") {
     const node = document.createElement(tag);

@@ -13,6 +13,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -29,11 +30,14 @@ from ..constant import (
     DOCS_ENABLED,
     LOG_LEVEL_ENV,
     PROJECT_NAME,
+    SECRET_DIR,
     WORKING_DIR,
 )
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..process_ownership import backend_instance
+from ..remote_access.run_state import RelayRuns
+from ..remote_access.runtime import PlatformRuntimeConnection
 from ..shutdown import WORKSPACE_SHUTDOWN_SECONDS
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
@@ -50,6 +54,7 @@ from .auth import (
     TrustedProxySchemeMiddleware,
     auto_register_from_env,
     check_proxy_config_sanity,
+    platform_runtime_headers,
 )
 from .exception_handlers import register_exception_handlers
 from .response_compression import ResponseCompressionMiddleware
@@ -70,6 +75,11 @@ from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
+from .routers.remote_access import (
+    callback_router as platform_callback_router,
+    runtime_router as platform_runtime_router,
+)
+from .routers.console_frontend import create_console_frontend_router
 from .routers.channel_callbacks import channel_callbacks_router
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -816,6 +826,20 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
     community_task = asyncio.create_task(community_service.poll_loop())
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
+    api_address = read_last_api()
+    app.state.relay_runs = RelayRuns()
+    app.state.platform_connection = None
+    if api_address is not None:
+        host, port = api_address
+        host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+        base_url = str(httpx.URL(scheme="http", host=host, port=port))
+        app.state.platform_connection = PlatformRuntimeConnection(
+            SECRET_DIR,
+            base_url,
+            headers=platform_runtime_headers,
+            runs=app.state.relay_runs,
+        )
+        await app.state.platform_connection.start()
 
     try:
         yield
@@ -835,6 +859,11 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
             with suppress(asyncio.CancelledError):
                 await task
 
+        if app.state.platform_connection is not None:
+            await stop(
+                "Platform connection",
+                app.state.platform_connection.close,
+            )
         await stop("daily telemetry", daily_telemetry.close)
         await stop("community polling", cancel_task, community_task)
         await stop("community connection", community_service.close)
@@ -954,6 +983,7 @@ _CONSOLE_INDEX = (
     Path(_CONSOLE_STATIC_DIR) / "index.html" if _CONSOLE_STATIC_DIR else None
 )
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
+app.include_router(create_console_frontend_router(_CONSOLE_STATIC_DIR))
 
 # The SPA entry (index.html) must never be cached: it references content-hashed
 # JS/CSS bundles, so a stale cached index.html would keep pointing the WebView
@@ -1013,6 +1043,8 @@ app.include_router(runtime_router)
 
 
 app.include_router(api_router, prefix="/api")
+app.include_router(platform_callback_router)
+app.include_router(platform_runtime_router)
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

@@ -375,6 +375,20 @@ def has_registered_users() -> bool:
     return bool(data.get("user"))
 
 
+def platform_runtime_headers() -> dict[str, str]:
+    """Authenticate owned Relay calls without exporting local credentials."""
+    runtime_token = EnvVarLoader.get_str(_RUNTIME_TOKEN_ENV, "")
+    headers = (
+        {"X-QwenPaw-Runtime-Token": runtime_token} if runtime_token else {}
+    )
+    if is_auth_enabled():
+        username = _load_auth_data().get("user", {}).get("username")
+        if username:
+            token = create_token(username, expiry_seconds=60)
+            headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def owns_default_console_chat(username: str) -> bool:
     """Whether the authenticated principal owns legacy Console conversations."""
     # QwenPaw has one registered account. The main Console has always stored
