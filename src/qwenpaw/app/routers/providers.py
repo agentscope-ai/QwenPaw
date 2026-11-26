@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
+    ModelAdditionError,
 )
 
 from ..agent_context import get_agent_for_request
@@ -40,6 +41,7 @@ from ...providers.model_pool import (
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
+    provider_identity_key,
     validate_custom_provider_id,
 )
 from ...providers.provider_discovery_policy import (
@@ -169,7 +171,7 @@ class ProviderConfigRequest(BaseModel):
 
 
 def _should_auto_discover(
-    body: ProviderConfigRequest,
+    body: ProviderConfigRequest | CreateCustomProviderRequest,
     provider: object | None,
 ) -> bool:
     """Return whether a saved provider should start discovery."""
@@ -208,6 +210,7 @@ class CreateCustomProviderRequest(BaseModel):
     api_key_prefix: str = Field(default="")
     chat_model: CustomChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
+    auto_discover: bool = True
 
     @field_validator("id")
     @classmethod
@@ -219,6 +222,7 @@ class CreateCustomProviderRequest(BaseModel):
 class AddModelRequest(BaseModel):
     model_type: ModelType = "chat"
     template_id: str | None = None
+    max_input_length_auto_detected: int | None = Field(default=None, ge=1)
     id: str = Field(...)
     name: str = Field(...)
     is_free: bool = Field(
@@ -318,6 +322,27 @@ async def _load_agent_model(
     return agent_config.active_model
 
 
+def _setup_provider_info(info: ProviderInfo) -> ProviderInfo:
+    """Expose the connection status and stored model lists used for setup."""
+    return ProviderInfo(
+        id=info.id,
+        name=info.name,
+        base_url=info.base_url,
+        api_key=info.masked_api_key(),
+        api_key_prefix=info.api_key_prefix,
+        api_key_prefixes=info.api_key_prefixes,
+        freeze_url=info.freeze_url,
+        require_api_key=info.require_api_key,
+        is_custom=info.is_custom,
+        is_local=info.is_local,
+        enabled=info.enabled,
+        chat_model=info.chat_model,
+        models=info.models,
+        extra_models=info.extra_models,
+        removed_model_ids=info.removed_model_ids,
+    )
+
+
 @router.get(
     "",
     response_model=List[ProviderInfo],
@@ -325,8 +350,17 @@ async def _load_agent_model(
 )
 async def list_all_providers(
     manager: ProviderManager = Depends(get_provider_manager),
+    view: Literal["selected", "stored", "unavailable"] = "selected",
 ) -> List[ProviderInfo]:
-    return await manager.list_provider_info()
+    if view == "selected":
+        return await manager.list_provider_info()
+    if view == "unavailable":
+        saved = await run_sync_io(manager.saved_plugin_provider_infos)
+        return [_setup_provider_info(info) for info in saved.values()]
+    providers = await manager.list_provider_info(
+        include_unselected_models=True,
+    )
+    return [_setup_provider_info(info) for info in providers]
 
 
 @router.get(
@@ -376,6 +410,35 @@ async def preview_model_info(
     )
 
 
+@router.get(
+    "/{provider_id}/config",
+    response_model=ProviderInfo,
+    response_model_include={
+        "id",
+        "name",
+        "base_url",
+        "api_key",
+        "api_key_prefix",
+        "api_key_prefixes",
+        "freeze_url",
+        "require_api_key",
+        "is_custom",
+    },
+)
+async def get_provider_config(
+    provider_id: str,
+    manager: ProviderManager = Depends(get_provider_manager),
+):
+    """Read the editable connection settings, including for an offline plugin."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        saved = await run_sync_io(manager.saved_plugin_provider_infos)
+        provider = saved.get(provider_identity_key(provider_id))
+    if provider is None:
+        raise HTTPException(404, f"Provider '{provider_id}' not found")
+    return provider.model_copy(update={"api_key": provider.masked_api_key()})
+
+
 @router.put(
     "/{provider_id}/config",
     response_model=ProviderInfo,
@@ -412,8 +475,14 @@ async def configure_provider(
     name = body.name.strip() if body.name else None
     if name and provider is not None and provider.is_custom:
         config["name"] = name
-    ok = await manager.update_provider_async(provider_id, config)
-    if not ok:
+    if provider is None:
+        saved = await manager.update_saved_plugin_provider_async(
+            provider_id,
+            config,
+        )
+        if saved is not None:
+            return saved.model_copy(update={"api_key": saved.masked_api_key()})
+    if not await manager.update_provider_async(provider_id, config):
         raise HTTPException(
             status_code=404,
             detail=f"Provider '{provider_id}' not found",
@@ -467,7 +536,7 @@ async def create_custom_provider_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     provider = await run_sync_io(manager.get_provider, body.id)
-    if _should_auto_discover(ProviderConfigRequest(), provider):
+    if _should_auto_discover(body, provider):
         prepared = await manager.prepare_provider_model_discovery(body.id)
         if prepared is not None:
             background_tasks.add_task(
@@ -725,24 +794,15 @@ async def add_model_endpoint(
     body: AddModelRequest = Body(...),
 ) -> ProviderInfo:
     try:
-        model_payload = {"id": body.id, "name": body.name}
-        for field in (
-            "model_type",
-            "supports_multimodal",
-            "supports_image",
-            "supports_video",
-            "probe_source",
-            "is_free",
-            f"template_id",
-        ):
-            if field in body.model_fields_set:
-                model_payload[field] = getattr(body, field)
+        model_payload = body.model_dump(exclude_unset=True)
         if "model_type" in body.model_fields_set:
             model_payload["config_overrides"] = ["model_type"]
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
             model_info=ModelInfo(**model_payload),
         )  # Validate provider exists and add model
+    except ModelAdditionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider

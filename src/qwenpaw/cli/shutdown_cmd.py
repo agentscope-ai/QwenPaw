@@ -16,7 +16,7 @@ from .process_utils import (
     _process_table,
     _windows_process_snapshot,
 )
-from .windows_shutdown import signal_shutdown_event
+from ..utils.windows_shutdown import signal_shutdown_event
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()

@@ -158,14 +158,14 @@ def test_plugin_channel_without_custom_configurator_uses_fallback(
 
 
 def test_interactive_config_loads_plugins_before_building_menu():
-    """The interactive flow loads plugins before reading configurators."""
+    """Build the menu from a single catalog read after plugin registration."""
     calls = []
 
     def load_plugins():
         calls.append("load")
 
-    def get_configurators():
-        calls.append("configurators")
+    def read_catalog():
+        calls.append("catalog")
         return {}
 
     with (
@@ -176,12 +176,12 @@ def test_interactive_config_loads_plugins_before_building_menu():
         ),
         patch.object(
             channels_cmd,
-            "get_channel_configurators",
-            side_effect=get_configurators,
+            "get_configurable_channel_catalog",
+            side_effect=read_catalog,
         ),
         patch.object(channels_cmd, "get_channel_registry", return_value={}),
         patch.object(channels_cmd, "prompt_select", return_value="exit"),
     ):
         channels_cmd.configure_channels_interactive(channels_cmd.Config())
 
-    assert calls == ["load", "configurators"]
+    assert calls == ["load", "catalog"]

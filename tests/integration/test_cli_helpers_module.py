@@ -88,20 +88,6 @@ def test_channel_mask_long_keeps_prefix() -> None:
     assert _mask("supersecrettoken") == "supe****"
 
 
-@pytest.mark.integration
-@pytest.mark.p1
-def test_get_channel_names_returns_dict() -> None:
-    """Channel name map returns strings for registered channels."""
-    from qwenpaw.cli.channels_cmd import _get_channel_names
-
-    names = _get_channel_names()
-    assert isinstance(names, dict)
-    for key, value in names.items():
-        assert isinstance(key, str)
-        assert isinstance(value, str)
-        assert value
-
-
 # ------------------------------------------------------------------ #
 # skills_cmd
 # ------------------------------------------------------------------ #

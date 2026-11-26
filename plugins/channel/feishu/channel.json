@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "channel_key": "feishu",
   "label": {
     "en": "Feishu / Lark",
@@ -12,7 +12,7 @@
     "module": "qwenpaw_channel_feishu.driver",
     "qualname": "FeishuDriver"
   },
-  "requirements_file": "requirements.txt",
+  "requires": ["transport"],
   "config_schema": {
     "description": "Feishu/Lark channel: app_id, app_secret; optional encrypt_key,\nverification_token for event handler. media_dir for received media.\ndomain: 'feishu' for China, 'lark' for international.\nstreaming_enabled: enable CardKit streaming card updates for real-time\ntypewriter-style text output.\nauto_collapse_thinking: collapse the reasoning panel when its stream\nfinishes (the panel stays manually collapsible either way).\nshare_session_in_group: if True, all group members share one session;\nif False (default), each member gets an independent session.",
     "properties": {
