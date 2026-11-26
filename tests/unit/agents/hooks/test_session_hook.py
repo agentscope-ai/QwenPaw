@@ -122,3 +122,49 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
         release.set()
         await task
     assert completed
+
+
+async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch):
+    from agentscope.message import Msg
+
+    from qwenpaw.token_usage import turn_usage
+    from qwenpaw.token_usage.model_wrapper import isolated_turn_usage
+
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+    ctx.workspace.agent_id = "default"
+    message = Msg(
+        name="assistant",
+        content=[{"type": "text", "text": "done"}],
+        role="assistant",
+    )
+    ctx.agent.state = SimpleNamespace(context=[message])
+    ctx.agent.state_dict = lambda: {
+        "state": {"context": [message.model_dump(mode="json")]},
+    }
+    usage = {"total_tokens": 12}
+    monkeypatch.setattr(
+        turn_usage.TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        lambda session_id: usage,
+    )
+
+    async def no_context_estimate(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        turn_usage,
+        "snapshot_context_usage_for_state",
+        no_context_estimate,
+    )
+
+    with isolated_turn_usage():
+        await SessionSaveHook().run(ctx)
+
+    saved = session.saved_payload["state"]["context"][0]
+    assert (
+        saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"][
+            "total_tokens"
+        ]
+        == 12
+    )
