@@ -741,6 +741,42 @@ def get_vlm_model_name() -> str:
     )
 
 
+def _section_protocol(tool_name: str, section_key: str, env_name: str) -> str:
+    """Saved protocol label for one model section, request-scoped first."""
+
+    tool_config = get_request_tool_config(tool_name)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get(section_key)
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get(env_name, "").strip()
+
+
+def get_asr_protocol() -> str:
+    return _section_protocol(
+        CREATOR_ASR_CONFIG_TOOL,
+        "asr",
+        "ASR_PROTOCOL",
+    )
+
+
+def get_tts_protocol() -> str:
+    return _section_protocol(
+        CREATOR_TTS_CONFIG_TOOL,
+        "tts",
+        "TTS_PROTOCOL",
+    )
+
+
+def get_video_protocol() -> str:
+    return _section_protocol(
+        CREATOR_VIDEO_CONFIG_TOOL,
+        "video",
+        "VIDEO_PROTOCOL",
+    )
+
+
 def get_vlm_protocol() -> str:
     if _vlm_use_llm():
         return get_text_protocol()

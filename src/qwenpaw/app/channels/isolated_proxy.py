@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from functools import partial
 import hashlib
 import json
 import logging
@@ -425,7 +426,7 @@ class IsolatedChannelProxy(BaseChannel):
                 result = self.last_stop_result
                 if result and "HOST_STATE_IO_PENDING" in result.residual:
                     raise RuntimeError("HOST_STATE_IO_PENDING")
-                if result is None or not result.exited or result.residual:
+                if result is None or not self._stop_complete(result):
                     raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             if self._started or not self.enabled:
                 return
@@ -553,6 +554,14 @@ class IsolatedChannelProxy(BaseChannel):
             self._admission_wakeup()
         return await run_async_to_completion(self._stop())
 
+    @staticmethod
+    def _stop_complete(result):
+        return (
+            result.exited
+            and not result.residual
+            and result.acknowledged is not False
+        )
+
     async def _stop(self):
         async with self._lifecycle_lock:
             await self._stop_stream_flushes()
@@ -589,7 +598,7 @@ class IsolatedChannelProxy(BaseChannel):
                     ),
                 )
             self.last_stop_result = result
-            if not result.exited or result.residual:
+            if not self._stop_complete(result):
                 raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             self._started = False
             return result
@@ -2434,24 +2443,33 @@ class IsolatedChannelProxy(BaseChannel):
             ),
         )
 
-    async def _send_model_fallback_notice(self, to_handle, event, send_meta):
+    async def _send_model_fallback_notice(
+        self,
+        to_handle,
+        event,
+        send_meta,
+        *,
+        dispatched=None,
+    ):
         scope = self._response_context.get()
         ordinary = scope.get("ordinary_event") if scope is not None else None
+        parent = super()._send_model_fallback_notice
         if ordinary is None or not (
             ordinary[0] is asyncio.current_task()
             and ordinary[1] is event
             and ordinary[2] is send_meta
         ):
-            return await super()._send_model_fallback_notice(
+            return await parent(
                 to_handle,
                 event,
                 send_meta,
+                dispatched=dispatched,
             )
         try:
             await self._ordinary_event_delivery(
                 to_handle,
                 send_meta,
-                super()._send_model_fallback_notice,
+                partial(parent, dispatched=dispatched),
                 to_handle,
                 event,
                 send_meta,

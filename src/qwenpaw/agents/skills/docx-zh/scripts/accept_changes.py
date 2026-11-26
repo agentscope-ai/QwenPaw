@@ -1,3 +1,5 @@
+# Modified by QwenPaw.
+
 """Accept all tracked changes in a DOCX file using LibreOffice.
 
 Requires LibreOffice (soffice) to be installed.

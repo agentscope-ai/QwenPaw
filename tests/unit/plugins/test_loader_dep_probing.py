@@ -1349,9 +1349,17 @@ async def test_host_observation_reuses_only_scoped_raw_inputs(
             reads[name] += 1
         return original(distribution, name)
 
+    realpath = deps.os.path.realpath
+
+    def counted_path(path, *args, **kwargs):
+        if path == module:
+            reads["package_path"] += 1
+        return realpath(path, *args, **kwargs)
+
     monkeypatch.setattr(PathDistribution, "read_text", counted)
+    monkeypatch.setattr(deps.os.path, "realpath", counted_path)
     packet = {"code_root": source, "_audit_sites": (site,)}
-    fact = HostModuleFact("shared_ns.actual", 1, str(module), (), ())
+    fact = HostModuleFact("plugin_alias", 1, str(module), (), ())
     async with environment_observation((site,)):
         inputs = observation_inputs()
         async with environment_observation((site,)):
@@ -1372,6 +1380,7 @@ async def test_host_observation_reuses_only_scoped_raw_inputs(
             record_reads=inputs["records"],
         )
         assert reads["METADATA"] == reads["RECORD"] == 1
+        assert reads["package_path"] == 1
         with observation_write():
             metadata.write_text("Name: sdk\nVersion: 2.0\n")
             record.write_text("unrelated.py,,\n")

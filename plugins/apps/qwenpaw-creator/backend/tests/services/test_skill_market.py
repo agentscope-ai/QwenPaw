@@ -157,6 +157,33 @@ def test_unavailable_and_unbrowsable_providers_are_excluded(
     assert capture["provider_pages"] == {"live": 3}
 
 
+def test_provider_filter_narrows_the_searched_markets(monkeypatch) -> None:
+    """The source picker narrows which markets answer, and can never pull an
+    unavailable one back in or drop the default when left empty."""
+
+    capture: dict = {}
+    _install_fake_service(
+        monkeypatch,
+        [
+            _Provider("live", available=True, supports_browse=True),
+            _Provider("other", available=True, supports_browse=True),
+            _Provider("down", available=False, supports_browse=True),
+        ],
+        capture,
+    )
+
+    _run(skill_market.search_skills("demo", providers=["live"]))
+    assert capture["provider_pages"] == {"live": 1}
+
+    # Naming an unavailable market does not force it back into the search.
+    _run(skill_market.search_skills("demo", providers=["live", "down"]))
+    assert capture["provider_pages"] == {"live": 1}
+
+    # An empty filter is the default: every reachable market is searched.
+    _run(skill_market.search_skills("demo", providers=[]))
+    assert capture["provider_pages"] == {"live": 1, "other": 1}
+
+
 def test_limit_is_capped_and_page_floor_applied(monkeypatch) -> None:
     """The adapter owns the caps, so a huge client page cannot leak through."""
 

@@ -36,12 +36,7 @@ class LocalProvider:
         if self.closed or self._failed:
             raise SDKError("Local model provider needs to be reloaded")
 
-    async def _start(self):
-        if self._manager is not None:
-            return
-        from .manager import LocalModelManager
-
-        saved = await self.context.storage.aread_json("data-root.json", {})
+    def _resolve_data_directory(self, saved):
         data_dir = Path(
             self.context.config.get(
                 "data_dir",
@@ -50,7 +45,27 @@ class LocalProvider:
         )
         # Workers resolve staging paths too. Use the same root spelling here
         # so promoting a download through a symlink can compute relative paths.
-        data_dir = data_dir.expanduser().resolve()
+        return data_dir.expanduser().resolve()
+
+    async def data_directory(self):
+        """Resolve owned data without creating a manager or writing settings."""
+        saved = await self.context.storage.aread_json("data-root.json", {})
+        return self._resolve_data_directory(saved)
+
+    def runtime_status(self):
+        """Describe this owner's server without starting or probing it."""
+        self._guard()
+        if not self._started:
+            return {"running": False, "initialized": False}
+        return {"initialized": True, **self._manager.get_server_status()}
+
+    async def _start(self):
+        if self._manager is not None:
+            return
+        from .manager import LocalModelManager
+
+        saved = await self.context.storage.aread_json("data-root.json", {})
+        data_dir = self._resolve_data_directory(saved)
         if saved.get("data_dir") != str(data_dir):
             await self.context.storage.awrite_json(
                 "data-root.json",

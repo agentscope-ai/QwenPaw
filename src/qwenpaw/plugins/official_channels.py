@@ -148,11 +148,14 @@ def _extracted_channel_source(plugin_id, row, payload, *, retain=None):
         if not compatible:
             raise ValueError(reason)
         description = describe_channel(source, manifest)
+        dependency_source = (
+            description.requirements_path or source / "plugin.json"
+        )
         if (
             description.descriptor.channel_key != official["channel_key"]
             or _digest(description.descriptor_path.read_bytes())
             != row["descriptor_sha256"]
-            or _digest(description.requirements_path.read_bytes())
+            or _digest(dependency_source.read_bytes())
             != row["requirements_sha256"]
         ):
             raise ValueError("Official source digest mismatch")

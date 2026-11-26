@@ -1581,12 +1581,17 @@ class TestIsQwenpawRunning:
         assert cu.is_qwenpaw_running() is False
         assert fake_socket.created == []
 
-    def test_successful_connect(self, monkeypatch, fake_socket):
-        monkeypatch.setattr(cu, "read_last_api", lambda: ("127.0.0.1", 8000))
+    @pytest.mark.parametrize(
+        "host,family",
+        [("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)],
+    )
+    def test_successful_connect(self, monkeypatch, fake_socket, host, family):
+        monkeypatch.setattr(cu, "read_last_api", lambda: (host, 8000))
         fake_socket.results = [0]
 
         assert cu.is_qwenpaw_running() is True
-        assert fake_socket.probed == ("127.0.0.1", 8000)
+        assert fake_socket.probed == (host, 8000)
+        assert fake_socket.created == [(family, socket.SOCK_STREAM)]
 
     def test_refused_connect(self, monkeypatch, fake_socket):
         monkeypatch.setattr(cu, "read_last_api", lambda: ("127.0.0.1", 8000))

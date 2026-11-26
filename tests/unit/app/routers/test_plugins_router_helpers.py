@@ -19,14 +19,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.plugins import (
-    _find_plugin_dir,
     _list_plugins_from_disk,
     _market_id_from_source,
     _read_market_id,
-    _safe_extract_zip,
     _stamp_market_provenance,
     router as plugins_router,
 )
+from qwenpaw.plugins.archive import find_plugin_root, safe_extract_zip
 
 
 def _zip_bytes(entries: dict[str, str]) -> bytes:
@@ -64,18 +63,13 @@ def test_dependency_refusal_instructions_match_failure_stage(code, expected):
         assert "requirements" not in response.detail["instructions"][0].lower()
 
 
-# ---------------------------------------------------------------------------
-# _safe_extract_zip
-# ---------------------------------------------------------------------------
-
-
 class TestSafeExtractZip:
     def test_normal_members_extract(self, tmp_path):
         dest = tmp_path / "out"
         dest.mkdir()
         data = _zip_bytes({"a.txt": "A", "sub/b.txt": "B"})
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            _safe_extract_zip(zf, dest)
+            safe_extract_zip(zf, dest)
         assert (dest / "a.txt").read_text(encoding="utf-8") == "A"
         assert (dest / "sub" / "b.txt").read_text(encoding="utf-8") == "B"
 
@@ -85,7 +79,7 @@ class TestSafeExtractZip:
         data = _zip_bytes({"../escape.txt": "evil"})
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             with pytest.raises(ValueError, match="Zip Slip"):
-                _safe_extract_zip(zf, dest)
+                safe_extract_zip(zf, dest)
         assert not (tmp_path / "escape.txt").exists()
 
     def test_absolute_member_rejected(self, tmp_path):
@@ -94,29 +88,24 @@ class TestSafeExtractZip:
         data = _zip_bytes({"/etc/passwd": "evil"})
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             with pytest.raises(ValueError, match="Zip Slip"):
-                _safe_extract_zip(zf, dest)
-
-
-# ---------------------------------------------------------------------------
-# _find_plugin_dir
-# ---------------------------------------------------------------------------
+                safe_extract_zip(zf, dest)
 
 
 class TestFindPluginDir:
     def test_plugin_json_at_base(self, tmp_path):
         (tmp_path / "plugin.json").write_text("{}", encoding="utf-8")
-        assert _find_plugin_dir(tmp_path) == tmp_path
+        assert find_plugin_root(tmp_path) == tmp_path
 
     def test_plugin_json_in_single_subdir(self, tmp_path):
         inner = tmp_path / "my-plugin"
         inner.mkdir()
         (inner / "plugin.json").write_text("{}", encoding="utf-8")
-        assert _find_plugin_dir(tmp_path) == inner
+        assert find_plugin_root(tmp_path) == inner
 
     def test_no_plugin_json_raises(self, tmp_path):
         (tmp_path / "other.txt").write_text("x", encoding="utf-8")
         with pytest.raises(ValueError):
-            _find_plugin_dir(tmp_path)
+            find_plugin_root(tmp_path)
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Modal, Spin, message, type InputRef } from "antd";
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Spin,
+  Tooltip,
+  message,
+  type InputRef,
+} from "antd";
 import {
   Download,
   Globe,
@@ -120,6 +129,28 @@ export default function SkillMarketBrowser({
   const [rowInstallNames, setRowInstallNames] =
     useState<Record<string, string>>(readRowMemory);
   const [providers, setProviders] = useState<MarketProvider[]>([]);
+  /**
+   * The source-picker filter. ``undefined`` means "every reachable market"
+   * (the default), so the initial browse sends no filter and behaves exactly
+   * as before the picker existed. ``committedProviders`` mirrors the filter
+   * the on-screen results belong to, so paging never mixes markets.
+   */
+  const [selectedProviders, setSelectedProviders] = useState<
+    string[] | undefined
+  >(undefined);
+  const [committedProviders, setCommittedProviders] = useState<
+    string[] | undefined
+  >(undefined);
+  /**
+   * The term of the most recent *submitted* search, recorded when the user
+   * commits it rather than when the response lands. ``committedQuery`` cannot
+   * fill this role: it only advances on success, so a source-filter change
+   * landing while a newer search is still in flight would re-run the
+   * superseded term, bump the sequence guard, and have that guard discard the
+   * newer response -- leaving the input box and the rows describing different
+   * terms with no way back.
+   */
+  const submittedQueryRef = useRef("");
   const searchSeqRef = useRef(0);
   const resultsRef = useRef<MarketSkillResult[]>([]);
   const inputRef = useRef<InputRef>(null);
@@ -163,9 +194,38 @@ export default function SkillMarketBrowser({
     };
   }, [open, t]);
 
-  const unavailableProviders = useMemo(
-    () => providers.filter((provider) => !provider.available),
-    [providers],
+  // The picker starts empty on purpose: an empty selection already means
+  // "every reachable market", so the closed control shows the all-markets
+  // placeholder instead of pre-filling one chip per market. This mirrors the
+  // console market's provider picker, whose value is only what the user picked.
+  const selectValue = selectedProviders ?? [];
+  const providerOptions = useMemo(
+    () =>
+      providers.map((provider) => {
+        if (provider.available) {
+          return {
+            value: provider.key,
+            label: provider.label,
+            disabled: false,
+          };
+        }
+        // Unreachable markets stay listed but disabled, carrying the host's
+        // own reason (e.g. Aliyun's missing AK/SK) on a hover tooltip — the
+        // same treatment the console market gives an unconfigured provider.
+        // This is where that notice lives now, not a banner above results.
+        const reason =
+          provider.reason ?? t("skills.marketProviderUnavailableReason");
+        return {
+          value: provider.key,
+          disabled: true,
+          label: (
+            <Tooltip title={reason} mouseEnterDelay={0}>
+              <span>{provider.label}</span>
+            </Tooltip>
+          ),
+        };
+      }),
+    [providers, t],
   );
 
   const isRowInstalled = useCallback(
@@ -178,12 +238,20 @@ export default function SkillMarketBrowser({
   );
 
   const doSearch = useCallback(
-    async (searchQuery: string, searchPage: number) => {
+    async (
+      searchQuery: string,
+      searchPage: number,
+      providerKeys?: string[],
+    ) => {
       const seq = searchSeqRef.current + 1;
       searchSeqRef.current = seq;
       setLoading(true);
+      const filter =
+        providerKeys && providerKeys.length > 0 ? providerKeys : undefined;
       try {
-        const res = await searchMarketSkills(searchQuery, searchPage, 20, lang);
+        const res = filter
+          ? await searchMarketSkills(searchQuery, searchPage, 20, lang, filter)
+          : await searchMarketSkills(searchQuery, searchPage, 20, lang);
         if (seq !== searchSeqRef.current) return;
         const accumulated =
           searchPage === 1
@@ -198,6 +266,7 @@ export default function SkillMarketBrowser({
         // click retries the page that failed instead of skipping it.
         setPage(searchPage);
         setCommittedQuery(searchQuery);
+        setCommittedProviders(filter);
       } catch (error) {
         if (seq !== searchSeqRef.current) return;
         // The host says what to do in the detail: a 501 explains that this
@@ -218,12 +287,27 @@ export default function SkillMarketBrowser({
   );
 
   const handleSearch = useCallback(() => {
-    void doSearch(query, 1);
-  }, [query, doSearch]);
+    submittedQueryRef.current = query;
+    void doSearch(query, 1, selectedProviders);
+  }, [query, doSearch, selectedProviders]);
 
   const handleLoadMore = useCallback(() => {
-    void doSearch(committedQuery, page + 1);
-  }, [committedQuery, page, doSearch]);
+    void doSearch(committedQuery, page + 1, committedProviders);
+  }, [committedQuery, page, committedProviders, doSearch]);
+
+  // Narrowing the source picker re-runs the last submitted term against the
+  // new subset from page 1; clearing it means "every reachable market" again.
+  // The submitted term rather than ``committedQuery``: the latter still names
+  // the previous search while a newer one is in flight, and re-running it
+  // would outrank that search in the sequence guard and drop its response.
+  const handleProvidersChange = useCallback(
+    (keys: string[]) => {
+      const next = keys.length > 0 ? keys : undefined;
+      setSelectedProviders(next);
+      void doSearch(submittedQueryRef.current, 1, next);
+    },
+    [doSearch],
+  );
 
   const handleInstall = useCallback(
     async (item: MarketSkillResult) => {
@@ -278,6 +362,7 @@ export default function SkillMarketBrowser({
     if (open) {
       setQuery("");
       setCommittedQuery("");
+      submittedQueryRef.current = "";
       setResults([]);
       resultsRef.current = [];
       setSearched(false);
@@ -288,6 +373,8 @@ export default function SkillMarketBrowser({
       // meanwhile. The row-to-name memory stays: it is validated against the
       // library on every render, so only skills that still exist match.
       setLocalInstalled(new Set());
+      setSelectedProviders(undefined);
+      setCommittedProviders(undefined);
       void doSearch("", 1);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -320,37 +407,21 @@ export default function SkillMarketBrowser({
         {t("skills.marketDesc")}
       </div>
 
-      {/* Markets the runtime cannot reach, named with the host's own reason. */}
-      {unavailableProviders.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 6,
-            flexWrap: "wrap",
-            fontSize: 11.5,
-            lineHeight: 1.5,
-            color: "var(--color-warning)",
-            marginBottom: 12,
-          }}
-        >
-          <Globe size={13} style={{ marginTop: 2 }} />
-          <span>
-            {t("skills.marketProviderUnavailable", {
-              providers: unavailableProviders
-                .map((provider) =>
-                  provider.reason
-                    ? `${provider.label} (${provider.reason})`
-                    : provider.label,
-                )
-                .join(", "),
-            })}
-          </span>
-        </div>
-      )}
-
-      {/* Search bar */}
+      {/* Search bar + market source filter. Unreachable markets (e.g. Aliyun
+          without AK/SK) live in the picker as disabled options carrying the
+          host's reason, so no separate warning banner is needed. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <Select
+          mode="multiple"
+          value={selectValue}
+          options={providerOptions}
+          onChange={handleProvidersChange}
+          placeholder={t("skills.marketProviderAll")}
+          aria-label={t("skills.marketProviderFilter")}
+          maxTagCount="responsive"
+          popupMatchSelectWidth={false}
+          style={{ minWidth: 150, maxWidth: 240 }}
+        />
         <Input
           ref={inputRef}
           value={query}

@@ -8,11 +8,12 @@ import stat
 import sys
 import threading
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
-from ..cli.windows_shutdown import install_shutdown_handlers
+from ..utils.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -32,6 +33,8 @@ from ..constant import (
 )
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from ..process_ownership import backend_instance
+from ..shutdown import WORKSPACE_SHUTDOWN_SECONDS
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
@@ -71,7 +74,6 @@ from .routers.channel_callbacks import channel_callbacks_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
-_WORKSPACE_SHUTDOWN_DEADLINE_SECONDS = 12.0
 
 # Uvicorn imports this module inside the serving process. Under ``--reload``
 # that is a spawned child, distinct from the CLI/reloader process, so it must
@@ -92,8 +94,8 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-async def _shutdown_plugins(app: FastAPI) -> None:
-    """Tear down plugin runtime resources before other services stop."""
+async def _shutdown_plugins(app: FastAPI) -> list[str]:
+    """Quiesce plugin resources and return deferred cleanup failures."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
         await plugin_loader.stop_dependency_installs()
@@ -112,11 +114,26 @@ async def _shutdown_plugins(app: FastAPI) -> None:
             raise RuntimeError(
                 "Plugin shutdown incomplete: " + ", ".join(failed),
             )
-        return
+        failed_hooks = [
+            f"{report.plugin_id}/{hook}"
+            for report in reports
+            for hook in report.failed_shutdown_hooks
+        ]
+        failures = [
+            f"Channel shutdown failed: {report.plugin_id}/{error}"
+            for report in reports
+            for error in report.failed_channel_stops
+        ]
+        if failed_hooks:
+            failures.append(
+                f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}",
+            )
+        return failures
     plugin_registry = getattr(app.state, "plugin_registry", None)
     if plugin_registry is None:
-        return
+        return []
     logger.info("Executing plugin shutdown hooks...")
+    failed_hooks = []
     for hook in plugin_registry.get_shutdown_hooks():
         try:
             logger.info(
@@ -132,12 +149,17 @@ async def _shutdown_plugins(app: FastAPI) -> None:
                 f"from plugin '{hook.plugin_id}'",
             )
         except Exception as exc:
+            failed_hooks.append(f"{hook.plugin_id}/{hook.hook_name}")
             logger.error(
                 f"✗ Failed to execute shutdown hook "
                 f"'{hook.hook_name}' "
                 f"from plugin '{hook.plugin_id}': {exc}",
                 exc_info=True,
             )
+
+    if failed_hooks:
+        return [f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}"]
+    return []
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -165,7 +187,7 @@ async def _stop_workspaces_after_dependents(
     app: FastAPI,
     import_jobs: Any,
     *,
-    deadline_sec: float = _WORKSPACE_SHUTDOWN_DEADLINE_SECONDS,
+    deadline_sec: float = WORKSPACE_SHUTDOWN_SECONDS,
 ) -> None:
     """Stop workspace dependents, hard-exiting if they cannot quiesce."""
     completed = threading.Event()
@@ -178,15 +200,20 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    await _stop_workspaces_after_dependents_impl(app, import_jobs)
-    # A failed stop can leave live dependents; retain the exit deadline.
+    failures = await _stop_workspaces_after_dependents_impl(
+        app,
+        import_jobs,
+    )
+    # Resources have quiesced even if a plugin failed to flush its state.
     completed.set()
+    if failures:
+        raise RuntimeError("; ".join(failures))
 
 
 async def _stop_workspaces_after_dependents_impl(
     app: FastAPI,
     import_jobs: Any,
-) -> None:
+) -> list[str]:
     """Quiesce management, imports and hooks before destroying workspaces."""
     failures = []
     for name in (
@@ -211,17 +238,15 @@ async def _stop_workspaces_after_dependents_impl(
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
-    await _shutdown_plugins(app)
+    plugin_failures = await _shutdown_plugins(app)
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
     multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
     if multi_agent_mgr is not None:
         logger.info("Stopping MultiAgentManager...")
-        try:
-            await multi_agent_mgr.stop_all()
-        except Exception as exc:
-            logger.error("Error stopping MultiAgentManager: %s", exc)
+        await multi_agent_mgr.stop_all()
+    return plugin_failures
 
 
 async def _stop_browser_runtime(app: FastAPI) -> None:
@@ -232,21 +257,32 @@ async def _stop_browser_runtime(app: FastAPI) -> None:
         with suppress(asyncio.CancelledError):
             await browser_watchdog
     browser_kernel = getattr(app.state, "browser_kernel", None)
-    if browser_kernel is not None:
-        try:
-            await browser_kernel.discard_all_workers()
-        except Exception:
-            logger.error("Error shutting down browser workers", exc_info=True)
     from ..browser.runtime.managed_playwright import (
         stop_managed_chromium_download,
     )
 
-    await stop_managed_chromium_download()
+    try:
+        if browser_kernel is not None:
+            await browser_kernel.discard_all_workers()
+    finally:
+        await stop_managed_chromium_download()
 
 
 @asynccontextmanager
-async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
+async def lifespan(app: FastAPI):
+    async with AsyncExitStack() as stack:
+        instance = backend_instance()
+        record_failure = instance.__enter__()
+        # In-flight async launches need the event loop to finish enrollment.
+        stack.push_async_exit(partial(run_sync_io, instance.__exit__))
+        async with _application_lifespan(app, record_failure):
+            yield
+
+
+@asynccontextmanager
+async def _application_lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
+    record_failure,
 ):
     startup_start_time = time.time()
     add_project_file_handler(LOG_FILE_PATH)
@@ -548,12 +584,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_dirs,
                 channel_runtime=channel_runtime,
             )
-            from ..cli.app_cmd import _dependency_restart
+            from .server_context import dependency_restart
 
-            if _dependency_restart is not None:
+            restart_plan = dependency_restart()
+            if restart_plan is not None:
                 import signal
 
-                plugin_loader.dependency_upgrade_restart = _dependency_restart
+                plugin_loader.dependency_upgrade_restart = restart_plan
                 plugin_loader.dependency_upgrade_shutdown = (
                     lambda: signal.raise_signal(signal.SIGINT)
                 )
@@ -783,80 +820,67 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     try:
         yield
     finally:
-        await daily_telemetry.close()
-        community_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await community_task
-        await community_service.close()
+        failures = []
 
-        # Cancel background startup if still in progress
-        if not _bg_task.done():
-            _bg_task.cancel()
+        async def stop(name, operation, *args):
+            try:
+                await operation(*args)
+            except (Exception, asyncio.CancelledError) as exc:
+                logger.exception("Error stopping %s", name)
+                failures.append(exc)
+                record_failure()
+
+        async def cancel_task(task):
+            task.cancel()
             with suppress(asyncio.CancelledError):
-                await _bg_task
+                await task
 
-        # Import jobs can write workspaces and install plugins. Stop them
-        # before closing the services they depend on.
+        await stop("daily telemetry", daily_telemetry.close)
+        await stop("community polling", cancel_task, community_task)
+        await stop("community connection", community_service.close)
+
+        if not _bg_task.done():
+            await stop("background startup", cancel_task, _bg_task)
+
+        # Workspace dependents must quiesce before their workspaces stop.
+        # An error in that stage still allows independent services to close.
         from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
 
-        await _stop_workspaces_after_dependents(app, PORTABILITY_IMPORT_JOBS)
-
-        logger.info("Stopping BackupManager...")
-        await backup_manager.shutdown()
-
-        await _stop_browser_runtime(app)
+        await stop(
+            "workspaces",
+            _stop_workspaces_after_dependents,
+            app,
+            PORTABILITY_IMPORT_JOBS,
+        )
+        await stop("BackupManager", backup_manager.shutdown)
+        await stop("browser workers", _stop_browser_runtime, app)
         from ..agents.tools import shutdown_browser_runtime
 
-        await shutdown_browser_runtime()
+        await stop("browser runtime", shutdown_browser_runtime)
+        app_services = getattr(app.state, "app_services", None)
+        if app_services is not None:
+            await stop("AppServiceManager", app_services.stop)
 
-        # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
-        _app_svc = getattr(app.state, "app_services", None)
-        if _app_svc is not None:
-            try:
-                await _app_svc.stop()
-            except Exception as e:
-                logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
 
-        async def _stop_token_usage():
-            logger.info("Stopping TokenUsageManager...")
-            try:
-                await token_usage_manager.stop()
-            except Exception as e:
-                logger.error(
-                    f"Error stopping TokenUsageManager: {e}",
-                )
-
-        async def _close_hub():
-            try:
-                await aclose_hub_client()
-            except Exception as e:
-                logger.error(
-                    f"Error closing skills hub HTTP client: {e}",
-                )
-
         await asyncio.gather(
-            _stop_token_usage(),
-            _close_hub(),
+            stop("TokenUsageManager", token_usage_manager.stop),
+            stop("skill hub client", aclose_hub_client),
         )
 
-        # Destroy Windows sandbox artifacts (user accounts, profiles, ACLs,
-        # firewall rules). Runs in a thread because it invokes subprocess
-        # calls (takeown, icacls, net user, powershell) that may block.
         if sys.platform == "win32":
-            try:
-                from ..sandbox import shutdown_all_sandboxes
+            from ..sandbox import shutdown_all_sandboxes
 
-                logger.info("Cleaning up Windows sandbox artifacts...")
-                await asyncio.to_thread(shutdown_all_sandboxes)
-                logger.info("Windows sandbox cleanup complete.")
-            except Exception as e:
-                logger.error(f"Error during sandbox cleanup: {e}")
+            await stop(
+                "Windows sandboxes",
+                asyncio.to_thread,
+                shutdown_all_sandboxes,
+            )
 
-        logger.info("Application shutdown complete")
         startup_display.stop()
+        if failures:
+            raise failures[0]
+        logger.info("Application shutdown complete")
 
 
 app = FastAPI(
@@ -961,8 +985,16 @@ def read_root():
 
 
 @app.get("/api/version")
-def get_version():
-    """Return the current application version (public-safe payload)."""
+def get_version(request: Request, response: Response):
+    """Report the version and optionally acknowledge a local profile probe."""
+    from ..utils.runtime_api import PROFILE_PROBE_HEADER, profile_probe_reply
+
+    probe = request.headers.get(PROFILE_PROBE_HEADER)
+    if probe:
+        reply = profile_probe_reply(probe)
+        if reply is not None:
+            response.headers[PROFILE_PROBE_HEADER] = reply
+            response.headers["Cache-Control"] = "no-store"
     return {
         "version": __version__,
     }

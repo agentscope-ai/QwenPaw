@@ -709,7 +709,7 @@ def qa_env(tmp_path, monkeypatch):
         lambda agent_id, agent_config: saved_agents.append(agent_id),
     )
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        "qwenpaw.services.agent_setup.initialize_agent_workspace",
         lambda ws, skill_names, md_template_id: initialized.append(
             (Path(ws), list(skill_names), md_template_id),
         ),

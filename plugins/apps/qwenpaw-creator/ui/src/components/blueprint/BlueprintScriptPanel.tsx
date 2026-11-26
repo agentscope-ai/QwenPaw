@@ -400,6 +400,27 @@ export default function BlueprintScriptPanel({
     message.success(t("blueprint.requestChangesPrefilled"));
   };
 
+  // D3: 剧本过期时只看到一个「待更新」小标会让用户卡住——提供一个
+  // 直接可执行的动作：关掉剧本面板并定位到「确认剧本并继续」。
+  const focusProductionStageConfirm = () => {
+    const findButton = () =>
+      document.querySelector<HTMLButtonElement>(
+        "[data-production-stage-confirm]",
+      );
+    const run = () => {
+      const button = findButton();
+      if (!button) {
+        message.info(t("blueprint.staleScriptConfirmMissing"));
+        return;
+      }
+      button.scrollIntoView({ block: "center", behavior: "smooth" });
+      button.focus({ preventScroll: true });
+      message.success(t("blueprint.staleScriptConfirmFocused"));
+    };
+    if (!inline) onClose();
+    window.setTimeout(run, inline ? 0 : 220);
+  };
+
   return (
     <div
       data-blueprint-script-panel
@@ -435,11 +456,21 @@ export default function BlueprintScriptPanel({
                 })}
               </span>
               {script.selected.stale && (
-                <span
-                  className={`shrink-0 rounded px-1.5 text-[10px] font-semibold leading-[18px] ${TONE_CHIP.wait}`}
-                >
-                  {t("blueprint.scriptStaleChip")}
-                </span>
+                <>
+                  <span
+                    className={`shrink-0 rounded px-1.5 text-[10px] font-semibold leading-[18px] ${TONE_CHIP.wait}`}
+                  >
+                    {t("blueprint.scriptStaleChip")}
+                  </span>
+                  <button
+                    type="button"
+                    data-stale-script-action="confirm-production-stage"
+                    className="shrink-0 cursor-pointer text-[11px] font-semibold text-[var(--color-accent)] underline-offset-2 hover:underline"
+                    onClick={focusProductionStageConfirm}
+                  >
+                    {t("blueprint.staleScriptAction")}
+                  </button>
+                </>
               )}
             </>
           ) : !visibleScriptText && elements.length > 0 ? (
