@@ -5114,6 +5114,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     f"for plugin '{plugin_id}': {exc}",
                 )
                 report.errors.append(f"shutdown:{hook.hook_name}:{exc}")
+                report.failed_shutdown_hooks.append(hook.hook_name)
                 report.clean = False
 
     async def teardown_config_runtime(

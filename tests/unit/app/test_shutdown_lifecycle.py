@@ -77,9 +77,11 @@ async def test_import_worker_and_plugin_hook_finish_before_workspace_stop():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("hook_fails", [False, True])
 async def test_plugin_resource_finishes_before_workspace_stop(
     monkeypatch,
     tmp_path,
+    hook_fails,
 ):
     from qwenpaw.plugins.api import PluginApi
     from qwenpaw.plugins.architecture import (
@@ -102,6 +104,8 @@ async def test_plugin_resource_finishes_before_workspace_stop(
 
     async def hook():
         order.append("hook")
+        if hook_fails:
+            raise OSError("checkpoint failed")
 
     async def close_resource():
         order.append("closing")
@@ -148,7 +152,11 @@ async def test_plugin_resource_finishes_before_workspace_stop(
         assert order == ["imports", "hook", "closing"]
     finally:
         release.set()
-        await asyncio.wait_for(task, timeout=1)
+        if hook_fails:
+            with pytest.raises(RuntimeError, match="hooks failed: test/test"):
+                await asyncio.wait_for(task, timeout=1)
+        else:
+            await asyncio.wait_for(task, timeout=1)
     assert order == ["imports", "hook", "closing", "closed", "workspaces"]
     assert loader.get_loaded_plugin("test") is not None
 

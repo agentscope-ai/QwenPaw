@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Terminal shutdown receipts through real process and lifecycle boundaries."""
 
+import json
 import os
 import subprocess
 import sys
@@ -11,8 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import psutil
 import pytest
+from click.testing import CliRunner
 
 from qwenpaw import process_ownership as ownership
+from qwenpaw.cli import shutdown_cmd
 from qwenpaw.cli.shutdown_cmd import ShutdownOutcome, _terminate_pid
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="POSIX receipts")
@@ -174,10 +177,44 @@ def test_corrupt_journal_does_not_skip_known_processes(monkeypatch, survivor):
                 path.unlink(missing_ok=True)
 
 
-def test_workspace_failure_is_reported_after_independent_services_close(
+@pytest.mark.parametrize("failure", ["workspace", "hook"])
+def test_failure_is_reported_after_independent_services_close(
     tmp_path,
+    monkeypatch,
+    failure,
 ):
     ready = tmp_path / "ready"
+    plugin = tmp_path / "checkpointer"
+    if failure == "hook":
+        plugin.mkdir()
+        (plugin / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "checkpointer",
+                    "version": "1.0.0",
+                    "entry": {"backend": "main.py"},
+                },
+            ),
+            encoding="utf-8",
+        )
+        (plugin / "main.py").write_text(
+            textwrap.dedent(
+                """
+                import os
+                from pathlib import Path
+
+                class Plugin:
+                    def register(self, api):
+                        def flush():
+                            Path(os.environ["CHECKPOINT_MARKER"]).touch()
+                            raise OSError("checkpoint write failed")
+                        api.register_shutdown_hook("flush-checkpoint", flush)
+
+                plugin = Plugin()
+                """,
+            ),
+            encoding="utf-8",
+        )
     script = textwrap.dedent(
         """
         import asyncio
@@ -188,6 +225,7 @@ def test_workspace_failure_is_reported_after_independent_services_close(
         from qwenpaw.plugins.lifecycle import QuiescenceError
 
         ready = Path(sys.argv[1])
+        failure = sys.argv[2]
 
         async def main():
             stop = asyncio.Event()
@@ -195,12 +233,19 @@ def test_workspace_failure_is_reported_after_independent_services_close(
             loop.add_signal_handler(signal.SIGTERM, stop.set)
             async with _app.lifespan(_app.app):
                 await _app.app.state.startup_ready.wait()
+                if failure == "hook":
+                    loader = _app.app.state.plugin_loader
+                    await loader.load_plugin_from_path(
+                        ready.parent / "checkpointer",
+                    )
                 workspaces = _app.app.state.multi_agent_manager
                 stop_all = workspaces.stop_all
-                async def incomplete():
+                async def close_workspaces():
                     await stop_all()
-                    raise QuiescenceError("workspace still in use")
-                workspaces.stop_all = incomplete
+                    ready.with_suffix(".workspaces").touch()
+                    if failure == "workspace":
+                        raise QuiescenceError("workspace still in use")
+                workspaces.stop_all = close_workspaces
                 backups = _app.app.state.backup_manager
                 shutdown = backups.shutdown
                 async def close_backups():
@@ -220,10 +265,11 @@ def test_workspace_failure_is_reported_after_independent_services_close(
     )
     log = tmp_path / "backend.log"
     with log.open("w") as output, subprocess.Popen(
-        [sys.executable, "-c", script, str(ready)],
+        [sys.executable, "-c", script, str(ready), failure],
         env={
             **os.environ,
             "QWENPAW_WORKING_DIR": str(tmp_path / "app"),
+            "CHECKPOINT_MARKER": str(ready.with_suffix(".called")),
             "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
             "QWENPAW_BACKUP_DIR": str(tmp_path / "backups"),
             "QWENPAW_RUNNING_IN_CONTAINER": "true",
@@ -242,15 +288,36 @@ def test_workspace_failure_is_reported_after_independent_services_close(
             with ownership.observe_backend(
                 psutil.Process(backend.pid),
             ) as receipt:
-                result = _terminate_pid(
-                    backend.pid,
-                    process=backend,
-                    backend=True,
+                monkeypatch.setattr(
+                    shutdown_cmd,
+                    "_listening_pids_for_port",
+                    lambda port: {backend.pid},
                 )
-                assert result is ShutdownOutcome.FAILED
+                monkeypatch.setattr(
+                    shutdown_cmd,
+                    "_find_frontend_dev_pids",
+                    set,
+                )
+                monkeypatch.setattr(
+                    shutdown_cmd,
+                    "_find_desktop_wrapper_pids",
+                    set,
+                )
+                result = CliRunner().invoke(shutdown_cmd.shutdown_cmd)
+                if failure == "hook":
+                    assert ready.with_suffix(".called").exists()
+                assert result.exit_code == 1, result.output
+                assert f"Shutdown failed: {backend.pid}" in result.output
                 assert receipt.members(set()) == (set(), True)
                 assert (receipt.failed, receipt.closed) == (True, False)
-            assert backend.returncode == 1
+            assert backend.wait(timeout=5) == 1
+            if failure == "hook":
+                error = (
+                    "Plugin shutdown hooks failed: "
+                    "checkpointer/flush-checkpoint"
+                )
+                assert error in log.read_text(encoding="utf-8")
+            assert ready.with_suffix(".workspaces").exists()
             assert ready.with_suffix(".backups").exists()
             assert ready.with_suffix(".browser").exists()
         finally:

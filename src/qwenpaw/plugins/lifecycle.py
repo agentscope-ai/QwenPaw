@@ -79,6 +79,7 @@ class UnloadReport:
     receipt: UnloadReceipt | None = None
     quiescent: bool = True
     needs_restart: bool = False
+    failed_shutdown_hooks: list[str] = field(default_factory=list)
 
     def absorb(self, other: "UnloadReport") -> None:
         """Merge errors and flags from another report into this one."""
@@ -89,6 +90,7 @@ class UnloadReport:
         if other.needs_restart:
             self.needs_restart = True
         self.errors.extend(other.errors)
+        self.failed_shutdown_hooks.extend(other.failed_shutdown_hooks)
         self.leftovers.extend(other.leftovers)
         self.workspace_leaks.extend(other.workspace_leaks)
         if other.receipt is not None:

@@ -94,8 +94,8 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-async def _shutdown_plugins(app: FastAPI) -> None:
-    """Tear down plugin runtime resources before other services stop."""
+async def _shutdown_plugins(app: FastAPI) -> list[str]:
+    """Quiesce plugin resources and return any failed shutdown hooks."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
         await plugin_loader.stop_dependency_installs()
@@ -114,10 +114,14 @@ async def _shutdown_plugins(app: FastAPI) -> None:
             raise RuntimeError(
                 "Plugin shutdown incomplete: " + ", ".join(failed),
             )
-        return
+        return [
+            f"{report.plugin_id}/{hook}"
+            for report in reports
+            for hook in report.failed_shutdown_hooks
+        ]
     plugin_registry = getattr(app.state, "plugin_registry", None)
     if plugin_registry is None:
-        return
+        return []
     logger.info("Executing plugin shutdown hooks...")
     failures = []
     for hook in plugin_registry.get_shutdown_hooks():
@@ -145,6 +149,7 @@ async def _shutdown_plugins(app: FastAPI) -> None:
 
     if failures:
         raise failures[0]
+    return []
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -185,15 +190,22 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    await _stop_workspaces_after_dependents_impl(app, import_jobs)
-    # A failed stop can leave live dependents; retain the exit deadline.
+    failed_hooks = await _stop_workspaces_after_dependents_impl(
+        app,
+        import_jobs,
+    )
+    # Resources have quiesced even if a hook failed to flush plugin state.
     completed.set()
+    if failed_hooks:
+        raise RuntimeError(
+            f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}",
+        )
 
 
 async def _stop_workspaces_after_dependents_impl(
     app: FastAPI,
     import_jobs: Any,
-) -> None:
+) -> list[str]:
     """Quiesce management, imports and hooks before destroying workspaces."""
     failures = []
     for name in (
@@ -218,7 +230,7 @@ async def _stop_workspaces_after_dependents_impl(
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
-    await _shutdown_plugins(app)
+    failed_hooks = await _shutdown_plugins(app)
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
@@ -226,6 +238,7 @@ async def _stop_workspaces_after_dependents_impl(
     if multi_agent_mgr is not None:
         logger.info("Stopping MultiAgentManager...")
         await multi_agent_mgr.stop_all()
+    return failed_hooks
 
 
 async def _stop_browser_runtime(app: FastAPI) -> None:
