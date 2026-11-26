@@ -93,6 +93,7 @@ class Host:
         self.previous = PluginRegistry._instance
         PluginRegistry._instance = None
         self.registry = PluginRegistry()
+        self.expected_unacknowledged_channel = None
         self.workspaces, self.models = [], {}
         self.loader = await PluginLoader.create(
             [self.installed.parent],
@@ -253,13 +254,26 @@ class Host:
         )
 
     async def close(self):
+        from qwenpaw.plugins.lifecycle import QuiescenceError
         from qwenpaw.plugins.registry import PluginRegistry
 
         try:
             if self.loader.get_loaded_plugin(KEY):
                 await self.loader.unload_plugin(KEY)
             for ws in self.workspaces:
-                await ws.channel_manager.stop_all()
+                manager = ws.channel_manager
+                try:
+                    await manager.stop_all()
+                except QuiescenceError as exc:
+                    channel = self.expected_unacknowledged_channel
+                    if channel is None or manager.channels != [channel]:
+                        raise
+                    assert exc.receipt.detail == "CHANNEL_STOP_INCOMPLETE"
+                    result = channel.last_stop_result
+                    assert result.exited and not result.residual
+                    assert result.acknowledged is False
+                    # The terminal lease lasts for this fixture's lifetime.
+                    await manager._queue_manager.stop_all()
             for row in rows(self.ledger, "connected"):
                 assert not alive(row["pid"]), "Host left an owned worker alive"
         finally:

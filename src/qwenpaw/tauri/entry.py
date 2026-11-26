@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 import click
 
+from qwenpaw.shutdown import HTTP_DRAIN_SECONDS
 from qwenpaw.tauri.backend_guard import BackendInstance
 from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
@@ -341,7 +342,7 @@ def _run_backend_server(
         # Bound graceful shutdown so long-lived SSE connections (e.g.
         # /console/push-messages) cannot stall the lifespan shutdown that
         # flushes memory/index on exit.
-        timeout_graceful_shutdown=5,
+        timeout_graceful_shutdown=HTTP_DRAIN_SECONDS,
         # Chrome Native Messaging inbound limit; this applies server-wide.
         ws_max_size=NM_MAX_INBOUND_BYTES,
     )

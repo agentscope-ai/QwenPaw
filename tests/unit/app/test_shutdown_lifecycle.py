@@ -10,11 +10,13 @@ import textwrap
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 
 from qwenpaw.app._app import _stop_workspaces_after_dependents
+from qwenpaw.plugins.registry import PluginRegistry
 
 
 @pytest.mark.asyncio
@@ -77,9 +79,51 @@ async def test_import_worker_and_plugin_hook_finish_before_workspace_stop():
 
 
 @pytest.mark.asyncio
+async def test_registry_hook_failures_are_reported_after_workspaces_stop(
+    monkeypatch,
+):
+    monkeypatch.setattr(PluginRegistry, "_instance", None)
+    registry = PluginRegistry()
+    order = []
+
+    def checkpoint():
+        order.append("checkpoint")
+        raise OSError("checkpoint write failed")
+
+    async def flush():
+        order.append("flush")
+        raise OSError("flush failed")
+
+    async def stop_workspaces():
+        order.append("workspaces")
+
+    registry.register_shutdown_hook("writer", "checkpoint", checkpoint)
+    registry.register_shutdown_hook("sender", "flush", flush)
+    registry.register_shutdown_hook(
+        "audit",
+        "close",
+        lambda: order.append("audit"),
+    )
+    app = FastAPI()
+    app.state.plugin_registry = registry
+    app.state.multi_agent_manager = SimpleNamespace(stop_all=stop_workspaces)
+    imports = SimpleNamespace(shutdown=AsyncMock(return_value=True))
+
+    with pytest.raises(RuntimeError) as error:
+        await _stop_workspaces_after_dependents(app, imports)
+
+    assert order == ["checkpoint", "flush", "audit", "workspaces"]
+    assert str(error.value) == (
+        "Plugin shutdown hooks failed: writer/checkpoint, sender/flush"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hook_fails", [False, True])
 async def test_plugin_resource_finishes_before_workspace_stop(
     monkeypatch,
     tmp_path,
+    hook_fails,
 ):
     from qwenpaw.plugins.api import PluginApi
     from qwenpaw.plugins.architecture import (
@@ -88,7 +132,6 @@ async def test_plugin_resource_finishes_before_workspace_stop(
         PluginRecord,
     )
     from qwenpaw.plugins.loader import PluginLoader
-    from qwenpaw.plugins.registry import PluginRegistry
 
     monkeypatch.setattr(PluginRegistry, "_instance", None)
     loader = PluginLoader(plugin_dirs=[])
@@ -102,6 +145,8 @@ async def test_plugin_resource_finishes_before_workspace_stop(
 
     async def hook():
         order.append("hook")
+        if hook_fails:
+            raise OSError("checkpoint failed")
 
     async def close_resource():
         order.append("closing")
@@ -148,7 +193,11 @@ async def test_plugin_resource_finishes_before_workspace_stop(
         assert order == ["imports", "hook", "closing"]
     finally:
         release.set()
-        await asyncio.wait_for(task, timeout=1)
+        if hook_fails:
+            with pytest.raises(RuntimeError, match="hooks failed: test/test"):
+                await asyncio.wait_for(task, timeout=1)
+        else:
+            await asyncio.wait_for(task, timeout=1)
     assert order == ["imports", "hook", "closing", "closed", "workspaces"]
     assert loader.get_loaded_plugin("test") is not None
 

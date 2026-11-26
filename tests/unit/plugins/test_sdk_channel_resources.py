@@ -3,10 +3,13 @@
 
 import asyncio
 import json
+import os
 from dataclasses import replace
 
+import psutil
 import pytest
 
+from qwenpaw.process_ownership import backend_instance, observe_backend
 from qwenpaw.plugins import SDKError
 from qwenpaw.plugins.channel_workers import (
     ChannelDefinition,
@@ -93,6 +96,51 @@ def test_composite_identity_is_opaque_and_roundtrips(tmp_path):
     assert channel_resource_claims(schema, {}, "qrcode.fetch") == ()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX session ownership")
+@pytest.mark.asyncio
+async def test_worker_registers_sdk_session_with_its_backend(tmp_path):
+    key = "sdk-owner"
+    source = tmp_path / key
+    marker = tmp_path / "pids"
+    make_channel(
+        source,
+        """
+import os
+import sys
+from pathlib import Path
+from qwenpaw.plugins.channel_workers import ChannelDriver
+
+class Driver(ChannelDriver):
+    async def start(self, ch):
+        child = await ch.resources.async_process(
+            [sys.executable, "-c", "import time; time.sleep(60)"], tree=True,
+        )
+        Path(ch.config["marker"]).write_text(f"{os.getpid()} {child.pid}")
+        await ch.report_status("connected")
+    async def send(self, ch, response):
+        pass
+""",
+        definition(key),
+        capabilities=["channels", "resources"],
+    )
+    with backend_instance(), observe_backend(psutil.Process()) as ownership:
+        async with PluginTestHost(
+            tmp_path / "host",
+            process_channels=(key,),
+        ) as host:
+            assert (await host.install(source)).ok
+            await host.start_channel(
+                key,
+                {"server": "a", "account": "b", "marker": str(marker)},
+                workspace_id="one",
+            )
+            expected = {
+                psutil.Process(int(p)) for p in marker.read_text().split()
+            }
+            assert ownership.members({}) == (expected, True)
+        assert ownership.members({}) == (set(), True)
+
+
 SOURCE = """
 import os
 import asyncio
@@ -106,14 +154,21 @@ class Driver(ChannelDriver):
     async def start(self, ch):
         marker = Path(ch.config["marker"])
         marker.write_text(str(os.getpid()))
-        stop = threading.Event()
-        def run():
-            stop.wait()
-            marker.with_suffix(".waiting").touch()
-            while not marker.with_suffix(".release").exists():
-                time.sleep(0.01)
-            marker.with_suffix(".exited").touch()
-        ch.resources.thread(run, stop=stop)
+        def register_thread(exit_suffix):
+            stop = threading.Event()
+            def run():
+                stop.wait()
+                marker.with_suffix(".waiting").touch()
+                if marker.with_suffix(".slow").exists():
+                    time.sleep(4.25)
+                while not marker.with_suffix(".release").exists():
+                    time.sleep(0.01)
+                marker.with_suffix(exit_suffix).touch()
+            ch.resources.thread(run, stop=stop)
+        register_thread(".exited")
+        register_thread(".second.exited")
+        register_thread(".third.exited")
+        register_thread(".fourth.exited")
         await ch.report_status("connected")
 
     async def send(self, ch, response):
@@ -134,10 +189,7 @@ class Driver(ChannelDriver):
 
 
 @pytest.mark.asyncio
-async def test_actual_host_retains_claim_until_worker_thread_exits(
-    tmp_path,
-    monkeypatch,
-):
+async def test_actual_host_retains_claim_until_worker_thread_exits(tmp_path):
     keys = ("sdk-owner", "sdk-other-owner")
     sources = []
     for key in keys:
@@ -156,16 +208,6 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(
         tmp_path / "host",
         process_channels=keys,
     ) as host:
-        registry = host._loader.registry
-        runtime = registry.channel_runtime
-        assert runtime is not None
-        # The stop RPC gets one third of this budget. Allow time for the
-        # conflicting start to be rejected before we release the thread.
-        monkeypatch.setattr(
-            registry,
-            "channel_runtime",
-            replace(runtime, shutdown_timeout=6),
-        )
         try:
             for source in sources:
                 result = await host.install(source)
@@ -207,6 +249,8 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(
             )
             other_pid = int(markers[2].read_text())
             assert alive(other_pid)
+            # Four independent stops fit one join but take 17s in sequence.
+            markers[0].with_suffix(".slow").touch()
             manager = (await host._workspace("one")).channel_manager
             assert manager is not None
             stopping = asyncio.create_task(manager.stop_one(keys[0]))
@@ -230,6 +274,9 @@ async def test_actual_host_retains_claim_until_worker_thread_exits(
             assert receipt.stopped and receipt.exited, receipt
             assert not receipt.forced, receipt
             assert markers[0].with_suffix(".exited").exists()
+            assert markers[0].with_suffix(".second.exited").exists()
+            assert markers[0].with_suffix(".third.exited").exists()
+            assert markers[0].with_suffix(".fourth.exited").exists()
             assert not alive(pid)
             await host.start_channel(
                 keys[1],
