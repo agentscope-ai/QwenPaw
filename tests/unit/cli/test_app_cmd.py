@@ -10,8 +10,8 @@ import time
 
 import pytest
 
-from qwenpaw.cli import windows_shutdown
-from qwenpaw.cli.windows_shutdown import (
+from qwenpaw.utils import windows_shutdown
+from qwenpaw.utils.windows_shutdown import (
     _sigbreak_to_sigint,
     install_shutdown_handlers,
 )
@@ -108,7 +108,7 @@ def test_named_event_runs_uvicorn_lifespan_shutdown(tmp_path) -> None:
         import uvicorn
         from fastapi import FastAPI
 
-        from qwenpaw.cli.windows_shutdown import install_shutdown_handlers
+        from qwenpaw.utils.windows_shutdown import install_shutdown_handlers
 
         started = Path(sys.argv[1])
         stopped = Path(sys.argv[2])
@@ -139,7 +139,7 @@ def test_named_event_runs_uvicorn_lifespan_shutdown(tmp_path) -> None:
             time.sleep(0.1)
         assert started.exists()
 
-        from qwenpaw.cli.windows_shutdown import signal_shutdown_event
+        from qwenpaw.utils.windows_shutdown import signal_shutdown_event
 
         assert signal_shutdown_event(proc.pid)
         proc.wait(timeout=15.0)
@@ -167,7 +167,7 @@ def test_reload_child_exposes_graceful_shutdown_event(tmp_path) -> None:
 
             import uvicorn
 
-            from qwenpaw.cli.windows_shutdown import (
+            from qwenpaw.utils.windows_shutdown import (
                 install_shutdown_handlers,
             )
 
@@ -195,7 +195,7 @@ def test_reload_child_exposes_graceful_shutdown_event(tmp_path) -> None:
 
             from fastapi import FastAPI
 
-            from qwenpaw.cli.windows_shutdown import install_shutdown_handlers
+            from qwenpaw.utils.windows_shutdown import install_shutdown_handlers
 
             started = Path(sys.argv[2])
             stopped = Path(sys.argv[3])
@@ -237,7 +237,7 @@ def test_reload_child_exposes_graceful_shutdown_event(tmp_path) -> None:
             time.sleep(0.1)
         assert started.exists()
 
-        from qwenpaw.cli.windows_shutdown import signal_shutdown_event
+        from qwenpaw.utils.windows_shutdown import signal_shutdown_event
 
         server_pid = int(started.read_text(encoding="utf-8"))
         assert server_pid != proc.pid
@@ -255,3 +255,43 @@ def test_reload_child_exposes_graceful_shutdown_event(tmp_path) -> None:
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5.0)
+
+
+@pytest.mark.parametrize("mode", ["standalone", "reload", "supervisor"])
+def test_app_launch_publishes_only_owned_restart_plan(monkeypatch, mode):
+    from click.testing import CliRunner
+    from qwenpaw.cli import app_cmd
+    from qwenpaw.app import server_context
+
+    monkeypatch.delenv("QWENPAW_RUNTIME_PROVISIONER", raising=False)
+    for key in (
+        "SUPERVISOR_ENABLED",
+        "SUPERVISOR_PROCESS_NAME",
+        "SUPERVISOR_GROUP_NAME",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    if mode == "supervisor":
+        monkeypatch.setenv("SUPERVISOR_ENABLED", "1")
+    monkeypatch.setattr(server_context, "_dependency_restart", None)
+    monkeypatch.setattr(
+        app_cmd,
+        "configure_server_process",
+        lambda *a, **kw: None,
+    )
+    monkeypatch.setattr(app_cmd, "install_shutdown_handlers", lambda: None)
+    plans = []
+    monkeypatch.setattr(
+        app_cmd.uvicorn,
+        "run",
+        lambda *a, **kw: plans.append(server_context.dependency_restart()),
+    )
+    result = CliRunner().invoke(
+        app_cmd.app_cmd,
+        ["--reload"] if mode == "reload" else [],
+    )
+    assert result.exit_code == 0, result.output
+    if mode == "standalone":
+        assert plans[0]["command"] == [sys.executable, *sys.orig_argv[1:]]
+        assert plans[0]["cwd"] == os.getcwd()
+    else:
+        assert plans == [None]

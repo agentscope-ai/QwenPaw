@@ -1,4 +1,7 @@
 # Explicit optional LiveKit entry; install into the selected shared runtime.
--r requirements.txt
+pyVoIP>=1.6.0
+dashscope>=1.0.0
+dashscope-realtime>=0.1.0
+audioop-lts; python_version >= '3.13'
 livekit>=1.0.0
 livekit-api>=0.6.0

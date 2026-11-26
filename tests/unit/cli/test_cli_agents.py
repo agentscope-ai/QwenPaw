@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli.main import cli
 from qwenpaw.constant import BUILTIN_QA_AGENT_SKILL_NAMES
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 
 
 def test_agents_list_uses_shared_tool_helper(monkeypatch) -> None:
@@ -97,14 +97,14 @@ def test_agents_create_uses_explicit_agent_id(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_config",
-        lambda updated_config: saved.setdefault("config", updated_config),
+        "qwenpaw.services.agent_setup.mutate_config",
+        lambda update: update(config),
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_agent_config",
-        lambda agent_id, agent_config: saved.setdefault(
+        "qwenpaw.services.agent_setup.write_json_atomic",
+        lambda path, data: saved.setdefault(
             "agent_config",
-            (agent_id, agent_config),
+            (data["id"], AgentProfileConfig.model_validate(data)),
         ),
     )
     monkeypatch.setattr(
@@ -237,14 +237,14 @@ def test_agents_create_qa_template_uses_template_defaults(
 
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_config",
-        lambda updated_config: saved.setdefault("config", updated_config),
+        "qwenpaw.services.agent_setup.mutate_config",
+        lambda update: update(config),
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_agent_config",
-        lambda agent_id, agent_config: saved.setdefault(
+        "qwenpaw.services.agent_setup.write_json_atomic",
+        lambda path, data: saved.setdefault(
             "agent_config",
-            (agent_id, agent_config),
+            (data["id"], AgentProfileConfig.model_validate(data)),
         ),
     )
     monkeypatch.setattr(
@@ -299,14 +299,14 @@ def test_agents_create_local_template_uses_local_md_template(
 
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_config",
-        lambda updated_config: saved.setdefault("config", updated_config),
+        "qwenpaw.services.agent_setup.mutate_config",
+        lambda update: update(config),
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_agent_config",
-        lambda agent_id, agent_config: saved.setdefault(
+        "qwenpaw.services.agent_setup.write_json_atomic",
+        lambda path, data: saved.setdefault(
             "agent_config",
-            (agent_id, agent_config),
+            (data["id"], AgentProfileConfig.model_validate(data)),
         ),
     )
     monkeypatch.setattr(
@@ -365,14 +365,14 @@ def test_agents_create_sets_active_model_when_requested(
 
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_config",
-        lambda updated_config: saved.setdefault("config", updated_config),
+        "qwenpaw.services.agent_setup.mutate_config",
+        lambda update: update(config),
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_agent_config",
-        lambda agent_id, agent_config: saved.setdefault(
+        "qwenpaw.services.agent_setup.write_json_atomic",
+        lambda path, data: saved.setdefault(
             "agent_config",
-            (agent_id, agent_config),
+            (data["id"], AgentProfileConfig.model_validate(data)),
         ),
     )
     monkeypatch.setattr(

@@ -1,7 +1,7 @@
 {
   "id": "voice",
   "name": "Voice",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "channel",
   "description": "Twilio ConversationRelay voice calls through the shared runner.",
   "author": "QwenPaw Team",
@@ -9,7 +9,19 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.3.0.post1"
+    "min": "2.3.1"
   },
-  "publish": true
+  "publish": true,
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "dependencies"
+    ]
+  },
+  "optional_dependencies": {
+    "transport": [
+      "aiohttp>=3.9.0",
+      "twilio>=9.10.2"
+    ]
+  }
 }

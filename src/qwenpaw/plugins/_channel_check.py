@@ -5,19 +5,12 @@ import ast
 from packaging.version import Version
 
 
-def check_channel_package(
-    directory,
-    definition,
-    *,
-    descriptor_entry,
-    declaration,
-):
-    from .channel_adapter import _contained_file
-    from ..channel_protocol.shared import _read_requirements
+def check_channel_package(directory, manifest):
+    from .channel_adapter import _contained_file, describe_channel
     from .compliance import CheckFinding
 
     findings = []
-    if declaration and Version(declaration["version"]) < Version("1.2.0"):
+    if manifest.sdk and Version(manifest.sdk["version"]) < Version("1.2.0"):
         findings.append(
             CheckFinding(
                 "plugin.json",
@@ -26,12 +19,9 @@ def check_channel_package(
                 "Process channel SDK requires SDK >= 1.2.0",
             ),
         )
-    requirements = str(
-        (directory / descriptor_entry).parent.relative_to(directory)
-        / "requirements.txt",
-    )
-    _read_requirements(_contained_file(directory, requirements))
-    module, _, qualname = definition.entrypoint.partition(":")
+    description = describe_channel(directory, manifest, include_revision=False)
+    entry = description.descriptor.entrypoint
+    module, qualname = entry.module, entry.qualname
     relative = module.replace(".", "/")
     relative += "/__init__.py" if (directory / relative).is_dir() else ".py"
     source = _contained_file(directory, relative)

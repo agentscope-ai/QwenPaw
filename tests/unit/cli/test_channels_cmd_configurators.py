@@ -830,7 +830,7 @@ class TestConfigureChannelsInteractive:
         monkeypatch.setattr(
             cc,
             "get_channel_configurators",
-            lambda: dict(configurators),
+            lambda _catalog: dict(configurators),
         )
         monkeypatch.setattr(
             cc,

@@ -13,6 +13,11 @@ RELEASE = json.loads(
 RUNTIME_METADATA = "qwenpaw-runtime.json"
 
 
+def server_executable(directory: Path, windows: bool) -> Path:
+    """Return the server executable's path within a runtime bundle."""
+    return directory / ("llama-server.exe" if windows else "llama-server")
+
+
 def read_runtime_metadata(directory: Path) -> dict[str, Any]:
     """Read the installed bundle identity; legacy bundles have no marker."""
     try:
@@ -36,8 +41,8 @@ def validate_runtime_bundle(directory: Path, target: str) -> None:
     metadata = read_runtime_metadata(directory)
     if not matches_release(metadata) or metadata.get("target") != target:
         raise ValueError("The downloaded runtime does not match this release.")
-    executable = (
-        "llama-server.exe" if target.startswith("win-") else "llama-server"
-    )
-    if not (directory / executable).is_file():
+    if not server_executable(
+        directory,
+        windows=target.startswith("win-"),
+    ).is_file():
         raise ValueError("The runtime bundle is missing llama-server.")
