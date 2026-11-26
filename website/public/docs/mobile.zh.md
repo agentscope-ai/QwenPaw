@@ -72,6 +72,4 @@
 
 **Console 无法加载：** 点击恢复页面的**刷新**，也可以切换其他工作区。已经打开的 Console 页面出错时，可点击顶部的**刷新工作区**。刷新不会重新发送上一条消息。
 
-更新后若刷新时提示 `Unsupported Console host request`，请关闭所有 QwenPaw Web App 标签页和窗口，再重新打开，让浏览器启用新版。
-
 相关说明：[Console](./console)、[Hub](./hub)、[安全](./security)。

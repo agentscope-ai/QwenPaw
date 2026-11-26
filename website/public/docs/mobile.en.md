@@ -72,6 +72,4 @@ Choose **Disconnect node** in the Console account panel to stop remote access to
 
 **Console fails to load:** Choose **Refresh** on the recovery page, or select another workspace. If a loaded Console page fails, use **Refresh workspace** at the top. Refreshing does not resend your last message.
 
-If refreshing reports `Unsupported Console host request` after an update, close all QwenPaw Web App tabs and windows, then reopen the app so the browser can activate the new version.
-
 See also [Console](./console), [Hub](./hub), and [Security](./security).
