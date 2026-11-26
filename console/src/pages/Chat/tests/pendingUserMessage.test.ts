@@ -204,9 +204,9 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
       expect(localStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
       expect(sessionStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
     }
-    expect(localStorage.getItem(`${STORAGE_PREFIX}another-chat`)).toBe(
-      "keep this message",
-    );
+    expect(
+      JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}another-chat`)!),
+    ).toEqual({ text: "keep this message", timestamp: expect.any(String) });
   });
 
   it.each([
@@ -332,8 +332,10 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
       const session = await sessionApi.getSession("chat-running-command");
       expect(userCardTexts(session)).toEqual([command]);
       expect(
-        localStorage.getItem(`${STORAGE_PREFIX}chat-running-command`),
-      ).toBe(command);
+        JSON.parse(
+          localStorage.getItem(`${STORAGE_PREFIX}chat-running-command`)!,
+        ),
+      ).toEqual({ text: command, timestamp: expect.any(String) });
     },
   );
 
@@ -346,7 +348,9 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
 
       const session = await sessionApi.getSession("chat-pending");
       expect(userCardTexts(session)).toEqual([text]);
-      expect(localStorage.getItem(`${STORAGE_PREFIX}chat-pending`)).toBe(text);
+      expect(
+        JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}chat-pending`)!),
+      ).toEqual({ text, timestamp: expect.any(String) });
     },
   );
 
@@ -360,9 +364,9 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
 
     const session = await sessionApi.getSession("chat-before-clear");
     expect(userCardTexts(session)).toEqual(["earlier", "/clear"]);
-    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-before-clear`)).toBe(
-      "/clear",
-    );
+    expect(
+      JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}chat-before-clear`)!),
+    ).toEqual({ text: "/clear", timestamp: expect.any(String) });
   });
 
   it("patches the pending user message while generating (status running)", async () => {
@@ -379,6 +383,84 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(localStorage.getItem(`${STORAGE_PREFIX}chat-running`)).not.toBe(
       null,
     );
+  });
+
+  it("preserves the submission time and identity across reloads", async () => {
+    seedSessionList("chat-time");
+    const submittedAt = new Date("2026-10-16T04:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(submittedAt);
+    sessionApi.setLastUserMessage(
+      "chat-time",
+      "in flight",
+      undefined,
+      "client-time",
+    );
+    vi.setSystemTime(new Date("2026-10-16T04:05:00.000Z"));
+    await mockGetChat({ messages: [], status: "running" } as ChatHistory);
+
+    try {
+      for (let i = 0; i < 2; i++) {
+        const session = await sessionApi.getSession("chat-time");
+        const card = session.messages?.[0];
+        expect(card?.id).toBe("client-time");
+        expect(card?.cards?.[0]?.data?.created_at).toBe(
+          submittedAt.getTime() / 1000,
+        );
+        expect(card?.cards?.[0]?.data?.input?.[0]?.metadata).toMatchObject({
+          [QWENPAW_CLIENT_MESSAGE_ID_KEY]: "client-time",
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not drop a pending turn when history ends with an earlier user message", async () => {
+    seedSessionList("chat-user-tail");
+    sessionApi.setLastUserMessage(
+      "chat-user-tail",
+      "new question",
+      undefined,
+      "client-new",
+    );
+    await mockGetChat({
+      messages: [userMsg("u1", "earlier question", "client-old")],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-user-tail");
+    expect(userCardTexts(session)).toEqual([
+      "earlier question",
+      "new question",
+    ]);
+  });
+
+  it("does not overwrite an earlier attachment-only user turn", async () => {
+    seedSessionList("chat-file-tail");
+    sessionApi.setLastUserMessage("chat-file-tail", "new question");
+    await mockGetChat({
+      messages: [
+        {
+          ...userMsg("u1", ""),
+          content: [{ type: "file", file_url: "old.pdf" }],
+        },
+      ],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-file-tail");
+    expect(userCardTexts(session)).toEqual(["", "new question"]);
+  });
+
+  it("invalidates preloaded empty history when a new message is submitted", async () => {
+    seedSessionList("chat-preloaded");
+    await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+    await sessionApi.preloadSession("chat-preloaded");
+    sessionApi.setLastUserMessage("chat-preloaded", "just submitted");
+
+    const session = await sessionApi.getSession("chat-preloaded");
+    expect(userCardTexts(session)).toEqual(["just submitted"]);
   });
 
   it("patches an attachment-only pending message while generating", async () => {
