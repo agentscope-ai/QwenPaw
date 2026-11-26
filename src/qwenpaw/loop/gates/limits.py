@@ -154,7 +154,7 @@ class _ToolCallBudgetState:
 
     total: int = 0
     by_tool: Counter[str] = field(default_factory=Counter)
-    last_iteration: int = -1
+    counted_call_ids: set[str] = field(default_factory=set)
 
 
 class ToolCallBudgetGate(LoopGate):
@@ -183,17 +183,14 @@ class ToolCallBudgetGate(LoopGate):
         self.activate(_ToolCallBudgetState())
 
     async def check(self, ctx: Any) -> StopHandlerResult:
-        """Count the latest iteration's calls and enforce limits."""
+        """Count tool calls not seen yet in this turn and enforce limits."""
         state = self._state()
         if state is None:
             state = _ToolCallBudgetState()
             self.activate(state)
-        iteration = int(ctx.get("iteration", 0))
-        if iteration != state.last_iteration:
-            names = self._latest_tool_names(ctx.get("agent"))
-            state.total += len(names)
-            state.by_tool.update(names)
-            state.last_iteration = iteration
+        names = self._new_tool_names(ctx.get("agent"), state)
+        state.total += len(names)
+        state.by_tool.update(names)
 
         if self._max_calls is not None and state.total >= self._max_calls:
             return StopHandlerResult(
@@ -209,30 +206,51 @@ class ToolCallBudgetGate(LoopGate):
         return _bypass()
 
     @staticmethod
-    def _latest_tool_names(agent: Any) -> list[str]:
-        """Extract tool names from the latest context message with calls."""
+    def _new_tool_names(
+        agent: Any,
+        state: _ToolCallBudgetState,
+    ) -> list[str]:
+        """Return names of calls in the latest message not counted yet.
+
+        agentscope appends every iteration's blocks to the same reply
+        message, so the latest message with calls also holds the calls
+        of earlier iterations. Count each call id once per turn.
+        """
         context = getattr(getattr(agent, "state", None), "context", [])
         for message in reversed(context):
-            names: list[str] = []
             content = getattr(message, "content", None)
             if not isinstance(content, list):
                 continue
+            has_calls = False
+            names: list[str] = []
             for block in content:
+                is_dict = isinstance(block, dict)
                 block_type = (
                     block.get("type")
-                    if isinstance(block, dict)
+                    if is_dict
                     else getattr(block, "type", None)
                 )
                 if block_type not in ("tool_call", "tool_use"):
                     continue
+                has_calls = True
+                call_id = (
+                    block.get("id") if is_dict else getattr(block, "id", None)
+                )
+                if not isinstance(call_id, str) or not call_id:
+                    # Fall back to the block object, so checking the same
+                    # snapshot again does not count the call twice.
+                    call_id = f"object:{id(block)}"
+                if call_id in state.counted_call_ids:
+                    continue
+                state.counted_call_ids.add(call_id)
                 name = (
                     block.get("name", "")
-                    if isinstance(block, dict)
+                    if is_dict
                     else getattr(block, "name", "")
                 )
                 if name:
                     names.append(str(name))
-            if names:
+            if has_calls:
                 return names
         return []
 
