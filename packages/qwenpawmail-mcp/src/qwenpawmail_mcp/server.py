@@ -449,6 +449,40 @@ def create_server(
             ),
         )
 
+    @mcp.tool(annotations=_ann("Save Draft", idempotent=True))
+    @_tool_errors
+    async def save_draft(
+        to: list[str] | str,
+        subject: str,
+        body: str,
+        cc: list[str] | str | None = None,
+        folder: str | None = None,
+    ) -> dict:
+        """Save a draft into the Drafts folder without sending.
+
+        Appends the message via IMAP APPEND with the ``\\Draft`` flag, so it
+        appears in the mailbox Drafts folder and can be reviewed and sent
+        manually from webmail or a mail client. Nothing is transmitted over
+        SMTP.
+
+        Args:
+            to: Recipient email addresses (array, or a comma-separated string).
+            subject: Message subject (Chinese supported).
+            body: Plain-text message body.
+            cc: Optional Cc addresses (array, or a comma-separated string).
+            folder: Optional target folder; defaults to the mailbox's
+                \\Drafts folder (auto-detected, falls back to 'Drafts').
+        """
+        return await asyncio.to_thread(
+            lambda: _get_client().save_draft(
+                to=coerce_str_list(to),
+                subject=subject,
+                body=body,
+                cc=coerce_str_list(cc),
+                folder=folder,
+            ),
+        )
+
     @mcp.tool(annotations=_ann("Mark Messages", idempotent=True))
     @_tool_errors
     async def mark_messages(
