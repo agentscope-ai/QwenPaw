@@ -26,8 +26,12 @@ class RelayRuns:
             key for key in self._finished if key.startswith(prefix)
         }
 
-    def track(self, run_id: str, task: asyncio.Future) -> None:
+    def track(self, run_id: str, task: asyncio.Future | None) -> None:
         """Observe execution, independently of its HTTP subscribers."""
+        if task is None:
+            self._finished.add(run_id)
+            self.changed.set()
+            return
         if self._running.get(run_id) is task:
             return
         self._running[run_id] = task

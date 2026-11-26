@@ -15,12 +15,21 @@ from __future__ import annotations
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
-from qwenpaw.app.routers.console import _extract_session_and_payload
+from qwenpaw.app.routers.console import (
+    _extract_session_and_payload,
+    post_console_chat,
+)
+from qwenpaw.app.routers.remote_access import runtime_router
+from qwenpaw.remote_access.operation_dispatcher import RelayLocalApi
+from qwenpaw.remote_access.run_state import RelayRuns
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
 
@@ -123,16 +132,20 @@ def test_extract_payload_preserves_user_message_metadata():
 async def test_reconnect_with_active_run_replays_buffer_and_marker(
     app,
     console_workspace,
-    tmp_path,
+    monkeypatch,
 ):
-    from starlette.requests import Request
-    from qwenpaw.app.routers.console import post_console_chat
-    from qwenpaw.remote_access.runtime import PlatformRuntimeConnection
-
     tracker = console_workspace.task_tracker
-    platform = PlatformRuntimeConnection(tmp_path, "http://127.0.0.1:19088")
-    app.state.platform_connection = platform
-    run_id = "relay-run"
+    app.state.relay_runs = RelayRuns()
+    app.include_router(runtime_router)
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-secret")
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
+    hub = RelayLocalApi(
+        "http://127.0.0.1:19088",
+        headers=lambda: {"X-QwenPaw-Runtime-Token": "runtime-secret"},
+        client=client,
+    )
+    node_id = str(uuid4())
+    run_id = f"{node_id}.{'a' * 64}.{'b' * 32}"
     release = asyncio.Event()
 
     async def slow_stream(_payload):
@@ -166,7 +179,7 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     iterator = response.body_iterator
     assert await anext(iterator) == "data: first\n\n"
     await iterator.aclose()
-    assert platform.runs.report()["runs"] == [run_id]
+    assert (await hub.sync_runs(node_id, []))["runs"] == [run_id]
     assert await tracker.has_active_tasks()
     response = await post_console_chat(
         request_data={
@@ -199,9 +212,11 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     # No fresh run was started by the reconnect.
     assert console_workspace.console_channel.stream_calls == []
     await asyncio.sleep(0)
-    assert platform.runs.report()["runs"] == []
-    assert platform.runs.report()["finished"] == [run_id]
-    await platform.close()
+    completed = await hub.sync_runs(node_id, [])
+    assert completed == {"runs": [], "finished": [run_id]}
+    acknowledged = await hub.sync_runs(node_id, [run_id])
+    assert acknowledged == {"runs": [], "finished": []}
+    await client.aclose()
 
 
 @pytest.mark.asyncio

@@ -148,15 +148,7 @@ class RelayLocalApi:
             content,
         )
 
-    @asynccontextmanager
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        query: str,
-        headers: dict[str, str],
-        content: bytes,
-    ) -> AsyncIterator[RelayResponse]:
+    def _http_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(120.0),
@@ -167,13 +159,44 @@ class RelayLocalApi:
                     max_keepalive_connections=32,
                 ),
             )
-        client = self._client
+        return self._client
+
+    def _url(self) -> httpx.URL:
         base = self._base_url() if callable(self._base_url) else self._base_url
-        url = httpx.URL(base).copy_with(
+        return httpx.URL(base)
+
+    async def sync_runs(
+        self,
+        node_id: str,
+        finished: list[str],
+    ) -> dict[str, list[str]]:
+        """Read task state from the personal Runtime that executes the run."""
+        url = self._url().copy_with(
+            path=f"/api/remote-access/relay-runs/{node_id}",
+        )
+        response = await self._http_client().post(
+            url,
+            headers=self._headers(),
+            json=finished,
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    @asynccontextmanager
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        query: str,
+        headers: dict[str, str],
+        content: bytes,
+    ) -> AsyncIterator[RelayResponse]:
+        url = self._url().copy_with(
             path=f"/api{path}",
             query=query.encode("utf-8"),
         )
-        async with client.stream(
+        async with self._http_client().stream(
             method,
             url,
             headers=headers,
@@ -213,4 +236,9 @@ def _route(body: Mapping[str, Any]) -> tuple[str, str]:
         path == "/auth/status" and method == "GET"
     ):
         raise ValueError("Console route is not available remotely")
+    if (
+        method == "POST"
+        and path.rstrip("/") == "/providers/openrouter/oauth/start"
+    ):
+        raise ValueError("Connect OpenRouter from the local Console")
     return method, path

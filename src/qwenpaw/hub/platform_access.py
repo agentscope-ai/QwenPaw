@@ -47,6 +47,7 @@ class HubPlatformConnections:
                 directory,
                 lambda: self._base_url(user.user_id),
                 lambda: self._headers(user.user_id),
+                hub_managed=True,
                 store=RelayNodeStore(
                     directory / "platform-node.json",
                     protect=self._protect,

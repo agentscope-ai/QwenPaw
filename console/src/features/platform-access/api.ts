@@ -34,7 +34,8 @@ export const platformAccessApi = {
     }),
   logout: () => request(`${base}/logout`, { method: "POST", body: "{}" }),
   bind: () => request(`${base}/bind`, { method: "POST", body: "{}" }),
-  disconnect: () => request(base, { method: "DELETE" }),
+  disconnect: () =>
+    request<{ remote_cleanup_confirmed: boolean }>(base, { method: "DELETE" }),
   mobile: () =>
     request<MobileLogin>(`${base}/mobile`, { method: "POST", body: "{}" }),
   mobileStatus: (id: string) =>

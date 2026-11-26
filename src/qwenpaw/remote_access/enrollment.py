@@ -293,6 +293,34 @@ class RelayEnrollmentService:
                         )
             raise
 
+    async def revoke_binding(self, state: RelayNodeState | None) -> bool:
+        """Revoke a detached binding using only its captured credentials."""
+        if state is None or state.session is None:
+            return state is None or state.registered_node is None
+        client = self._client_factory(state.platform_url)
+        session = state.session
+        try:
+            if session.expires_at <= time.time() + 30:
+                session = await client.refresh_session(session)
+            if session.user_id != state.account_id:
+                return False
+            try:
+                if state.registered_node:
+                    node_id = state.registered_node.node_id
+                    await client.account_request(
+                        "DELETE",
+                        f"/api/v1/qwenpaw-relay/nodes/{node_id}",
+                        session.access_token,
+                    )
+            except RelayPlatformError as exc:
+                if exc.status_code != 404:
+                    raise
+            finally:
+                await _logout_session(client, session)
+        except RelayPlatformError:
+            return False
+        return True
+
     async def logout(self) -> None:
         """End this Console login without revoking the Node binding."""
         async with self._lock:
@@ -301,17 +329,22 @@ class RelayEnrollmentService:
             if state and state.session:
                 client = self._client_factory(state.platform_url)
                 try:
-                    await client.revoke_oauth_refresh_token(
-                        state.session.refresh_token,
-                    )
-                    await client.account_request(
-                        "POST",
-                        "/api/v1/auth/logout",
-                        state.session.access_token,
-                        {},
-                    )
+                    await _logout_session(client, state.session)
                 finally:
                     await asyncio.to_thread(
                         self.store.save,
                         replace(state, session=None),
                     )
+
+
+async def _logout_session(
+    client: PlatformRelayClient,
+    session: PlatformSession,
+) -> None:
+    await client.revoke_oauth_refresh_token(session.refresh_token)
+    await client.account_request(
+        "POST",
+        "/api/v1/auth/logout",
+        session.access_token,
+        {},
+    )

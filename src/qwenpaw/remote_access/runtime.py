@@ -27,10 +27,12 @@ class PlatformRuntimeConnection:
         headers: Callable[[], Mapping[str, str]] | None = None,
         *,
         store: RelayNodeStore | None = None,
+        runs: RelayRuns | None = None,
+        hub_managed: bool = False,
     ) -> None:
         self.store = store or RelayNodeStore(secret_dir / "platform-node.json")
         self.account = RelayEnrollmentService(self.store)
-        self.runs = RelayRuns()
+        self.runs = runs if runs is not None else RelayRuns()
         local_api = RelayLocalApi(base_url, headers=headers or self._headers)
         self._local_api = local_api
         self.supervisor = RelayNodeSupervisor(
@@ -39,6 +41,7 @@ class PlatformRuntimeConnection:
                 RelayNodeTransport(
                     local_api.dispatcher(),
                     runs=self.runs,
+                    sync_runs=local_api.sync_runs if hub_managed else None,
                 ),
             ),
         )
@@ -50,9 +53,19 @@ class PlatformRuntimeConnection:
 
     async def start(self) -> None:
         """Restore the registered Node before the first Console visit."""
-        state = await asyncio.to_thread(self.store.load)
-        if state and state.registered_node:
-            self.supervisor.start()
+        async with self.store.mutation_lock:
+            state = await asyncio.to_thread(self.store.load)
+            if state and state.registered_node:
+                self.supervisor.start()
+
+    async def disconnect(self) -> bool:
+        """Stop access locally before contacting the account service."""
+        async with self.store.mutation_lock:
+            await self.close()
+            self.account.cancel_login()
+            state = await asyncio.to_thread(self.store.load)
+            self.store.path.unlink(missing_ok=True)
+        return await self.account.revoke_binding(state)
 
     async def close(self) -> None:
         """Detach streams and close the outbound transport at shutdown."""

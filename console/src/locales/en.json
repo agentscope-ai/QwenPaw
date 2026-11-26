@@ -27,6 +27,7 @@
     "bindingExpired": "This node binding is no longer valid. Disconnect it, then connect again.",
     "disconnect": "Disconnect node",
     "disconnectConfirm": "Disconnect this QwenPaw from Platform?",
+    "remoteCleanupUnconfirmed": "Remote access stopped on this device. Cloud cleanup could not be confirmed.",
     "waitingLogin": "Complete Platform sign-in and authorization in the new window.",
     "popupBlocked": "Allow pop-up windows, then sign in again.",
     "qrConsent": "Scan to sign in to your full Platform account, including its cloud and connected nodes.",

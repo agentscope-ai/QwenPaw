@@ -36,6 +36,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..process_ownership import backend_instance
+from ..remote_access.run_state import RelayRuns
 from ..remote_access.runtime import PlatformRuntimeConnection
 from ..shutdown import WORKSPACE_SHUTDOWN_SECONDS
 from ..utils.daily_telemetry import start_daily_telemetry
@@ -74,7 +75,10 @@ from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
-from .routers.remote_access import callback_router as platform_callback_router
+from .routers.remote_access import (
+    callback_router as platform_callback_router,
+    runtime_router as platform_runtime_router,
+)
 from .routers.console_frontend import create_console_frontend_router
 from .routers.channel_callbacks import channel_callbacks_router
 
@@ -823,6 +827,7 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
     api_address = read_last_api()
+    app.state.relay_runs = RelayRuns()
     app.state.platform_connection = None
     if api_address is not None:
         host, port = api_address
@@ -832,6 +837,7 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
             SECRET_DIR,
             base_url,
             headers=platform_runtime_headers,
+            runs=app.state.relay_runs,
         )
         await app.state.platform_connection.start()
 
@@ -1038,6 +1044,7 @@ app.include_router(runtime_router)
 
 app.include_router(api_router, prefix="/api")
 app.include_router(platform_callback_router)
+app.include_router(platform_runtime_router)
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

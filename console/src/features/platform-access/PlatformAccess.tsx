@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Popconfirm, QRCode, Tooltip } from "antd";
 import { Check, LogIn, RefreshCw, Smartphone, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import { SharedModal } from "../../components/interaction/SharedModal";
 import {
   platformAccessApi,
@@ -69,6 +70,7 @@ export function PlatformMobileButton() {
 
 function PlatformAccessDialog() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { panel, open, connection, refresh, localAccount } =
     usePlatformAccess();
   const ready = !!connection?.logged_in && !!connection.node_id;
@@ -257,50 +259,50 @@ function PlatformAccessDialog() {
               <Button type="primary" loading={busy} onClick={login} block>
                 {t("platformAccess.signIn")}
               </Button>
+            ) : connection.node_id ? (
+              <Button type="primary" onClick={() => open("mobile")} block>
+                {t("platformAccess.addToPhone")}
+              </Button>
             ) : (
-              <>
-                {connection.node_id ? (
-                  <Button type="primary" onClick={() => open("mobile")} block>
-                    {t("platformAccess.addToPhone")}
-                  </Button>
-                ) : (
-                  <Button
-                    type="primary"
-                    loading={busy}
-                    onClick={() => action(platformAccessApi.bind)}
-                    block
-                  >
-                    {t("platformAccess.retryBind")}
-                  </Button>
-                )}
-                <div className={styles.accountActions}>
+              <Button
+                type="primary"
+                loading={busy}
+                onClick={() => action(platformAccessApi.bind)}
+                block
+              >
+                {t("platformAccess.retryBind")}
+              </Button>
+            )}
+            {(connection?.logged_in || connection?.node_id) && (
+              <div className={styles.accountActions}>
+                {connection.logged_in && (
                   <Button
                     type="text"
                     loading={busy}
-                    onClick={() =>
-                      action(async () => {
-                        await platformAccessApi.logout();
-                        await refresh();
-                      })
-                    }
+                    onClick={() => action(platformAccessApi.logout)}
                   >
                     {t("platformAccess.signOut")}
                   </Button>
+                )}
+                {connection.node_id && (
                   <Popconfirm
                     title={t("platformAccess.disconnectConfirm")}
                     onConfirm={() =>
                       action(async () => {
-                        await platformAccessApi.disconnect();
-                        await refresh();
+                        const result = await platformAccessApi.disconnect();
+                        if (!result.remote_cleanup_confirmed)
+                          message.warning(
+                            t("platformAccess.remoteCleanupUnconfirmed"),
+                          );
                       })
                     }
                   >
-                    <Button type="text" danger>
+                    <Button type="text" danger loading={busy}>
                       {t("platformAccess.disconnect")}
                     </Button>
                   </Popconfirm>
-                </div>
-              </>
+                )}
+              </div>
             )}
             {connection?.status === "authorization_pending" && (
               <p role="status">{t("platformAccess.waitingLogin")}</p>

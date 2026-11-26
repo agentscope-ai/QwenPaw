@@ -86,11 +86,16 @@ class RelayNodeTransport:
         max_request_bytes: int = 16 * 1024 * 1024,
         max_streams: int = 32,
         runs: RelayRuns | None = None,
+        sync_runs: (
+            Callable[[str, list[str]], Awaitable[dict[str, list[str]]]] | None
+        ) = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._max_request_bytes = max_request_bytes
         self._max_streams = max_streams
         self._runs = runs or RelayRuns()
+        self._sync_runs = sync_runs
+        self._acknowledged: set[str] = set()
         self._streams: dict[str, _IncomingRequest] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._response_windows: dict[str, asyncio.Queue[None]] = {}
@@ -125,10 +130,10 @@ class RelayNodeTransport:
             max_size=self._max_request_bytes + 64 * 1024,
             proxy=None,
         ) as socket:
-            await self._report_runs(socket)
+            await self._report_runs(socket, node_id)
             self.connected = True
             self.connected_at = asyncio.get_running_loop().time()
-            heartbeat = asyncio.create_task(self._heartbeat(socket))
+            heartbeat = asyncio.create_task(self._heartbeat(socket, node_id))
             try:
                 async for wire in socket:
                     if not isinstance(wire, bytes):
@@ -150,32 +155,43 @@ class RelayNodeTransport:
                 self._streams.clear()
                 self._response_windows.clear()
 
-    async def _report_runs(self, socket) -> None:
+    async def _report_runs(self, socket, node_id: str) -> None:
         self._runs.changed.clear()
+        if self._sync_runs is None:
+            report = self._runs.report()
+        else:
+            finished = list(self._acknowledged)
+            report = await self._sync_runs(node_id, finished)
+            self._acknowledged.difference_update(finished)
         await socket.send(
             encode_frame(
                 RelayFrame(
                     RelayFrameType.HELLO,
-                    metadata=self._runs.report(),
+                    metadata=report,
                 ),
             ),
         )
 
-    async def _heartbeat(self, socket) -> None:
+    async def _heartbeat(self, socket, node_id: str) -> None:
         try:
             while True:
                 try:
                     await asyncio.wait_for(self._runs.changed.wait(), 5)
                 except asyncio.TimeoutError:
                     pass
-                await self._report_runs(socket)
+                await self._report_runs(socket, node_id)
         except Exception:
             await socket.close()
             raise
 
     async def _receive(self, socket, frame: RelayFrame) -> None:
         if frame.frame_type is RelayFrameType.HELLO:
-            self._runs.acknowledge(frame.metadata["finished"])
+            finished = frame.metadata["finished"]
+            if self._sync_runs is None:
+                self._runs.acknowledge(finished)
+            elif finished:
+                self._acknowledged.update(finished)
+                self._runs.changed.set()
             return
         if frame.frame_type is RelayFrameType.WINDOW_UPDATE:
             assert frame.stream_id is not None

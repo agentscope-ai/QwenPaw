@@ -44,30 +44,24 @@ if (typeof window !== "undefined") {
   };
 }
 
-void initializeConsoleHost()
-  .then(async () => {
-    const [{ default: App }, { ThemeProvider }, { i18nReady }] =
-      await Promise.all([
-        import("./ConsoleApp"),
-        import("./contexts/ThemeContext"),
-        import("./i18n"),
-      ]);
-    await Promise.race([
-      i18nReady.catch((error: unknown) =>
-        console.error("Failed to initialize translations:", error),
-      ),
-      new Promise<void>((resolve) =>
-        window.setTimeout(resolve, INITIAL_RENDER_TIMEOUT_MS),
-      ),
+void initializeConsoleHost().then(async () => {
+  const [{ default: App }, { ThemeProvider }, { i18nReady }] =
+    await Promise.all([
+      import("./ConsoleApp"),
+      import("./contexts/ThemeContext"),
+      import("./i18n"),
     ]);
-    createRoot(document.getElementById("root")!).render(
-      <ThemeProvider>
-        <App />
-      </ThemeProvider>,
-    );
-  })
-  .catch((error: unknown) => {
-    const root = document.getElementById("root");
-    if (root)
-      root.textContent = error instanceof Error ? error.message : String(error);
-  });
+  await Promise.race([
+    i18nReady.catch((error: unknown) =>
+      console.error("Failed to initialize translations:", error),
+    ),
+    new Promise<void>((resolve) =>
+      window.setTimeout(resolve, INITIAL_RENDER_TIMEOUT_MS),
+    ),
+  ]);
+  createRoot(document.getElementById("root")!).render(
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>,
+  );
+});

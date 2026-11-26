@@ -27,6 +27,7 @@
     "bindingExpired": "节点绑定已失效，请解除绑定后重新连接。",
     "disconnect": "解除绑定",
     "disconnectConfirm": "解除当前 QwenPaw 与 Platform 的绑定？",
+    "remoteCleanupUnconfirmed": "本机远程访问已停止，云端清理结果尚未确认。",
     "waitingLogin": "请在新窗口中完成 Platform 登录和授权。",
     "popupBlocked": "请允许弹出窗口后重新登录。",
     "qrConsent": "手机扫码将登录完整 Platform 账号，可访问该账号下的云端与绑定节点。",

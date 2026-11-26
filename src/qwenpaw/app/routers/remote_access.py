@@ -15,10 +15,16 @@ from pydantic import BaseModel, Field
 from ...constant import EnvVarLoader, SECRET_DIR
 from ...remote_access.platform_client import RelayPlatformError
 from ...remote_access.runtime import PlatformRuntimeConnection
-from ..auth import platform_runtime_headers
+from ...tauri.env import DESKTOP_APP_ENV, DESKTOP_CORS_ORIGINS
+from ...utils.http import is_loopback_host
+from ..auth import platform_runtime_headers, runtime_token_matches
 
 router = APIRouter(prefix="/remote-access/platform", tags=["Platform"])
 callback_router = APIRouter()
+runtime_router = APIRouter(
+    prefix="/api/remote-access",
+    include_in_schema=False,
+)
 
 
 class LoginBody(BaseModel):
@@ -48,15 +54,40 @@ async def _service(request: Request) -> PlatformRuntimeConnection:
             SECRET_DIR,
             str(httpx.URL(scheme="http", host=host, port=port)),
             headers=platform_runtime_headers,
+            runs=request.app.state.relay_runs,
         )
         request.app.state.platform_connection = service
         await service.start()
     return service
 
 
+@runtime_router.post("/relay-runs/{node_id}")
+async def sync_runs(
+    node_id: UUID,
+    finished: list[str],
+    request: Request,
+) -> dict[str, list[str]]:
+    """Share task lifetimes only with the owning Hub control plane."""
+    if not runtime_token_matches(
+        EnvVarLoader.get_str("QWENPAW_RUNTIME_INTERNAL_TOKEN", ""),
+        request.headers.get("X-QwenPaw-Runtime-Token", ""),
+    ):
+        raise HTTPException(status_code=403, detail="Invalid Runtime token")
+    runs = request.app.state.relay_runs
+    runs.select_node(str(node_id))
+    runs.acknowledge(finished)
+    return runs.report()
+
+
 def _same_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     expected = urlsplit(str(request.base_url))
+    if (
+        origin in DESKTOP_CORS_ORIGINS
+        and EnvVarLoader.get_bool(DESKTOP_APP_ENV)
+        and is_loopback_host(expected.hostname or "")
+    ):
+        return
     if origin is not None and origin != (
         f"{expected.scheme}://{expected.netloc}"
     ):
@@ -182,26 +213,7 @@ async def disconnect(request: Request) -> dict:
     """Revoke only this binding, preserving other devices and accounts."""
     _same_origin(request)
     service = await _service(request)
-    try:
-        current = await service.account.status()
-        if current.node_id:
-            try:
-                await service.account.account_request(
-                    "DELETE",
-                    f"/api/v1/qwenpaw-relay/nodes/{current.node_id}",
-                )
-            except RelayPlatformError as exc:
-                if exc.status_code != 404:
-                    raise
-        await service.close()
-        try:
-            await service.account.logout()
-        finally:
-            async with service.store.mutation_lock:
-                service.store.path.unlink(missing_ok=True)
-    except (ValueError, RelayPlatformError) as exc:
-        raise _error(exc) from exc
-    return {"ok": True}
+    return {"remote_cleanup_confirmed": await service.disconnect()}
 
 
 @callback_router.get("/callback/{nonce}", response_class=HTMLResponse)

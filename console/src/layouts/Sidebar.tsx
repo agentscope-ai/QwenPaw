@@ -127,7 +127,8 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const { account: cloudAccount, target: webTarget } = useWebWorkspace();
   const localAvatar = useLocalAvatar((state) =>
     state.selected ? state.images[state.selected] : undefined,
@@ -272,7 +273,7 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu, language]);
   // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -453,6 +454,7 @@ export default function Sidebar({
     hasPendingApprovals,
     wobbleEnabled,
     effectiveShake,
+    language,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
