@@ -24,7 +24,7 @@ import click
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
-from .shutdown_cmd import _terminate_pid
+from .shutdown_cmd import ShutdownOutcome, _terminate_pid
 
 try:
     import webview
@@ -207,7 +207,8 @@ def _stream_reader(in_stream, out_stream) -> None:
 def _shutdown_backend_process(proc: subprocess.Popen[str]) -> bool:
     """Gracefully stop a desktop backend, with the shared force fallback."""
     try:
-        return _terminate_pid(proc.pid, process=proc)
+        result = _terminate_pid(proc.pid, process=proc, backend=True)
+        return result is ShutdownOutcome.CLOSED
     except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
         return False
 

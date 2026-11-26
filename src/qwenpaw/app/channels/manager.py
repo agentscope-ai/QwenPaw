@@ -101,6 +101,7 @@ class StopReceipt:
     returncode: int | None = None
     forced: bool = False
     residual: tuple[str, ...] = ()
+    recovered_crash: bool = False
 
 
 @dataclass(frozen=True)
@@ -1752,6 +1753,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         *,
         expected: ChannelHandle | None = None,
         channel_handoff: bool = False,
+        retire_reaped: bool = False,
     ) -> StopReceipt:
         """Stop one channel, retaining its handle until stop succeeds."""
         channel = self._find_channel(key)
@@ -1794,9 +1796,15 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 )
             from ...utils.io_utils import run_async_to_completion
 
-            return await run_async_to_completion(
+            receipt = await run_async_to_completion(
                 self._stop_one_unlocked(key, channel_handoff=channel_handoff),
             )
+            if retire_reaped and not receipt.stopped:
+                if await self._retire_reaped_channel(channel, receipt):
+                    receipt.recovered_crash = (
+                        channel.channel_process.exited_before_stop
+                    )
+            return receipt
 
     async def _stop_one_unlocked(
         self,
@@ -1865,12 +1873,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             receipt.detail = receipt.detail or "CHANNEL_STOP_INCOMPLETE"
             return receipt
         async with self._lock:
-            self.channels = [
-                item for item in self.channels if item is not channel
-            ]
-        self._failed_channels.discard(key)
-        self._prepared_stop_channels.discard(key)
-        self._started_channels.discard(id(channel))
+            self._forget_channel(channel)
         if (
             isinstance(channel, IsolatedChannelProxy)
             and getattr(channel, "_runtime_lease", None) is not None
@@ -1885,8 +1888,44 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 channel._runtime_lease,
                 evidence,
             )
-        self._start_contexts.pop(channel, None)
         return receipt
+
+    def _forget_channel(self, channel):
+        self.channels = [item for item in self.channels if item is not channel]
+        self._failed_channels.discard(channel.channel)
+        self._prepared_stop_channels.discard(channel.channel)
+        self._started_channels.discard(id(channel))
+        self._start_contexts.pop(channel, None)
+
+    async def _retire_reaped_channel(self, channel, receipt):
+        if receipt.detail != "CHANNEL_STOP_INCOMPLETE" or not isinstance(
+            channel,
+            IsolatedChannelProxy,
+        ):
+            return False
+        lease = getattr(channel, "_runtime_lease", None)
+        result = channel.last_stop_result
+        async with self._lock:
+            if (
+                lease is None
+                or result is None
+                or self._find_channel(receipt.key) is not channel
+                or receipt.instance_id != lease.instance_id
+                or receipt.generation != lease.generation
+            ):
+                return False
+            owners = channel._owner_registry.runtime_owners
+            if not owners.retire_reaped_channel(lease, channel, result):
+                return False
+            self._forget_channel(channel)
+            channel._wechat_auth_claims = ()
+        logger.warning(
+            "Retired %s generation %s after exit %s without a stop reply",
+            receipt.key,
+            receipt.generation,
+            result.returncode,
+        )
+        return True
 
     @staticmethod
     def _stop_receipt(channel, stopped, detail=""):
@@ -1967,7 +2006,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         if self._workspace is not None:
             config = load_agent_config(self._workspace.agent_id)
         logger.info(f"Restarting channel {channel_name}")
-        await self.replace_channel(channel_name, config)
+        await self.replace_channel(channel_name, config, recover_reaped=True)
         logger.info(f"Channel {channel_name} restarted")
         return {
             "channel": channel_name,
@@ -2016,6 +2055,8 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         self,
         new_channel: BaseChannel | str,
         workspace_config=None,
+        *,
+        recover_reaped: bool = False,
     ) -> None:
         """Drain and stop the old owner before constructing its successor."""
         from ...plugins.lifecycle import QuiescenceError
@@ -2049,7 +2090,10 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 receipt = await run_async_to_completion(
                     self._stop_one_unlocked(key),
                 )
-                if not receipt.stopped:
+                if not receipt.stopped and not (
+                    recover_reaped
+                    and await self._retire_reaped_channel(old, receipt)
+                ):
                     raise QuiescenceError(receipt.detail, receipt=receipt)
             config = workspace_config or self._workspace_config
             if isinstance(new_channel, str):

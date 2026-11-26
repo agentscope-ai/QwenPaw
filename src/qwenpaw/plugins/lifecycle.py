@@ -80,6 +80,8 @@ class UnloadReport:
     receipt: UnloadReceipt | None = None
     quiescent: bool = True
     needs_restart: bool = False
+    failed_shutdown_hooks: list[str] = field(default_factory=list)
+    failed_channel_stops: list[str] = field(default_factory=list)
 
     def absorb(self, other: "UnloadReport") -> None:
         """Merge errors and flags from another report into this one."""
@@ -90,6 +92,8 @@ class UnloadReport:
         if other.needs_restart:
             self.needs_restart = True
         self.errors.extend(other.errors)
+        self.failed_shutdown_hooks.extend(other.failed_shutdown_hooks)
+        self.failed_channel_stops.extend(other.failed_channel_stops)
         self.leftovers.extend(other.leftovers)
         self.workspace_leaks.extend(other.workspace_leaks)
         if other.receipt is not None:
@@ -106,6 +110,20 @@ class ReloadReport:
     errors: list[str] = field(default_factory=list)
     generation: int = 0
     needs_restart: bool = False
+
+
+class _ShutdownChannels:
+    """Pause one unload after its hooks, inside its lifecycle reservation."""
+
+    def __init__(self):
+        self.hooks_done = asyncio.Event()
+        self.result = asyncio.get_running_loop().create_future()
+
+    async def wait(self, report: UnloadReport) -> None:
+        self.hooks_done.set()
+        failure = await self.result
+        if failure is not None:
+            report.absorb(failure)
 
 
 @dataclass
@@ -648,6 +666,7 @@ class PluginLifecycle:
         *,
         delete_files: bool,
         interrupt_tasks: bool = False,
+        shutdown_channels: _ShutdownChannels | None = None,
     ) -> UnloadReport:
         if not self.delegate.owns_commit(plugin_id):
             receipt = await self.delegate.notify_unload(plugin_id, mode)
@@ -676,6 +695,7 @@ class PluginLifecycle:
             instance=inst,
             delete_files=delete_files,
             interrupt_tasks=interrupt_tasks,
+            shutdown_channels=shutdown_channels,
         )
         if (
             mode is not UnloadMode.SHUTDOWN
@@ -1162,22 +1182,81 @@ class PluginLifecycle:
                 self._loader.startup_blocked_plugins.add(plugin_id)
             return record
 
+    async def stop_channels_for_teardown(self, leases, mode):
+        """Drain channels for shutdown or retire crashed ones at uninstall."""
+        from ..app.channels.isolated_proxy import IsolatedChannelProxy
+        from ..app.channels.manager import ChannelHandle
+
+        owners = self._loader.registry.runtime_owners
+        stops = {}
+        for lease in leases:
+            if lease.key.kind != "channel" or not self.delegate.owns_commit(
+                lease.plugin_id,
+            ):
+                continue
+            channel = owners.resource(lease)
+            handle = getattr(channel, "_manager_handle", None)
+            if (
+                not isinstance(handle, ChannelHandle)
+                or handle.channel is not channel
+            ):
+                continue
+            if mode is UnloadMode.UNINSTALL and not (
+                isinstance(channel, IsolatedChannelProxy)
+                and channel.channel_process.exited_before_stop
+            ):
+                continue
+            stops[lease] = handle.manager.stop_one(
+                handle.key,
+                expected=handle,
+                retire_reaped=True,
+            )
+
+        results = await asyncio.gather(*stops.values(), return_exceptions=True)
+        failures = {}
+        for lease, result in zip(stops, results):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, Exception):
+                detail = str(result)
+            elif not result.stopped and not (
+                mode is UnloadMode.UNINSTALL and result.recovered_crash
+            ):
+                detail = result.detail
+            else:
+                continue
+            report = failures.setdefault(
+                lease.plugin_id,
+                UnloadReport(lease.plugin_id, mode),
+            )
+            report.clean = False
+            error = f"{lease.key.name}: {detail}"
+            report.errors.append(error)
+            if lease in owners.leases(lease.plugin_id):
+                report.quiescent = False
+                report.needs_restart = True
+            elif isinstance(result, Exception) or not result.recovered_crash:
+                report.failed_channel_stops.append(error)
+        return failures
+
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:
         """Unload every known instance (used at process shutdown)."""
-        reports: list[UnloadReport] = []
-        for plugin_id in dict.fromkeys(
-            (
-                *self._instances,
-                *(
-                    lease.plugin_id
-                    for lease in self._loader.registry.runtime_owners.leases()
-                ),
-            ),
-        ):
+        leases = self._loader.registry.runtime_owners.leases()
+        plugin_ids = dict.fromkeys(
+            (*self._instances, *(lease.plugin_id for lease in leases)),
+        )
+
+        async def unload_one(plugin_id, channels=None):
             try:
-                reports.append(
-                    await self.unload(plugin_id, mode, delete_files=False),
-                )
+                if channels is None:
+                    return await self.unload(plugin_id, mode)
+                async with self._loader.plugin_lifecycle(plugin_id):
+                    return await self._unload_unlocked(
+                        plugin_id,
+                        mode,
+                        delete_files=False,
+                        shutdown_channels=channels,
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "Failed to %s plugin '%s': %s",
@@ -1186,17 +1265,52 @@ class PluginLifecycle:
                     exc,
                     exc_info=True,
                 )
-                reports.append(
-                    UnloadReport(
-                        plugin_id=plugin_id,
-                        mode=mode,
-                        clean=False,
-                        quiescent=False,
-                        needs_restart=True,
-                        errors=[str(exc)],
-                    ),
+                return UnloadReport(
+                    plugin_id=plugin_id,
+                    mode=mode,
+                    clean=False,
+                    quiescent=False,
+                    needs_restart=True,
+                    errors=[str(exc)],
                 )
-        return reports
+            finally:
+                # Preparation can fail before the channel stop stage.
+                if channels is not None:
+                    channels.hooks_done.set()
+
+        if mode is not UnloadMode.SHUTDOWN or not any(
+            lease.key.kind == "channel" for lease in leases
+        ):
+            return [await unload_one(plugin_id) for plugin_id in plugin_ids]
+
+        completed = {}
+        paused = {}
+        async with asyncio.TaskGroup() as group:
+            for plugin_id in plugin_ids:
+                channels = _ShutdownChannels()
+                task = group.create_task(unload_one(plugin_id, channels))
+                await channels.hooks_done.wait()
+                if task.done():
+                    completed[plugin_id] = task.result()
+                else:
+                    paused[plugin_id] = (task, channels)
+
+            if paused:
+                owners = self._loader.registry.runtime_owners
+                failures = await self.stop_channels_for_teardown(
+                    (
+                        lease
+                        for lease in owners.leases()
+                        if lease.plugin_id in paused
+                    ),
+                    mode,
+                )
+                # Resume ledger teardown in order; only worker stops overlap.
+                for plugin_id, (task, channels) in paused.items():
+                    if not channels.result.done():
+                        channels.result.set_result(failures.get(plugin_id))
+                    completed[plugin_id] = await task
+        return [completed[plugin_id] for plugin_id in plugin_ids]
 
 
 async def await_with_budget(

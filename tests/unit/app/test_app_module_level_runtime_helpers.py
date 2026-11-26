@@ -213,13 +213,14 @@ async def test_stop_browser_runtime_without_any_state(
 
 
 @pytest.mark.asyncio
-async def test_stop_browser_runtime_swallows_a_kernel_failure(
+async def test_browser_failure_propagates_after_download_stop(
     stub_playwright_stop,
 ) -> None:
     kernel = _RecordingKernel(fail_on="all")
     app = _state(browser_kernel=kernel)
 
-    await app_module._stop_browser_runtime(app)
+    with pytest.raises(RuntimeError, match="all failed"):
+        await app_module._stop_browser_runtime(app)
 
     # the download stop still runs after the kernel blew up
     assert stub_playwright_stop == [1]
