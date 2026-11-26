@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
-import asyncio
 import json
 import os
 import sys
@@ -24,6 +23,7 @@ from ..config.utils import strict_validate_config_file
 from ..constant import PROJECT_NAME, WORKING_DIR
 from ..providers.provider import Provider
 from ..providers.provider_manager import ProviderManager
+from ..plugins.doctor import DoctorResult
 from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
@@ -52,13 +52,13 @@ from .doctor_checks import (
     scan_unknown_config_keys,
     security_baseline_notes,
     skill_layout_notes,
-    # qwenpaw_local_llm_deep_notes,
     startup_extra_volume_disk_notes,
     workspace_hygiene_notes,
     windows_environment_lines,
 )
 from .doctor_connectivity import collect_deep_channel_connectivity_notes
 from .doctor_registry import DoctorRunContext, run_extension_contributions
+from .plugin_session import session_for
 from .http import resolve_base_url
 
 
@@ -321,7 +321,7 @@ def _classify_console_root_response(resp: httpx.Response) -> tuple[bool, str]:
 async def _check_active_llm(
     timeout: float,
     deep: bool,
-) -> tuple[bool, str, list[str]]:
+) -> tuple[bool | None, str, list[str]]:
     del deep
     manager = ProviderManager.get_instance()
     slot = await run_sync_io(manager.get_active_model)
@@ -338,28 +338,23 @@ async def _check_active_llm(
         )
     provider = await run_sync_io(manager.get_provider, slot.provider_id)
     if provider is None:
-        # TODO: Resolve plugin providers through the plugin CLI contract.
-        if slot.provider_id in ("qwenpaw-local", "copaw-local"):
-            return (
-                True,
-                f"{slot.provider_id}: model check skipped "
-                "(plugin CLI integration pending)",
-                [],
-            )
         return False, f"provider not found: {slot.provider_id!r}", []
     ok, reason = _provider_is_configured(provider)
     if not ok:
         return False, f"{slot.provider_id}: {reason}", []
 
     deep_notes: list[str] = []
-    # TODO: Restore local diagnostics through the plugin CLI contract.
-    # pid = (slot.provider_id or "").strip()
-    # if deep and pid in ("qwenpaw-local", "copaw-local"):
-    #     deep_notes = qwenpaw_local_llm_deep_notes()
+    if getattr(provider, "connection_check_requires_activation", False):
+        return (
+            None,
+            f"{slot.provider_id} / {slot.model}: live check requires plugin "
+            "activation; see the provider's Doctor checks",
+            deep_notes,
+        )
 
     if not getattr(provider, "support_connection_check", True):
         return (
-            True,
+            None,
             f"{slot.provider_id} / {slot.model} (live check skipped for "
             f"this provider)",
             deep_notes,
@@ -374,8 +369,6 @@ async def _check_active_llm(
         if getattr(provider, "is_local", False) or slot.provider_id in (
             "ollama",
             "lmstudio",
-            "qwenpaw-local",
-            "copaw-local",
         ):
             hint = active_llm_local_failure_hint(provider, slot.provider_id)
             if hint:
@@ -450,6 +443,7 @@ def run_doctor_checks(
     deep: bool,
 ) -> None:
     """Run read-only ``qwenpaw doctor`` checks (no disk mutations)."""
+    session = session_for(ctx, include_channel_descriptors=deep)
     base = resolve_base_url(ctx, None).rstrip("/")
     failed = False
 
@@ -596,16 +590,33 @@ def run_doctor_checks(
                 "copaw.doctor is still loaded)",
             )
         else:
-            for contrib_id, lines in ext_nonempty:
+            for contrib_id, outcomes in ext_nonempty:
                 click.echo(f"  [{contrib_id}]")
-                for line in lines:
-                    click.echo(
-                        click.style("Note:", fg="yellow") + f" {line}",
-                    )
+                for outcome in outcomes:
+                    if isinstance(outcome, DoctorResult):
+                        failed = failed or outcome.status == "FAIL"
+                        color = {
+                            "OK": "green",
+                            "FAIL": "red",
+                            "SKIP": "yellow",
+                        }[outcome.status]
+                        click.echo(
+                            click.style(outcome.status, fg=color)
+                            + f" — {outcome.message}",
+                            err=outcome.status == "FAIL",
+                        )
+                    else:
+                        click.echo(
+                            click.style("Note:", fg="yellow") + f" {outcome}",
+                        )
 
         if deep:
             click.echo("\n=== Channels (connectivity, --deep) ===")
-            conn_notes = collect_deep_channel_connectivity_notes(cfg, timeout)
+            conn_notes = collect_deep_channel_connectivity_notes(
+                cfg,
+                timeout,
+                session,
+            )
             if conn_notes:
                 click.echo(
                     click.style("Note:", fg="yellow")
@@ -823,6 +834,9 @@ def run_doctor_checks(
         click.echo(click.style("FAIL", fg="red") + f"\n{detail}", err=True)
 
     if config_ok:
+        from .plugin_resources import ensure_resources
+
+        ensure_resources("providers")
         click.echo("\n=== Providers (custom) ===")
         try:
             prov_notes = provider_overview_notes()
@@ -839,10 +853,12 @@ def run_doctor_checks(
             )
 
     click.echo("\n=== Active LLM ===")
-    llm_ok, llm_detail, llm_notes = asyncio.run(
+    llm_ok, llm_detail, llm_notes = session.run(
         _check_active_llm(llm_timeout, deep),
     )
-    if llm_ok:
+    if llm_ok is None:
+        click.echo(click.style("SKIP", fg="yellow") + f" — {llm_detail}")
+    elif llm_ok:
         click.echo(click.style("OK", fg="green") + f" — {llm_detail}")
     else:
         failed = True
@@ -859,14 +875,19 @@ def run_doctor_checks(
 
     if config_ok:
         click.echo("\n=== Models (per agent) ===")
-        aok, lines, extra_notes = asyncio.run(
+        aok, lines, extra_notes = session.run(
             check_enabled_agents_model_connections(
                 cfg,
                 timeout=llm_timeout,
                 deep=deep,
             ),
         )
-        if aok:
+        if aok and any(": SKIP" in line for line in lines):
+            click.echo(
+                click.style("SKIP", fg="yellow")
+                + " — some enabled-agent model checks were not performed",
+            )
+        elif aok:
             click.echo(
                 click.style("OK", fg="green")
                 + " — enabled-agent model checks completed",
@@ -1008,7 +1029,7 @@ def run_doctor_checks(
     is_flag=True,
     help=(
         "Run extra checks: enabled-channel reachability "
-        "(non-fatal notes; uses --timeout)."
+        "(non-fatal notes; uses --timeout) and plugin-provided diagnostics."
     ),
 )
 @click.pass_context

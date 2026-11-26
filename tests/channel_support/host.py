@@ -117,12 +117,13 @@ class Host:
     def artifact(self, version="1.0.0", *, sdk=False, fail_start=False):
         source = self.root / ("incoming-" + version) / KEY
         source.mkdir(parents=True)
-        manifest = json.loads(
-            (ROOT / "plugins/channel/feishu/plugin.json").read_text(
-                encoding="utf-8",
-            ),
-        )
-        manifest["version"] = version
+        manifest = {
+            "id": KEY,
+            "name": "Test channel",
+            "version": version,
+            "type": "channel",
+            "entry": {"descriptor": "channel.json"},
+        }
         (source / "plugin.json").write_text(
             json.dumps(manifest),
             encoding="utf-8",
@@ -131,6 +132,12 @@ class Host:
             (ROOT / "plugins/channel/feishu/channel.json").read_text(
                 encoding="utf-8",
             ),
+        )
+        # Keep file-based dependency coverage alongside manifest-based drivers.
+        descriptor.pop("requires")
+        descriptor.update(
+            schema_version=2,
+            requirements_file="requirements.txt",
         )
         descriptor["entrypoint"] = {
             "scope": "runner",

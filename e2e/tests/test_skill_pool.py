@@ -624,7 +624,7 @@ class TestSkillPoolBuiltinImport:
 
 
 # ============================================================================
-# SYNC-001 P1  Skill card shows sync status + one automation action
+# SYNC-001 P1  Skill card shows sync status and an Auto Sync menu item
 # ============================================================================
 
 @pytest.mark.integration
@@ -632,8 +632,7 @@ class TestSkillPoolBuiltinImport:
 @pytest.mark.skill_pool
 @pytest.mark.skill_sync
 class TestSkillAutoSyncCard:
-    """SYNC-001: a pool skill card carries a sync-status badge and, on hover,
-    the single automation quick action."""
+    """SYNC-001: a pool skill card shows a sync badge and Auto Sync action."""
 
     SKILL_NAME = "e2e_sync_card_skill"
 
@@ -666,11 +665,9 @@ class TestSkillAutoSyncCard:
                 card.locator(pool.STATUS_BADGE).first
             ).to_be_visible(timeout=pool.timeout)
 
-            log_test_step("5. Hovering the card reveals the automation action")
-            pool.hover_card(card)
-            expect(
-                card.locator(pool.AUTOMATION_BUTTON).first
-            ).to_be_visible(timeout=pool.timeout)
+            log_test_step("5. Open the Actions menu and find Auto Sync")
+            auto_sync_item = pool.open_auto_sync_menu_item(card)
+            expect(auto_sync_item).to_be_visible(timeout=pool.timeout)
 
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed")
@@ -687,9 +684,7 @@ class TestSkillAutoSyncCard:
 @pytest.mark.skill_pool
 @pytest.mark.skill_sync
 class TestSkillAutoSyncDrawer:
-    """SYNC-002: in the edit drawer, turning the Auto Sync switch ON reveals the
-    target-agent select; clicking Save persists it (card shows the Auto Sync
-    tag afterwards). The switch is staged — nothing persists until Save."""
+    """SYNC-002: Auto Sync reveals targets and survives a reload after Save."""
 
     SKILL_NAME = "e2e_sync_drawer_skill"
 
@@ -735,11 +730,13 @@ class TestSkillAutoSyncDrawer:
                 page.locator(pool.DRAWER).first
             ).to_be_hidden(timeout=pool.timeout)
 
-            log_test_step("6. The card now shows the Auto Sync tag (persisted)")
+            log_test_step("6. Reload and verify Auto Sync is still enabled")
+            page.reload(wait_until="domcontentloaded")
             card = pool.find_card_by_name(self.SKILL_NAME)
-            assert card is not None, "Card missing after save"
+            assert card is not None, "Card missing after reload"
+            auto_sync_item = pool.open_auto_sync_menu_item(card)
             expect(
-                card.locator(pool.AUTOMATION_TAG).first
+                auto_sync_item.get_by_label(pool.AUTO_SYNC_ENABLED_LABEL)
             ).to_be_visible(timeout=pool.timeout)
 
             log_test_result(test_name, True, 0)

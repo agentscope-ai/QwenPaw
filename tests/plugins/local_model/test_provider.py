@@ -200,6 +200,79 @@ async def test_registration_is_lazy_and_server_reused(tmp_path):
         assert provider.extra_models == []
 
 
+@pytest.mark.parametrize("selected", [False, True])
+async def test_doctor_reads_files_and_runtime_without_starting_manager(
+    tmp_path,
+    selected,
+):
+    from qwenpaw.plugins.doctor import DOCTOR, DoctorContext, DoctorResult
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        _binding, runtime = await load_backend(host, tmp_path)
+        contributions = PluginRegistry().get_extensions(DOCTOR)
+        assert {check.id for check in contributions} == {
+            "local-model",
+            "local-server",
+        }
+        for contribution in contributions:
+            await contribution.admit()
+
+        async def check(call):
+            notes = []
+            for contribution in contributions:
+                with contribution.invocation() as spec:
+                    notes.extend(await spec.check(call))
+            return notes
+
+        requests = []
+
+        async def get_runtime(path):
+            requests.append(path)
+            response = await host.request("GET", "/api/" + path)
+            assert response.status == 200
+            return response.json()
+
+        call = DoctorContext(None, None, "http://app", 1, False, get_runtime)
+        notes = await check(call)
+        assert [note.status for note in notes] == ["SKIP"]
+        assert not requests
+        directory = await runtime.data_directory()
+        assert not directory.exists()
+        call = DoctorContext(
+            None,
+            None,
+            "http://app",
+            1,
+            True,
+            get_runtime,
+            selected_providers=(
+                frozenset({"qwenpaw-local"}) if selected else frozenset()
+            ),
+        )
+        notes = await check(call)
+        assert requests == ["local-models/diagnostics"]
+        assert [
+            note.status for note in notes if isinstance(note, DoctorResult)
+        ] == [
+            "FAIL" if selected else "SKIP",
+            "SKIP",
+        ]
+        assert runtime._manager is None
+        assert not directory.exists()
+        assert (
+            await runtime.context.storage.aread_json("data-root.json", None)
+            is None
+        )
+        await runtime.start_server("local-A")
+        status = await get_runtime("local-models/diagnostics")
+        assert status["running"] and status["model_name"] == "local-A"
+        assert (await host.unload("local-llamacpp")).quiescent
+        assert (
+            await host.request("GET", "/api/local-models/diagnostics")
+        ).status == 404
+        assert not PluginRegistry().get_extensions(DOCTOR)
+
+
 @pytest.mark.parametrize(
     ("early_close", "failing_finally"),
     [(False, False), (True, True)],

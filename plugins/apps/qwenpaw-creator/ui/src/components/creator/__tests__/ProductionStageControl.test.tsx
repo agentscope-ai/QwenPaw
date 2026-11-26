@@ -39,7 +39,13 @@ it("confirms the displayed script snapshot even when polling updates behind the 
     },
   ]);
   render(<ProductionStageControl projectId="p1" />);
-  fireEvent.click(screen.getByRole("button", { name: "确认剧本并继续" }));
+  const confirmButton = screen.getByRole("button", {
+    name: "确认剧本并继续",
+  });
+  // F1/F2: the strongly-required confirmation uses the shared decision style.
+  expect(confirmButton).toHaveClass("btn-decision");
+  expect(confirmButton).toHaveAttribute("data-production-stage-confirm", "");
+  fireEvent.click(confirmButton);
   expect(calls).toHaveLength(0);
   act(() => useProjectSnapshotStore.setState({ etag: '"newer"' }));
   await act(async () => {

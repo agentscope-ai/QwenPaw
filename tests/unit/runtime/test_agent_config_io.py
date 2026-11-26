@@ -375,3 +375,70 @@ async def test_request_model_is_resolved_before_validation_and_build(
         await builder.build(ctx)
     assert config.active_model is None
     assert config.thinking_level == "high"
+
+
+@pytest.mark.asyncio
+async def test_builder_consumes_invocation_config_without_reloading(
+    monkeypatch,
+    tmp_path,
+):
+    from unittest.mock import AsyncMock
+    from qwenpaw.agents import react_agent
+    from qwenpaw.cli.task_cmd import _run_task
+    from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+
+    config = AgentProfileConfig(
+        id="task",
+        name="Task",
+        workspace_dir=str(tmp_path),
+        active_model=ModelSlotConfig(provider_id="example", model="demo"),
+    )
+    config.running.loop.iteration.enabled = False
+    original_limit = config.running.loop.iteration.model_copy(deep=True)
+
+    def unexpected_load(_agent_id):
+        pytest.fail("task configuration was replaced by persisted settings")
+
+    monkeypatch.setattr(config_module, "load_agent_config", unexpected_load)
+    monkeypatch.setattr(
+        "qwenpaw.agents.skill_system.ensure_skills_initialized",
+        lambda *_: None,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.skill_system.resolve_effective_skills",
+        lambda *_: [],
+    )
+    monkeypatch.setattr(AgentBuilder, "_init_governor", lambda *_: None)
+    monkeypatch.setattr(
+        AgentBuilder,
+        "_collect_context_recall_tools",
+        lambda *_: [],
+    )
+    monkeypatch.setattr(
+        AgentBuilder,
+        "_collect_driver_tools_and_prompts",
+        AsyncMock(return_value=([], [])),
+    )
+
+    def model_boundary(self, cfg, model_slot_override=None):
+        assert cfg.active_model == config.active_model
+        return SimpleNamespace(), None
+
+    close = AsyncMock()
+
+    def agent_boundary(**options):
+        assert options["react_config"].max_iters == 3
+        assert options["stop_handlers"] == ()
+        return SimpleNamespace(
+            toolkit=options["toolkit"],
+            model=None,
+            reply=AsyncMock(return_value=None),
+            close=close,
+        )
+
+    monkeypatch.setattr(AgentBuilder, "build_model", model_boundary)
+    monkeypatch.setattr(react_agent, "QwenPawAgent", agent_boundary)
+    result = await _run_task("hello", config, {}, 3, 30, None)
+    assert result["status"] == "success"
+    close.assert_awaited_once()
+    assert config.running.loop.iteration == original_limit

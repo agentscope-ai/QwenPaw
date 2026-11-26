@@ -62,7 +62,7 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"console": "Console"},
+            lambda catalog: {"console": "Console"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0
@@ -81,7 +81,7 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"console": "Console"},
+            lambda catalog: {"console": "Console"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert "disabled" in result.output
@@ -101,7 +101,7 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"console": "Console"},
+            lambda catalog: {"console": "Console"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0
@@ -121,7 +121,7 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"console": "Console"},
+            lambda catalog: {"console": "Console"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0
@@ -142,11 +142,55 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"custom": "Custom"},
+            lambda catalog: {"custom": "Custom"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0
         assert "Custom" in result.output
+
+    def test_saved_channel_fields_follow_the_available_schema(
+        self,
+        runner,
+        monkeypatch,
+    ):
+        channels = SimpleNamespace(
+            __pydantic_extra__={
+                "retired": {"enabled": True, "password": "retired-secret"},
+                "custom": {
+                    "enabled": True,
+                    "bot_prefix": "[Support]",
+                    "display": "custom-title",
+                    "credential": "current-secret",
+                    "unknown": "old-secret",
+                },
+            },
+        )
+        monkeypatch.setattr(
+            cc,
+            "load_agent_config",
+            lambda agent_id: _agent_config(channels),
+        )
+        monkeypatch.setattr(
+            cc,
+            "get_configurable_channel_catalog",
+            lambda: {
+                "custom": {
+                    "label": "Custom",
+                    "config_fields": [
+                        {"name": "display", "type": "text"},
+                        {"name": "credential", "type": "password"},
+                    ],
+                },
+            },
+        )
+        result = runner.invoke(cc.list_cmd)
+        assert result.exit_code == 0, result.output
+        assert "retired  [enabled] [plugin unavailable]" in result.output
+        assert "custom-title" in result.output
+        assert "[Support]" in result.output
+        assert "curr****" in result.output
+        for value in ("retired-secret", "current-secret", "old-secret"):
+            assert value not in result.output
 
     def test_unknown_channel_key_skipped(self, runner, monkeypatch):
         channels = SimpleNamespace(console=None)
@@ -158,7 +202,7 @@ class TestListCmd:
         monkeypatch.setattr(
             cc,
             "_get_channel_names",
-            lambda: {"nonexistent": "X"},
+            lambda catalog: {"nonexistent": "X"},
         )
         result = runner.invoke(cc.list_cmd, ["--agent-id", "a1"])
         assert result.exit_code == 0

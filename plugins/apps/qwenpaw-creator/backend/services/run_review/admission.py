@@ -158,6 +158,10 @@ def admit_media_round(
         # and possibly provider cost, so finalization never refunds this.
         round_number = attempts_started + 1
         now = datetime.now(UTC).isoformat()
+        # An admitted attempt supersedes any environment-fault note; the
+        # workbench must not keep showing "review skipped" for a version
+        # that really was (or is being) reviewed.
+        state.pop("last_skip", None)
         state.update(
             {
                 "slot_id": slot_id,
@@ -213,6 +217,73 @@ def media_skip_reason(
     if attempts_started >= MAX_MEDIA_REVIEW_ROUNDS:
         return "budget_spent"
     return "unknown"
+
+
+def record_media_skip(
+    reports_root: Path,
+    *,
+    slot_id: str,
+    version_id: str,
+    reason: str,
+    hint: str,
+) -> None:
+    """Persist why one artifact version was published without a review.
+
+    Environment faults (a missing ffmpeg/ffprobe) never reach admission, so
+    without this durable note the workbench shows a delivered artifact with
+    no explanation for its missing automatic review.  Best-effort: a state
+    write failure must never disturb delivery.
+    """
+
+    state_path = _media_state_path(reports_root, slot_id)
+    try:
+        with _media_lock(reports_root, slot_id):
+            state = read_json(state_path) or {}
+            now = datetime.now(UTC).isoformat()
+            state.update(
+                {
+                    "slot_id": slot_id,
+                    "last_skip": {
+                        "version_id": version_id,
+                        "reason": reason,
+                        "hint": hint,
+                        "at": now,
+                    },
+                    "updated_at": now,
+                },
+            )
+            write_json(state_path, state)
+    except Exception:
+        logger.exception("failed to record media review skip")
+
+
+def media_review_skip_note(
+    reports_root: Path,
+    *,
+    slot_id: str,
+) -> dict[str, str] | None:
+    """Read the durable skip note for one artifact slot, when recorded.
+
+    Read-only and total, mirroring :func:`media_skip_reason`: a malformed
+    state file yields ``None`` rather than an exception.
+    """
+
+    state = read_json(_media_state_path(reports_root, slot_id))
+    if not isinstance(state, Mapping):
+        return None
+    note = state.get("last_skip")
+    if not isinstance(note, Mapping):
+        return None
+    version_id = str(note.get("version_id") or "")
+    reason = str(note.get("reason") or "")
+    if not version_id or not reason:
+        return None
+    return {
+        "version_id": version_id,
+        "reason": reason,
+        "hint": str(note.get("hint") or ""),
+        "at": str(note.get("at") or ""),
+    }
 
 
 def release_media_claim(
@@ -625,9 +696,11 @@ __all__ = [
     "end_sync_fence",
     "finalize_media_round",
     "hold_sync_blocker",
+    "media_review_skip_note",
     "media_skip_reason",
     "owner_token",
     "read_json",
+    "record_media_skip",
     "release_media_claim",
     "safe_ref",
     "settle_sync_review",

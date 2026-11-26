@@ -373,12 +373,9 @@ class AgentBuilder:
             effective_skills = [s for s in subagent_skills if s in parent_set]
 
         # Compute active modes.
-        active_modes: set[str] = set()
         workspace = getattr(ctx, "workspace", None)
-        if workspace is not None:
-            plugins = getattr(workspace, "plugins", None)
-            if plugins is not None:
-                active_modes = plugins.active_mode_names(ctx)
+        plugins = getattr(workspace, "plugins", None)
+        active_modes = plugins.active_mode_names(ctx) if plugins else set()
 
         # Governor (governance policy layer). Built per request against
         # the dirs the tools will actually use, so a session-level
@@ -526,7 +523,7 @@ class AgentBuilder:
             react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
-            stop_handlers=tuple(ctx.workspace.plugins.stop_handlers),
+            stop_handlers=tuple(plugins.stop_handlers) if plugins else (),
             workspace_dir=workspace_dir,
             request_context=request_context,
             offloader=offloader,

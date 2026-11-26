@@ -40,8 +40,9 @@ class PluginProviderRegistry:
         normalize_id = getattr(self._manager, "_normalize_provider_id")
         provider_key = normalize_id(provider_id)
         if provider_key not in self._manager.plugin_providers:
-            logger.warning(
-                f"unregister_plugin_provider: '{provider_id}' not found",
+            logger.debug(
+                "Plugin provider '%s' is not registered in memory",
+                provider_id,
             )
             return False
         del self._manager.plugin_providers[provider_key]

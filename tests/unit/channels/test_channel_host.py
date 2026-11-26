@@ -92,6 +92,84 @@ async def host(tmp_path, monkeypatch):
     await case.close()
 
 
+def public_contributions(source, events, sdk=False):
+    """Add lightweight CLI/Tool registration and a deferred sending module."""
+    path = source / "plugin.json"
+    manifest = json.loads(path.read_text())
+    manifest["entry"]["backend"] = "main.py"
+    manifest["sdk"] = {
+        "version": "1.2.0",
+        "capabilities": ["cli", "tools", "resources", "dependencies"],
+    }
+    manifest["cli"] = [{"id": "status", "path": ["channel-status"]}]
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    (source / "main.py").write_text(
+        f"EVENTS = {str(events)!r}\n"
+        + """
+import json
+from pathlib import Path
+import click
+from qwenpaw.plugins.cli import CliSpec
+from qwenpaw.plugins.tools import ToolSpec
+
+def event(kind):
+    with Path(EVENTS).open('a') as output:
+        output.write(json.dumps({'kind': kind}) + '\\n')
+
+event('entry')
+
+def build_status(call):
+    return click.Command('status', callback=lambda: click.echo('ready'))
+
+class Plugin:
+    def register(self, ctx):
+        async def send(call, args):
+            from .sending import send_message
+            call.resources.defer(lambda: event('call-closed'))
+            return send_message(call)
+        ctx.register_cli(CliSpec('status', build_status))
+        ctx.register_tool(ToolSpec(
+            'channel_example_send', 'Send', {'type': 'object'}, send,
+            enabled=True,
+        ))
+        event('registered')
+
+plugin = Plugin()
+""",
+        encoding="utf-8",
+    )
+    (source / "sending.py").write_text(
+        ("import sample_shared_sdk\n" if sdk else "")
+        + f"VERSION = {manifest['version']!r}\n"
+        + """
+from qwenpaw.plugins.tools import ToolResult
+from .main import event
+event('sending-imported')
+
+def send_message(call):
+    return ToolResult.text(VERSION + ':' + call.config.get('custom', 'default'))
+""",
+        encoding="utf-8",
+    )
+    return source
+
+
+async def call_public_tool(host, workspace):
+    """Invoke the SDK handler through its real per-call resource scope."""
+    instance = host.loader.lifecycle.get_instance(KEY)
+    events = [
+        event
+        async for event in instance.sdk_context._stream_tool(
+            "channel_example_send",
+            {},
+            workspace_id=workspace.agent_id,
+        )
+    ]
+    return next(
+        event.result.content[0].text for event in events if event.result
+    )
+
+
 @pytest.fixture
 def static_channel_guard(host, monkeypatch):
     """Guard each discovery/admission run against SDK and worker startup."""
@@ -119,6 +197,257 @@ def static_channel_guard(host, monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", forbidden)
     yield attempts
     assert not attempts and not host.ledger.exists()
+
+
+@pytest.mark.parametrize(
+    "installed_version,host_only",
+    [(None, False), ("0.9", False), ("1.0", False), ("1.0", True)],
+)
+async def test_named_channel_dependencies_keep_public_registration_light(
+    host,
+    monkeypatch,
+    caplog,
+    installed_version,
+    host_only,
+):
+    """Static discovery imports nothing; registration leaves the driver cold."""
+    import zipfile
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.execution.process import ProcessError
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.python_backend._host_paths",
+        lambda cwd: (str(host.site),),
+    )
+    entry_marker = host.root / "public-events.jsonl"
+    source = public_contributions(host.artifact(), entry_marker)
+    manifest = json.loads((source / "plugin.json").read_text())
+    manifest.update(
+        optional_dependencies={"transport": ["sample-shared-sdk==1.0"]},
+    )
+    (source / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+    descriptor = json.loads((source / "channel.json").read_text())
+    descriptor.pop("requirements_file")
+    descriptor.update(schema_version=3, requires=["transport"])
+    (source / "channel.json").write_text(
+        json.dumps(descriptor),
+        encoding="utf-8",
+    )
+    (source / "requirements.txt").unlink()
+    marker = host.root / "driver-imported"
+    driver = source / "sample.py"
+    driver.write_text(
+        "import sample_shared_sdk\nfrom pathlib import Path\n"
+        + f"Path({str(marker)!r}).touch()\n"
+        + driver.read_text(),
+        encoding="utf-8",
+    )
+    if installed_version is not None:
+        wheel_dir = local_wheel(
+            host.root / "wheels",
+            version=installed_version,
+        )
+        site = host.root / "host-only-site" if host_only else host.site
+        with zipfile.ZipFile(next(wheel_dir.glob("*.whl"))) as wheel:
+            wheel.extractall(site)
+        if host_only:
+            from importlib.metadata import version
+            from importlib.util import find_spec
+
+            monkeypatch.syspath_prepend(str(site))
+            assert version("sample-shared-sdk") == installed_version
+            assert find_spec("sample_shared_sdk") is not None
+    shutil.copytree(source, host.installed)
+    catalog = get_configurable_channel_catalog()
+    assert KEY in catalog
+    assert not entry_marker.exists()
+    assert not marker.exists()
+    record = await host.loader.load_plugin(
+        PluginManifest.model_validate(manifest),
+        host.installed,
+        {},
+        activate=False,
+        allow_install=False,
+    )
+    assert record.status != "failed", record.diagnostics
+    assert (KEY, "status") in host.registry.cli_contributions
+    assert host.registry.get_channel_catalog_entry(KEY) is not None
+    assert rows(entry_marker, "registered")
+    assert not rows(entry_marker, "sending-imported")
+    assert not marker.exists()
+    if installed_version is not None and not host_only:
+        await host.loader.lifecycle.preflight_backend(
+            record.backend_binding,
+            allow_install=False,
+            probe=True,
+        )
+        assert marker.exists()
+        if installed_version == "0.9":
+            assert any(
+                "sample-shared-sdk" in record.message
+                and "attempting load" in record.message
+                for record in caplog.records
+            )
+    else:
+        with pytest.raises(ProcessError) as rejected:
+            await host.loader.lifecycle.preflight_backend(
+                record.backend_binding,
+                allow_install=False,
+                probe=True,
+            )
+        assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+        assert not marker.exists()
+        assert KEY in get_configurable_channel_catalog()
+    assert not rows(entry_marker, "sending-imported")
+
+
+def test_static_channel_catalog_preserves_registered_and_first_owners(
+    host,
+    static_channel_guard,
+):
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
+    from qwenpaw.plugins.channel_adapter import describe_channel
+    from qwenpaw.plugins.discovery import discover_plugins
+
+    source = host.artifact()
+    key = "shared-channel"
+    for plugin_id in ("first-channel", "other-channel"):
+        target = host.installed.parent / plugin_id
+        shutil.copytree(source, target)
+        path = target / "plugin.json"
+        manifest = json.loads(path.read_text())
+        manifest["id"] = plugin_id
+        path.write_text(json.dumps(manifest))
+        path = target / "channel.json"
+        descriptor = json.loads(path.read_text())
+        descriptor["channel_key"] = key
+        descriptor["label"] = {"en": plugin_id, "zh": plugin_id}
+        path.write_text(json.dumps(descriptor))
+
+    first, second = discover_plugins([host.installed.parent]).plugins
+    catalog = get_configurable_channel_catalog()
+    assert catalog[key]["owner"] == catalog[key]["label"] == first[0].id
+
+    manifest, path = second
+    host.registry.register_channel_descriptor(
+        manifest.id,
+        describe_channel(path, manifest),
+    )
+    try:
+        catalog = get_configurable_channel_catalog()
+        assert catalog[key]["owner"] == catalog[key]["label"] == manifest.id
+    finally:
+        host.registry.unregister_channel(key)
+
+
+@pytest.mark.parametrize("plugin_id", [KEY, "third-party"])
+@pytest.mark.parametrize("commit", [False, True], ids=["rollback", "commit"])
+def test_channel_catalog_uses_published_source(host, plugin_id, commit):
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
+    from qwenpaw.plugins import updates
+    from qwenpaw.plugins.settings import (
+        persist_plugin_settings,
+        record_plugin_uninstall,
+    )
+
+    def row():
+        return get_configurable_channel_catalog([plugin_id])[plugin_id]
+
+    target = host.installed.parent / plugin_id
+    staging = updates.update_staging_path(target, plugin_id)
+    backup = updates.allocate_update_backup_path(target, plugin_id)
+    persist_plugin_settings(plugin_id, enabled=False)
+    missing_label = row()["label"]
+    for directory, version in ((target, "0.0.1"), (staging, "0.0.2")):
+        shutil.copytree(host.artifact(version), directory)
+        path = directory / "plugin.json"
+        manifest = json.loads(path.read_text())
+        manifest["id"] = plugin_id
+        path.write_text(json.dumps(manifest))
+        path = directory / "channel.json"
+        descriptor = json.loads(path.read_text())
+        descriptor.update(
+            channel_key=plugin_id,
+            label={"en": version, "zh": version},
+        )
+        path.write_text(json.dumps(descriptor))
+
+    def mark(phase):
+        updates.write_updating_marker(
+            plugin_id,
+            target_path=target,
+            backup_path=backup,
+            staging_path=staging,
+            phase=phase,
+            old_version="0.0.1",
+        )
+
+    mark("staging")
+    assert row()["label"] == "0.0.1"
+    mark("swapping")
+    target.rename(backup)
+    staging.rename(target)
+    unavailable = row()
+    assert unavailable["label"] == missing_label
+    assert unavailable["availability"] == "missing_code"
+    assert "update" not in unavailable
+    assert backup.exists()
+
+    if commit:
+        updates.mark_update_committed(plugin_id)
+    else:
+        assert updates.recover_interrupted_updates(plugin_id=plugin_id) == [
+            plugin_id,
+        ]
+    published = row()
+    assert published["label"] == ("0.0.2" if commit else "0.0.1")
+    assert published["availability"] == "disabled"
+
+    record_plugin_uninstall(plugin_id, plugins_dir=target.parent)
+    assert row()["availability"] == "missing_code"
+    assert target.exists()
+
+
+@pytest.mark.parametrize(
+    "version,dependency",
+    [
+        (2, {"requirements_file": "requirements.txt"}),
+        (3, {"requires": ["transport"]}),
+    ],
+)
+def test_channel_dependency_declarations_round_trip(version, dependency):
+    from qwenpaw.channel_protocol.errors import DescriptorValidationError
+    from qwenpaw.channel_protocol.shared import SharedChannelDescriptor
+
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "plugins/channel/feishu/channel.json"
+    )
+    raw = json.loads(path.read_text())
+    raw.pop("requires")
+    raw.update(schema_version=version, **dependency)
+    descriptor = SharedChannelDescriptor.from_mapping(raw)
+    assert descriptor.to_mapping() == raw
+    assert (
+        SharedChannelDescriptor.from_mapping(descriptor.to_mapping())
+        == descriptor
+    )
+
+    # Reject ambiguous or unsupported declarations at the protocol boundary.
+    with pytest.raises(DescriptorValidationError):
+        SharedChannelDescriptor.from_mapping(
+            {**raw, "requires": [], "requirements_file": "requirements.txt"},
+        )
+    with pytest.raises(DescriptorValidationError):
+        SharedChannelDescriptor.from_mapping({**raw, "schema_version": 99})
+    invalid = (
+        {"requirements_file": "other.txt"}
+        if "requirements_file" in dependency
+        else {"requires": [""]}
+    )
+    with pytest.raises(DescriptorValidationError):
+        SharedChannelDescriptor.from_mapping({**raw, **invalid})
 
 
 def test_official_discovery_and_descriptor_snapshot_are_static(
@@ -386,12 +715,14 @@ async def test_channel_update_keeps_disabled_intent(
     "enabled,runtime",
     [(False, "selected"), (True, None), (True, "unselected")],
 )
+@pytest.mark.parametrize("public_entry", [False, True])
 async def test_channel_catalog_admission_preserves_config_without_runtime(
     host,
     monkeypatch,
     static_channel_guard,
     enabled,
     runtime,
+    public_entry,
 ):
     from dataclasses import replace
     from qwenpaw.plugins.settings import persist_plugin_settings
@@ -408,6 +739,19 @@ async def test_channel_catalog_admission_preserves_config_without_runtime(
         )
 
     source = host.artifact(sdk=True)
+    if public_entry and enabled:
+        public_contributions(source, host.root / "public-events.jsonl")
+    elif public_entry:
+        path = source / "plugin.json"
+        manifest = json.loads(path.read_text())
+        manifest["entry"]["backend"] = "main.py"
+        manifest["sdk"] = {"version": "1.2.0", "capabilities": ["cli"]}
+        manifest["cli"] = [{"id": "status", "path": ["channel-status"]}]
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        (source / "main.py").write_text(
+            "raise RuntimeError('channel discovery executed the public entry')\n",
+            encoding="utf-8",
+        )
     shutil.copytree(source, host.installed)
     persist_plugin_settings(
         KEY,
@@ -424,30 +768,66 @@ async def test_channel_catalog_admission_preserves_config_without_runtime(
         == "string"
     )
     record = host.loader.get_loaded_plugin(KEY)
-    assert not record.enabled
-    assert record.status == ("catalogued" if enabled else "inactive")
+    public_active = enabled and public_entry
+    assert record.enabled is public_active
+    assert record.status == (
+        "registered"
+        if public_active
+        else "catalogued"
+        if enabled
+        else "inactive"
+    )
     if enabled:
         assert "channel_runtime_not_integrated" in record.diagnostics
         usage = host.registry.dependency_usage
         assert usage.has_declaration(row.dependency_token, plugin_id=KEY)
-        (declaration,) = usage.snapshot(
-            admission_token=row.dependency_token,
-        ).uses
+        (declaration,) = (
+            use
+            for use in usage.snapshot(
+                admission_token=row.dependency_token,
+            ).uses
+            if use.requirements == ("sample-shared-sdk==1.0",)
+        )
         assert (
             declaration.source_revision
             == row.description_record.source_revision
         )
         assert declaration.requirements == ("sample-shared-sdk==1.0",)
         assert not declaration.pending and declaration.snapshot is None
-        with pytest.raises(
-            ChannelRuntimeNotIntegratedError,
-            match="^channel_runtime_not_integrated$",
-        ):
+        if public_active:
+            from qwenpaw.agents import tools
+
             await host.loader.lifecycle.activate(KEY)
-        with pytest.raises(
-            ChannelRuntimeNotIntegratedError,
-            match="^channel_runtime_not_integrated$",
-        ):
+            assert hasattr(tools, "channel_example_send")
+            assert (KEY, "status") in host.registry.cli_contributions
+            ws = await host.workspace("public-only", enabled=False)
+            assert await call_public_tool(host, ws) == "1.0.0:default"
+            await host.loader.lifecycle.update_config(
+                KEY,
+                {"custom": "updated"},
+            )
+            assert await call_public_tool(host, ws) == "1.0.0:updated"
+            await host.loader.lifecycle.set_enabled(KEY, False)
+            assert not hasattr(tools, "channel_example_send")
+            await host.loader.lifecycle.set_enabled(KEY, True)
+            assert await call_public_tool(host, ws) == "1.0.0:updated"
+        else:
+            with pytest.raises(
+                ChannelRuntimeNotIntegratedError,
+                match="^channel_runtime_not_integrated$",
+            ):
+                await host.loader.lifecycle.activate(KEY)
+        if not public_active:
+            with pytest.raises(
+                ChannelRuntimeNotIntegratedError,
+                match="^channel_runtime_not_integrated$",
+            ):
+                await host.loader.lifecycle.prepare_backend(
+                    record.backend_binding,
+                    allow_install=False,
+                    probe=True,
+                )
+        else:
             await host.loader.lifecycle.prepare_backend(
                 record.backend_binding,
                 allow_install=False,
@@ -455,11 +835,24 @@ async def test_channel_catalog_admission_preserves_config_without_runtime(
             )
     from qwenpaw.config.utils import load_config
 
-    assert load_config().plugins[KEY] == {
-        "enabled": enabled,
-        "app_id": "saved",
-        "untouched": 7,
-    }
+    assert load_config().plugins[KEY] == (
+        {
+            "enabled": True,
+            "custom": "updated",
+        }
+        if public_active
+        else {
+            "enabled": enabled,
+            "app_id": "saved",
+            "untouched": 7,
+        }
+    )
+    if public_active:
+        report = await host.loader.unload_plugin(KEY, delete_files=True)
+        assert report.clean and report.quiescent
+        assert not hasattr(tools, "channel_example_send")
+        assert (KEY, "status") not in host.registry.cli_contributions
+        assert host.registry.get_channel_catalog_entry(KEY) is None
 
 
 def test_runner_hello_requires_shared_identity():
@@ -1322,6 +1715,82 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
 
 
 @pytest.mark.asyncio
+async def test_app_registers_public_tools_before_loading_their_sdk(
+    host,
+    monkeypatch,
+):
+    import zipfile
+    from qwenpaw.agents import tools
+
+    ws = await host.workspace("tool-only", enabled=False)
+    events = host.root / "public-events.jsonl"
+    source = public_contributions(host.artifact(sdk=True), events, sdk=True)
+    wheel_dir = local_wheel(host.root / "wheels")
+    with zipfile.ZipFile(next(wheel_dir.glob("*.whl"))) as wheel:
+        wheel.extractall(host.site)
+    monkeypatch.syspath_prepend(str(host.site))
+    shutil.copytree(source, host.installed)
+    try:
+        await host.loader.load_all_plugins(types=["channel"], activate=False)
+        assert (KEY, "status") in host.registry.cli_contributions
+        assert not rows(events, "sending-imported")
+        assert "sample_shared_sdk" not in sys.modules
+        assert not host.ledger.exists()
+
+        await host.loader.activate_all_loaded()
+        assert host.loader.get_loaded_plugin(KEY).status == "active"
+        assert hasattr(tools, "channel_example_send")
+        assert not rows(events, "sending-imported")
+        assert "sample_shared_sdk" not in sys.modules
+        assert not rows(host.ledger, "connected")
+
+        assert await call_public_tool(host, ws) == "1.0.0:default"
+        sdk = sys.modules["sample_shared_sdk"]
+        assert len(rows(events, "sending-imported")) == 1
+        assert len(rows(events, "call-closed")) == 1
+        assert await call_public_tool(host, ws) == "1.0.0:default"
+        assert sys.modules["sample_shared_sdk"] is sdk
+        assert len(rows(events, "call-closed")) == 2
+
+        await host.loader.lifecycle.update_config(KEY, {"custom": "updated"})
+        assert await call_public_tool(host, ws) == "1.0.0:updated"
+        assert (KEY, "status") in host.registry.cli_contributions
+        assert not rows(host.ledger, "connected")
+
+        report = await host.loader.unload_plugin(KEY, delete_files=True)
+        assert report.clean and report.quiescent
+        assert (KEY, "status") not in host.registry.cli_contributions
+        assert not hasattr(tools, "channel_example_send")
+        assert not host.installed.exists()
+        assert (host.site / "sample_shared_sdk.py").is_file()
+    finally:
+        sys.modules.pop("sample_shared_sdk", None)
+
+
+@pytest.mark.asyncio
+async def test_public_registration_failure_rolls_back_channel_and_tools(host):
+    events = host.root / "public-events.jsonl"
+    source = public_contributions(host.artifact(), events)
+    entry = source / "main.py"
+    entry.write_text(
+        entry.read_text().replace(
+            "event('registered')",
+            "raise RuntimeError('broken registration')",
+        ),
+        encoding="utf-8",
+    )
+    shutil.copytree(source, host.installed)
+    await host.loader.load_all_plugins(types=["channel"], activate=False)
+    record = host.loader.get_loaded_plugin(KEY)
+    assert record.status == "failed"
+    assert "broken registration" in str(record.diagnostics)
+    assert host.registry.get_channel_catalog_entry(KEY) is None
+    assert (KEY, "status") not in host.registry.cli_contributions
+    assert not rows(events, "sending-imported")
+    assert not host.ledger.exists()
+
+
+@pytest.mark.asyncio
 async def test_real_agent_stream_final_reply_and_saved_session(
     host,
     monkeypatch,
@@ -1580,9 +2049,20 @@ async def test_update_replaces_worker_and_preserves_data(
 
 
 @pytest.mark.asyncio
-async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
+@pytest.mark.parametrize("public_entry", [False, True])
+async def test_disable_reenable_uninstall_reaps_only_owned_resources(
+    host,
+    public_entry,
+):
+    from qwenpaw.agents import tools
+
     ws = await host.workspace("lifecycle")
-    await host.loader.load_plugin_from_path(host.artifact())
+    source = host.artifact()
+    if public_entry:
+        public_contributions(source, host.root / "public-events.jsonl")
+    await host.loader.load_plugin_from_path(source)
+    if public_entry:
+        assert await call_public_tool(host, ws) == "1.0.0:default"
     _, before = await host.identity(ws)
     business = ws.workspace_dir / "business.json"
     business.write_text("keep")
@@ -1596,9 +2076,15 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
         not alive(before["pid"])
         and await ws.channel_manager.get_channel(KEY) is None
     )
+    if public_entry:
+        assert (KEY, "status") not in host.registry.cli_contributions
+        assert not hasattr(tools, "channel_example_send")
     await host.loader.lifecycle.set_enabled(KEY, True)
     _, fresh = await host.identity(ws)
     assert fresh["pid"] != before["pid"]
+    if public_entry:
+        assert (KEY, "status") in host.registry.cli_contributions
+        assert await call_public_tool(host, ws) == "1.0.0:default"
     report = await host.loader.unload_plugin(KEY, delete_files=True)
     assert report.clean and report.quiescent
     assert not alive(fresh["pid"]) and not host.registry.runtime_owners.leases(
@@ -1607,11 +2093,15 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
     assert await ws.channel_manager.get_channel(KEY) is None
     assert business.read_text() == "keep"
     assert not host.installed.exists()
-    assert user_config.read_bytes() == config_before
-    assert (
-        json.loads(user_config.read_text())["channels"][KEY]["app_secret"]
-        == "local-only"
-    )
+    if public_entry:
+        assert (KEY, "status") not in host.registry.cli_contributions
+        assert not hasattr(tools, "channel_example_send")
+    expected_config = json.loads(config_before)
+    if public_entry:
+        expected_config["tools"]["builtin_tools"].pop("channel_example_send")
+    actual_config = json.loads(user_config.read_bytes())
+    assert actual_config == expected_config
+    assert actual_config["channels"][KEY]["app_secret"] == "local-only"
 
 
 @pytest.mark.asyncio
@@ -1714,15 +2204,27 @@ async def test_connection_failure_logs_actual_state_without_changing_refusal(
 
 
 @pytest.mark.asyncio
-async def test_failed_worker_update_restores_usable_source_and_config(host):
+@pytest.mark.parametrize("public_entry", [False, True])
+async def test_failed_worker_update_restores_usable_source_and_config(
+    host,
+    public_entry,
+):
     ws = await host.workspace("rollback")
-    await host.loader.load_plugin_from_path(host.artifact())
+    initial = host.artifact()
+    candidate = host.artifact("2.0.0", fail_start=True)
+    if public_entry:
+        events = host.root / "public-events.jsonl"
+        public_contributions(initial, events)
+        public_contributions(candidate, events)
+    await host.loader.load_plugin_from_path(initial)
     await host.loader.lifecycle.update_config(KEY, {"custom": "keep"})
+    if public_entry:
+        assert await call_public_tool(host, ws) == "1.0.0:keep"
     _, before = await host.identity(ws)
     source = (host.installed / "sample.py").read_bytes()
     report = await host.loader.lifecycle.reload(
         KEY,
-        new_source=host.artifact("2.0.0", fail_start=True),
+        new_source=candidate,
     )
     assert not report.ok and report.errors
     failed = rows(host.ledger, "start_failed")[0]
@@ -1732,6 +2234,9 @@ async def test_failed_worker_update_restores_usable_source_and_config(host):
     assert after["config"] == before["config"]
     assert (host.installed / "sample.py").read_bytes() == source
     assert host.loader.lifecycle.get_instance(KEY).config == {"custom": "keep"}
+    if public_entry:
+        assert (KEY, "status") in host.registry.cli_contributions
+        assert await call_public_tool(host, ws) == "1.0.0:keep"
     await host.emit(ws, room="restored")
     await eventually(lambda: bool(rows(host.ledger, "finished")))
     assert rows(host.ledger, "sent")[-1]["room"] == "restored"

@@ -21,6 +21,10 @@ from ...constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from ...providers.capping_formatter import (
+    MAX_IMAGE_SIDE,
+    MAX_INLINE_MEDIA_BYTES,
+)
 from .image_resize import downscale_oversized_images_async
 from .tool_message_utils import _sanitize_tool_messages
 
@@ -634,12 +638,23 @@ async def normalize_messages_for_model_request_async(
     target_family: str = "openai",
     strip_audio: bool = False,
     strip_video: bool = False,
+    max_bytes: int = MAX_INLINE_MEDIA_BYTES,
+    max_side: int = MAX_IMAGE_SIDE,
+    observed_sides: list[int] | None = None,
 ) -> list[Msg]:
     """Prepare a provider request copy, downscaling images off the loop.
 
     Filtering happens first, so media the target cannot receive is dropped
     instead of being resized and then discarded — otherwise each later turn
     carrying that history pays the decode-and-encode cost again.
+
+    ``max_bytes`` and ``max_side`` are resolved by the caller from the
+    provisioned formatter, so this pass shrinks an image to the same limits
+    the formatter will later enforce.
+
+    ``observed_sides`` collects the longest side of every image inspected,
+    so a rejection can be answered with a rendition smaller than the image
+    the provider refused instead of a smaller configured limit.
     """
     normalized = normalize_messages_for_model_request(
         msgs,
@@ -650,7 +665,12 @@ async def normalize_messages_for_model_request_async(
     )
     # Rescale only the request copy: the stored message keeps its original
     # bytes, so the user can still retrieve the full-resolution image later.
-    await downscale_oversized_images_async(normalized)
+    await downscale_oversized_images_async(
+        normalized,
+        max_bytes=max_bytes,
+        max_side=max_side,
+        observed_sides=observed_sides,
+    )
     return normalized
 
 

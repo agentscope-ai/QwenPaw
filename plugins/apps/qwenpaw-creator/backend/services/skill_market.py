@@ -71,14 +71,24 @@ async def search_skills(
     page: int = _DEFAULT_PAGE,
     limit: int = _MAX_MARKET_LIMIT,
     lang: str = "en",
+    providers: list[str] | None = None,
 ) -> tuple[list[MarketSkillResult], bool, dict[str, int]]:
-    """Search skill market providers; returns results, has_more, totals."""
+    """Search skill market providers; returns results, has_more, totals.
+
+    ``providers`` optionally narrows the search to a subset of market keys
+    (the UI's source filter). It only ever intersects with the set that is
+    available and browsable, so an unconfigured market such as Aliyun stays
+    excluded even if named. Empty/None keeps the default: every reachable
+    market is searched.
+    """
     list_providers_fn, search_market_fn = _resolve_market_service()
     capped_limit = max(
         1,
         min(int(limit or _MAX_MARKET_LIMIT), _MAX_MARKET_LIMIT),
     )
     page_num = max(1, int(page or _DEFAULT_PAGE))
+    has_provider_filter = bool(providers)
+    wanted = {key.strip() for key in (providers or ()) if key and key.strip()}
 
     # Build provider_pages for every browsable provider so the user sees
     # results from all markets in one call.  ``list_providers`` is the host's
@@ -90,7 +100,9 @@ async def search_skills(
     provider_pages: dict[str, int] = {
         info.key: page_num
         for info in discovered
-        if info.available and info.supports_browse
+        if info.available
+        and info.supports_browse
+        and (not has_provider_filter or info.key in wanted)
     }
 
     results, errors, by_provider = await search_market_fn(

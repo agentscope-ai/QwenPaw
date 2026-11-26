@@ -318,14 +318,39 @@ def _message_meta(update: Any) -> dict:
     user_id = str(getattr(user, "id", "")) if user else ""
     username = (getattr(user, "username", None) or "") if user else ""
     chat_type = getattr(chat, "type", "") if chat else ""
+    is_topic_message = bool(getattr(message, "is_topic_message", False))
+    thread_id = getattr(message, "message_thread_id", None)
+    is_general_topic = (
+        chat_type == "supergroup"
+        and thread_id == 1
+        and (is_topic_message or getattr(chat, "is_forum", False))
+    )
+    if is_general_topic:
+        thread_id = None
     return {
         "chat_id": chat_id,
         "user_id": user_id,
         "username": username,
         "message_id": str(getattr(message, "message_id", "")),
+        "chat_type": chat_type,
         "is_group": chat_type in ("group", "supergroup", "channel"),
-        "message_thread_id": getattr(message, "message_thread_id", None),
+        "is_topic_message": is_topic_message,
+        "message_thread_id": thread_id,
     }
+
+
+def _session_id(meta: dict) -> str:
+    """Return the chat-scoped session, split per actual forum topic."""
+    base = "telegram:" + meta["chat_id"]
+    thread = meta.get("message_thread_id")
+    if (
+        meta.get("chat_type") == "supergroup"
+        and meta.get("is_topic_message")
+        and thread
+        and thread > 1
+    ):
+        return f"{base}:{thread}"
+    return base
 
 
 def _chunk_text(text: str) -> list[str]:
@@ -680,7 +705,7 @@ class TelegramPlatform:
             "sender_id": sender,
             "acl_sender_id": sender,
             "user_id": sender,
-            "session_id": "telegram:" + meta["chat_id"],
+            "session_id": _session_id(meta),
             "meta": meta,
             "content_parts": [
                 {
