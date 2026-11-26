@@ -57,6 +57,29 @@ def test_ensure_url_scheme_unquotes_percent_encoded_path():
     ).endswith("wecom_企业微信.png")
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/tmp/workspace#draft/image#1.png",
+        "/tmp/workspace%23draft/image%231.png",
+    ],
+)
+def test_ensure_url_scheme_encodes_hash_once(path):
+    url = _ensure_url_scheme(path)
+
+    assert url.endswith("/workspace%23draft/image%231.png")
+    assert "%2523" not in url
+
+
+def test_ensure_url_scheme_encodes_hash_in_unc_path():
+    assert (
+        _ensure_url_scheme(
+            r"\\server\share#draft\image#1.png",
+        )
+        == "file://server/share%23draft/image%231.png"
+    )
+
+
 def test_msg_from_dict_legacy_image_with_local_path_source(tmp_path):
     """Legacy image blocks with local paths must not break session load."""
     image = tmp_path / "wecom_企业微信截图.png"
