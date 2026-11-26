@@ -2153,8 +2153,8 @@ export default function ChatPage() {
       });
       if (canceled?.status === "failed") throw canceled.error;
       if (!canceled || canceled.status === "not-found") {
-        await chatApi.stopChat(backendChatId, selectedAgent);
-        markTurnStopped(queueSessionId);
+        const result = await chatApi.stopChat(backendChatId, selectedAgent);
+        if (result.stopped) markTurnStopped(queueSessionId);
       }
       setRunningVisit((visit) => (visit === queueVisit ? null : visit));
     } catch (error) {
@@ -2196,6 +2196,8 @@ export default function ChatPage() {
       };
     }
     const syncState = activeRunSyncRef.current;
+    let terminalEventRevision = 0;
+    let terminalRunObserved = false;
     const refreshMessages = async ({
       requireIdle,
     }: { requireIdle?: boolean } = {}) => {
@@ -2220,22 +2222,51 @@ export default function ChatPage() {
         return;
       inFlight = true;
       try {
+        const requestRevision = terminalEventRevision;
         const runStatus = await chatApi.getChatStatus(backendChatId, {
           agentId: selectedAgent,
           signal: controller.signal,
         });
-        if (controller.signal.aborted) return;
-        setRunningVisit(runStatus.status === "running" ? queueVisit : null);
+        if (
+          controller.signal.aborted ||
+          requestRevision !== terminalEventRevision
+        ) {
+          return;
+        }
 
         if (runStatus.status === "running") {
           const firstRunningObservation = !syncState.sawRunning;
           const execution = chatRef.current?.execution;
           const activeRun = await execution?.getActiveRun(queueSessionId);
-          if (controller.signal.aborted) return;
-          if (activeRun && activeRun.getState() !== "disconnected") {
-            syncState.resumeAttempted = false;
+          if (
+            controller.signal.aborted ||
+            requestRevision !== terminalEventRevision
+          ) {
             return;
           }
+          if (activeRun) {
+            const state = activeRun.getState();
+            if (
+              state === "completed" ||
+              state === "failed" ||
+              state === "canceled"
+            ) {
+              terminalRunObserved = true;
+              setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+              return;
+            }
+            if (state !== "disconnected") {
+              terminalRunObserved = false;
+              setRunningVisit(queueVisit);
+              syncState.resumeAttempted = false;
+              return;
+            }
+            terminalRunObserved = false;
+          } else if (terminalRunObserved) {
+            setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+            return;
+          }
+          setRunningVisit(queueVisit);
           if (syncState.resumeAttempted) return;
           if (!execution) return;
           if (firstRunningObservation || !activeRun) {
@@ -2257,6 +2288,8 @@ export default function ChatPage() {
           return;
         }
 
+        terminalRunObserved = false;
+        setRunningVisit(null);
         if (!syncState.sawRunning) return;
         if (await refreshMessages({ requireIdle: true })) {
           syncState.sawRunning = false;
@@ -2271,6 +2304,20 @@ export default function ChatPage() {
       }
     };
 
+    const unsubscribeExecution = chatRef.current?.execution.subscribe(
+      (event) => {
+        if (event.sessionId !== queueSessionId) return;
+        const terminal =
+          event.state === "completed" ||
+          event.state === "failed" ||
+          event.state === "canceled";
+        terminalRunObserved = terminal;
+        if (!terminal) return;
+        terminalEventRevision += 1;
+        setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+      },
+    );
+
     const retryWhenVisible = () => {
       if (!document.hidden) void syncRun();
     };
@@ -2282,6 +2329,7 @@ export default function ChatPage() {
     document.addEventListener("visibilitychange", retryWhenVisible);
     return () => {
       controller.abort();
+      unsubscribeExecution?.();
       window.clearInterval(retryTimer);
       window.removeEventListener("online", retryWhenVisible);
       document.removeEventListener("visibilitychange", retryWhenVisible);
@@ -4853,22 +4901,18 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         onFileCardClick,
-        cancel(
+        async cancel(
           data: IAgentScopeRuntimeWebUITransportContext & {
             abort?: () => void;
           },
         ) {
-          // The SDK only writes a canceled status when its stream is still
-          // alive to observe the abort; record the stop itself so tool cards
-          // can close even when the stream died first.
-          markTurnStopped(data.session_id || data.chatSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},
             {},
             selectedAgent,
           );
-          return cancelSdkChatRequest(data, {
+          const stopped = await cancelSdkChatRequest(data, {
             resolveBackendSessionId: (sessionId) =>
               sessionApi.getRealIdForSession(sessionId),
             stopChat: (sessionId) =>
@@ -4882,6 +4926,9 @@ export default function ChatPage() {
               );
             },
           });
+          if (stopped) {
+            markTurnStopped(data.session_id || data.chatSessionId);
+          }
         },
         async reconnect(
           data: IAgentScopeRuntimeWebUITransportContext & {

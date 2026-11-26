@@ -15,7 +15,12 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useSyncExternalStore, useEffect } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useSyncExternalStore,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
@@ -24,6 +29,7 @@ import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { composer } from "@/plugins/hostSdk/composer";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
+import { useStoppedTurnsStore } from "./stoppedTurns";
 import {
   getPendingProjectDirectory,
   setPendingProjectDirectory,
@@ -40,6 +46,11 @@ const {
   mockGetActiveModels,
   mockUploadFile,
   mockGetChatStatus,
+  mockStopChat,
+  mockExecutionCancel,
+  mockExecutionGetActiveRun,
+  mockExecutionResume,
+  mockSdkRunListeners,
   mockFilePreviewUrl,
   mockGetApiUrl,
   mockSelectedAgent,
@@ -61,6 +72,11 @@ const {
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
   mockGetChatStatus: vi.fn(),
+  mockStopChat: vi.fn(),
+  mockExecutionCancel: vi.fn(),
+  mockExecutionGetActiveRun: vi.fn(),
+  mockExecutionResume: vi.fn(),
+  mockSdkRunListeners: new Set<(event: any) => void>(),
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
   mockGetApiUrl: vi.fn((p: string) => `http://localhost:3000${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
@@ -124,7 +140,26 @@ vi.mock("@agentscope-ai/chat", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agentscope-ai/chat")>();
   return {
     ...actual,
-    AgentScopeRuntimeWebUI: vi.fn((props: any) => {
+    AgentScopeRuntimeWebUI: forwardRef((props: any, ref: any) => {
+      useImperativeHandle(ref, () => ({
+        execution: {
+          cancel: mockExecutionCancel,
+          getActiveRun: mockExecutionGetActiveRun,
+          resume: mockExecutionResume,
+          subscribe: (listener: (event: any) => void) => {
+            mockSdkRunListeners.add(listener);
+            return () => mockSdkRunListeners.delete(listener);
+          },
+        },
+        messages: {
+          getMessages: vi.fn(() => []),
+          getSessionMessages: vi.fn(() => []),
+          removeAllMessages: vi.fn(),
+          setSessionMessages: vi.fn(),
+          updateMessage: vi.fn(),
+        },
+        input: { submit: vi.fn() },
+      }));
       capturedOptions = props.options;
       const actionAffix = props.options?.sender?.actionAffix;
       useEffect(() => {
@@ -203,7 +238,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     getChatStatus: mockGetChatStatus,
     filePreviewUrl: mockFilePreviewUrl,
-    stopChat: vi.fn(() => Promise.resolve()),
+    stopChat: mockStopChat,
   },
 }));
 
@@ -279,6 +314,7 @@ vi.mock("./sessionApi", () => ({
     setVisibleSession: vi.fn(),
     getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
+    refreshSession: vi.fn(async () => undefined),
     patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn((id?: string) => {
       const chat = mockResolvedRoutes.get(`${mockSelectedAgent()}:${id}`);
@@ -661,6 +697,16 @@ describe("ChatPage coverage", () => {
     mockSdkInput.loading = false;
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    mockStopChat.mockReset();
+    mockStopChat.mockResolvedValue({ stopped: false });
+    mockExecutionCancel.mockReset();
+    mockExecutionCancel.mockResolvedValue({ status: "not-found" });
+    mockExecutionGetActiveRun.mockReset();
+    mockExecutionGetActiveRun.mockResolvedValue(undefined);
+    mockExecutionResume.mockReset();
+    mockExecutionResume.mockResolvedValue(undefined);
+    mockSdkRunListeners.clear();
+    useStoppedTurnsStore.setState({ stoppedSessionIds: new Set() });
     chatExtensions.__resetForTests();
     capturedOptions = null;
     observedSdkSessions = [];
@@ -1440,9 +1486,10 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.cancel) {
-      capturedOptions.api.cancel({ session_id: "test-session" });
+      await capturedOptions.api.cancel({ session_id: "test-session" });
       // stopChat should have been called
       await waitFor(() => expect(chatApi.stopChat).toHaveBeenCalled());
+      expect(useStoppedTurnsStore.getState().stoppedSessionIds.size).toBe(0);
     }
   });
 
@@ -1490,6 +1537,163 @@ describe("ChatPage coverage", () => {
     await waitFor(() =>
       expect(chatApi.stopChat).toHaveBeenCalledWith("test-session", "default"),
     );
+  });
+
+  it("hides the detached stop when the SDK run reaches a terminal state", async () => {
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockExecutionGetActiveRun.mockResolvedValue({
+      getState: () => "streaming",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+
+    await screen.findByTestId("chat-ui");
+    await act(async () => window.dispatchEvent(new Event("online")));
+    await screen.findByRole("button", { name: "Stop generating" });
+    await act(async () => {
+      for (const listener of mockSdkRunListeners) {
+        listener({ sessionId: "test-session", state: "completed" });
+      }
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Stop generating" }),
+    ).toBeNull();
+  });
+
+  it("ignores an in-flight running poll after a terminal SDK event", async () => {
+    let finishActiveRun!: (run: undefined) => void;
+    const pendingActiveRun = new Promise<undefined>((resolve) => {
+      finishActiveRun = resolve;
+    });
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockExecutionGetActiveRun.mockResolvedValue({
+      getState: () => "streaming",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+
+    await screen.findByTestId("chat-ui");
+    await act(async () => window.dispatchEvent(new Event("online")));
+    await screen.findByRole("button", { name: "Stop generating" });
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+
+    mockExecutionGetActiveRun.mockImplementationOnce(() => pendingActiveRun);
+    await act(async () => window.dispatchEvent(new Event("online")));
+    await waitFor(() =>
+      expect(mockExecutionGetActiveRun).toHaveBeenCalledTimes(2),
+    );
+    await act(async () => {
+      for (const listener of mockSdkRunListeners) {
+        listener({ sessionId: "test-session", state: "completed" });
+      }
+      finishActiveRun(undefined);
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Stop generating" }),
+    ).toBeNull();
+  });
+
+  it("keeps Stop hidden while backend status lags SDK completion", async () => {
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockExecutionGetActiveRun.mockResolvedValue({
+      getState: () => "streaming",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+
+    await screen.findByTestId("chat-ui");
+    await act(async () => window.dispatchEvent(new Event("online")));
+    await screen.findByRole("button", { name: "Stop generating" });
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await act(async () => {
+      for (const listener of mockSdkRunListeners) {
+        listener({ sessionId: "test-session", state: "completed" });
+      }
+    });
+    expect(
+      screen.queryByRole("button", { name: "Stop generating" }),
+    ).toBeNull();
+
+    mockExecutionGetActiveRun.mockResolvedValue(undefined);
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await act(async () => window.dispatchEvent(new Event("online")));
+    await waitFor(() =>
+      expect(mockExecutionGetActiveRun).toHaveBeenCalledTimes(2),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Stop generating" }),
+    ).toBeNull();
+    expect(mockExecutionResume).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { runState: "streaming", emitRunEvent: true },
+    { runState: "disconnected", emitRunEvent: false },
+  ] as const)(
+    "restores Stop for a $runState run after completion",
+    async ({ runState, emitRunEvent }) => {
+      mockGetChatStatus.mockResolvedValue({ status: "running" });
+      mockExecutionGetActiveRun.mockResolvedValue({
+        getState: () => "streaming",
+      });
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+
+      await screen.findByTestId("chat-ui");
+      await act(async () => window.dispatchEvent(new Event("online")));
+      await screen.findByRole("button", { name: "Stop generating" });
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+      await act(async () => {
+        for (const listener of mockSdkRunListeners) {
+          listener({ sessionId: "test-session", state: "completed" });
+        }
+      });
+      expect(
+        screen.queryByRole("button", { name: "Stop generating" }),
+      ).toBeNull();
+
+      mockExecutionGetActiveRun.mockResolvedValue({
+        getState: () => runState,
+      });
+      if (emitRunEvent) {
+        await act(async () => {
+          for (const listener of mockSdkRunListeners) {
+            listener({ sessionId: "test-session", state: runState });
+          }
+        });
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+      await act(async () => window.dispatchEvent(new Event("online")));
+
+      await screen.findByRole("button", { name: "Stop generating" });
+    },
+  );
+
+  it("does not mark the turn stopped when the backend rejects Stop", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockStopChat.mockResolvedValue({ stopped: false });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+
+    await screen.findByTestId("chat-ui");
+    await act(async () => window.dispatchEvent(new Event("online")));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Stop generating" }),
+    );
+    await waitFor(() =>
+      expect(chatApi.stopChat).toHaveBeenCalledWith("test-session", "default"),
+    );
+
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds.size).toBe(0);
   });
 
   // ── reconnect callback → calls fetch ───────────────────────────────────

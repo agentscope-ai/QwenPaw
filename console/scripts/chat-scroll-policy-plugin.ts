@@ -42,6 +42,7 @@ function loadSdkScrollPatch(id: string) {
         source,
         "ensureMessageVisible: ensureMessageVisible\n  };",
         `ensureMessageVisible: ensureMessageVisible,
+    hasMoreRecent: historyRange.start > 0,
     showLatest: function () {
       ensureMessageSequenceRef.current += 1;
       if (historyRangeRef.current.start > 0) setHistoryRange(INITIAL_HISTORY_RANGE);
@@ -49,12 +50,21 @@ function loadSdkScrollPatch(id: string) {
   };`,
       ),
       "items: visibleMessages\n    }, currentSessionId)",
-      "items: visibleMessages,\n      onScrollToLatest: _useSimulatedMessageP.showLatest\n    }, currentSessionId)",
+      "items: visibleMessages,\n      showScrollToLatest: _useSimulatedMessageP.hasMoreRecent,\n      onScrollToLatest: _useSimulatedMessageP.showLatest\n    }, currentSessionId)",
     );
   }
   if (sdkBubbleListPath.test(id)) {
+    const source = readFileSync(id, "utf8");
     return replaceSdkCode(
-      readFileSync(id, "utf8"),
+      replaceSdkCode(
+        replaceSdkCode(
+          source,
+          "    if (!scrollEl) return false;\n    var hasOverflow =",
+          "    if (!scrollEl) return false;\n    if (props.showScrollToLatest) return true;\n    var hasOverflow =",
+        ),
+        "  }, [isDesc]);\n  var scrollToBottom",
+        "  }, [isDesc, props.showScrollToLatest]);\n  var scrollToBottom",
+      ),
       "return scrollToBottom('auto');\n        }",
       `if (props.onScrollToLatest) {
             scrollRef.current?.dispatchEvent(new Event('qwenpaw:chat-scroll-to-latest'));
