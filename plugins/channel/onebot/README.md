@@ -1,9 +1,8 @@
 # OneBot v11 channel plugin
 
-Official descriptor-based v2 plugin for NapCat, go-cqhttp and Lagrange reverse WebSocket
+Official descriptor-based plugin for NapCat, go-cqhttp and Lagrange reverse WebSocket
 connections. The standard shared worker loads
-`qwenpaw_channel_onebot.driver.OneBotDriver`. Dependencies are declared only in
-`requirements.txt`: `aiohttp>=3.9.0` and `aiofiles>=24.1.0`.
+`qwenpaw_channel_onebot.driver.OneBotDriver`. The `transport` group in `plugin.json` declares `aiohttp>=3.9.0` and `aiofiles>=24.1.0`.
 
 The descriptor preserves all 25 `OneBotConfig` fields, defaults and constraints.
 Enable the channel and configure `ws_host`, `ws_port` and `access_token`.

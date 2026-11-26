@@ -1,2 +1,0 @@
-aiohttp>=3.9.0
-protobuf>=4.22.0

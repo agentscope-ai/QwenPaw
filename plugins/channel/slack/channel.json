@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "channel_key": "slack",
   "label": {
     "en": "Slack",
@@ -12,7 +12,7 @@
     "module": "qwenpaw_channel_slack.driver",
     "qualname": "SlackDriver"
   },
-  "requirements_file": "requirements.txt",
+  "requires": ["transport"],
   "config_schema": {
     "description": "Slack channel: Socket Mode connection with edit-in-place streaming.\n\nUses slack-bolt AsyncSocketModeHandler (aiohttp WebSocket) to connect\nto a single Slack workspace. Supports incremental message rendering\nvia chat.postMessage + chat.update (edit-in-place) when streaming is\nenabled.",
     "properties": {
