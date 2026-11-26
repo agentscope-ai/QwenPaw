@@ -49,7 +49,7 @@ def test_linux_appstream_catalog_lets_app_center_remove_the_deb():
     tauri = REPO_ROOT / "console/src-tauri"
     config = json.loads((tauri / "tauri.conf.json").read_text("utf-8"))
     files = config["bundle"]["linux"]["deb"]["files"]
-    catalog = tauri / files["/usr/share/swcatalog/yaml/qwenpaw-desktop.yml"]
+    catalog = tauri / files["/var/lib/swcatalog/yaml/qwenpaw-desktop.yml"]
     # App Center splits DEP-11 on bare "---" lines, and one document it
     # cannot read stops it loading every catalog on the system.
     header, component = [

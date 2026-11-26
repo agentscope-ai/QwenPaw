@@ -1,7 +1,9 @@
 # AppStream catalog for the deb. Ubuntu App Center lists an installed deb, and
 # offers to remove it, only when a catalog names its package; it does not read
-# /usr/share/metainfo. One malformed catalog stops App Center loading all of
-# them, so tests/unit/tauri checks this file against its parser's rules.
+# /usr/share/metainfo. The App Center snap sees /var/lib/swcatalog, where APT
+# keeps Ubuntu's own catalogs, but not a /usr/share/swcatalog created after it
+# was installed. One malformed catalog stops App Center loading all of them,
+# so tests/unit/tauri checks this file against its parser's rules.
 ---
 File: DEP-11
 Version: "1.0"

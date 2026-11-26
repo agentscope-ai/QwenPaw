@@ -63,7 +63,7 @@
           "pkexec"
         ],
         "files": {
-          "/usr/share/swcatalog/yaml/qwenpaw-desktop.yml": "linux/qwenpaw-desktop.yml"
+          "/var/lib/swcatalog/yaml/qwenpaw-desktop.yml": "linux/qwenpaw-desktop.yml"
         }
       }
     },
