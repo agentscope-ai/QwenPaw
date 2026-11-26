@@ -231,11 +231,21 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
   metadata: msg.metadata ?? null,
 });
 
+function historyMessageId(msg: Message): string | undefined {
+  // The API generates a new transport ID each time it serializes history.
+  const originalId = (msg.metadata as Record<string, unknown>)?.original_id;
+  if (typeof originalId === "string" && originalId) return originalId;
+  return typeof msg.id === "string" && msg.id ? msg.id : undefined;
+}
+
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
-function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
+function buildUserCard(
+  msg: Message,
+  id = historyMessageId(msg) ?? generateId(),
+): IAgentScopeRuntimeWebUIMessage {
   const contentParts = contentToRequestParts(msg.content);
   return {
-    id: (msg.id as string) || generateId(),
+    id,
     role: "user",
     cards: [
       {
@@ -263,6 +273,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   terminal?: { status?: string; error?: unknown },
+  id = generateId(),
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -290,13 +301,13 @@ const buildResponseCard = (
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
 
   return {
-    id: generateId(),
+    id,
     role: ROLE_ASSISTANT,
     cards: [
       {
         code: CARD_RESPONSE,
         data: {
-          id: `response_${generateId()}`,
+          id: `response_${id}`,
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
@@ -325,16 +336,25 @@ const convertMessages = (
   messages: Message[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
+  const userParts = new Map<string, number>();
   const len = messages.length;
   let i = 0;
 
   while (i < len) {
     let terminal: { status?: string; error?: unknown } | undefined;
+    let userId: string | undefined;
     if (messages[i].role === ROLE_USER) {
       const user = messages[i++];
+      userId = historyMessageId(user);
+      if (userId) {
+        // One stored message can be serialized into multiple media bubbles.
+        const part = (userParts.get(userId) ?? 0) + 1;
+        userParts.set(userId, part);
+        if (part > 1) userId = `${userId}-part-${part}`;
+      }
       const meta = user.metadata as Record<string, any> | undefined;
       terminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
-      result.push(buildUserCard(user));
+      result.push(buildUserCard(user, userId));
     }
     const startIdx = i;
     while (i < len && messages[i].role !== ROLE_USER) i++;
@@ -344,7 +364,15 @@ const convertMessages = (
       terminal?.status === "failed" ||
       terminal?.status === "canceled"
     ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+      const firstOutputId = outputMsgs.length
+        ? historyMessageId(messages[startIdx])
+        : undefined;
+      const replyId = userId
+        ? `reply-to-${userId}`
+        : firstOutputId
+        ? `reply-from-${firstOutputId}`
+        : undefined;
+      result.push(buildResponseCard(outputMsgs, terminal, replyId));
     }
   }
 
