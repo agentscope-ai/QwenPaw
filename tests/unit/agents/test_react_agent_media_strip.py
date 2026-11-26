@@ -63,6 +63,10 @@ _VIDEO_SCHEMA_ERROR = (
 _VIDEO_ZERO_LIMIT = (
     "At most 0 video(s) may be provided in one prompt. (parameter=video)"
 )
+_VIDEO_TOO_SHORT = (
+    "The video modality input does not meet the requirements because: "
+    "The video file is too short."
+)
 
 
 def _agent_with_context(context: list) -> QwenPawAgent:
@@ -776,6 +780,37 @@ async def test_generic_error_with_media_but_wrong_status_or_named_parameter(
     _assert_recovery(session, [2], learned=False)
 
 
+@pytest.mark.parametrize(
+    ("message", "filter_field"),
+    [
+        ("Invalid request parameters", "code"),
+        ("Invalid request parameters", "type"),
+        ("The provided URL does not appear to be valid", "code"),
+    ],
+)
+async def test_content_filter_does_not_retry_with_media(
+    video_session,
+    message,
+    filter_field,
+):
+    session = video_session
+    session.errors.append(
+        httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": message,
+                    "param": "",
+                    filter_field: "content_filter",
+                },
+            },
+        ),
+    )
+    with pytest.raises(APIStatusError, match=message):
+        _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2], learned=False)
+
+
 async def test_generic_400_media_free_retry_is_attempted_only_once(
     video_session,
 ):
@@ -866,6 +901,29 @@ async def test_positive_video_limit_does_not_disable_next_valid_input(
     session.agent.state.context = session.agent.state.context[:1]
     _ = [event async for event in session.agent._reasoning()]
     _assert_recovery(session, [2, 0, 1], learned=False)
+
+
+@pytest.mark.parametrize("status", [400, 500])
+async def test_short_video_bad_request_retries_only_without_video(
+    video_session,
+    status,
+):
+    session = video_session
+    agent = session.agent
+    before = _dump_context(agent.state.context)
+    session.errors.append(_error(status, _VIDEO_TOO_SHORT))
+
+    if status == 400:
+        events = [event async for event in agent._reasoning()]
+        assert events[-1].content[0].text == "done"
+        _ = [event async for event in agent._reasoning()]
+        _assert_recovery(session, [2, 0, 2], learned=False)
+    else:
+        with pytest.raises(APIStatusError, match="video file is too short"):
+            _ = [event async for event in agent._reasoning()]
+        _assert_recovery(session, [2], learned=False)
+
+    assert _dump_context(agent.state.context) == before
 
 
 async def test_failed_video_retry_does_not_learn_or_mutate_history(

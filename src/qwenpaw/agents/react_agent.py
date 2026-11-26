@@ -849,6 +849,8 @@ class QwenPawAgent(Agent):
         URLs: those requests carry no audio blocks and never reach the
         audio-strip retry.
         """
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -892,10 +894,20 @@ class QwenPawAgent(Agent):
         return False
 
     @staticmethod
+    def _is_short_video_error(exc: Exception) -> bool:
+        """Identify a request-specific video duration rejection."""
+        return extract_status_code(exc) == 400 and (
+            re.search(r"\bvideo file is too short\b", str(exc), re.IGNORECASE)
+            is not None
+        )
+
+    @staticmethod
     def _is_video_fallback_error(exc: Exception) -> bool:
-        """Recognize video type/capability rejections and count limits."""
+        """Recognize video capability and request-specific rejections."""
         if QwenPawAgent._is_content_safety_error(exc):
             return False
+        if QwenPawAgent._is_short_video_error(exc):
+            return True
         error_str = " ".join(str(exc).lower().split())
         # Schema errors can list image/audio parts as accepted alternatives.
         if _VIDEO_PART_REJECTION_RE.search(error_str):
@@ -921,6 +933,8 @@ class QwenPawAgent(Agent):
     @staticmethod
     def _is_video_capability_error(exc: Exception) -> bool:
         """Allow learning only for rejected video types or zero budgets."""
+        if QwenPawAgent._is_short_video_error(exc):
+            return False
         if not QwenPawAgent._is_video_fallback_error(exc):
             return False
         limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
@@ -1552,6 +1566,19 @@ class QwenPawAgent(Agent):
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
         """Return True for provider-side content safety rejections."""
+        if "content_filter" in (
+            getattr(exc, "code", None),
+            getattr(exc, "type", None),
+        ):
+            return True
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            for error in (body, body.get("error")):
+                if isinstance(error, dict) and "content_filter" in (
+                    error.get("code"),
+                    error.get("type"),
+                ):
+                    return True
         error_str = str(exc).lower()
         safety_markers = (
             "new_sensitive",
