@@ -54,6 +54,7 @@ import type {
   ModelConfigData,
   ModelConfigItem,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 import ModelSetupGuide from "@/components/onboarding/ModelSetupGuide";
 import SkillsConfigPane from "@/components/creator/SkillsConfigPane";
 
@@ -1244,7 +1245,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       const [data, providers] = await Promise.all([
         getModelConfig(),
         getHostProviders().catch(() => {
-          message.error(t("modelConfig.hostProvidersUnavailable"));
+          message.error(i18n.t("modelConfig.hostProvidersUnavailable"));
           return null;
         }),
       ]);
@@ -1350,7 +1351,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       snapshotRef.current = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
       return false;
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -1388,7 +1389,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     } finally {
       setReloading(false);
     }
-  }, [loadConfig, reloading]);
+  }, [loadConfig, reloading, t]);
 
   const updateItem = useCallback(
     (type: ModelType, field: string, value: unknown) => {
