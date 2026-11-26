@@ -17,6 +17,7 @@ import httpx
 
 from .io_helpers import (
     SERVER_GRACE_SECONDS,
+    create_server_job,
     finish,
     run_io,
     stop_server,
@@ -43,6 +44,7 @@ from .runtime_release import (
     RELEASE,
     matches_release,
     read_runtime_metadata,
+    server_executable,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ class LlamaCppBackend(BinaryDownloads):
         self.target_dir = data_dir / "bin"
         self.log_dir = data_dir / "logs"
         self._server_process: subprocess.Popen | None = None
+        self._server_job = create_server_job()
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
@@ -81,9 +84,10 @@ class LlamaCppBackend(BinaryDownloads):
     def executable(self) -> Path:
         """The expected path of the llama.cpp server executable after download
         and extraction."""
-        if self.os_name == "windows":
-            return self.target_dir / "llama-server.exe"
-        return self.target_dir / "llama-server"
+        return server_executable(
+            self.target_dir,
+            windows=self.os_name == "windows",
+        )
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Check if the llama.cpp server executable exists."""
@@ -454,14 +458,19 @@ class LlamaCppBackend(BinaryDownloads):
         )
 
         async def launch():
-            self._server_process = await asyncio.to_thread(
+            process = await asyncio.to_thread(
                 subprocess.Popen,
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 **process_options(),
             )
-            return self._server_process
+            # Bind the server to this process before anything can wait on it:
+            # if we die abruptly the kernel takes it down too, instead of
+            # leaving an orphan holding its port and its memory (#8830).
+            self._server_job.assign(process)
+            self._server_process = process
+            return process
 
         return await finish(launch())
 
@@ -771,6 +780,13 @@ class LlamaCppBackend(BinaryDownloads):
         try:
             yield process
             self._reset_server_state()
+            # One job per backend, created again on the next start. Leaving the
+            # handle open lets a start/reload cycle accumulate handles until the
+            # process exits, so it is released once the server is known to be
+            # stopped. It is deliberately not released when ``stop_server``
+            # raised: that path keeps the process for a retry, and on Windows
+            # closing the last handle kills it before the retry can use it.
+            self._server_job.close()
         finally:
             self._server_transitioning = False
 

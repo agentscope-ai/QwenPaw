@@ -6,7 +6,7 @@ export interface SdkCancellationInput {
 
 interface CancelSdkChatRequestOptions {
   resolveBackendSessionId: (sessionId: string) => string | null | undefined;
-  stopChat: (sessionId: string) => Promise<unknown>;
+  stopChat: (sessionId: string) => Promise<{ stopped: boolean }>;
   onError?: (error: unknown) => void;
 }
 
@@ -14,7 +14,7 @@ interface CancelSdkChatRequestOptions {
 export async function cancelSdkChatRequest(
   input: SdkCancellationInput,
   options: CancelSdkChatRequestOptions,
-): Promise<void> {
+): Promise<boolean> {
   // Stop addresses the backend Chat resource (UUID), not its runtime session_id.
   const chatId = input.chatSessionId || input.session_id;
   const backendSessionId = options.resolveBackendSessionId(chatId) || chatId;
@@ -23,7 +23,8 @@ export async function cancelSdkChatRequest(
     throw new Error("Missing chat identity for cancellation");
 
   try {
-    await options.stopChat(backendSessionId);
+    const result = await options.stopChat(backendSessionId);
+    return result.stopped;
   } catch (error) {
     options.onError?.(error);
     throw error;

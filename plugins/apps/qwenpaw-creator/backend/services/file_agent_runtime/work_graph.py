@@ -1378,6 +1378,8 @@ def derive_work_graph(  # pylint: disable=too-many-branches,too-many-statements
             command, dispatch_arguments = _video_dispatch_command(
                 creation_type,
             )
+            if creation_type != "s2v" and not creation.generate_audio:
+                dispatch_arguments["generateAudio"] = False
 
             add(
                 WorkNode(
@@ -1628,13 +1630,21 @@ def _video_fingerprint_parts(
     storyboard_slot: str | None,
 ) -> tuple:
     """Return the fingerprint components for a video node by creation type."""
+    # Preserve the identity of pre-field projects using the default audio.
+    # Silent footage is a different production input and approval scope.
+    audio_parts = (
+        ("generateAudio", False)
+        if creation_type != "s2v" and not creation.generate_audio
+        else ()
+    )
     if creation_type == "t2v":
-        return (video_id, creation.video_prompt)
+        return (video_id, creation.video_prompt, *audio_parts)
     if creation_type == "i2v":
         return (
             video_id,
             creation.video_prompt,
             creation.first_frame_version_id,
+            *audio_parts,
         )
     if creation_type == "s2v":
         return (
@@ -1650,6 +1660,7 @@ def _video_fingerprint_parts(
         creation.video_prompt,
         storyboard_slot,
         sorted(creation.video_reference_version_ids),
+        *audio_parts,
     )
 
 

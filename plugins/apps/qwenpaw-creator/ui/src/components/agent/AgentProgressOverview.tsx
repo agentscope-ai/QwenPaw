@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useId,
   useMemo,
@@ -8,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { message } from "antd";
 import {
   ArrowUpRight,
   ChevronDown,
@@ -24,6 +26,7 @@ import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { navigateToLocator } from "@/routing/locators";
+import { navigate } from "@/routing/navigation";
 import {
   buildAgentProgressModel,
   type AgentProgressGroup,
@@ -82,6 +85,10 @@ function OperationRow({
   projectId: string;
 }) {
   const { t } = useTranslation();
+  const dispatch = useWorkGraphStore((state) => state.dispatchNode);
+  const dispatching = useWorkGraphStore((state) =>
+    Boolean(item.node ? state.dispatching[item.node.id] : false),
+  );
   const label = item.label.startsWith(`${groupLabel} · `)
     ? item.label.slice(groupLabel.length + 3)
     : item.label;
@@ -95,31 +102,68 @@ function OperationRow({
       <AgentActivityIndicator
         phase={item.phase === "preparing" ? "waiting" : item.phase}
       />
-      <div className="agent-operation-copy">
-        {item.locator ? (
-          <button
-            type="button"
-            className="agent-operation-link"
-            onClick={() => {
-              navigateToLocator(projectId, item.locator!, {
-                description: t("progressOverview.title"),
-                ...(item.locator?.field ? { focusField: true } : {}),
-              });
-            }}
-            title={t("progressOverview.viewObject", { name: label })}
+      <div className="agent-operation-copy flex-wrap">
+        <div className="flex min-w-0 flex-1 items-center gap-[7px]">
+          {item.locator ? (
+            <button
+              type="button"
+              className="agent-operation-link"
+              onClick={() => {
+                navigateToLocator(projectId, item.locator!, {
+                  description: t("progressOverview.title"),
+                  ...(item.locator?.field ? { focusField: true } : {}),
+                });
+              }}
+              title={t("progressOverview.viewObject", { name: label })}
+            >
+              {label}
+              <ArrowUpRight aria-hidden />
+            </button>
+          ) : (
+            <span className="agent-operation-label">{label}</span>
+          )}
+          <span className="agent-operation-status">
+            {item.statusLabel}
+            {item.progressPercent != null && item.progressPercent > 0
+              ? ` · ${item.progressPercent}%`
+              : ""}
+          </span>
+        </div>
+        {item.errorText && (
+          <div
+            data-progress-error
+            className="flex w-full min-w-0 items-center gap-1.5"
           >
-            {label}
-            <ArrowUpRight aria-hidden />
-          </button>
-        ) : (
-          <span className="agent-operation-label">{label}</span>
+            <span
+              className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-danger)]"
+              title={item.errorText}
+            >
+              {item.errorText}
+            </span>
+            {item.errorHint === "modelConfig" ? (
+              <button
+                type="button"
+                className="agent-work-action shrink-0"
+                onClick={() => navigate("/")}
+              >
+                {t("progressOverview.openModelConfig")}
+              </button>
+            ) : node?.dispatchable ? (
+              <button
+                type="button"
+                className="agent-work-action shrink-0"
+                disabled={dispatching}
+                onClick={() =>
+                  void dispatch(projectId, node.id).catch(() =>
+                    message.error(t("agentActivity.failureHint")),
+                  )
+                }
+              >
+                {t("progressOverview.retry")}
+              </button>
+            ) : null}
+          </div>
         )}
-        <span className="agent-operation-status">
-          {item.statusLabel}
-          {item.progressPercent != null && item.progressPercent > 0
-            ? ` · ${item.progressPercent}%`
-            : ""}
-        </span>
       </div>
     </li>
   );
@@ -211,11 +255,7 @@ function WorkGroupCard({
   );
 }
 
-export default function AgentProgressOverview({
-  projectId,
-}: {
-  projectId: string;
-}) {
+function AgentProgressOverview({ projectId }: { projectId: string }) {
   const { t, i18n } = useTranslation();
   const [filter, setFilter] = useState<ProgressFilter>("all");
   const [expanded, setExpanded] = useState(true);
@@ -522,3 +562,5 @@ export default function AgentProgressOverview({
     </>
   );
 }
+
+export default memo(AgentProgressOverview);

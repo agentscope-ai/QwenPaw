@@ -30,6 +30,9 @@ export function seedCreatorSession() {
     },
   });
   useAgentDockUiStore.getState().reset();
+  // `reset()` keeps per-Project drafts on purpose (the layout resets the dock
+  // on every Project switch); tests still need a clean slate per case.
+  useAgentDockUiStore.getState().clearUnsentDrafts();
   useCreatorInteractionStore.getState().reset();
   useFileProjectReviewStore.getState().reset();
   useExecutionAuthorizationStore.getState().reset();

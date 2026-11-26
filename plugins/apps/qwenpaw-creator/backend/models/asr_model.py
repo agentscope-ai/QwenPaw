@@ -22,7 +22,7 @@ from urllib.parse import urlparse, urlsplit
 import httpx
 
 from models import config
-from models.media_transport import upload_local_file_to_dashscope_temp
+from models.media_transport import upload_reference_file_for_provider
 from services.runtime_files.media_probe import probe_media
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
 from utils.logger import setup_logger
@@ -232,11 +232,13 @@ async def _asr_audio_url(
             "/api/v1/uploads）。请把音频放到公网 HTTP(S) URL，或把 ASR 模"
             "型切到百炼直连端点后再用本地音频。",
         )
-    return await upload_local_file_to_dashscope_temp(
+    return await upload_reference_file_for_provider(
         path,
         api_key=api_key,
         model_name=model,
         media_type=media_type,
+        base_url=config.get_asr_base_url(),
+        protocol=config.get_asr_protocol(),
     )
 
 
@@ -251,13 +253,7 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
     pass through untouched.
     """
     parsed = urlparse(media_url)
-    logger.info(
-        "Fun-ASR: _fun_asr_file_url called with media_url=%s (scheme=%s, netloc=%s, path=%s)",
-        media_url[:200],
-        parsed.scheme,
-        parsed.netloc,
-        parsed.path[:100],
-    )
+    logger.info("Fun-ASR: preparing reference (scheme=%s)", parsed.scheme)
     if parsed.scheme == "file":
         local_path = local_path_from_file_url(media_url)
         is_video = _is_video_file(local_path)
@@ -283,7 +279,7 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
                     Path(directory),
                 )
                 logger.info(
-                    "Fun-ASR: audio extracted -> %s (%.1f MB), uploading to DashScope ...",
+                    "Fun-ASR: audio extracted -> %s (%.1f MB), preparing reference ...",
                     audio_path.name,
                     audio_path.stat().st_size / (1024 * 1024),
                 )
@@ -293,14 +289,17 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
                     model=model,
                     media_type="audio/mpeg",
                 )
-                logger.info("Fun-ASR: upload complete -> %s", url[:120])
+                logger.info(
+                    "Fun-ASR: reference ready (scheme=%s)",
+                    url.partition(":")[0],
+                )
                 return url
         media_type = (
             mimetypes.guess_type(local_path.name)[0]
             or "application/octet-stream"
         )
         logger.info(
-            "Fun-ASR: uploading local file %s (%.1f MB) to DashScope ...",
+            "Fun-ASR: preparing local file %s (%.1f MB) ...",
             local_path.name,
             local_path.stat().st_size / (1024 * 1024),
         )
@@ -310,20 +309,14 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
             model=model,
             media_type=media_type,
         )
-        logger.info("Fun-ASR: upload complete -> %s", url[:120])
+        logger.info(
+            "Fun-ASR: reference ready (scheme=%s)",
+            url.partition(":")[0],
+        )
         return url
     if parsed.scheme in {"http", "https"}:
-        logger.info(
-            "Fun-ASR: using remote URL directly (scheme=%s): %s",
-            parsed.scheme,
-            media_url[:200],
-        )
         return media_url
-    logger.error(
-        "Fun-ASR: unsupported URL scheme=%s, media_url=%s",
-        parsed.scheme,
-        media_url[:200],
-    )
+    logger.error("Fun-ASR: unsupported URL scheme=%s", parsed.scheme)
     raise ValueError(
         "Fun-ASR input must be a local file or HTTP(S) media URL",
     )
@@ -856,41 +849,43 @@ def _prepare_qwen3_chunks(
     return prepared
 
 
-def _qwen3_sentences(body: Mapping[str, Any]) -> list[str]:
-    choices = body.get("output", {}).get("choices") or ()
-    if not choices:
-        return []
-    content = choices[0].get("message", {}).get("content") or ()
-    sentences: list[str] = []
-    for item in content:
-        if isinstance(item, Mapping):
-            text = str(item.get("text") or "").strip()
-        elif isinstance(item, str):
-            text = item.strip()
-        else:
-            text = ""
-        if text:
-            sentences.append(text)
-    return sentences
-
-
-def _qwen_audio_sentences(body: Mapping[str, Any]) -> list[str]:
-    """Transcript text from a qwen-audio-3.0-asr-flash response.
-
-    This family answers with a cumulative ``output.text`` (plus an
-    ``output.sentence`` block carrying real begin/end timings) rather than
-    the qwen3-asr ``output.choices`` chat shape, so it needs its own reader.
-    """
+def _qwen3_sentences(
+    body: Mapping[str, Any],
+    *,
+    prefer_cumulative: bool = False,
+) -> list[str]:
     output = body.get("output") or {}
-    text = str(output.get("text") or "").strip()
-    if text:
-        return [text]
+    cumulative = str(output.get("text") or "").strip()
+    if prefer_cumulative and cumulative:
+        # Direct Qwen Audio returns a complete transcript alongside its last segment.
+        return [cumulative]
+
+    choices = output.get("choices") or ()
+    if choices:
+        content = (choices[0].get("message") or {}).get("content") or ()
+        if isinstance(content, (str, Mapping)):
+            content = [content]
+        texts = []
+        for item in content:
+            text = item.get("text") if isinstance(item, Mapping) else item
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+        if texts:
+            return texts
+
     sentence = output.get("sentence")
-    if isinstance(sentence, Mapping):
-        sentence_text = str(sentence.get("text") or "").strip()
-        if sentence_text:
-            return [sentence_text]
-    return []
+    segments = sentence if isinstance(sentence, list) else [sentence]
+    texts = [
+        item["text"].strip()
+        for item in segments
+        if isinstance(item, Mapping)
+        and isinstance(item.get("text"), str)
+        and item["text"].strip()
+    ]
+    if texts:
+        return texts
+    text = str(body.get("text") or "").strip() or cumulative
+    return [text] if text else []
 
 
 def _spread_segments(
@@ -952,9 +947,7 @@ async def _qwen3_transcribe_url(
         "X-DashScope-OssResourceResolve": "enable",
     }
     body = await _post_with_retry(client, endpoint, payload, headers=headers)
-    if is_qwen_audio:
-        return _qwen_audio_sentences(body)
-    return _qwen3_sentences(body)
+    return _qwen3_sentences(body, prefer_cumulative=is_qwen_audio)
 
 
 async def _qwen3_asr(media_url: str) -> ASRResult:
@@ -1179,9 +1172,9 @@ async def _whisper(media_url: str) -> ASRResult:
 async def transcribe(media_url: str) -> ASRResult:
     provider = config.get_asr_provider()
     logger.info(
-        "ASR transcribe started: provider=%s url=%s",
+        "ASR transcribe started: provider=%s scheme=%s",
         provider,
-        media_url[:120],
+        urlparse(media_url).scheme,
     )
     if provider == "whisper":
         return await _whisper(media_url)

@@ -59,6 +59,7 @@ import {
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { taskErrorMessage } from "@/lib/taskPresentation";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { nodeGenerating } from "@/lib/generationActivity";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
@@ -434,24 +435,37 @@ function visualVariantForVersion(
   return null;
 }
 
-function visualVariantCardName(variant: VisualVariantDocument): string {
-  const variantName = variant.variant_id
+/**
+ * Readable title for one character-variant card.
+ *
+ * The description line already shows `requirements`, so the title must NOT
+ * repeat it (an earlier cut of the first sentence read as title==body). The
+ * variant model has no short human name either -- its id is an English slug.
+ * So the title is the character name; a lone look is just that name, and
+ * several looks get a short non-duplicating tag (默认造型 / 造型N) so the
+ * cards stay distinguishable without echoing the description.
+ */
+export function characterVariantCardName(
+  entity: VisualEntityDocument,
+  variant: VisualVariantDocument,
+): string {
+  // "默认造型 / 造型N" is character wording; scenes and props just carry
+  // their entity name (the description line distinguishes them).
+  if (entity.kind !== "character") return entity.name;
+  const looks = entity.variants?.order ?? [];
+  if (looks.length <= 1) return entity.name;
+  const slug = variant.variant_id
     .replace(/^(?:visual-variant:|variant:|var:)/, "")
     .split(":")
     .at(-1)
     ?.trim();
-  if (!variantName) return visualVariantLabel(variant, 36);
-  if (variantName.toLocaleLowerCase() === "default")
-    return i18n.t("assets.defaultLook");
-  return variantName
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((word) => {
-      if (/^(?:nba|wnba|nfl|mlb|nhl|2d|3d)$/i.test(word))
-        return word.toLocaleUpperCase();
-      return `${word.charAt(0).toLocaleUpperCase()}${word.slice(1)}`;
-    })
-    .join(" ");
+  if (slug?.toLocaleLowerCase() === "default")
+    return `${entity.name} · ${i18n.t("assets.defaultLook")}`;
+  const index = looks.indexOf(variant.variant_id);
+  // A variant missing from ``order`` has no position: fall back to the bare
+  // character name, never "小周 · 小周".
+  if (index < 0) return entity.name;
+  return `${entity.name} · ${i18n.t("assets.lookN", { n: index + 1 })}`;
 }
 
 function visualSettingCardName(
@@ -459,7 +473,7 @@ function visualSettingCardName(
   variant: VisualVariantDocument | null,
 ): string {
   if (entity.kind !== "character" || !variant) return entity.name;
-  return visualVariantCardName(variant);
+  return characterVariantCardName(entity, variant);
 }
 
 function assetItems(project: ProjectDocument): AssetItem[] {
@@ -599,9 +613,10 @@ function assetItems(project: ProjectDocument): AssetItem[] {
         entityId: visualVariant?.entity.entity_id,
         variantId: visualVariant?.variant.variant_id,
         variantLabel: visualVariant
-          ? `${visualVariant.entity.name} · ${visualVariantCardName(
+          ? characterVariantCardName(
+              visualVariant.entity,
               visualVariant.variant,
-            )}`
+            )
           : undefined,
         variantState: visualVariant
           ? visualVariant.variant.selected_artifact_version_id ===
@@ -662,7 +677,9 @@ function assetItems(project: ProjectDocument): AssetItem[] {
           entityId: entity.entity_id,
           variantId: variant?.variant_id,
           variantOrder: variantIndex,
-          variantLabel: variant ? visualVariantCardName(variant) : undefined,
+          variantLabel: variant
+            ? characterVariantCardName(entity, variant)
+            : undefined,
           variantState: variant
             ? artifact
               ? "active"
@@ -1853,6 +1870,47 @@ export default function AssetsPage() {
     () => (project ? memoryBuiltVersionIds(project, tasks) : new Set<string>()),
     [project, tasks],
   );
+  // Latest resolved generation attempt per target. A failed latest attempt
+  // surfaces its reason on the asset card instead of the asset silently
+  // staying a placeholder (v2.0.6: "image generation keeps failing with no
+  // reason"). A later SUCCEEDED attempt hides the badge.
+  const generationFailures = useMemo(() => {
+    const latest = new Map<string, TaskView>();
+    for (const task of tasks) {
+      const stamp = Date.parse(task.updatedAt ?? task.createdAt ?? "");
+      const previous = latest.get(task.targetRef);
+      const previousStamp = previous
+        ? Date.parse(previous.updatedAt ?? previous.createdAt ?? "")
+        : Number.NEGATIVE_INFINITY;
+      if (!previous || !(Number.isFinite(stamp) && stamp < previousStamp)) {
+        latest.set(task.targetRef, task);
+      }
+    }
+    const failures = new Map<string, string>();
+    for (const [ref, task] of latest) {
+      if (!["FAILED", "QUARANTINED"].includes(task.status)) continue;
+      const reason = taskErrorMessage(task.error, "");
+      if (reason) failures.set(ref, reason);
+    }
+    return failures;
+  }, [tasks]);
+  const failureReasonFor = (item: AssetItem): string | null => {
+    const candidates = [item.ref];
+    const entityId =
+      item.entityId ??
+      (item.ref.startsWith("visual-entity:")
+        ? item.ref.slice("visual-entity:".length)
+        : null) ??
+      (item.ref.startsWith("asset:") ? item.ref.slice("asset:".length) : null);
+    if (entityId) {
+      candidates.push(`visual-entity:${entityId}`, `asset:${entityId}`);
+    }
+    for (const ref of candidates) {
+      const reason = generationFailures.get(ref);
+      if (reason) return reason;
+    }
+    return null;
+  };
 
   useEffect(() => {
     useCreatorInteractionStore.getState().select(selected?.ref || null);
@@ -2248,6 +2306,7 @@ export default function AssetsPage() {
                     {group.items.map((item) => {
                       const display = displayedItem(item);
                       const Icon = mediaIcon(display.mediaKind);
+                      const failureReason = failureReasonFor(item);
                       return (
                         <button
                           key={`${item.kind}:${item.id}`}
@@ -2337,6 +2396,15 @@ export default function AssetsPage() {
                               {display.stale && (
                                 <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                                   {t("assets.stale")}
+                                </span>
+                              )}
+                              {failureReason && (
+                                <span
+                                  data-asset-generation-failed={item.id}
+                                  title={failureReason}
+                                  className="max-w-[9rem] truncate rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                                >
+                                  {t("assets.generationFailed")}
                                 </span>
                               )}
                             </div>

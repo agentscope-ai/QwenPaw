@@ -24,7 +24,6 @@ dependencies = [
     "reme-ai==0.4.2.0",
     "reme-auto-fin==0.1.3",
     "reme-daily-paper==0.1.3",
-    "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
     "onnxruntime<1.24",

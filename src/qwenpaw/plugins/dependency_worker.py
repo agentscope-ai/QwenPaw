@@ -44,10 +44,15 @@ def _alive(pid):
 
 def _continue(directory, operation, *, preflight=False):
     command = operation.get("continuation_command")
+    # Preserve the audited search order when the support root is already visible.
     code = (
-        "import asyncio,sys;sys.path.insert(0,sys.argv[1]);"
-        "from qwenpaw.plugins.dependency_upgrade import continue_operation;"
-        "asyncio.run(continue_operation(sys.argv[2],preflight=sys.argv[3]=='1'))"
+        "import asyncio, sys\n"
+        "from pathlib import Path\n"
+        "support_root = Path(sys.argv[1]).resolve()\n"
+        "if not any(Path(p).resolve() == support_root for p in sys.path if p):\n"
+        "    sys.path.insert(0, str(support_root))\n"
+        "from qwenpaw.plugins.dependency_upgrade import continue_operation\n"
+        "asyncio.run(continue_operation(sys.argv[2], preflight=sys.argv[3] == '1'))"
     )
     result = subprocess.run(
         [*command, "1" if preflight else "0"]
@@ -120,12 +125,13 @@ def run(directory=None):
         )
         transaction.atomic_json(directory / "operation.json", operation)
         mutated = False
+        maintenance_args = (
+            operation["payload"]["sites"],
+            operation["id"],
+            operation["capability"],
+        )
         try:
-            with maintenance.maintenance(
-                operation["payload"]["sites"],
-                operation["id"],
-                operation["capability"],
-            ):
+            with maintenance.maintenance(*maintenance_args):
                 mutated = True
                 if recovering:
                     transaction.rollback(directory)
@@ -134,11 +140,10 @@ def run(directory=None):
                     raise RuntimeError(
                         "DEPENDENCY_INTERRUPTED: interrupted transaction was restored.",
                     )
-                _continue(directory, operation, preflight=True)
-                if maintenance.live_readers(operation["payload"]["sites"]):
-                    raise RuntimeError(
-                        "DEPENDENCY_CONSUMER_BUSY: verification child did not exit.",
-                    )
+            # The maintenance marker stays active while preflight takes the
+            # environment locks for its own scan.
+            _continue(directory, operation, preflight=True)
+            with maintenance.maintenance(*maintenance_args):
                 target = (
                     Path(operation["plugin_dirs"][0]) / operation["plugin_id"]
                 )

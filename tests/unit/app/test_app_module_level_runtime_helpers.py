@@ -27,7 +27,7 @@ from typing import Any, List
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from qwenpaw.app.routers import runtime as runtime_router
@@ -420,7 +420,12 @@ def test_version_endpoint_does_not_leak_the_environment(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("VIRTUAL_ENV", "/tmp/some-venv")
-    payload = app_module.get_version()
+    response = Response()
+    payload = app_module.get_version(
+        Request({"type": "http", "headers": []}),
+        response,
+    )
+    assert "X-QwenPaw-Profile-Probe" not in response.headers
 
     assert set(payload) == {"version"}
     assert "/tmp/some-venv" not in str(payload)

@@ -3,7 +3,7 @@
 
 import asyncio
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sqlite3
 import os
 
@@ -13,6 +13,7 @@ from qwenpaw.plugins.errors import SDKError, StaleContextError
 from qwenpaw.plugins.apps import PawApp
 from qwenpaw.plugins.channels import ChannelSpec
 from qwenpaw.plugins.sdk_version import validate_sdk
+from qwenpaw.plugins.storage import PluginStorage
 from qwenpaw.plugins.testing import PluginTestHost
 from .sdk_author_fixture import make_plugin
 
@@ -118,6 +119,64 @@ async def test_declared_migration_preserves_sources_and_existing_data(
         old.symlink_to(moved, target_is_directory=True)
         with pytest.raises(SDKError, match="symlink"):
             ctx.storage.import_legacy("profile", "linked-profile.json")
+
+
+@pytest.mark.parametrize(
+    "root, extended",
+    [
+        (r"C:\data", r"\\?\C:\data"),
+        (r"\\host\share\data", r"\\?\UNC\host\share\data"),
+    ],
+)
+def test_storage_handles_mixed_windows_prefixes(root, extended, monkeypatch):
+    plain = PureWindowsPath(root)
+    prefixed = PureWindowsPath(extended)
+    for base, resolved in ((plain, prefixed), (prefixed, plain)):
+        # Supply Windows resolve results without relying on thread timing.
+        name = "history/first.json"
+        candidate = resolved / name
+        monkeypatch.setattr(
+            PureWindowsPath,
+            "resolve",
+            lambda path: base if path == base else candidate,
+            raising=False,
+        )
+        storage = PluginStorage(base, lambda: None)
+        assert storage._path(name) == candidate
+        for candidate in (resolved, resolved.parent / "outside"):
+            with pytest.raises(SDKError, match="inside"):
+                storage._path(name)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows file I/O")
+def test_migrate_with_verbatim_resolve_result(tmp_path, monkeypatch):
+    origin = tmp_path / "legacy"
+    origin.mkdir()
+    (origin / "first.json").write_bytes(b"first")
+    storage = PluginStorage(
+        tmp_path / "private",
+        lambda: None,
+        _legacy_sources={"history": origin},
+    )
+    target = storage._root / "history"
+    resolve = Path.resolve
+
+    def resolve_with_prefix(path):
+        result = resolve(path)
+        if path.is_relative_to(target):
+            text = str(result)
+            if text.startswith("\\\\?\\"):
+                return result
+            if text.startswith("\\\\"):
+                return Path("\\\\?\\UNC\\" + text[2:])
+            return Path("\\\\?\\" + text)
+        return result
+
+    monkeypatch.setattr(Path, "resolve", resolve_with_prefix)
+    assert storage.import_legacy_tree("history", "history") == (
+        "history/first.json",
+    )
+    assert (target / "first.json").read_bytes() == b"first"
 
 
 async def test_workspace_and_app_storage_inherit_declared_sources(tmp_path):

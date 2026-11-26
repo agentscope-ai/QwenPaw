@@ -906,6 +906,109 @@ def test_etag_mismatch_is_reported_without_overwriting_current_or_last_good(
         report.raise_for_integrity()
 
 
+def test_frozen_auto_fix_restores_state_and_round(tmp_path):
+    import zipfile
+
+    archive = Path(__file__).parent / "fixtures" / "schema9-auto-fix.zip"
+    with zipfile.ZipFile(archive) as source:
+        source.extractall(tmp_path)
+    store = ProjectStore(tmp_path)
+    recovery = ProjectCommitRecoveryCoordinator(store).recover_project(
+        "project-probe",
+    )
+    assert recovery.ok
+    runtime = store.project_root("project-probe") / "runtime"
+    state = AtomicJsonRecordStore(runtime / "state.json").read()
+    assert state["last_project_etag"] == store.read("project-probe").etag
+    change_round = AtomicJsonRecordStore(
+        runtime / "change-rounds" / "round" / "round.json",
+    ).read()
+    assert change_round["status"] == TransactionStatus.COMMITTED.value
+
+
+@pytest.fixture
+def frozen_pending_review(tmp_path):
+    """Unmodified 851a3cab2 files after publication and before review creation."""
+    import zipfile
+
+    archive = Path(__file__).parent / "fixtures" / "schema9-pending-review.zip"
+    with zipfile.ZipFile(archive) as source:
+        source.extractall(tmp_path)
+    return ProjectStore(tmp_path)
+
+
+@pytest.mark.parametrize("decision", ["ACCEPT", "REJECT"])
+def test_old_writer_review_can_be_decided(frozen_pending_review, decision):
+    from services.project_files.review import (
+        ProjectReviewService,
+        ReviewDecisionItem,
+    )
+
+    store = frozen_pending_review
+    assert recover(store).ok
+    review = read_review(store, "review-round")
+    assert review.candidate_etag == store.read("project-1").etag
+    assert read_state(store).active_round_id == "review-round"
+    resolved = ProjectReviewService(store).decide(
+        project_id="project-1",
+        review_id=review.review_id,
+        decision_token=review.decision_token,
+        decisions=[
+            ReviewDecisionItem(operation_id=op.operation_id, decision=decision)
+            for op in review.operations
+        ],
+    )
+    assert resolved.status.value == "RESOLVED"
+    assert store.read("project-1").project.name == (
+        "before" if decision == "REJECT" else "Published before crash"
+    )
+    assert recover(store).ok
+
+
+def test_unprovable_old_pending_review_retains_its_evidence(
+    frozen_pending_review,
+):
+    store = frozen_pending_review
+    candidate = AtomicJsonRecordStore(
+        transaction_root(store, "review-v9") / "candidate.json",
+    )
+    raw = candidate.read()
+    raw["name"] = "Unrelated edit"
+    candidate.write(raw)
+    assert not recover(store).ok
+    assert (
+        read_journal(store, "review-v9").state
+        is CommitJournalState.PROJECT_REPLACED
+    )
+    assert read_round(store, "review-round").status is TransactionStatus.ACTIVE
+    assert not (runtime_root(store) / "state.json").exists()
+
+
+def test_first_migrated_publication_finishes_runtime_after_a_crash(
+    tmp_path,
+    monkeypatch,
+):
+    store, base = make_store(tmp_path)
+    raw = base.project.model_dump(mode="json")
+    raw["schema_version"] = 9
+    store.project_path("project-1").write_bytes(canonical_json_bytes(raw))
+    base = store.read("project-1")
+    _crash_with_project_replaced(
+        store,
+        base,
+        monkeypatch,
+        transaction_id="first-upgrade",
+        round_id="upgrade-round",
+    )
+    report = recover(store)
+    assert report.outcomes[0].action is RecoveryAction.FINALIZED_RUNTIME
+    assert read_state(store).last_project_etag == store.read("project-1").etag
+    assert (
+        read_round(store, "upgrade-round").status
+        is TransactionStatus.COMMITTED
+    )
+
+
 def test_legacy_schema_transaction_recovers_without_fail_closing(
     tmp_path,
     monkeypatch,

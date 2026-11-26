@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Literal
 
+from ..memory.registry import memory_registry
 from .activity import PluginActivity
 
 logger = logging.getLogger(__name__)
@@ -537,6 +538,10 @@ class PluginLifecycle:
         **kwargs,
     ):
         """Check execution eligibility before destructive lifecycle changes."""
+        await self._loader._prepare_registration_dependencies(
+            binding,
+            allow_install and kwargs.get("owns_dependency_env", True),
+        )
         async with self._loader._dependency_registration(
             binding,
             attach=False,
@@ -718,8 +723,6 @@ class PluginLifecycle:
         interrupt_tasks: bool = False,
     ) -> ConfigUpdateReport:
         """Rebuild contributions from *new_config* without reimporting."""
-        from qwenpaw.memory import memory_registry
-
         async with self._loader.plugin_lifecycle(plugin_id):
             async with self.activity(plugin_id).mutation(
                 interrupt_tasks=interrupt_tasks,

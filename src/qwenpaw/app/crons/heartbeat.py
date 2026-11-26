@@ -247,6 +247,8 @@ async def run_heartbeat_once(
     from ...token_usage.model_wrapper import isolated_turn_usage
 
     async def _run(dispatch=None) -> None:
+        # Deduplicate media-omission notices across messages in this turn.
+        notice_dispatch: dict = {}
         with isolated_turn_usage():
             async with aclosing(workspace.stream_query(req)) as stream:
                 async for event in stream:
@@ -257,6 +259,7 @@ async def run_heartbeat_once(
                             session_id=dispatch.session_id,
                             event=event,
                             meta={},
+                            dispatched=notice_dispatch,
                         )
 
     target = (hb.target or "").strip().lower()

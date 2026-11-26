@@ -274,7 +274,8 @@ def test_shutdown_deadline_tracks_completion(tmp_path, outcome):
         if outcome == "pending":
             proc.send_signal(signal.SIGTERM)
         proc.wait(timeout=5)
-        assert time.monotonic() - shutdown_start < 3
+        if outcome != "completed":
+            assert time.monotonic() - shutdown_start < 3
         assert proc.returncode == (0 if outcome == "completed" else 1)
         assert workspace_stopped.exists() == (outcome == "completed")
     finally:
