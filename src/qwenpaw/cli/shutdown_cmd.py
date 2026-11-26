@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
 _SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
+
+
+class ShutdownOutcome(Enum):
+    CLOSED = 0
+    FAILED = 1
+    UNVERIFIED = 3
+
+    def __bool__(self) -> bool:
+        return self is ShutdownOutcome.CLOSED
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
@@ -223,12 +233,12 @@ def _terminate_backend_unix(
     pid: int,
     timeout_sec: float,
     process: subprocess.Popen[str] | None,
-) -> bool:
+) -> ShutdownOutcome:
     """Keep identified descendants in custody even after reparenting."""
     try:
         root = psutil.Process(pid)
         if process is not None and process.poll() is not None:
-            return False
+            return ShutdownOutcome.UNVERIFIED
         with observe_backend(root) as ownership:
             return _stop_observed_backend(
                 root,
@@ -236,8 +246,10 @@ def _terminate_backend_unix(
                 timeout_sec,
                 ownership,
             )
-    except (OSError, psutil.Error, ValueError):
-        return False
+    except psutil.NoSuchProcess:
+        return ShutdownOutcome.UNVERIFIED
+    except (OSError, psutil.Error):
+        return ShutdownOutcome.FAILED
 
 
 def _stop_observed_backend(
@@ -248,15 +260,21 @@ def _stop_observed_backend(
     *,
     supervisor=None,
 ):
+    evidence_readable = True
+
     def descendants(parent):
+        nonlocal evidence_readable
         try:
             if parent.is_running():
                 return parent.children(recursive=True)
         except psutil.NoSuchProcess:
             pass
+        except psutil.AccessDenied:
+            evidence_readable = False
         return []
 
     def wait_until(deadline, *, force=False):
+        nonlocal evidence_readable
         signalled = set()
         while True:
             # Reparented workers can still spawn their own descendants.
@@ -277,10 +295,17 @@ def _stop_observed_backend(
                         continue
                 except psutil.NoSuchProcess:
                     pass
+                except psutil.AccessDenied:
+                    continue
                 pending.remove(member)
             if ownership is not None and (not pending or force):
-                members, resolved = ownership.members(known)
-                pending.update(members)
+                try:
+                    members, resolved = ownership.members(known)
+                    pending.update(members)
+                except (OSError, psutil.Error, ValueError):
+                    # Signal all known handles even if evidence is unreadable.
+                    evidence_readable = False
+                    resolved = False
                 if not pending and resolved:
                     return True
             elif not pending:
@@ -289,7 +314,7 @@ def _stop_observed_backend(
                 for member in pending - signalled:
                     try:
                         member.kill()
-                    except psutil.NoSuchProcess:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
                     signalled.add(member)
             remaining = deadline - time.monotonic()
@@ -303,14 +328,18 @@ def _stop_observed_backend(
     known = set()
     try:
         target.terminate()
-    except psutil.NoSuchProcess:
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
     drained = wait_until(deadline) or wait_until(
         time.monotonic() + 2.0,
         force=True,
     )
     # Empty recorded sessions cannot account for a detached, unseen child.
-    return drained and ownership is not None and ownership.closed
+    if pending or (ownership is not None and ownership.failed):
+        return ShutdownOutcome.FAILED
+    if drained and evidence_readable and ownership and ownership.closed:
+        return ShutdownOutcome.CLOSED
+    return ShutdownOutcome.UNVERIFIED
 
 
 def _signal_process_windows(pid: int) -> bool:
@@ -381,7 +410,7 @@ def _terminate_pid(
     process: subprocess.Popen[str] | None = None,
     *,
     backend: bool = False,
-) -> bool:
+) -> ShutdownOutcome:
     """Terminate a process tree gracefully, then force kill if needed.
 
     When the process is our child, wait on Popen to reap its exit status.
@@ -405,7 +434,7 @@ def _terminate_pid(
         return _wait_for_pid_exit(pid, timeout, interval)
 
     if has_exited():
-        return True
+        return ShutdownOutcome.CLOSED
 
     deadline = time.monotonic() + timeout_sec
     if sys.platform == "win32":
@@ -418,45 +447,40 @@ def _terminate_pid(
         _signal_process_tree_unix(pid, _SIGTERM)
 
     if wait_for_exit(max(0.0, deadline - time.monotonic()), 0.2):
-        return True
+        return ShutdownOutcome.CLOSED
 
     if sys.platform == "win32":
         _terminate_process_tree_windows(pid, force=True, timeout_sec=2.0)
         if wait_for_exit(2.0, 0.1):
-            return True
+            return ShutdownOutcome.CLOSED
         _force_terminate_windows_process(pid)
     else:
         _signal_process_tree_unix(pid, _SIGKILL)
 
-    return wait_for_exit(2.0, 0.1)
+    if wait_for_exit(2.0, 0.1):
+        return ShutdownOutcome.CLOSED
+    return ShutdownOutcome.FAILED
 
 
 def _stop_pid_set(
     pids: set[int],
     *,
     backend: bool = False,
-) -> tuple[list[int], list[int]]:
-    """Stop a set of PIDs and return (stopped, failed)."""
-    stopped: list[int] = []
-    failed: list[int] = []
-    for pid in sorted(pids):
-        if _terminate_pid(pid, backend=backend):
-            stopped.append(pid)
-        else:
-            failed.append(pid)
-    return stopped, failed
+) -> dict[int, ShutdownOutcome]:
+    """Stop each PID once and preserve its result for the caller."""
+    return {pid: _terminate_pid(pid, backend=backend) for pid in sorted(pids)}
 
 
 def _stop_backend_listeners(
     pids: set[int],
     port: int,
-) -> tuple[list[int], list[int]]:
+) -> dict[int, ShutdownOutcome]:
     """Verify reload services against their own journal during parent exit."""
     if sys.platform == "win32" or len(pids) < 2:
         return _stop_pid_set(pids, backend=True)
 
     remaining = pids.copy()
-    stopped, failed = [], []
+    reload_results = {}
     for pid in sorted(pids):
         if pid not in remaining:
             continue
@@ -477,22 +501,23 @@ def _stop_backend_listeners(
         try:
             with observe_backend(service) as ownership:
                 # Uvicorn forwards TERM to its serving child, then joins it.
-                verified = _stop_observed_backend(
+                outcome = _stop_observed_backend(
                     service,
                     None,
                     SERVER_SHUTDOWN_SECONDS,
                     ownership,
                     supervisor=supervisor,
                 )
-        except (OSError, psutil.Error, ValueError):
-            verified = False
-        (stopped if verified else failed).extend((pid, supervisor.pid))
+        except psutil.NoSuchProcess:
+            outcome = ShutdownOutcome.UNVERIFIED
+        except (OSError, psutil.Error):
+            outcome = ShutdownOutcome.FAILED
+        reload_results.update(dict.fromkeys((pid, supervisor.pid), outcome))
 
-    others_stopped, others_failed = _stop_pid_set(remaining, backend=True)
-    if stopped and _listening_pids_for_port(port):
-        failed.extend(stopped)
-        stopped.clear()
-    return stopped + others_stopped, failed + others_failed
+    others = _stop_pid_set(remaining, backend=True)
+    if reload_results and _listening_pids_for_port(port):
+        reload_results = dict.fromkeys(reload_results, ShutdownOutcome.FAILED)
+    return {**reload_results, **others}
 
 
 @click.command(
@@ -543,37 +568,22 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
             "No running QwenPaw backend/frontend process was found.",
         )
 
-    backend_stopped, backend_failed = _stop_backend_listeners(
-        backend_pids,
-        backend_port,
-    )
-    wrapper_stopped, wrapper_failed = _stop_pid_set(
-        wrapper_pids - set(backend_stopped),
-    )
-    frontend_stopped, frontend_failed = _stop_pid_set(frontend_pids)
-    desktop_stopped, desktop_failed = _stop_pid_set(
-        desktop_pids - set(wrapper_stopped) - set(frontend_stopped),
-    )
-    stopped = (
-        backend_stopped + wrapper_stopped + frontend_stopped + desktop_stopped
-    )
-    failed = list(
-        set(
-            wrapper_failed + frontend_failed + desktop_failed + backend_failed,
-        ),
-    )
+    results = _stop_backend_listeners(backend_pids, backend_port)
+    for pids in (wrapper_pids, frontend_pids, desktop_pids):
+        results.update(_stop_pid_set(pids.difference(results)))
 
-    if stopped:
-        click.echo(
-            "Stopped QwenPaw processes: "
-            + ", ".join(str(pid) for pid in sorted(stopped)),
+    for outcome, label in (
+        (ShutdownOutcome.CLOSED, "Stopped QwenPaw processes"),
+        (ShutdownOutcome.UNVERIFIED, "Unable to verify shutdown"),
+        (ShutdownOutcome.FAILED, "Shutdown failed"),
+    ):
+        group = sorted(
+            pid for pid, result in results.items() if result is outcome
         )
-    if failed:
-        click.echo("Shutdown could not be verified for the following PIDs:")
-        for pid in sorted(failed):
-            cmd = proc_table.get(pid, "<unknown command line>")
-            click.echo(f"  PID {pid}: {cmd}")
-        raise click.ClickException(
-            "Unable to verify shutdown of PID(s): "
-            + ", ".join(str(pid) for pid in sorted(failed)),
-        )
+        if group:
+            click.echo(f"{label}: " + ", ".join(map(str, group)))
+
+    if ShutdownOutcome.FAILED in results.values():
+        ctx.exit(ShutdownOutcome.FAILED.value)
+    if ShutdownOutcome.UNVERIFIED in results.values():
+        ctx.exit(ShutdownOutcome.UNVERIFIED.value)

@@ -38,10 +38,10 @@ def test_shutdown_backend_process_uses_shared_graceful_shutdown(
     proc = _Process()
     terminated: list[tuple[int, _Process]] = []
 
-    def terminate(pid: int, *, process: _Process, backend: bool) -> bool:
+    def terminate(pid: int, *, process: _Process, backend: bool):
         assert backend
         terminated.append((pid, process))
-        return True
+        return shutdown_cmd.ShutdownOutcome.CLOSED
 
     monkeypatch.setattr(
         desktop_cmd,
@@ -60,7 +60,7 @@ def test_shutdown_backend_process_reports_failed_force_fallback(
     monkeypatch.setattr(
         desktop_cmd,
         "_terminate_pid",
-        lambda _pid, **_kwargs: False,
+        lambda _pid, **_kwargs: shutdown_cmd.ShutdownOutcome.FAILED,
     )
 
     assert _shutdown_backend_process(proc) is False
@@ -114,12 +114,13 @@ def test_reaped_unregistered_backend_reports_failure() -> None:
     try:
         assert proc.stdout is not None
         assert proc.stdout.readline().strip() == "ready"
-        assert not shutdown_cmd._terminate_pid(
+        result = shutdown_cmd._terminate_pid(
             proc.pid,
             timeout_sec=0.2,
             process=proc,
             backend=True,
         )
+        assert result is shutdown_cmd.ShutdownOutcome.UNVERIFIED
         assert proc.returncode == -signal.SIGKILL
     finally:
         if proc.poll() is None:

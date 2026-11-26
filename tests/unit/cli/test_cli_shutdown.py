@@ -7,6 +7,7 @@ from click.testing import CliRunner
 from qwenpaw.cli.main import cli
 from qwenpaw.cli import shutdown_cmd as shutdown_cmd_module
 from qwenpaw.cli.shutdown_cmd import (
+    ShutdownOutcome,
     _find_windows_wrapper_ancestor_pids,
     _signal_process_windows,
     _terminate_pid,
@@ -18,7 +19,7 @@ def test_shutdown_command_stops_backend_and_frontend(monkeypatch) -> None:
 
     def terminate(pid, *, backend):
         targets.append((pid, backend))
-        return True
+        return ShutdownOutcome.CLOSED
 
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._listening_pids_for_port",
@@ -49,14 +50,18 @@ def test_shutdown_command_stops_backend_and_frontend(monkeypatch) -> None:
     assert targets == [(1001, True), (2002, False)]
 
 
-def test_shutdown_command_reports_failure(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("frontend", "expected"),
+    [(ShutdownOutcome.FAILED, 1), (ShutdownOutcome.CLOSED, 3)],
+)
+def test_shutdown_command_reports_outcomes(monkeypatch, frontend, expected):
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._listening_pids_for_port",
         lambda _port: {1001},
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._find_frontend_dev_pids",
-        set,
+        lambda: {2002},
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._find_desktop_wrapper_pids",
@@ -68,13 +73,17 @@ def test_shutdown_command_reports_failure(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._terminate_pid",
-        lambda _pid, **_kwargs: False,
+        lambda pid, **kw: ShutdownOutcome.UNVERIFIED
+        if kw["backend"]
+        else frontend,
     )
 
     result = CliRunner().invoke(cli, ["shutdown"])
 
-    assert result.exit_code != 0
-    assert "Unable to verify shutdown" in result.output
+    assert result.exit_code == expected
+    assert "Unable to verify shutdown: 1001" in result.output
+    label = "Shutdown failed" if expected == 1 else "Stopped QwenPaw processes"
+    assert f"{label}: 2002" in result.output
 
 
 def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
@@ -104,9 +113,9 @@ def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
 def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
     termination_order: list[int] = []
 
-    def terminate_pid(pid: int, **_kwargs) -> bool:
+    def terminate_pid(pid: int, **_kwargs) -> ShutdownOutcome:
         termination_order.append(pid)
-        return True
+        return ShutdownOutcome.CLOSED
 
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "win32")
     monkeypatch.setattr(
@@ -160,7 +169,7 @@ def test_terminate_pid_force_kills_on_windows(monkeypatch) -> None:
         lambda _pid, _timeout, _interval: next(waits),
     )
 
-    assert _terminate_pid(17944) is True
+    assert _terminate_pid(17944) is ShutdownOutcome.CLOSED
     assert calls == [(17944, False), (17944, True)]
 
 
@@ -191,7 +200,7 @@ def test_terminate_pid_uses_windows_fallback(monkeypatch) -> None:
         lambda _pid, _timeout, _interval: next(waits),
     )
 
-    assert _terminate_pid(17944) is True
+    assert _terminate_pid(17944) is ShutdownOutcome.CLOSED
     assert calls == [(17944, False), (17944, True)]
     assert fallback_calls == [17944]
 
@@ -222,7 +231,7 @@ def test_terminate_pid_requests_graceful_windows_shutdown(monkeypatch) -> None:
         lambda _pid, _timeout, _interval: True,
     )
 
-    assert _terminate_pid(17944) is True
+    assert _terminate_pid(17944) is ShutdownOutcome.CLOSED
     assert signals == [17944]
     assert not force_calls
 
@@ -331,7 +340,7 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
         wait_for_exit,
     )
 
-    assert _terminate_pid(4242) is True
+    assert _terminate_pid(4242) is ShutdownOutcome.CLOSED
     assert calls == [
         (
             4242,

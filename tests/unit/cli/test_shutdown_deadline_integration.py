@@ -21,6 +21,7 @@ import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli import shutdown_cmd
+from qwenpaw.cli.shutdown_cmd import ShutdownOutcome
 from qwenpaw.plugins.channel_workers import ChannelDefinition
 from qwenpaw.process_ownership import (
     backend_instance,
@@ -247,7 +248,7 @@ def test_backend_exit_waits_for_orphaned_worker(
         assert backend.returncode == -signal.SIGTERM
         assert not alive(worker.pid)
         leaf = int(marker.with_suffix(".pid").read_text())
-        assert stopped is False
+        assert stopped is ShutdownOutcome.UNVERIFIED
         if mode == "sdk":
             assert not alive(leaf)
             assert marker.exists() == (not stubborn)
@@ -260,23 +261,25 @@ def test_shutdown_only_reaps_sessions_of_the_target_backend(tmp_path):
     with _orphan_backend(tmp_path / "other", "sdk", 0.1) as other:
         with _orphan_backend(tmp_path / "target", "sdk", 60) as target:
             backend, _ = target
-            assert not shutdown_cmd._terminate_pid(
+            result = shutdown_cmd._terminate_pid(
                 backend.pid,
                 timeout_sec=1,
                 process=backend,
                 backend=True,
             )
+            assert result is ShutdownOutcome.UNVERIFIED
             leaf = int((tmp_path / "target.pid").read_text())
             assert not alive(leaf)
         backend, worker = other
         assert backend.poll() is None
         assert alive(worker.pid)
-        assert not shutdown_cmd._terminate_pid(
+        result = shutdown_cmd._terminate_pid(
             backend.pid,
             timeout_sec=2,
             process=backend,
             backend=True,
         )
+        assert result is ShutdownOutcome.UNVERIFIED
         assert (tmp_path / "other").exists()
 
 
@@ -393,7 +396,7 @@ def test_cli_shuts_down_ready_reload_server(tmp_path, monkeypatch, crash):
                 shutdown_cmd.shutdown_cmd,
                 ["--port", str(port)],
             )
-            assert result.exit_code == int(crash), result.output
+            assert result.exit_code == (3 if crash else 0), result.output
             if crash:
                 assert "Unable to verify shutdown" in result.output
             assert supervisor.wait(timeout=2) == 0
@@ -576,7 +579,7 @@ def test_cli_waits_for_request_import_and_workspace_drains(
             shutdown_cmd.shutdown_cmd,
             ["--port", str(port)],
         )
-        assert result.exit_code == (1 if stalled else 0), result.output
+        assert result.exit_code == (3 if stalled else 0), result.output
         reaper.join(timeout=1)
         assert not alive(worker.pid)
         if stalled:

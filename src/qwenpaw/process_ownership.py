@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import stat
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
+
+from .shutdown import SERVER_EXIT_SECONDS
 
 
 _OWNER = "QWENPAW_BACKEND_INSTANCE"
@@ -39,9 +43,9 @@ def _directory():
 
 @contextmanager
 def backend_instance():
-    """Enroll managed launches for the lifetime of this backend."""
+    """Enroll launches and yield a callback for explicit cleanup failures."""
     if os.name == "nt":
-        yield
+        yield lambda: None
         return
     import fcntl
     import psutil
@@ -50,24 +54,70 @@ def backend_instance():
     path = _directory() / key
     global _backend_key
     previous = _backend_key
+    if previous and previous.partition(":")[0] == key:
+        raise RuntimeError("A backend lifespan is already active")
     fd = os.open(
         path,
-        os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_WRONLY,
+        os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_RDWR,
         0o600,
     )
-    with os.fdopen(fd, "wb") as journal:
-        _backend_key = key
+    with os.fdopen(fd, "r+b", buffering=0) as journal:
+        nonce = uuid4().hex
+        # A resolved no-process ticket also identifies this lifespan if the
+        # same interpreter serves another instance at the same lookup path.
+        header = json.dumps([f"instance:{nonce}", None])
+        journal.write((header + "\n").encode())
+        _backend_key = f"{key}:{nonce}"
+        failed = False
+
+        def record_failure():
+            nonlocal failed
+            if not failed:
+                failed = True
+                try:
+                    journal.write(b'"failed"\n')
+                except OSError:
+                    logger.exception("Could not publish backend failure")
+
         try:
-            yield
-            journal.write(b'"closed"\n')
-            journal.flush()
+            yield record_failure
+        except Exception:
+            record_failure()
+            raise
+        else:
+            # Readers keep their descriptor. Spawners that already opened
+            # this file must check the link count under their shared lock.
+            path.unlink()
+            if not failed:
+                deadline = time.monotonic() + SERVER_EXIT_SECONDS
+                while True:
+                    try:
+                        fcntl.flock(journal, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            logger.warning("Backend launches still in flight")
+                            return
+                        time.sleep(0.02)
+                journal.seek(0)
+                receipt = OwnershipSnapshot(journal)
+                try:
+                    members, resolved = receipt.members(set())
+                except (OSError, psutil.Error):
+                    logger.warning(
+                        "Could not verify backend process ownership",
+                    )
+                    return
+                if (
+                    resolved
+                    and not members
+                    and not (receipt.failed or receipt.closed)
+                ):
+                    journal.write(b'"closed"\n')
         finally:
             _backend_key = previous
-            try:
-                fcntl.flock(journal, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                pass  # An attached CLI owns final verification and removal.
-            else:
+            # Normal sealing has already unlinked the file.
+            if os.fstat(fd).st_nlink:
                 path.unlink(missing_ok=True)
 
 
@@ -84,16 +134,25 @@ def managed_launch(options):
         yield lambda _pid: None
         return
     # Isolated SDK workers need psutil only for an enrolled launch.
+    import fcntl
     import psutil
 
-    if not re.fullmatch(r"[0-9]+-[0-9]+", key):
+    match = re.fullmatch(r"([0-9]+-[0-9]+)(?::([a-f0-9]{32}))?", key)
+    if not match:
         raise ValueError("Invalid backend instance")
     env = options.get("env")
     options["env"] = {**(os.environ if env is None else env), _OWNER: key}
     ticket = uuid4().hex
-    # Open without O_CREAT. An ended backend cannot admit new launches.
-    fd = os.open(_directory() / key, os.O_APPEND | os.O_WRONLY)
-    with os.fdopen(fd, "wb", buffering=0) as journal:
+    fd = os.open(_directory() / match[1], os.O_APPEND | os.O_RDWR)
+    with os.fdopen(fd, "r+b", buffering=0) as journal:
+        fcntl.flock(journal, fcntl.LOCK_SH)
+        if not os.fstat(fd).st_nlink:
+            raise RuntimeError("Backend launch admission is closed")
+        header = os.pread(fd, 80, 0).split(b"\n", 1)[0]
+        if match[2] or header.startswith(b'["instance:'):
+            expected = json.dumps([f"instance:{match[2]}", None]).encode()
+            if expected != header:
+                raise RuntimeError("Backend launch generation has ended")
 
         def publish(*fields):
             journal.write((json.dumps([ticket, *fields]) + "\n").encode())
@@ -132,21 +191,21 @@ def managed_launch(options):
 @contextmanager
 def observe_backend(process):
     """Pin this generation's journal before sending the shutdown signal."""
-    import fcntl
-
-    path = _directory() / _instance(process)
     try:
+        path = _directory() / _instance(process)
         journal = path.open("rb")
-    except FileNotFoundError:
+    except OSError:
         yield None
         return
     with journal:
-        fcntl.flock(journal, fcntl.LOCK_SH)
         try:
-            yield OwnershipSnapshot(journal) if path.exists() else None
+            yield OwnershipSnapshot(journal)
         finally:
             if not process.is_running():
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove stale ownership journal")
 
 
 class OwnershipSnapshot:
@@ -156,31 +215,83 @@ class OwnershipSnapshot:
         self.journal = journal
         self.launches = {}
         self.closed = False
+        self.failed = False
+        self.damaged = False
+
+    def read_records(self):
+        """Keep valid identities even if another record is unreadable."""
+        for line in self.journal:
+            try:
+                if not line.endswith(b"\n"):
+                    raise ValueError("Truncated record")
+                event = json.loads(line)
+                if self.closed:
+                    self.damaged = True
+                if event == "closed":
+                    self.closed = True
+                elif event == "failed":
+                    self.failed = True
+                else:
+                    if not isinstance(event, list) or not event:
+                        raise ValueError("Invalid launch record")
+                    ticket, *fields = event
+                    if not isinstance(ticket, str):
+                        raise ValueError("Invalid launch ticket")
+                    if fields and fields != [None]:
+                        pid, birth, session = fields
+                        if (
+                            type(pid) is not int
+                            or pid <= 0
+                            or (
+                                birth is not None
+                                and (
+                                    type(birth) not in (float, int)
+                                    or not math.isfinite(birth)
+                                )
+                            )
+                            or type(session) is not bool
+                        ):
+                            raise ValueError("Invalid process identity")
+                    if ticket in self.launches and (
+                        self.launches[ticket] or not fields
+                    ):
+                        raise ValueError("Duplicate launch ticket")
+                    if (
+                        fields
+                        and ticket not in self.launches
+                        and not (
+                            ticket.startswith("instance:") and fields == [None]
+                        )
+                    ):
+                        raise ValueError("Missing launch intent")
+                    self.launches[ticket] = fields
+            except (ValueError, OverflowError, RecursionError):
+                self.damaged = True
+        return not self.damaged and all(self.launches.values())
 
     def members(self, known):
         """Return live members and whether the launch records are resolved."""
-        for line in self.journal:
-            event = json.loads(line)
-            if event == "closed":
-                self.closed = True
-            else:
-                ticket, *fields = event
-                self.launches[ticket] = fields
-
-        verified = True
+        try:
+            verified = self.read_records()
+        except OSError:
+            self.damaged = True
+            verified = False
         sessions = {}
         groups = {}
         for fields in self.launches.values():
-            if not fields:
-                verified = False  # A spawner has not published its result.
-            elif fields != [None]:
+            if fields and fields != [None]:
                 pid, birth, session = fields
                 (sessions if session else groups)[pid] = birth
 
         found, resolved = self._live_members(sessions, groups, known)
         # A middle process can publish and exit during the OS snapshot.
-        size = os.fstat(self.journal.fileno()).st_size
-        return found, verified and resolved and self.journal.tell() == size
+        try:
+            size = os.fstat(self.journal.fileno()).st_size
+            unchanged = self.journal.tell() == size
+        except OSError:
+            self.damaged = True
+            unchanged = False
+        return found, verified and resolved and unchanged
 
     @staticmethod
     def _live_members(sessions, groups, known):
@@ -209,6 +320,8 @@ class OwnershipSnapshot:
                         candidates[leader, leaders[leader]].add(member)
                 except (ProcessLookupError, psutil.NoSuchProcess):
                     continue
+                except (PermissionError, psutil.AccessDenied):
+                    verified = False
 
         for (leader, birth), members in candidates.items():
             try:
@@ -217,6 +330,8 @@ class OwnershipSnapshot:
                 elif birth is None:
                     verified = False
                 # A reused leader PID belongs to another generation.
+            except psutil.AccessDenied:
+                verified = False
             except psutil.NoSuchProcess:
                 if any(member in known for member in members):
                     found.update(members)
