@@ -439,7 +439,7 @@ def test_windows_runtime_uses_outbound_reverse_tunnel(
         "qwenpaw.hub.windows_runtime_bridge"
     )
     assert command[command.index("--control-port") + 1] == "9100"
-    assert command[command.index("--token") + 1] == "tunnel-token"
+    assert "--token=tunnel-token" in command
     assert command[separator + 1 : separator + 5] == [
         sys.executable,
         "-P",
