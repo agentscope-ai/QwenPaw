@@ -44,6 +44,7 @@ from .runtime_release import (
     RELEASE,
     matches_release,
     read_runtime_metadata,
+    server_executable,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,9 +84,10 @@ class LlamaCppBackend(BinaryDownloads):
     def executable(self) -> Path:
         """The expected path of the llama.cpp server executable after download
         and extraction."""
-        if self.os_name == "windows":
-            return self.target_dir / "llama-server.exe"
-        return self.target_dir / "llama-server"
+        return server_executable(
+            self.target_dir,
+            windows=self.os_name == "windows",
+        )
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Check if the llama.cpp server executable exists."""
