@@ -12,13 +12,19 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
+import respx
 
 from qwenpaw.drivers.contracts import CredentialRef
 from qwenpaw.drivers.credentials import providers as pv
-from qwenpaw.drivers.credentials.types import ResolvedCredential
+from qwenpaw.drivers.credentials.store import AsyncCredentialStore
+from qwenpaw.drivers.credentials.types import (
+    CredentialRecord,
+    ResolvedCredential,
+)
 from qwenpaw.drivers.errors import (
     DriverCredentialProviderError,
     UnsupportedCredentialKindError,
@@ -155,6 +161,51 @@ class TestDirectProvider:
         resolved.public["k"] = "mutated"
         # original record untouched
         assert record.public == {"k": "v"}
+
+
+@pytest.mark.parametrize("rotate_refresh_token", [True, False])
+async def test_oauth2_auth_code_reuses_latest_refresh_token(
+    tmp_path,
+    monkeypatch,
+    rotate_refresh_token,
+):
+    clock = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(pv, "time", SimpleNamespace(time=lambda: clock.now))
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    token_endpoint = "https://example.com/token"
+    ref = CredentialRef(kind="oauth2_auth_code", ref="mcp/example/oauth")
+    await store.put(
+        CredentialRecord(
+            ref=ref.ref,
+            kind=ref.kind,
+            public={"token_endpoint": token_endpoint},
+            secrets={"refresh_token": "initial-token"},
+        ),
+    )
+
+    provider = pv.build_provider(ref, store)
+    expected_token = "initial-token"
+    with respx.mock as router:
+        route = router.post(token_endpoint)
+        for generation in (1, 2):
+            access_token = f"access-{generation}"
+            response = {"access_token": access_token, "expires_in": 3600}
+            if rotate_refresh_token:
+                response["refresh_token"] = f"refresh-{generation}"
+            route.respond(200, json=response)
+
+            resolved = await provider.resolve()
+
+            payload = parse_qs(route.calls.last.request.content.decode())
+            assert payload["refresh_token"] == [expected_token]
+            expected_token = response.get("refresh_token", expected_token)
+            assert resolved.secrets == {"access_token": access_token}
+            assert (await store.get(ref.ref)).secrets == {
+                "access_token": access_token,
+                "refresh_token": expected_token,
+            }
+            clock.now += 3600
+        assert route.call_count == 2
 
 
 # ---------------------------------------------------------------------------
