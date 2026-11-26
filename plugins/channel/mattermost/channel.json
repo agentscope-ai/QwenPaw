@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "channel_key": "mattermost",
   "label": {
     "en": "Mattermost",
@@ -12,7 +12,7 @@
     "module": "qwenpaw_channel_mattermost.driver",
     "qualname": "MattermostDriver"
   },
-  "requirements_file": "requirements.txt",
+  "requires": ["transport"],
   "config_schema": {
     "description": "Mattermost channel: WebSocket polling and REST API.",
     "properties": {

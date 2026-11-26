@@ -323,7 +323,6 @@ class ModelManager(ModelDownloads):
         final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: Consider worker-side checks if SDK memory use is significant.
         total_bytes = self._estimate_download_size(
             repo_id=repo_id,
             source=resolved_source,
@@ -336,7 +335,7 @@ class ModelManager(ModelDownloads):
             raise ValueError(error_msg)
 
         task_id = uuid.uuid4().hex
-        staging_dir = self._download_tmp_dir / task_id
+        staging_dir = (self._download_tmp_dir / task_id).resolve()
         payload = {
             "repo_id": repo_id,
             "source": resolved_source.value,
@@ -344,6 +343,7 @@ class ModelManager(ModelDownloads):
         }
         spec = ProcessDownloadTaskSpec(
             process_name=f"qwenpaw-model-download-{task_id}",
+            destination=final_dir,
             task=ProcessDownloadTask(
                 target=type(self)._download_worker,
                 payload=payload,
@@ -602,14 +602,13 @@ class ModelManager(ModelDownloads):
         local_path: Path,
     ) -> Path:
         """Move a finished staged download into the final directory."""
+        published_path = final_dir / local_path.relative_to(staging_dir)
         if final_dir.exists():
             shutil.rmtree(final_dir)
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(staging_dir), str(final_dir))
 
-        if local_path == staging_dir:
-            return final_dir
-        return final_dir / local_path.relative_to(staging_dir)
+        return published_path
 
     def _downloaded_repositories(self) -> dict[str, Path]:
         """Map standalone and owner/repository model IDs to their directories."""

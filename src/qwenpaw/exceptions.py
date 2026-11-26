@@ -261,6 +261,10 @@ class ProviderError(AgentRuntimeErrorException):
         super().__init__("PROVIDER_ERROR", message, details)
 
 
+class ModelAdditionError(ProviderError):
+    """The provider rejected a requested model addition."""
+
+
 class ModelFormatterError(AgentRuntimeErrorException):
     """Exception raised when there's an error with model message formatting."""
 

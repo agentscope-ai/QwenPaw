@@ -822,7 +822,7 @@ def ensure_qa_agent_exists() -> None:
 
 def _do_ensure_qa_agent() -> None:
     """Internal implementation of QA agent initialization."""
-    from .routers.agents import _initialize_agent_workspace
+    from ..services.agent_setup import initialize_agent_workspace
 
     config = load_config()
     qa_id = BUILTIN_QA_AGENT_ID
@@ -869,7 +869,7 @@ def _do_ensure_qa_agent() -> None:
         fallback_language=config.agents.language or "zh",
     )
 
-    _initialize_agent_workspace(
+    initialize_agent_workspace(
         qa_workspace,
         skill_names=list(template_result.initial_skill_names),
         md_template_id=template_result.md_template_id,

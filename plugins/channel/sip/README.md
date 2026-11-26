@@ -1,6 +1,6 @@
 # SIP shared-runner plugin
 
-Private schema-v2 SIP payload. The host keeps Agent execution, ACL, display,
+SIP channel plugin. The host keeps Agent execution, ACL, display,
 commands, queues, and session history. This worker owns SIP/RTP, optional loopback
 registrar, LiveKit, ASR and TTS. Audio never enters event.batch or host.state.
 
@@ -17,16 +17,11 @@ conflicts reject startup instead of sharing a listener.
 
 ## Explicit dependencies
 
-`requirements.txt` is the base `sip` dependency entry, matching pyproject:
-pyVoIP>=1.6.0, dashscope>=1.0.0, dashscope-realtime>=0.1.0, and audioop-lts on
-Python>=3.13. Install it into the chosen shared dependency runtime before use.
-The existing application extra `qwenpaw[sip]` is equivalent. For LiveKit, the
-explicit optional `requirements-livekit.txt` includes that base file plus
-livekit>=1.0.0 and livekit-api>=0.6.0, equivalent to `qwenpaw[sip-livekit]`.
-The v2 descriptor has no dependency profiles: normal admission reads the base
-requirements file; selecting sip_mode does not install or select an environment.
-Provision the optional entry explicitly for LiveKit. No automatic installer,
-backend-specific process, or private RPC runtime is added.
+The driver requires the `transport` group in `plugin.json`, equivalent to
+`qwenpaw[sip]`. To provision LiveKit explicitly, install
+`qwenpaw[sip-livekit]` or use the standalone `requirements-livekit.txt` in
+the selected shared environment. Changing `sip_mode` selects a backend at
+runtime. It does not install packages.
 
 Importing the Driver does not import pyVoIP, LiveKit, DashScope or audioop. Each
 SDK loads only inside its selected backend/start or actual STT/TTS operation.

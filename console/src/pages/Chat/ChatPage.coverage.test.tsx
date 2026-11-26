@@ -120,6 +120,7 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
+    const actionAffix = props.options?.sender?.actionAffix;
     useEffect(() => {
       const id = props.options?.session?.currentSessionId;
       if (id) void props.options.session.api.getSession(id);
@@ -141,13 +142,16 @@ vi.mock("@agentscope-ai/chat", () => ({
         cancel: vi.fn(async () => ({ status: "not-found" })),
         resume: mockRuntimeResume,
         getActiveRun: mockRuntimeGetActiveRun,
+        subscribe: vi.fn(() => vi.fn()),
       },
     }));
     return (
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof actionAffix === "function"
+          ? actionAffix({ loading: false })
+          : actionAffix}
       </div>
     );
   }),
@@ -200,7 +204,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
-    stopChat: vi.fn(() => Promise.resolve()),
+    stopChat: vi.fn(async () => ({ stopped: true })),
     forkChat: vi.fn(),
     forkCapability: vi.fn(async () => ({ can_fork: true })),
   },

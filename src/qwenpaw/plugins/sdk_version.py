@@ -34,6 +34,9 @@ SDK_CAPABILITIES = frozenset(
         "channels",
         "drivers",
         "harnesses",
+        "cli",
+        "extensions",
+        "dependencies",
     },
 )
 

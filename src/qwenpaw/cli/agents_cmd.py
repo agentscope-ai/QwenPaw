@@ -16,11 +16,10 @@ from ..agents.templates import (
     build_agent_template,
     list_supported_agent_templates,
 )
-from ..config import load_config, save_config
+from ..config import load_config
 from ..config.config import (
     AgentProfileRef,
     generate_short_agent_id,
-    save_agent_config,
 )
 from ..constant import (
     DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
@@ -28,6 +27,10 @@ from ..constant import (
 )
 from ..config.config import ModelSlotConfig
 from ..providers.provider_manager import ProviderManager
+from ..services.agent_setup import (
+    normalized_agent_order as _normalized_agent_order,
+    register_agent,
+)
 from .http import print_json, resolve_base_url
 
 SUPPORTED_AGENT_TEMPLATES = list_supported_agent_templates()
@@ -299,22 +302,6 @@ def _check_task_status(
         raise click.Abort()
 
 
-def _normalized_agent_order(config) -> list[str]:
-    """Return a deduplicated agent order covering every configured agent."""
-    profile_ids = list(config.agents.profiles.keys())
-    ordered_ids: list[str] = []
-
-    for agent_id in config.agents.agent_order:
-        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
-            ordered_ids.append(agent_id)
-
-    for agent_id in profile_ids:
-        if agent_id not in ordered_ids:
-            ordered_ids.append(agent_id)
-
-    return ordered_ids
-
-
 def _generate_agent_id(config, agent_id: Optional[str]) -> str:
     """Return a user-provided agent ID or generate a unique one."""
     if agent_id:
@@ -361,10 +348,10 @@ def _initialize_new_agent_workspace(
     skill_names: list[str],
     md_template_id: str | None = None,
 ) -> None:
-    """Initialize a new agent workspace using shared server logic."""
-    from ..app.routers.agents import _initialize_agent_workspace
+    """Prepare the workspace for the selected CLI template and skills."""
+    from ..services.agent_setup import initialize_agent_workspace
 
-    _initialize_agent_workspace(
+    initialize_agent_workspace(
         workspace_dir,
         skill_names=skill_names,
         md_template_id=md_template_id,
@@ -632,11 +619,10 @@ def create_cmd(
         workspace_dir=str(resolved_workspace_dir),
         enabled=True,
     )
-    config.agents.profiles[new_id] = agent_ref
-    config.agents.agent_order = _normalized_agent_order(config)
-
-    save_config(config)
-    save_agent_config(new_id, agent_config)
+    try:
+        register_agent(new_id, agent_ref, agent_config)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     print_json(agent_ref.model_dump())
 
