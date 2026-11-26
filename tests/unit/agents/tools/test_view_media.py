@@ -271,12 +271,13 @@ class TestCheckMultimodalSupport:
         self,
         probe_source,
     ):
-        model_id = "mimo-v2.6-flash"
+        model_id = "review-text-only"
         probed = probe_source == "probed"
         raw = ModelInfo(
             id=model_id,
             name=model_id,
             supports_image=False,
+            supports_audio=True,
             supports_video=False if probed else None,
             supports_multimodal=False,
             probe_source=probe_source,
@@ -290,14 +291,17 @@ class TestCheckMultimodalSupport:
             probe_source="api",
         )
         provider = OpenAIProvider(
-            id="mimo",
-            name="Mimo",
+            id="review-synthetic",
+            name="Review Synthetic",
             api_key="test-key",
-            base_url="https://api.xiaomimimo.com/v1",
+            base_url="https://relay.invalid/v1",
             extra_models=[raw],
             discovered_models=[] if probed else [discovered],
         )
-        active = ModelSlotConfig(provider_id="mimo", model=model_id)
+        active = ModelSlotConfig(
+            provider_id="review-synthetic",
+            model=model_id,
+        )
         manager = MagicMock()
         manager.get_provider.return_value = provider
         resolved = provider.resolve_model_info(model_id)
@@ -406,12 +410,12 @@ class TestViewImage:
         self,
         tmp_path,
     ):
-        model_id = "mimo-v2.6-flash"
+        model_id = "review-synthetic-vision"
         provider = OpenAIProvider(
-            id="mimo",
-            name="Mimo",
+            id="review-synthetic",
+            name="Review Synthetic",
             api_key="test-key",
-            base_url="https://api.xiaomimimo.com/v1",
+            base_url="https://relay.invalid/v1",
             extra_models=[
                 ModelInfo(
                     id=model_id,
@@ -430,7 +434,10 @@ class TestViewImage:
                 ),
             ],
         )
-        active = ModelSlotConfig(provider_id="mimo", model=model_id)
+        active = ModelSlotConfig(
+            provider_id="review-synthetic",
+            model=model_id,
+        )
         probe = AsyncMock()
         manager = SimpleNamespace(
             get_provider=lambda provider_id: provider,
@@ -454,6 +461,9 @@ class TestViewImage:
             result = await view_image(str(image_path))
 
         resolved = provider.resolve_model_info(active.model)
+        assert (
+            resolved.capability_provenance["supports_image"]["source"] == "api"
+        )
         model = SimpleNamespace(
             model=model_id,
             formatter=OpenAIChatFormatter(),

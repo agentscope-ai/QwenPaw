@@ -618,6 +618,10 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
             resolved = provider.resolve_model_info(active.model)
             return resolved.supports_image is True
         except Exception:
+            logger.debug(
+                "Resolved image capability check failed",
+                exc_info=True,
+            )
             return False
     except Exception:
         return True
