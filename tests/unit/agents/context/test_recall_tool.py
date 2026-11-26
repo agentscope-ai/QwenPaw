@@ -195,6 +195,59 @@ async def test_search_finds_evicted_turn_not_active_turn(tool):
     assert "what was the flight again" not in text
 
 
+async def test_search_without_turn_returns_matching_rows(tool, monkeypatch):
+    original = MemorySpace.search
+    captured = []
+
+    def search(self, *args, **kwargs):
+        rows = original(self, *args, **kwargs)
+        captured.extend(rows)
+        return rows
+
+    monkeypatch.setattr(MemorySpace, "search", search)
+    chunk = await tool(op="search", query="flight", include_turn=False)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert captured
+    assert all("turn" not in row for row in captured)
+    assert "the flight is AA231" in _text(chunk)
+    assert "hello there" not in _text(chunk)
+    assert "RESULT-FULL" not in _text(chunk)
+
+
+async def test_search_default_matches_explicit_full_turn(tool):
+    default = await tool(op="search", query="flight")
+    explicit = await tool(op="search", query="flight", include_turn=True)
+
+    assert default.state == explicit.state
+    assert default.metadata == explicit.metadata
+    assert _text(default) == _text(explicit)
+    assert "hello there" in _text(default)
+    assert "RESULT-FULL" in _text(default)
+
+
+async def test_search_turn_option_distinguishes_guard_requests(
+    history_db: Path,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+
+    full = await tool(op="search", query="flight")
+    rows = await tool(op="search", query="flight", include_turn=False)
+    duplicate = await tool(op="search", query="flight", include_turn=True)
+
+    assert full.state == ToolResultState.SUCCESS
+    assert rows.state == ToolResultState.SUCCESS
+    assert duplicate.state == ToolResultState.ERROR
+    assert "RECALL LOOP BLOCKED" in _text(duplicate)
+
+
 async def test_search_user_hit_returns_same_complete_turn(tool):
     chunk = await tool(op="search", query="hello", k=10)
 
