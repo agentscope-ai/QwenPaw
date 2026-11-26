@@ -994,14 +994,31 @@ class PluginProcess:
                 raise
             raise unknown from None
 
+    def _worker_exited(self) -> bool:
+        process = self._process
+        if process is None:
+            return self._returncode is not None
+        if process.returncode is not None:
+            return True
+        import psutil
+
+        # The worker can exit before asyncio dispatches its exit callback.
+        # Observe the PID without reaping the child out from under asyncio.
+        try:
+            status = psutil.Process(process.pid).status()
+        except psutil.NoSuchProcess:
+            return True
+        except (psutil.AccessDenied, OSError):
+            return False
+        return status in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+
     @property
     def exited_before_stop(self) -> bool:
         """Whether a ready worker exited before any stop of this generation."""
-        code = self._process.returncode if self._process else self._returncode
         return (
             self._stop_acknowledged is False
             and not self._stop_requested_while_live
-            and code is not None
+            and self._worker_exited()
         )
 
     async def stop(self, *, timeout: float | None = None) -> StopResult:
@@ -1014,7 +1031,7 @@ class PluginProcess:
         )
         if not math.isfinite(budget) or budget <= 0:
             raise ValueError("timeout must be positive")
-        if self._process is not None and self._process.returncode is None:
+        if self._process is not None and not self._worker_exited():
             self._stop_requested_while_live = True
         deadline = asyncio.get_running_loop().time() + budget
         if self._stop_task is None or self._stop_task.done():
