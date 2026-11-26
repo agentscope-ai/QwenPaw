@@ -20,6 +20,7 @@ from qwenpaw.agents.utils.image_resize import (
 from qwenpaw.agents.utils.message_request_normalizer import (
     normalize_messages_for_model_request_async,
 )
+from qwenpaw.providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 
 def _png(width: int, height: int, mode: str = "RGB") -> bytes:
@@ -48,6 +49,91 @@ def test_oversized_side_is_downscaled():
         assert max(image.size) <= MAX_IMAGE_SIDE
         ratio = image.size[0] / image.size[1]
         assert abs(ratio / (9000 / 60) - 1) < 0.01
+
+
+def test_zero_side_limit_disables_the_side_cap():
+    """``max_side=0`` disables the cap; Pillow must never see ``(0, 0)``.
+
+    The formatter field accepts 0 for "no side limit". Passing it through to
+    ``thumbnail((0, 0))`` raised ``ZeroDivisionError`` on an otherwise valid
+    image, before the request was ever sent.
+    """
+    raw = _png(32, 32)
+
+    scaled, media_type = downscale_image_bytes(
+        raw,
+        "image/png",
+        max_bytes=0,
+        max_side=0,
+    )
+
+    assert scaled == raw
+    assert media_type == "image/png"
+
+
+def test_zero_side_limit_still_enforces_the_byte_limit():
+    """Disabling the side cap must not disable the byte cap with it."""
+    raw = _noise_png(64, 64)
+    budget = max(1024, len(raw) // 2)
+
+    scaled, media_type = downscale_image_bytes(
+        raw,
+        "image/png",
+        max_bytes=budget,
+        max_side=0,
+    )
+
+    assert media_type == "image/png"
+    assert len(scaled) <= budget
+
+
+def test_observed_sides_records_the_image_the_request_carried():
+    """The largest side is recorded even when the image already fits."""
+    raw = _png(2000, 500)
+    observed: list[int] = []
+
+    downscale_image_bytes(
+        raw,
+        "image/png",
+        max_bytes=MAX_INLINE_MEDIA_BYTES,
+        max_side=8192,
+        observed_sides=observed,
+    )
+
+    assert observed == [2000]
+
+
+def _noise_png(width: int, height: int) -> bytes:
+    """Noise defeats PNG compression, which is how bytes exceed the budget."""
+    image = Image.effect_noise((width, height), 128).convert("RGB")
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def test_byte_budget_alone_triggers_the_rescale():
+    """A PNG inside the side limit can still overshoot the byte budget."""
+    raw = _noise_png(1200, 1200)
+    with Image.open(BytesIO(raw)) as image:
+        assert max(image.size) <= MAX_IMAGE_SIDE
+    assert len(raw) > MAX_INLINE_MEDIA_BYTES
+
+    scaled, media_type = downscale_image_bytes(raw, "image/png")
+
+    assert media_type == "image/png"
+    assert len(scaled) <= MAX_INLINE_MEDIA_BYTES
+    with Image.open(BytesIO(scaled)) as image:
+        assert max(image.size) < 1200
+
+
+def test_zero_byte_budget_means_no_byte_limit():
+    """``max_bytes=0`` disables the byte cap instead of shrinking forever."""
+    raw = _noise_png(1200, 1200)
+
+    assert downscale_image_bytes(raw, "image/png", max_bytes=0) == (
+        raw,
+        "image/png",
+    )
 
 
 def test_transparent_webp_stays_webp():
@@ -263,9 +349,9 @@ async def test_normalizer_offloads_image_work_to_a_worker_thread():
     seen: dict = {}
     original = downscale_oversized_images
 
-    def spy(msgs):
+    def spy(msgs, **kwargs):
         seen["thread"] = threading.current_thread()
-        return original(msgs)
+        return original(msgs, **kwargs)
 
     with mock.patch(
         "qwenpaw.agents.utils.image_resize.downscale_oversized_images",
@@ -280,3 +366,31 @@ async def test_normalizer_offloads_image_work_to_a_worker_thread():
     scaled_bytes = base64.b64decode(normalized[0].content[0].source.data)
     with Image.open(BytesIO(scaled_bytes)) as request_image:
         assert max(request_image.size) <= MAX_IMAGE_SIDE
+
+
+async def test_normalizer_honours_the_side_limit_it_is_given():
+    """A provisioned formatter's side limit must reach the resize pass."""
+    raw = _png(3000, 60)
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                source=Base64Source(
+                    data=base64.b64encode(raw).decode("ascii"),
+                    media_type="image/png",
+                ),
+            ),
+        ],
+    )
+
+    normalized = await normalize_messages_for_model_request_async(
+        [msg],
+        supports_multimodal=True,
+        max_side=1000,
+        max_bytes=0,
+    )
+
+    scaled_bytes = base64.b64decode(normalized[0].content[0].source.data)
+    with Image.open(BytesIO(scaled_bytes)) as request_image:
+        assert max(request_image.size) <= 1000

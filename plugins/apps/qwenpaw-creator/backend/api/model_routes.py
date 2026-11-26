@@ -646,8 +646,9 @@ def mutate_model_config(
     config_path = _config_paths()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with CrossProcessFileLock(config_path.parent / ".model-config.lock"):
+        raw_config = _load_json(config_path)
         persisted = _assemble_model_config(
-            _load_json(config_path),
+            raw_config,
             include_environment=False,
         )
         updated = mutator(persisted)
@@ -658,6 +659,11 @@ def mutate_model_config(
         updated_dict = updated.model_dump(
             exclude={"self_review": {"env_overrides", "operator_status"}},
         )
+        # Operator runtime limits are not part of the model-settings form.
+        # Preserve them under the same lock so a model or review-mode save
+        # cannot reset the media budget and concurrency to their defaults.
+        if isinstance(raw_config.get("agent_runtime"), dict):
+            updated_dict["agent_runtime"] = raw_config["agent_runtime"]
         _encrypt_secret_fields(updated_dict)
 
         atomic_replace_bytes(
@@ -1844,20 +1850,23 @@ async def _upload_asr_probe_sample(
 ) -> str:
     """Upload the silent sample; return the URL the ASR route will fetch.
 
-    Uses the same model-bound temporary OSS upload production uses, so a
+    Uses the provider-bound transport selected by production, so a
     probe that passes has exercised the upload half of the real chain too,
     and one that fails has failed for a reason production would also hit.
     """
-    from models.media_transport import upload_local_file_to_dashscope_temp
+
+    from models.media_transport import upload_reference_file_for_provider
 
     with tempfile.TemporaryDirectory(prefix="creator-asr-probe-") as raw:
         sample = Path(raw) / "creator-probe.wav"
         await asyncio.to_thread(sample.write_bytes, _silent_wav_bytes())
-        return await upload_local_file_to_dashscope_temp(
+        return await upload_reference_file_for_provider(
             sample,
             api_key=body.api_key,
             model_name=body.model_name,
             media_type="audio/wav",
+            base_url=body.base_url,
+            protocol=body.protocol,
         )
 
 
@@ -2573,7 +2582,7 @@ def _grade_qwen3_document(document: Mapping[str, Any]) -> tuple[bool, str]:
         # ``qwen-audio-*-asr-*`` answers through ``output.sentence`` rather
         # than ``choices``; either shape the reader walks is the working route.
         return True, ""
-    if "text" in document:
+    if isinstance(readable.get("text"), str) or "text" in document:
         return True, ""
     return False, ""
 

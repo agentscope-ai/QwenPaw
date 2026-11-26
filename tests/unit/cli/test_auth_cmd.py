@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli import auth_cmd as auth_mod
+from qwenpaw.app import auth
 
 
 @pytest.fixture()
@@ -34,18 +35,18 @@ def auth_env(monkeypatch):
             data["_auth_load_error"] = state["load_error"]
         return data
 
-    monkeypatch.setattr(auth_mod, "_load_auth_data", fake_load)
-    monkeypatch.setattr(auth_mod, "_save_auth_data", state["saved"].append)
+    monkeypatch.setattr(auth, "_load_auth_data", fake_load)
+    monkeypatch.setattr(auth, "_save_auth_data", state["saved"].append)
 
     def fake_hash(password, salt=None):
         state["hashed"].append((password, salt))
         return ("hash-of-" + password, "salt-of-" + password)
 
-    monkeypatch.setattr(auth_mod, "_hash_password", fake_hash)
+    monkeypatch.setattr(auth, "_hash_password", fake_hash)
 
     # Make token_hex deterministic so rotation can be asserted.
     tokens = iter(["rotated-secret-1", "rotated-secret-2"])
-    monkeypatch.setattr(auth_mod.secrets, "token_hex", lambda _n: next(tokens))
+    monkeypatch.setattr(auth.secrets, "token_hex", lambda _n: next(tokens))
 
     return state
 

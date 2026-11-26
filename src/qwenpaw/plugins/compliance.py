@@ -10,6 +10,7 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
+from .architecture import PluginManifest
 from .sdk_version import SDK_VERSION, validate_sdk
 
 PUBLIC_API = MappingProxyType(
@@ -121,6 +122,14 @@ PUBLIC_API = MappingProxyType(
             "CommandContext",
             "CommandResult",
         ),
+        "qwenpaw.plugins.cli": ("CliSpec", "CliContext"),
+        "qwenpaw.plugins.doctor": (
+            "DOCTOR",
+            "DoctorSpec",
+            "DoctorContext",
+            "DoctorResult",
+        ),
+        "qwenpaw.plugins.extensions": ("ExtensionPoint",),
         "qwenpaw.plugins.hooks": (
             "HookPhase",
             "HookSpec",
@@ -434,10 +443,17 @@ _EXPORT_VERSIONS = {
     },
     "qwenpaw.plugins.models.ModelSelection": "1.2.0",
     "qwenpaw.plugins.models.ModelDescription": "1.2.0",
+    **{
+        f"{module}.{name}": "1.2.0"
+        for module in (
+            "qwenpaw.plugins.cli",
+            "qwenpaw.plugins.doctor",
+            "qwenpaw.plugins.extensions",
+        )
+        for name in PUBLIC_API[module]
+    },
 }
 
-
-# TODO: Review how public API introduction versions are maintained.
 API_EXPORTS = tuple(
     APIExport(
         module,
@@ -542,19 +558,14 @@ def check_plugin(directory: str | Path) -> CheckReport:
     compatibility = "invalid"
     try:
         manifest = json.loads((directory / "plugin.json").read_text())
-        if (
-            not isinstance(manifest, dict)
-            or not manifest.get("id")
-            or not manifest.get("version")
-        ):
-            raise ValueError("Manifest requires id and version")
         from .dependency_gate import manifest_requirements
 
-        validate_sdk(manifest.get("sdk"), manifest["id"])
+        parsed_manifest = PluginManifest.from_dict(manifest)
+        validate_sdk(parsed_manifest.sdk, parsed_manifest.id)
         manifest_requirements(manifest)
         compatibility = (
             "compatible"
-            if manifest.get("sdk") is not None
+            if parsed_manifest.sdk is not None
             else "legacy-not-sdk"
         )
         if compatibility == "legacy-not-sdk":
@@ -562,30 +573,13 @@ def check_plugin(directory: str | Path) -> CheckReport:
                 "Manifest does not opt in to the SDK; legacy behavior was "
                 "not migrated or disabled",
             )
-        entry = (manifest.get("entry") or {}).get("backend") or manifest.get(
-            "entry_point",
-        )
+        entry = parsed_manifest.entry.backend
         if entry and not (directory / entry).is_file():
             raise ValueError("Declared backend entry does not exist")
         if manifest.get("type") == "channel":
-            from .channel_workers import ChannelDefinition
-            from .channel_adapter import _contained_file
             from ._channel_check import check_channel_package
 
-            descriptor_entry = (manifest.get("entry") or {}).get("descriptor")
-            if not isinstance(descriptor_entry, str):
-                raise ValueError("Static channel entry requires a descriptor")
-            definition = ChannelDefinition.load(
-                _contained_file(directory, descriptor_entry),
-            )
-            findings.extend(
-                check_channel_package(
-                    directory,
-                    definition,
-                    descriptor_entry=descriptor_entry,
-                    declaration=manifest.get("sdk") or {},
-                ),
-            )
+            findings.extend(check_channel_package(directory, parsed_manifest))
     except (
         OSError,
         ValueError,
@@ -690,6 +684,38 @@ def check_plugin(directory: str | Path) -> CheckReport:
             )
             return ".".join((base, *reversed(parts)))
 
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+
+        def host_context_member(node):
+            if (
+                not isinstance(node.value, ast.Name)
+                or node.value.id not in contexts
+            ):
+                return False
+            scope = node
+            while scope in parents:
+                scope = parents[scope]
+                if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    arguments = scope.args.posonlyargs + scope.args.args
+                    for index, argument in enumerate(arguments):
+                        if argument.arg != node.value.id:
+                            continue
+                        click_parameter = index == 0 and any(
+                            qualified(decorator)
+                            in {"click.pass_context", "click.pass_obj"}
+                            for decorator in scope.decorator_list
+                        )
+                        return not (
+                            click_parameter
+                            or qualified(argument.annotation)
+                            == "click.Context"
+                        )
+            return True
+
         contexts = {"ctx", "context", "call", "api"}
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -750,8 +776,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                 if (
                     node.attr.startswith("_")
                     and id(node) not in public_protocols
-                    and isinstance(node.value, ast.Name)
-                    and node.value.id in contexts
+                    and host_context_member(node)
                 ):
                     reject(
                         node,
@@ -769,11 +794,7 @@ def check_plugin(directory: str | Path) -> CheckReport:
                         f"Private SDK member: {name}",
                     )
                 if isinstance(node.ctx, ast.Store) and (
-                    name.startswith("qwenpaw.")
-                    or (
-                        isinstance(node.value, ast.Name)
-                        and node.value.id in contexts
-                    )
+                    name.startswith("qwenpaw.") or host_context_member(node)
                 ):
                     reject(
                         node,

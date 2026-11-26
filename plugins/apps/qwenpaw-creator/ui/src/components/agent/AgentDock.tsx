@@ -1,5 +1,6 @@
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -94,7 +95,12 @@ import AgentProgressOverview from "./AgentProgressOverview";
 import AgentWaitHint from "./AgentWaitHint";
 import AgentActivityIndicator from "./AgentActivityIndicator";
 import DecisionTray from "./DecisionTray";
-import MentionInput, { type MentionInputHandle } from "./MentionInput";
+import ReviewDecisionReconcileToast from "./ReviewDecisionReconcileToast";
+import MentionInput, {
+  type MentionInputContent,
+  type MentionInputDraft,
+  type MentionInputHandle,
+} from "./MentionInput";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
 import OnboardingHint from "@/components/onboarding/OnboardingHint";
 import { useTranslation } from "react-i18next";
@@ -301,7 +307,13 @@ const SUBAGENT_MARKDOWN_COMPONENTS: Components = {
   ),
 };
 
-function MarkdownContent({
+// Hoisted so a memo miss (streaming delta, new message) does not allocate a
+// fresh plugin array on every render. react-markdown 10 rebuilds its unified
+// processor per render regardless of this identity; the real saving here is
+// `MarkdownContent` being memoized below.
+const REMARK_PLUGINS = [remarkGfm];
+
+const MarkdownContent = memo(function MarkdownContent({
   children,
   compact = false,
 }: {
@@ -310,7 +322,7 @@ function MarkdownContent({
 }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={REMARK_PLUGINS}
       components={
         compact ? SUBAGENT_MARKDOWN_COMPONENTS : ASSISTANT_MARKDOWN_COMPONENTS
       }
@@ -318,7 +330,7 @@ function MarkdownContent({
       {children}
     </ReactMarkdown>
   );
-}
+});
 
 function MessageParts({
   parts,
@@ -445,7 +457,15 @@ function ActionDisclosure({
   );
 }
 
-function ConversationMessage({ item }: { item: CreatorMessage }) {
+const ConversationMessage = memo(function ConversationMessage({
+  item,
+}: {
+  item: CreatorMessage;
+}) {
+  // The visible body is produced through the i18n singleton, so this row has
+  // to subscribe itself: memo would otherwise freeze an already-rendered
+  // message in the language it was first shown in.
+  useTranslation();
   const project = useProjectSnapshotStore((state) => state.project);
   const waitingForRuntime = useCreatorSessionStore(
     (state) => state.session?.status === "WAITING_RUNTIME",
@@ -540,7 +560,7 @@ function ConversationMessage({ item }: { item: CreatorMessage }) {
       )}
     </div>
   );
-}
+});
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -757,7 +777,11 @@ function SubagentActivityBubble({ activity }: { activity: SubagentActivity }) {
   );
 }
 
-function ToolCallCard({ data }: { data: ToolCallPresentation }) {
+const ToolCallCard = memo(function ToolCallCard({
+  data,
+}: {
+  data: ToolCallPresentation;
+}) {
   const { t } = useTranslation();
   const session = useCreatorSessionStore((state) => state.session);
   const activity = useCreatorSessionStore(
@@ -905,7 +929,7 @@ function ToolCallCard({ data }: { data: ToolCallPresentation }) {
       {expanded && activity && <SubagentActivityBubble activity={activity} />}
     </div>
   );
-}
+});
 
 function refTypeLabel(type: RefSearchItem["type"]): string {
   const labels: Record<RefSearchItem["type"], string> = {
@@ -1154,6 +1178,11 @@ export default function AgentDock({
   const width = useAgentDockUiStore((state) => state.width);
   const height = useAgentDockUiStore((state) => state.height);
   const draft = useAgentDockUiStore((state) => state.draft);
+  const unsentDrafts = useAgentDockUiStore((state) => state.unsentDrafts);
+  const parkUnsentDraft = useAgentDockUiStore((state) => state.parkUnsentDraft);
+  const clearUnsentDraft = useAgentDockUiStore(
+    (state) => state.clearUnsentDraft,
+  );
   const selectionAttachment = useAgentDockUiStore((state) => state.selection);
   const setOpen = useAgentDockUiStore((state) => state.setOpen);
   const setTab = useAgentDockUiStore((state) => state.setTab);
@@ -1269,18 +1298,39 @@ export default function AgentDock({
   const [canSend, setCanSend] = useState(false);
   const [rateLimitResuming, setRateLimitResuming] = useState(false);
   const [inlineRefs, setInlineRefs] = useState<string[]>([]);
+  // Last refs written into `inlineRefs`, kept out of render state so it can
+  // gate the update without becoming a dependency of itself.
+  const inlineRefsSignature = useRef("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionOptions, setMentionOptions] = useState<RefSearchItem[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const previousProjectId = useRef<string | null>(null);
   useEffect(() => {
     setRemovedContextRefs([]);
     setRateLimitResuming(false);
     setPendingUploads([]);
     setUploadingAssets(false);
     setInterruptedDraft(null);
+    // Navigation between Projects must not carry the previous composer's
+    // in-memory state across. Stash the outgoing draft under its own Project
+    // id before clearing: drafts are keyed per Project, so returning to A
+    // finds its own entry even after B parked one too. An empty composer
+    // leaves whatever A already parked in place, otherwise switching through
+    // a blank Project would erase the earlier draft.
+    if (
+      previousProjectId.current !== null &&
+      previousProjectId.current !== projectId
+    ) {
+      const pending = inputRef.current?.getDraft() ?? [];
+      if (pending.length) {
+        parkUnsentDraft(previousProjectId.current, pending);
+      }
+      inputRef.current?.clear();
+    }
+    previousProjectId.current = projectId;
     submissionVersion.current += 1;
     projectLifecycleVersion.current += 1;
-  }, [projectId]);
+  }, [projectId, parkUnsentDraft]);
   const [showJump, setShowJump] = useState(false);
   const inputRef = useRef<MentionInputHandle>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -1748,7 +1798,36 @@ export default function AgentDock({
     if (!open || !draft || inputRef.current?.getContent().text) return;
     inputRef.current?.setText(draft);
     setCanSend(Boolean(draft.trim()));
-  }, [draft, open]);
+    // Consume the injection so a later fold + reopen does not re-fire this
+    // effect against an empty box and overwrite the user's edited text with
+    // the original injection. Clearing also tells the unsent-draft restore
+    // below that no injection is pending for this Project; other Projects'
+    // parked drafts are untouched.
+    setDraft("");
+    clearUnsentDraft(projectId);
+  }, [draft, open, projectId, setDraft, clearUnsentDraft]);
+
+  // Folding unmounts the input, and live typing never reaches the store, so
+  // an unsent instruction would vanish with the component. The editor reports
+  // its own structured draft on the way out: a cleanup here would run after
+  // the handle's ref is already detached, so only the editor itself can
+  // serialize its content in time.
+  const stashUnmountedDraft = useCallback(
+    (content: MentionInputDraft | null) => parkUnsentDraft(projectId, content),
+    [parkUnsentDraft, projectId],
+  );
+
+  const stashedDraft = unsentDrafts[projectId] ?? null;
+  useEffect(() => {
+    if (!open || !stashedDraft || draft) return;
+    if (inputRef.current?.getContent().text) return;
+    inputRef.current?.setDraft(stashedDraft);
+    setCanSend(Boolean(inputRef.current?.getContent().text.trim()));
+    // Handing this Project's stash to the editor consumes only that entry:
+    // B keeps its own draft while A is restored, and leaving the entry behind
+    // would restore stale text over newer edits on the next fold + reopen.
+    clearUnsentDraft(projectId);
+  }, [open, stashedDraft, draft, projectId, clearUnsentDraft]);
 
   useEffect(() => {
     if (!open || !selectionAttachment) return;
@@ -1906,11 +1985,19 @@ export default function AgentDock({
     setShowJump(false);
   };
 
-  const handleInputChange = (text: string) => {
-    const content = inputRef.current?.getContent();
-    setCanSend(Boolean(content?.text.trim()));
-    setInlineRefs(content?.refs.map((item) => item.ref) ?? []);
-    setDraft(text);
+  const handleInputChange = (_text: string, content: MentionInputContent) => {
+    setCanSend(Boolean(content.text.trim()));
+    // Compare before setting: a fresh array per keystroke made the dock
+    // re-render per character even when the referenced objects never changed.
+    // The refs already came from this keystroke's serialization, so there is
+    // no second getContent() DOM walk either.
+    const signature = content.refs.map((item) => item.ref).join("\u0000");
+    if (signature !== inlineRefsSignature.current) {
+      inlineRefsSignature.current = signature;
+      setInlineRefs(content.refs.map((item) => item.ref));
+    }
+    // Live text intentionally never reaches the store: `draft` is only the
+    // external-injection channel consumed above.
   };
 
   const pickMention = (item: RefSearchItem) => {
@@ -1952,7 +2039,15 @@ export default function AgentDock({
     useCreatorInteractionStore.getState().setSelection(null);
     setSelectionAttachment(null);
     inputRef.current?.clearMentions();
-    handleInputChange(inputRef.current?.getContent().text ?? "");
+    // Read back the post-clear content explicitly rather than relying on the
+    // notification inside clearMentions: same values, and the signature gate
+    // makes this a no-op when the ref stays non-null-safe.
+    const cleared = inputRef.current?.getContent() ?? {
+      text: "",
+      refs: [],
+      selections: [],
+    };
+    handleInputChange(cleared.text, cleared);
   };
 
   const submit = async () => {
@@ -2117,7 +2212,9 @@ export default function AgentDock({
       ) === submittedSignature
     ) {
       inputRef.current?.clear();
+      clearUnsentDraft(projectId);
       setCanSend(false);
+      inlineRefsSignature.current = "";
       setInlineRefs([]);
       setDraft("");
       setMentionQuery(null);
@@ -2257,9 +2354,12 @@ export default function AgentDock({
             {!sidebar && (
               <div
                 onPointerDown={beginResize("y")}
-                className="absolute inset-x-4 top-0 z-20 h-1.5 cursor-ns-resize"
+                className="group absolute inset-x-4 top-0 z-20 flex h-1.5 cursor-ns-resize items-center justify-center"
                 title={t("agent.dragHeight")}
-              />
+              >
+                {/* Always-visible grip so the resizable edge is discoverable. */}
+                <span className="pointer-events-none h-0.5 w-10 rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+              </div>
             )}
             <div
               onPointerDown={beginResize("x")}
@@ -2268,14 +2368,12 @@ export default function AgentDock({
                   ? `group absolute inset-y-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20 ${
                       anchor === "left" ? "right-0" : "left-0"
                     }`
-                  : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
+                  : "group absolute inset-y-4 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center"
               }
               title={t("agent.dragWidth")}
             >
               {/* Always-visible grip so the resizable edge is discoverable. */}
-              {sidebar && (
-                <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
-              )}
+              <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
             </div>
             {!sidebar && (
               <div
@@ -2529,6 +2627,7 @@ export default function AgentDock({
             {/* Inline decision tray: pinned between the chat stream and the live
                 status bar so reviews and production confirmations are handled in place. */}
             <DecisionTray projectId={projectId} />
+            <ReviewDecisionReconcileToast projectId={projectId} />
 
             <div
               data-agent-composer
@@ -2835,6 +2934,7 @@ export default function AgentDock({
                   onMentionNavigate={navigateMention}
                   onMentionConfirm={confirmMention}
                   onMentionClose={() => setMentionQuery(null)}
+                  onUnmountDraft={stashUnmountedDraft}
                 />
                 {(stoppable || stopping) &&
                 !canSend &&

@@ -6,16 +6,18 @@ Wraps interactions on the Skill Pool page (``/skill-pool``), including the
 skill auto-sync affordances added in upstream #5639:
 
 - the per-card sync status badge (colored dot + status label),
-- the hover-revealed single automation quick action,
+- the card's Actions menu with an Auto Sync item and enabled indicator,
 - the independent built-in Auto Update and Auto Sync detail settings.
 
-Selectors target the real post-#5639 DOM: antd ``prefixCls`` is ``qwenpaw``
+The Actions menu uses accessible labels. For remaining DOM selectors,
+antd ``prefixCls`` is ``qwenpaw``
 and component-local styles are CSS-Module hashed class names, matched via
 ``[class*=basename]`` substrings (never the stale ``.qwenpaw-card`` stub).
 """
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 from playwright.sync_api import Page, Locator, TimeoutError
@@ -44,15 +46,9 @@ class SkillPoolPage(BasePage):
     )
     # Sync status badge rendered for every card.
     STATUS_BADGE = '[class*="statusBadge"]'
-    AUTOMATION_TAG = (
-        'button[data-testid^="skill-automation-"][aria-pressed="true"]'
-    )
+    AUTO_SYNC_ENABLED_LABEL = re.compile(r"^(Enabled|已启用)$")
     BUILTIN_TAG = '[class*="builtinTag"]'
     CUSTOM_TAG = '[class*="customTag"]'
-    # Card footer is only mounted on hover / batch / mobile; the single
-    # automation quick action (SyncOutlined) lives inside it.
-    CARD_FOOTER = '[class*="PoolSkillCard-module__footer"]'
-    AUTOMATION_BUTTON = 'button[data-testid^="skill-automation-"]'
 
     # PoolSkillDrawer uses SettingsDrawer, which renders a SharedModal on
     # desktop. Anchor the editor on its edit-only Auto Sync control so other
@@ -115,12 +111,15 @@ class SkillPoolPage(BasePage):
             return None
         return card
 
-    def hover_card(self, card: Locator) -> "SkillPoolPage":
-        """Hover a card so its footer automation action is mounted."""
-        card.scroll_into_view_if_needed(timeout=5000)
-        card.hover(timeout=5000)
-        self.wait(300)
-        return self
+    def open_auto_sync_menu_item(self, card: Locator) -> Locator:
+        """Open the card's Actions menu and locate its Auto Sync item."""
+        card.get_by_role(
+            "button", name=re.compile(r"^(Actions|操作)$")
+        ).click(timeout=self.timeout)
+        # The dropdown is rendered outside the card.
+        return self.page.get_by_role(
+            "menuitem", name=re.compile(r"^(Auto Sync|自动同步)(\s|$)")
+        )
 
     def open_edit_drawer(self, name: str) -> "SkillPoolPage":
         """Click a skill card (non-batch mode) to open its edit drawer."""

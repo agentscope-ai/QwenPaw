@@ -4329,7 +4329,8 @@
       },
       "attach": "Attach files",
       "send": "Send message",
-      "stop": "Stop generating"
+      "stop": "Stop generating",
+      "stopFailed": "Could not stop the current run. Try again."
     },
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
@@ -4380,6 +4381,7 @@
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
     "modelFallbackNotice": "Switched model from {{from}} to {{to}} ({{reason}}).",
+    "mediaOmittedNotice": "{{count}} media item(s) did not reach the model{{reason}}. The original files are still available.",
     "turnUsagePopover": {
       "ariaLabel": "Context usage {{contextRate}}, cache hit rate {{cacheRate}}. View usage details",
       "turn": "This turn",

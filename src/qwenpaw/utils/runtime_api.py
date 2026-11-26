@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
+import os
+import re
+import secrets
 from functools import partial
 
 import httpx
@@ -13,6 +18,32 @@ from .http import trust_env_for_url
 
 _TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
 _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
+PROFILE_PROBE_HEADER = "X-QwenPaw-Profile-Probe"
+
+
+def _profile_digest(nonce: str) -> str:
+    from ..constant import SECRET_DIR, WORKING_DIR
+
+    working = os.fsencode(os.path.normcase(WORKING_DIR))
+    secrets_dir = os.fsencode(os.path.normcase(SECRET_DIR))
+    profile = b"\0".join((nonce.encode("ascii"), working, secrets_dir))
+    return hashlib.sha256(profile).hexdigest()
+
+
+def new_profile_probe() -> str:
+    """Build a one-use comparison for this standalone profile."""
+    nonce = secrets.token_hex(16)
+    return f"{nonce}.{_profile_digest(nonce)}"
+
+
+def profile_probe_reply(probe: str) -> str | None:
+    """Confirm the requester's profile without publishing the host's identity."""
+    if not re.fullmatch(r"[0-9a-f]{32}\.[0-9a-f]{64}", probe):
+        return None
+    nonce, digest = probe.split(".")
+    if hmac.compare_digest(_profile_digest(nonce), digest):
+        return nonce
+    return None
 
 
 def _runtime_url() -> httpx.URL | None:

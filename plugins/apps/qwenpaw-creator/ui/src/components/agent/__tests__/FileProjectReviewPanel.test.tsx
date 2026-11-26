@@ -82,6 +82,23 @@ afterEach(() => {
 });
 
 describe("FileProjectReviewPanel", () => {
+  it("shows the authored native-audio change in readable review text", () => {
+    setup(
+      makeReviewRecord({
+        operations: [
+          makeReviewOperation({
+            json_pointer:
+              "/timelines/items/timeline:main/elements_by_id/shot/creation/generate_audio",
+            before: true,
+            after: false,
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText("有声 → 无声")).toBeInTheDocument();
+    expect(screen.queryByText("内容已更新")).toBeNull();
+  });
+
   it("renders a text summary and navigates to the ui_locator on inspect", () => {
     setup();
     expect(screen.getByText("创作修改")).toBeInTheDocument();
@@ -115,6 +132,11 @@ describe("FileProjectReviewPanel", () => {
 
   it("opens feedback before undoing all pending operations", async () => {
     const decide = setup(review(2));
+
+    // F1/F2: keeping every change is one of the four primary decision buttons.
+    const keepAll = document.querySelector("[data-file-review-keep-all]");
+    expect(keepAll).toHaveClass("btn-decision");
+    expect(keepAll).toHaveTextContent("全部保留");
 
     fireEvent.click(screen.getByRole("button", { name: "全部撤销" }));
     expect(decide).not.toHaveBeenCalled();

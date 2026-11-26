@@ -100,6 +100,10 @@ from services.media_files.transient_errors import (
     transient_retry_slot_key,
 )
 from services.media_files.prompt_labels import media_prompt_entity_names
+from services.media_files.provider_source_url import (
+    provider_source_url_usable,
+    stored_provider_source_url,
+)
 from services.media_files.task_scratch import terminal_release_listener
 from services.project_files.prompt_sync import assert_r2v_prompt_sync
 from services.media_files.visual_reference_resolution import (
@@ -634,15 +638,17 @@ def _resolve_reference_versions(
             raise NotFoundError(f"R2V reference version 不存在: {version_id}")
         # Check for source_url stored by Token Plan image generation.
         # Stored at metadata["provider"]["source_url"] by
-        # _materialize_and_publish.
-        source_url = ""
-        if artifact is not None and isinstance(
-            getattr(artifact, "metadata", None),
-            dict,
-        ):
-            provider_meta = artifact.metadata.get("provider", {})
-            if isinstance(provider_meta, dict):
-                source_url = provider_meta.get("source_url", "")
+        # _materialize_and_publish. A URL that outlived its grant must fall
+        # back to the immutable local copy: the provider's download refusal
+        # is indistinguishable from a model failure (issue #8592).
+        source_url = stored_provider_source_url(artifact)
+        if source_url and not provider_source_url_usable(source_url):
+            logger.warning(
+                "Stored provider source URL for %s expired or is "
+                "unverifiable; falling back to the local asset copy",
+                version_id,
+            )
+            source_url = ""
         if source_url:
             indexed = project.assets.files_by_id.get(version.file_id)
             if indexed is None or not indexed.media_type.casefold().startswith(
@@ -747,14 +753,16 @@ def _resolve_single_media_version(
     if version is None:
         raise NotFoundError(f"{label} version 不存在: {version_id}")
     # Check for source_url stored by Token Plan image generation.
-    source_url = ""
-    if artifact is not None and isinstance(
-        getattr(artifact, "metadata", None),
-        dict,
-    ):
-        provider_meta = artifact.metadata.get("provider", {})
-        if isinstance(provider_meta, dict):
-            source_url = provider_meta.get("source_url", "")
+    # A URL that outlived its grant must fall back to the local indexed
+    # copy for first frames and other single-media inputs too.
+    source_url = stored_provider_source_url(artifact)
+    if source_url and not provider_source_url_usable(source_url):
+        logger.warning(
+            "Stored provider source URL for %s expired or is "
+            "unverifiable; falling back to the local asset copy",
+            version_id,
+        )
+        source_url = ""
     if source_url:
         indexed = project.assets.files_by_id.get(version.file_id)
         if indexed is None or not indexed.media_type.casefold().startswith(
@@ -1248,10 +1256,17 @@ def _render_reference_markers(prompt: str) -> str:
     )
 
 
-def _submission_input_fingerprint(project: Project, element_id: str) -> str:
+def _submission_input_fingerprint(
+    project: Project,
+    element_id: str,
+    *,
+    include_default_audio: bool = False,
+) -> str:
     timeline, element = find_timeline_element(project, element_id)
     creation = element.creation.model_dump(mode="json")
     creation.pop("prompt_sync", None)
+    if not include_default_audio and creation.get("generate_audio") is True:
+        del creation["generate_audio"]
     return _fingerprint(
         {
             "creation": creation,
@@ -1265,6 +1280,22 @@ def _submission_input_fingerprint(project: Project, element_id: str) -> str:
                 else ()
             ),
         },
+    )
+
+
+def _matches_submission_inputs(
+    project: Project,
+    element_id: str,
+    frozen: str,
+) -> bool:
+    if frozen == _submission_input_fingerprint(project, element_id):
+        return True
+    # Older interactive writers included the enabled default in the digest.
+    # Both historical formats encode an explicit mute as a distinct input.
+    return frozen == _submission_input_fingerprint(
+        project,
+        element_id,
+        include_default_audio=True,
     )
 
 
@@ -1381,7 +1412,7 @@ def _resolve_request(
         raise ValidationError("R2V ratio/resolution 不能为空")
     # No provider watermark by default; enabled only on explicit request.
     watermark = arguments.get("watermark", False)
-    generate_audio = arguments.get("generateAudio", True)
+    generate_audio = arguments.get("generateAudio", creation.generate_audio)
     if not isinstance(watermark, bool) or not isinstance(generate_audio, bool):
         raise ValidationError("R2V watermark/generateAudio 必须是 boolean")
 
@@ -2248,6 +2279,11 @@ class FileR2VExecutionService:
                 resolved.element_id,
             ),
         }
+        _, element = find_timeline_element(base.project, resolved.element_id)
+        project_audio = getattr(element.creation, "generate_audio", True)
+        if project_audio != resolved.generate_audio:
+            # An explicit command override can differ from the project intent.
+            payload["projectGenerateAudio"] = project_audio
         if any(resolved.reference_voice_urls):
             # Joins the frozen request only when a voice actually rides
             # along, so legacy tasks keep their fingerprint identity.
@@ -3182,12 +3218,13 @@ class FileR2VExecutionService:
                 return current.model_dump(mode="python")
             snapshot = self.services.projects.read(task.project_id)
             frozen = current.request.get("projectInputFingerprint")
+            element_id = str(current.request["elementId"])
             if (
                 frozen is not None
-                and frozen
-                != _submission_input_fingerprint(
+                and not _matches_submission_inputs(
                     snapshot.project,
-                    str(current.request["elementId"]),
+                    element_id,
+                    frozen,
                 )
             ) or (
                 frozen is None
@@ -4193,7 +4230,7 @@ class FileR2VExecutionService:
         delays = self.materialize_retry_delays
         for attempt in range(len(delays) + 1):
             try:
-                return await materialize_r2v_video(
+                materialized = await materialize_r2v_video(
                     claim.provider_result,
                     project_root=self.services.projects.project_root(
                         task.project_id,
@@ -4209,6 +4246,14 @@ class FileR2VExecutionService:
                         _provider_trusted_private_origins()
                     ),
                 )
+                if claim.request.get("generateAudio", True) is False:
+                    from .silent_video import silence_materialized_video
+
+                    materialized = await asyncio.to_thread(
+                        silence_materialized_video,
+                        materialized,
+                    )
+                return materialized
             except Exception as error:
                 if attempt >= len(delays) or not (
                     _is_transient_materialize_error(error)
@@ -4707,6 +4752,24 @@ class FileR2VExecutionService:
             return False
         creation = element.creation
         creation_type = getattr(creation, "type", "r2v")
+        if isinstance(creation, (R2VCreation, T2VCreation, I2VCreation)):
+            admitted_audio = raw.get(
+                "projectGenerateAudio",
+                raw.get("generateAudio", True),
+            )
+            if creation.generate_audio != admitted_audio:
+                # Older requests stored a command override without separately
+                # storing the project's audio intent. An unchanged project
+                # input fingerprint proves the override is still valid.
+                fingerprint = raw.get("projectInputFingerprint")
+                if "projectGenerateAudio" in raw or not fingerprint:
+                    return False
+                if not _matches_submission_inputs(
+                    project,
+                    element_id,
+                    fingerprint,
+                ):
+                    return False
         if creation_type == "r2v":
             if not isinstance(creation, R2VCreation):
                 return False

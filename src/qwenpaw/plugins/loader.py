@@ -12,7 +12,12 @@ import subprocess
 import sys
 import threading
 import tempfile
-from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
+from contextlib import (
+    AsyncExitStack,
+    ExitStack,
+    asynccontextmanager,
+    nullcontext,
+)
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -20,13 +25,21 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from packaging.requirements import Requirement
 
+from ..memory.registry import memory_registry
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..utils.runtime_environment import CERTIFI_REQUIREMENT, require_pip
 
 from .architecture import PluginManifest, PluginRecord, PluginType
+from .discovery import (
+    PAWPORT_MARKER as _PAWPORT_MARKER,
+    discover_plugins,
+    is_disabled_plugin_dir as _is_disabled_plugin_dir,
+    read_manifest,
+)
 from .execution_backend import (
     BackendBinding,
     BackendResolver,
+    PluginDefinition,
     discovers_disabled,
     probes_before_activation,
     registration_scope,
@@ -69,12 +82,14 @@ from .module_isolation import (
 from .channel_adapter import (
     ChannelBackend,
     ChannelServices,
+    StaticChannelDefinition,
     describe_channel,
 )
 from .safe_fs import safe_remove, same_location
 from .registry import PluginRegistry
 from .install_receipts import INSTALL_COMMIT, write_install_commit
 from .ownership import RuntimeKey, RuntimeSourceBusyError, RuntimeStopReceipt
+from .source_usage import source_writers
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +103,6 @@ _IMPORT_NAME_OVERRIDES = {
     "scikit-learn": "sklearn",
     "protobuf": "google.protobuf",
 }
-_PAWPORT_MARKER = ".qwenpaw-pawport.json"
 
 
 _DEPENDENCY_OUTPUT_SECRET = re.compile(
@@ -216,24 +230,6 @@ def resolved_plugin_manifest_path(source_dir: Path) -> Path:
             f"plugin.json not found in {source_dir}",
         )
     return Path(full)
-
-
-def _is_disabled_plugin_dir(path: Path) -> bool:
-    """Return whether *path* is a hidden or explicitly disabled plugin dir.
-
-    A plugin is "disabled" by renaming its directory with a ``.disabled``
-    suffix (e.g. ``remote-ssh.disabled``); hidden dirs (``.git`` etc.) are
-    never plugins. Both are skipped during discovery so a disabled plugin no
-    longer loads or installs its dependencies (issue #5550).
-    """
-    name = path.name
-    if name.startswith(".") or name.endswith(".disabled"):
-        return True
-    try:
-        marker = json.loads((path / _PAWPORT_MARKER).read_text())
-    except (OSError, ValueError, TypeError):
-        return False
-    return marker.get("state") == "prepared"
 
 
 def _marker_matches(marker: dict[str, Any], owner: dict[str, Any]) -> bool:
@@ -487,6 +483,43 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             loader.registry.configure_channel_runtime(channel_runtime)
         return loader
 
+    @classmethod
+    async def create_for_registration(
+        cls,
+        plugin_dirs,
+        include_channel_descriptors=False,
+    ):
+        """Select the environment needed to register public contributions."""
+        runtime = PluginRegistry().channel_runtime
+        # Desktop plugins share the bundled channel dependency environment.
+        if runtime is None and (include_channel_descriptors or _is_frozen()):
+            from .channel_bootstrap import resolve_default_channel_runtime
+
+            cancel = threading.Event()
+            token = install_cancel.set(cancel)
+            try:
+                worker = asyncio.create_task(
+                    run_sync_io(
+                        resolve_default_channel_runtime,
+                        load_send_policy=False,
+                    ),
+                )
+                runtime = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # Wake the install lock before waiting for the worker to exit.
+                cancel.set()
+                await run_async_to_completion(
+                    asyncio.gather(worker, return_exceptions=True),
+                )
+                raise
+            except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+                # Doctor can still inspect descriptors and report a missing runtime.
+                if not include_channel_descriptors:
+                    raise
+            finally:
+                install_cancel.reset(token)
+        return await cls.create(plugin_dirs, channel_runtime=runtime)
+
     async def _publish_dependency_site(self, target, *, validate=None):
         if validate is None:
             validate = _capture_runtime_selection(
@@ -504,6 +537,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         from .dependency_context import DependencyEnvironmentContext
         from .execution.environment import shared_dependency_paths
 
+        # TODO: Install dependency updates into a new directory. New processes
+        # use it; running processes keep using the old directory. Delete the old
+        # directory only after its last process exits. Define when the App must
+        # restart to use an update, and preserve desktop builds and user-managed
+        # Python environments when changing this installation policy.
         if _is_frozen():
             from .channel_bootstrap import resolve_default_channel_runtime
 
@@ -713,46 +751,22 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 raise ProcessError("SOURCE_UNAVAILABLE")
             yield record
 
-    def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
+    def discover_plugins(
+        self,
+        include_uninstalled=False,
+    ) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
 
         Returns:
             List of (manifest, plugin_dir) tuples
         """
-        discovered = []
-
-        for plugin_dir in self.plugin_dirs:
-            if not plugin_dir.exists():
-                logger.debug(f"Plugin directory not found: {plugin_dir}")
-                continue
-
-            logger.info(f"Scanning plugin directory: {plugin_dir}")
-
-            for item in plugin_dir.iterdir():
-                if not item.is_dir():
-                    continue
-
-                if _is_disabled_plugin_dir(item):
-                    logger.info(
-                        "Skipping disabled/hidden plugin directory: %s",
-                        item.name,
-                    )
-                    continue
-
-                manifest_path = item / "plugin.json"
-                if not manifest_path.exists():
-                    continue
-                try:
-                    manifest = self._load_manifest(manifest_path)
-                    discovered.append((manifest, item))
-                    logger.info(f"Discovered plugin: {manifest.id}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to load manifest from {item}: {e}",
-                        exc_info=True,
-                    )
-
-        return discovered
+        return list(
+            discover_plugins(
+                self.plugin_dirs,
+                load_manifest=self._load_manifest,
+                include_uninstalled=include_uninstalled,
+            ).plugins,
+        )
 
     def _load_manifest(self, manifest_path: Path) -> PluginManifest:
         """Load plugin manifest from JSON file.
@@ -767,13 +781,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             json.JSONDecodeError: If manifest is invalid JSON
             KeyError: If required fields are missing
         """
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        from .sdk_version import validate_sdk
-
-        if isinstance(data, dict):
-            validate_sdk(data.get("sdk"), data.get("id"))
-        return PluginManifest.from_dict(data)
+        return read_manifest(manifest_path)
 
     @staticmethod
     def _check_version_compatibility(
@@ -809,6 +817,31 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         return list(decision.missing)
 
+    async def _prepare_registration_dependencies(self, binding, allow_install):
+        """Admit public-entry dependencies before runtime preparation.
+
+        Installation prepares all declared packages without executing the
+        public entry. Read-only preflight checks its existing dependencies.
+        """
+        registration = binding.registration
+        if registration is None:
+            return
+        async with self._dependency_registration(
+            registration,
+            attach=False,
+        ) as token:
+            try:
+                snapshot = await self.lifecycle.prepare_backend(
+                    registration,
+                    allow_install=allow_install,
+                    probe=False,
+                )
+                await self._admit_dependencies(registration, token, snapshot)
+            except RuntimeError as exc:
+                # Install and repair retain the entry that requested a replacement.
+                exc.dependency_entry = "backend"
+                raise
+
     # Early decisions preserve boot/check-only and shared installation safety.
     # pylint: disable-next=too-many-return-statements
     async def _ensure_dependencies_installed(
@@ -817,6 +850,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         plugin_id: str,
         *,
         allow_install: bool = False,
+        requirements=None,
+        additional_requirements=(),
     ) -> GateDecision:
         """Run the dependency gate, optionally installing packages.
 
@@ -876,12 +911,23 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     already_satisfied=True,
                     reason="dependency env not owned by this process",
                 )
+            from .dependency_requirements import (
+                requirements_file as materialize_requirements,
+            )
+
             cleanup = ExitStack()
             try:
                 try:
                     requirements_file = await run_sync_io(
                         cleanup.enter_context,
-                        combined_requirements(source_path),
+                        combined_requirements(
+                            source_path,
+                            additional=additional_requirements,
+                        )
+                        if requirements is None
+                        else materialize_requirements(
+                            (*requirements, *additional_requirements),
+                        ),
                     )
                 except ValueError as exc:
                     return GateDecision(
@@ -1107,6 +1153,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             if not report.errors:
                 report.errors.append("RUNTIME_STILL_OWNED")
         return report
+
+    async def _recover_crashed_uninstall_channels(self, plugin_id):
+        leases = self.registry.runtime_owners.leases(plugin_id)
+        failures = await self.lifecycle.stop_channels_for_teardown(
+            leases,
+            UnloadMode.UNINSTALL,
+        )
+        return failures.get(plugin_id)
 
     def _install_requirements_locked(
         self,
@@ -1400,6 +1454,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         wheel_tags=wheel_tags,
                         dependency_context=context if frozen else None,
                         installer_identity=installer_identity,
+                        entry="backend",
                     )
                 if frozen:
                     await self._publish_dependency_site(
@@ -1435,6 +1490,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         wheel_tags=None,
         dependency_context=None,
         installer_identity=None,
+        entry=None,
     ):
         """Build/stage wheels; the shared gate owns actual package writes."""
         async with self._dependency_install_scope(
@@ -1608,7 +1664,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
                 origin = Path(source_path or spec.code_root)
                 if await run_sync_io((origin / "plugin.json").is_file):
-                    binding = await manager._binding(origin)
+                    binding = await manager._binding(origin, entry)
                     candidates = await manager._consumer_candidates(
                         binding,
                         snapshot,
@@ -1793,6 +1849,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         origin,
                         force=force,
                         prepared=prepared,
+                        entry=entry,
                     )
                     raise DependencyUpgradeRequired(operation)
 
@@ -1894,6 +1951,87 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
         return definition
 
+    async def _register_definition(
+        self,
+        plugin_id,
+        definition,
+        config,
+        manifest_dict,
+        dependency_token=None,
+    ):
+        """Register definitions under one plugin instance and rollback ledger."""
+        from .settings import runtime_config
+
+        if isinstance(definition, PluginDefinition):
+            await self._register_definition(
+                plugin_id,
+                definition.runtime_definition,
+                config,
+                manifest_dict,
+                dependency_token,
+            )
+            binding = definition.public_binding
+            async with self._dependency_registration(binding) as token:
+                snapshot = await self.lifecycle.prepare_backend(
+                    binding,
+                    allow_install=False,
+                    probe=False,
+                )
+                await self._admit_dependencies(binding, token, snapshot)
+                result = await binding.load_definition(
+                    config or {},
+                    saved_definition=definition.public_definition,
+                )
+                definition.public_definition = result.definition
+                if definition.public_definition is not None:
+                    await self._register_definition(
+                        plugin_id,
+                        definition.public_definition,
+                        config,
+                        manifest_dict,
+                        token,
+                    )
+            return
+
+        instance = self.lifecycle.get_instance(plugin_id)
+        api = PluginApi(
+            plugin_id,
+            runtime_config(config),
+            manifest_dict,
+            dependency_token=dependency_token,
+        )
+        api.set_registry(self.registry)
+        api.bind_instance(instance, loader=self)
+        sdk_definition = manifest_dict.get(
+            "sdk",
+        ) is not None and not isinstance(
+            definition,
+            StaticChannelDefinition,
+        )
+        if sdk_definition:
+            from .sdk import PluginContext
+
+            api = PluginContext(api)
+            instance.sdk_context = api
+        if not hasattr(definition, "register"):
+            raise AttributeError(
+                "Plugin must implement 'register(api)' method",
+            )
+        await await_with_budget(
+            definition.register(api),
+            seconds=REGISTER_WALL_CLOCK_SECONDS,
+            what="register()",
+            plugin_id=plugin_id,
+        )
+        if sdk_definition and (
+            "harnesses" in (manifest_dict.get("meta") or {})
+            or self.registry.backend_registry_initialized
+        ):
+            self.registry.backend_registry.validate_manifest(
+                api.resources.owner,
+                manifest_dict,
+            )
+
     async def _invoke_plugin_register(
         self,
         plugin_id: str,
@@ -1904,57 +2042,26 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         dependency_token=None,
     ) -> None:
         """Bind the current instance and run ``plugin_def.register``."""
-        from .settings import runtime_config
         from qwenpaw.market import market_registry
 
-        api = PluginApi(
-            plugin_id,
-            runtime_config(config),
-            manifest_dict,
-            dependency_token=dependency_token,
-        )
-        api.set_registry(self.registry)
         instance = self.lifecycle.ensure_instance(plugin_id)
         instance.refuse_unquiescent_reregister()
-        api.bind_instance(instance, loader=self)
-        from .channel_adapter import StaticChannelDefinition
-
-        if manifest_dict.get("sdk") is not None and not isinstance(
-            plugin_def,
-            StaticChannelDefinition,
-        ):
-            from .sdk import PluginContext
-
-            api = PluginContext(api)
-            instance.sdk_context = api
         self.registry.register_plugin_manifest(plugin_id, manifest_dict)
         instance.record_runtime(
             "plugin_manifest",
             lambda: self.registry.drop_plugin_manifest(plugin_id),
             kind="manifest",
         )
-        if not hasattr(plugin_def, "register"):
-            raise AttributeError(
-                "Plugin must implement 'register(api)' method",
-            )
         market_registry.begin_load(plugin_id)
         instance.accepts_provision_declarations = True
         try:
-            result = plugin_def.register(api)
-            await await_with_budget(
-                result,
-                seconds=REGISTER_WALL_CLOCK_SECONDS,
-                what="register()",
-                plugin_id=plugin_id,
+            await self._register_definition(
+                plugin_id,
+                plugin_def,
+                config,
+                manifest_dict,
+                dependency_token=dependency_token,
             )
-            if manifest_dict.get("sdk") is not None and (
-                "harnesses" in (manifest_dict.get("meta") or {})
-                or self.registry.backend_registry_initialized
-            ):
-                self.registry.backend_registry.validate_manifest(
-                    api.resources.owner,
-                    manifest_dict,
-                )
         except BaseException as exc:
             instance.mark_failed(str(exc) or type(exc).__name__)
             await self._dispose_then_undo_txn_disk(plugin_id, instance)
@@ -2076,6 +2183,25 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             token=token,
             snapshot=snapshot,
         )
+
+    async def admit_contribution(self, plugin_id, requires):
+        """Pin an invoked contribution's packages until plugin teardown.
+
+        Registration only publishes definitions. A consumer must enter this
+        check-only boundary before loading a dependency-bearing implementation.
+        """
+        from ..utils.io_utils import run_sync_io
+
+        record = self._loaded_plugins[plugin_id]
+        description = await run_sync_io(
+            self._python_backend.describe_requirements,
+            record.source_path,
+            record.manifest,
+            requires,
+        )
+        binding = BackendBinding(self._python_backend, description)
+        async with self._dependency_registration(binding) as token:
+            await self._admit_dependencies(binding, token, None)
 
     async def _dispose_then_undo_txn_disk(
         self,
@@ -2208,6 +2334,60 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         self._python_backend.cleanup_imports(plugin_id, source_path)
 
+    async def load_registration(
+        self,
+        manifest: PluginManifest,
+        source_path: Path,
+        config: Optional[Dict] = None,
+        include_descriptor: bool = False,
+    ) -> PluginRecord:
+        """Load the public registration entry for a host consumer.
+
+        A consumer that also needs channel management can register the
+        descriptor alongside the public entry without activating the driver.
+        """
+        from ..utils.io_utils import run_sync_io
+        from .dependency_maintenance import lease_environment
+
+        binding = None
+        if manifest.entry.backend:
+            if include_descriptor and manifest.entry.descriptor:
+                try:
+                    binding = await run_sync_io(
+                        self.backend_resolver.resolve,
+                        source_path,
+                        manifest,
+                    )
+                except (OSError, ValueError) as exc:
+                    logger.warning(
+                        "Invalid descriptor for %s: %s",
+                        manifest.id,
+                        exc,
+                    )
+            if binding is None:
+                binding = await run_sync_io(
+                    self.backend_resolver.resolve_registration,
+                    source_path,
+                    manifest,
+                )
+            targets = await self._python_backend.prepare_dependency_targets(
+                (binding.registration or binding).description,
+            )
+            if self.registry.channel_runtime is None:
+                from .dependency_recovery import recover_additions
+
+                await run_sync_io(recover_additions, targets.targets)
+            await run_sync_io(lease_environment, targets.targets)
+            targets.validate()
+        return await self.load_plugin(
+            manifest,
+            source_path,
+            config,
+            activate=False,
+            allow_install=False,
+            backend_binding=binding,
+        )
+
     async def load_plugin(
         self,
         manifest: PluginManifest,
@@ -2322,6 +2502,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         definition_started = False
         try:
             static_discovery = not activate and discovers_disabled(binding)
+            if allow_install and not prepared:
+                await self._prepare_registration_dependencies(binding, True)
             async with self._dependency_registration(
                 binding,
                 enabled=is_plugin_enabled(config),
@@ -2371,8 +2553,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     )
                 definition_started = True
                 with registration_scope(binding):
-                    result = await binding.backend.load_definition(
-                        binding.description,
+                    result = await binding.load_definition(
                         config or {},
                         saved_definition=saved_plugin_def,
                     )
@@ -2511,6 +2692,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     (manifest, path)
                     for manifest, path in await run_sync_io(
                         self.discover_plugins,
+                        include_uninstalled=True,
                     )
                     if manifest.id == plugin_id
                 ),
@@ -2619,8 +2801,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """
         from ..utils.io_utils import run_sync_io
 
+        from .settings import is_plugin_enabled, read_plugin_intent
+
         await self._recover_startup_transactions()
-        discovered = await run_sync_io(self.discover_plugins)
+        discovered = await run_sync_io(
+            self.discover_plugins,
+            include_uninstalled=True,
+        )
 
         for manifest, plugin_dir in discovered:
             if (
@@ -2628,22 +2815,21 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 or manifest.id in exclude
             ):
                 continue
-            from .settings import (
-                is_plugin_enabled,
-                read_plugin_intent,
-            )
-
-            try:
-                if read_plugin_intent(
-                    manifest.id,
-                    plugins_dir=self.plugin_dirs[0],
-                ):
-                    continue
-            except (OSError, ValueError):
-                logger.warning("Invalid plugin intent; skipping plugin")
-                continue
             async with self.plugin_lifecycle(manifest.id):
                 if manifest.id in self._loaded_plugins:
+                    continue
+                try:
+                    if await run_sync_io(
+                        read_plugin_intent,
+                        manifest.id,
+                        plugins_dir=self.plugin_dirs[0],
+                    ):
+                        continue
+                except (OSError, ValueError):
+                    logger.warning(
+                        "Invalid uninstall intent for '%s'",
+                        manifest.id,
+                    )
                     continue
                 self.registry.remember_harness_manifest(
                     manifest.id,
@@ -2799,8 +2985,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         interrupt_tasks: bool = False,
     ) -> ReloadReport:
         """Reload one plugin while preventing new SDK invocations."""
-        async with self.lifecycle.activity(plugin_id).mutation(
-            interrupt_tasks=interrupt_tasks,
+        async with (
+            self._source_mutation(plugin_id),
+            self.lifecycle.activity(plugin_id).mutation(
+                interrupt_tasks=interrupt_tasks,
+            ),
         ):
             return await self._reload_plugin_body(
                 plugin_id,
@@ -2935,6 +3124,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
             old_binding.validate_update(candidate_binding, in_place=in_place)
             if is_plugin_enabled(config):
+                if allow_install and owns_dependency_env:
+                    await self._prepare_registration_dependencies(
+                        candidate_binding,
+                        True,
+                    )
                 candidate_admission = _DependencyAdmission(candidate_binding)
                 candidate_token = await admissions.enter_async_context(
                     self._dependency_registration(
@@ -3002,7 +3196,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         # Callback rejection owns no replacement transaction to recover.
         await _invoke_after_unload(before_unload, plugin_id)
-        old_restore_state = old_binding.backend.capture_restore_state(record)
+        old_restore_state = old_binding.capture_restore_state(record)
         swapped: Path | None = None
         activated_new = False
         old_unloaded = False
@@ -3314,10 +3508,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if self._has_runtime_custody(plugin_id):
             raise RuntimeError("RUNTIME_STILL_OWNED; needs_restart")
         from ..utils.io_utils import run_async_to_completion, run_sync_io
-        from .updates import allocate_update_backup_path, write_updating_marker
+        from .updates import (
+            allocate_update_backup_path,
+            update_staging_path,
+            write_updating_marker,
+        )
 
         await self._recover_or_refuse_prepared_update(plugin_id)
-        staging = old_path.with_name(old_path.name + f".{plugin_id}.staging")
+        staging = update_staging_path(old_path, plugin_id)
         instance = self.lifecycle.get_instance(plugin_id)
         has_runtime = instance is not None and instance.has_runtime_ledger()
 
@@ -3571,7 +3769,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if self._has_runtime_custody(plugin_id):
             failed.errors.append("CHANNEL_INSTANCE_STILL_OWNED; needs_restart")
             return failed
-        from .updates import live_prepared_backup
+        from .updates import live_prepared_backup, update_staging_path
 
         backup = backup or await run_sync_io(live_prepared_backup, plugin_id)
         if self._has_runtime_custody(plugin_id):
@@ -3583,9 +3781,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     plugin_id,
                     old_path,
                     backup,
-                    old_path.with_name(
-                        old_path.name + f".{plugin_id}.staging",
-                    ),
+                    update_staging_path(old_path, plugin_id),
                     clear_marker_if_restored=False,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -3623,7 +3819,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     old_path,
                     restored_manifest,
                 )
-            old_binding.backend.restore_state(snapshot)
+            old_binding.restore_state(snapshot)
             # Saved Python code uses its original admitted declaration. Its
             # mutable source can now describe the rejected candidate instead.
             if (
@@ -3732,24 +3928,53 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 _bundled_seed=True,
             )
 
+    def _install_location(
+        self,
+        plugin_id: str,
+        install_dir: Path | None,
+    ) -> Tuple[Path, Path]:
+        if install_dir is None:
+            if not self.plugin_dirs:
+                raise RuntimeError("No plugin directories configured")
+            install_dir = self.plugin_dirs[0]
+        base = Path(install_dir).resolve()
+        return base, (base / plugin_id).resolve()
+
     def _install_paths(
         self,
         plugin_id: str,
         install_dir: Path | None,
     ) -> Tuple[Path, Path]:
         """Resolve and validate the installation target before side effects."""
-        if install_dir is None:
-            if not self.plugin_dirs:
-                raise RuntimeError("No plugin directories configured")
-            install_dir = self.plugin_dirs[0]
-        base = Path(install_dir).resolve()
-        target = (base / plugin_id).resolve()
+        base, target = self._install_location(plugin_id, install_dir)
         if target == base or not target.is_relative_to(base):
             raise ValueError(
                 f"Plugin id '{plugin_id}' does not resolve to a safe child "
                 f"of the plugin directory ({base}). Refusing to install.",
             )
         return base, target
+
+    @asynccontextmanager
+    async def _source_mutation(self, plugin_id, install_dir=None):
+        """Protect the installed source and any distinct installation target."""
+        from ..utils.io_utils import run_sync_io
+
+        record = self.get_loaded_plugin(plugin_id)
+        installed = (
+            record.source_path
+            if record is not None
+            else await run_sync_io(self.find_installed_plugin_dir, plugin_id)
+        )
+        paths = [Path(installed)] if installed is not None else []
+        if install_dir is not None or self.plugin_dirs:
+            _, target = await run_sync_io(
+                self._install_location,
+                plugin_id,
+                install_dir,
+            )
+            paths.append(target)
+        async with source_writers(plugin_id, paths):
+            yield
 
     async def install_plugin_files(
         self,
@@ -3770,7 +3995,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 self._read_source_manifest,
                 source_path,
             )
-            async with self.plugin_lifecycle(manifest.id):
+            async with (
+                self._source_mutation(manifest.id),
+                self.plugin_lifecycle(manifest.id),
+            ):
                 self._require_recovered(manifest.id)
                 if not self.lifecycle.delegate.owns_commit(manifest.id):
                     raise RuntimeError(
@@ -3927,15 +4155,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # pylint: disable=too-many-branches
         async with self._dependency_install_scope(Path(source_path)):
             source_path = await asyncio.to_thread(Path(source_path).resolve)
-            _manifest_path, manifest = await asyncio.to_thread(
+            _, manifest = await asyncio.to_thread(
                 self._read_source_manifest,
                 source_path,
             )
-            del _manifest_path
             plugin_id = manifest.id
-            async with self.plugin_lifecycle(
-                plugin_id,
-                dependency_force=force,
+            async with (
+                self._source_mutation(plugin_id, install_dir),
+                self.plugin_lifecycle(plugin_id, dependency_force=force),
             ):
                 await self._retry_plugin_recovery_unlocked(plugin_id)
                 startup_blocked = plugin_id in self.startup_blocked_plugins
@@ -4103,7 +4330,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             install_dir,
         )
 
-        from .updates import live_prepared_backup
+        from .updates import live_prepared_backup, update_staging_path
 
         old_source = (
             await run_sync_io(live_prepared_backup, plugin_id) or target_dir
@@ -4254,9 +4481,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
-        staging_hint = target_dir.with_name(
-            target_dir.name + f".{plugin_id}.staging",
-        )
+        staging_hint = update_staging_path(target_dir, plugin_id)
         files_committed = False
         retained = None
         try:
@@ -4496,15 +4721,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     previous_binding = await self._binding_for_record(record)
                     # Repair explicitly inspects current disk contents, while the
                     # retained source keeps its backend and custody until stopped.
-                    binding = BackendBinding(
-                        previous_binding.backend,
-                        await run_sync_io(
-                            previous_binding.backend.describe,
-                            source_path,
-                            previous_binding.description.manifest.model_copy(
-                                deep=True,
-                            ),
-                        ),
+                    binding = await run_sync_io(
+                        previous_binding.refresh,
+                        source_path,
+                        previous_binding.description.manifest,
                     )
                 else:
                     binding = await run_sync_io(
@@ -4592,18 +4812,25 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance,
         delete_files: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unlocked unload used by ``PluginLifecycle``.
 
         Caller must hold the per-plugin lifecycle lock.
         """
-        return await self._unload_plugin_unlocked(
-            plugin_id,
-            delete_files,
-            mode=mode,
-            interrupt_tasks=interrupt_tasks,
-            instance=instance,
-        )
+        async with (
+            self._source_mutation(plugin_id)
+            if mode is UnloadMode.UNINSTALL or delete_files
+            else nullcontext()
+        ):
+            return await self._unload_plugin_unlocked(
+                plugin_id,
+                delete_files,
+                mode=mode,
+                interrupt_tasks=interrupt_tasks,
+                instance=instance,
+                shutdown_channels=shutdown_channels,
+            )
 
     async def _unload_plugin_unlocked(
         self,
@@ -4614,9 +4841,9 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance=None,
         skip_legacy: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin and release a failed unload reservation."""
-        from qwenpaw.memory import memory_registry
         from qwenpaw.market import market_registry
 
         async with self.lifecycle.activity(plugin_id).mutation(
@@ -4630,6 +4857,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     mode=mode,
                     instance=instance,
                     skip_legacy=skip_legacy,
+                    shutdown_channels=shutdown_channels,
                 )
             except BaseException:
                 memory_registry.cancel_owner_unload(plugin_id)
@@ -4660,6 +4888,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         mode: UnloadMode | None = None,
         instance=None,
         skip_legacy: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         # pylint: disable=too-many-branches,too-many-statements
@@ -4667,7 +4896,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             mode = UnloadMode.UNINSTALL if delete_files else UnloadMode.UNLOAD
         record = self._loaded_plugins.get(plugin_id)
         if record is None and mode is UnloadMode.SHUTDOWN:
-            return await self._shutdown_runtime_owners(plugin_id, mode)
+            report = UnloadReport(plugin_id=plugin_id, mode=mode)
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+            if report.quiescent:
+                report.absorb(
+                    await self._shutdown_runtime_owners(plugin_id, mode),
+                )
+            return report
         try:
             await self._stop_preparation(plugin_id)
         except Exception as exc:
@@ -4681,6 +4917,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
+            if mode is UnloadMode.UNINSTALL:
+                blocked = await self._recover_crashed_uninstall_channels(
+                    plugin_id,
+                )
+                if blocked:
+                    return blocked
             report = await self._stop_runtime_owners(plugin_id, mode)
             if not report.quiescent:
                 return report
@@ -4691,8 +4933,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         if instance is None:
             instance = self.lifecycle.ensure_instance(plugin_id)
-
-        from qwenpaw.memory import memory_registry
 
         if mode is not UnloadMode.SHUTDOWN:
             self.registry.assert_memory_backends_not_in_use(plugin_id)
@@ -4736,8 +4976,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # Author hooks must run while they are still in the registry.
         # Ledger teardowns only drop the rows; they do not invoke them.
         report = UnloadReport(plugin_id=plugin_id, mode=mode)
-        await self._run_shutdown_hooks(plugin_id, report)
+        await self._run_shutdown_hooks(
+            plugin_id,
+            report,
+            retire_successful=mode is UnloadMode.SHUTDOWN,
+        )
         if mode is UnloadMode.SHUTDOWN:
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+                if not report.quiescent:
+                    return report
             report.absorb(await instance.dispose(mode))
             if report.quiescent:
                 report.absorb(await self._stop_runtime_owners(plugin_id, mode))
@@ -4752,7 +5000,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         was_committed = record.status == "active" or bool(
             instance is not None and instance.activated,
         )
-        before_install = None
         if mode is UnloadMode.UNINSTALL:
             from .provision import recorded_tool_names
 
@@ -4771,12 +5018,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     await run_sync_io(retire_agent_cleanup, instance)
                 await self._drop_uninstalled_settings(plugin_id, tool_names)
 
-            before_install = _cleanup_settings
-        disposal = (
-            await instance.dispose(mode, before_install=before_install)
-            if before_install is not None
-            else await instance.dispose(mode)
-        )
+            disposal = await self._recover_crashed_uninstall_channels(
+                plugin_id,
+            )
+            if disposal is None:
+                disposal = await instance.dispose(
+                    mode,
+                    before_install=_cleanup_settings,
+                )
+        else:
+            disposal = await instance.dispose(mode)
         report.absorb(disposal)
         if report.quiescent:
             report.absorb(await self._stop_runtime_owners(plugin_id, mode))
@@ -5094,6 +5345,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     f"for plugin '{plugin_id}': {exc}",
                 )
                 report.errors.append(f"shutdown:{hook.hook_name}:{exc}")
+                report.failed_shutdown_hooks.append(hook.hook_name)
                 report.clean = False
 
     async def teardown_config_runtime(
@@ -5195,7 +5447,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         source_path = self._find_installed_plugin_dir(plugin_id)
         if source_path is None:
-            discovered = await asyncio.to_thread(self.discover_plugins)
+            discovered = await asyncio.to_thread(
+                self.discover_plugins,
+                include_uninstalled=True,
+            )
             source_path = next(
                 (
                     path
@@ -5446,8 +5701,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
             await self._admit_dependencies(binding, dependency_token, snapshot)
             with registration_scope(binding):
-                result = await binding.backend.load_definition(
-                    binding.description,
+                result = await binding.load_definition(
                     {**(config or {}), "enabled": record.global_enabled},
                     saved_definition=record.instance,
                 )
@@ -5471,57 +5725,26 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         dependency_token=None,
     ) -> None:
         """Bind a fresh API and run ``register()``; do not dispose on error."""
-        from .settings import runtime_config
         from qwenpaw.market import market_registry
 
-        api = PluginApi(
-            plugin_id,
-            runtime_config(config),
-            manifest_dict,
-            dependency_token=dependency_token,
-        )
-        api.set_registry(self.registry)
         instance = self.lifecycle.ensure_instance(plugin_id)
         instance.refuse_unquiescent_reregister()
-        api.bind_instance(instance, loader=self)
-        from .channel_adapter import StaticChannelDefinition
-
-        if manifest_dict.get("sdk") is not None and not isinstance(
-            plugin_def,
-            StaticChannelDefinition,
-        ):
-            from .sdk import PluginContext
-
-            api = PluginContext(api)
-            instance.sdk_context = api
         self.registry.register_plugin_manifest(plugin_id, manifest_dict)
         instance.record_runtime(
             "plugin_manifest",
             lambda: self.registry.drop_plugin_manifest(plugin_id),
             kind="manifest",
         )
-        if not hasattr(plugin_def, "register"):
-            raise AttributeError(
-                "Plugin must implement 'register(api)' method",
-            )
         market_registry.begin_load(plugin_id)
         instance.accepts_provision_declarations = True
         try:
-            result = plugin_def.register(api)
-            await await_with_budget(
-                result,
-                seconds=REGISTER_WALL_CLOCK_SECONDS,
-                what="register()",
-                plugin_id=plugin_id,
+            await self._register_definition(
+                plugin_id,
+                plugin_def,
+                config,
+                manifest_dict,
+                dependency_token=dependency_token,
             )
-            if manifest_dict.get("sdk") is not None and (
-                "harnesses" in (manifest_dict.get("meta") or {})
-                or self.registry.backend_registry_initialized
-            ):
-                self.registry.backend_registry.validate_manifest(
-                    api.resources.owner,
-                    manifest_dict,
-                )
         except BaseException as exc:
             cleanup_report = await self._dispose_then_undo_txn_disk(
                 plugin_id,
@@ -5763,6 +5986,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
     async def _project_external_runtime(self, plugin_id: str) -> None:
         """Project providers and control commands for *plugin_id*."""
+        await self.publish_provider_definitions(plugin_id)
+        await self._project_control_commands(plugin_id)
+
+    async def publish_provider_definitions(
+        self,
+        plugin_id: str,
+        persist_migrations: bool = True,
+    ) -> None:
+        """Publish provider definitions without startup hooks or connections."""
         providers = [
             (pid, reg)
             for pid, reg in self.registry.get_all_providers().items()
@@ -5779,7 +6011,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     label=reg.label,
                     base_url=reg.base_url,
                     metadata=reg.metadata,
+                    persist_migrations=persist_migrations,
                 )
+
+    async def _project_control_commands(self, plugin_id: str) -> None:
+        """Publish active control commands to the live channel managers."""
         commands = [
             cmd
             for cmd in self.registry.get_control_commands()
@@ -5805,13 +6041,21 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             except ValueError as exc:
                 raise ProjectionError(str(exc)) from exc
 
-    async def run_plugin_startup_hooks(self, plugin_id: str) -> None:
+    async def run_plugin_startup_hooks(
+        self,
+        plugin_id: str,
+        include_installation: bool = True,
+    ) -> None:
         """Run startup hooks that currently belong to *plugin_id*.
 
+        Invocation-only consumers exclude host installation setup. Full
+        application activation retains every hook and its priority order.
         Exceptions propagate so ``update_config`` / reload can roll back.
         """
         for hook in self.registry.get_startup_hooks():
-            if hook.plugin_id != plugin_id:
+            if hook.plugin_id != plugin_id or (
+                not include_installation and hook.installation
+            ):
                 continue
             await self._invoke_startup_hook(hook)
 
@@ -6050,7 +6294,7 @@ def _manifest_as_dict(manifest: PluginManifest) -> Dict[str, Any]:
             "min": manifest.min_version,
             "max": manifest.max_version,
         }
-    return {
+    result = {
         "id": manifest.id,
         "name": manifest.name,
         "version": manifest.version,
@@ -6058,7 +6302,15 @@ def _manifest_as_dict(manifest: PluginManifest) -> Dict[str, Any]:
         "description_i18n": manifest.description_i18n,
         "author": manifest.author,
         "dependencies": manifest.dependencies,
+        "optional_dependencies": manifest.optional_dependencies,
         "qwenpaw_version": qv_dict,
         "meta": manifest.meta,
         "sdk": manifest.sdk,
     }
+    if manifest.cli:
+        result["cli"] = [
+            declaration.model_dump() for declaration in manifest.cli
+        ]
+    if manifest.extensions:
+        result["extensions"] = manifest.model_dump(mode="json")["extensions"]
+    return result

@@ -1,7 +1,7 @@
 {
   "id": "telegram",
   "name": "Telegram",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "channel",
   "description": "Telegram Bot API polling messaging channel.",
   "author": "QwenPaw Team",
@@ -9,7 +9,18 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.3.0.post1"
+    "min": "2.3.1"
   },
-  "publish": true
+  "publish": true,
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "dependencies"
+    ]
+  },
+  "optional_dependencies": {
+    "transport": [
+      "python-telegram-bot>=20.8"
+    ]
+  }
 }

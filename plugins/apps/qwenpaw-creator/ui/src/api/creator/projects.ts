@@ -18,6 +18,7 @@ import {
   CreatorHttpError,
   creatorFetch,
   creatorRequest,
+  invalidateCreatorListReads,
   jsonBody,
   newClientId,
 } from "./client";
@@ -166,14 +167,19 @@ export function listProjects(
   );
 }
 
+function projectAdded<T>(result: T): T {
+  invalidateCreatorListReads("/projects");
+  return result;
+}
+
 export function createProject(
   request: ProjectCreateRequest,
 ): Promise<ProjectCreateResponse> {
-  return creatorRequest("/projects", {
+  return creatorRequest<ProjectCreateResponse>("/projects", {
     method: "POST",
     headers: { "Idempotency-Key": request.clientRequestId },
     body: jsonBody(request),
-  });
+  }).then(projectAdded);
 }
 
 export function deleteProject(
@@ -191,10 +197,10 @@ export function copyProject(
   projectId: string,
   clientRequestId = newClientId("copy-project"),
 ): Promise<{ projectId: string }> {
-  return creatorRequest(`/projects/${encodeURIComponent(projectId)}/copy`, {
-    method: "POST",
-    headers: { "Idempotency-Key": clientRequestId },
-  });
+  return creatorRequest<{ projectId: string }>(
+    `/projects/${encodeURIComponent(projectId)}/copy`,
+    { method: "POST", headers: { "Idempotency-Key": clientRequestId } },
+  ).then(projectAdded);
 }
 
 export interface RecreateParams {

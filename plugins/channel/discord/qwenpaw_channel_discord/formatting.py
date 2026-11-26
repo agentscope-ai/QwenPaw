@@ -32,8 +32,8 @@ def classify_attachment(attachment) -> str:
 def chunk_text(text: str, max_len: int = 2000) -> list[str]:
     """Split *text* into chunks that fit Discord's message limit.
 
-    Splits at newline boundaries to preserve formatting.  If a single
-    line exceeds *max_len* it is hard-split at *max_len*.
+    Splits at newline boundaries to preserve formatting. Long lines are
+    split within the space available after accounting for code fences.
 
     Markdown code fences are tracked so that a chunk ending inside an
     open fence gets a closing fence appended and the next chunk gets
@@ -43,9 +43,7 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
     if len(text) <= max_len:
         return [text]
 
-    # Reserve space for a closing fence suffix ("\n```") that _flush()
-    # may append when a code block spans chunk boundaries.
-    fence_close_len = len("\n```")
+    closing_fence = f"\n```"
 
     chunks: list[str] = []
     current: list[str] = []
@@ -53,47 +51,61 @@ def chunk_text(text: str, max_len: int = 2000) -> list[str]:
     fence_open: str = ""  # e.g. "```python"
 
     def _flush() -> None:
-        nonlocal fence_open
-        body = "".join(current).rstrip("\n")
-        if fence_open:
-            body += "\n```"  # close dangling fence
-        chunks.append(body)
+        nonlocal current_len
+        body = "".join(current).removesuffix(f"\n")
         current.clear()
+        current_len = 0
+        if fence_open:
+            body += closing_fence
+            reopener = f"{fence_open}\n"
+            current.append(reopener)
+            current_len = len(reopener)
+        chunks.append(body)
 
     for line in text.split("\n"):
-        line_with_nl = line + "\n"
         stripped = line.strip()
 
-        # Detect fence toggle.
+        # Determine the state after this line without changing the state
+        # used to close and reopen the current chunk during a flush.
+        next_fence_open = fence_open
         if _FENCE_RE.match(stripped):
             if fence_open:
-                fence_open = ""
+                next_fence_open = ""
             else:
-                fence_open = stripped
+                next_fence_open = stripped
 
-        # Flush if adding this line would exceed the limit.
-        # When inside a code fence, reserve space for the closing
-        # suffix that _flush() appends.
-        reserved = fence_close_len if fence_open else 0
-        if current and current_len + len(line_with_nl) + reserved > max_len:
-            saved_fence = fence_open
+        # Count blank lines and omit the trailing separator for other lines.
+        line_len = max(1, len(line))
+        reserved = len(closing_fence) if next_fence_open else 0
+        if current and current_len + line_len + reserved > max_len:
             _flush()
-            current_len = 0
-            # Re-open the fence in the next chunk.
-            if saved_fence:
-                fence_open = saved_fence
-                reopener = saved_fence + "\n"
-                current.append(reopener)
-                current_len += len(reopener)
 
-        # Single line exceeds max_len -> hard-split.
-        if len(line_with_nl) > max_len:
-            for i in range(0, len(line), max_len):
-                end = i + max_len
-                chunks.append(line[i:end])
-        else:
-            current.append(line_with_nl)
-            current_len += len(line_with_nl)
+        available = max_len - current_len - reserved
+        if len(line) > available:
+            if current and fence_open and next_fence_open and available > 0:
+                # Only the reopened fence is buffered here.
+                start = 0
+                while len(line) - start > available:
+                    end = start + available
+                    current.append(line[start:end])
+                    _flush()
+                    start = end
+                line = line[start:]
+            else:
+                # Hard-split plain text or a fence that cannot fit.
+                current.clear()
+                current_len = 0
+                chunks.extend(
+                    line[start : start + max_len]
+                    for start in range(0, len(line), max_len)
+                )
+                fence_open = next_fence_open
+                continue
+
+        fence_open = next_fence_open
+        line_with_nl = f"{line}\n"
+        current.append(line_with_nl)
+        current_len += len(line_with_nl)
 
     if current:
         chunks.append("".join(current).rstrip("\n"))

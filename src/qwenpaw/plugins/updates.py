@@ -5,19 +5,21 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import uuid
 from pathlib import Path
 from typing import Any
 
 from ..utils.io_utils import write_json_atomic
-from .safe_fs import parse_optional_absolute, safe_remove
+from .safe_fs import parse_optional_absolute, safe_remove, same_location
 
 logger = logging.getLogger(__name__)
 
 STATUS_PREPARED = "prepared"
 STATUS_UPDATING = "updating"
 STATUS_COMMITTED = "committed"
+_STAGING_SUFFIX = "staging"
 
 
 class RecoveryResult(list[str]):
@@ -44,18 +46,19 @@ class RecoveryResult(list[str]):
             self.blocked[plugin_id] = message
 
 
-def updates_dir() -> Path:
-    """Return the update-marker directory (created on demand)."""
+def updates_dir(create: bool = True) -> Path:
+    """Return the update-marker directory, optionally creating it."""
     from ..constant import WORKING_DIR
 
     path = Path(WORKING_DIR) / "plugin_updates"
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def marker_path(plugin_id: str) -> Path:
+def marker_path(plugin_id: str, create: bool = True) -> Path:
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in plugin_id)
-    return updates_dir() / f"{safe}.json"
+    return updates_dir(create=create) / f"{safe}.json"
 
 
 def write_updating_marker(
@@ -122,6 +125,10 @@ def update_is_committed(plugin_id: str) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     status = str(data.get("status") or "").strip()
+    return _is_committed(status, data)
+
+
+def _is_committed(status, data) -> bool:
     return status == STATUS_COMMITTED or bool(data.get("activate_committed"))
 
 
@@ -157,6 +164,11 @@ def preserved_update_backup(plugin_id: str) -> Path | None:
     )
 
 
+def update_staging_path(target: Path, plugin_id: str) -> Path:
+    """Return the sibling directory used to stage a source replacement."""
+    return target.with_name(f"{target.name}.{plugin_id}.{_STAGING_SUFFIX}")
+
+
 def allocate_update_backup_path(target: Path, plugin_id: str) -> Path:
     """Return a sibling backup path that does not already exist."""
     for _ in range(16):
@@ -168,6 +180,43 @@ def allocate_update_backup_path(target: Path, plugin_id: str) -> Path:
     raise RuntimeError(
         f"could not allocate a unique update backup for '{plugin_id}'",
     )
+
+
+def is_update_source_available(plugin_id: str, source: Path) -> bool:
+    """Check source publication without recovering or modifying the update."""
+    prefix, _, suffix = source.name.rpartition(f".{plugin_id}.")
+    if prefix and (
+        suffix == _STAGING_SUFFIX or re.fullmatch(r"[0-9a-f]{8}\.bak", suffix)
+    ):
+        return False
+
+    path = marker_path(plugin_id, create=False)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return True
+    if (
+        not isinstance(data, dict)
+        or data.get("plugin_id", plugin_id) != plugin_id
+    ):
+        raise ValueError(f"Invalid update marker for '{plugin_id}'")
+    target = parse_optional_absolute(data.get("target_path"))
+    if target is None or not same_location(source, target):
+        return False
+    status = str(data.get("status") or "")
+    if _is_committed(status, data):
+        return True
+    backup = parse_optional_absolute(data.get("backup_path"))
+    if (
+        status not in {STATUS_PREPARED, STATUS_UPDATING}
+        or data.get("phase") not in {"staging", "restored"}
+        or backup is None
+        or backup.exists()
+        or data.get("preserve_backup")
+    ):
+        return False
+    _validate_previous_target(plugin_id, target, data)
+    return True
 
 
 def live_prepared_backup(plugin_id: str) -> Path | None:
@@ -276,7 +325,7 @@ def _restore_one_marker(path: Path) -> str | None:
     backup = parse_optional_absolute(data.get("backup_path"))
     target = parse_optional_absolute(data.get("target_path"))
     staging = parse_optional_absolute(data.get("staging_path"))
-    if status == STATUS_COMMITTED or data.get("activate_committed"):
+    if _is_committed(status, data):
         if plugin_id:
             from .provision import commit_prepared_migrations
 

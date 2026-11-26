@@ -20,6 +20,26 @@ def scope():
     return ResourceScope(ResourceOwner("extensions", 1), lambda: None)
 
 
+@pytest.mark.parametrize("child_barrier", [False, True])
+async def test_thread_batch_respects_cleanup_order(child_barrier):
+    resources = scope()
+    older, first, second = (threading.Event() for _ in range(3))
+    resources.thread(older.wait, stop=older)
+    observed = []
+
+    def observe():
+        observed.append((older.is_set(), first.is_set(), second.is_set()))
+
+    barrier = resources.child() if child_barrier else resources
+    barrier.defer(observe)
+    # The newer thread also needs its sibling's signal before it can exit.
+    resources.thread(first.wait, stop=first)
+    resources.thread(first.wait, stop=second)
+    await resources.close()
+    assert observed == [(False, True, True)]
+    assert older.is_set()
+
+
 async def test_run_sync_releases_finished_work_before_scope_closes():
     resources = scope()
     async with resources:
