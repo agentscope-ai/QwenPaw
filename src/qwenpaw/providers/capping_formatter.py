@@ -64,6 +64,11 @@ from .adapters.cache_policy import mark_stable_prefix
 # rationale.
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
+# Longest side a request image may have before a local downscale is tried.
+# Kept beside the byte cap so both media limits have one home; the resolver
+# in ``media_limits`` can override either one per provider or model.
+MAX_IMAGE_SIDE = 8192
+
 # Cumulative inline media allowed in a *single* request.  The per-file cap
 # alone does not bound the request body: media counts ~0 tokens, so
 # token-based context eviction never fires, and a design-review session that
@@ -249,6 +254,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     """
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
+    max_image_side: int = Field(default=MAX_IMAGE_SIDE, ge=0)
     max_total_bytes: int = Field(
         default=MAX_TOTAL_INLINE_MEDIA_BYTES,
         ge=0,

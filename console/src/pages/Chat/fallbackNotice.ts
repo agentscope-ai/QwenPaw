@@ -47,6 +47,66 @@ export type FallbackSystemMessage = {
   metadata: { qwenpaw_model_fallbacks: ModelFallbackEvent[] };
 };
 
+export type MediaOmittedNotice = {
+  count: number;
+  reason: string;
+};
+
+export type MediaOmittedSystemMessage = {
+  type: "message";
+  role: "system";
+  content: Array<{ type: "text"; text: string }>;
+  metadata: { qwenpaw_media_omitted: MediaOmittedNotice };
+};
+
+/**
+ * Read the per-response media-omission summary.
+ *
+ * Media that exceeds a provider limit is replaced with a text placeholder
+ * before the request is sent, so the model answers as if the file had never
+ * been attached. This notice is the only signal that tells the two cases
+ * apart.
+ */
+export function parseMediaOmittedNotice(
+  payload: Record<string, unknown>,
+): MediaOmittedNotice | null {
+  const metadata = payload.metadata;
+  const metadataRecord =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : null;
+  const nestedMetadata = metadataRecord?.metadata;
+  const eventSource =
+    nestedMetadata && typeof nestedMetadata === "object"
+      ? (nestedMetadata as Record<string, unknown>)
+      : metadataRecord;
+  const rawNotice = eventSource?.qwenpaw_media_omitted;
+  if (!rawNotice || typeof rawNotice !== "object") return null;
+  const record = rawNotice as Record<string, unknown>;
+  const count = record.count;
+  if (typeof count !== "number" || !Number.isFinite(count) || count <= 0) {
+    return null;
+  }
+  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
+  return { count: Math.trunc(count), reason };
+}
+
+export function mediaOmittedNoticeKey(notice: MediaOmittedNotice): string {
+  return `${notice.count}:${notice.reason}`;
+}
+
+export function buildMediaOmittedSystemMessage(
+  notice: MediaOmittedNotice,
+  text: string,
+): MediaOmittedSystemMessage {
+  return {
+    type: "message",
+    role: "system",
+    content: [{ type: "text", text }],
+    metadata: { qwenpaw_media_omitted: notice },
+  };
+}
+
 export function buildFallbackSystemMessage(
   events: ModelFallbackEvent[],
   formatNotice: (event: ModelFallbackEvent) => string,
