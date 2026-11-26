@@ -1154,6 +1154,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 report.errors.append("RUNTIME_STILL_OWNED")
         return report
 
+    async def _recover_crashed_uninstall_channels(self, plugin_id):
+        leases = self.registry.runtime_owners.leases(plugin_id)
+        failures = await self.lifecycle.stop_channels_for_teardown(
+            leases,
+            UnloadMode.UNINSTALL,
+        )
+        return failures.get(plugin_id)
+
     def _install_requirements_locked(
         self,
         requirements_file: Path,
@@ -4804,6 +4812,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance,
         delete_files: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unlocked unload used by ``PluginLifecycle``.
 
@@ -4820,6 +4829,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 mode=mode,
                 interrupt_tasks=interrupt_tasks,
                 instance=instance,
+                shutdown_channels=shutdown_channels,
             )
 
     async def _unload_plugin_unlocked(
@@ -4831,6 +4841,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         instance=None,
         skip_legacy: bool = False,
         interrupt_tasks: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin and release a failed unload reservation."""
         from qwenpaw.market import market_registry
@@ -4846,6 +4857,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     mode=mode,
                     instance=instance,
                     skip_legacy=skip_legacy,
+                    shutdown_channels=shutdown_channels,
                 )
             except BaseException:
                 memory_registry.cancel_owner_unload(plugin_id)
@@ -4876,6 +4888,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         mode: UnloadMode | None = None,
         instance=None,
         skip_legacy: bool = False,
+        shutdown_channels=None,
     ) -> UnloadReport:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         # pylint: disable=too-many-branches,too-many-statements
@@ -4883,7 +4896,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             mode = UnloadMode.UNINSTALL if delete_files else UnloadMode.UNLOAD
         record = self._loaded_plugins.get(plugin_id)
         if record is None and mode is UnloadMode.SHUTDOWN:
-            return await self._shutdown_runtime_owners(plugin_id, mode)
+            report = UnloadReport(plugin_id=plugin_id, mode=mode)
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+            if report.quiescent:
+                report.absorb(
+                    await self._shutdown_runtime_owners(plugin_id, mode),
+                )
+            return report
         try:
             await self._stop_preparation(plugin_id)
         except Exception as exc:
@@ -4897,6 +4917,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
+            if mode is UnloadMode.UNINSTALL:
+                blocked = await self._recover_crashed_uninstall_channels(
+                    plugin_id,
+                )
+                if blocked:
+                    return blocked
             report = await self._stop_runtime_owners(plugin_id, mode)
             if not report.quiescent:
                 return report
@@ -4950,8 +4976,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # Author hooks must run while they are still in the registry.
         # Ledger teardowns only drop the rows; they do not invoke them.
         report = UnloadReport(plugin_id=plugin_id, mode=mode)
-        await self._run_shutdown_hooks(plugin_id, report)
+        await self._run_shutdown_hooks(
+            plugin_id,
+            report,
+            retire_successful=mode is UnloadMode.SHUTDOWN,
+        )
         if mode is UnloadMode.SHUTDOWN:
+            if shutdown_channels is not None:
+                await shutdown_channels.wait(report)
+                if not report.quiescent:
+                    return report
             report.absorb(await instance.dispose(mode))
             if report.quiescent:
                 report.absorb(await self._stop_runtime_owners(plugin_id, mode))
@@ -4966,7 +5000,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         was_committed = record.status == "active" or bool(
             instance is not None and instance.activated,
         )
-        before_install = None
         if mode is UnloadMode.UNINSTALL:
             from .provision import recorded_tool_names
 
@@ -4985,12 +5018,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     await run_sync_io(retire_agent_cleanup, instance)
                 await self._drop_uninstalled_settings(plugin_id, tool_names)
 
-            before_install = _cleanup_settings
-        disposal = (
-            await instance.dispose(mode, before_install=before_install)
-            if before_install is not None
-            else await instance.dispose(mode)
-        )
+            disposal = await self._recover_crashed_uninstall_channels(
+                plugin_id,
+            )
+            if disposal is None:
+                disposal = await instance.dispose(
+                    mode,
+                    before_install=_cleanup_settings,
+                )
+        else:
+            disposal = await instance.dispose(mode)
         report.absorb(disposal)
         if report.quiescent:
             report.absorb(await self._stop_runtime_owners(plugin_id, mode))
@@ -5308,6 +5345,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     f"for plugin '{plugin_id}': {exc}",
                 )
                 report.errors.append(f"shutdown:{hook.hook_name}:{exc}")
+                report.failed_shutdown_hooks.append(hook.hook_name)
                 report.clean = False
 
     async def teardown_config_runtime(
