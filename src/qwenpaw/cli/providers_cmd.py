@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import asyncio
-import time
+from contextlib import contextmanager
+import os
 from typing import Optional
 
 import click
@@ -13,71 +14,21 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..providers.provider import ModelInfo, Provider, ProviderInfo
+from ..providers.hub_managed import PROVIDER_ID as HUB_PROVIDER_ID
+from ..providers.provider import (
+    ModelInfo,
+    Provider,
+    ProviderInfo,
+    provider_identity_key,
+)
 from ..providers.provider_manager import ProviderManager
 from .utils import prompt_choice
 
 
-# TODO: Replace legacy manager access through the plugin CLI contract.
-def _get_local_model_manager():
-    try:
-        from ..local_models import LocalModelManager
-    except ImportError as exc:
-        click.echo(
-            click.style(
-                "Local model dependencies not installed. "
-                "Install with: pip install 'qwenpaw[local]'",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1) from exc
-
-    return LocalModelManager.get_instance()
-
-
-def _wait_for_local_model_download(
-    local_model_manager,
-    *,
-    timeout: float | None = 7200.0,
-) -> dict[str, object]:
-    """
-    Wait for a local model download to reach a terminal state.
-
-    This function polls the download progress until it reports a terminal
-    status or the optional timeout is reached. On timeout or user
-    cancellation (Ctrl-C), it attempts to cancel the download if the
-    manager exposes a ``cancel_model_download`` method.
-    """
-    start = time.monotonic()
-    try:
-        while True:
-            progress = local_model_manager.get_model_download_progress()
-            status = str(progress.get("status", "idle"))
-            if status in {"completed", "failed", "cancelled"}:
-                return progress
-            if timeout is not None and (time.monotonic() - start) > timeout:
-                cancel = getattr(
-                    local_model_manager,
-                    "cancel_model_download",
-                    None,
-                )
-                if callable(cancel):
-                    cancel()
-                raise click.ClickException(
-                    "Timed out while waiting for the local model download to "
-                    "complete. The download has been cancelled; please try "
-                    "again.",
-                )
-            time.sleep(0.5)
-    except KeyboardInterrupt as exc:
-        cancel = getattr(local_model_manager, "cancel_model_download", None)
-        if callable(cancel):
-            cancel()
-        # Use click.Abort to exit cleanly from a Click command.
-        raise click.Abort() from exc
-
-
 def _manager() -> ProviderManager:
+    from .plugin_resources import ensure_resources
+
+    ensure_resources("providers")
     return ProviderManager.get_instance()
 
 
@@ -89,26 +40,23 @@ def _mask_api_key(api_key: str) -> str:
     return f"{api_key[:4]}...{api_key[-2:]}"
 
 
-def _is_configured(provider: Provider) -> bool:
+def _api_key_prefixes(provider: ProviderInfo) -> list[str]:
+    if provider.api_key_prefixes:
+        return provider.api_key_prefixes
+    return [provider.api_key_prefix] if provider.api_key_prefix else []
+
+
+def _is_configured(provider: ProviderInfo) -> bool:
     if provider.is_local:
         return True
-    # for API-based providers, we consider them
-    # configured if they have a base URL and (if required) an API key
+    if provider.id == HUB_PROVIDER_ID:
+        # The App exposes organization grants while keeping its endpoint private.
+        return bool(provider.all_models())
     if not provider.base_url:
         return False
     if provider.require_api_key and not provider.api_key:
         return False
     return True
-
-
-def _save_provider(manager: ProviderManager, provider_id: str) -> None:
-    provider = manager.get_provider(provider_id)
-    if provider is None:
-        return
-    manager._save_provider(  # pylint: disable=protected-access
-        provider,
-        is_builtin=provider_id in manager.builtin_providers,
-    )
 
 
 def _all_provider_objects(manager: ProviderManager) -> list[Provider]:
@@ -134,12 +82,17 @@ def _select_provider_interactive(
     default_pid: str = "",
 ) -> str:
     """Prompt user to pick a provider. Returns provider_id."""
-    manager = _manager()
-    all_providers = _all_provider_objects(manager)
+    return _choose_provider(
+        _all_provider_objects(_manager()),
+        prompt_text,
+        default_pid,
+    )
 
+
+def _choose_provider(providers, prompt_text, default_pid=""):
     labels: list[str] = []
     ids: list[str] = []
-    for provider in all_providers:
+    for provider in providers:
         mark = "✓" if _is_configured(provider) else "✗"
         labels.append(f"{provider.name} ({provider.id}) [{mark}]")
         ids.append(provider.id)
@@ -160,15 +113,25 @@ def configure_provider_api_key_interactive(
     provider_id: str | None = None,
 ) -> str:
     """Interactively configure a provider's API key. Returns provider_id."""
+    with _model_setup_api() as api:
+        return _configure_provider_api_key(provider_id, api)
+
+
+def _configure_provider_api_key(provider_id, api):
+    prompt = "Select provider to configure API key:"
+    if api is not None:
+        return _configure_runtime_provider(api, provider_id, prompt)
     manager = _manager()
-
     if provider_id is None:
-        provider_id = _select_provider_interactive(
-            "Select provider to configure API key:",
+        provider_id = _select_provider_interactive(prompt)
+    provider = manager.get_provider(provider_id)
+    saved = None
+    if provider is None:
+        saved = manager.saved_plugin_provider_infos().get(
+            provider_identity_key(provider_id),
         )
-
-    defn = manager.get_provider(provider_id)
-    if defn is None:
+        provider = saved
+    if provider is None:
         click.echo(
             click.style(
                 f"Error: provider '{provider_id}' not found.",
@@ -177,22 +140,151 @@ def configure_provider_api_key_interactive(
         )
         raise SystemExit(1)
 
+    changes = _prompt_provider_config(provider)
+    if changes:
+        if saved is not None:
+            ok = (
+                manager.update_saved_plugin_provider(provider_id, changes)
+                is not None
+            )
+        else:
+            ok = manager.update_provider(provider_id, changes)
+        if not ok:
+            click.echo(
+                click.style(
+                    f"Error: provider '{provider_id}' not found.",
+                    fg="red",
+                ),
+            )
+            raise SystemExit(1)
+    _show_provider_config(provider, changes)
+    return provider_id
+
+
+def _configure_runtime_provider(api, provider_id, prompt):
+    providers = None
+    if provider_id is None:
+        providers = _runtime_providers(api)
+        provider_id = _choose_provider(providers, prompt)
+    key = provider_identity_key(provider_id)
+    path = f"models/{key}/config"
+    response = api.get(path)
+    if response.status_code == 405:
+        # Older Apps only support PUT here and list active providers at /models.
+        if providers is None:
+            providers = _runtime_providers(api)
+        provider = next(
+            (p for p in providers if provider_identity_key(p.id) == key),
+            None,
+        )
+        if provider is None:
+            raise click.ClickException(
+                f"Provider '{provider_id}' is unavailable on {api.base_url}.",
+            )
+    else:
+        response.raise_for_status()
+        provider = ProviderInfo.model_validate(response.json())
+    changes = _prompt_provider_config(provider)
+    if changes:
+        api.put(
+            path,
+            json={**changes, "auto_discover": False},
+        ).raise_for_status()
+    _show_provider_config(provider, changes)
+    return provider_id
+
+
+@contextmanager
+def _model_setup_api():
+    from .http import (
+        client,
+        explicit_runtime_url,
+        local_runtime_url,
+    )
+    from ..utils.http import is_loopback_url
+
+    ctx = click.get_current_context(silent=True)
+    explicit = explicit_runtime_url(ctx)
+    standalone = not os.getenv("QWENPAW_RUNTIME_ID")
+    local = (
+        local_runtime_url()
+        if ctx is not None
+        and (explicit is None or (standalone and is_loopback_url(explicit)))
+        else None
+    )
+    target = explicit or local
+
+    if target is None:
+        yield None
+        return
+
+    import httpx
+
+    try:
+        with client(target) as api:
+            # Standalone commands also have permission to edit their profile
+            # on disk. Choose that path before prompts or any API writes.
+            if (
+                standalone
+                and target == local
+                and is_loopback_url(target)
+                and api.get("models").status_code == 401
+            ):
+                click.echo(
+                    "The local App requires sign-in. Using this profile "
+                    "on disk.",
+                    err=True,
+                )
+                yield None
+            else:
+                yield api
+    except httpx.HTTPError as exc:
+        raise click.ClickException(
+            f"Cannot access provider on {target}: {exc}",
+        ) from exc
+
+
+def _setup_provider(provider_id, api):
+    if api is None:
+        provider = _manager().get_provider(provider_id)
+    else:
+        provider = next(
+            (p for p in _runtime_providers(api) if p.id == provider_id),
+            None,
+        )
+    if provider is None:
+        click.echo(
+            click.style(
+                f"Error: provider '{provider_id}' not found.",
+                fg="red",
+            ),
+        )
+        raise SystemExit(1)
+    return provider
+
+
+def _runtime_providers(api, view="stored"):
+    response = api.get("models", params={"view": view})
+    response.raise_for_status()
+    return [ProviderInfo.model_validate(info) for info in response.json()]
+
+
+def _prompt_provider_config(defn: ProviderInfo) -> dict[str, str]:
+    changes = {}
     current_base, current_key = defn.base_url, defn.api_key
 
     base_url: Optional[str] = None
     if defn.freeze_url:
-        # URL is fixed for this provider — show it but skip the prompt.
         if current_base:
             click.echo(f"Base URL: {current_base} (fixed, not editable)")
     else:
-        # Prompt for base_url whenever it is editable (freeze_url is False).
         azure_hint = (
             "Azure endpoint "
             "(e.g. https://<resource>.openai.azure.com/openai/v1)"
         )
         url_hint = (
             azure_hint
-            if provider_id == "azure-openai"
+            if defn.id == "azure-openai"
             else "Base URL (OpenAI-compatible endpoint)"
         )
         base_url = click.prompt(
@@ -203,73 +295,46 @@ def configure_provider_api_key_interactive(
         if not base_url and (defn.is_custom or not current_base):
             click.echo(click.style("Error: base_url is required.", fg="red"))
             raise SystemExit(1)
-        # Treat empty input as "keep existing" for built-in providers
-        if not base_url:
-            base_url = None
+        if base_url and base_url != current_base:
+            changes["base_url"] = base_url
 
     if not defn.require_api_key:
-        if base_url is not None and not manager.update_provider(
-            provider_id,
-            {"base_url": base_url},
-        ):
-            raise click.ClickException("Failed to update provider base URL.")
-        click.echo(
-            f"{defn.name} does not require API key configuration. Skipping.",
-        )
-        return provider_id
+        return changes
 
-    prefixes = (
-        defn.api_key_prefixes
-        if defn.api_key_prefixes
-        else [defn.api_key_prefix]
-        if defn.api_key_prefix
-        else []
-    )
+    prefixes = _api_key_prefixes(defn)
     hint = f"prefix: {', '.join(prefixes)}" if prefixes else "optional"
     api_key = click.prompt(
         f"API key ({hint})",
-        default=current_key or "",
+        default="",
         hide_input=True,
         show_default=False,
         prompt_suffix=f" [{'set' if current_key else 'not set'}]: ",
     )
 
-    ok = manager.update_provider(
-        provider_id,
-        {
-            "api_key": api_key if api_key else None,
-            "base_url": base_url,
-        },
-    )
-    if not ok:
-        click.echo(
-            click.style(
-                f"Error: provider '{provider_id}' not found.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
-
-    click.echo(
-        f"✓ {defn.name} — API Key: {_mask_api_key(api_key) or '(not set)'}"
-        + (f", Base URL: {base_url}" if base_url else ""),
-    )
-    return provider_id
+    if api_key and api_key != current_key:
+        changes["api_key"] = api_key
+    return changes
 
 
-def _add_models_interactive(provider_id: str) -> None:
+def _show_provider_config(provider, changes):
+    if not changes:
+        click.echo(f"{provider.name}: configuration unchanged.")
+        return
+    fields = []
+    if "api_key" in changes:
+        fields.append(f"API Key: {_mask_api_key(changes['api_key'])}")
+    if "base_url" in changes:
+        fields.append(f"Base URL: {changes['base_url']}")
+    click.echo(f"✓ {provider.name} — " + ", ".join(fields))
+
+
+def _add_models_interactive(provider_id: str, api) -> None:
     """Interactively add models to a provider after configuration."""
-    manager = _manager()
-    defn = manager.get_provider(provider_id)
-    if defn is None:
-        click.echo(
-            click.style(
-                f"Error: provider '{provider_id}' not found.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
+    defn = _setup_provider(provider_id, api)
+    _prompt_add_models(provider_id, defn, api)
 
+
+def _prompt_add_models(provider_id, defn, api):
     # Ollama models cannot be added manually - they come from Ollama daemon
     if provider_id == "ollama":
         return
@@ -283,7 +348,6 @@ def _add_models_interactive(provider_id: str) -> None:
     else:
         click.echo(f"\nNo models configured for {defn.name}.")
 
-    # Default to yes if there are no models at all
     while click.confirm("Add a model?", default=not all_models):
         model_id = click.prompt("Model identifier").strip()
         if not model_id:
@@ -294,17 +358,35 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            ok, msg = asyncio.run(
-                defn.add_model(ModelInfo(id=model_id, name=model_name)),
-            )
-            if ok:
-                _save_provider(manager, provider_id)
-                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-                all_models.append(ModelInfo(id=model_id, name=model_name))
-            else:
-                click.echo(click.style(f"Error: {msg}", fg="red"))
+            model = ModelInfo(id=model_id, name=model_name)
+            _add_setup_model(provider_id, model, api)
+            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+            all_models.append(model)
         except (ValueError, AppBaseException) as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
+
+
+def _add_setup_model(provider_id, model, api):
+    if api is None:
+        asyncio.run(_manager().add_model_to_provider(provider_id, model))
+    else:
+        response = api.post(
+            f"models/{provider_identity_key(provider_id)}/models",
+            json=model.model_dump(mode="json", exclude_unset=True),
+        )
+        if response.status_code in (404, 409):
+            try:
+                detail = response.json()["detail"]
+            except (ValueError, TypeError, KeyError):
+                detail = None
+            # Older Apps used 404 for both missing providers and model rejections.
+            if isinstance(detail, str) and (
+                response.status_code == 409
+                or detail == f"Model '{model.id}' already exists"
+                or detail.startswith(f"Model '{model.id}' cannot be added:")
+            ):
+                raise ValueError(detail)
+        response.raise_for_status()
 
 
 def _pick_model_from_list(
@@ -331,7 +413,7 @@ def _pick_model_free_text(prompt_text: str, current_model: str = "") -> str:
     return model
 
 
-def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
+def _filter_eligible(all_providers):
     return [
         d
         for d in all_providers
@@ -344,7 +426,7 @@ def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
     ]
 
 
-def _select_llm_model(defn, pid, current_slot, *, use_defaults):
+def _select_llm_model(defn, pid, current_slot, use_defaults, api=None):
     """Pick a model for the given provider. Returns model id."""
     cur = (
         current_slot.model
@@ -358,10 +440,24 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         return cur or (all_models[0].id if all_models else "")
 
     if pid == "ollama":
-        manager = _manager()
-        discovery = asyncio.run(
-            manager.discover_provider_models(pid, save=False),
-        )
+        if api is None:
+            discovery = asyncio.run(
+                _manager().discover_provider_models(pid, save=False),
+            )
+        else:
+            from ..providers.provider_discovery import (
+                ProviderModelDiscoveryResult,
+            )
+
+            response = api.post(
+                f"models/{pid}/discover",
+                params={"save": "false"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            discovery = ProviderModelDiscoveryResult.model_validate(
+                {**payload, "error": payload.get("message")},
+            )
         models = [m for m in discovery.models if m.model_type == "chat"]
         if not discovery.success or not models:
             reason = (
@@ -380,9 +476,9 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         )
         # Discovery candidates are not configured models. Persist only the
         # user's selection, preserving overrides on an existing model.
-        if defn.get_model_info(selected) is None:
+        if not any(model.id == selected for model in defn.all_models()):
             model = next(m for m in models if m.id == selected)
-            asyncio.run(manager.add_model_to_provider(pid, model))
+            _add_setup_model(pid, model, api)
         return selected
 
     if all_models:
@@ -399,12 +495,32 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
 
 def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
     """Interactively configure the active LLM model slot."""
-    manager = _manager()
-    all_providers = _all_provider_objects(manager)
-    current_slot = manager.get_active_model()
+    with _model_setup_api() as api:
+        _configure_llm_slot(use_defaults, api)
 
-    eligible = _filter_eligible(all_providers)
 
+def _model_choices(api):
+    if api is None:
+        manager = _manager()
+        return (
+            _filter_eligible(_all_provider_objects(manager)),
+            manager.get_active_model(),
+        )
+    return _filter_eligible(_runtime_providers(api)), _runtime_active_model(
+        api,
+    )
+
+
+def _runtime_active_model(api):
+    from ..config.config import ActiveModelsInfo
+
+    response = api.get("models/active", params={"scope": "global"})
+    response.raise_for_status()
+    return ActiveModelsInfo.model_validate(response.json()).active_llm
+
+
+def _configure_llm_slot(use_defaults, api):
+    eligible, current_slot = _model_choices(api)
     if not eligible:
         if use_defaults:
             click.echo(
@@ -418,11 +534,9 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
                 fg="yellow",
             ),
         )
-        pid = configure_provider_api_key_interactive()
-        _add_models_interactive(pid)
-        manager = _manager()
-        current_slot = manager.get_active_model()
-        eligible = _filter_eligible(_all_provider_objects(manager))
+        pid = _configure_provider_api_key(None, api)
+        _add_models_interactive(pid, api)
+        eligible, current_slot = _model_choices(api)
         if not eligible:
             click.echo(
                 click.style("Error: provider configuration failed.", fg="red"),
@@ -431,9 +545,6 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
 
     ids = [d.id for d in eligible]
     if use_defaults:
-        if not ids:
-            click.echo("No eligible provider found.")
-            return
         pid = (
             current_slot.provider_id
             if current_slot and current_slot.provider_id in ids
@@ -453,18 +564,14 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
         )
         pid = ids[labels.index(chosen_label)]
 
-    defn = manager.get_provider(pid)
-    if defn is None:
-        click.echo(
-            click.style(f"Error: provider '{pid}' not found.", fg="red"),
-        )
-        raise SystemExit(1)
+    defn = _setup_provider(pid, api)
     try:
         model = _select_llm_model(
             defn,
             pid,
             current_slot,
             use_defaults=use_defaults,
+            api=api,
         )
         if not model and use_defaults:
             click.echo(
@@ -472,7 +579,13 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
                 "Run 'qwenpaw models config' to set one.",
             )
             return
-        asyncio.run(manager.activate_model(pid, model))
+        if api is None:
+            asyncio.run(_manager().activate_model(pid, model))
+        else:
+            api.put(
+                "models/active",
+                json={"scope": "global", "provider_id": pid, "model": model},
+            ).raise_for_status()
     except (ValueError, AppBaseException) as exc:
         if use_defaults:
             click.echo(
@@ -487,37 +600,24 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
 def configure_providers_interactive(*, use_defaults: bool = False) -> None:
     """Full interactive setup: configure provider → add models →
     activate LLM."""
-    if use_defaults:
-        configure_llm_slot_interactive(use_defaults=True)
-        return
-
-    click.echo("\n--- Provider Configuration ---")
-    while True:
-        pid = configure_provider_api_key_interactive()
-
-        # For local providers
-        # skip to model activation directly
-        manager = _manager()
-        defn = manager.get_provider(pid)
-        if defn is None:
-            click.echo(
-                click.style(
-                    f"Error: provider '{pid}' not found.",
-                    fg="red",
-                ),
-            )
-            raise SystemExit(1)
-        if defn.is_local or pid == "ollama":
-            click.echo(f"\n--- Activate {defn.name} Model ---")
-            configure_llm_slot_interactive()
+    with _model_setup_api() as api:
+        if use_defaults:
+            _configure_llm_slot(True, api)
             return
+        click.echo("\n--- Provider Configuration ---")
+        while True:
+            pid = _configure_provider_api_key(None, api)
+            defn = _setup_provider(pid, api)
+            if defn.is_local or pid == "ollama":
+                click.echo(f"\n--- Activate {defn.name} Model ---")
+                _configure_llm_slot(False, api)
+                return
+            _prompt_add_models(pid, defn, api)
+            if not click.confirm("Configure another provider?", default=False):
+                break
 
-        _add_models_interactive(pid)
-        if not click.confirm("Configure another provider?", default=False):
-            break
-
-    click.echo("\n--- Activate LLM Model ---")
-    configure_llm_slot_interactive()
+        click.echo("\n--- Activate LLM Model ---")
+        _configure_llm_slot(False, api)
 
 
 @click.group("models")
@@ -528,10 +628,25 @@ def models_group() -> None:
 @models_group.command("list")
 def list_cmd() -> None:
     """Show all providers and their current configuration."""
-    manager = _manager()
+    with _model_setup_api() as api:
+        if api is None:
+            manager = _manager()
+            providers = _all_provider_objects(manager)
+            unavailable = manager.saved_plugin_provider_infos().values()
+            llm = manager.get_active_model()
+        else:
+            providers = _runtime_providers(api)
+            # Older Apps ignore the view parameter and return registered providers.
+            registered = {provider_identity_key(info.id) for info in providers}
+            unavailable = [
+                info
+                for info in _runtime_providers(api, "unavailable")
+                if provider_identity_key(info.id) not in registered
+            ]
+            llm = _runtime_active_model(api)
 
     click.echo("\n=== Providers ===")
-    for defn in _all_provider_objects(manager):
+    for defn in providers:
         cur_url, cur_key = defn.base_url, defn.api_key
 
         tag = (
@@ -545,34 +660,29 @@ def list_cmd() -> None:
         click.echo(f"  {defn.name} ({defn.id}){tag}")
         click.echo(f"{'─' * 44}")
 
+        all_models = defn.all_models()
         if defn.is_local:
-            all_models = list(defn.models)
             if all_models:
                 click.echo(f"  {'models':16s}:")
                 for m in all_models:
                     click.echo(f"    - {m.name}")
             else:
-                click.echo("  No models downloaded.")
-                click.echo("  Use 'qwenpaw models download' to add models.")
+                click.echo("  No models configured.")
+                click.echo(
+                    "  Run 'qwenpaw models --help' for available commands.",
+                )
         else:
             click.echo(f"  {'base_url':16s}: {cur_url or '(not set)'}")
             click.echo(
                 f"  {'api_key':16s}: "
                 f"{_mask_api_key(cur_key) or '(not set)'}",
             )
-            prefixes = (
-                defn.api_key_prefixes
-                if defn.api_key_prefixes
-                else [defn.api_key_prefix]
-                if defn.api_key_prefix
-                else []
-            )
+            prefixes = _api_key_prefixes(defn)
             if prefixes:
                 click.echo(
                     f"  {'api_key_prefix':16s}: {', '.join(prefixes)}",
                 )
 
-            all_models = defn.all_models()
             if all_models:
                 click.echo(f"  {'models':16s}:")
                 extra_ids = {m.id for m in defn.extra_models}
@@ -580,11 +690,19 @@ def list_cmd() -> None:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
+    for info in unavailable:
+        click.echo(f"\n  {info.name} ({info.id}) [plugin unavailable]")
+        click.echo(f"  {'base_url':16s}: {info.base_url or '(not set)'}")
+        click.echo(
+            f"  {'api_key':16s}: {_mask_api_key(info.api_key) or '(not set)'}",
+        )
+        for model in info.all_models():
+            click.echo(f"    - {model.name} ({model.id})")
+
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")
     click.echo(f"{'═' * 44}")
 
-    llm = manager.get_active_model()
     if llm and llm.provider_id and llm.model:
         click.echo(f"  {'LLM':16s}: {llm.provider_id} / {llm.model}")
     else:
@@ -623,20 +741,32 @@ def add_provider_cmd(
     api_key_prefix: str,
 ) -> None:
     """Add a new custom provider."""
-    manager = _manager()
+    info = ProviderInfo(
+        id=provider_id,
+        name=name,
+        base_url=base_url,
+        api_key_prefix=api_key_prefix,
+        is_custom=True,
+    )
     try:
-        provider_info = asyncio.run(
-            manager.add_custom_provider(
-                ProviderInfo(
-                    id=provider_id,
-                    name=name,
-                    base_url=base_url,
-                    api_key_prefix=api_key_prefix,
-                    is_custom=True,
-                    chat_model="OpenAIChatModel",
-                ),
-            ),
-        )
+        with _model_setup_api() as api:
+            if api is None:
+                provider_info = asyncio.run(
+                    _manager().add_custom_provider(info),
+                )
+            else:
+                response = api.post(
+                    "models/custom-providers",
+                    json={
+                        "id": info.id,
+                        "name": info.name,
+                        "default_base_url": info.base_url,
+                        "api_key_prefix": info.api_key_prefix,
+                        "auto_discover": False,
+                    },
+                )
+                response.raise_for_status()
+                provider_info = ProviderInfo.model_validate(response.json())
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -659,25 +789,25 @@ def add_provider_cmd(
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def remove_provider_cmd(provider_id: str, yes: bool) -> None:
     """Remove a custom provider."""
-    manager = _manager()
-    if provider_id in manager.builtin_providers:
-        click.echo(
-            click.style(
-                f"Error: '{provider_id}' is a built-in provider and "
-                "cannot be removed.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
-    if not yes:
-        if not click.confirm(
-            f"Delete custom provider '{provider_id}' and all its models?",
-        ):
-            return
     try:
-        ok = manager.remove_custom_provider(provider_id)
-        if not ok:
-            raise ValueError(f"Custom provider '{provider_id}' not found.")
+        with _model_setup_api() as api:
+            if api is None and provider_id in _manager().builtin_providers:
+                raise ValueError(
+                    f"'{provider_id}' is a built-in provider and cannot be removed.",
+                )
+            if not yes and not click.confirm(
+                f"Delete custom provider '{provider_id}' and all its models?",
+            ):
+                return
+            if api is None:
+                if not _manager().remove_custom_provider(provider_id):
+                    raise ValueError(
+                        f"Custom provider '{provider_id}' not found.",
+                    )
+            else:
+                api.delete(
+                    f"models/custom-providers/{provider_identity_key(provider_id)}",
+                ).raise_for_status()
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -690,7 +820,6 @@ def remove_provider_cmd(provider_id: str, yes: bool) -> None:
 @click.option("--model-name", "-n", required=True, help="Model display name")
 def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
     """Add a model to any provider (built-in or custom)."""
-    manager = _manager()
     # Prevent manual model addition for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -703,13 +832,12 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
         raise SystemExit(1)
 
     try:
-        provider = manager.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found.")
-        asyncio.run(
-            provider.add_model(ModelInfo(id=model_id, name=model_name)),
-        )
-        _save_provider(manager, provider_id)
+        with _model_setup_api() as api:
+            _add_setup_model(
+                provider_id,
+                ModelInfo(id=model_id, name=model_name),
+                api,
+            )
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -723,7 +851,6 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
 @click.option("--model-id", "-m", required=True, help="Model identifier")
 def remove_model_cmd(provider_id: str, model_id: str) -> None:
     """Remove a user-added model from any provider."""
-    manager = _manager()
     # Prevent manual model removal for Ollama
     if provider_id == "ollama":
         click.echo(
@@ -736,141 +863,22 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         raise SystemExit(1)
 
     try:
-        provider = manager.get_provider(provider_id)
-        if provider is None:
-            raise ValueError(f"Provider '{provider_id}' not found.")
-        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
-        if ok:
-            _save_provider(manager, provider_id)
-            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
-        else:
-            click.echo(click.style(f"Error: {msg}", fg="red"))
+        with _model_setup_api() as api:
+            if api is None:
+                asyncio.run(
+                    _manager().delete_model_from_provider(
+                        provider_id,
+                        model_id,
+                    ),
+                )
+            else:
+                from urllib.parse import quote
+
+                api.delete(
+                    f"models/{provider_identity_key(provider_id)}/models/"
+                    f"{quote(model_id, safe='')}",
+                ).raise_for_status()
+        click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
-
-
-# ---------------------------------------------------------------------------
-# Local model management commands
-# TODO: Register these commands for enabled plugins through the shared
-# plugin CLI contract.
-# Command registration is disabled until that integration is available.
-# ---------------------------------------------------------------------------
-
-
-# @models_group.command("download")
-@click.argument("repo_id")
-@click.option(
-    "--file",
-    "-f",
-    "filename",
-    default=None,
-    help="Deprecated in the new local-model architecture",
-)
-@click.option(
-    "--source",
-    "-s",
-    type=click.Choice(["huggingface", "modelscope"]),
-    default="huggingface",
-    help="Download source",
-)
-def download_cmd(
-    repo_id: str,
-    filename: str | None,
-    source: str,
-) -> None:
-    """Download a local model repository.
-
-    \b
-    Examples:
-      qwenpaw models download TheBloke/Mistral-7B-Instruct-v0.2-GGUF
-      qwenpaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
-    """
-    local_model_manager = _get_local_model_manager()
-
-    if filename:
-        click.echo(
-            click.style(
-                "Error: --file is no longer supported. "
-                "The current local-model architecture downloads whole repos.",
-                fg="red",
-            ),
-        )
-        raise SystemExit(1)
-
-    from ..local_models import (  # pylint: disable=no-name-in-module
-        DownloadSource,
-    )
-
-    source_type = DownloadSource(source) if source else None
-    source_label = source_type.value if source_type is not None else "auto"
-    click.echo(f"Downloading {repo_id} from {source_label}...")
-
-    try:
-        local_model_manager.start_model_download(
-            repo_id,
-            source=source_type,
-        )
-        progress = _wait_for_local_model_download(local_model_manager)
-    except (ImportError, RuntimeError, ValueError) as exc:
-        click.echo(click.style(f"Download failed: {exc}", fg="red"))
-        raise SystemExit(1) from exc
-
-    if progress.get("status") != "completed":
-        error = progress.get("error") or "unknown error"
-        click.echo(click.style(f"Download failed: {error}", fg="red"))
-        raise SystemExit(1)
-
-    local_path = str(progress.get("local_path") or "")
-    raw_downloaded_bytes = progress.get("downloaded_bytes")
-    size_bytes = (
-        raw_downloaded_bytes if isinstance(raw_downloaded_bytes, int) else 0
-    )
-    size_mb = size_bytes / (1024 * 1024)
-    click.echo(f"Done! Model saved to: {local_path}")
-    click.echo(f"  Size: {size_mb:.1f} MB")
-    click.echo(f"  Name: {repo_id}")
-    click.echo(
-        "\nTo use this model, run:\n"
-        "  qwenpaw models set-llm  (select 'qwenpaw-local' provider)",
-    )
-
-
-# @models_group.command("local")
-def list_local_cmd() -> None:
-    """List all downloaded local models."""
-    local_model_manager = _get_local_model_manager()
-
-    models = local_model_manager.list_downloaded_models()
-
-    if not models:
-        click.echo("No local models downloaded.")
-        click.echo("Use 'qwenpaw models download <repo_id>' to download one.")
-        return
-
-    click.echo(f"\n=== Local Models ({len(models)}) ===")
-    for m in models:
-        size_mb = m.size_bytes / (1024 * 1024)
-        click.echo(f"\n{'─' * 44}")
-        click.echo(f"  {m.name}")
-        click.echo(f"  ID:      {m.id}")
-        click.echo(f"  Size:    {size_mb:.1f} MB")
-    click.echo()
-
-
-# @models_group.command("remove-local")
-@click.argument("model_id")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
-def remove_local_cmd(model_id: str, yes: bool) -> None:
-    """Remove a downloaded local model."""
-    local_model_manager = _get_local_model_manager()
-
-    if not yes:
-        if not click.confirm(f"Delete local model '{model_id}'?"):
-            return
-    try:
-        local_model_manager.remove_downloaded_model(model_id)
-    except (ValueError, AppBaseException) as exc:
-        click.echo(click.style(f"Error: {exc}", fg="red"))
-        raise SystemExit(1) from exc
-    click.echo(f"Done! Model '{model_id}' deleted.")

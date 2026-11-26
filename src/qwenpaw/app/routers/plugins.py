@@ -19,10 +19,19 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    File,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ...plugins.archive import find_plugin_root, safe_extract_zip
 from ...plugins.dependency_upgrade import (
     DependencyUpgradeRequired,
     dependency_upgrades,
@@ -101,9 +110,27 @@ async def dependency_upgrade_status(operation_id: str, request: Request):
 
 
 @router.post("/dependency-upgrades/{operation_id}/apply")
-async def apply_dependency_upgrade(operation_id: str, request: Request):
+async def apply_dependency_upgrade(
+    operation_id: str,
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    background: bool = False,
+):
     try:
-        return await _upgrade_manager(request).apply(operation_id)
+        manager = _upgrade_manager(request)
+        if background:
+            operation = await run_sync_io(manager.status, operation_id)
+            if operation["status"] in {"needs_confirmation", "preparing"}:
+                # Return before the CLI releases its shared environment lease.
+                background_tasks.add_task(
+                    manager.apply,
+                    operation_id,
+                    wait_for_readers=True,
+                )
+                response.status_code = 202
+            return operation
+        return await manager.apply(operation_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (SharedDependencyError, DependencyUpgradeRequired) as exc:
@@ -331,47 +358,6 @@ def _plugin_config_row(plugin_id: str) -> dict:
     return dict((load_config().plugins or {}).get(plugin_id) or {})
 
 
-def _safe_extract_zip(
-    zip_ref: zipfile.ZipFile,
-    extract_path: Path,
-) -> None:
-    """Extract zip safely, rejecting any Zip Slip path traversal.
-
-    Args:
-        zip_ref: Open ZipFile object
-        extract_path: Destination directory (must be resolved)
-
-    Raises:
-        ValueError: If any member would escape extract_path
-    """
-    from ...plugins.archive import safe_extract_zip
-
-    safe_extract_zip(zip_ref, extract_path)
-
-
-def _find_plugin_dir(base: Path) -> Path:
-    """Return the directory that contains plugin.json.
-
-    Args:
-        base: Root of the extracted archive
-
-    Returns:
-        Directory containing plugin.json
-
-    Raises:
-        ValueError: If no plugin.json found
-    """
-    if (base / "plugin.json").exists():
-        return base
-    sub_dirs = [d for d in base.iterdir() if d.is_dir()]
-    for sub in sub_dirs:
-        if (sub / "plugin.json").exists():
-            return sub
-    raise ValueError(
-        "No plugin.json found in archive root or top-level subdirectory",
-    )
-
-
 async def _load_plugin_with_optional_force_reinstall(
     loader,
     request: Request,
@@ -433,17 +419,17 @@ def _extract_plugin_zip_bytes(content: bytes, temp_dir: Path) -> Path:
     zip_path = temp_dir / "plugin.zip"
     zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path, "r") as zf:
-        _safe_extract_zip(zf, temp_dir)
+        safe_extract_zip(zf, temp_dir)
     zip_path.unlink(missing_ok=True)
-    return _find_plugin_dir(temp_dir)
+    return find_plugin_root(temp_dir)
 
 
 def _extract_downloaded_plugin_zip(zip_path: Path, temp_dir: Path) -> Path:
     """Safely extract an on-disk ZIP and return the plugin dir (sync I/O)."""
     with zipfile.ZipFile(zip_path, "r") as zf:
-        _safe_extract_zip(zf, temp_dir)
+        safe_extract_zip(zf, temp_dir)
     zip_path.unlink(missing_ok=True)
-    return _find_plugin_dir(temp_dir)
+    return find_plugin_root(temp_dir)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────

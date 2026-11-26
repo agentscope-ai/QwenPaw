@@ -1287,6 +1287,34 @@ def check_skill_dependencies(
     return missing
 
 
+def skill_dependency_environment(
+    environments: Iterable[Mapping[str, str]],
+    skill_name: str,
+    config: Any,
+    require_envs: list[str],
+) -> dict[str, str]:
+    """Project skill config into an environment without changing the process.
+
+    Later environment sources take precedence, including empty values.
+    Match keys using platform conventions before merging each source, then
+    fill absent values from skill config.
+    """
+    env = {
+        _skill_env_key(key): value
+        for source in environments
+        for key, value in source.items()
+    }
+    if isinstance(config, dict) and config:
+        overrides = _build_skill_config_env_overrides(
+            skill_name,
+            config,
+            require_envs,
+        )
+        for key, value in overrides.items():
+            env.setdefault(_skill_env_key(key), value)
+    return env
+
+
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
@@ -1313,20 +1341,12 @@ def resolve_effective_skills(
             post = load_skill_frontmatter_from_dir(skill_dir)
             requirements, errors = parse_skill_requirements(post)
             if not errors:
-                env = {
-                    _skill_env_key(key): value
-                    for key, value in os.environ.items()
-                }
-                config = entry.get("config") or {}
-                if isinstance(config, dict) and config:
-                    overrides = _build_skill_config_env_overrides(
-                        skill_name,
-                        config,
-                        requirements.require_envs,
-                    )
-                    for key, value in overrides.items():
-                        # Runtime also preserves existing empty values.
-                        env.setdefault(_skill_env_key(key), value)
+                env = skill_dependency_environment(
+                    (os.environ,),
+                    skill_name,
+                    entry.get("config"),
+                    requirements.require_envs,
+                )
                 errors = check_skill_dependencies(
                     requirements,
                     env,

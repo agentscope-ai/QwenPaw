@@ -31,6 +31,21 @@ def current_model_slot():
     return None
 
 
+def select_primary_model(agent_model, default_model=None, request_model=None):
+    """Select a parsed request override, agent setting or global default.
+
+    An incomplete saved slot remains selected so consumers can report the
+    invalid configuration rather than silently switching providers.
+    """
+    if (
+        request_model is not None
+        and request_model.provider_id
+        and request_model.model
+    ):
+        return request_model
+    return agent_model or default_model
+
+
 def request_model_override(request: Any) -> Any:
     """Prefer the direct request override to its request-context fallback."""
     if isinstance(request, dict):

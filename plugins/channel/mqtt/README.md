@@ -1,6 +1,6 @@
 # MQTT official channel
 
-This schema v2 plugin uses the selected shared interpreter. Only its worker imports platform SDKs; the host owns Agent execution, ACL and queue admission. Install or repair dependencies explicitly through the plugin manager. Configuration remains under `channels.mqtt`; installing and disabling the plugin never removes user configuration or business files.
+This channel plugin uses the selected shared interpreter. Only its worker imports platform SDKs; the host owns Agent execution, ACL and queue admission. Install or repair dependencies explicitly through the plugin manager. Configuration remains under `channels.mqtt`; installing and disabling the plugin never removes user configuration or business files.
 
 MQTT supports TCP/WebSocket, TLS CA/client certificates, username/password, clean sessions, reconnect subscription, JSON `text`/`redirect_client_id` and plain text. Sessions remain `mqtt:{sender}` and publication expands `{client_id}`. QoS0 waits for client send completion; QoS1/2 wait for broker confirmation. A lost confirmation is unknown and is never automatically replayed. MQTT MID is not a stable business ID; identical messages are independent events. Image/video/file replies retain URL placeholders; audio retains `[Audio]`. Historical environment variables, including transport default `mqtt` normalized to paho TCP, remain supported.
 
