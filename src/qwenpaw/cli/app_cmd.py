@@ -11,7 +11,8 @@ import uvicorn
 from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..constant import LOG_LEVEL_ENV
-from ..utils.http import is_loopback_host
+from ..shutdown import HTTP_DRAIN_SECONDS
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
 from ..utils.windows_shutdown import install_shutdown_handlers
@@ -218,7 +219,7 @@ def app_cmd(
         proxy_headers=False,
         log_level=log_level,
         # Bound shutdown so workspace SSE connections cannot block exit.
-        timeout_graceful_shutdown=5,
+        timeout_graceful_shutdown=HTTP_DRAIN_SECONDS,
         # Chrome Native Messaging inbound limit; this server-wide value is a
         # protocol fact rather than a user-configurable WebSocket capacity.
         ws_max_size=NM_MAX_INBOUND_BYTES,

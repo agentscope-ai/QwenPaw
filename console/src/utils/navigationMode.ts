@@ -1,5 +1,6 @@
 import { normalizeConsoleBasename } from "./consoleBasename";
 import { getRuntimeBasePath } from "./runtimeBasePath";
+import { consoleHost } from "../features/platform-web/context";
 
 interface LocationLike {
   pathname: string;
@@ -7,12 +8,13 @@ interface LocationLike {
   hash?: string;
 }
 
-const runtimeBase = getRuntimeBasePath();
+const runtimeBase = consoleHost ? "" : getRuntimeBasePath();
 const runtimeBaseSegments = runtimeBase.split("/");
-const CONSOLE_BASENAME =
-  (runtimeBase &&
-    new URL(runtimeBase + "/", window.location.href).pathname.slice(0, -1)) ||
-  normalizeConsoleBasename(import.meta.env.VITE_CONSOLE_BASENAME);
+const CONSOLE_BASENAME = consoleHost
+  ? normalizeConsoleBasename(consoleHost.basename)
+  : (runtimeBase &&
+      new URL(runtimeBase + "/", window.location.href).pathname.slice(0, -1)) ||
+    normalizeConsoleBasename(import.meta.env.VITE_CONSOLE_BASENAME);
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 
 function historyStateRecord(state: unknown): Record<string, unknown> {

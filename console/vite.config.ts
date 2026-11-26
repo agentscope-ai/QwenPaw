@@ -52,6 +52,21 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       startupMonitorPlugin(desktop ? "" : apiBaseUrl),
+      {
+        name: "console-host-document",
+        transformIndexHtml(html: string) {
+          const base =
+            !desktop && consoleBasename
+              ? `${normalizeConsoleBasename(consoleBasename)}/`
+              : "/";
+          const baseTag =
+            base === "/" ? '<base href="/" />' : `<base href="${base}">`;
+          return html.replace(
+            '<base href="/" />',
+            `${baseTag}<meta name="qwenpaw-console-protocol" content="1">`,
+          );
+        },
+      } satisfies Plugin,
       chatScrollPolicyPlugin,
       ...(desktop
         ? [
@@ -208,6 +223,11 @@ export default defineConfig(({ command, mode }) => {
             // Automatic splitting keeps the small desktop shell independent
             // of the console's UI vendor bundle.
             if (desktop) return;
+            // Keep shared icons together to avoid a burst of tiny HTTP/2
+            // requests when Console is served through Platform Relay.
+            if (id.includes("node_modules/lucide-react/")) {
+              return "icons-vendor";
+            }
             // A shared runtime must not land in a lazy consumer that its
             // vendor imports back (for example Monaco and TabbedEditor).
             if (

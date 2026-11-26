@@ -581,7 +581,9 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
     """Check whether the active model supports the given media type (sync).
 
     For ``image``: returns True when supports_image or supports_multimodal
-    is explicitly True.
+    is explicitly True. A negative persisted verdict is checked against
+    resolved image metadata, but generic resolved multimodal support does
+    not authorize images.
     For ``video``: returns True only when supports_video is explicitly True.
 
     Returns False for unknown (None) or explicitly unsupported (False).
@@ -596,11 +598,31 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
             return True
         if media_type == "video":
             return model_info.supports_video is True
-        # image: True if supports_image or the combined supports_multimodal
-        return (
+        if (
             model_info.supports_image is True
             or model_info.supports_multimodal is True
-        )
+        ):
+            return True
+        try:
+            from ..prompt import _get_active_model_slot
+            from ...providers.provider_manager import ProviderManager
+
+            active = _get_active_model_slot()
+            if not active:
+                return False
+            provider = ProviderManager.get_instance().get_provider(
+                active.provider_id,
+            )
+            if provider is None:
+                return False
+            resolved = provider.resolve_model_info(active.model)
+            return resolved.supports_image is True
+        except Exception:
+            logger.debug(
+                "Resolved image capability check failed",
+                exc_info=True,
+            )
+            return False
     except Exception:
         return True
 

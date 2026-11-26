@@ -13,6 +13,11 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { usePlatformIdentity } from "../features/platform-access/usePlatformIdentity";
+import {
+  isPlatformWebApp,
+  useWebWorkspace,
+} from "../features/platform-web/client";
 import {
   Check,
   Grid2X2,
@@ -123,6 +128,8 @@ export default function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const { account: cloudAccount, target: webTarget } = useWebWorkspace();
   const localAvatar = useLocalAvatar((state) =>
     state.selected ? state.images[state.selected] : undefined,
   );
@@ -142,13 +149,13 @@ export default function Sidebar({
     window.addEventListener("qwenpaw:auth-changed", reload);
     return () => window.removeEventListener("qwenpaw:auth-changed", reload);
   }, []);
-  const language = i18n.resolvedLanguage ?? i18n.language;
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [hubAdmin, setHubAdmin] = useState(false);
   const [hubUsername, setHubUsername] = useState("");
   const [authUsername, setAuthUsername] = useState("");
+  usePlatformIdentity({ hubMode, localAccount: hubUsername || authUsername });
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [runtimeRestarting, setRuntimeRestarting] = useState(false);
@@ -296,6 +303,7 @@ export default function Sidebar({
   }, []);
 
   useEffect(() => {
+    if (isPlatformWebApp) return;
     authApi
       .getStatus()
       .then(async (res) => {
@@ -1095,14 +1103,17 @@ export default function Sidebar({
                   </span>
                   <span className={skin.identityText}>
                     <strong>
-                      {authUsername || t("sidebar.localWorkspace")}
+                      {webTarget?.name ||
+                        authUsername ||
+                        t("sidebar.localWorkspace")}
                     </strong>
                     <small>
-                      {hubUsername
-                        ? "QwenPaw Hub"
-                        : authEnabled
-                        ? t("sidebar.consoleAccount")
-                        : t("sidebar.localMode")}
+                      {cloudAccount?.display_name ||
+                        (hubUsername
+                          ? "QwenPaw Hub"
+                          : authEnabled
+                          ? t("sidebar.consoleAccount")
+                          : t("sidebar.localMode"))}
                     </small>
                   </span>
                   <SlidersHorizontal size={17} />

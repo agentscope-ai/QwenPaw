@@ -426,7 +426,7 @@ class IsolatedChannelProxy(BaseChannel):
                 result = self.last_stop_result
                 if result and "HOST_STATE_IO_PENDING" in result.residual:
                     raise RuntimeError("HOST_STATE_IO_PENDING")
-                if result is None or not result.exited or result.residual:
+                if result is None or not self._stop_complete(result):
                     raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             if self._started or not self.enabled:
                 return
@@ -554,6 +554,14 @@ class IsolatedChannelProxy(BaseChannel):
             self._admission_wakeup()
         return await run_async_to_completion(self._stop())
 
+    @staticmethod
+    def _stop_complete(result):
+        return (
+            result.exited
+            and not result.residual
+            and result.acknowledged is not False
+        )
+
     async def _stop(self):
         async with self._lifecycle_lock:
             await self._stop_stream_flushes()
@@ -590,7 +598,7 @@ class IsolatedChannelProxy(BaseChannel):
                     ),
                 )
             self.last_stop_result = result
-            if not result.exited or result.residual:
+            if not self._stop_complete(result):
                 raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             self._started = False
             return result

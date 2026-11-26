@@ -46,6 +46,14 @@ export interface ChunkDiagnostic {
   elapsedMs?: number;
 }
 
+/** Keep temporary Console credentials out of copied and displayed reports. */
+export function formatChunkDiagnostic(value: object): string {
+  return JSON.stringify(value, null, 2).replace(
+    /(\/console-frames\/)[A-Za-z0-9_-]+/g,
+    "$1[redacted]",
+  );
+}
+
 function safeUrl(value: string): string {
   const url = new URL(value, window.location.href);
   url.username = "";

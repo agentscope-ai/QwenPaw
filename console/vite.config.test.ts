@@ -24,8 +24,10 @@ function loadDeploymentConfig(
        const { config } = await loadConfigFromFile({
          command: "build", mode: ${JSON.stringify(mode)},
        });
+       const document = config.plugins.find(p => p.name === "console-host-document");
        process.stdout.write(JSON.stringify({
          base: config.base ?? "/",
+         html: document.transformIndexHtml('<head><base href="/" /></head>'),
          apiBase: config.define.VITE_API_BASE_URL,
          assetBaseOverride: config.define["import.meta.env.BASE_URL"],
          assetUrlOverride: Boolean(config.experimental?.renderBuiltUrl),
@@ -38,6 +40,7 @@ function loadDeploymentConfig(
   );
   return JSON.parse(output) as {
     base: string;
+    html: string;
     apiBase: string;
     assetBaseOverride?: string;
     assetUrlOverride: boolean;
@@ -50,6 +53,11 @@ describe("console deployment configuration", () => {
     (basename) => {
       const config = loadDeploymentConfig(basename);
       expect(config.base).toBe("./");
+      expect(config.html).toContain('<base href="/" />');
+      expect(config.html).toContain(
+        '<meta name="qwenpaw-console-protocol" content="1">',
+      );
+      expect(config.html.match(/<base /g)).toHaveLength(1);
       expect(config.assetUrlOverride).toBe(false);
       expect(config.assetBaseOverride).toBeUndefined();
     },
@@ -70,6 +78,13 @@ describe("console deployment configuration", () => {
   ])("uses %j as the asset prefix %j", (basename, base) => {
     const config = loadDeploymentConfig(basename);
     expect(config.base).toBe(base);
+    expect(config.html).toContain(
+      base === "/" ? '<base href="/" />' : `<base href="${base}">`,
+    );
+    expect(config.html).toContain(
+      '<meta name="qwenpaw-console-protocol" content="1">',
+    );
+    expect(config.html.match(/<base /g)).toHaveLength(1);
     expect(config.apiBase).toBe('"/backend"');
     expect(config.assetUrlOverride).toBe(false);
     expect(config.assetBaseOverride).toBeUndefined();
