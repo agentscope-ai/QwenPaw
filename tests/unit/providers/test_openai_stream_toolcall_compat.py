@@ -429,3 +429,37 @@ async def test_multiple_tagged_tool_calls_have_unique_ids() -> None:
     ]
     assert [block.name for block in tool_blocks] == ["first", "second"]
     assert len({block.id for block in tool_blocks}) == 2
+
+
+async def test_tagged_tool_call_ids_differ_across_responses() -> None:
+    """One reply may hold recovered calls from several model responses.
+
+    agentscope appends every iteration to the same reply message, so ids
+    that restart at ``text_call_0`` for each response would collide.
+    """
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+    tagged = '<tool_call>{"name":"search","arguments":{}}</tool_call>'
+
+    ids = []
+    for _ in range(2):
+        responses = await model.parse_stream_for_test(
+            datetime.now(),
+            FakeAsyncStream([_make_chunk(content=tagged)]),
+        )
+        ids.extend(
+            block.id
+            for response in responses
+            for block in response.content
+            if isinstance(block, ToolCallBlock)
+        )
+
+    assert len(ids) == 2
+    assert all(call_id.startswith("text_call_") for call_id in ids)
+    assert ids[0] != ids[1]

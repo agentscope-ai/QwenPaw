@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import re
+import uuid
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
@@ -972,6 +973,9 @@ class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
         response: Any,
     ) -> AsyncGenerator[ChatResponse, None]:
         sanitized_response = _SanitizedStream(response)
+        # Recovered calls from several responses can land in one reply
+        # message, so tag the ids of this response to keep them unique.
+        response_tag = uuid.uuid4().hex[:8]
         next_think_tool_call_id = 0
         next_text_tool_call_id = 0
 
@@ -1071,7 +1075,7 @@ class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
                     for tool_call in think_parsed.tool_calls:
                         recovered_tool_calls.append(
                             ToolCallBlock(
-                                id=f"think_call_{next_think_tool_call_id}",
+                                id=f"think_call_{response_tag}_{next_think_tool_call_id}",
                                 name=tool_call.name,
                                 input=tool_call.raw_arguments,
                             ),
@@ -1095,7 +1099,7 @@ class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
                         for tool_call in text_parsed.tool_calls:
                             recovered_tool_calls.append(
                                 ToolCallBlock(
-                                    id=f"text_call_{next_text_tool_call_id}",
+                                    id=f"text_call_{response_tag}_{next_text_tool_call_id}",
                                     name=tool_call.name,
                                     input=tool_call.raw_arguments,
                                 ),
