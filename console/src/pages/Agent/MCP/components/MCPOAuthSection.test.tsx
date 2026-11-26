@@ -164,6 +164,16 @@ function revokeButton(container: HTMLElement): HTMLButtonElement | null {
   return btns.length > 1 ? (btns[0] as HTMLButtonElement) : null;
 }
 
+async function confirmRevoke(container: HTMLElement) {
+  fireEvent.click(revokeButton(container)!);
+  const [confirmation] = screen
+    .getAllByRole("button", { name: "confirmation.revokeMcpOAuth" })
+    .filter((button) => !container.contains(button));
+  await act(async () => {
+    fireEvent.click(confirmation);
+  });
+}
+
 function iconClasses(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll("svg")).map(
     (s) => s.getAttribute("class") ?? "",
@@ -1049,6 +1059,25 @@ describe("the waiting poll", () => {
 // ---------------------------------------------------------------------------
 
 describe("the revoke button's render condition", () => {
+  it("does not revoke when the confirmation is cancelled", async () => {
+    const { container } = render(
+      <MCPOAuthSection
+        url="u"
+        clientKey="k1"
+        oauthEnabled
+        currentOAuthStatus={status()}
+      />,
+    );
+    fireEvent.click(revokeButton(container)!);
+    expect(
+      screen.getByText("confirmation.revokeMcpOAuthHint"),
+    ).toBeInTheDocument();
+    expect(h.api.revokeOAuth).not.toHaveBeenCalled();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "common.cancel" }),
+    );
+    expect(h.api.revokeOAuth).not.toHaveBeenCalled();
+  });
   it("is present for an authorized client that has a key", () => {
     const { container } = render(
       <MCPOAuthSection
@@ -1060,7 +1089,7 @@ describe("the revoke button's render condition", () => {
     );
     const btn = revokeButton(container);
     expect(btn).not.toBeNull();
-    expect(btn?.textContent).toContain("mcp.oauth.revoke");
+    expect(btn?.textContent).toContain("confirmation.revokeMcpOAuth");
     expect(iconClasses(container)).toContain("lucide lucide-unlink");
   });
 
@@ -1129,9 +1158,7 @@ describe("revoking", () => {
         onAuthChanged={onAuthChanged}
       />,
     );
-    await act(async () => {
-      fireEvent.click(revokeButton(container)!);
-    });
+    await confirmRevoke(container);
 
     expect(h.api.revokeOAuth).toHaveBeenCalledTimes(1);
     expect(h.api.revokeOAuth).toHaveBeenCalledWith("k1");
@@ -1155,9 +1182,7 @@ describe("revoking", () => {
         onAuthChanged={vi.fn()}
       />,
     );
-    await act(async () => {
-      fireEvent.click(revokeButton(container)!);
-    });
+    await confirmRevoke(container);
     expect(revokeButton(container)).not.toBeNull();
 
     // This is the second half of the contract: the parent refetches on
@@ -1209,9 +1234,7 @@ describe("revoking", () => {
         onAuthChanged={onAuthChanged}
       />,
     );
-    await act(async () => {
-      fireEvent.click(revokeButton(container)!);
-    });
+    await confirmRevoke(container);
 
     expect(h.api.revokeOAuth).toHaveBeenCalledTimes(1);
     expect(onAuthChanged).not.toHaveBeenCalled();
@@ -1230,9 +1253,7 @@ describe("revoking", () => {
         currentOAuthStatus={status()}
       />,
     );
-    await act(async () => {
-      fireEvent.click(revokeButton(container)!);
-    });
+    await confirmRevoke(container);
     expect(h.api.revokeOAuth).toHaveBeenCalledTimes(1);
     // The optional call must not throw, and the phase is back to idle.
     expect(badgeOf(container).textContent).toContain("mcp.oauth.authorized");

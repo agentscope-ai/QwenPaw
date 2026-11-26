@@ -531,6 +531,7 @@ export function MailAccessControlDrawer({
               : "confirmation.removeFromBlocklist",
           )}
           onConfirm={() => handleRemoveFromList(record)}
+          okButtonProps={{ danger: true }}
         >
           <Button type="text" danger size="small" icon={<Trash2 size={14} />} />
         </Popconfirm>
@@ -701,6 +702,7 @@ export function MailAccessControlDrawer({
                 : "confirmation.removeFromBlocklist",
             )}
             onConfirm={handleBatchRemove}
+            okButtonProps={{ danger: true }}
           >
             <Button
               danger

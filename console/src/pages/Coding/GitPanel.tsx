@@ -31,6 +31,7 @@ import {
   Minus,
   FileDiff,
   RotateCcw,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { gitApi } from "../../api/modules/git";
@@ -425,7 +426,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
                         file={f}
                         onStage={() => void handleStage(f)}
                         onDiff={() => void handleShowDiff(f)}
-                        onDiscard={() => void handleDiscard(f)}
+                        onDiscard={() => handleDiscard(f)}
                         actionIcon={<Plus size={11} />}
                         actionTip="Stage"
                       />
@@ -581,7 +582,7 @@ interface FileRowProps {
   file: GitChangedFile;
   onStage: () => void;
   onDiff: () => void;
-  onDiscard?: () => void;
+  onDiscard?: () => Promise<void>;
   actionIcon: React.ReactNode;
   actionTip: string;
 }
@@ -596,6 +597,12 @@ function FileRow({
 }: FileRowProps) {
   const { t } = useTranslation();
   const name = file.path.split("/").pop() ?? file.path;
+  const untracked = file.status === "?";
+  const discardLabel = t(
+    untracked
+      ? "confirmation.deleteUntrackedItem"
+      : "confirmation.discardFileChanges",
+  );
   return (
     <div className={styles.fileRow}>
       <StatusBadge status={file.status} />
@@ -610,17 +617,30 @@ function FileRow({
         </Tooltip>
         {onDiscard && (
           <Popconfirm
-            title={t("confirmation.discardFileChanges")}
-            description={file.path}
+            title={discardLabel}
+            description={t(
+              untracked
+                ? "confirmation.deleteUntrackedItemHint"
+                : "confirmation.discardFileChangesHint",
+              { path: file.path },
+            )}
             onConfirm={onDiscard}
-            okText={t("confirmation.discardFileChanges")}
-            cancelText={t("confirmation.keepFileChanges")}
+            okText={discardLabel}
+            cancelText={t(
+              untracked
+                ? "confirmation.keepUntrackedItem"
+                : "confirmation.keepFileChanges",
+            )}
             okButtonProps={{ danger: true }}
             placement="topRight"
           >
-            <Tooltip title="Discard changes">
-              <button type="button" className={styles.iconBtn}>
-                <RotateCcw size={11} />
+            <Tooltip title={discardLabel}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                aria-label={`${discardLabel}: ${file.path}`}
+              >
+                {untracked ? <Trash2 size={11} /> : <RotateCcw size={11} />}
               </button>
             </Tooltip>
           </Popconfirm>

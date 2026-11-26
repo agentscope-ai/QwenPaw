@@ -191,12 +191,15 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
                     onConfirm={() => handleRemove(host)}
                     okText={t("confirmation.removeFromAllowlist")}
                     cancelText={t("common.cancel")}
+                    okButtonProps={{ danger: true }}
                   >
                     <Button
                       type="text"
                       danger
                       icon={<Trash2 size={16} />}
-                      aria-label={`${t("common.delete")}: ${host}`}
+                      aria-label={`${t(
+                        "confirmation.removeFromAllowlist",
+                      )}: ${host}`}
                     />
                   </Popconfirm>
                 </motion.li>

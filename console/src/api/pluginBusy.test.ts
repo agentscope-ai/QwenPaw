@@ -15,7 +15,7 @@ const busy = (canInterrupt = true) =>
 
 describe("plugin busy confirmation", () => {
   beforeEach(() => vi.clearAllMocks());
-  it.each(["update", "uninstall"] as const)(
+  it.each(["update", "uninstall", "disable"] as const)(
     "%s waits for consent and retries once",
     async (action) => {
       const first = busy();
@@ -29,6 +29,7 @@ describe("plugin busy confirmation", () => {
       expect(request.mock.calls).toEqual([[false]]);
       const options = vi.mocked(Modal.confirm).mock.calls[0][0];
       expect(options.okType).toBe("danger");
+      expect(options.autoFocusButton).toBe("cancel");
       expect(options.content).toBe(`pluginManager.busy.${action}.warning`);
       await options.onOk?.();
       expect(await pending).toBe(retry);

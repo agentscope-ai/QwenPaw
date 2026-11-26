@@ -21,6 +21,38 @@ const rule = {
   autoDeny: false,
 } as MergedRule;
 describe("RuleTable categories", () => {
+  it("keeps a custom rule on cancel and deletes it only on confirmation", async () => {
+    const onDeleteRule = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RuleTable
+        rules={[{ ...rule, source: "custom" }]}
+        enabled
+        onToggleRule={vi.fn()}
+        onToggleAutoDeny={vi.fn()}
+        onPreviewRule={vi.fn()}
+        onEditRule={vi.fn()}
+        onDeleteRule={onDeleteRule}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /files/ }));
+    const trigger = await screen.findByRole("button", {
+      name: "confirmation.deleteSecurityRule: rule-a",
+    });
+    fireEvent.click(trigger);
+    expect(onDeleteRule).not.toHaveBeenCalled();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "common.cancel" }),
+    );
+    expect(onDeleteRule).not.toHaveBeenCalled();
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "confirmation.deleteSecurityRule",
+      }),
+    );
+    expect(onDeleteRule).toHaveBeenCalledExactlyOnceWith("rule-a");
+  });
   it("opens a category, filters descriptions, and keeps the two controls distinct", async () => {
     const toggle = vi.fn(),
       deny = vi.fn();

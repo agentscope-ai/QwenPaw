@@ -31,7 +31,7 @@ interface ToolGuardTabProps {
   toggleAutoDeny: (ruleId: string, currentlyAutoDeny: boolean) => void;
   onPreviewRule: (rule: MergedRule) => void;
   onEditRule: (rule: MergedRule) => void;
-  onDeleteRule: (ruleId: string) => void;
+  onDeleteRule: (ruleId: string) => Promise<void>;
   openAddRule: () => void;
   shellEvasionChecks: Record<string, boolean>;
   toggleShellEvasionCheck: (checkName: string, checked: boolean) => void;

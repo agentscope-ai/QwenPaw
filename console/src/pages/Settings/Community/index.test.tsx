@@ -215,6 +215,11 @@ describe("community account settings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "community.disconnect" }),
     );
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+    expect(mocks.confirm.mock.calls[0][0]).toMatchObject({
+      autoFocusButton: "cancel",
+      okButtonProps: { danger: true },
+    });
     await act(async () => mocks.confirm.mock.calls[0][0].onOk());
     expect(staleSignal.aborted).toBe(true);
     expect(mocks.notify).toHaveBeenCalledWith({ clearSources: ["community"] });

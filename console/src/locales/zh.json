@@ -1,5 +1,15 @@
 {
   "confirmation": {
+    "acknowledgeCheckpointReset": "我已知晓这些检查点无法恢复。",
+    "deleteConversationHint": "将从会话历史中移除「{{name}}」，并删除该会话的检查点。",
+    "deleteSecurityRule": "删除安全规则",
+    "deleteSecurityRuleHint": "自定义规则「{{name}}」将不再应用于工具调用。",
+    "deleteUntrackedItem": "删除未跟踪项",
+    "deleteUntrackedItemHint": "将永久删除 {{path}}；如果是目录，也会删除其中未跟踪的内容。删除后无法通过 Git 恢复。",
+    "discardFileChangesHint": "{{path}} 中未暂存的修改将丢失。",
+    "keepUntrackedItem": "保留此项",
+    "revokeMcpOAuth": "撤销 MCP 授权",
+    "revokeMcpOAuthHint": "将清除该 MCP 客户端已保存的授权。重新连接时需要再次授权。",
     "skillRemovedButNotDisabled": "已移出白名单，但未能禁用技能。",
     "clearScanHistoryFailed": "清空告警记录失败，请重试。",
     "uninstallApp": "卸载应用",
@@ -52,7 +62,7 @@
     "disableAgent": "禁用智能体",
     "disableRuntime": "禁用环境",
     "discardAndSwitch": "放弃修改并切换",
-    "discardFileChanges": "丢弃修改",
+    "discardFileChanges": "丢弃文件修改",
     "dismissSelected": "忽略所选",
     "enableAgent": "启用智能体",
     "keepCurrentModel": "保持当前模型",
@@ -918,19 +928,19 @@
       "thoroughAction": "彻底压缩检查点",
       "thoroughTitle": "彻底压缩检查点？",
       "thoroughDescription": "将忽略自动检查点的保留策略，清理 {{count}} 个检查点，并保留各会话 HEAD。",
-      "thoroughConfirm": "彻底压缩",
+      "thoroughConfirm": "彻底压缩检查点",
       "thoroughSuccess": "彻底压缩已删除 {{count}} 个检查点",
       "action": "清理检查点",
       "title": "按保留策略清理检查点？",
       "description": "将按当前保留策略清理 {{count}} 个过期检查点，并保留各会话 HEAD。",
-      "confirm": "清理",
+      "confirm": "清理检查点",
       "success": "已清理 {{count}} 个检查点"
     },
     "reset": {
       "action": "重置检查点数据",
       "title": "重置全部检查点数据？",
       "description": "这会永久删除所有检查点，并关闭自动检查点。",
-      "confirm": "重置",
+      "confirm": "重置检查点数据",
       "success": "检查点数据已重置"
     },
     "restore": {

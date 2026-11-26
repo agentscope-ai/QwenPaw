@@ -404,6 +404,7 @@ export function AccessControlDrawer({
               : "confirmation.removeFromBlocklist",
           )}
           onConfirm={() => handleRemove(record.userId)}
+          okButtonProps={{ danger: true }}
         >
           <Button
             type="text"
@@ -500,6 +501,7 @@ export function AccessControlDrawer({
                   : "confirmation.removeFromBlocklist",
               )}
               onConfirm={handleBatchRemove}
+              okButtonProps={{ danger: true }}
               disabled={selectedRowKeys.length === 0}
             >
               <Button

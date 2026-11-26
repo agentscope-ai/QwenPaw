@@ -1,5 +1,15 @@
 {
   "confirmation": {
+    "acknowledgeCheckpointReset": "I understand that these checkpoints cannot be recovered.",
+    "deleteConversationHint": "This removes “{{name}}” from your conversation history and deletes its checkpoints.",
+    "deleteSecurityRule": "Delete security rule",
+    "deleteSecurityRuleHint": "The custom rule “{{name}}” will no longer be applied to tool calls.",
+    "deleteUntrackedItem": "Delete untracked item",
+    "deleteUntrackedItemHint": "This permanently deletes {{path}}. For a folder, Git also deletes its untracked contents. Git cannot recover what is deleted.",
+    "discardFileChangesHint": "Unstaged changes to {{path}} will be lost.",
+    "keepUntrackedItem": "Keep item",
+    "revokeMcpOAuth": "Revoke MCP authorization",
+    "revokeMcpOAuthHint": "This removes the saved authorization for this MCP client. You will need to authorize it again to reconnect.",
     "skillRemovedButNotDisabled": "Removed from the allowlist, but the skill could not be disabled.",
     "clearScanHistoryFailed": "Could not clear alert history. Try again.",
     "uninstallApp": "Uninstall app",
@@ -52,7 +62,7 @@
     "disableAgent": "Disable agent",
     "disableRuntime": "Disable runtime",
     "discardAndSwitch": "Discard changes and switch",
-    "discardFileChanges": "Discard changes",
+    "discardFileChanges": "Discard file changes",
     "dismissSelected": "Dismiss selected",
     "enableAgent": "Enable agent",
     "keepCurrentModel": "Keep current model",
@@ -1179,19 +1189,19 @@
       "thoroughAction": "Thoroughly compact checkpoints",
       "thoroughTitle": "Thoroughly compact checkpoints?",
       "thoroughDescription": "Removes {{count}} checkpoint(s), ignoring auto-checkpoint retention. Session HEADs are kept.",
-      "thoroughConfirm": "Thoroughly compact",
+      "thoroughConfirm": "Thoroughly compact checkpoints",
       "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
       "action": "Clean up checkpoints",
       "title": "Clean up checkpoints using retention policy?",
       "description": "Removes {{count}} expired checkpoint(s) under the current retention policy. Session HEADs are kept.",
-      "confirm": "Clean up",
+      "confirm": "Clean up checkpoints",
       "success": "Removed {{count}} checkpoint(s)"
     },
     "reset": {
       "action": "Reset checkpoint data",
       "title": "Reset all checkpoint data?",
       "description": "This permanently removes every checkpoint and turns automatic checkpoints off.",
-      "confirm": "Reset",
+      "confirm": "Reset checkpoint data",
       "success": "Checkpoint data reset"
     },
     "restore": {

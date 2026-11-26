@@ -11,6 +11,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ConfigProvider } from "antd";
 import React from "react";
 
 const modalConfirmSpy = vi.hoisted(() => vi.fn());
@@ -31,9 +32,12 @@ vi.mock("@/api/modules/checkpoints", () => ({
   checkpointsApi: cpMocks,
 }));
 
+const agentScope = vi.hoisted(() => ({ selectedAgent: "agent-1" }));
 vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: (selector: (s: { selectedAgent: string }) => unknown) =>
-    selector({ selectedAgent: "agent-1" }),
+  useAgentStore: Object.assign(
+    (selector: (s: typeof agentScope) => unknown) => selector(agentScope),
+    { getState: () => agentScope },
+  ),
 }));
 
 const messageMocks = vi.hoisted(() => ({
@@ -176,6 +180,7 @@ async function renderPage() {
 describe("CheckpointsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    agentScope.selectedAgent = "agent-1";
     setupDefaultMocks();
   });
 
@@ -412,24 +417,72 @@ describe("CheckpointsPage", () => {
     );
   });
 
-  it("resets all checkpoints through the confirm dialog", async () => {
+  it("requires acknowledgement before resetting all checkpoints", async () => {
     const { user } = await renderPage();
 
     await user.click(screen.getByLabelText("checkpoints.more"));
     await user.click(await screen.findByText("checkpoints.reset.action"));
 
-    await waitFor(() => expect(modalConfirmSpy).toHaveBeenCalled());
-    const opts = modalConfirmSpy.mock.calls[
-      modalConfirmSpy.mock.calls.length - 1
-    ]?.[0] as {
-      onOk: () => Promise<void>;
-    };
-    await opts.onOk();
+    const dialog = within(await screen.findByRole("dialog"));
+    const reset = dialog.getByRole("button", {
+      name: "checkpoints.reset.confirm",
+    });
+    expect(reset).toBeDisabled();
+    await user.click(reset);
+    expect(cpMocks.reset).not.toHaveBeenCalled();
+    await user.click(
+      dialog.getByRole("checkbox", {
+        name: "confirmation.acknowledgeCheckpointReset",
+      }),
+    );
+    expect(reset).toBeEnabled();
+    await user.click(reset);
 
     await waitFor(() => expect(cpMocks.reset).toHaveBeenCalled());
     expect(messageMocks.success).toHaveBeenCalledWith(
       "checkpoints.reset.success",
     );
+  });
+
+  it("clears checkpoint reset acknowledgement when the dialog is reopened", async () => {
+    const { user } = await renderPage();
+    const open = async () => {
+      await user.click(screen.getByLabelText("checkpoints.more"));
+      await user.click(await screen.findByText("checkpoints.reset.action"));
+      return within(await screen.findByRole("dialog"));
+    };
+    const dialog = await open();
+    await user.click(dialog.getByRole("checkbox"));
+    await user.click(dialog.getByRole("button", { name: "common.cancel" }));
+    const reopened = await open();
+    expect(reopened.getByRole("checkbox")).not.toBeChecked();
+    expect(
+      reopened.getByRole("button", { name: "checkpoints.reset.confirm" }),
+    ).toBeDisabled();
+    expect(cpMocks.reset).not.toHaveBeenCalled();
+  });
+
+  it("does not reset a different agent from an already open dialog", async () => {
+    const user = userEvent.setup();
+    const page = () => (
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <CheckpointsPage />
+      </ConfigProvider>
+    );
+    const { rerender } = render(page());
+    await screen.findByRole("button", { name: "c1aaaa" });
+    await user.click(screen.getByLabelText("checkpoints.more"));
+    await user.click(await screen.findByText("checkpoints.reset.action"));
+    const dialog = within(await screen.findByRole("dialog"));
+    await user.click(dialog.getByRole("checkbox"));
+    agentScope.selectedAgent = "agent-2";
+    await user.click(
+      dialog.getByRole("button", { name: "checkpoints.reset.confirm" }),
+    );
+    expect(cpMocks.reset).not.toHaveBeenCalled();
+
+    rerender(page());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("opens the detail drawer for a selected node with restore enabled", async () => {
