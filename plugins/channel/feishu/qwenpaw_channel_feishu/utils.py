@@ -296,9 +296,17 @@ def normalize_feishu_md(text: str) -> str:
     """
     if not text or not text.strip():
         return text
-    # Ensure newline before code fence so Feishu parses it
-    text = re.sub(r"([^\n])(```)", r"\1\n\2", text)
-    return text
+    lines: List[str] = []
+    fence = ""
+    for line in text.split("\n"):
+        if not fence:
+            # Ensure newline before code fence so Feishu parses it. Lines
+            # inside code and longer backtick runs stay as they are.
+            line = _INLINE_FENCE_RE.sub(r"\1\n\2", line)
+        for part in line.split("\n"):
+            lines.append(part)
+            fence = _next_fence(part, fence)
+    return "\n".join(lines)
 
 
 def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
@@ -385,8 +393,25 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
 
 
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_INLINE_FENCE_RE = re.compile(r"([^\n`])(```)")
 _TABLE_ROW_RE = re.compile(r"^\s*\|")
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
+
+
+def _next_fence(line: str, fence: str) -> str:
+    """Return the fence that is open after *line* ("" outside code)."""
+    match = _FENCE_RE.match(line)
+    if not match:
+        return fence
+    run, rest = match.group(1), match.group(2)
+    if fence:
+        closes = (
+            run[0] == fence[0] and len(run) >= len(fence) and not rest.strip()
+        )
+        return "" if closes else fence
+    if run[0] == "`" and "`" in rest:
+        return ""
+    return run
 
 
 def _code_line_flags(lines: List[str]) -> List[bool]:
@@ -394,23 +419,9 @@ def _code_line_flags(lines: List[str]) -> List[bool]:
     flags: List[bool] = []
     fence = ""
     for line in lines:
-        match = _FENCE_RE.match(line)
-        if fence:
-            flags.append(True)
-            if (
-                match
-                and match.group(1)[0] == fence[0]
-                and len(match.group(1)) >= len(fence)
-                and not match.group(2).strip()
-            ):
-                fence = ""
-        elif match and not (
-            match.group(1)[0] == "`" and "`" in match.group(2)
-        ):
-            flags.append(True)
-            fence = match.group(1)
-        else:
-            flags.append(False)
+        next_fence = _next_fence(line, fence)
+        flags.append(bool(fence or next_fence))
+        fence = next_fence
     return flags
 
 

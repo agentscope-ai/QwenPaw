@@ -720,3 +720,25 @@ async def test_send_text_uses_table_card_only_for_tables_outside_code(
     assert result["state"] == "acknowledged"
     row = next(r for r in native.rows if r["kind"] == "create")
     assert row["msg_type"] == msg_type
+    if msg_type == "post":
+        post = json.loads(row["content"])
+        assert post["zh_cn"]["content"][0][0]["text"] == text
+
+
+async def test_normalize_feishu_md_leaves_fenced_code_unchanged():
+    feishu_utils = module("feishu", "utils")
+    long_fence = "\n".join(
+        [
+            "`" * 4 + "markdown",
+            FENCE + "python",
+            'print("a' + FENCE + 'b")',
+            FENCE,
+            "`" * 4,
+        ],
+    )
+
+    assert feishu_utils.normalize_feishu_md(long_fence) == long_fence
+    inline = "Code:" + FENCE + "\nx = 1\n" + FENCE
+    assert feishu_utils.normalize_feishu_md(inline) == (
+        "Code:\n" + FENCE + "\nx = 1\n" + FENCE
+    )
