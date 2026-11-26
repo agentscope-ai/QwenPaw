@@ -1594,7 +1594,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private lastSelectedIds: Set<string> = new Set();
 
   /** Refresh after another sender has owned this Chat, without selecting it. */
-  async refreshSession(sessionId: string, signal?: AbortSignal) {
+  async refreshSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<IAgentScopeRuntimeWebUISession | undefined> {
     const owner = this.getActiveOwner();
     const inFlight = this.sessionRequests.get(sessionId);
     if (inFlight) await inFlight.promise.catch(() => undefined);
@@ -1603,7 +1606,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionResultCache.delete(sessionId);
     this.sessionResultCache.delete(backendId);
     this.invalidateConvertedCache(backendId);
-    return this._doGetSession(sessionId, signal, owner);
+    const session = await this._doGetSession(sessionId, signal, owner);
+    if (!session) return session;
+
+    // Host refreshes replace the messages directly. Match the SDK's normal
+    // session load so persisted messages still enter its history pagination.
+    return {
+      ...session,
+      messages: session.messages.map((message) => ({
+        ...message,
+        history: true,
+      })),
+    };
   }
 
   async getSession(sessionId: string, signal?: AbortSignal) {

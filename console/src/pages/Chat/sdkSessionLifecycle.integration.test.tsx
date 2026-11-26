@@ -1222,6 +1222,18 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     host.unsubscribe();
   });
 
+  it("marks refreshed session messages as paginated history", async () => {
+    fixture.history.mockResolvedValue(linkedHistory(A));
+
+    const refreshed = await sessionApi.refreshSession(A);
+
+    expect(refreshed?.messages).toHaveLength(1);
+    expect(refreshed?.messages[0]).toMatchObject({
+      id: `message-${A}`,
+      history: true,
+    });
+  });
+
   it("adapter observer preserves loading for running history and the SDK reconnects A", async () => {
     const host = mountHost(fixture, undefined, true);
     await startA(host);
