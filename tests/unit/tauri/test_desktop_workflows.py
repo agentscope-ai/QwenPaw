@@ -156,6 +156,9 @@ def test_linux_packaging(tmp_path, status, version, expected):
             members = {m.name.removeprefix("./"): m for m in tar.getmembers()}
             assert tar.extractfile(members["control"]).read().decode() == (
                 control.replace(
+                    "Package: qwen-paw-desktop",
+                    "Package: qwenpaw-desktop",
+                ).replace(
                     "Version: 2.3.1-beta.1",
                     f"Version: {expected}",
                 )

@@ -114,7 +114,8 @@ if [ -z "${DEB_PATH}" ]; then
   exit 1
 fi
 
-# Tauri writes SemVer into the deb, where '-' means a package revision.
+# Tauri writes SemVer into the deb, where '-' means a package revision, and
+# kebab-cases productName into the package name ("qwen-paw-desktop").
 # Rewrite only the control archive; keep the application payload unchanged.
 DEB_CONTROL_DIR="$(mktemp -d)"
 trap 'rm -rf "$DEB_CONTROL_DIR"' EXIT
@@ -140,11 +141,13 @@ if dev is not None:
     # A release's dev builds must also sort before its first alpha.
     version += ("~~dev." if pre is None and post is None else "~dev.") + dev
 control = Path(sys.argv[1])
-text, count = re.subn(r"(?m)^Version: .+$", f"Version: {version}", control.read_text())
-if count != 1:
-    raise SystemExit("Expected exactly one Version field in the deb control file")
+text = control.read_text()
+for field, value in (("Package", "qwenpaw-desktop"), ("Version", version)):
+    text, count = re.subn(rf"(?m)^{field}: .+$", f"{field}: {value}", text)
+    if count != 1:
+        raise SystemExit(f"Expected exactly one {field} field in the deb control file")
 control.write_text(text)
-print(f"Debian package version: {version}")
+print(f"Debian package: qwenpaw-desktop {version}")
 PY
 tar --owner=0 --group=0 -czf "${DEB_CONTROL_DIR}/control.tar.gz" \
   -C "${DEB_CONTROL_DIR}/files" .

@@ -272,7 +272,7 @@ A: 当前采用
 ### 更新与卸载
 
 - **更新**：在应用内选择「现在更新」，或在后台下载后稍后安装。安装更新时需要管理员授权。
-- **卸载**：`sudo apt remove qwen-paw-desktop` —— 会保留 `~/.qwenpaw`，需要彻底清除请手动删除
+- **卸载**：`sudo apt remove qwenpaw-desktop` —— 会保留 `~/.qwenpaw`，需要彻底清除请手动删除
 
 ## 技术支持
 

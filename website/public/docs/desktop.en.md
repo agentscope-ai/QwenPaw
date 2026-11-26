@@ -272,7 +272,7 @@ The app creates `~/.qwenpaw` on first launch and initializes a default workspace
 ### Updates and Uninstall
 
 - **Updates**: choose **Update Now** or **Download in Background** in the app. Installing the update requires administrator authorization.
-- **Uninstall**: `sudo apt remove qwen-paw-desktop` — this keeps `~/.qwenpaw`, remove it manually for a clean wipe
+- **Uninstall**: `sudo apt remove qwenpaw-desktop` — this keeps `~/.qwenpaw`, remove it manually for a clean wipe
 
 ## Technical Support
 
