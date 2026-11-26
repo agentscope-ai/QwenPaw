@@ -442,8 +442,14 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
 
     Detection steps:
         1. Kernel version >= 5.13.
-        2. ``/sys/kernel/security/lsm`` contains ``"landlock"``.
+        2. ``/sys/kernel/security/lsm`` contains ``"landlock"``, when that
+           file is readable.
         3. ``landlock_create_ruleset`` syscall returns ABI version.
+
+    Steps 2 and 3 are both optional evidence, but step 3 is the only
+    authoritative one. Containers usually cannot read the LSM list
+    (securityfs is not mounted) while the kernel LSM works fine, so step 2
+    must not short-circuit step 3.
 
     Returns:
         Probe result with ``mode=LANDLOCK`` on success.
@@ -470,22 +476,26 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
             reason=f"Kernel {major}.{minor} < 5.13, Landlock unavailable",
         )
 
-    # Step 2: Check LSM list
+    # Step 2: Check LSM list (best effort). Unreadable means securityfs is
+    # not mounted, which says nothing about kernel support.
     try:
         with open("/sys/kernel/security/lsm", "r", encoding="utf-8") as f:
             lsm_list = f.read().strip()
+    except OSError as e:
+        lsm_confirmed = False
+        logger.debug(
+            "Landlock probe: cannot read /sys/kernel/security/lsm (%s); "
+            "deferring to the syscall probe.",
+            e,
+        )
+    else:
         if "landlock" not in lsm_list:
             return SandboxCapability(
                 supported=False,
                 mode=SandboxMode.NONE,
                 reason=f"Landlock not in LSM list: {lsm_list}",
             )
-    except OSError:
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason="Cannot read /sys/kernel/security/lsm",
-        )
+        lsm_confirmed = True
 
     # Step 3: Probe ABI version via landlock_create_ruleset(
     #     NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)
@@ -503,7 +513,17 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
         elif arch == "aarch64":
             SYS_landlock_create_ruleset = 444
         else:
-            # Fallback: assume support based on kernel + LSM check
+            # No syscall number for this arch: only the LSM list can
+            # corroborate support, so refuse to guess without it.
+            if not lsm_confirmed:
+                return SandboxCapability(
+                    supported=False,
+                    mode=SandboxMode.NONE,
+                    reason=(
+                        "Cannot verify Landlock: /sys/kernel/security/lsm "
+                        f"unreadable and no syscall number known for {arch}"
+                    ),
+                )
             return SandboxCapability(
                 supported=True,
                 mode=SandboxMode.LANDLOCK,
