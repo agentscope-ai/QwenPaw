@@ -41,6 +41,8 @@
   "bundle": {
     "active": true,
     "targets": ["app", "nsis", "deb"],
+    "shortDescription": "Personal AI assistant that runs on your computer",
+    "longDescription": "QwenPaw Desktop runs your personal AI assistant locally. Use local or cloud models, extend it with skills and plugins, and connect it to your chat channels.",
     "icon": [
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico",
