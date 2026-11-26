@@ -13,7 +13,9 @@ def test_control_specs_use_handler_description() -> None:
     """Control help_text is handler.description, not a secondary map."""
     by_name = {spec.name: spec for spec in _collect_control_specs()}
 
-    assert by_name["model"].help_text == "Show or switch AI model"
+    assert by_name[f"model"].help_text == (
+        f"Show or switch the current conversation's model"
+    )
     assert by_name["skills"].help_text == (
         "List chat-available skills and expose explicit skill commands"
     )
