@@ -53,11 +53,15 @@ class _Resp:
         return self._json
 
 
-def _run_checks(deep):
-    with click.Context(
+def _ctx(host="127.0.0.1", port=8088):
+    return click.Context(
         click.Command("doctor"),
-        obj={"host": "127.0.0.1", "port": 8088},
-    ) as ctx:
+        obj={"host": host, "port": port},
+    )
+
+
+def _run_checks(deep):
+    with _ctx() as ctx:
         dc.run_doctor_checks(ctx, 1.0, 1.0, deep=deep)
 
 
