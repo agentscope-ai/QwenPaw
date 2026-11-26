@@ -64,7 +64,6 @@ from ..providers.error_utils import (
 )
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
-from ..providers.model_error_policy import is_content_safety_error
 from ..providers.adapters.request_context import model_session
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
@@ -84,10 +83,6 @@ _VIDEO_COUNT_LIMIT_RE = re.compile(
 _VIDEO_PART_REJECTION_RE = re.compile(
     r"\b(?:unknown|unexpected)\s+(?:variant|field|part|content(?: type)?)"
     r"\s*[:=]?\s*[`'\"]?(?:video_url|input_video)\b",
-)
-_SHORT_VIDEO_OMISSION_NOTE = (
-    "[Video not sent to the model in this retry because the provider "
-    "rejected a video as too short.]"
 )
 
 
@@ -223,8 +218,8 @@ _MEDIA_PAYLOAD_REJECTION_SIGNALS = (
     "are not enabled",
 )
 
-# A payload rejection only counts when the provider actually names the media
-# it refused; "invalid request" alone must keep its existing handling.
+# Text-based payload matching requires the provider to name the media.
+# The structured generic 400 case is handled separately.
 _MEDIA_PAYLOAD_MEDIA_NOUNS = (
     "image",
     "audio",
@@ -760,12 +755,7 @@ class QwenPawAgent(Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
-    def _set_formatter_video_strip(
-        self,
-        enabled: bool,
-        *,
-        omission_note: str | None = None,
-    ) -> None:
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
         """Toggle request-time video stripping on the active formatter.
 
         Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
@@ -776,7 +766,6 @@ class QwenPawAgent(Agent):
         if formatter is None:
             return
         setattr(formatter, "_qwenpaw_force_strip_video", enabled)
-        setattr(formatter, "_qwenpaw_video_omission_note", omission_note)
 
     def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
         """Propagate reasoning omissions through model wrappers."""
@@ -860,7 +849,7 @@ class QwenPawAgent(Agent):
         URLs: those requests carry no audio blocks and never reach the
         audio-strip retry.
         """
-        if is_content_safety_error(exc):
+        if QwenPawAgent._is_content_safety_error(exc):
             return False
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
@@ -905,20 +894,10 @@ class QwenPawAgent(Agent):
         return False
 
     @staticmethod
-    def _is_short_video_error(exc: Exception) -> bool:
-        """Identify a request-specific video duration rejection."""
-        return extract_status_code(exc) == 400 and (
-            re.search(r"\bvideo file is too short\b", str(exc), re.IGNORECASE)
-            is not None
-        )
-
-    @staticmethod
     def _is_video_fallback_error(exc: Exception) -> bool:
-        """Recognize video capability and request-specific rejections."""
-        if is_content_safety_error(exc):
+        """Recognize video type/capability rejections and count limits."""
+        if QwenPawAgent._is_content_safety_error(exc):
             return False
-        if QwenPawAgent._is_short_video_error(exc):
-            return True
         error_str = " ".join(str(exc).lower().split())
         # Schema errors can list image/audio parts as accepted alternatives.
         if _VIDEO_PART_REJECTION_RE.search(error_str):
@@ -944,8 +923,6 @@ class QwenPawAgent(Agent):
     @staticmethod
     def _is_video_capability_error(exc: Exception) -> bool:
         """Allow learning only for rejected video types or zero budgets."""
-        if QwenPawAgent._is_short_video_error(exc):
-            return False
         if not QwenPawAgent._is_video_fallback_error(exc):
             return False
         limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
@@ -1400,14 +1377,7 @@ class QwenPawAgent(Agent):
                     "video input (%s); stripping only video and retrying.",
                     e,
                 )
-                self._set_formatter_video_strip(
-                    True,
-                    omission_note=(
-                        _SHORT_VIDEO_OMISSION_NOTE
-                        if self._is_short_video_error(e)
-                        else None
-                    ),
-                )
+                self._set_formatter_video_strip(True)
             elif audio_fallback_retry:
                 logger.warning(
                     "_reasoning failed because the provider rejected an "
@@ -1582,13 +1552,52 @@ class QwenPawAgent(Agent):
             metadata["qwenpaw_actual_model"] = dict(sink["actual_model"])
 
     @staticmethod
+    def _is_content_safety_error(exc: Exception) -> bool:
+        """Keep content filtering out of the agent's media retries."""
+        codes = [getattr(exc, "code", None), getattr(exc, "type", None)]
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            for error in (body, body.get("error")):
+                if isinstance(error, dict):
+                    codes.extend((error.get("code"), error.get("type")))
+        safety_codes = (
+            "content_filter",
+            "data_inspection_failed",
+            "datainspectionfailed",
+        )
+        if any(
+            isinstance(code, str) and code.lower() in safety_codes
+            for code in codes
+        ):
+            return True
+
+        error_str = str(exc).lower()
+        safety_markers = (
+            "new_sensitive",
+            "image is sensitive",
+            "sensitive content",
+            "content sensitivity",
+            "content policy",
+            "content_policy",
+            "content safety",
+            "content_safety",
+            "safety_filter",
+            "moderation",
+            "inappropriate content",
+            "data_inspection_failed",
+            "datainspectionfailed",
+            "(1026)",
+        )
+        return any(marker in error_str for marker in safety_markers)
+
+    @staticmethod
     def _is_explicit_media_capability_error(exc: Exception) -> bool:
         """Return whether an explicit media rejection permits fallback."""
         error_str = str(exc).lower()
 
         # Veto: content safety/moderation rejections are about a
         # particular input, not about whether the model supports media.
-        if is_content_safety_error(exc):
+        if QwenPawAgent._is_content_safety_error(exc):
             return False
 
         # Veto: errors clearly about request size / context length are
@@ -1638,7 +1647,7 @@ class QwenPawAgent(Agent):
         rejection returns the same 400 until the media is repaired in the
         stored context (see the caller in :meth:`_reasoning`).
         """
-        if is_content_safety_error(exc):
+        if QwenPawAgent._is_content_safety_error(exc):
             return False
         body = getattr(exc, "body", None)
         if extract_status_code(exc) == 400 and isinstance(body, dict):

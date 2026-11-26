@@ -198,28 +198,6 @@ def test_data_inspection_is_content_safety() -> None:
 
 
 @pytest.mark.parametrize(
-    "body",
-    [
-        {"code": "DataInspectionFailed"},
-        {"error": {"type": "content_filter"}},
-    ],
-)
-def test_structured_filter_error_is_content_safety(body: dict) -> None:
-    request = httpx.Request("POST", "https://example.invalid")
-    decision = classify_model_error(
-        openai.BadRequestError(
-            "Invalid request parameters",
-            response=httpx.Response(400, request=request),
-            body=body,
-        ),
-    )
-
-    assert decision.kind == "content_safety"
-    assert decision.retryable is False
-    assert decision.fallback_eligible is False
-
-
-@pytest.mark.parametrize(
     "error_factory",
     [
         lambda request: httpx.ConnectError(

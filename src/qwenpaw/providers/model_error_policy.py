@@ -63,47 +63,6 @@ class ModelErrorDecision:
     fallback_eligible: bool
 
 
-def is_content_safety_error(exc: Exception) -> bool:
-    """Recognize provider content filtering from structured or text errors."""
-    codes = [getattr(exc, "code", None), getattr(exc, "type", None)]
-    body = getattr(exc, "body", None)
-    if isinstance(body, dict):
-        for error in (body, body.get("error")):
-            if isinstance(error, dict):
-                codes.extend((error.get("code"), error.get("type")))
-    safety_codes = (
-        "content_filter",
-        "data_inspection_failed",
-        "datainspectionfailed",
-    )
-    if any(
-        isinstance(code, str) and code.lower() in safety_codes
-        for code in codes
-    ):
-        return True
-
-    message = str(exc).lower()
-    return any(
-        marker in message
-        for marker in (
-            "new_sensitive",
-            "image is sensitive",
-            "sensitive content",
-            "content sensitivity",
-            "content policy",
-            "content_policy",
-            "content safety",
-            "content_safety",
-            "safety_filter",
-            "moderation",
-            "inappropriate content",
-            "data_inspection_failed",
-            "datainspectionfailed",
-            "(1026)",
-        )
-    )
-
-
 def classify_model_error(exc: Exception) -> ModelErrorDecision:
     """Classify whether a model error may retry or cross-model fallback."""
     status = extract_status_code(exc)
@@ -135,7 +94,19 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         )
     ):
         kind = "context_overflow"
-    elif is_content_safety_error(exc):
+    elif any(
+        marker in message
+        for marker in (
+            "content policy",
+            "content_policy",
+            "content safety",
+            "safety_filter",
+            "moderation",
+            "inappropriate content",
+            "data_inspection_failed",
+            "datainspectionfailed",
+        )
+    ):
         kind = "content_safety"
     elif status is not None and 400 <= status < 500:
         kind = "bad_request"
