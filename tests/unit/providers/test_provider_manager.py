@@ -4269,3 +4269,159 @@ async def test_agentscope_platform_configuration_reloads(isolated_secret_dir):
     assert restored.meta[f"api_key_url"] == (
         f"https://platform.agentscope.io/model-calls"
     )
+
+
+def test_custom_provider_prompt_cache_declaration_from_json(
+    isolated_secret_dir,
+) -> None:
+    """A custom provider JSON may declare OpenAI prompt cache support.
+
+    The declaration is a real persisted field: it is read back from the
+    provider file and unblocks ``prompt_cache_key`` on a
+    non-api.openai.com gateway without touching the class-level
+    ``cache_modes``. How the declaration reacts to a provider update is
+    covered by the two tests below.
+    """
+    custom_path = isolated_secret_dir / "providers" / "custom"
+    custom_path.mkdir(parents=True, exist_ok=True)
+    (custom_path / "my-gateway.json").write_text(
+        json.dumps(
+            {
+                "id": "my-gateway",
+                "name": "My Gateway",
+                "base_url": "https://gateway.example.com/v1",
+                "api_key": "sk-test",
+                "chat_model": "OpenAIResponseModel",
+                "is_custom": True,
+                "supports_openai_prompt_cache": True,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider("my-gateway")
+    assert provider is not None
+    assert provider.supports_openai_prompt_cache is True
+    assert provider.cache_capabilities("gpt-x") == frozenset({"openai"})
+
+    prepared = provider.prepare_request(
+        "gpt-x",
+        "responses",
+        {"prompt_cache_key": "my-stable-key"},
+    )
+    assert prepared["prompt_cache_key"] == "my-stable-key"
+
+
+def test_custom_provider_without_declaration_keeps_gate_closed(
+    isolated_secret_dir,
+) -> None:
+    """A legacy custom provider JSON keeps the wire-level gate closed."""
+    custom_path = isolated_secret_dir / "providers" / "custom"
+    custom_path.mkdir(parents=True, exist_ok=True)
+    (custom_path / "my-gateway.json").write_text(
+        json.dumps(
+            {
+                "id": "my-gateway",
+                "name": "My Gateway",
+                "base_url": "https://gateway.example.com/v1",
+                "api_key": "sk-test",
+                "chat_model": "OpenAIResponseModel",
+                "is_custom": True,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider("my-gateway")
+    assert provider is not None
+    assert provider.supports_openai_prompt_cache is False
+    with pytest.raises(ValueError, match="Unsupported cache control"):
+        provider.prepare_request(
+            "gpt-x",
+            "responses",
+            {"prompt_cache_key": "my-stable-key"},
+        )
+
+
+def _write_custom_gateway(secret_dir, **overrides) -> None:
+    """Write a custom provider file that declares prompt cache support."""
+    custom_path = secret_dir / "providers" / "custom"
+    custom_path.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "id": "my-gateway",
+        "name": "My Gateway",
+        "base_url": "https://gateway.example.com/v1",
+        "api_key": "sk-test",
+        "chat_model": "OpenAIResponseModel",
+        "is_custom": True,
+        "supports_openai_prompt_cache": True,
+    }
+    payload.update(overrides)
+    (custom_path / "my-gateway.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+
+def test_custom_provider_prompt_cache_declaration_dropped_on_url_change(
+    isolated_secret_dir,
+) -> None:
+    """A Base URL change drops the endpoint capability declaration.
+
+    The declaration describes one gateway: the one behind ``base_url``.
+    Keeping it across a Base URL change would apply the old gateway's
+    capability to a new one that may reject the prompt cache parameters
+    upstream, so the update clears it and the persisted provider file
+    carries the cleared declaration.
+    """
+    _write_custom_gateway(isolated_secret_dir)
+
+    manager = ProviderManager()
+    provider = manager.get_provider("my-gateway")
+    assert provider is not None
+    assert provider.supports_openai_prompt_cache is True
+
+    assert manager.update_provider(
+        "my-gateway",
+        {"base_url": "https://other-gateway.example.com/v1"},
+    )
+
+    # The declaration is gone in memory and in the persisted file.
+    reloaded = ProviderManager().get_provider("my-gateway")
+    assert reloaded is not None
+    assert reloaded.base_url == "https://other-gateway.example.com/v1"
+    assert reloaded.supports_openai_prompt_cache is False
+    with pytest.raises(ValueError, match="Unsupported cache control"):
+        reloaded.prepare_request(
+            "gpt-x",
+            "responses",
+            {"prompt_cache_key": "my-stable-key"},
+        )
+
+
+def test_custom_provider_prompt_cache_declaration_kept_on_other_updates(
+    isolated_secret_dir,
+) -> None:
+    """An update that leaves the endpoint alone keeps the declaration.
+
+    The declaration belongs to the endpoint, so only a Base URL change
+    invalidates it; a rename or any other field must not silently close
+    the prompt cache gate of a gateway the user has verified.
+    """
+    _write_custom_gateway(isolated_secret_dir)
+
+    manager = ProviderManager()
+    assert manager.update_provider("my-gateway", {"name": "Renamed Gateway"})
+
+    reloaded = ProviderManager().get_provider("my-gateway")
+    assert reloaded is not None
+    assert reloaded.name == "Renamed Gateway"
+    assert reloaded.supports_openai_prompt_cache is True
+    prepared = reloaded.prepare_request(
+        "gpt-x",
+        "responses",
+        {"prompt_cache_key": "my-stable-key"},
+    )
+    assert prepared["prompt_cache_key"] == "my-stable-key"
