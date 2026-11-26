@@ -715,7 +715,10 @@ class TestEnvironmentIdentity:
         alias = tmp_path / "caseparent" / "casesite"
         if alias_kind == "symlink":
             alias = tmp_path / "alias"
-            alias.symlink_to(site, target_is_directory=True)
+            try:
+                alias.symlink_to(site, target_is_directory=True)
+            except OSError:  # WinError 1314 without the symlink privilege
+                pytest.skip("requires symlink creation privilege")
         elif alias_kind == "case":
             if not alias.exists() or not alias.samefile(site):
                 pytest.skip("requires a case-insensitive filesystem")
@@ -784,16 +787,17 @@ async def test_reader_admission_waits_for_publication(tmp_path, outcome):
     import sys
 
     from qwenpaw.plugins import dependency_maintenance as maintenance
+    from .timing import WAIT_TIMEOUT
 
     site = tmp_path / "site"
     site.mkdir()
-    source = str(Path(lock_mod.__file__).resolve().parents[2])
-    script = (
-        f"import sys\nsys.path.insert(0, {source!r})\n"
-        + """
+    script = """import importlib.util
+import sys
 from pathlib import Path
-from qwenpaw.plugins import dependency_maintenance as m
-site = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+site = Path(sys.argv[2])
 original = m._try_lock
 attempts = 0
 def observed(fd):
@@ -814,14 +818,18 @@ except RuntimeError as exc:
 finally:
     m._close_readers()
 """
-    )
     peer = None
     repair = maintenance.repair_marker(site)
     barrier = maintenance.marker(site)
 
     async def line():
         return (
-            (await asyncio.wait_for(peer.stdout.readline(), 5))
+            (
+                await asyncio.wait_for(
+                    peer.stdout.readline(),
+                    WAIT_TIMEOUT,
+                )
+            )
             .decode()
             .strip()
         )
@@ -844,6 +852,7 @@ finally:
                 "-I",
                 "-c",
                 script,
+                maintenance.__file__,
                 str(site),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -877,12 +886,20 @@ finally:
             )
             assert await line() == expected
             readers = maintenance.live_readers([site])
-            assert [row["pid"] for row in readers] == (
-                [peer.pid] if outcome == "success" else []
-            )
+            if _WINDOWS:
+                # The venv launcher reports peer.pid for the launcher, while
+                # the lease filename records the interpreter's os.getpid().
+                assert len(readers) == (1 if outcome == "success" else 0)
+            else:
+                assert [row["pid"] for row in readers] == (
+                    [peer.pid] if outcome == "success" else []
+                )
             if outcome == "success":
                 await resume()
-        _stdout, stderr = await asyncio.wait_for(peer.communicate(), 5)
+        _stdout, stderr = await asyncio.wait_for(
+            peer.communicate(),
+            WAIT_TIMEOUT,
+        )
         assert peer.returncode == 0, stderr.decode()
         assert not maintenance.live_readers([site])
     finally:
@@ -1057,9 +1074,19 @@ m._close_readers()
                     )
                     == b"READY\n"
                 )
-                assert sorted(
-                    row["pid"] for row in maintenance.live_readers([site])
-                ) == sorted([os.getpid(), peer.pid])
+                if _WINDOWS:
+                    # peer.pid is the venv launcher, not the interpreter
+                    # that owns the lease (see the reader-admission test).
+                    assert (
+                        len(
+                            maintenance.live_readers([site]),
+                        )
+                        == 2
+                    )
+                else:
+                    assert sorted(
+                        row["pid"] for row in maintenance.live_readers([site])
+                    ) == sorted([os.getpid(), peer.pid])
                 peer.stdin.write(b"RELEASE\n")
                 await peer.stdin.drain()
                 _, error = await asyncio.wait_for(

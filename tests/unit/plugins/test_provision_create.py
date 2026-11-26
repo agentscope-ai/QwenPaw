@@ -19,9 +19,20 @@ def create_paths(tmp_path, monkeypatch):
     return source, tmp_path / "target"
 
 
+def _skip_without_symlink_privilege(where: Path) -> None:
+    """Windows needs admin or Developer Mode to create symlinks."""
+    probe = where / ".symlink-probe"
+    try:
+        probe.symlink_to(where, target_is_directory=True)
+    except OSError:
+        pytest.skip("requires symlink creation privilege")
+    probe.unlink()
+
+
 @pytest.mark.parametrize("kind", ["directory", "file"])
 def test_api_preserves_absolute_symlink_location(create_paths, kind):
     source, target = create_paths
+    _skip_without_symlink_privilege(target.parent)
     user = target.with_name("user")
     if kind == "directory":
         user.mkdir()
@@ -144,6 +155,8 @@ def test_publish_does_not_replace_a_target_created_after_the_check(
     source, target = create_paths
     if kind != "directory":
         source = source / "factory.txt"
+    if kind == "dangling-link":
+        _skip_without_symlink_privilege(target.parent)
     original_publish = provision._rename_noreplace
     competitor = {}
 
