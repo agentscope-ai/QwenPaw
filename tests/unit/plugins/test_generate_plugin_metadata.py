@@ -302,7 +302,7 @@ def test_zip_plugin_without_manifest_packs_everything(
 
 def _copy_harness_plugins(root: Path) -> Path:
     plugins_root = root / "plugins"
-    for vendor in ("codex", "qoder"):
+    for vendor in ("codex", "qoder", "agy"):
         shutil.copytree(
             REPO_ROOT / "plugins" / "harness" / vendor,
             plugins_root / "harness" / vendor,
@@ -331,7 +331,7 @@ def test_real_harness_archives_contain_own_entries_and_frontends(
     index, failed = discover_and_pack(plugins_root, dist, "/files/plugins")
 
     assert not failed
-    expected = {"codex", "qoder"}
+    expected = {"codex", "qoder", "agy"}
     assert set(index["platforms"]["harness"]["versions"]) == {
         f"qwenpaw-harness-{vendor}-1.0.0" for vendor in expected
     }
@@ -358,9 +358,9 @@ def test_real_harness_archives_contain_own_entries_and_frontends(
         assert not any(
             name.startswith(f"{plugin_id}/tests/") for name in names
         )
-        other = (expected - {vendor}).pop()
-        assert not any(other in name for name in names)
-        assert other not in requirements
+        for other in expected - {vendor}:
+            assert not any(other in name for name in names)
+            assert other not in requirements
         assert index["files"][f"{plugin_id}-1.0.0"]["platform"] == "harness"
 
 

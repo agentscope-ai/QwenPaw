@@ -85,6 +85,7 @@ jobs:
           --plugins-root plugins --dist dist/plugins
           --metadata-out dist/plugins/index.json --cdn-prefix /files/plugins
           --only qwenpaw-harness-codex --only qwenpaw-harness-qoder
+          --only qwenpaw-harness-agy
       - uses: actions/upload-artifact@v4
         with:
           name: harness-plugin-archives
@@ -116,7 +117,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        vendor: [codex, qoder]
+        vendor: [codex, qoder, agy]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -153,16 +154,22 @@ jobs:
           from pathlib import Path
           import subprocess
 
-          if os.environ["HARNESS_VENDOR"] == "codex":
+          vendor = os.environ["HARNESS_VENDOR"]
+          if vendor == "codex":
               from codex_cli_bin import bundled_codex_path
               binary = Path(bundled_codex_path())
               assert importlib.util.find_spec("qoder_agent_sdk") is None
               importlib.import_module("openai_codex")
-          else:
+          elif vendor == "qoder":
               module = importlib.import_module("qoder_agent_sdk")
               name = "qodercli.exe" if os.name == "nt" else "qodercli"
               binary = Path(module.__file__).parent / "_bundled" / name
               assert importlib.util.find_spec("openai_codex") is None
+          else:
+              importlib.import_module("acp")
+              assert importlib.util.find_spec("openai_codex") is None
+              assert importlib.util.find_spec("qoder_agent_sdk") is None
+              raise SystemExit(0)
           assert binary.is_file() and os.access(binary, os.X_OK), binary
           result = subprocess.run([str(binary), "--version"], check=True,
                                   capture_output=True, text=True, timeout=30)

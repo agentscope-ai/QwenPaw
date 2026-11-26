@@ -414,6 +414,7 @@ def _validate_declared_entries(
     if plugin_dir.resolve() in {
         harness_root / "codex",
         harness_root / "qoder",
+        harness_root / "agy",
     }:
         helpers = runpy.run_path(
             str(Path(__file__).with_name("sync_harness_helpers.py")),

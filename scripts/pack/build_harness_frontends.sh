@@ -8,7 +8,7 @@ SDK_DIR="${REPO_ROOT}/src/qwenpaw/plugins/frontend"
 for frontend_dir in "${REPO_ROOT}"/plugins/harness/*/frontend; do
     [[ -d "$frontend_dir" ]] || continue
     vendor="$(basename "$(dirname "$frontend_dir")")"
-    if [[ "$vendor" == codex || "$vendor" == qoder ]]; then
+    if [[ "$vendor" == codex || "$vendor" == qoder || "$vendor" == agy ]]; then
         python "${REPO_ROOT}/scripts/pack/sync_harness_helpers.py" \
             --check --plugin "$vendor"
     fi

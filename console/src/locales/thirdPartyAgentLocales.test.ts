@@ -11,7 +11,11 @@ import zh from "./zh.json";
 const pluginLocales = import.meta.glob<{
   localMessages(locale: string): Record<string, string>;
 }>("../../../plugins/harness/*/frontend/src/locale.ts", { eager: true });
-const [codexMessages, qoderMessages] = ["codex", "qoder"].map(
+const [codexMessages, qoderMessages, agyMessages] = [
+  "codex",
+  "qoder",
+  "agy",
+].map(
   (backend) =>
     pluginLocales[`../../../plugins/harness/${backend}/frontend/src/locale.ts`]
       .localMessages,
@@ -127,6 +131,7 @@ describe("third-party agent locale coverage", () => {
       for (const messages of [
         codexMessages(localeName),
         qoderMessages(localeName),
+        agyMessages(localeName),
       ]) {
         for (const key of [
           "hint",

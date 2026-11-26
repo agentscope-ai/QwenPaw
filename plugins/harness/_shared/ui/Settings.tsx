@@ -22,7 +22,12 @@ export interface HarnessStatus {
   authenticated: boolean;
   runtime_path?: string | null;
   error?: string | null;
-  account?: { type?: string; email?: string; username?: string } | null;
+  account?: {
+    type?: string;
+    email?: string;
+    username?: string;
+    plan?: string;
+  } | null;
   capabilities?: {
     qwenpaw_skills_projection?: boolean;
     qwenpaw_mcp_projection?: boolean;
@@ -91,7 +96,10 @@ export function Settings({
     copyPath,
   } = useHarnessConnection({ value, open, backendId, text, loginMode });
   const binaryId = React.useId();
-  const identity = status?.account?.email ?? status?.account?.username;
+  const identity =
+    status?.account?.email ??
+    status?.account?.username ??
+    status?.account?.plan;
   const kind = status?.account?.type;
   const token = kind === "apiKey" || kind === "accessToken";
   const account = token
