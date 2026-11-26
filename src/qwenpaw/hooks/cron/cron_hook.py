@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from ..base import LifecycleHook
 from ...runtime.hooks import HookContext, HookResult
@@ -84,8 +85,7 @@ class CronMemoryRestoreHook(LifecycleHook):
     """Restore snapshotted context and append new messages produced by
     the current cron run.
 
-    Must run at POST_RESPONSE *before* SessionSaveHook (priority 90)
-    so ``state_dict()`` captures the full history when persisted.
+    Scheduled usage is estimated and history restored in SessionSaveHook.
     """
 
     phase = Phase.POST_RESPONSE
@@ -93,8 +93,16 @@ class CronMemoryRestoreHook(LifecycleHook):
     priority = 80
 
     async def run(self, ctx: HookContext) -> HookResult:
-        restore_cron_context(ctx)
+        from ...token_usage.model_wrapper import has_isolated_turn_usage
+
+        if not has_isolated_turn_usage():
+            restore_cron_context(ctx)
         return HookResult()
+
+
+def archived_cron_messages(ctx: HookContext) -> list[Any]:
+    """Return messages hidden from the model for an independent cron run."""
+    return ctx.extras.get(_CRON_CONTEXT_SNAPSHOT_KEY, [])
 
 
 def restore_cron_context(ctx: HookContext) -> None:
