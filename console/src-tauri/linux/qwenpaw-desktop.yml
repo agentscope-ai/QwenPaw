@@ -4,7 +4,7 @@
 # them, so tests/unit/tauri checks this file against its parser's rules.
 ---
 File: DEP-11
-Version: '1.0'
+Version: "1.0"
 Origin: qwenpaw-desktop
 ---
 Type: desktop-application
@@ -18,4 +18,4 @@ Icon:
   stock: qwenpaw-desktop
 Launchable:
   desktop-id:
-  - QwenPaw Desktop.desktop
+    - QwenPaw Desktop.desktop
