@@ -104,6 +104,58 @@ def test_live_registered_process_prevents_final_receipt():
             child.communicate(input=b"")
 
 
+def test_backend_exiting_after_poll_is_reaped(tmp_path, monkeypatch):
+    stopping = tmp_path / "stopping"
+    script = textwrap.dedent(
+        """
+        import signal
+        import sys
+        from pathlib import Path
+        from qwenpaw.process_ownership import backend_instance
+
+        stopping = Path(sys.argv[1])
+        signal.signal(signal.SIGTERM, lambda *_: stopping.touch())
+        with backend_instance() as record_failure:
+            print("ready", flush=True)
+            sys.stdin.read()
+            record_failure()
+        sys.exit(1)
+        """,
+    )
+    with subprocess.Popen(
+        [sys.executable, "-c", script, str(stopping)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as backend:
+        assert backend.stdout.readline().strip() == "ready"
+        root = psutil.Process(backend.pid)
+        poll = backend.poll
+
+        def exit_after_poll():
+            code = poll()
+            if code is None and stopping.exists():
+                # Let the child exit just after this waitpid observation.
+                backend.stdin.close()
+                deadline = time.monotonic() + 5
+                while root.status() != psutil.STATUS_ZOMBIE:
+                    assert time.monotonic() < deadline
+                    time.sleep(0.01)
+            return code
+
+        monkeypatch.setattr(backend, "poll", exit_after_poll)
+        with ownership.observe_backend(root) as receipt:
+            result = _terminate_pid(
+                root.pid,
+                process=backend,
+                backend=True,
+            )
+            assert result is ShutdownOutcome.FAILED
+            assert receipt.members(set()) == (set(), True)
+            assert (receipt.failed, receipt.closed) == (True, False)
+            assert backend.returncode == 1
+
+
 @pytest.mark.parametrize("survivor", [False, True])
 def test_corrupt_journal_does_not_skip_known_processes(monkeypatch, survivor):
     script = textwrap.dedent(

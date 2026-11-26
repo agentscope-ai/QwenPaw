@@ -284,9 +284,12 @@ def _stop_observed_backend(
                     discovered.update(descendants(member))
             pending.update(discovered)
             known.update(pending)
-            if process is not None:
-                process.poll()  # Reap the desktop wrapper's direct child.
             for member in tuple(pending):
+                if process is not None and member == root:
+                    # A direct child stays pending until Popen reaps it.
+                    if process.poll() is not None:
+                        pending.remove(member)
+                    continue
                 try:
                     if member.is_running() and member.status() not in (
                         psutil.STATUS_ZOMBIE,
