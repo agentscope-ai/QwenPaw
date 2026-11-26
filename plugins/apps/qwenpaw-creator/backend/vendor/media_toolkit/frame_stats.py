@@ -21,13 +21,19 @@ EFFECTIVE bit depth of the frame content (flat synthetic frames read as
 low as 3), which would inflate the normalization on real >=8-bit sources;
 ffmpeg runs with stdin detached — inside a background service process an
 ffmpeg reading the tty is suspended by SIGTTIN together with its whole
-process group (the upstream script only ever ran in a foreground shell).
+process group (the upstream script only ever ran in a foreground shell);
+both binaries resolve through Creator's documented dependency contract
+(``CREATOR_FFMPEG_PATH`` / ``CREATOR_FFPROBE_PATH`` -> PATH -> bundled
+imageio-ffmpeg) instead of a bare ``ffmpeg`` on PATH, because hosts that
+rely on the declared plugin.json contract have no system ffmpeg (issue
+#8592).
 Metadata is read from stdout to avoid temporary-handle leaks and Windows
 drive letters being interpreted as FFmpeg filter option separators.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -45,12 +51,39 @@ class FrameStatsError(RuntimeError):
     """Raised when signalstats sampling cannot produce evidence."""
 
 
+def _require_tool(name: str) -> str:
+    """Resolve ``ffmpeg``/``ffprobe`` through Creator's binary contract.
+
+    ``CREATOR_FFMPEG_PATH`` / ``CREATOR_FFPROBE_PATH`` and the bundled
+    imageio-ffmpeg fallback own the contract; a bare PATH lookup is only
+    the last resort.  The import stays lazy so this vendored module keeps
+    working standalone.
+    """
+    try:
+        from services.runtime_files import runtime_dependencies
+    except ImportError:  # pragma: no cover - standalone vendored use
+        runtime_dependencies = None
+    if runtime_dependencies is not None:
+        resolver = (
+            runtime_dependencies.resolve_ffprobe
+            if name == "ffprobe"
+            else runtime_dependencies.resolve_ffmpeg
+        )
+        resolved = resolver()
+        if resolved:
+            return resolved
+    fallback = shutil.which(name)
+    if fallback:
+        return fallback
+    raise FrameStatsError(f"{name} is required for frame statistics")
+
+
 def probe_duration(path: Path) -> float:
     try:
         out = (
             subprocess.check_output(
                 [
-                    "ffprobe",
+                    _require_tool("ffprobe"),
                     "-v",
                     "error",
                     "-show_entries",
@@ -126,7 +159,7 @@ def _run_signalstats(
     try:
         result = subprocess.run(
             [
-                "ffmpeg",
+                _require_tool("ffmpeg"),
                 "-y",
                 "-hide_banner",
                 "-nostats",

@@ -147,7 +147,17 @@ function detectMarketSource(url: string): string | null {
   return null;
 }
 
-export default function SkillsConfigPane() {
+interface SkillsConfigPaneProps {
+  /**
+   * Receives the pane's list refresh (null on unmount) so the model-config
+   * footer's "Reload Config" can re-pull the list while this pane is open.
+   */
+  onRefreshReady?: (refresh: (() => Promise<void>) | null) => void;
+}
+
+export default function SkillsConfigPane({
+  onRefreshReady,
+}: SkillsConfigPaneProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<SkillItem[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -186,6 +196,13 @@ export default function SkillsConfigPane() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // "Reload Config" lives in ModelConfigModal while the list state lives
+  // here, so hand the current refresh up and drop it again on unmount.
+  useEffect(() => {
+    onRefreshReady?.(refresh);
+    return () => onRefreshReady?.(null);
+  }, [onRefreshReady, refresh]);
 
   const openCreate = () => {
     editSeqRef.current += 1;

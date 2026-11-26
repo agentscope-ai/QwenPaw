@@ -30,8 +30,7 @@ def test_wan_upload_receives_native_file_path(tmp_path, monkeypatch, name):
         return "oss://test/cat.jpg"
 
     monkeypatch.setattr(
-        video_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         upload,
     )
     assert asyncio.run(

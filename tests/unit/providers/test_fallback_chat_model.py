@@ -108,8 +108,8 @@ class FormattingFakeModel(FakeModel):
 class HttpError(Exception):
     """Exception carrying an HTTP status."""
 
-    def __init__(self, status_code: int) -> None:
-        super().__init__(f"HTTP {status_code}")
+    def __init__(self, status_code: int, message: str | None = None) -> None:
+        super().__init__(message or f"HTTP {status_code}")
         self.status_code = status_code
 
 
@@ -244,6 +244,68 @@ async def test_falls_back_when_primary_model_is_not_found() -> None:
             "reason_kind": "model_not_found",
         },
     ]
+
+
+async def test_falls_back_when_primary_quota_returns_http_400() -> None:
+    primary = FakeModel(
+        "primary",
+        HttpError(400, "quota exceeded"),
+        provider_id="primary-provider",
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _response("fallback-ok"),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.content[0]["text"] == "fallback-ok"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+    assert response.metadata["qwenpaw_model_fallbacks"] == [
+        {
+            "type": "model_fallback",
+            "from_provider_id": "primary-provider",
+            "from_model_id": "primary",
+            "to_provider_id": "fallback-provider",
+            "to_model_id": "fallback",
+            "reason_kind": "quota_exceeded",
+        },
+    ]
+
+
+async def test_quota_400_falls_back_without_retrying_primary() -> None:
+    _limiters.clear()
+    try:
+        primary = FakeModel("primary", HttpError(400, "quota exceeded"))
+        retried_primary = RetryChatModel(
+            primary,
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=3,
+                backoff_base=0.1,
+                backoff_cap=0.1,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+        fallback = FakeModel("fallback", lambda: _response("fallback-ok"))
+        model = FallbackChatModel([retried_primary, fallback])
+
+        response = await model(messages=[], tools=[])
+
+        assert response.content[0]["text"] == "fallback-ok"
+        assert primary.calls == 1
+        assert fallback.calls == 1
+    finally:
+        _limiters.clear()
 
 
 @pytest.mark.parametrize(

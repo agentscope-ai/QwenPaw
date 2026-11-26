@@ -383,7 +383,13 @@ def admission_guard(
                 # pylint: disable-next=protected-access
                 store._check_operation(state, manual.operation)
         if node_id is not None and node_id in state.node_ids:
-            raise ManualHoldConflict("节点等待手动重新生成或继续制作")
+            raise ManualHoldConflict(
+                "节点等待手动重新生成或继续制作",
+                details={
+                    "code": "MANUAL_REGENERATION_HOLD",
+                    "nodeId": node_id,
+                },
+            )
         yield
 
 

@@ -52,6 +52,10 @@ def create_app(provider):
     app = PawApp("Local models", app_id="local-models")
     run_sync = run_io
 
+    @app.route("/diagnostics")
+    async def diagnostics(_context, _request):
+        return HttpResponse(provider.runtime_status())
+
     def route(path, methods=("GET",), *, body=None):
         def decorate(handler):
             @wraps(handler)
@@ -245,8 +249,13 @@ def create_app(provider):
         }
 
     @route("/models/{model_id:path}", ("DELETE",))
+    @route("/models", ("DELETE",))
     async def delete(request, _manager):
-        model_id = request.path_params["model_id"]
+        model_id = request.path_params.get("model_id") or request.query.get(
+            "model_id",
+        )
+        if not model_id:
+            raise ApiError(400, "A model ID is required")
         try:
             await provider.remove_downloaded_model(model_id)
         except SDKError as exc:

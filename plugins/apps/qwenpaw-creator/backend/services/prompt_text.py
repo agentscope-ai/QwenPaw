@@ -90,24 +90,34 @@ _NON_SPEECH_PREFIX = re.compile(
 )
 
 
+def _quoted_speech(text: str) -> tuple[str, ...]:
+    lines: list[str] = []
+    for match in _QUOTED_TEXT.finditer(text):
+        prefix = re.split(r"[。！？!?\n]", text[: match.start()])[-1]
+        cues = list(_SPEECH_CUE.finditer(prefix))
+        if cues and not _NON_SPEECH_PREFIX.search(prefix[: cues[-1].start()]):
+            lines.append(
+                next(value for value in match.groups() if value).strip(),
+            )
+    return tuple(lines)
+
+
 def missing_narrative_dialogue(
     narrative: str,
     video_prompt: str,
 ) -> tuple[str, ...]:
-    """Only explicit quoted speech is enforceable; titles/signs are not speech.
-
-    Free-form action and unquoted prose remain semantic review concerns. This
-    check neither prescribes how much dialogue a story needs nor reads shots.
-    """
+    """Validate quoted speech, allowing pauses between spoken segments."""
     prompt_key = dialogue_match_key(video_prompt)
+    spoken_key = re.sub(
+        r"[.,!?:;]",
+        "",
+        dialogue_match_key("".join(_quoted_speech(video_prompt))),
+    )
     missing: list[str] = []
-    for match in _QUOTED_TEXT.finditer(narrative):
-        prefix = re.split(r"[。！？!?\n]", narrative[: match.start()])[-1]
-        cues = list(_SPEECH_CUE.finditer(prefix))
-        if not cues or _NON_SPEECH_PREFIX.search(prefix[: cues[-1].start()]):
-            continue
-        line = next(value for value in match.groups() if value).strip()
+    for line in _quoted_speech(narrative):
         key = dialogue_match_key(line).strip(".,!?:;")
         if key and key not in prompt_key:
-            missing.append(line)
+            # A pause may split one line into several spoken quotes.
+            if re.sub(r"[.,!?:;]", "", key) not in spoken_key:
+                missing.append(line)
     return tuple(dict.fromkeys(missing))

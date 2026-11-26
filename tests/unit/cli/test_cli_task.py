@@ -423,7 +423,11 @@ def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
 # ── _run_task ────────────────────────────────────────────────────────
 
 
-async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
+@pytest.mark.parametrize("outcome", ["success", "error", "timeout"])
+async def test_run_task_sends_a_valid_user_message(
+    monkeypatch,
+    outcome,
+) -> None:
     """``_run_task`` must build a message AgentScope 2.0 accepts.
 
     ``Msg.content`` is typed ``list[ContentBlock]``, so a bare string
@@ -439,14 +443,22 @@ async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
     class _FakeAgent:
         model = None
 
+        async def close(self):
+            captured["closed"] = True
+
         async def reply(self, msgs):
             captured["msgs"] = list(msgs)
+            if outcome == "error":
+                raise RuntimeError("model failed")
+            if outcome == "timeout":
+                raise TimeoutError()
             reply = MagicMock()
             reply.get_text_content.return_value = "done"
             return reply
 
     class _FakeBuilder:
-        async def build(self, _ctx):
+        async def build(self, ctx):
+            captured["ctx"] = ctx
             return _FakeAgent()
 
     monkeypatch.setattr(
@@ -457,15 +469,21 @@ async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
     result = await _run_task(
         instruction="do the thing",
         agent_config=AgentProfileConfig(id="default", name="Default"),
-        request_context={},
+        request_context={"_headless_tool_guard": "false"},
         max_iters=1,
         timeout=30,
         output_dir=None,
     )
 
-    assert result["status"] == "success"
-    assert result["response"] == "done"
+    assert result["status"] == outcome
+    assert result["response"] == ("done" if outcome == "success" else "")
     msg = captured["msgs"][0]
     assert msg.role == "user"
     assert msg.content[0].type == "text"
     assert msg.content[0].text == "do the thing"
+
+    assert captured["ctx"].agent_config.running.max_iters == 1
+    assert captured["ctx"].request.request_context == {
+        "_headless_tool_guard": "false",
+    }
+    assert captured["closed"]

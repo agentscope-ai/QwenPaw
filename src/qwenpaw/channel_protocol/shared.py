@@ -35,6 +35,7 @@ from .models import _identity_from_fields
 from .requirements import canonicalize_requirements
 
 SHARED_PROTOCOL_VERSION = 2
+_DESCRIPTOR_DEPENDENCY_FIELDS = {2: "requirements_file", 3: "requires"}
 _DESCRIPTOR_FIELDS = frozenset(
     {
         "schema_version",
@@ -113,7 +114,7 @@ def _schema_json_copy(schema: Mapping) -> dict:
 
 @dataclass(frozen=True)
 class SharedChannelDescriptor:
-    """Candidate schema v2, independent of dedicated environment hashes."""
+    """Static channel contract with file or named package requirements."""
 
     channel_key: str
     label: Mapping[str, str]
@@ -124,24 +125,47 @@ class SharedChannelDescriptor:
     schema_version: int = 2
     process_mode: str = "runner_process"
     dependency_mode: str = "shared"
-    requirements_file: str = "requirements.txt"
+    requirements_file: str | None = "requirements.txt"
+    requires: tuple[str, ...] = ()
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> SharedChannelDescriptor:
         """Read a closed descriptor without importing its implementation."""
-        data = _closed_object(value, _DESCRIPTOR_FIELDS)
+        version = (
+            value.get("schema_version") if isinstance(value, Mapping) else None
+        )
         if (
-            type(data["schema_version"]) is not int
-            or data["schema_version"] != 2
+            type(version) is not int
+            or version not in _DESCRIPTOR_DEPENDENCY_FIELDS
         ):
-            raise DescriptorValidationError("schema_version must be integer 2")
+            raise DescriptorValidationError(
+                "schema_version must be integer 2 or 3",
+            )
+        fields = (_DESCRIPTOR_FIELDS - {"requirements_file"}) | {
+            _DESCRIPTOR_DEPENDENCY_FIELDS[version],
+        }
+        data = _closed_object(value, fields)
         for name, expected in (
             ("process_mode", "runner_process"),
             ("dependency_mode", "shared"),
-            ("requirements_file", "requirements.txt"),
         ):
             if data[name] != expected:
                 raise DescriptorValidationError(f"{name} must be {expected}")
+        if (
+            "requirements_file" in data
+            and data["requirements_file"] != "requirements.txt"
+        ):
+            raise DescriptorValidationError(
+                "requirements_file must be requirements.txt",
+            )
+        requires = data.get("requires", [])
+        if not isinstance(requires, list) or any(
+            not isinstance(name, str) or not name or name != name.strip()
+            for name in requires
+        ):
+            raise DescriptorValidationError(
+                "requires must name optional dependencies",
+            )
         label = _localized_text(data["label"], "label")
         if not isinstance(label, Mapping) or not all(
             label.get(k) for k in ("en", "zh")
@@ -181,6 +205,9 @@ class SharedChannelDescriptor:
             config_schema=_schema_json_copy(schema),
             config_fields=tuple(fields),
             capabilities=capabilities,
+            schema_version=version,
+            requirements_file=data.get("requirements_file"),
+            requires=tuple(requires),
         )
 
     @classmethod
@@ -202,11 +229,41 @@ class SharedChannelDescriptor:
             "process_mode": self.process_mode,
             "dependency_mode": self.dependency_mode,
             "entrypoint": self.entrypoint.to_mapping(),
-            "requirements_file": self.requirements_file,
+            **(
+                {"requirements_file": self.requirements_file}
+                if self.requirements_file is not None
+                else {"requires": list(self.requires)}
+            ),
             "config_schema": _schema_json_copy(self.config_schema),
             "config_fields": list(self.config_fields),
             "capabilities": list(self.capabilities),
         }
+
+    def read_requirements(self, code_root: Path, descriptor_path: Path):
+        """Resolve source declarations identically in the host and worker."""
+        root = Path(code_root).resolve()
+        path = (
+            Path(descriptor_path).parent / self.requirements_file
+            if self.requirements_file is not None
+            else root / "plugin.json"
+        ).resolve(strict=True)
+        if not path.is_relative_to(root):
+            raise DescriptorValidationError("Dependencies outside code root")
+        if self.requirements_file is not None:
+            return _read_requirements(path)
+        from ..plugins.dependency_requirements import (
+            resolve_optional_dependencies,
+        )
+
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        return canonicalize_requirements(
+            list(
+                resolve_optional_dependencies(
+                    manifest.get("optional_dependencies", {}),
+                    self.requires,
+                ),
+            ),
+        )
 
 
 def _read_requirements(path: str | Path) -> tuple[str, ...]:
@@ -305,9 +362,10 @@ def _dependency_status(
 
 
 def audit_shared_dependencies(
-    requirements_path: str | Path,
+    requirements_path: str | Path | None,
     *,
     versions: Mapping[str, str] | None = None,
+    requirements: tuple[str, ...] | None = None,
 ) -> DependencyAudit:
     """Read requirements and installed metadata; never import SDK modules."""
     environment = default_environment()
@@ -319,8 +377,14 @@ def audit_shared_dependencies(
             for key, value in versions.items()
         }
     )
+    if requirements is None:
+        if requirements_path is None:
+            raise ValueError(
+                "A requirements path or resolved values is required",
+            )
+        requirements = _read_requirements(requirements_path)
     rows = []
-    for value in _read_requirements(requirements_path):
+    for value in requirements:
         requirement = _requirement(value)
         name = str(canonicalize_name(requirement.name))
         installed = None

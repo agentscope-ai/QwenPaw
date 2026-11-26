@@ -217,23 +217,22 @@ class TestListeningPidsForPort:
 
 class TestStopPidSet:
     def test_all_stopped(self, monkeypatch):
-        monkeypatch.setattr(sc, "_terminate_pid", lambda pid, **kw: True)
-        stopped, failed = sc._stop_pid_set({3, 1, 2})
-        assert stopped == [1, 2, 3]  # sorted
-        assert failed == []
+        closed = sc.ShutdownOutcome.CLOSED
+        monkeypatch.setattr(sc, "_terminate_pid", lambda pid, **kw: closed)
+        assert sc._stop_pid_set({3, 1, 2}) == dict.fromkeys([1, 2, 3], closed)
 
     def test_mixed_results(self, monkeypatch):
+        expected = {
+            1: sc.ShutdownOutcome.CLOSED,
+            2: sc.ShutdownOutcome.FAILED,
+            3: sc.ShutdownOutcome.UNVERIFIED,
+        }
         monkeypatch.setattr(
             sc,
             "_terminate_pid",
-            lambda pid, **kw: pid != 2,
+            lambda pid, **kw: expected[pid],
         )
-        stopped, failed = sc._stop_pid_set({1, 2, 3})
-        assert stopped == [1, 3]
-        assert failed == [2]
+        assert sc._stop_pid_set(set(expected)) == expected
 
-    def test_empty_set(self, monkeypatch):
-        monkeypatch.setattr(sc, "_terminate_pid", lambda pid, **kw: True)
-        stopped, failed = sc._stop_pid_set(set())
-        assert stopped == []
-        assert failed == []
+    def test_empty_set(self):
+        assert sc._stop_pid_set(set()) == {}
