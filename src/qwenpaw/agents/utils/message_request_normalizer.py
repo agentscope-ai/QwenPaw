@@ -398,7 +398,10 @@ def _is_empty_media_block(block: Any) -> bool:
     return not data
 
 
-def omitted_media_marker(peers: list[Any]) -> Any:
+def omitted_media_marker(
+    peers: list[Any],
+    text: str = MEDIA_UNSUPPORTED_PLACEHOLDER,
+) -> Any:
     """Return a "media was removed" text item shaped like *peers*.
 
     ``tool_result.output`` holds plain dicts in the 1.x message shape and
@@ -411,8 +414,8 @@ def omitted_media_marker(peers: list[Any]) -> Any:
     answers as if it had seen the image.
     """
     if peers and isinstance(peers[0], dict):
-        return {"type": "text", "text": MEDIA_UNSUPPORTED_PLACEHOLDER}
-    return TextBlock(type="text", text=MEDIA_UNSUPPORTED_PLACEHOLDER)
+        return {"type": "text", "text": text}
+    return TextBlock(type="text", text=text)
 
 
 def _strip_media_blocks_in_place(
@@ -423,6 +426,7 @@ def _strip_media_blocks_in_place(
     document_only: bool = False,
     tool_result_only: bool = False,
     empty_only: bool = False,
+    omission_note: str | None = None,
 ) -> int:
     """Strip media blocks from copied messages only.
 
@@ -435,6 +439,7 @@ def _strip_media_blocks_in_place(
     user-supplied document blocks keep their upstream formatting path.
     With ``empty_only``, only media blocks with a zero-length payload are
     removed (see :func:`_is_empty_media_block`).
+    An explicit ``omission_note`` also marks removals from mixed content.
     """
     total_stripped = 0
     if empty_only:
@@ -448,10 +453,8 @@ def _strip_media_blocks_in_place(
     else:
         should_strip = _is_media_block
 
-    # Only the blanket "this model takes no media at all" strip gets an
-    # explicit omission marker. Targeted strips (audio/video/document) are
-    # deliberate per-modality decisions and keep their current output shape.
-    mark_omission = not (
+    placeholder = omission_note or MEDIA_UNSUPPORTED_PLACEHOLDER
+    mark_tool_omission = omission_note is not None or not (
         empty_only or document_only or audio_only or video_only
     )
 
@@ -460,11 +463,11 @@ def _strip_media_blocks_in_place(
             continue
 
         new_content = []
-        stripped_this_message = 0
+        stripped_top_level = False
         for block in msg.content:
             if should_strip(block) and not tool_result_only:
                 total_stripped += 1
-                stripped_this_message += 1
+                stripped_top_level = True
                 continue
 
             # Handle tool_result with nested media (dict format)
@@ -483,18 +486,17 @@ def _strip_media_blocks_in_place(
                 filtered = [item for item in output if not should_strip(item)]
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
-                stripped_this_message += stripped_count
                 if filtered:
                     replacement: Any = filtered
-                    if stripped_count and mark_omission:
+                    if stripped_count and mark_tool_omission:
                         # Keep the surviving text, but make the omission
                         # explicit: a stale "Image loaded: x.png" would
                         # otherwise tell the model it saw the image.
                         replacement = filtered + [
-                            omitted_media_marker(filtered),
+                            omitted_media_marker(filtered, placeholder),
                         ]
                 elif stripped_count:
-                    replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
+                    replacement = placeholder
                 else:
                     # Nothing was stripped: keep the original output as it is.
                     # An already-empty tool result must stay empty, otherwise
@@ -508,10 +510,10 @@ def _strip_media_blocks_in_place(
 
             new_content.append(block)
 
-        if not new_content and stripped_this_message > 0:
-            new_content.append(
-                TextBlock(type="text", text=MEDIA_UNSUPPORTED_PLACEHOLDER),
-            )
+        if stripped_top_level and (
+            omission_note is not None or not new_content
+        ):
+            new_content.append(TextBlock(text=placeholder))
 
         msg.content = new_content
 
@@ -567,6 +569,7 @@ def normalize_messages_for_model_request(
     target_family: str = "openai",
     strip_audio: bool = False,
     strip_video: bool = False,
+    video_omission_note: str | None = None,
 ) -> list[Msg]:
     """Return a normalized copy for provider request formatting.
 
@@ -623,7 +626,11 @@ def normalize_messages_for_model_request(
             tool_result_only=True,
         )
     if supports_multimodal and strip_video:
-        _strip_media_blocks_in_place(normalized, video_only=True)
+        _strip_media_blocks_in_place(
+            normalized,
+            video_only=True,
+            omission_note=video_omission_note,
+        )
     return normalized
 
 
@@ -634,6 +641,7 @@ async def normalize_messages_for_model_request_async(
     target_family: str = "openai",
     strip_audio: bool = False,
     strip_video: bool = False,
+    video_omission_note: str | None = None,
 ) -> list[Msg]:
     """Prepare a provider request copy, downscaling images off the loop.
 
@@ -647,6 +655,7 @@ async def normalize_messages_for_model_request_async(
         target_family=target_family,
         strip_audio=strip_audio,
         strip_video=strip_video,
+        video_omission_note=video_omission_note,
     )
     # Rescale only the request copy: the stored message keeps its original
     # bytes, so the user can still retrieve the full-resolution image later.

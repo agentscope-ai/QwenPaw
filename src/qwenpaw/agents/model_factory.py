@@ -713,6 +713,11 @@ async def _normalize_messages_for_formatter(
         target_family=target_family,
         strip_audio=strip_audio,
         strip_video=strip_video,
+        video_omission_note=getattr(
+            formatter_instance,
+            "_qwenpaw_video_omission_note",
+            None,
+        ),
     )
 
     return (
