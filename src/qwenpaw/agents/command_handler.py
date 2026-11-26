@@ -475,7 +475,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
                 f"❌ **Compact Failed!**\n\n- Reason: {e}\n"
-                f"- Use `/clear` to reset the context if needed",
+                "- Try again with `/compact` after addressing the error.",
             )
 
         after = len(self._state.context)

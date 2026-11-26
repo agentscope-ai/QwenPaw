@@ -4380,6 +4380,7 @@
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
     "modelFallbackNotice": "Switched model from {{from}} to {{to}} ({{reason}}).",
+    "mediaOmittedNotice": "{{count}} media item(s) did not reach the model{{reason}}. The original files are still available.",
     "turnUsagePopover": {
       "ariaLabel": "Context usage {{contextRate}}, cache hit rate {{cacheRate}}. View usage details",
       "turn": "This turn",

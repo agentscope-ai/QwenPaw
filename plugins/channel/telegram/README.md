@@ -6,11 +6,15 @@ Configure the existing `channels.telegram` settings; bot tokens, optional
 existing meanings. Explicit plugin installation/repair installs dependencies;
 ordinary startup never installs packages.
 
-Sessions remain `telegram:{chat_id}`. Forum topics select reply routing within
-that existing session. Text, Rich Messages, media, streaming and approval cards
-use response ownership and durable delivery receipts. Button receipt is neutral;
-the host validates the actual clicker before a confirmed approval result edits
-the owned card. Expired or unowned cards cannot authorize an action.
+Private chats, non-forum groups and the forum General topic use the session
+`telegram:{chat_id}`. Each actual forum topic uses
+`telegram:{chat_id}:{message_thread_id}`, so topics keep independent history,
+memory and Console conversations while replies stay in that topic. Ordinary
+reply threads do not split sessions. Text, Rich Messages, media, streaming and
+approval cards use response ownership and durable delivery receipts. Button
+receipt is neutral; the host validates the actual clicker before a confirmed
+approval result edits the owned card. Expired or unowned cards cannot
+authorize an action.
 
 Stopping and uninstalling preserve channel configuration, sessions and media.
 New presentation fields require the declared opt-in send capabilities.
