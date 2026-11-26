@@ -99,10 +99,11 @@ class TokenBudgetGate(LoopGate):
         session_id = get_current_session_id()
         if not session_id:
             return {}
-        # pylint: disable=protected-access
-        return TokenRecordingModelWrapper._usage_by_session.get(
-            session_id,
-            {},
+        return (
+            TokenRecordingModelWrapper.peek_usage_for_session(
+                session_id,
+            )
+            or {}
         )
 
 
