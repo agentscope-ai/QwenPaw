@@ -222,6 +222,28 @@ class RuntimeOwners:
         del self._entries[lease.key]
         return True
 
+    def retire_reaped_channel(self, lease, channel, result) -> bool:
+        """Retire a reaped channel and its claims for restart or shutdown."""
+        if (
+            self.resource(lease) is not channel
+            or result.acknowledged is not False
+            or not result.exited
+            or result.returncode is None
+            or result.residual
+        ):
+            return False
+        entries = [self._entries[lease.key]]
+        for entry in self._entries.values():
+            if entry.dependency_owner == lease:
+                if entry.resource != lease:
+                    return False
+                entries.append(entry)
+        if any(e.stopping and not e.stopping.done() for e in entries):
+            return False
+        for entry in entries:
+            del self._entries[entry.lease.key]
+        return True
+
     def leases(self, plugin_id=None) -> tuple[RuntimeLease, ...]:
         """Snapshot custody independently of plugin registration records."""
         return tuple(
