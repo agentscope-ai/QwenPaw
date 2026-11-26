@@ -88,6 +88,12 @@ jobs:
         run: npm run test:coverage
 
       - name: Build production Console and enforce initial bundle budgets
+        # The production transform peaks around 4.1 GB, which is Node's default
+        # old-space ceiling on this runner, so the build intermittently dies
+        # with "Reached heap limit" and exit 134 — not a test or format failure.
+        # full-tests-nightly.yml already builds the same bundle with this limit.
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: npm run build:prod
 
       - name: Verify standalone Plugin SDK types and behavior
