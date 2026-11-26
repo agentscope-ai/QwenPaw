@@ -38,6 +38,9 @@ class BackupCancelled(Exception):
 
 def _session_manifest(workspace: Path) -> tuple:
     """Capture directory metadata so concurrent changes fail the backup."""
+    staged = tuple((workspace / "transcripts").glob(".deleting-*.db"))
+    if staged:
+        raise RuntimeError("conversation deletion cleanup is pending")
     paths = frozenset((workspace / "transcripts").glob("*.db"))
     catalog = workspace / "transcript_catalog.db"
     rows: tuple[tuple[str, str, str, str], ...] = ()
@@ -47,6 +50,18 @@ def _session_manifest(workspace: Path) -> tuple:
             uri=True,
         )
         try:
+            has_deletion_operations = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'deletion_operations'",
+            ).fetchone()
+            if has_deletion_operations is not None:
+                pending = connection.execute(
+                    "SELECT operation_id FROM deletion_operations LIMIT 1",
+                ).fetchone()
+                if pending is not None:
+                    raise RuntimeError(
+                        "conversation deletion cleanup is pending",
+                    )
             rows = tuple(
                 connection.execute(
                     "SELECT storage_id, session_id, user_id, channel "
@@ -60,6 +75,9 @@ def _session_manifest(workspace: Path) -> tuple:
             for row in rows
         ):
             raise RuntimeError("conversation catalog references missing DB")
+        owned_storage_ids = {row[0] for row in rows}
+        if any(path.stem not in owned_storage_ids for path in paths):
+            raise RuntimeError("unowned transcript database")
     chats = workspace / "chats.json"
     chat_bytes = chats.read_bytes() if chats.exists() else None
     chat_identities = set()

@@ -182,6 +182,97 @@ def test_workspace_backup_after_migration_marker(tmp_path):
         restored.close()
 
 
+def test_workspace_backup_after_migration_registration_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    identity = dict(session_id="session", user_id="user", channel="console")
+
+    def interrupt_migration(self, **_kwargs) -> bool:
+        raise RuntimeError("migration interrupted before marker")
+
+    monkeypatch.setattr(
+        TranscriptStore,
+        "record_legacy_migration",
+        interrupt_migration,
+    )
+    with pytest.raises(RuntimeError, match="before marker"):
+        catalog.record_legacy_migration(**identity)
+    catalog.close()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        assert add_agent_workspaces(
+            archive,
+            [("agent", SimpleNamespace(workspace_dir=workspace))],
+        )
+
+
+def test_workspace_backup_rejects_unowned_transcript_database(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace, recover_on_open=False)
+    catalog.close()
+    database = workspace / "transcripts" / "orphan.db"
+    store = TranscriptStore(database, storage_id="orphan")
+    store.write_runtime_state(
+        session_id="session",
+        user_id="user",
+        channel="console",
+        state={"agent": {"saved": True}},
+    )
+    store.close()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        with pytest.raises(RuntimeError, match="unowned transcript"):
+            add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=workspace))],
+            )
+
+
+def test_workspace_backup_rejects_pending_deletion(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    catalog.begin_deletion_operation(["chat"], [])
+    catalog.close()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        with pytest.raises(RuntimeError, match="cleanup is pending"):
+            add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=workspace))],
+            )
+
+
+def test_workspace_backup_rejects_staged_deletion(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    identity = dict(session_id="session", user_id="user", channel="console")
+    catalog.start_turn(**identity, turn_id="turn")
+    catalog.finish_turn(
+        session_id="session",
+        turn_id="turn",
+        status="completed",
+    )
+    deletion = catalog.stage_session_deletion(**identity)
+    assert deletion is not None
+    catalog.close()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        with pytest.raises(RuntimeError, match="cleanup is pending"):
+            add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=workspace))],
+            )
+
+
 def test_workspace_backup_snapshots_live_conversation_databases(
     tmp_path: Path,
 ) -> None:

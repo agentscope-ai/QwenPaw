@@ -9,6 +9,7 @@ import { MemoryRouter, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatHistory, ChatSpec } from "../../api/types";
 import { chatApi } from "../../api/modules/chat";
+import { ApiError } from "../../api/request";
 import { useAgentStore } from "../../stores/agentStore";
 import ChatRouteGate from "./ChatRouteGate";
 import { prefetchChatHistory } from "./chatRoutePrefetch";
@@ -176,5 +177,18 @@ describe("ChatRouteGate", () => {
     fireEvent.click(screen.getByText("Back"));
     expect(screen.getByText("Chat page")).toBe(mountedPage);
     expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a deleted or unavailable message for a missing route", async () => {
+    vi.spyOn(chatApi, "resolveChat").mockRejectedValue(
+      new ApiError(404, "Chat not found"),
+    );
+
+    mount(`/chat/${TARGET}`);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "chat.routeNotFound",
+    );
+    expect(screen.queryByText("chat.sessionLoadFailed")).toBeNull();
   });
 });

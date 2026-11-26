@@ -1459,11 +1459,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { messages } = readHistoryPage(result, signal);
     if (mode === "append-newer") {
       this.historyWindows.set(backendId, window);
+      const firstFragment = result.messages[0]
+        ? getHistoryContentFragment(result.messages[0])
+        : undefined;
+      const userFragmentHasEarlierContent = Boolean(
+        firstFragment &&
+          (firstFragment.content_start > 0 ||
+            (firstFragment.text_start ?? 0) > 0 ||
+            (firstFragment.serialized_start ?? 0) > 0),
+      );
       // The API returns the suffix of a split turn. Read its preceding
       // fragments before advancing to another turn; never skip the gap.
       window.forwardFragment =
         messages.length > 0 &&
-        messages[0].role !== ROLE_USER &&
+        (messages[0].role !== ROLE_USER || userFragmentHasEarlierContent) &&
         result.has_more &&
         result.next_before &&
         targetMessageId

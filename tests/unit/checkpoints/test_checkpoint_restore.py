@@ -80,6 +80,27 @@ def _write_session(
     return workspace
 
 
+def _register_chat(workspace: Path) -> None:
+    (workspace / "chats.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "chats": [
+                    {
+                        "id": "chat-1",
+                        "storage_id": "chat-1",
+                        "name": "Empty chat",
+                        "session_id": SESSION_ID,
+                        "user_id": USER_ID,
+                        "channel": CHANNEL,
+                    },
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
 def _session_text(path: Path, user_id: str = USER_ID) -> str:
     catalog = TranscriptCatalog(path)
     snapshot = catalog.read_runtime_state(
@@ -275,6 +296,94 @@ async def test_snapshot_keeps_checkpoint_state_and_excludes_runtime_state(
     assert not any(path.startswith("transcripts/") for path in tree_paths)
     assert ".venv/cache.txt" not in tree_paths
     assert ".gitignore" not in tree_paths
+
+
+@pytest.mark.asyncio
+async def test_empty_conversation_checkpoint_restores_empty_state(
+    tmp_path: Path,
+) -> None:
+    _register_chat(tmp_path)
+    engine = CheckpointService(tmp_path)
+
+    empty_commit = await _checkpoint(engine, "empty")
+
+    catalog = TranscriptCatalog(tmp_path)
+    assert catalog.has_session(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    assert (
+        catalog.read_runtime_state(
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        )
+        is None
+    )
+    catalog.close()
+
+    _append_turn(tmp_path, "turn-after-empty", "after empty")
+    _write_session(tmp_path, "after empty")
+    await engine.restore(
+        target=empty_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+
+    catalog = TranscriptCatalog(tmp_path)
+    page = catalog.get_page(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    assert page is not None
+    assert page.messages == []
+    assert (
+        catalog.read_runtime_state(
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        )
+        is None
+    )
+    catalog.close()
+
+    _write_session(tmp_path, "continued")
+    assert _session_text(tmp_path) == "continued"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_rejects_nonempty_session_without_runtime(
+    tmp_path: Path,
+) -> None:
+    _register_chat(tmp_path)
+    catalog = TranscriptCatalog(tmp_path)
+    catalog.ensure_session_database(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    catalog.start_turn(
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        turn_id="turn-without-runtime",
+    )
+    catalog.finish_turn(
+        session_id=SESSION_ID,
+        turn_id="turn-without-runtime",
+        status="completed",
+    )
+    catalog.close()
+
+    engine = CheckpointService(tmp_path)
+    with pytest.raises(
+        CheckpointError,
+        match="Conversation runtime state does not exist",
+    ):
+        await _checkpoint(engine, "invalid")
 
 
 @pytest.mark.asyncio

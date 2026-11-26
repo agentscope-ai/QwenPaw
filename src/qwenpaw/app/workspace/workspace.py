@@ -929,7 +929,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 service_class=TranscriptCatalog,
                 init_args=lambda ws: {
                     "workspace_dir": ws.workspace_dir,
+                    "recover_on_open": False,
                 },
+                start_method="recover_startup_state",
                 stop_method="close",
                 reusable=True,
                 priority=10,
@@ -1198,6 +1200,20 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
             # 3. Start all services via ServiceManager
             await self._service_manager.start_all()
+
+            from ..chats.api import (
+                recover_pending_deletions,
+                recover_pending_forks,
+            )
+
+            try:
+                await recover_pending_deletions(self)
+            except Exception:
+                logger.exception("Pending conversation cleanup failed")
+            try:
+                await recover_pending_forks(self)
+            except Exception:
+                logger.exception("Pending native fork recovery failed")
 
             self._started = True
             logger.info(

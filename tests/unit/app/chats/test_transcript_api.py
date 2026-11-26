@@ -26,6 +26,7 @@ from qwenpaw.app.chats.api import (
     get_chat_messages,
     get_chat_user_messages,
     get_chat_user_message_text,
+    recover_pending_forks,
 )
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.app.chats.models import ChatSpec
@@ -1009,9 +1010,10 @@ async def test_delete_keeps_shared_session_data(anonymous: bool) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_commits_mapping_before_cleanup_retry() -> None:
+async def test_delete_cleanup_failure_keeps_durable_retry_owner() -> None:
     chat = _chat()
     store = Mock(spec=TranscriptCatalog)
+    store.begin_deletion_operation.return_value = "delete-1"
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=chat),
         list_chats=AsyncMock(return_value=[chat]),
@@ -1042,9 +1044,137 @@ async def test_delete_commits_mapping_before_cleanup_retry() -> None:
 
     assert result == {"deleted": True}
     manager.delete_chats.assert_awaited_once_with(chat_ids=[chat.id])
-    store.commit_staged_session_deletion.assert_called_once()
+    store.mark_deletion_mapping_deleted.assert_called_once_with("delete-1")
+    store.record_deletion_cleanup_failure.assert_called_once_with(
+        "delete-1",
+        "Failed to delete chat persistence",
+    )
+    store.finish_deletion_operation.assert_not_called()
     store.restore_staged_session_deletion.assert_not_called()
     store.delete_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_native_fork_registration_failure_keeps_provider_owner() -> None:
+    parent = _chat()
+    store = SimpleNamespace(
+        fork_at_turn=Mock(return_value=1),
+        read_provider_state=Mock(
+            return_value={
+                "boundaries": {
+                    "turn-1": {
+                        "provider": "codex",
+                        "provider_turn_id": "provider-turn-1",
+                    },
+                },
+            },
+        ),
+        record_provider_fact=Mock(),
+        delete_session=Mock(),
+        pending_fork_for=Mock(return_value=None),
+        begin_pending_fork=Mock(),
+        mark_pending_fork_calling=Mock(),
+        mark_pending_fork_bound=Mock(),
+        finish_pending_fork=Mock(),
+    )
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=parent),
+        create_chat=AsyncMock(side_effect=OSError("chats.json write failed")),
+    )
+    backend_call = AsyncMock(return_value="provider-child-1")
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=SimpleNamespace(ensure_legacy_migrated=AsyncMock()),
+        config=SimpleNamespace(backend="codex", backend_settings={}),
+        backend_runtime=SimpleNamespace(call=backend_call),
+        task_tracker=TaskTracker(),
+    )
+
+    with patch(
+        "qwenpaw.app.chats.api.get_fork_capability",
+        new=AsyncMock(return_value={"can_fork": True, "reason": None}),
+    ):
+        with pytest.raises(HTTPException, match="Native fork failed"):
+            await fork_chat_at_turn(
+                parent.id,
+                ChatForkRequest(turn_id="turn-1"),
+                manager,
+                workspace,
+            )
+
+    backend_call.assert_awaited_once()
+    store.record_provider_fact.assert_called_once()
+    assert (
+        store.record_provider_fact.call_args.kwargs["data"][
+            "external_session_id"
+        ]
+        == "provider-child-1"
+    )
+    store.begin_pending_fork.assert_called_once()
+    store.mark_pending_fork_calling.assert_called_once()
+    store.mark_pending_fork_bound.assert_called_once_with(
+        store.begin_pending_fork.call_args.args[0].id,
+        "provider-child-1",
+    )
+    store.finish_pending_fork.assert_not_called()
+    store.delete_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("already_registered", [False, True])
+async def test_pending_native_fork_recovers_from_recorded_binding(
+    tmp_path: Path,
+    already_registered: bool,
+) -> None:
+    store = TranscriptCatalog(tmp_path)
+    child = ChatSpec(
+        id="child-chat",
+        session_id="child-session",
+        user_id="user",
+        channel="console",
+        parent_chat_id="parent-chat",
+        fork_turn_id="turn-1",
+    )
+    store.start_turn(
+        session_id=child.session_id,
+        user_id=child.user_id,
+        channel=child.channel,
+        turn_id="child-turn",
+    )
+    store.finish_turn(
+        session_id=child.session_id,
+        turn_id="child-turn",
+        status="completed",
+    )
+    store.begin_pending_fork(child, "codex")
+    store.mark_pending_fork_calling(child.id)
+    store.record_provider_fact(
+        session_id=child.session_id,
+        user_id=child.user_id,
+        channel=child.channel,
+        kind="session_bound",
+        data={
+            "provider": "codex",
+            "external_session_id": "provider-child-1",
+        },
+    )
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=child if already_registered else None),
+        create_chat=AsyncMock(return_value=child),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        chat_manager=manager,
+    )
+    try:
+        await recover_pending_forks(workspace)
+        if already_registered:
+            manager.create_chat.assert_not_awaited()
+        else:
+            manager.create_chat.assert_awaited_once_with(child)
+        assert store.pending_forks() == []
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
@@ -1052,6 +1182,7 @@ async def test_delete_restores_transcript_when_mapping_commit_fails() -> None:
     chat = _chat()
     deletion = object()
     store = Mock(spec=TranscriptCatalog)
+    store.begin_deletion_operation.return_value = "delete-1"
     store.stage_session_deletion.return_value = deletion
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=chat),
@@ -1073,6 +1204,89 @@ async def test_delete_restores_transcript_when_mapping_commit_fails() -> None:
 
     store.restore_staged_session_deletion.assert_called_once_with(deletion)
     store.commit_staged_session_deletion.assert_not_called()
+    store.finish_deletion_operation.assert_called_once_with("delete-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_catalog_commit_failure_keeps_durable_owner() -> None:
+    chat = _chat()
+    deletion = object()
+    mapping_present = True
+
+    async def delete_mapping(*, chat_ids: list[str]) -> bool:
+        nonlocal mapping_present
+        assert chat_ids == [chat.id]
+        mapping_present = False
+        return True
+
+    store = Mock(spec=TranscriptCatalog)
+    store.begin_deletion_operation.return_value = "delete-1"
+    store.stage_session_deletion.return_value = deletion
+    store.commit_staged_session_deletion.return_value = False
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+        list_chats=AsyncMock(return_value=[chat]),
+        delete_chats=AsyncMock(side_effect=delete_mapping),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=None,
+        task_tracker=SimpleNamespace(
+            request_stop=AsyncMock(),
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
+        ),
+    )
+
+    with patch(
+        "qwenpaw.app.chats.api.CHECKPOINT_RUNTIME."
+        "delete_session_checkpoints",
+        new=AsyncMock(),
+    ):
+        result = await delete_chat(chat.id, manager, workspace)
+
+    assert result == {"deleted": True}
+    assert not mapping_present
+    store.mark_deletion_mapping_deleted.assert_called_once_with("delete-1")
+    store.finish_deletion_operation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_recovers_cleanup_after_mapping_was_committed() -> None:
+    chat = _chat()
+    deletion = object()
+    store = Mock(spec=TranscriptCatalog)
+    store.begin_deletion_operation.return_value = "delete-1"
+    store.stage_session_deletion.return_value = deletion
+    store.commit_staged_session_deletion.return_value = True
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+        list_chats=AsyncMock(side_effect=[[chat], []]),
+        delete_chats=AsyncMock(side_effect=OSError("shell cleanup failed")),
+        cleanup_deleted_chat_targets=AsyncMock(),
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        session=None,
+        task_tracker=SimpleNamespace(
+            request_stop=AsyncMock(),
+            prevent_new_runs=TaskTracker().prevent_new_runs,
+            stop_session_writers=TaskTracker().stop_session_writers,
+        ),
+    )
+
+    with patch(
+        "qwenpaw.app.chats.api.CHECKPOINT_RUNTIME."
+        "delete_session_checkpoints",
+        new=AsyncMock(),
+    ):
+        result = await delete_chat(chat.id, manager, workspace)
+
+    assert result == {"deleted": True}
+    store.restore_staged_session_deletion.assert_not_called()
+    store.mark_deletion_mapping_deleted.assert_called_once_with("delete-1")
+    store.finish_deletion_operation.assert_called_once_with("delete-1")
+    manager.cleanup_deleted_chat_targets.assert_awaited_once()
 
 
 @pytest.mark.asyncio

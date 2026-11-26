@@ -746,10 +746,17 @@ class ChatManager:  # pylint: disable=too-many-public-methods
     ) -> bool:
         if not await self._repo.delete_chats(chat_ids):
             return False
+        await self.cleanup_deleted_chat_targets(identities)
+        return True
+
+    async def cleanup_deleted_chat_targets(
+        self,
+        identities: set[tuple[str, str, str]],
+    ) -> None:
+        """Remove shell targets after their chat mappings are committed."""
         for identity in identities:
             path = self._shell_target_path(*identity)
             await run_sync_io(path.unlink, missing_ok=True)
-        return True
 
     # ----- Archive Operations -----
 

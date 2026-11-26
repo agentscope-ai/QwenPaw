@@ -111,6 +111,7 @@ def test_catalog_recovers_pristine_database_after_interrupted_registration(
     TranscriptStore(database, storage_id=storage_id).close()
 
     catalog = TranscriptCatalog(tmp_path)
+    catalog.recover_startup_state()
     try:
         assert (
             catalog.storage_id_for(
@@ -438,6 +439,7 @@ def test_read_only_catalog_does_not_recover_running_turn(
     reader = TranscriptCatalog(
         tmp_path,
         recover_orphaned_turns=False,
+        recover_on_open=False,
     )
     page = reader.get_page(
         session_id="session-a",
@@ -502,7 +504,7 @@ def test_delete_waits_for_active_lease(tmp_path: Path) -> None:
     catalog.close()
 
 
-def test_delete_retries_after_database_unlink_fails(
+def test_delete_restores_session_when_staged_unlink_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -515,7 +517,7 @@ def test_delete_retries_after_database_unlink_fails(
 
     def fail_once(path: Path, *args, **kwargs) -> None:
         nonlocal failed
-        if path == database and not failed:
+        if path.name == f".deleting-{database.name}" and not failed:
             failed = True
             raise OSError("database is busy")
         unlink(path, *args, **kwargs)
@@ -529,9 +531,93 @@ def test_delete_retries_after_database_unlink_fails(
         channel="console",
     )
     assert database.exists()
+    assert not list((tmp_path / "transcripts").glob(".deleting-*.db"))
     assert catalog.delete_session("session-a", "user-1", "console")
-    assert not database.exists()
     catalog.close()
+
+
+def test_delete_restores_database_when_catalog_commit_fails(
+    tmp_path: Path,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    _start(catalog, "session-a")
+    _upsert(catalog, "session-a")
+    _finish(catalog, "session-a")
+    database = next((tmp_path / "transcripts").glob("*.db"))
+
+    def deny_catalog_delete(
+        action: int,
+        table: str | None,
+        _column: str | None,
+        _database: str | None,
+        _source: str | None,
+    ) -> int:
+        if action == sqlite3.SQLITE_DELETE and table == "transcript_files":
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    catalog._conn.set_authorizer(  # pylint: disable=protected-access
+        deny_catalog_delete,
+    )
+    try:
+        with pytest.raises(sqlite3.DatabaseError):
+            catalog.delete_session("session-a", "user-1", "console")
+        assert database.exists()
+        assert catalog.has_session(
+            session_id="session-a",
+            user_id="user-1",
+            channel="console",
+        )
+    finally:
+        catalog._conn.set_authorizer(None)  # pylint: disable=protected-access
+        catalog.close()
+
+
+def test_query_catalog_does_not_recover_active_staged_delete(
+    tmp_path: Path,
+) -> None:
+    owner = TranscriptCatalog(tmp_path)
+    _start(owner, "session-a")
+    _upsert(owner, "session-a")
+    _finish(owner, "session-a")
+    storage_id = owner.storage_id_for(
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+    chat = ChatSpec(
+        id="chat-a",
+        storage_id=storage_id,
+        session_id="session-a",
+        user_id="user-1",
+        channel="console",
+    )
+    (tmp_path / "chats.json").write_text(
+        json.dumps(
+            {"version": 1, "chats": [chat.model_dump(mode="json")]},
+        ),
+        encoding="utf-8",
+    )
+    deletion = owner.stage_session_deletion(
+        "session-a",
+        "user-1",
+        "console",
+    )
+    assert deletion is not None
+
+    reader = TranscriptCatalog(
+        tmp_path,
+        recover_orphaned_turns=False,
+        recover_on_open=False,
+    )
+    try:
+        assert all(staged.exists() for _original, staged in deletion.files)
+        assert all(
+            not original.exists() for original, _staged in deletion.files
+        )
+    finally:
+        reader.close()
+        owner.close()
 
 
 @pytest.mark.parametrize(
@@ -588,6 +674,7 @@ def test_restart_recovers_interrupted_staged_delete(
         chats_path.write_text("{invalid", encoding="utf-8")
 
     recovered = TranscriptCatalog(tmp_path)
+    recovered.recover_startup_state()
     try:
         page = recovered.get_page(
             session_id="session-a",

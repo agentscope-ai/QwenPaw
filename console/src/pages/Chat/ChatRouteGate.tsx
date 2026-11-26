@@ -2,6 +2,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { chatApi } from "../../api/modules/chat";
+import { ApiError } from "../../api/request";
 import { useAgentStore } from "../../stores/agentStore";
 import { getSessionIdFromPath } from "../../utils/sessionRoute";
 import { lazyWithRetry } from "../../utils/lazyWithRetry";
@@ -11,7 +12,7 @@ import styles from "./ChatRouteGate.module.less";
 const loadChatPage = () => import("./index");
 const ChatPage = lazyWithRetry(loadChatPage, "Chat/index");
 
-type GateState = "resolving" | "ready" | "error";
+type GateState = "resolving" | "ready" | "not-found" | "error";
 
 export default function ChatRouteGate() {
   const { t } = useTranslation();
@@ -82,7 +83,11 @@ export default function ChatRouteGate() {
         ) {
           return;
         }
-        setState("error");
+        setState(
+          error instanceof ApiError && error.status === 404
+            ? "not-found"
+            : "error",
+        );
       }
     };
 
@@ -90,11 +95,17 @@ export default function ChatRouteGate() {
     return () => controller.abort();
   }, [attempt, reference, needsResolution]);
 
-  if (state === "error") {
+  if (state === "error" || state === "not-found") {
     return (
       <div className={styles.gate} role="alert">
         <div className={styles.error}>
-          <span>{t("chat.sessionLoadFailed")}</span>
+          <span>
+            {t(
+              state === "not-found"
+                ? "chat.routeNotFound"
+                : "chat.sessionLoadFailed",
+            )}
+          </span>
           <button
             className={styles.retry}
             type="button"

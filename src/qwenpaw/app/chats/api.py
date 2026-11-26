@@ -285,7 +285,13 @@ def _legacy_user_messages(messages: list[Message]) -> list[ChatUserMessage]:
     return items
 
 
-async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
+async def _delete_chat_data(
+    workspace,
+    chats: list[ChatSpec],
+    *,
+    delete_transcripts: bool = True,
+    manager=None,
+) -> None:
     """Delete transcript, snapshot, and checkpoint data for chats."""
     store = getattr(workspace, "transcript_store", None)
     session = getattr(workspace, "session", None)
@@ -313,7 +319,7 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
                     chat.channel,
                     **options,
                 )
-        if store is not None:
+        if store is not None and delete_transcripts:
             for chat in chats:
                 await asyncio.to_thread(
                     store.delete_session,
@@ -321,6 +327,18 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
                     chat.user_id,
                     chat.channel,
                 )
+        cleanup_targets = getattr(
+            manager,
+            "cleanup_deleted_chat_targets",
+            None,
+        )
+        if cleanup_targets is not None:
+            await cleanup_targets(
+                {
+                    (chat.session_id, chat.user_id, chat.channel)
+                    for chat in chats
+                },
+            )
 
     except Exception as exc:
         logger.error("Failed to delete chat persistence", exc_info=True)
@@ -348,8 +366,21 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                 async def complete_delete() -> bool:
                     store = getattr(workspace, "transcript_store", None)
                     staged = []
+                    operation_id = None
                     try:
                         if store is not None:
+                            operation_id = await run_sync_io(
+                                store.begin_deletion_operation,
+                                chat_ids,
+                                [
+                                    {
+                                        "session_id": chat.session_id,
+                                        "user_id": chat.user_id,
+                                        "channel": chat.channel,
+                                    }
+                                    for chat in data_targets
+                                ],
+                            )
                             for chat in data_targets:
                                 deletion = await run_sync_io(
                                     store.stage_session_deletion,
@@ -359,13 +390,43 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                                 )
                                 if deletion is not None:
                                     staged.append(deletion)
-                        deleted = await mgr.delete_chats(chat_ids=chat_ids)
+                        try:
+                            deleted = await mgr.delete_chats(
+                                chat_ids=chat_ids,
+                            )
+                        except Exception:
+                            remaining = {
+                                chat.id
+                                for chat in await mgr.list_chats(
+                                    archived=None,
+                                )
+                            }
+                            target_ids = {chat.id for chat in targets}
+                            if not target_ids or target_ids & remaining:
+                                raise
+                            deleted = True
+                            logger.warning(
+                                "Chat mapping committed before cleanup failed",
+                                exc_info=True,
+                            )
                         if not deleted:
                             for deletion in reversed(staged):
                                 await run_sync_io(
                                     store.restore_staged_session_deletion,
                                     deletion,
                                 )
+                            if operation_id is not None:
+                                try:
+                                    await run_sync_io(
+                                        store.finish_deletion_operation,
+                                        operation_id,
+                                    )
+                                except Exception:
+                                    logger.error(
+                                        "Deletion rollback owner cleanup "
+                                        "failed",
+                                        exc_info=True,
+                                    )
                             return False
                     except Exception as exc:
                         for deletion in reversed(staged):
@@ -373,6 +434,17 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                                 store.restore_staged_session_deletion,
                                 deletion,
                             )
+                        if operation_id is not None:
+                            try:
+                                await run_sync_io(
+                                    store.finish_deletion_operation,
+                                    operation_id,
+                                )
+                            except Exception:
+                                logger.error(
+                                    "Deletion rollback owner cleanup failed",
+                                    exc_info=True,
+                                )
                         logger.error(
                             "Chat deletion did not commit",
                             exc_info=True,
@@ -382,23 +454,68 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                             "Delete failed; please retry",
                         ) from exc
 
-                    for deletion in staged:
+                    if operation_id is not None:
                         try:
                             await run_sync_io(
+                                store.mark_deletion_mapping_deleted,
+                                operation_id,
+                            )
+                        except Exception:
+                            logger.error(
+                                "Committed chat deletion phase update failed",
+                                exc_info=True,
+                            )
+                    cleanup_pending = False
+                    for deletion in staged:
+                        try:
+                            cleanup_complete = await run_sync_io(
                                 store.commit_staged_session_deletion,
                                 deletion,
                             )
+                            if not cleanup_complete:
+                                cleanup_pending = True
                         except Exception:
+                            cleanup_pending = True
                             logger.error(
                                 "Committed chat deletion left staged data",
                                 exc_info=True,
                             )
                     if data_targets:
                         try:
-                            await _delete_chat_data(workspace, data_targets)
-                        except HTTPException:
+                            await _delete_chat_data(
+                                workspace,
+                                data_targets,
+                                delete_transcripts=False,
+                                manager=mgr,
+                            )
+                        except HTTPException as exc:
+                            cleanup_pending = True
                             logger.error(
                                 "Committed chat deletion needs cleanup retry",
+                                exc_info=True,
+                            )
+                            if operation_id is not None:
+                                try:
+                                    await run_sync_io(
+                                        store.record_deletion_cleanup_failure,
+                                        operation_id,
+                                        str(exc.detail),
+                                    )
+                                except Exception:
+                                    logger.error(
+                                        "Deletion cleanup diagnostic update "
+                                        "failed",
+                                        exc_info=True,
+                                    )
+                    if operation_id is not None and not cleanup_pending:
+                        try:
+                            await run_sync_io(
+                                store.finish_deletion_operation,
+                                operation_id,
+                            )
+                        except Exception:
+                            logger.error(
+                                "Deletion owner cleanup failed",
                                 exc_info=True,
                             )
                     return True
@@ -406,6 +523,160 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
                 return await run_async_to_completion(complete_delete())
     except RunUnavailableError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+async def recover_pending_deletions(workspace) -> None:
+    """Retry durable post-commit deletion cleanup during workspace startup."""
+    store = getattr(workspace, "transcript_store", None)
+    manager = getattr(workspace, "chat_manager", None)
+    if store is None or manager is None:
+        return
+    operations = await run_sync_io(store.pending_deletion_operations)
+    if not operations:
+        return
+    active_ids = {chat.id for chat in await manager.list_chats(archived=None)}
+    for operation in operations:
+        operation_id = operation["operation_id"]
+        chat_ids = set(operation["chat_ids"])
+        if operation["phase"] == "prepared" and chat_ids & active_ids:
+            await run_sync_io(
+                store.finish_deletion_operation,
+                operation_id,
+            )
+            continue
+        if chat_ids & active_ids:
+            logger.error(
+                "Pending deletion %s conflicts with active chat mappings",
+                operation_id,
+            )
+            continue
+        targets = [ChatSpec(**target) for target in operation["targets"]]
+        try:
+            if targets:
+                await _delete_chat_data(
+                    workspace,
+                    targets,
+                    delete_transcripts=False,
+                    manager=manager,
+                )
+        except HTTPException as exc:
+            await run_sync_io(
+                store.record_deletion_cleanup_failure,
+                operation_id,
+                str(exc.detail),
+            )
+            continue
+        await run_sync_io(store.finish_deletion_operation, operation_id)
+
+
+async def recover_pending_forks(workspace) -> None:
+    """Register provider-bound forks that survived a local write failure."""
+    store = getattr(workspace, "transcript_store", None)
+    manager = getattr(workspace, "chat_manager", None)
+    if store is None or manager is None:
+        return
+    pending_forks = await run_sync_io(store.pending_forks)
+    for pending in pending_forks:
+        chat = ChatSpec.model_validate(pending["chat"])
+        if pending["phase"] == "local_ready":
+            await run_sync_io(
+                store.delete_session,
+                chat.session_id,
+                chat.user_id,
+                chat.channel,
+            )
+            await run_sync_io(
+                store.finish_pending_fork,
+                pending["child_chat_id"],
+            )
+            continue
+        if pending["phase"] == "provider_calling":
+            state = await run_sync_io(
+                store.read_provider_state,
+                session_id=chat.session_id,
+                user_id=chat.user_id,
+                channel=chat.channel,
+            )
+            binding = state.get("binding")
+            if (
+                isinstance(binding, dict)
+                and binding.get(
+                    "provider",
+                )
+                == pending["provider"]
+            ):
+                external_id = str(binding.get("external_session_id") or "")
+                if external_id:
+                    await run_sync_io(
+                        store.mark_pending_fork_bound,
+                        pending["child_chat_id"],
+                        external_id,
+                    )
+                    pending = {
+                        **pending,
+                        "phase": "provider_bound",
+                        "external_id": external_id,
+                    }
+        if pending["phase"] != "provider_bound":
+            logger.error(
+                "Native fork %s is pending at ambiguous phase %s",
+                pending["child_chat_id"],
+                pending["phase"],
+            )
+            continue
+        external_id = str(pending["external_id"] or "")
+        state = await run_sync_io(
+            store.read_provider_state,
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+        )
+        binding = state.get("binding")
+        if not (
+            isinstance(binding, dict)
+            and binding.get("provider") == pending["provider"]
+            and binding.get("external_session_id") == external_id
+        ):
+            await run_sync_io(
+                store.record_provider_fact,
+                session_id=chat.session_id,
+                user_id=chat.user_id,
+                channel=chat.channel,
+                kind="session_bound",
+                data={
+                    "provider": pending["provider"],
+                    "external_session_id": external_id,
+                },
+            )
+        existing = await manager.get_chat(chat.id)
+        if existing is None:
+            try:
+                await manager.create_chat(chat)
+            except Exception:
+                logger.error(
+                    "Pending native fork %s could not be registered",
+                    pending["child_chat_id"],
+                    exc_info=True,
+                )
+                continue
+        elif session_storage_identity(
+            existing.session_id,
+            existing.user_id,
+            existing.channel,
+        ) != session_storage_identity(
+            chat.session_id,
+            chat.user_id,
+            chat.channel,
+        ):
+            logger.error(
+                "Pending native fork %s conflicts with an existing chat",
+                pending["child_chat_id"],
+            )
+            continue
+        await run_sync_io(
+            store.finish_pending_fork,
+            pending["child_chat_id"],
+        )
 
 
 def _unshared_chat_data_targets(
@@ -1106,6 +1377,23 @@ async def fork_chat_at_turn(
     backend = workspace.config.backend
     boundary = None
     if backend != "qwenpaw":
+        pending = await run_sync_io(
+            store.pending_fork_for,
+            parent.id,
+            payload.turn_id,
+        )
+        if pending is not None:
+            await recover_pending_forks(workspace)
+            still_pending = await run_sync_io(
+                store.pending_fork_for,
+                parent.id,
+                payload.turn_id,
+            )
+            if still_pending is not None:
+                raise HTTPException(409, "Fork registration is still pending")
+            recovered = await mgr.get_chat(pending["child_chat_id"])
+            if recovered is not None:
+                return recovered
         capability = await get_fork_capability(
             chat_id,
             payload.turn_id,
@@ -1164,16 +1452,54 @@ async def fork_chat_at_turn(
             copied = True
             forked = child.model_copy(update={"fork_turn_seq": turn_seq})
             if boundary is not None:
-                settings = dict(workspace.config.backend_settings)
-                external_id = await workspace.backend_runtime.call(
+                await run_sync_io(
+                    store.begin_pending_fork,
+                    forked,
                     backend,
-                    "fork_session",
-                    settings,
-                    session_id=parent.session_id,
-                    user_id=parent.user_id,
-                    channel=parent.channel,
-                    boundary=boundary,
                 )
+                await run_sync_io(
+                    store.mark_pending_fork_calling,
+                    forked.id,
+                )
+                settings = dict(workspace.config.backend_settings)
+                try:
+                    external_id = await workspace.backend_runtime.call(
+                        backend,
+                        "fork_session",
+                        settings,
+                        session_id=parent.session_id,
+                        user_id=parent.user_id,
+                        channel=parent.channel,
+                        boundary=boundary,
+                    )
+                except BaseException:
+                    await run_sync_io(store.finish_pending_fork, forked.id)
+                    raise
+                try:
+                    await run_sync_io(
+                        store.mark_pending_fork_bound,
+                        forked.id,
+                        external_id,
+                    )
+                except BaseException:
+                    try:
+                        await run_sync_io(
+                            store.record_provider_fact,
+                            session_id=forked.session_id,
+                            user_id=forked.user_id,
+                            channel=forked.channel,
+                            kind="session_bound",
+                            data={
+                                "provider": backend,
+                                "external_session_id": external_id,
+                            },
+                        )
+                    except Exception:
+                        logger.error(
+                            "Native fork binding fallback failed",
+                            exc_info=True,
+                        )
+                    raise
                 await run_sync_io(
                     store.record_provider_fact,
                     session_id=forked.session_id,
@@ -1185,7 +1511,17 @@ async def fork_chat_at_turn(
                         "external_session_id": external_id,
                     },
                 )
-            return await mgr.create_chat(forked)
+            created = await mgr.create_chat(forked)
+            if boundary is not None:
+                try:
+                    await run_sync_io(store.finish_pending_fork, forked.id)
+                except Exception:
+                    logger.error(
+                        "Registered native fork %s left a pending owner",
+                        forked.id,
+                        exc_info=True,
+                    )
+            return created
         except BaseException as exc:
             if external_id:
                 logger.error(
@@ -1196,7 +1532,7 @@ async def fork_chat_at_turn(
                     child.id,
                     exc_info=True,
                 )
-            if copied:
+            if copied and not external_id:
                 await run_sync_io(
                     store.delete_session,
                     child.session_id,
@@ -2072,6 +2408,13 @@ async def delete_chat(
     """
     chat = await mgr.get_chat(chat_id)
     if chat is None:
+        store = getattr(workspace, "transcript_store", None)
+        if store is not None and await run_sync_io(
+            store.has_pending_deletion,
+            chat_id,
+        ):
+            await recover_pending_deletions(workspace)
+            return {"deleted": True}
         raise HTTPException(
             status_code=404,
             detail=f"Chat not found: {chat_id}",

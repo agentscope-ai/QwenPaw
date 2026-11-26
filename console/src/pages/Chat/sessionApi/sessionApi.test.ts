@@ -532,6 +532,122 @@ describe("durable transcript pagination", () => {
     });
   });
 
+  it("continues a split user message and stops at its beginning", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    const fragment = (contentStart: number) =>
+      msg({
+        id: "target-user",
+        metadata: {
+          qwenpaw_history_fragment: {
+            content_start: contentStart,
+            content_end: contentStart + 1,
+            content_total: 3,
+          },
+        },
+      });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockResolvedValueOnce({
+        messages: [fragment(1)],
+        has_more: true,
+        next_before: "user-fragment-cursor",
+      })
+      .mockResolvedValueOnce({
+        messages: [fragment(0)],
+        has_more: true,
+        next_before: "older-turn-cursor",
+      })
+      .mockResolvedValueOnce({
+        messages: [fragment(1)],
+        has_more: true,
+        next_before: "user-fragment-cursor",
+      });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "user-fragment-cursor",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    expect(getMessages).toHaveBeenNthCalledWith(3, chatId, {
+      after_message_id: "target-user",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+  });
+
+  it.each([
+    ["text", { text_start: 4, text_end: 8, text_total: 8 }],
+    [
+      "serialized content",
+      { serialized_start: 4, serialized_end: 8, serialized_total: 8 },
+    ],
+  ])("continues a user fragment split inside %s", async (_kind, offset) => {
+    const chatId = "55555555-5555-4555-8555-555555555555";
+    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [
+        msg({
+          id: "target-user",
+          metadata: {
+            qwenpaw_history_fragment: {
+              content_start: 0,
+              content_end: 1,
+              content_total: 1,
+              ...offset,
+            },
+          },
+        }),
+      ],
+      has_more: true,
+      next_before: "nested-fragment-cursor",
+    });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+
+    expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "nested-fragment-cursor",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+  });
+
   it("loads bidirectional anchor context without skips or duplicate pages", async () => {
     const chatId = "44444444-4444-4444-8444-444444444444";
     const getMessages = vi

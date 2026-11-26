@@ -104,6 +104,7 @@ class TranscriptCatalog:
         workspace_dir: str | Path,
         *,
         recover_orphaned_turns: bool = True,
+        recover_on_open: bool = True,
     ) -> None:
         self._workspace_dir = Path(workspace_dir).expanduser()
         self._workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -126,11 +127,19 @@ class TranscriptCatalog:
             self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
             self._conn.execute("PRAGMA journal_mode=DELETE")
             self._create_schema()
-            self._recover_staged_deletions()
-            self._rebuild_from_chats()
+            if recover_on_open:
+                self.recover_startup_state()
         except BaseException:
             self._conn.close()
             raise
+
+    def recover_startup_state(self) -> None:
+        """Recover workspace-owned transcript state during startup."""
+        with self._condition:
+            if self._closed:
+                raise RuntimeError("transcript catalog is closed")
+            self._recover_staged_deletions()
+            self._rebuild_from_chats()
 
     def _create_schema(self) -> None:
         with self._conn:
@@ -142,6 +151,21 @@ class TranscriptCatalog:
                     user_id          TEXT NOT NULL,
                     channel          TEXT NOT NULL,
                     UNIQUE(channel, user_id, session_id)
+                );
+                CREATE TABLE IF NOT EXISTS deletion_operations (
+                    operation_id   TEXT PRIMARY KEY,
+                    chat_ids_json  TEXT NOT NULL,
+                    targets_json   TEXT NOT NULL,
+                    phase          TEXT NOT NULL,
+                    last_error     TEXT,
+                    attempt_count  INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS pending_forks (
+                    child_chat_id  TEXT PRIMARY KEY,
+                    chat_json      TEXT NOT NULL,
+                    provider       TEXT NOT NULL,
+                    phase          TEXT NOT NULL,
+                    external_id    TEXT
                 );
                 PRAGMA user_version=1;
                 """,
@@ -666,6 +690,79 @@ class TranscriptCatalog:
         ):
             pass
 
+    def ensure_empty_session_database(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Materialize an empty registered chat for a checkpoint."""
+        identity = session_storage_identity(session_id, user_id, channel)
+        with self._condition:
+            operations = self._conn.execute(
+                "SELECT targets_json FROM deletion_operations",
+            ).fetchall()
+            for operation in operations:
+                targets = json.loads(operation["targets_json"])
+                if any(
+                    session_storage_identity(
+                        target.get("session_id", ""),
+                        target.get("user_id", ""),
+                        target.get("channel", ""),
+                    )
+                    == identity
+                    for target in targets
+                ):
+                    raise RuntimeError("conversation deletion is pending")
+            row = self._catalog_row(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            chat_storage_id = self._chat_storage_id(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if chat_storage_id is None:
+                raise KeyError(session_id)
+            if row is not None and str(row["storage_id"]) != chat_storage_id:
+                raise ValueError("chat catalog identity mismatch")
+            storage_id = chat_storage_id
+            with self._lease(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                create=True,
+                storage_id=storage_id,
+                initialize_identity=True,
+            ) as handle:
+                if handle is None:
+                    raise RuntimeError("failed to create empty session")
+
+    def is_empty_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Return whether a durable session has no conversation state."""
+        with self._lease(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            create=False,
+        ) as handle:
+            if handle is None:
+                return False
+            return handle.store.is_empty_session(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+
     def read_runtime_state(
         self,
         *,
@@ -717,6 +814,7 @@ class TranscriptCatalog:
             user_id=kwargs["user_id"],
             channel=kwargs["channel"],
             create=True,
+            initialize_identity=True,
         ) as handle:
             if handle is None:
                 raise RuntimeError("failed to create migration session")
@@ -1263,35 +1361,49 @@ class TranscriptCatalog:
         user_id: str | None = None,
         channel: str | None = None,
     ) -> bool:
-        """Close and delete one session-owned database."""
+        """Delete one session after staging its database for rollback."""
         with self._condition:
-            row = self._resolve_catalog_row(
+            identity = self._resolve_catalog_row(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
             )
-            if row is None:
-                return False
-            storage_id = str(row["storage_id"])
-            handle = self._handles.get(storage_id)
-            while handle is not None and handle.active > 0:
-                self._condition.wait()
-                handle = self._handles.get(storage_id)
-            if handle is not None:
-                self._handles.pop(storage_id, None)
-            path = self._store_path(storage_id)
-            if handle is not None:
-                handle.close()
-            path.unlink(missing_ok=True)
-            path.with_name(f"{path.name}-wal").unlink(missing_ok=True)
-            path.with_name(f"{path.name}-shm").unlink(missing_ok=True)
-            with self._conn:
+        if identity is None:
+            return False
+        deletion = self.stage_session_deletion(
+            str(identity["session_id"]),
+            str(identity["user_id"]),
+            str(identity["channel"]),
+        )
+        if deletion is None:
+            return False
+        try:
+            with self._condition, self._conn:
                 self._conn.execute(
                     "DELETE FROM transcript_files WHERE storage_id = ?",
-                    (storage_id,),
+                    (deletion.storage_id,),
                 )
+            for _original, staged in reversed(deletion.files):
+                staged.unlink(missing_ok=True)
+        except BaseException:
+            self.restore_staged_session_deletion(deletion)
+            with self._condition, self._conn:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO transcript_files("
+                    "storage_id, session_id, user_id, channel) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        deletion.storage_id,
+                        str(identity["session_id"]),
+                        str(identity["user_id"]),
+                        str(identity["channel"]),
+                    ),
+                )
+            raise
+        with self._condition:
+            self._staged_deletions.discard(deletion.storage_id)
             self._condition.notify_all()
-            return True
+        return True
 
     def stage_session_deletion(
         self,
@@ -1363,7 +1475,7 @@ class TranscriptCatalog:
     def commit_staged_session_deletion(
         self,
         deletion: _StagedSessionDeletion,
-    ) -> None:
+    ) -> bool:
         """Commit a staged transcript deletion after chats.json changes."""
         with self._condition:
             with self._conn:
@@ -1373,15 +1485,174 @@ class TranscriptCatalog:
                 )
             self._staged_deletions.discard(deletion.storage_id)
             self._condition.notify_all()
+        cleanup_complete = True
         for _original, staged in deletion.files:
             try:
                 staged.unlink(missing_ok=True)
             except OSError:
+                cleanup_complete = False
                 logger.warning(
                     "Staged transcript cleanup will retry after restart: %s",
                     staged,
                     exc_info=True,
                 )
+        return cleanup_complete
+
+    def begin_deletion_operation(
+        self,
+        chat_ids: list[str],
+        targets: list[dict[str, str]],
+    ) -> str:
+        """Persist one deletion owner before any visible side effect."""
+        operation_id = str(uuid4())
+        with self._condition, self._conn:
+            self._conn.execute(
+                "INSERT INTO deletion_operations("
+                "operation_id, chat_ids_json, targets_json, phase) "
+                "VALUES (?, ?, ?, 'prepared')",
+                (
+                    operation_id,
+                    json.dumps(chat_ids),
+                    json.dumps(targets),
+                ),
+            )
+        return operation_id
+
+    def mark_deletion_mapping_deleted(self, operation_id: str) -> None:
+        """Record the logical commit after the chat mapping is removed."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "UPDATE deletion_operations SET phase = 'cleanup_pending' "
+                "WHERE operation_id = ?",
+                (operation_id,),
+            )
+
+    def record_deletion_cleanup_failure(
+        self,
+        operation_id: str,
+        error: str,
+    ) -> None:
+        """Retain a bounded diagnostic for a retryable cleanup failure."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "UPDATE deletion_operations SET phase = 'cleanup_pending', "
+                "last_error = ?, attempt_count = attempt_count + 1 "
+                "WHERE operation_id = ?",
+                (error[:500], operation_id),
+            )
+
+    def finish_deletion_operation(self, operation_id: str) -> None:
+        """Remove a deletion owner after every cleanup step completes."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "DELETE FROM deletion_operations WHERE operation_id = ?",
+                (operation_id,),
+            )
+
+    def pending_deletion_operations(self) -> list[dict[str, Any]]:
+        """Return durable deletion work without mutating workspace state."""
+        with self._condition:
+            rows = self._conn.execute(
+                "SELECT operation_id, chat_ids_json, targets_json, phase, "
+                "last_error, attempt_count FROM deletion_operations "
+                "ORDER BY rowid",
+            ).fetchall()
+        return [
+            {
+                "operation_id": str(row["operation_id"]),
+                "chat_ids": json.loads(row["chat_ids_json"]),
+                "targets": json.loads(row["targets_json"]),
+                "phase": str(row["phase"]),
+                "last_error": row["last_error"],
+                "attempt_count": int(row["attempt_count"]),
+            }
+            for row in rows
+        ]
+
+    def has_pending_deletion(self, chat_id: str) -> bool:
+        """Return whether a logically deleted chat still has an owner."""
+        return any(
+            chat_id in operation["chat_ids"]
+            for operation in self.pending_deletion_operations()
+        )
+
+    def begin_pending_fork(self, chat: ChatSpec, provider: str) -> None:
+        """Persist a native fork owner before calling the provider."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "INSERT INTO pending_forks("
+                "child_chat_id, chat_json, provider, phase) "
+                "VALUES (?, ?, ?, 'local_ready')",
+                (
+                    chat.id,
+                    chat.model_dump_json(),
+                    provider,
+                ),
+            )
+
+    def mark_pending_fork_calling(self, child_chat_id: str) -> None:
+        """Record the provider ambiguity boundary before invocation."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "UPDATE pending_forks SET phase = 'provider_calling' "
+                "WHERE child_chat_id = ?",
+                (child_chat_id,),
+            )
+
+    def mark_pending_fork_bound(
+        self,
+        child_chat_id: str,
+        external_id: str,
+    ) -> None:
+        """Persist the external identity before chat registration."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "UPDATE pending_forks SET phase = 'provider_bound', "
+                "external_id = ? WHERE child_chat_id = ?",
+                (external_id, child_chat_id),
+            )
+
+    def finish_pending_fork(self, child_chat_id: str) -> None:
+        """Remove a native fork owner after registration or safe rollback."""
+        with self._condition, self._conn:
+            self._conn.execute(
+                "DELETE FROM pending_forks WHERE child_chat_id = ?",
+                (child_chat_id,),
+            )
+
+    def pending_forks(self) -> list[dict[str, Any]]:
+        """Return pending native forks without changing their phase."""
+        with self._condition:
+            rows = self._conn.execute(
+                "SELECT child_chat_id, chat_json, provider, phase, "
+                "external_id FROM pending_forks ORDER BY rowid",
+            ).fetchall()
+        return [
+            {
+                "child_chat_id": str(row["child_chat_id"]),
+                "chat": json.loads(row["chat_json"]),
+                "provider": str(row["provider"]),
+                "phase": str(row["phase"]),
+                "external_id": row["external_id"],
+            }
+            for row in rows
+        ]
+
+    def pending_fork_for(
+        self,
+        parent_chat_id: str,
+        turn_id: str,
+    ) -> dict[str, Any] | None:
+        """Find an unfinished fork for one parent turn."""
+        return next(
+            (
+                pending
+                for pending in self.pending_forks()
+                if pending["chat"].get("parent_chat_id") == parent_chat_id
+                and pending["chat"].get("fork_turn_id") == turn_id
+            ),
+            None,
+        )
 
     def close(self) -> None:
         """Close all per-session stores and the catalog."""

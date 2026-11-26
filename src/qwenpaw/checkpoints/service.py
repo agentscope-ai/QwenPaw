@@ -372,6 +372,11 @@ class CheckpointService:
             user_id=user_id,
             session_id=session_id,
         )
+        self._ensure_checkpoint_session(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         runtime = self._runtime_snapshot(
             session_id=session_id,
             user_id=user_id,
@@ -441,6 +446,39 @@ class CheckpointService:
             timestamp_ms=now_ms,
         )
 
+    def _ensure_checkpoint_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        store, owned = self._transcript_store()
+        try:
+            if not store.has_session(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            ):
+                store.ensure_empty_session_database(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+        except (
+            KeyError,
+            OSError,
+            RuntimeError,
+            sqlite3.Error,
+            ValueError,
+        ) as exc:
+            raise CheckpointError(
+                "Conversation runtime state does not exist",
+            ) from exc
+        finally:
+            if owned:
+                store.close()
+
     def _runtime_snapshot(
         self,
         *,
@@ -464,10 +502,19 @@ class CheckpointService:
                 if snapshot is None
                 else None
             )
+            empty_session = (
+                store.is_empty_session(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                if snapshot is None and not native_binding
+                else False
+            )
         finally:
             if owned:
                 store.close()
-        if snapshot is None and not native_binding:
+        if snapshot is None and not native_binding and not empty_session:
             raise CheckpointError(
                 "Conversation runtime state does not exist",
             )

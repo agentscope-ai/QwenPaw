@@ -306,6 +306,7 @@ class AgentStatsService:
                     TranscriptCatalog,
                     workspace_dir,
                     recover_orphaned_turns=False,
+                    recover_on_open=False,
                 )
                 owns_catalog = True
             except Exception as exc:

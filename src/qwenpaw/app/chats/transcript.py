@@ -429,6 +429,37 @@ class TranscriptStore(SteerStoreMixin):
                 recorded_at=_utc_now(),
             )
 
+    def is_empty_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Return whether a session has identity but no conversation state."""
+        with self._read_connection() as connection:
+            session = self._session_row(session_id, connection)
+            if session is None:
+                return False
+            self._assert_identity(
+                session,
+                user_id=user_id,
+                channel=channel,
+                storage_id=self._storage_id,
+            )
+            has_state = connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM transcript_turns "
+                "WHERE session_id = ?) OR "
+                "EXISTS(SELECT 1 FROM session_runtime "
+                "WHERE session_id = ?) OR "
+                "EXISTS(SELECT 1 FROM context_revisions "
+                "WHERE session_id = ?) OR "
+                "EXISTS(SELECT 1 FROM event_log "
+                "WHERE event_type <> 'session.created')",
+                (session_id, session_id, session_id),
+            ).fetchone()[0]
+            return not bool(has_state)
+
     def is_pristine(self) -> bool:
         """Return whether the schema has no durable conversation data."""
         with self._read_connection() as connection:
