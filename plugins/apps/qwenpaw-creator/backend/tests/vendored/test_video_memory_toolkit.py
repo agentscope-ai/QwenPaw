@@ -251,6 +251,31 @@ def test_plan_segments_covers_range_min_scene_and_max_split() -> None:
     assert len(splits) >= 4
 
 
+def test_plan_segments_short_tail_fold_respects_max_scene_sec() -> None:
+    # A trailing remainder < min_scene_sec folded into a segment near
+    # max_scene_sec must be split rather than exceeding max_scene_sec.
+    cases = (
+        (0.0, 310.0, [290.0], 30.0, 300.0, 0.0),
+        (0.0, 320.0, [300.0], 30.0, 300.0, 5.0),
+        (0.0, 188.0, [99.0], 90.0, 100.0, 5.0),
+    )
+    for start, end, cuts, mn, mx, thr in cases:
+        segs = plan_segments(
+            cuts,
+            [10.0],
+            start_sec=start,
+            end_sec=end,
+            min_scene_sec=mn,
+            max_scene_sec=mx,
+            threshold=thr,
+        )
+        assert segs[0][0] == start and segs[-1][1] == end
+        for left, right in zip(segs, segs[1:]):
+            assert left[1] == right[0]
+        for seg_start, seg_end in segs:
+            assert seg_end - seg_start <= mx + 1e-6
+
+
 def test_find_optimal_threshold_targets_median_duration() -> None:
     cut_times = [float(t) for t in range(10, 1200, 10)]
     cut_scores = [30.0 if t % 120 == 0 else 5.0 for t in cut_times]
