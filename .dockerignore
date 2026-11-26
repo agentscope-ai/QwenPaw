@@ -42,6 +42,8 @@ console/.vite
 node_modules
 **/node_modules
 **/dist
+!plugins/protocol/mcp/frontend/dist/
+!plugins/protocol/mcp/frontend/dist/**
 !src/qwenpaw/console/dist
 !src/qwenpaw/console/dist/**
 **/.vite

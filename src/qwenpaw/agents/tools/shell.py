@@ -1405,6 +1405,20 @@ async def _execute_posix_host(
             await run_sync_io(outputs.cleanup)
 
 
+def resolve_shell_command_timeout(timeout: float = 60.0) -> float:
+    """Resolve the native shell default before choosing an execution route."""
+    if isinstance(timeout, str):
+        try:
+            timeout = float(timeout)
+        except (ValueError, TypeError):
+            timeout = 60.0
+    if timeout == 60.0:
+        configured = get_current_shell_command_timeout()
+        if configured is not None:
+            timeout = configured
+    return timeout
+
+
 # TODO: Add dedicated support for long-running processes through a managed
 #  session model. Keep processes under framework ownership, return a session ID
 #  while they are running, capture stdout and stderr in bounded head-and-tail
@@ -1502,18 +1516,7 @@ async def execute_shell_command(
             ],
         )
 
-    if isinstance(timeout, str):
-        try:
-            timeout = float(timeout)
-        except (ValueError, TypeError):
-            timeout = 60.0
-
-    # Apply agent-configured default when the caller used the hardcoded
-    # default (60.0).  An explicit LLM-provided value != 60.0 is kept.
-    if timeout == 60.0:
-        configured = get_current_shell_command_timeout()
-        if configured is not None:
-            timeout = configured
+    timeout = resolve_shell_command_timeout(timeout)
 
     if cwd is not None:
         # A relative cwd is taken from the primary directory; an absolute one

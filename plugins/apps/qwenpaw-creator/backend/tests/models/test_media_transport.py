@@ -305,6 +305,19 @@ def test_maas_endpoint_predicate_is_one_hostname_decision() -> None:
         assert image_backend._is_maas_endpoint(base_url) is expected, base_url
 
 
+def test_independent_media_section_with_no_protocol_keeps_its_maas_transport(
+    monkeypatch,
+) -> None:
+    host = "https://ws-1.cn-beijing.maas.aliyuncs.com/api/v1"
+    monkeypatch.setattr(
+        model_config,
+        "get_vlm_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    assert vlm_model.uses_dashscope_transport(host, "") is True
+    assert vlm_model.uses_dashscope_transport(host) is False
+
+
 def test_dashscope_transport_covers_maas_without_trusting_lookalikes() -> None:
     """MaaS media travels by the temporary upload; lookalikes do not."""
 
@@ -374,3 +387,118 @@ def test_token_plan_media_stays_on_the_inline_budget(tmp_path, monkeypatch):
     )
 
     assert str(url).startswith("data:image/png;base64,")
+
+
+def test_oversized_local_video_is_refused_before_its_bytes_are_read(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """An over-budget non-image is refused on its declared type alone.
+
+    Only an image can come back smaller from the downscaling ladder, and
+    finding that out costs reading the whole file: measured against the merge
+    base, a 128MiB clip peaked at ~134MB of Python allocations before raising
+    the very same refusal, which defeats the budget that exists to bound
+    inline memory. ``read_bytes`` is patched to record every call, so this
+    fails again the moment the payload is pulled in first.
+    """
+    import os
+    from pathlib import Path as _Path
+
+    from utils.exceptions import ModelError
+
+    video = tmp_path / "clip.mp4"
+    video.touch()
+    os.truncate(video, 64 * 1024 * 1024)  # sparse: size without the bytes
+    monkeypatch.setattr(
+        vlm_model.model_config,
+        "get_vlm_max_inline_bytes",
+        lambda: 1024,
+    )
+    # Pin the section to an inline transport: the DashScope branch uploads
+    # instead and never reaches the budget this case is about.
+    monkeypatch.setattr(
+        vlm_model,
+        "uses_dashscope_transport",
+        lambda *_: False,
+    )
+    reads: list[str] = []
+    real_read_bytes = _Path.read_bytes
+
+    def record_read(self, *args, **kwargs):
+        reads.append(self.name)
+        return real_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(_Path, "read_bytes", record_read)
+
+    with pytest.raises(ModelError, match="inline size limit exceeded"):
+        asyncio.run(
+            vlm_model.transport_local_media_url(
+                video,
+                api_key="vlm-key",
+                model_name="qwen-vl-max",
+                media_type="video/mp4",
+            ),
+        )
+
+    assert not reads
+
+
+@pytest.mark.parametrize(
+    "service_host",
+    ["voice.example", "dashscope.example", "dashscope.voice.oss.aliyuncs.com"],
+)
+def test_custom_provider_keeps_local_audio_and_key_on_its_own_route(
+    tmp_path,
+    monkeypatch,
+    service_host,
+):
+    async def forbid_bailian(*args, **kwargs):
+        pytest.fail(
+            "A custom provider credential reached the Bailian uploader",
+        )
+
+    monkeypatch.setattr(
+        media_transport,
+        "upload_local_file_to_dashscope_temp",
+        forbid_bailian,
+    )
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"provider audio")
+    reference = asyncio.run(
+        media_transport.upload_reference_file_for_provider(
+            audio,
+            api_key="fixture",
+            model_name="asr",
+            media_type="audio/wav",
+            base_url=f"https://{service_host}/v1",
+            protocol="DashScope",
+        ),
+    )
+    prefix, payload = reference.split(",", 1)
+    assert prefix in {"data:audio/wav;base64", "data:audio/x-wav;base64"}
+    assert base64.b64decode(payload) == audio.read_bytes()
+
+
+def test_preparing_asr_reference_keeps_audio_bytes_out_of_logs(
+    tmp_path,
+    monkeypatch,
+):
+    from unittest.mock import Mock
+    from models import asr_model
+
+    audio = tmp_path / "reference.wav"
+    audio.write_bytes(b"private sample")
+    monkeypatch.setattr(
+        model_config,
+        "get_asr_base_url",
+        lambda: "https://voice.example",
+    )
+    monkeypatch.setattr(model_config, "get_asr_protocol", lambda: "OpenAI")
+    log = Mock()
+    monkeypatch.setattr(asr_model, "logger", log)
+    url = asyncio.run(
+        asr_model._fun_asr_file_url(audio.as_uri(), "fixture", "asr"),
+    )
+    assert url.startswith("data:audio/")
+    assert url.split(",", 1)[1] not in str(log.mock_calls)

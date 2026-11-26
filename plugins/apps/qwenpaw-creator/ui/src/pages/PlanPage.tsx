@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { message, Modal, Tooltip } from "antd";
 import { Bookmark, FileText, Info, Loader2, RefreshCw, X } from "lucide-react";
 import { MenuUnfoldOutlined } from "@ant-design/icons";
@@ -10,8 +17,11 @@ import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useTimelineStore } from "@/store/timelineStore";
-import { renderTimeline } from "@/api/creator";
+import { CreatorHttpError, renderTimeline } from "@/api/creator";
+import { useWorkGraphStore } from "@/store/workGraphStore";
+import { setSubtitleStyle, toggleSubtitles } from "@/api/creator";
 import {
+  isSubtitleOverlay,
   overlayContentKind,
   resolveTimelineRender,
   selectPrimaryTimeline,
@@ -21,6 +31,7 @@ import {
 import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
+import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { useNarrowWorkspace } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
@@ -30,7 +41,10 @@ import WorkbenchModal from "@/components/workbench/WorkbenchModal";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
 import SaveAsTemplateDialog from "@/components/creator/SaveAsTemplateDialog";
-import type { TimelineElementDocument } from "@/contracts/creator";
+import type {
+  SubtitleStyleUpdateRequest,
+  TimelineElementDocument,
+} from "@/contracts/creator";
 import { useTranslation } from "react-i18next";
 
 function sec(tick: number, ticksPerSecond: number): string {
@@ -38,8 +52,25 @@ function sec(tick: number, ticksPerSecond: number): string {
 }
 
 export default function PlanPage() {
-  const { t } = useTranslation();
   const { id = "", timelineId: timelineIdParam } = useParams();
+  return <TimelinePlan key={id} id={id} timelineIdParam={timelineIdParam} />;
+}
+
+function TimelinePlan({
+  id,
+  timelineIdParam,
+}: {
+  id: string;
+  timelineIdParam?: string;
+}) {
+  const { t } = useTranslation();
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
     state.projectId === id ? state.project : null,
@@ -104,6 +135,8 @@ export default function PlanPage() {
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
   const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [subtitleToggling, setSubtitleToggling] = useState(false);
+  const [subtitleStyleBusy, setSubtitleStyleBusy] = useState(false);
   const [comparePreviewOpen, setComparePreviewOpen] = useState(true);
   const composeAttemptedGeneration = useRef<number | null>(null);
   const hadPendingReviews = useRef(false);
@@ -129,6 +162,164 @@ export default function PlanPage() {
       )
     : 1;
   const clampedPlayheadTick = Math.min(playheadTick, displayDurationTick);
+
+  // Subtitle element stats for the toolbar toggle button.  The count has to
+  // follow the same predicate the backend toggle applies, or the button would
+  // advertise a number of subtitles it never touches: a pet-OS bubble carries
+  // no caption_role and is not a subtitle.
+  const subtitleStats = useMemo(() => {
+    if (!timeline) return { count: 0, enabledCount: 0 };
+    let count = 0;
+    let enabledCount = 0;
+    const contentType = project?.settings.content_type;
+    for (const element of Object.values(timeline.elements_by_id)) {
+      if (
+        element.creation.type === "overlay" &&
+        isSubtitleOverlay(element.creation, contentType)
+      ) {
+        count++;
+        if (element.enabled) enabledCount++;
+      }
+    }
+    return { count, enabledCount };
+  }, [project, timeline]);
+  const hasSubtitles = subtitleStats.count > 0;
+  const subtitlesAllEnabled =
+    subtitleStats.enabledCount === subtitleStats.count;
+
+  const handleToggleSubtitles = useCallback(async () => {
+    setSubtitleToggling(true);
+    try {
+      await toggleSubtitles(id, !subtitlesAllEnabled);
+      await pollOnce(id);
+      message.success(
+        subtitlesAllEnabled ? t("plan.subtitleRemove") : t("plan.subtitleAdd"),
+      );
+      message.info(t("plan.subtitleToggleRecompose"), 4);
+    } catch (error) {
+      message.error(
+        t("plan.subtitleToggleFailed", {
+          detail: (error as Error).message,
+        }),
+      );
+    } finally {
+      setSubtitleToggling(false);
+    }
+  }, [id, subtitlesAllEnabled, pollOnce, t]);
+
+  // The switch lives in the timeline itself (the subtitle lane's row header),
+  // so the page only hands down what it knows best: whether every subtitle is
+  // currently on, how many the backend toggle will reach, and the action.
+  const subtitleToggle = hasSubtitles
+    ? {
+        enabled: subtitlesAllEnabled,
+        count: subtitleStats.count,
+        busy: subtitleToggling,
+        onToggle: () => void handleToggleSubtitles(),
+      }
+    : undefined;
+
+  // A single caption is toggled through a direct one-operation patch instead of
+  // the element draft: the draft derives its operations from React state, so
+  // applying it in the same tick as the mutation would submit nothing.
+  const handleToggleElementSubtitle = useCallback(
+    async (element: TimelineElementDocument, enabled: boolean) => {
+      const timelineId = timeline?.timeline_id;
+      if (!timelineId) return;
+      const before =
+        timeline?.elements_by_id[element.element_id]?.enabled ?? true;
+      if (before === enabled) return;
+      try {
+        await patchProject(id, [
+          {
+            op: "replace",
+            path: projectJsonPointer(
+              "timelines",
+              "items",
+              timelineId,
+              "elements_by_id",
+              element.element_id,
+              "enabled",
+            ),
+            before,
+            value: enabled,
+          },
+        ]);
+        await pollOnce(id);
+        message.success(
+          enabled ? t("plan.subtitleAdd") : t("plan.subtitleRemove"),
+        );
+        message.info(t("plan.subtitleToggleRecompose"), 4);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleToggleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    },
+    [id, timeline, patchProject, pollOnce, t],
+  );
+
+  // One confirmed pick may be two backend calls (the project-wide pack and
+  // overrides, then this caption's motion), and each of them keeps the
+  // setting, the burned-in caption documents and every 动效描述 in step, so
+  // the page reports what the whole batch actually reached.
+  const handleApplySubtitleStyle = useCallback(
+    async (requests: SubtitleStyleUpdateRequest[]) => {
+      if (!requests.length) return;
+      setSubtitleStyleBusy(true);
+      try {
+        let syncedPrompts = 0;
+        let redrawnDocuments = 0;
+        let skippedNonTemplate = 0;
+        for (const request of requests) {
+          const result = await setSubtitleStyle(id, request);
+          syncedPrompts += result.syncedPrompts;
+          redrawnDocuments += result.redrawnDocuments;
+          skippedNonTemplate += result.skippedNonTemplate;
+        }
+        // A caption whose look was designed independently keeps it: reporting
+        // "updated" for a pick that reached nothing would be the same lie the
+        // style switch was built to remove.
+        const nothingButSkips =
+          skippedNonTemplate > 0 && !syncedPrompts && !redrawnDocuments;
+        if (nothingButSkips) {
+          message.warning(
+            t("plan.subtitleStyleSkippedDesign", { count: skippedNonTemplate }),
+          );
+        } else {
+          if (syncedPrompts || redrawnDocuments) {
+            message.success(
+              t("plan.subtitleStyleSynced", {
+                prompts: syncedPrompts,
+                documents: redrawnDocuments,
+              }),
+            );
+          }
+          if (skippedNonTemplate) {
+            message.warning(
+              t("plan.subtitleStyleSkippedDesign", {
+                count: skippedNonTemplate,
+              }),
+            );
+          }
+          message.info(t("plan.subtitleStyleApplied"), 4);
+        }
+        await pollOnce(id);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleStyleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      } finally {
+        setSubtitleStyleBusy(false);
+      }
+    },
+    [id, pollOnce, t],
+  );
+
   // Any playhead motion (transport keys, scrub, playback, seeks) returns the
   // panel to follow mode so it can never describe a stale selection.
   const movePlayhead = useCallback((tick: number) => {
@@ -282,6 +473,16 @@ export default function PlanPage() {
     // in the active-task poll. Reconcile the local error with that final cut.
     if (freshRenderVersionId !== null) setComposeFailed(false);
   }, [freshRenderVersionId]);
+  const autoComposePermission = useWorkGraphStore((state) => {
+    const graph = state.graph;
+    if (!timeline || state.projectId !== id || graph?.projectId !== id)
+      return "unknown";
+    const nodeId = `compose:${timeline.timeline_id}`;
+    return graph.manualHold?.nodeIds.includes(nodeId) ||
+      graph.nodes.some((node) => node.id === nodeId && node.manuallyHeld)
+      ? "held"
+      : "allowed";
+  });
   const allReady = readiness.total > 0 && readiness.notReady === 0;
   const timelineTargetRef = timeline
     ? `timeline:${timeline.timeline_id}`
@@ -337,60 +538,80 @@ export default function PlanPage() {
     ? t("plan.composingShort")
     : t("plan.preparingComposeShort");
 
-  const composeNow = useCallback(async () => {
-    if (!timeline || isComposing) return;
-    setComposing(true);
-    setComposeFailed(false);
-    try {
-      // The endpoint only dispatches a persistent Task; progress and the final
-      // artifact are recovered via polling, so switching pages, refreshing, or a
-      // takeover by another tab never loses compositing state.
-      // The dispatch request itself may hang while the backend is busy; on
-      // timeout, fall into the unified recovery branch so "preparing to
-      // compose" doesn't hang until a manual refresh.
-      const dispatch = await Promise.race([
-        renderTimeline(id, timeline.timeline_id),
-        new Promise<never>((_, reject) =>
-          window.setTimeout(
-            () => reject(new Error(t("plan.composeDispatchTimeout"))),
-            15_000,
+  const composeNow = useCallback(
+    async (automatic = false) => {
+      if (!timeline || isComposing) return;
+      setComposing(true);
+      setComposeFailed(false);
+      try {
+        // The endpoint only dispatches a persistent Task; progress and the final
+        // artifact are recovered via polling, so switching pages, refreshing, or a
+        // takeover by another tab never loses compositing state.
+        // The dispatch request itself may hang while the backend is busy; on
+        // timeout, fall into the unified recovery branch so "preparing to
+        // compose" doesn't hang until a manual refresh.
+        const dispatch = await Promise.race([
+          renderTimeline(id, timeline.timeline_id, undefined, automatic),
+          new Promise<never>((_, reject) =>
+            window.setTimeout(
+              () => reject(new Error(t("plan.composeDispatchTimeout"))),
+              15_000,
+            ),
           ),
-        ),
-      ]);
-      setRequestedComposeTaskId(dispatch.taskId);
-      await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
-    } catch (error) {
-      await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
-      const adopted = useCreatorTaskViewStore
-        .getState()
-        .tasks.find(
-          (task) =>
-            task.kind === "compose" &&
-            task.targetRef === `timeline:${timeline.timeline_id}` &&
-            (task.status === "QUEUED" || task.status === "RUNNING"),
-        );
-      if (adopted) {
-        setRequestedComposeTaskId(adopted.id);
-      } else {
-        const latest = useProjectSnapshotStore.getState().project;
-        const latestTimeline = latest?.timelines.items[timeline.timeline_id];
-        const completed =
-          latest && latestTimeline
-            ? resolveTimelineRender(latest, latestTimeline)?.selected
-            : null;
-        if (completed && !completed.stale) {
-          setComposeFailed(false);
-        } else {
-          setComposeFailed(true);
-          message.error(
-            t("plan.composeFailed", { detail: (error as Error).message }),
-          );
+        ]);
+        if (!mounted.current) return;
+        setRequestedComposeTaskId(dispatch.taskId);
+        await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+      } catch (error) {
+        if (!mounted.current) return;
+        if (
+          automatic &&
+          error instanceof CreatorHttpError &&
+          error.status === 409 &&
+          error.details.code === "MANUAL_REGENERATION_HOLD"
+        ) {
+          // A hold was installed between the graph read and dispatch. Re-arm
+          // after reading it; the hold may already have been released again.
+          await useWorkGraphStore.getState().refresh(id);
+          const graph = useWorkGraphStore.getState();
+          if (mounted.current && graph.graph?.projectId === id && !graph.error)
+            composeAttemptedGeneration.current = null;
+          return;
         }
+        await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+        if (!mounted.current) return;
+        const adopted = useCreatorTaskViewStore
+          .getState()
+          .tasks.find(
+            (task) =>
+              task.kind === "compose" &&
+              task.targetRef === `timeline:${timeline.timeline_id}` &&
+              (task.status === "QUEUED" || task.status === "RUNNING"),
+          );
+        if (adopted) {
+          setRequestedComposeTaskId(adopted.id);
+        } else {
+          const latest = useProjectSnapshotStore.getState().project;
+          const latestTimeline = latest?.timelines.items[timeline.timeline_id];
+          const completed =
+            latest && latestTimeline
+              ? resolveTimelineRender(latest, latestTimeline)?.selected
+              : null;
+          if (completed && !completed.stale) {
+            setComposeFailed(false);
+          } else {
+            setComposeFailed(true);
+            message.error(
+              t("plan.composeFailed", { detail: (error as Error).message }),
+            );
+          }
+        }
+      } finally {
+        if (mounted.current) setComposing(false);
       }
-    } finally {
-      setComposing(false);
-    }
-  }, [id, isComposing, pollOnce, refreshTasks, timeline]);
+    },
+    [id, isComposing, pollOnce, refreshTasks, timeline, t],
+  );
 
   useEffect(() => {
     if (!isComposing) return;
@@ -426,6 +647,7 @@ export default function PlanPage() {
     const timer = window.setTimeout(() => {
       void (async () => {
         await Promise.allSettled([refreshTasks(id), pollOnce(id)]);
+        if (!mounted.current) return;
         const latest = useCreatorTaskViewStore.getState();
         if (latest.tasks.some((task) => task.id === pendingTaskId)) return;
         setRequestedComposeTaskId(null);
@@ -455,7 +677,9 @@ export default function PlanPage() {
     // The Project request already in-flight when the Task reached its terminal
     // state may return a stale snapshot; poll again serially so the final cut
     // published by a successful task lands on the page instead of stalling at 100%.
-    void pollOnce(id).then(() => pollOnce(id));
+    void pollOnce(id).then(() => {
+      if (mounted.current) return pollOnce(id);
+    });
     if (requestedComposeTask.status === "SUCCEEDED") {
       setComposeFailed(false);
       message.success(t("plan.composeSuccess"));
@@ -492,7 +716,15 @@ export default function PlanPage() {
   }, [pendingReviewCount]);
 
   useEffect(() => {
-    if (!allReady || renderIsCurrent || isComposing || pendingReviewCount > 0)
+    if (autoComposePermission === "held")
+      composeAttemptedGeneration.current = null;
+    if (
+      autoComposePermission !== "allowed" ||
+      !allReady ||
+      renderIsCurrent ||
+      isComposing ||
+      pendingReviewCount > 0
+    )
       return;
     if (
       generation !== null &&
@@ -501,11 +733,12 @@ export default function PlanPage() {
       return;
     const timer = window.setTimeout(() => {
       composeAttemptedGeneration.current = generation;
-      void composeNow();
+      void composeNow(true);
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [
     allReady,
+    autoComposePermission,
     renderIsCurrent,
     isComposing,
     generation,
@@ -620,7 +853,14 @@ export default function PlanPage() {
           if (draft) mutator(draft);
         })
       }
-      onApply={() => void applyElementDraft()}
+      onApply={applyElementDraft}
+      onToggleSubtitleEnabled={(element, enabled) =>
+        void handleToggleElementSubtitle(element, enabled)
+      }
+      subtitleStyleBusy={subtitleStyleBusy}
+      onApplySubtitleStyle={(requests) =>
+        void handleApplySubtitleStyle(requests)
+      }
       onDiscard={elementDraft.discard}
       onAcceptConflicts={elementDraft.acceptConflicts}
       onOpenWorkbench={openElementWorkbench}
@@ -808,6 +1048,7 @@ export default function PlanPage() {
                 selectedElementId={selectedElementId}
                 previewOpen={comparePreviewOpen}
                 tasks={tasks}
+                subtitleToggle={subtitleToggle}
                 onPreviewOpenChange={setComparePreviewOpen}
                 onPlayheadChange={(tick) =>
                   movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
@@ -889,6 +1130,7 @@ export default function PlanPage() {
             selectedElementId={selectedElementId}
             previewOpen
             tasks={tasks}
+            subtitleToggle={subtitleToggle}
             onPreviewOpenChange={() => {}}
             onPlayheadChange={(tick) =>
               movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))

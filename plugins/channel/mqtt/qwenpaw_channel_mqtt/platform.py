@@ -73,8 +73,9 @@ class MQTTPlatform:
 
     def _done(self, task):
         self._tasks.discard(task)
-        if not task.cancelled() and task.exception():
-            logger.warning("MQTT callback failed: %s", task.exception())
+        error = task.exception() if not task.cancelled() else None
+        if error is not None:
+            logger.warning(f"MQTT callback failed ({type(error).__name__})")
 
     def _on_connect(
         self,
@@ -87,6 +88,7 @@ class MQTTPlatform:
         if not self._owns(client):
             return
         if reason_code != 0:
+            logger.error(f"MQTT connect failed: reason={reason_code}")
             self._schedule(
                 lambda: self._connection_failed(client, self._epoch),
                 client,
@@ -100,6 +102,7 @@ class MQTTPlatform:
         if not self._owns(client):
             return
         if rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error(f"MQTT subscribe failed: rc={rc}")
             self._schedule(
                 lambda: self._connection_failed(client, self._epoch),
                 client,
@@ -122,6 +125,8 @@ class MQTTPlatform:
         if not self._owns(client, epoch):
             return
         await self.on_state("connected")
+        qos = self.config.get(f"qos", 2)
+        logger.info(f"MQTT connected and subscribed: qos={qos}")
         if self._owns(client, epoch):
             self._ready.set()
 
@@ -141,6 +146,7 @@ class MQTTPlatform:
         ):
             return
         self.connected = False
+        logger.warning(f"MQTT disconnected: reason={reason_code}")
         self._epoch += 1
         epoch = self._epoch
         if self._reconnect_pending is not None:
@@ -177,6 +183,7 @@ class MQTTPlatform:
             self.client = None
             delay = 1
             while not self._stopping and self._reconnect_pending == token:
+                logger.info(f"MQTT reconnecting in {delay}s")
                 await asyncio.sleep(delay)
                 if self.client is not None:
                     return
@@ -186,7 +193,10 @@ class MQTTPlatform:
                     return
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        f"MQTT reconnect failed ({type(exc).__name__})",
+                    )
                     if self.client is not None:
                         failed = self.client
                         failed.disconnect()
@@ -223,9 +233,12 @@ class MQTTPlatform:
             sender = data.get("redirect_client_id")
             if not sender:
                 fields = msg.topic.split("/")
+                if len(fields) < 2 or not fields[1]:
+                    logger.warning(f"MQTT message has no client ID")
                 sender = fields[1] if len(fields) >= 2 else "unknown-client"
             sender = str(sender or "unknown-client")
-        except (UnicodeError, ValueError, TypeError):
+        except (UnicodeError, ValueError, TypeError) as exc:
+            logger.warning(f"MQTT invalid message ({type(exc).__name__})")
             return
         value = {
             "sender": sender,
@@ -238,6 +251,7 @@ class MQTTPlatform:
         async def receive():
             if not self._owns(client, epoch) or not self.connected:
                 return
+            logger.debug(f"MQTT received message: text_chars={len(text)}")
             await self.on_event(value)
 
         self._schedule(receive, client, epoch)
@@ -245,21 +259,23 @@ class MQTTPlatform:
     async def start(self):
         for key in ("host", "subscribe_topic", "publish_topic"):
             if not self.config.get(key):
+                logger.error(f"MQTT required setting missing: {key}")
                 raise ValueError("MQTT " + key + " is required")
         self._loop = asyncio.get_running_loop()
+        transport = self.config.get(f"transport")
+        if transport in {None, f"", f"mqtt"}:
+            transport = f"tcp"
+        clean_session = self.config.get(f"clean_session", True)
         self.client = mqtt.Client(
             client_id=self._client_id,
             protocol=mqtt.MQTTv311,
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            transport=(
-                "tcp"
-                if self.config.get("transport") in {None, "", "mqtt"}
-                else self.config["transport"]
-            ),
-            clean_session=self.config.get("clean_session", True),
+            transport=transport,
+            clean_session=clean_session,
             reconnect_on_failure=False,
         )
         c = self.client
+        c.enable_logger()
         # Keep packet IDs progressing across replacement clients, including
         # durable broker sessions. Never alias a still-unknown old publish.
         c._last_mid = self._last_mid
@@ -277,12 +293,23 @@ class MQTTPlatform:
             self._on_disconnect,
             self._on_message,
         )
-        await asyncio.to_thread(
-            c.connect,
-            self.config["host"],
-            self.config.get("port") or 1883,
-            60,
+        tls = bool(self.config.get(f"tls_enabled"))
+        logger.info(
+            f"MQTT connecting: transport={transport} "
+            f"tls={tls} clean_session={clean_session}",
         )
+        try:
+            await asyncio.to_thread(
+                c.connect,
+                self.config["host"],
+                self.config.get("port") or 1883,
+                60,
+            )
+        except Exception as exc:
+            logger.error(
+                f"MQTT transport connection failed ({type(exc).__name__})",
+            )
+            raise
         if c.loop_start() != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError("MQTT_LOOP_START_FAILED")
         await self._ready.wait()
@@ -290,6 +317,8 @@ class MQTTPlatform:
             raise RuntimeError("MQTT_CONNECT_FAILED")
 
     async def publish_parts(self, sender, parts):
+        if not sender:
+            logger.warning(f"MQTT outbound route has no client ID")
         current = asyncio.current_task()
         self._publishes.add(current)
         published = []
@@ -318,6 +347,7 @@ class MQTTPlatform:
                     qos=self.config.get("qos", 2),
                 )
                 if info.rc != mqtt.MQTT_ERR_SUCCESS:
+                    logger.warning(f"MQTT publish rejected: rc={info.rc}")
                     raise MQTTDeliveryError(
                         "MQTT_PUBLISH_REJECTED",
                         side_effect_possible=bool(published),
@@ -327,22 +357,30 @@ class MQTTPlatform:
                     await asyncio.to_thread(info.wait_for_publish, 3.0)
                     confirmed = info.is_published()
                 except Exception as exc:
+                    logger.warning(
+                        f"MQTT publish confirmation failed "
+                        f"({type(exc).__name__})",
+                    )
                     raise MQTTDeliveryError(
                         "MQTT_CONFIRMATION_UNKNOWN",
                         side_effect_possible=True,
                     ) from exc
                 if not confirmed:
+                    logger.warning(f"MQTT publish confirmation timed out")
                     raise MQTTDeliveryError(
                         "MQTT_CONFIRMATION_UNKNOWN",
                         side_effect_possible=True,
                     )
                 published.append(str(info.mid))
+                qos = self.config.get(f"qos", 2)
+                logger.debug(f"MQTT publish acknowledged: qos={qos}")
             return {"message_id": ",".join(published)}
         finally:
             self._publishes.discard(current)
 
     async def stop(self):
         self._stopping = True
+        logger.debug(f"MQTT stopping")
         self._epoch += 1
         # Fence callbacks before awaiting any external shutdown.
         for task in tuple(self._tasks):
@@ -368,3 +406,4 @@ class MQTTPlatform:
                 raise RuntimeError("MQTT_LOOP_STILL_RUNNING")
             self.client = None
         self.connected = False
+        logger.info(f"MQTT stopped")

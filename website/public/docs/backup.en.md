@@ -60,7 +60,7 @@ Console → **Settings → Backup**. Click **Create Backup** in the top-right co
 
 ### Full backup
 
-![Create a full backup](https://img.alicdn.com/imgextra/i3/O1CN01LfFJ2L1ZtvXP3SDfi_!!6000000003253-2-tps-872-994.png)
+![Create a full backup](https://img.alicdn.com/imgextra/i3/O1CN01nDFWLECS5DE3FPfU_!!6000000001747-2-tps-1600-1000.png)
 
 A full backup is best used as a complete snapshot:
 
@@ -68,7 +68,7 @@ A full backup is best used as a complete snapshot:
 2. Leave the dialog in **Full backup** mode (the default) — no options to tweak.
 3. Fill in the backup name and an optional description.
 4. Note the red **sensitive-content warning** — a full backup also packages the secrets directory.
-5. Click **Create**.
+5. Click **Confirm**.
 
 ### Partial backup
 
@@ -80,7 +80,7 @@ A partial backup is best for migrating only specific modules or syncing only a f
    - **Global settings**: whether to include the global settings (i.e. `config.json`).
    - **Skill pool**: whether to include the skill pool (i.e. the `skill_pool/` directory).
    - **Secrets**: whether to include the secrets (i.e. the `~/.qwenpaw.secret/` directory). Off by default; turning it on shows the same red sensitive-content warning.
-3. Fill in the name and description, then click **Create**.
+3. Fill in the name and description, then click **Confirm**.
 
 ---
 
@@ -90,32 +90,35 @@ A partial backup is best for migrating only specific modules or syncing only a f
 
 ### Pre-restore backup
 
-![Create a pre-restore backup](https://img.alicdn.com/imgextra/i3/O1CN01MwWjoy24qx3N2wfoR_!!6000000007443-2-tps-861-314.png)
+![Create a pre-restore backup](https://img.alicdn.com/imgextra/i4/O1CN01WTOgxlegjmL3FPfU_!!6000000003383-2-tps-1600-1000.png)
 
 When you click the **Restore** button on any backup row, QwenPaw first opens the **Pre-restore backup** dialog:
 
-- We strongly recommend ticking **"Create a pre-restore backup first"** to take a one-click snapshot of the current state.
-- If anything goes wrong, you can immediately roll back to the state right before the restore using that snapshot.
+Choose **Yes, create backup first** to keep a snapshot of the current state. When that backup finishes, the restore options open; nothing has been restored yet. This automatic snapshot includes agent workspaces, global settings and the skill pool, but excludes the secrets directory. If you need to roll back secrets too, create and securely store a full backup before restoring.
 
 ### Two restore modes
 
-| Mode               | When to use                                                       | Behavior                                                                                                                                        |
-| ------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Full restore**   | Roll back completely to the moment of the backup; full migration  | **Completely replaces** the current instance with the backup contents (including the agent registry, global settings, skill pool, and secrets). |
-| **Custom restore** | Migrate only some modules; keep modules outside the restore scope | Pick **per item** which modules and which agents to restore; anything outside the restore scope is **left untouched**.                          |
+Restore scope and security strategy are separate choices. Even in full mode, check whether you are keeping the current instance’s security guards and MCP configuration or restoring those settings from the backup.
+
+| Mode               | When to use                                                       | Behavior                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Full restore**   | Roll back completely to the moment of the backup; full migration  | Restores agents, global settings, skill pool, and secrets from the full backup, subject to the strategy for protected settings. |
+| **Custom restore** | Migrate only some modules; keep modules outside the restore scope | Pick **per item** which modules and which agents to restore; anything outside the restore scope is **left untouched**.          |
 
 ### Full restore
 
-**Completely replaces** the current instance:
+Restores the following contents, subject to the selected strategy for protected settings:
 
 - All agent workspaces in the current instance are overwritten by the agent workspaces contained in the backup.
 - Global settings, skill pool, and secrets are replaced as well.
 
 Steps:
 
-1. In the restore dialog, switch to **Full restore**.
+1. A full backup opens with **Full restore** selected. This mode is unavailable for partial backups.
 2. Manually tick "I confirm I want to restore this backup" as a second confirmation.
-3. Click **Start restore**.
+3. Click **Confirm** to submit the restore. If prompted to verify the backup’s origin, check it before proceeding.
+
+![Full Restore selected for a full backup, with strategy options for security and MCP settings](https://img.alicdn.com/imgextra/i2/O1CN01w5I1hh9dkID3FPfU_!!6000000004951-2-tps-1600-1000.png)
 
 ### Custom restore
 
@@ -126,13 +129,13 @@ Steps:
 
 Steps:
 
-1. In the restore dialog, keep **Custom restore** (the default).
+1. A partial backup opens in **Custom restore**. For a full backup, switch to this mode. Only modules included in the backup are shown.
 2. Fill in the default location for new agents (only when the backup contains agents not yet on this machine).
 3. Tick the agents you want to restore in the agent list.
 4. Decide whether to restore the global settings / skill pool / secrets.
-5. Click **Start restore**.
+5. Review the scope and security strategy, tick the restore confirmation, then click **Confirm**.
 
-![Custom restore](https://img.alicdn.com/imgextra/i3/O1CN01DAM9Pe264WP7KAF8P_!!6000000007608-2-tps-1132-1527.png)
+![Custom restore options for a partial backup containing one agent workspace and global settings](https://img.alicdn.com/imgextra/i2/O1CN01MGCfmrebkYD3FPfU_!!6000000006266-2-tps-1600-1000.png)
 
 ---
 
@@ -159,7 +162,7 @@ Steps:
 | Scenario                          | Recommended action                                                                               |
 | --------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Before a major version upgrade    | Create a "Full backup" so you can roll back in one click if the upgrade goes wrong               |
-| Before risky/experimental changes | When clicking **Restore** later, tick "Create a pre-restore backup first"                        |
+| Before risky/experimental changes | Create a backup before the change. If you restore later, take another snapshot before restoring. |
 | Migrating only some agents        | Create a partial backup with only the agents you need, and use **Custom restore** when restoring |
 
 ---
@@ -198,7 +201,7 @@ A: No. Models are too large; backups only cover small assets such as configurati
 A: QwenPaw shows an overwrite confirmation; confirm it to continue importing and overwrite the existing backup.
 
 **Q: What's the real difference between Full restore and Custom restore?**
-A: Full restore restores the whole instance as it was at backup time — think of it as "delete the old instance → create a new one". Custom restore restores only the parts you select (e.g. some agents); anything outside the restore scope is kept as it is.
+A: Full restore uses all modules in a full backup. Custom restore applies only to the selected modules and agents. In both cases the restore strategy determines whether local security guards and MCP settings are preserved.
 
 ---
 

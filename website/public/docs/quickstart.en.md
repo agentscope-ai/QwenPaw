@@ -308,27 +308,12 @@ QwenPaw needs a large language model to work. You can choose either option:
 2. Select a provider (such as DashScope, ModelScope, etc.)
 3. Click the **Settings** button and enter your **API Key**
 4. Click **Save**
-5. In the top **Default LLM**, select the provider and specific model
-6. Click **Save**
+5. Under **Default models → Chat model**, select the model. There is no separate save step.
 
-See [Models - Configure cloud providers](./models).
+**Option B: Run inference locally (no API key required)**
 
-**Option B: Use local models (no API Key required, completely offline)**
-
-1. Install local model backend:
-
-- QwenPaw Local (llama.cpp): download `llama.cpp` inside QwenPaw Local provider settings, see [Models - Local providers Configuration](./models) for details.
-- Ollama: install Ollama from [Ollama website](https://ollama.com/download) and run the Ollama service.
-- LM Studio: install LM Studio from [LM Studio website](https://lmstudio.ai/download) and run the LM Studio service.
-
-2. Download models:
-
-- For QwenPaw Local (llama.cpp), you can download models directly from the provider settings in the Console, or manually place GGUF model files in the local models directory (default `~/.qwenpaw/local_models/models/<org>/<model>`, for example: `~/.qwenpaw/local_models/models/Qwen/Qwen3-0.6B-GGUF`).
-- For Ollama and LM Studio, you need to add models in their respective services first, then QwenPaw can automatically fetch the model list and connect to them.
-
-3. Select the local provider and model in the Console
-
-After configuring the local model, you can select it in the Console's **Default LLM** settings or in the **Chat** page.
+- **QwenPaw Local:** Install and enable the optional provider plugin, install its llama.cpp engine, then download or import GGUF weights and start a chat model. See [QwenPaw Local setup](./models#QwenPaw-Local-llamacpp-Configuration) for the steps and the data directory used for new installations versus upgrades.
+- **Ollama or LM Studio:** Start that application's local server and load a model there. In **Settings → Models → Local & Custom**, open the provider’s model list, update it, and enable the model. Neither service needs the QwenPaw Local plugin.
 
 #### 🎯 2. Test chat in Console
 

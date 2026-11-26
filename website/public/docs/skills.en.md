@@ -5,7 +5,7 @@ Market or URL imports, or files you add yourself.
 
 Two ways to manage skills:
 
-- **Console:** Use the [Console](./console) under **Workspace → Skills**.
+- **Console:** Use the [Console](./console) under **Settings → Skills**.
 - **Working directory:** Edit skill files directly under `$QWENPAW_WORKING_DIR`
   (default `~/.qwenpaw`), including `$QWENPAW_WORKING_DIR/skill_pool/` and each
   workspace's `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`.
@@ -88,7 +88,7 @@ Adding skills to the pool:
    | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                                                    | Built-in                                                   |
    | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.                                      | Built-in                                                   |
    | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                                        | Built-in                                                   |
-   | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.                                 | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **docx**                      | Create, read, and edit Word documents (.docx, .dotx), including TOC, headers/footers, tables, images, track changes, comments.                          | https://github.com/anthropics/skills/tree/main/skills/docx |
    | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.                          | Built-in                                                   |
    | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                                                 | Built-in                                                   |
    | **mailbox**                   | Connect through qwenpawmail MCP to send, search, organize, safely automate new mail, and learn reusable workflows. See [Mailbox Management](./mailbox). | Built-in                                                   |
@@ -96,7 +96,7 @@ Adding skills to the pool:
    | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc.                         | Built-in                                                   |
    | **pdf**                       | PDF operations: read, extract text/tables, merge/split, rotate, watermark, create, fill forms, encrypt/decrypt, OCR, etc.                               | https://github.com/anthropics/skills/tree/main/skills/pdf  |
    | **pptx**                      | Create, read, and edit PowerPoint (.pptx), including templates, layouts, notes, and comments.                                                           | https://github.com/anthropics/skills/tree/main/skills/pptx |
-   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.                                       | https://github.com/anthropics/skills/tree/main/skills/xlsx |
+   | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .xltx, .csv, .tsv), clean up formatting, formulas, and data analysis.                                | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
    **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
@@ -125,7 +125,7 @@ Adding skills to the pool:
      on a card saves it into the pool (see **Skill Market** below).
 
 3. **Upload from a workspace**.
-   On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
+   On **Settings → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
    pool.
 
 4. **Manual filesystem changes**.
@@ -193,7 +193,7 @@ actually loads at runtime.
 ## Workspace
 
 The **Add Skill** dropdown at the top right of [Console](./console) →
-**Workspace → Skills** is the unified entry; skills added through it are
+**Settings → Skills** is the unified entry; skills added through it are
 **enabled by default**:
 
 - **Load from Skill Pool**: pick the skills to load and confirm. This is the
@@ -257,25 +257,25 @@ qwenpaw skills info <skill_name> --pool
 
 #### Steps
 
-1. In [Console](./console) → **Workspace → Skills**, click **Add Skill →
+1. In [Console](./console) → **Settings → Skills**, click **Add Skill →
    Upload via URL**.
 
-   ![skill](https://img.alicdn.com/imgextra/i2/O1CN018GbM8v1Iuyyp9Cuyp_!!6000000000954-2-tps-3822-2070.png)
+   ![skill](https://img.alicdn.com/imgextra/i2/O1CN01a14kGCyGPdE3FPfU_!!6000000004329-2-tps-1600-1000.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
    below). The dialog lists the supported sources with an example URL for
    each — click an example to fill it in.
 
-   ![url](https://img.alicdn.com/imgextra/i4/O1CN01ztz7ds28L7zh408Si_!!6000000007915-2-tps-3822-2070.png)
+   ![url](https://img.alicdn.com/imgextra/i3/O1CN015cY20zq7ZND3FPfU_!!6000000004494-2-tps-1600-1000.png)
 
-3. Click **Confirm** and wait for import to finish.
+3. Click **Confirm** and wait for the import result. Clicking an example URL only fills in the address; it does not install the skill.
 
-   ![click](https://img.alicdn.com/imgextra/i3/O1CN01FXICJa1fcsUDbQpiv_!!6000000004028-2-tps-3822-2070.png)
+   ![Import dialog with the QwenPaw skill catalog example URL](https://img.alicdn.com/imgextra/i4/O1CN01D6h6bMVyyjG3FPfU_!!6000000006747-2-tps-1600-1000.png)
 
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i1/O1CN01qamRgj1DHzB63zl9e_!!6000000000192-2-tps-3822-2070.png)
+   ![Imported qwenpaw-docs-zh in the skill list](https://img.alicdn.com/imgextra/i3/O1CN01rwVvVuH4PSD3FPfU_!!6000000004357-2-tps-1600-1000.png)
 
 #### URL acquisition example
 
@@ -501,8 +501,7 @@ packaged built-in -- Auto Update --> Skill Pool -- Auto Sync --> workspaces
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
-- **Preload / on demand:** Skills load on demand by default. In **Workspace →
-  Skills → Edit**, preload trusted core or frequently used Skills; their full
+- **Preload / on demand:** Skills load on demand by default. In **Settings → Skills → Edit**, preload trusted core or frequently used Skills; their full
   content is added to the system prompt as a structured, delimited Skill block.
 - **Delete:** Delete a workspace skill. If the skill is currently enabled, it
   is automatically disabled first.
@@ -516,7 +515,7 @@ Common workspace operations:
 ## Skill Market
 
 Search and install skills from multiple marketplaces in one place. The market
-is embedded in the skill pages: on **Workspace → Skills** or **Settings →
+is embedded in the skill pages: on **Settings → Skills** or **Settings →
 Skill Pool**, click **Add Skill → Browse Market** to switch to the market view
 (click **Back** or use browser back to return to the list). This is the
 search-driven alternative to the per-URL **Import from URL** flow above.
@@ -537,7 +536,7 @@ How it works:
 - Search runs across all enabled providers in parallel; one provider failing
   doesn't block results from the others.
 - **Save** installs to where you entered from: the current workspace (from
-  **Workspace → Skills**) or the pool (from **Settings → Skill Pool**).
+  **Settings → Skills**) or the pool (from **Settings → Skill Pool**).
 - Installs run through a queue (one at a time) with retry and cancel; name conflicts surface as a failed item with the server message — rename the existing workspace skill and retry the install.
 
 After install, every skill remembers its origin in an `installed_from` field, shown in the skill drawer as **Installed from**. Values include `clawhub`,
@@ -554,7 +553,7 @@ Each skill can be restricted to specific channels. By default, skills apply to
 
 To limit a skill to certain channels:
 
-1. In **Workspace → Skills**, click the channel setting on a skill.
+1. In **Settings → Skills**, click the channel setting on a skill.
 2. Select the channels where this skill should be active (e.g. `discord`,
    `telegram`, `console`).
 
@@ -572,7 +571,7 @@ is not just stored metadata. When a skill is effective for the current
 workspace and channel, QwenPaw injects that config into the runtime environment
 for that agent turn, then restores the environment after the turn completes.
 
-You can set config per skill in the Console (**Workspace → Skills** → click the
+You can set config per skill in the Console (**Settings → Skills** → click the
 config icon on a skill) or via the API.
 
 ### How it works

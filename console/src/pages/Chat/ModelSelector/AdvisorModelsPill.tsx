@@ -30,7 +30,7 @@ export function useIsAdvisorConversation(): boolean {
  * worker runs on another model, so the pill shows the pair and opens the
  * same Advisor models panel the Loop mode menu uses.
  */
-export function AdvisorModelsPill() {
+export function AdvisorModelsPill({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation();
   const { state } = useAdvisorMode();
   const [open, setOpen] = useState(false);
@@ -67,12 +67,18 @@ export function AdvisorModelsPill() {
           type="button"
           aria-expanded={open}
           aria-label={t("loop.advisorSetup.title")}
-          className={`${styles.trigger} ${pillStyles.pair}`}
+          className={`${styles.trigger} ${pillStyles.pair} ${
+            compact ? styles.triggerCompact : ""
+          }`}
           data-testid="advisor-models-pill"
         >
           <Bot size={16} />
-          <span>{label}</span>
-          <ChevronDown size={12} />
+          {!compact && (
+            <>
+              <span data-composer-collapse-content>{label}</span>
+              <ChevronDown data-composer-collapse-content size={12} />
+            </>
+          )}
         </button>
       </Tooltip>
     </AdvisorSetupPopover>

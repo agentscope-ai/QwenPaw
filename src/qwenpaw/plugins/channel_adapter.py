@@ -25,7 +25,6 @@ from ..channel_protocol.outbound_budget import (
 from ..channel_protocol.requirements import canonicalize_requirements
 from ..channel_protocol.shared import (
     SharedChannelDescriptor,
-    _read_requirements,
 )
 from .architecture import PluginManifest, PluginType
 
@@ -120,7 +119,7 @@ class ChannelDescription:
     descriptor: SharedChannelDescriptor
     descriptor_path: Path
     code_root: Path
-    requirements_path: Path
+    requirements_path: Path | None
     requirements: tuple[str, ...]
     source_revision: str
     name: str
@@ -218,6 +217,7 @@ class ChannelDescription:
         dependency_paths: tuple[Path, ...] = (),
         runtime_identity=None,
         workspace_dir: Path | None = None,
+        workspace_id: str | None = None,
         on_reply_sent=None,
         display_config=None,
         no_text_debounce: bool = True,
@@ -236,6 +236,19 @@ class ChannelDescription:
             raise ValueError("CHANNEL_PREPARATION_STALE")
         values = prepared_config.config
         environment = prepared_config.private_env
+        from ..constant import WORKING_DIR, DEFAULT_MEDIA_DIR
+        import hashlib
+
+        scope_id = (
+            str(Path(workspace_dir).resolve())
+            if workspace_dir is not None
+            else None
+        )
+        workspace_id = workspace_id or scope_id
+        workspace_key = hashlib.sha256(
+            (workspace_id or "").encode(),
+        ).hexdigest()
+        data_suffix = Path(self.plugin_id) / "workspaces" / workspace_key
         spec = LaunchSpec(
             python_executable=python_executable,
             support_root=Path(support_root),
@@ -257,11 +270,10 @@ class ChannelDescription:
             send_timeout=send_timeout,
             private_env=environment,
             plugin_id=self.plugin_id,
-            workspace_id=(
-                str(Path(workspace_dir).resolve())
-                if workspace_dir is not None
-                else None
-            ),
+            workspace_id=scope_id,
+            sdk_workspace_id=workspace_id,
+            sdk_storage_root=WORKING_DIR / "plugin-data" / data_suffix,
+            sdk_media_root=DEFAULT_MEDIA_DIR / "plugins" / data_suffix,
         )
         return IsolatedChannelProxy(
             process,
@@ -314,17 +326,25 @@ def describe_channel(
             f"Channel descriptor owner '{manifest.id}' must use "
             f"channel '{official['channel_key']}'",
         )
-    requirements_path = _contained_file(
-        root,
-        (descriptor_path.parent / descriptor.requirements_file)
-        .relative_to(root)
-        .as_posix(),
-    )
-    if requirements_path != root / "requirements.txt":
-        raise ValueError("Channel requirements must live at the plugin root")
-    requirements = _read_requirements(requirements_path)
+    requirements_path = None
+    if descriptor.requirements_file is not None:
+        requirements_path = _contained_file(
+            root,
+            (descriptor_path.parent / descriptor.requirements_file)
+            .relative_to(root)
+            .as_posix(),
+        )
+        if requirements_path != root / "requirements.txt":
+            raise ValueError(
+                "Channel requirements must live at the plugin root",
+            )
+    requirements = descriptor.read_requirements(root, descriptor_path)
+    # Without a public Python entry, manifest dependencies are the legacy
+    # mirror of the driver's file. A public entry owns its own dependencies.
     if (
-        manifest.dependencies
+        requirements_path is not None
+        and not manifest.entry.backend
+        and manifest.dependencies
         and canonicalize_requirements(manifest.dependencies) != requirements
     ):
         raise ValueError("Manifest dependencies differ from requirements.txt")
@@ -344,7 +364,7 @@ def describe_channel(
 
 @dataclass(frozen=True)
 class StaticChannelDefinition:
-    """Register metadata under the same lifecycle ledger as Python plugins."""
+    """Register channel metadata without importing or starting its driver."""
 
     description: ChannelDescription
     runtime_settings: ChannelRuntimeSettings | None = None
@@ -639,6 +659,17 @@ class ChannelBackend:
                 CHANNEL_RUNTIME_NOT_INTEGRATED,
             )
 
+    def _registration_runtime(self, description):
+        """Require a driver runtime only for plugins without a public entry.
+
+        Public capabilities can run while the channel remains catalogued.
+        Driver preparation and execution still require a selected runtime.
+        """
+        settings = self.runtime_for(description)
+        if settings is None and not description.manifest.entry.backend:
+            self.require_selection(description)
+        return settings
+
     def describe(self, source_path, manifest):
         payload = describe_channel(source_path, manifest)
         return PluginDescription(
@@ -650,6 +681,7 @@ class ChannelBackend:
                 source_path,
                 ignored_paths=(".qwenpaw-pawport.json",),
             ),
+            requirements=payload.requirements,
         )
 
     def describe_candidate(self, source_path, manifest):
@@ -682,6 +714,11 @@ class ChannelBackend:
     ):
         # Static discovery must not inspect/import an unselected platform SDK.
         if not allow_install and not probe:
+            return
+        if (
+            not allow_install
+            and self._registration_runtime(description) is None
+        ):
             return
         self.require_selection(description)
 
@@ -731,7 +768,6 @@ class ChannelBackend:
     ):
         from .settings import is_plugin_enabled
 
-        del saved_definition
         settings = self.runtime_for(description)
         enabled = is_plugin_enabled(config)
         diagnostics = () if settings else (CHANNEL_RUNTIME_NOT_INTEGRATED,)
@@ -774,13 +810,18 @@ class ChannelBackend:
         if not enabled:
             diagnostics += ("channel_validation_pending",)
         return DefinitionResult(
-            StaticChannelDefinition(description.payload, settings, enabled),
-            enabled=settings is not None and enabled,
+            StaticChannelDefinition(
+                description.payload,
+                settings,
+                enabled,
+            ),
+            enabled=enabled
+            and bool(settings or description.manifest.entry.backend),
             status=(
                 "inactive"
                 if not enabled
                 else "registered"
-                if settings
+                if settings or description.manifest.entry.backend
                 else "catalogued"
             ),
             diagnostics=diagnostics,
@@ -809,7 +850,8 @@ class ChannelBackend:
         from .api import channel_passes_gates
 
         plugin_id = description.manifest.id
-        self.require_selection(description)
+        if self._registration_runtime(description) is None:
+            return
         record = self.services.record(plugin_id)
         if record is None or not record.enabled:
             return
@@ -878,7 +920,7 @@ class ChannelBackend:
                 f"'{old_payload.descriptor.channel_key}' to "
                 f"'{candidate_payload.descriptor.channel_key}'",
             )
-        self.require_selection(candidate)
+        self._registration_runtime(candidate)
         if in_place:
             raise RuntimeError(
                 "Channel in-place source update is not supported",
@@ -887,7 +929,7 @@ class ChannelBackend:
     def validate_config_update(self, description, config):
         """Reject unintegrated mutations without probing disabled plugins."""
         del config
-        self.require_selection(description)
+        self._registration_runtime(description)
 
     def capture_restore_state(self, record):
         """Static definitions require no host import snapshot."""
@@ -973,6 +1015,9 @@ class ChannelBackend:
     ):
         from .dependency_gate import admit_shared_dependencies
 
+        if self._registration_runtime(description) is None:
+            usage.refine(token, None)
+            return None
         prepared = await self.prepare_dependency_targets(description)
 
         async def inspect_existing():
@@ -1023,59 +1068,65 @@ class ChannelBackend:
         )
         from .dependency_usage import current_admission_token
 
-        await self.services.stop_preparation(description.plugin_id)
-        async with self._dependency_inspection(description) as values:
-            process, spec, token, usage = values
-            admission = current_admission_token(
-                usage,
-                description.plugin_id,
-                description.code_root,
-            )
-            settings = self.services.runtime_settings()
-            if not allow_install and not wheels:
-                return await process.probe(spec)
-            try:
-                snapshot = await prepare_shared_dependencies(
-                    process,
-                    spec,
-                    plugin_id=description.plugin_id,
-                    requirements_file=description.requirements_path,
-                    usage_registry=usage,
-                    admission_token=admission or token,
-                    install_target=settings.dependency_install_target,
-                    targets=settings.dependency_paths,
-                    wheels=wheels,
-                )
-            except SharedDependencyError as exc:
-                if (
-                    not allow_install
-                    or wheels
-                    or exc.decision.require_restart
-                    or exc.decision.unsupported
-                ):
-                    raise
-                snapshot = (await process.audit(spec)).snapshot
-                target = settings.dependency_install_target
-                if target is None:
-                    raise RuntimeError(
-                        "DEPENDENCY_INSTALL_TARGET_REQUIRED",
-                    ) from exc
-                await self.services.acquire_wheels(
-                    process,
-                    spec,
-                    snapshot,
-                    target,
+        from .dependency_requirements import requirements_file
+
+        with requirements_file(
+            description.requirements,
+            description.requirements_path,
+        ) as requirements_path:
+            await self.services.stop_preparation(description.plugin_id)
+            async with self._dependency_inspection(description) as values:
+                process, spec, token, usage = values
+                admission = current_admission_token(
+                    usage,
                     description.plugin_id,
-                    description.requirements_path,
+                    description.code_root,
                 )
-                snapshot = await prepare_shared_dependencies(
-                    process,
-                    spec,
-                    plugin_id=description.plugin_id,
-                    requirements_file=description.requirements_path,
-                    usage_registry=usage,
-                    admission_token=admission or token,
-                    install_target=settings.dependency_install_target,
-                    targets=settings.dependency_paths,
-                )
-            return await process.probe(spec) if probe else snapshot
+                settings = self.services.runtime_settings()
+                if not allow_install and not wheels:
+                    return await process.probe(spec)
+                try:
+                    snapshot = await prepare_shared_dependencies(
+                        process,
+                        spec,
+                        plugin_id=description.plugin_id,
+                        requirements_file=requirements_path,
+                        usage_registry=usage,
+                        admission_token=admission or token,
+                        install_target=settings.dependency_install_target,
+                        targets=settings.dependency_paths,
+                        wheels=wheels,
+                    )
+                except SharedDependencyError as exc:
+                    if (
+                        not allow_install
+                        or wheels
+                        or exc.decision.require_restart
+                        or exc.decision.unsupported
+                    ):
+                        raise
+                    snapshot = (await process.audit(spec)).snapshot
+                    target = settings.dependency_install_target
+                    if target is None:
+                        raise RuntimeError(
+                            "DEPENDENCY_INSTALL_TARGET_REQUIRED",
+                        ) from exc
+                    await self.services.acquire_wheels(
+                        process,
+                        spec,
+                        snapshot,
+                        target,
+                        description.plugin_id,
+                        requirements_path,
+                    )
+                    snapshot = await prepare_shared_dependencies(
+                        process,
+                        spec,
+                        plugin_id=description.plugin_id,
+                        requirements_file=requirements_path,
+                        usage_registry=usage,
+                        admission_token=admission or token,
+                        install_target=settings.dependency_install_target,
+                        targets=settings.dependency_paths,
+                    )
+                return await process.probe(spec) if probe else snapshot

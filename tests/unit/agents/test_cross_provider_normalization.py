@@ -8,18 +8,23 @@ second provider, while the original in-memory messages must remain untouched.
 """
 
 # pylint: disable=protected-access,redefined-outer-name
+import base64
 import json
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
+    Base64Source,
+    DataBlock,
     Msg,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
+from PIL import Image
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
@@ -91,7 +96,7 @@ def _openai_session_history() -> list[Msg]:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_openai() -> None:
+async def test_gemini_history_to_openai() -> None:
     history = _gemini_session_history()
     original_dict = history[1].to_dict()
 
@@ -100,7 +105,7 @@ def test_gemini_history_to_openai() -> None:
         is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -121,7 +126,7 @@ def test_gemini_history_to_openai() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_anthropic() -> None:
+async def test_gemini_history_to_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -132,7 +137,7 @@ def test_gemini_history_to_anthropic() -> None:
         is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -146,7 +151,7 @@ def test_gemini_history_to_anthropic() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_stays_gemini() -> None:
+async def test_gemini_history_stays_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -157,7 +162,7 @@ def test_gemini_history_stays_gemini() -> None:
         _is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -173,7 +178,7 @@ def test_gemini_history_stays_gemini() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_openai_history_to_gemini() -> None:
+async def test_openai_history_to_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -184,7 +189,7 @@ def test_openai_history_to_gemini() -> None:
         _is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -200,7 +205,7 @@ def test_openai_history_to_gemini() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_multi_toolcall_to_openai() -> None:
+async def test_gemini_multi_toolcall_to_openai() -> None:
     msgs = [
         Msg(
             name="assistant",
@@ -239,7 +244,7 @@ def test_gemini_multi_toolcall_to_openai() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -277,13 +282,13 @@ def _history_with_thinking() -> list[Msg]:
     ]
 
 
-def test_thinking_blocks_preserved_for_openai() -> None:
+async def test_thinking_blocks_preserved_for_openai() -> None:
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -297,7 +302,7 @@ def test_thinking_blocks_preserved_for_openai() -> None:
     assert thinking_blocks[0].thinking == "Let me consider..."
 
 
-def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
+async def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -306,7 +311,7 @@ def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -321,7 +326,7 @@ def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
     assert len(text_blocks) == 1
 
 
-def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
+async def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -349,7 +354,7 @@ def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -363,7 +368,7 @@ def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
     assert thinking_blocks[0].signature == "sig-from-claude"
 
 
-def test_thinking_blocks_preserved_for_gemini() -> None:
+async def test_thinking_blocks_preserved_for_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -372,7 +377,7 @@ def test_thinking_blocks_preserved_for_gemini() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -413,7 +418,7 @@ def _history_with_raw_input_needing_repair() -> list[Msg]:
     ]
 
 
-def test_raw_input_repair_works_before_cross_provider_clean() -> None:
+async def test_raw_input_repair_works_before_cross_provider_clean() -> None:
     history = _history_with_raw_input_needing_repair()
 
     (
@@ -421,7 +426,7 @@ def test_raw_input_repair_works_before_cross_provider_clean() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -433,3 +438,44 @@ def test_raw_input_repair_works_before_cross_provider_clean() -> None:
         "raw_input",
         None,
     )
+
+
+def _side_test_image(width: int, height: int) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (12, 34, 56)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+async def test_formatter_side_limit_reaches_the_normalize_pass() -> None:
+    """The formatter's own side limit decides how far the image shrinks."""
+    raw = _side_test_image(3000, 60)
+    history = [
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(raw).decode("ascii"),
+                        media_type="image/png",
+                    ),
+                ),
+            ],
+        ),
+    ]
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+        _is_response,
+    ) = await model_factory._normalize_messages_for_formatter(
+        history,
+        OpenAIChatFormatter,
+        SimpleNamespace(max_bytes=0, max_image_side=1000),
+    )
+
+    source = normalized[0].content[0].source
+    decoded = base64.b64decode(source.data)
+    with Image.open(BytesIO(decoded)) as image:
+        assert max(image.size) <= 1000

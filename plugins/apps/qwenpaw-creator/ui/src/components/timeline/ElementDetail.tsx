@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Input, InputNumber, Select, message } from "antd";
+import {
+  Alert,
+  Button,
+  Input,
+  InputNumber,
+  Select,
+  Tooltip,
+  message,
+} from "antd";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import {
   ArrowUpRight,
   Box,
+  Captions,
+  CaptionsOff,
   Clock3,
   Film,
   Layers3,
@@ -16,6 +26,8 @@ import {
 import type {
   ProjectDocument,
   R2VReferenceOrderResponse,
+  SubtitleAnimationPolicy,
+  SubtitleStyleUpdateRequest,
   TaskView,
   TimelineDocument,
   TimelineElementDocument,
@@ -31,6 +43,7 @@ import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import {
   TRANSITION_KIND_LABEL,
   classifyElementTrack,
+  isSubtitleOverlay as isCaptionSubtitle,
   resolveElementVisualMeta,
 } from "@/selectors/timelineElementSelectors";
 import { presentPromptEntityNames } from "@/lib/promptEntityNames";
@@ -38,6 +51,16 @@ import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { storyboardOfOwner } from "@/components/workbench/referenceThumbs";
 import InlineReviewDiff from "@/components/agent/InlineReviewDiff";
 import PreviewImage from "@/components/assets/PreviewImage";
+import SubtitleStyleSection, {
+  captionDocumentOwnedByStyle,
+  subtitleAnimationFromDocument,
+} from "@/components/creator/SubtitleStyleSection";
+import {
+  subtitleStyleBaseFrom,
+  subtitleStyleDraftDirtyCount,
+  subtitleStyleDraftRequests,
+  type SubtitleStyleDraft,
+} from "@/components/creator/subtitleStyleDraft";
 
 interface ElementDetailProps {
   project: ProjectDocument;
@@ -51,7 +74,22 @@ interface ElementDetailProps {
   frameless?: boolean;
   onClose: () => void;
   onChange: (mutator: (element: TimelineElementDocument) => void) => void;
-  onApply: () => void;
+  /** Persist the element draft; resolves once the write is over. */
+  onApply: () => void | Promise<void>;
+  /** Persist a caption show/hide toggle immediately (bypasses the draft). */
+  onToggleSubtitleEnabled?: (
+    element: TimelineElementDocument,
+    enabled: boolean,
+  ) => void;
+  /**
+   * Persist the confirmed subtitle style picks. The draft panel owns the
+   * picks, so this arrives as the requests the style endpoint accepts: the
+   * project-wide pack/override call first, then the caption-scoped motion one
+   * (the route refuses to mix them), and each keeps the caption documents and
+   * the 动效描述 in step with the setting it writes.
+   */
+  onApplySubtitleStyle?: (requests: SubtitleStyleUpdateRequest[]) => void;
+  subtitleStyleBusy?: boolean;
   onDiscard: () => void;
   onAcceptConflicts: () => void;
   onOpenWorkbench: (element: TimelineElementDocument) => void;
@@ -331,12 +369,19 @@ export default function ElementDetail({
   onClose,
   onChange,
   onApply,
+  onToggleSubtitleEnabled,
+  onApplySubtitleStyle,
+  subtitleStyleBusy = false,
   onDiscard,
   onAcceptConflicts,
   onOpenWorkbench,
 }: ElementDetailProps) {
   const { t } = useTranslation();
   const [narrationBusy, setNarrationBusy] = useState(false);
+  // A subtitle style pick stays local until the 应用修改 button above agrees
+  // to send it; ``null`` means "nothing picked yet, show what is in effect".
+  const [subtitleStyleDraft, setSubtitleStyleDraft] =
+    useState<SubtitleStyleDraft | null>(null);
   const refreshNarrationTasks = useCreatorTaskViewStore(
     (state) => state.refresh,
   );
@@ -379,6 +424,10 @@ export default function ElementDetail({
     useState<R2VReferenceOrderResponse | null>(null);
   const overviewElementId = element?.element_id ?? null;
   const overviewIsR2v = element?.creation.type === "r2v";
+  useEffect(() => {
+    // Never carry one caption's unfinished style picks into another.
+    setSubtitleStyleDraft(null);
+  }, [overviewElementId]);
   useEffect(() => {
     if (!overviewElementId || !overviewIsR2v) {
       setReferenceOrder(null);
@@ -435,6 +484,54 @@ export default function ElementDetail({
     creation.type === "t2v" ||
     creation.type === "i2v" ||
     creation.type === "s2v";
+  const isSubtitleOverlay =
+    creation.type === "overlay" && creation.text.trim().length > 0;
+  // Captions are placed by dragging on the timeline and always ride above
+  // the picture, so the subtitle editor drops the numeric time/layer
+  // fields; other overlays (pet-OS bubbles, stickers…) keep them.
+  const showsTimeLayerEditors =
+    creation.type !== "overlay" ||
+    !isCaptionSubtitle(creation, project.settings.content_type);
+  // ── 字幕风格：本地草稿与当前生效的差异，确认后才写回后端 ──
+  const captionCreation =
+    creation.type === "overlay" &&
+    isCaptionSubtitle(creation, project.settings.content_type)
+      ? creation
+      : null;
+  const subtitleStyleHosted =
+    Boolean(captionCreation) && Boolean(onApplySubtitleStyle);
+  const subtitleStyleBase = subtitleStyleBaseFrom(
+    project.settings,
+    subtitleAnimationFromDocument(captionCreation?.motion),
+  );
+  const subtitleStylePicked = subtitleStyleDraft ?? subtitleStyleBase;
+  const subtitleStylePendingCount = subtitleStyleHosted
+    ? subtitleStyleDraftDirtyCount(subtitleStylePicked, subtitleStyleBase)
+    : 0;
+  const subtitleStyleRequests = subtitleStyleHosted
+    ? subtitleStyleDraftRequests(subtitleStylePicked, subtitleStyleBase, [
+        element.element_id,
+      ])
+    : [];
+  // A caption whose look belongs to its own motion design has nothing here for
+  // the pack motion to move, so the bar explains that instead of offering a
+  // picker the route would refuse.
+  const subtitleMotionOwned =
+    !captionCreation?.motion ||
+    captionDocumentOwnedByStyle(captionCreation.motion);
+  const pendingCount = dirtyCount + subtitleStylePendingCount;
+  const applyAllChanges = async () => {
+    // The element draft and the style picks are two writes on one document,
+    // so they go one after the other rather than racing the project CAS.
+    await onApply();
+    if (subtitleStyleRequests.length) {
+      onApplySubtitleStyle?.(subtitleStyleRequests);
+    }
+  };
+  const discardAllChanges = () => {
+    setSubtitleStyleDraft(null);
+    onDiscard();
+  };
   const spanStart = sec(element.span.start_tick, timeline.ticks_per_second);
   const spanEnd = sec(
     element.span.start_tick + element.span.duration_tick,
@@ -508,7 +605,7 @@ export default function ElementDetail({
     <section
       data-element-detail={element.element_id}
       data-onboarding-id="element-detail"
-      className={`flex min-h-0 flex-col overflow-hidden bg-[var(--color-bg-primary)] ${
+      className={`@container flex min-h-0 flex-col overflow-hidden bg-[var(--color-bg-primary)] ${
         frameless
           ? ""
           : "rounded-xl border border-[var(--color-border)] shadow-sm"
@@ -545,12 +642,12 @@ export default function ElementDetail({
               data-element-detail-header-actions
               className="flex shrink-0 flex-wrap items-center justify-end gap-1.5"
             >
-              {dirtyCount > 0 && (
+              {pendingCount > 0 && (
                 <>
                   <Button
                     size="small"
-                    disabled={applying}
-                    onClick={onDiscard}
+                    disabled={applying || subtitleStyleBusy}
+                    onClick={discardAllChanges}
                     className="!h-[22px] !px-2 !font-[inherit] !text-[11px] !font-semibold !leading-[20px]"
                   >
                     {t("elementDetail.discardChanges")}
@@ -558,13 +655,13 @@ export default function ElementDetail({
                   <Button
                     size="small"
                     type="primary"
-                    loading={applying}
+                    loading={applying || subtitleStyleBusy}
                     disabled={conflictPaths.length > 0}
-                    onClick={onApply}
+                    onClick={() => void applyAllChanges()}
                     className="!h-[22px] !px-2 !font-[inherit] !text-[11px] !font-semibold !leading-[20px]"
                   >
                     {t("elementDetail.applyChangesCount", {
-                      count: dirtyCount,
+                      count: pendingCount,
                     })}
                   </Button>
                 </>
@@ -573,6 +670,65 @@ export default function ElementDetail({
                 <span className="rounded-full bg-[var(--color-bg-secondary)] px-2 py-0.5 text-[10px] text-[var(--color-text-tertiary)]">
                   {t("elementDetail.disabled")}
                 </span>
+              )}
+              {isSubtitleOverlay && (
+                // The label hides itself on narrow panels, so the hover
+                // bubble carries both the action and its consequence --
+                // instantly, and in the app's own tooltip styling.
+                <Tooltip
+                  mouseEnterDelay={0}
+                  placement="top"
+                  title={
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-semibold">
+                        {element.enabled
+                          ? t("elementDetail.disableSubtitle")
+                          : t("elementDetail.enableSubtitle")}
+                      </span>
+                      <span className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+                        {t("elementDetail.subtitleToggleTip")}
+                      </span>
+                    </span>
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-label={
+                      element.enabled
+                        ? t("elementDetail.disableSubtitle")
+                        : t("elementDetail.enableSubtitle")
+                    }
+                    aria-pressed={!element.enabled}
+                    disabled={applying}
+                    onClick={() => {
+                      const next = !element.enabled;
+                      if (onToggleSubtitleEnabled) {
+                        onToggleSubtitleEnabled(element, next);
+                        return;
+                      }
+                      onChange((draft) => {
+                        draft.enabled = next;
+                      });
+                      onApply();
+                    }}
+                    className={`flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold transition ${
+                      element.enabled
+                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
+                        : "bg-[var(--color-bg-secondary)] text-[var(--color-text-tertiary)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
+                    }`}
+                  >
+                    {element.enabled ? (
+                      <CaptionsOff className="h-3 w-3" />
+                    ) : (
+                      <Captions className="h-3 w-3" />
+                    )}
+                    <span className="@max-[399px]:hidden">
+                      {element.enabled
+                        ? t("elementDetail.disableSubtitle")
+                        : t("elementDetail.enableSubtitle")}
+                    </span>
+                  </button>
+                </Tooltip>
               )}
               <button
                 type="button"
@@ -835,6 +991,24 @@ export default function ElementDetail({
           </div>
         )}
 
+        {/* How a subtitle looks is the first thing its editor is about, so the
+            style bar sits in the open above 更多设置 rather than folded inside
+            it.  A pick only lands in the local draft: the 应用修改 button at the
+            top is what writes it back and asks for a recompose, so browsing the
+            options can never redraw every caption on its own. */}
+        {captionCreation && subtitleStyleHosted && (
+          <SubtitleStyleSection
+            settings={project.settings}
+            base={subtitleStyleBase}
+            draft={subtitleStylePicked}
+            onDraftChange={setSubtitleStyleDraft}
+            motionOwned={subtitleMotionOwned}
+            elementScoped
+            showMotion
+            busy={subtitleStyleBusy || applying}
+          />
+        )}
+
         {/* 编辑表单不属于设计稿的概览层，折叠在「更多设置」中。 */}
         <details data-element-detail-advanced className="group">
           <summary className="flex cursor-pointer list-none items-center gap-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] [&::-webkit-details-marker]:hidden">
@@ -843,72 +1017,80 @@ export default function ElementDetail({
           </summary>
           <div className="space-y-4 pt-3">
             <section className="rounded-xl border border-[var(--color-border)] p-3">
-              <div className="mb-3">
-                <h4 className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
-                  <Clock3 className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                  {t("elementDetail.timeAndLayer")}
-                </h4>
-              </div>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-                <label>
-                  <FieldLabel>{t("elementDetail.startTime")}</FieldLabel>
-                  <InputNumber
-                    className="w-full"
-                    min={0}
-                    step={0.1}
-                    disabled={applying}
-                    value={sec(
-                      element.span.start_tick,
-                      timeline.ticks_per_second,
-                    )}
-                    onChange={(value) => {
-                      if (value == null) return;
-                      onChange((draft) => {
-                        draft.span.start_tick = Math.round(
-                          Number(value) * timeline.ticks_per_second,
-                        );
-                      });
-                    }}
-                  />
-                </label>
-                <label>
-                  <FieldLabel>{t("elementDetail.durationLabel")}</FieldLabel>
-                  <InputNumber
-                    className="w-full"
-                    min={1 / timeline.ticks_per_second}
-                    step={0.1}
-                    disabled={applying}
-                    value={sec(
-                      element.span.duration_tick,
-                      timeline.ticks_per_second,
-                    )}
-                    onChange={(value) => {
-                      if (value == null) return;
-                      onChange((draft) => {
-                        draft.span.duration_tick = Math.max(
-                          1,
-                          Math.round(Number(value) * timeline.ticks_per_second),
-                        );
-                      });
-                    }}
-                  />
-                </label>
-                <label>
-                  <FieldLabel>{t("elementDetail.zIndex")}</FieldLabel>
-                  <InputNumber
-                    className="w-full"
-                    disabled={applying}
-                    value={element.z_index}
-                    onChange={(value) =>
-                      value != null &&
-                      onChange((draft) => {
-                        draft.z_index = Number(value);
-                      })
-                    }
-                  />
-                </label>
-              </div>
-              <div className="mt-3">
+              {showsTimeLayerEditors && (
+                <>
+                  <div className="mb-3">
+                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
+                      <Clock3 className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+                      {t("elementDetail.timeAndLayer")}
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                    <label>
+                      <FieldLabel>{t("elementDetail.startTime")}</FieldLabel>
+                      <InputNumber
+                        className="w-full"
+                        min={0}
+                        step={0.1}
+                        disabled={applying}
+                        value={sec(
+                          element.span.start_tick,
+                          timeline.ticks_per_second,
+                        )}
+                        onChange={(value) => {
+                          if (value == null) return;
+                          onChange((draft) => {
+                            draft.span.start_tick = Math.round(
+                              Number(value) * timeline.ticks_per_second,
+                            );
+                          });
+                        }}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel>
+                        {t("elementDetail.durationLabel")}
+                      </FieldLabel>
+                      <InputNumber
+                        className="w-full"
+                        min={1 / timeline.ticks_per_second}
+                        step={0.1}
+                        disabled={applying}
+                        value={sec(
+                          element.span.duration_tick,
+                          timeline.ticks_per_second,
+                        )}
+                        onChange={(value) => {
+                          if (value == null) return;
+                          onChange((draft) => {
+                            draft.span.duration_tick = Math.max(
+                              1,
+                              Math.round(
+                                Number(value) * timeline.ticks_per_second,
+                              ),
+                            );
+                          });
+                        }}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel>{t("elementDetail.zIndex")}</FieldLabel>
+                      <InputNumber
+                        className="w-full"
+                        disabled={applying}
+                        value={element.z_index}
+                        onChange={(value) =>
+                          value != null &&
+                          onChange((draft) => {
+                            draft.z_index = Number(value);
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
+              <div className={showsTimeLayerEditors ? "mt-3" : ""}>
                 <TextField
                   label={t("elementDetail.nameLabel")}
                   value={element.label}
@@ -1125,6 +1307,8 @@ export default function ElementDetail({
                         })
                       }
                     />
+                    {/* The subtitle style bar lives at the top of 更多设置 and
+                        the 动效描述 field above stays exactly as written. */}
                   </div>
                 )}
                 {creation.type === "transition" && (

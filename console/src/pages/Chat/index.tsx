@@ -18,6 +18,8 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUISenderActionInfo,
   type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISubmissionContext,
@@ -31,6 +33,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
@@ -40,15 +43,18 @@ import {
   Copy,
   Paperclip as SparkAttachmentLine,
   Settings as SettingOutlined,
+  Square,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
+import { bindChatComposer } from "../../plugins/hostSdk/composer";
 import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { preserveLiveBubbleIds } from "./chatHistoryRefresh";
 import {
   getDraftStorageKey,
   handoverDraftToSession,
@@ -110,8 +116,12 @@ import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   buildFallbackSystemMessage,
+  buildMediaOmittedSystemMessage,
+  mediaOmittedNoticeKey,
   modelFallbackEventKey,
+  parseMediaOmittedNotice,
   parseModelFallbackEvents,
+  type MediaOmittedNotice,
   type ModelFallbackEvent,
 } from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
@@ -195,7 +205,10 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  preserveReverseMessageViewport,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -278,6 +291,7 @@ import {
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
 import BackendApprovalToggle from "./components/BackendApprovalToggle";
 import BackendModelSelector from "./components/BackendModelSelector";
+import ComposerToolsMenu from "./components/ComposerToolsMenu";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -298,6 +312,46 @@ import {
   supportsAgentAttachments,
   useBackendCapabilities,
 } from "../../utils/agentBackend";
+
+type ComposerControlId = "loop" | "model" | "project-directory" | "approval";
+
+const COMPOSER_ITEM_SELECTOR = "[data-composer-responsive-item]";
+
+function flexChildrenWidth(element: HTMLElement | null): number {
+  if (!element) return 0;
+  const children = Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child.getBoundingClientRect().width > 0 &&
+      getComputedStyle(child).display !== "none",
+  );
+  if (children.length === 0) return 0;
+  const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+  return (
+    children.reduce(
+      (total, child) => total + child.getBoundingClientRect().width,
+      0,
+    ) +
+    gap * (children.length - 1)
+  );
+}
+
+function ComposerResponsiveItem({
+  children,
+  id,
+}: {
+  children: ReactNode;
+  id: ComposerControlId;
+}) {
+  return (
+    <span
+      className={styles.composerResponsiveItem}
+      data-composer-responsive-item={id}
+    >
+      {children}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -788,6 +842,8 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
+const ACTIVE_RUN_SETTLE_MS = 1000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -1476,12 +1532,25 @@ export default function ChatPage() {
     setRefreshKey((version) => version + 1);
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const applyRefreshedHistory = useCallback(
+    (sessionId: string, history: IAgentScopeRuntimeWebUIMessage[]) => {
+      const sdk = chatRef.current?.messages;
+      if (!sdk) return;
+      const previous = sdk.getSessionMessages(sessionId);
+      sdk.setSessionMessages(
+        sessionId,
+        preserveLiveBubbleIds(previous, history),
+      );
+    },
+    [],
+  );
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
   const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
   const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
+  const pendingMediaOmittedRef = useRef<MediaOmittedNotice | null>(null);
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -1623,10 +1692,7 @@ export default function ChatPage() {
               signal,
             );
             if (!canSend() || !recovered || recovered.generating) return false;
-            chatRef.current?.messages.setSessionMessages(
-              queueSessionId,
-              recovered.messages,
-            );
+            applyRefreshedHistory(queueSessionId, recovered.messages);
             if (!locateQueue()) return true;
           }
         }
@@ -1717,6 +1783,7 @@ export default function ChatPage() {
       return false;
     },
     [
+      applyRefreshedHistory,
       buildFileList,
       i18n,
       queueSessionId,
@@ -1752,6 +1819,10 @@ export default function ChatPage() {
         return;
       requested = true;
       void recoverLegacyDraftQueue(queueKey, ctrl.signal)
+        .catch((error) => {
+          if (!ctrl.signal.aborted)
+            console.error("Unable to recover legacy chat queue", error);
+        })
         .then(() => {
           if (ctrl.signal.aborted) return;
           return holdOwnershipLock(
@@ -1765,7 +1836,7 @@ export default function ChatPage() {
         })
         .catch((error) => {
           if (!ctrl.signal.aborted)
-            console.error("Unable to recover chat queue", error);
+            console.error("Unable to acquire chat queue ownership", error);
         });
       // Only a valid loaded session can be classified as a queue-only tab.
       fallbackTimer = setTimeout(() => setOwnershipResolved(true), 300);
@@ -1995,16 +2066,14 @@ export default function ChatPage() {
         return;
       // Update only this Chat through the SDK's public message API. Do not
       // remount the input or write session selection while handing over.
-      chatRef.current?.messages.setSessionMessages(
-        queueSessionId,
-        session.messages,
-      );
+      applyRefreshedHistory(queueSessionId, session.messages);
       pendingHandoffRefreshRef.current = null;
     }).finally(() => {
       if (!controller.signal.aborted) scheduleNextSend();
     });
     return () => controller.abort();
   }, [
+    applyRefreshedHistory,
     isOwner,
     isQueueOnlyTab,
     chatLoading,
@@ -2069,6 +2138,217 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const [runningVisit, setRunningVisit] = useState<object | null>(null);
+  const [stoppingVisit, setStoppingVisit] = useState<object | null>(null);
+  const showDetachedRunStop =
+    runningVisit === queueVisit && !isSessionTransition;
+  const stoppingDetachedRun = stoppingVisit === queueVisit;
+  const recheckRunAfterStopFailureRef = useRef<(() => void) | null>(null);
+  const stopBackendRun = useCallback(async () => {
+    if (
+      !backendChatId ||
+      queueVisitRef.current !== queueVisit ||
+      !isChatActiveRef.current
+    ) {
+      return;
+    }
+    setStoppingVisit(queueVisit);
+    try {
+      // A disconnected run can outlive the SDK's sender loading state.
+      const canceled = await chatRef.current?.execution.cancel({
+        sessionId: queueSessionId,
+      });
+      if (canceled?.status === "failed") throw canceled.error;
+      if (!canceled || canceled.status === "not-found") {
+        const result = await chatApi.stopChat(backendChatId, selectedAgent);
+        if (result.stopped) markTurnStopped(queueSessionId);
+      }
+      setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+    } catch (error) {
+      if (queueVisitRef.current === queueVisit) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("chat.composer.stopFailed"),
+        );
+        recheckRunAfterStopFailureRef.current?.();
+      }
+    } finally {
+      setStoppingVisit((visit) => (visit === queueVisit ? null : visit));
+    }
+  }, [backendChatId, message, queueSessionId, queueVisit, selectedAgent, t]);
+  const activeRunSyncRef = useRef({
+    key: "",
+    sawRunning: false,
+    resumeAttempted: false,
+  });
+
+  useEffect(() => {
+    if (
+      !usesQwenPawBackend ||
+      !backendChatId ||
+      queueSessionId === "new" ||
+      isSessionTransition
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let inFlight = false;
+    let recheckPending = false;
+    const syncKey = `${selectedAgent}:${queueSessionId}`;
+    if (activeRunSyncRef.current.key !== syncKey) {
+      activeRunSyncRef.current = {
+        key: syncKey,
+        sawRunning: false,
+        resumeAttempted: false,
+      };
+    }
+    const syncState = activeRunSyncRef.current;
+    let terminalEventRevision = 0;
+    let settleUntil = 0;
+    const isCurrent = (revision: number) =>
+      !controller.signal.aborted && revision === terminalEventRevision;
+    const refreshMessages = async (
+      revision: number,
+      { requireIdle }: { requireIdle?: boolean } = {},
+    ) => {
+      const session = await sessionApi.refreshSession(
+        queueSessionId,
+        controller.signal,
+      );
+      if (
+        !session ||
+        (requireIdle && (session.generating || chatLoadingRef.current)) ||
+        !isCurrent(revision) ||
+        queueSessionIdRef.current !== queueSessionId ||
+        !isChatActiveRef.current
+      ) {
+        return false;
+      }
+      applyRefreshedHistory(queueSessionId, session.messages);
+      return true;
+    };
+    const syncRun = async () => {
+      if (inFlight || controller.signal.aborted || !isChatActiveRef.current)
+        return;
+      inFlight = true;
+      try {
+        const requestRevision = terminalEventRevision;
+        const runStatus = await chatApi.getChatStatus(backendChatId, {
+          agentId: selectedAgent,
+          signal: controller.signal,
+        });
+        if (!isCurrent(requestRevision)) return;
+
+        if (runStatus.status === "running") {
+          const firstRunningObservation = !syncState.sawRunning;
+          const execution = chatRef.current?.execution;
+          const activeRun = await execution?.getActiveRun(queueSessionId);
+          if (!isCurrent(requestRevision)) return;
+          // A terminal SDK event can precede backend cleanup. Without a
+          // backend run ID, only defer briefly before trusting a fresh poll.
+          if (!activeRun && performance.now() < settleUntil) return;
+          settleUntil = 0;
+          setRunningVisit(queueVisit);
+          if (activeRun && activeRun.getState() !== "disconnected") {
+            syncState.resumeAttempted = false;
+            return;
+          }
+          if (syncState.resumeAttempted) return;
+          if (!execution) return;
+          if (firstRunningObservation || !activeRun) {
+            if (!(await refreshMessages(requestRevision))) return;
+          }
+          if (!isCurrent(requestRevision)) return;
+          syncState.sawRunning = true;
+          syncState.resumeAttempted = true;
+          try {
+            await execution.resume({
+              sessionId: queueSessionId,
+              source: "direct",
+            });
+          } catch (error) {
+            if (isCurrent(requestRevision)) {
+              syncState.resumeAttempted = false;
+            }
+            throw error;
+          }
+          return;
+        }
+
+        settleUntil = 0;
+        setRunningVisit(null);
+        if (!syncState.sawRunning) return;
+        if (
+          (await refreshMessages(requestRevision, { requireIdle: true })) &&
+          isCurrent(requestRevision)
+        ) {
+          syncState.sawRunning = false;
+          syncState.resumeAttempted = false;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to synchronize active chat run", error);
+        }
+      } finally {
+        inFlight = false;
+        if (recheckPending) {
+          recheckPending = false;
+          void syncRun();
+        }
+      }
+    };
+
+    recheckRunAfterStopFailureRef.current = () => {
+      terminalEventRevision += 1;
+      settleUntil = 0;
+      syncState.resumeAttempted = false;
+      if (inFlight) recheckPending = true;
+      else void syncRun();
+    };
+
+    const unsubscribeExecution = chatRef.current?.execution.subscribe(
+      (event) => {
+        if (event.sessionId !== queueSessionId) return;
+        const terminal =
+          event.state === "completed" ||
+          event.state === "failed" ||
+          event.state === "canceled";
+        settleUntil = terminal ? performance.now() + ACTIVE_RUN_SETTLE_MS : 0;
+        if (!terminal) return;
+        terminalEventRevision += 1;
+        syncState.resumeAttempted = false;
+        setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+      },
+    );
+
+    const retryWhenVisible = () => {
+      if (!document.hidden) void syncRun();
+    };
+    const retryTimer = window.setInterval(
+      retryWhenVisible,
+      ACTIVE_RUN_POLL_INTERVAL_MS,
+    );
+    window.addEventListener("online", retryWhenVisible);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      controller.abort();
+      recheckRunAfterStopFailureRef.current = null;
+      unsubscribeExecution?.();
+      window.clearInterval(retryTimer);
+      window.removeEventListener("online", retryWhenVisible);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [
+    applyRefreshedHistory,
+    backendChatId,
+    isSessionTransition,
+    queueSessionId,
+    queueVisit,
+    selectedAgent,
+    usesQwenPawBackend,
+  ]);
 
   useLayoutEffect(() => {
     sessionApi.invalidateSessionCreation();
@@ -2385,6 +2665,52 @@ export default function ChatPage() {
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
+  useEffect(() => {
+    if (!isChatActivePage) return;
+    const binding = bindChatComposer({
+      element: getActiveSenderTextarea,
+      scope: () => {
+        if (
+          !isChatActiveRef.current ||
+          isSessionTransitionRef.current ||
+          isComposingRef.current
+        )
+          return null;
+        return {
+          agentId: selectedAgent,
+          sessionId:
+            sessionApi.getSessionIdentity(chatIdRef.current || "").sessionId ||
+            null,
+          chatId: resolveBackendChatId(chatIdRef.current) || null,
+        };
+      },
+      write: (text) => {
+        const textarea = getActiveSenderTextarea();
+        if (textarea) {
+          setTextareaValue(textarea, text);
+          textarea.focus();
+        }
+      },
+      model: async () => {
+        const result = await loadSessionModel(selectedAgent, {
+          sessionId: queueSessionId,
+          chatId: backendChatId,
+        });
+        const model = result.active_llm;
+        return model
+          ? { provider_id: model.provider_id, model_id: model.model }
+          : null;
+      },
+    });
+    return () => binding.dispose();
+  }, [
+    isChatActivePage,
+    selectedAgent,
+    routeChatId,
+    queueSessionId,
+    backendChatId,
+    queueKey,
+  ]);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2723,10 +3049,7 @@ export default function ChatPage() {
             if (signal.aborted || queueSessionIdRef.current !== queueSessionId)
               return;
             if (recovered && !recovered.generating) {
-              chatRef.current?.messages.setSessionMessages(
-                queueSessionId,
-                recovered.messages,
-              );
+              applyRefreshedHistory(queueSessionId, recovered.messages);
             }
           }
           if (
@@ -2740,7 +3063,13 @@ export default function ChatPage() {
         });
       }
     },
-    [executeQueuedItem, queueSessionId, selectedAgent, queueKey],
+    [
+      applyRefreshedHistory,
+      executeQueuedItem,
+      queueSessionId,
+      selectedAgent,
+      queueKey,
+    ],
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
@@ -3262,6 +3591,7 @@ export default function ChatPage() {
       }
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      pendingMediaOmittedRef.current = null;
       // Snapshot legacy state before the first await. SDK 1.2 supplies the
       // immutable submission route in data for direct and queued sends.
       const fallbackLocalChatId =
@@ -3554,8 +3884,176 @@ export default function ChatPage() {
     [multimodalCaps, t, usesQwenPawBackend],
   );
 
-  const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root) return;
+
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      const prefix = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-prefix"]',
+      );
+      const actions = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-actions-list"]',
+      );
+      if (!bottom || !prefix || !actions) return;
+
+      // Measure a non-interactive DOM copy, never the visible toolbar.
+      const measurement = document.createElement("div");
+      measurement.className = styles.composerMeasurement;
+      measurement.setAttribute("aria-hidden", "true");
+      measurement.inert = true;
+      const measuredBottom = bottom.cloneNode(true) as HTMLElement;
+      measuredBottom.removeAttribute("data-composer-overflow");
+      measurement.append(measuredBottom);
+      measuredBottom
+        .querySelectorAll("[id]")
+        .forEach((node) => node.removeAttribute("id"));
+      measuredBottom
+        .querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR)
+        .forEach((element) => {
+          element.style.removeProperty("width");
+          element.dataset.composerResizing = "false";
+        });
+      root.append(measurement);
+      try {
+        const items = Array.from(
+          measuredBottom.querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR),
+        ).map((element, index) => {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = element.getBoundingClientRect().width;
+          return {
+            element,
+            id,
+            index,
+            left: element.getBoundingClientRect().left,
+            width,
+          };
+        });
+
+        const measuredPrefix = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-prefix"]',
+        );
+        const measuredActions = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-actions-list"]',
+        );
+        const prefixRow = measuredPrefix?.firstElementChild;
+        const prefixWidth = flexChildrenWidth(
+          prefixRow instanceof HTMLElement ? prefixRow : measuredPrefix,
+        );
+        const actionsWidth = flexChildrenWidth(measuredActions);
+        const bottomGap =
+          Number.parseFloat(getComputedStyle(bottom).columnGap) || 0;
+        const requiredWidth = prefixWidth + actionsWidth + bottomGap;
+
+        const nextWidths: Partial<Record<ComposerControlId, string>> = {};
+        const orderedItems = [...items].sort((left, right) => {
+          const horizontal = right.left - left.left;
+          return horizontal || right.index - left.index;
+        });
+
+        let reservedWidth = requiredWidth;
+        // Each control reserves full widths to its left and minimum widths
+        // to its right. CSS resolves the active control in the same layout
+        // pass as a container resize, without a frame of stale pixel widths.
+        for (const item of orderedItems) {
+          const compactWidth = Number.parseFloat(
+            getComputedStyle(item.element).getPropertyValue(
+              "--composer-compact-width",
+            ),
+          );
+          const resolvedCompactWidth = Number.isFinite(compactWidth)
+            ? compactWidth
+            : 32;
+          const minimum = Math.min(resolvedCompactWidth, item.width);
+          nextWidths[item.id] = `clamp(${minimum}px, calc(100cqw - ${
+            reservedWidth - item.width
+          }px), ${item.width}px)`;
+          reservedWidth -= item.width - minimum;
+        }
+
+        // Keep the threshold independent of whether the tool tray is open.
+        const availableWidth = bottom.clientWidth;
+        const overflow = String(availableWidth < Math.ceil(reservedWidth));
+        if (bottom.dataset.composerOverflow !== overflow) {
+          const focused = document.activeElement;
+          const toggle = bottom.querySelector<HTMLButtonElement>(
+            `.${styles.composerToolsToggle}`,
+          );
+          bottom.dataset.composerOverflow = overflow;
+          if (
+            overflow === "true" &&
+            focused instanceof HTMLElement &&
+            (prefix.contains(focused) ||
+              focused.closest(`.${styles.senderActionAffix}`))
+          ) {
+            toggle?.focus();
+          } else if (overflow === "false" && focused === toggle) {
+            prefix
+              .querySelector<HTMLButtonElement>("button:not(:disabled)")
+              ?.focus();
+          }
+        }
+
+        for (const element of bottom.querySelectorAll<HTMLElement>(
+          COMPOSER_ITEM_SELECTOR,
+        )) {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = nextWidths[id];
+          element.style.width = width ?? "";
+          element.dataset.composerResizing = String(width !== undefined);
+        }
+      } finally {
+        measurement.remove();
+      }
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    const mutationObserver = new MutationObserver(measure);
+    let observedBottom: HTMLElement | null = null;
+    const bindBottom = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      // Measurement copies and unrelated mutations do not change the target.
+      if (bottom === observedBottom) return;
+      if (observedBottom) observer.unobserve(observedBottom);
+      mutationObserver.disconnect();
+      observedBottom = bottom;
+      if (!bottom) return;
+      observer.observe(bottom);
+      mutationObserver.observe(bottom, {
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      measure();
+    };
+    const mountObserver = new MutationObserver(bindBottom);
+    mountObserver.observe(root, { childList: true, subtree: true });
+    bindBottom();
+
+    return () => {
+      active = false;
+      mountObserver.disconnect();
+      observer.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [i18n.language, isMobile]);
+
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (root) return preserveReverseMessageViewport(root);
+  }, [queueKey]);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4131,92 +4629,103 @@ export default function ChatPage() {
               />
             ) : null}
             {usesQwenPawBackend && (
-              <LoopModeSelector
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                chatId={backendChatId}
-                agentId={selectedAgent}
-              />
+              <ComposerResponsiveItem id="loop">
+                <LoopModeSelector
+                  compact={false}
+                  chatId={backendChatId}
+                  agentId={selectedAgent}
+                />
+              </ComposerResponsiveItem>
             )}
             {usesQwenPawBackend && !isSessionTransition ? (
-              advisorConversation ? (
-                <AdvisorModelsPill />
-              ) : (
-                <SessionThinking
-                  agentId={selectedAgent}
-                  sessionId={queueSessionId}
-                  chatId={backendChatId}
-                  onDecisionConfiguredChange={handleDecisionConfiguredChange}
-                />
-              )
+              <ComposerResponsiveItem id="model">
+                {advisorConversation ? (
+                  <AdvisorModelsPill compact={false} />
+                ) : (
+                  <SessionThinking
+                    agentId={selectedAgent}
+                    sessionId={queueSessionId}
+                    chatId={backendChatId}
+                    compact={false}
+                    onDecisionConfiguredChange={handleDecisionConfiguredChange}
+                  />
+                )}
+              </ComposerResponsiveItem>
             ) : backendCapabilities?.model_selection ? (
-              <BackendModelSelector
-                backendId={selectedAgentBackend}
-                capabilities={backendCapabilities}
-              />
+              <ComposerResponsiveItem id="model">
+                <BackendModelSelector
+                  backendId={selectedAgentBackend}
+                  capabilities={backendCapabilities}
+                  compact={false}
+                />
+              </ComposerResponsiveItem>
             ) : null}
             {pluginSenderPrefix}
           </>
         ),
-        actionAffix: (
-          <span
-            className={`${styles.senderActionAffix} ${
-              compactSender ? styles.compactSenderAffix : ""
-            }`}
-          >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <span className={styles.senderContextAffix}>
-                <ContextUsageIndicator
-                  onCompact={handleCompactCommand}
-                  onNew={handleNewCommand}
+        actionAffix: ({ loading }: IAgentScopeRuntimeWebUISenderActionInfo) => (
+          <>
+            <ComposerToolsMenu className={styles.composerToolsToggle} />
+            {showDetachedRunStop && !loading && (
+              <Tooltip title={t("chat.composer.stop")}>
+                <Button
+                  className={styles.detachedRunStop}
+                  aria-label={t("chat.composer.stop")}
+                  icon={<Square size="1em" />}
+                  loading={stoppingDetachedRun}
+                  onClick={() => void stopBackendRun()}
                 />
-              </span>
+              </Tooltip>
             )}
-            {usesQwenPawBackend && !isSessionTransition && (
-              <SessionProjectDirectory
-                scope={sessionScope}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderProjectControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
-            )}
-            {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                decisionModelConfigured={decisionModelConfigured}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
-            ) : approvalPresets.length > 0 ? (
-              <BackendApprovalToggle
-                backend={selectedAgentBackend}
-                sessionId={queueKey}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
-            ) : null}
-          </span>
+            <span className={styles.senderActionAffix} data-composer-actions>
+              {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <span
+                  className={styles.senderContextAffix}
+                  data-composer-context
+                >
+                  <ContextUsageIndicator
+                    onCompact={handleCompactCommand}
+                    onNew={handleNewCommand}
+                  />
+                </span>
+              )}
+              {usesQwenPawBackend && !isSessionTransition && (
+                <ComposerResponsiveItem id="project-directory">
+                  <SessionProjectDirectory
+                    scope={sessionScope}
+                    compact={false}
+                    className={styles.senderProjectControl}
+                  />
+                </ComposerResponsiveItem>
+              )}
+              {usesQwenPawBackend ? (
+                <ComposerResponsiveItem id="approval">
+                  <ApprovalLevelToggle
+                    sessionId={queueKey}
+                    runningConfigApprovalLevel={runningConfigApprovalLevel}
+                    decisionModelConfigured={decisionModelConfigured}
+                    compact={false}
+                    className={styles.senderApprovalControl}
+                    onChange={(sessionOverride) => {
+                      sessionApprovalLevelRef.current = sessionOverride;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : approvalPresets.length > 0 ? (
+                <ComposerResponsiveItem id="approval">
+                  <BackendApprovalToggle
+                    backend={selectedAgentBackend}
+                    sessionId={queueKey}
+                    presets={approvalPresets}
+                    compact={false}
+                    onChange={(settings) => {
+                      backendControlsRef.current = settings;
+                    }}
+                  />
+                </ComposerResponsiveItem>
+              ) : null}
+            </span>
+          </>
         ),
         ...(supportsAttachments
           ? {
@@ -4244,6 +4753,7 @@ export default function ChatPage() {
                     <Tooltip title={tooltipTitle}>
                       <IconButton
                         aria-label={t("chat.composer.attach")}
+                        data-composer-tool="attach"
                         disabled={props?.disabled}
                         icon={<SparkAttachmentLine size="1em" />}
                         bordered={false}
@@ -4311,6 +4821,18 @@ export default function ChatPage() {
             pendingFallbackEventsRef.current.push(event);
           }
 
+          const mediaOmitted = parseMediaOmittedNotice(payload);
+          if (mediaOmitted) {
+            const current = pendingMediaOmittedRef.current;
+            if (
+              !current ||
+              mediaOmittedNoticeKey(current) !==
+                mediaOmittedNoticeKey(mediaOmitted)
+            ) {
+              pendingMediaOmittedRef.current = mediaOmitted;
+            }
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -4353,6 +4875,22 @@ export default function ChatPage() {
               payload.output = [fallbackMessage, ...output];
               pendingFallbackEventsRef.current = [];
               pendingFallbackEventKeysRef.current.clear();
+            }
+            if (pendingMediaOmittedRef.current) {
+              const notice = pendingMediaOmittedRef.current;
+              const reason = notice.reason ? ` (${notice.reason})` : "";
+              const mediaMessage = buildMediaOmittedSystemMessage(
+                notice,
+                t("chat.mediaOmittedNotice", {
+                  count: notice.count,
+                  reason,
+                }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [...output, mediaMessage];
+              pendingMediaOmittedRef.current = null;
             }
           }
 
@@ -4402,22 +4940,18 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         onFileCardClick,
-        cancel(
+        async cancel(
           data: IAgentScopeRuntimeWebUITransportContext & {
             abort?: () => void;
           },
         ) {
-          // The SDK only writes a canceled status when its stream is still
-          // alive to observe the abort; record the stop itself so tool cards
-          // can close even when the stream died first.
-          markTurnStopped(data.session_id || data.chatSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},
             {},
             selectedAgent,
           );
-          return cancelSdkChatRequest(data, {
+          const stopped = await cancelSdkChatRequest(data, {
             resolveBackendSessionId: (sessionId) =>
               sessionApi.getRealIdForSession(sessionId),
             stopChat: (sessionId) =>
@@ -4431,6 +4965,9 @@ export default function ChatPage() {
               );
             },
           });
+          if (stopped) {
+            markTurnStopped(data.session_id || data.chatSessionId);
+          }
         },
         async reconnect(
           data: IAgentScopeRuntimeWebUITransportContext & {
@@ -4442,15 +4979,28 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity(
-            data.chatSessionId || data.session_id,
-          );
+          const reconnectSessionId = data.chatSessionId || data.session_id;
+          const reconnectIdentity =
+            sessionApi.getSessionIdentity(reconnectSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             reconnectIdentity,
             {},
             selectedAgent,
           );
+          const syncKey = `${snapshot.agentId}:${reconnectSessionId}`;
+          if (queueSessionIdRef.current === reconnectSessionId) {
+            if (activeRunSyncRef.current.key !== syncKey) {
+              activeRunSyncRef.current = {
+                key: syncKey,
+                sawRunning: true,
+                resumeAttempted: true,
+              };
+            } else {
+              activeRunSyncRef.current.sawRunning = true;
+              activeRunSyncRef.current.resumeAttempted = true;
+            }
+          }
           // Attaching to a live turn only invalidates this session's stop.
           clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
@@ -4458,17 +5008,25 @@ export default function ChatPage() {
             .getState()
             .beginTurn(snapshot.agentId, snapshot.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: snapshot.sessionId,
-              user_id: snapshot.userId,
-              channel: snapshot.channel,
-            }),
-            signal: data.signal,
-          });
+          let response: Response;
+          try {
+            response = await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: snapshot.sessionId,
+                user_id: snapshot.userId,
+                channel: snapshot.channel,
+              }),
+              signal: data.signal,
+            });
+          } catch (error) {
+            if (activeRunSyncRef.current.key === syncKey) {
+              activeRunSyncRef.current.resumeAttempted = false;
+            }
+            throw error;
+          }
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
@@ -4594,6 +5152,9 @@ export default function ChatPage() {
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
+    showDetachedRunStop,
+    stoppingDetachedRun,
+    stopBackendRun,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,
@@ -4605,7 +5166,6 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     isMobile,
-    compactSender,
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,

@@ -11,11 +11,14 @@ import type {
   ProjectSnapshotEnvelope,
   ProjectSnapshotPollResult,
   R2VReferenceOrderResponse,
+  SubtitleStyle,
+  SubtitleStyleUpdateRequest,
 } from "@/contracts/creator";
 import {
   CreatorHttpError,
   creatorFetch,
   creatorRequest,
+  invalidateCreatorListReads,
   jsonBody,
   newClientId,
 } from "./client";
@@ -164,14 +167,19 @@ export function listProjects(
   );
 }
 
+function projectAdded<T>(result: T): T {
+  invalidateCreatorListReads("/projects");
+  return result;
+}
+
 export function createProject(
   request: ProjectCreateRequest,
 ): Promise<ProjectCreateResponse> {
-  return creatorRequest("/projects", {
+  return creatorRequest<ProjectCreateResponse>("/projects", {
     method: "POST",
     headers: { "Idempotency-Key": request.clientRequestId },
     body: jsonBody(request),
-  });
+  }).then(projectAdded);
 }
 
 export function deleteProject(
@@ -189,10 +197,10 @@ export function copyProject(
   projectId: string,
   clientRequestId = newClientId("copy-project"),
 ): Promise<{ projectId: string }> {
-  return creatorRequest(`/projects/${encodeURIComponent(projectId)}/copy`, {
-    method: "POST",
-    headers: { "Idempotency-Key": clientRequestId },
-  });
+  return creatorRequest<{ projectId: string }>(
+    `/projects/${encodeURIComponent(projectId)}/copy`,
+    { method: "POST", headers: { "Idempotency-Key": clientRequestId } },
+  ).then(projectAdded);
 }
 
 export interface RecreateParams {
@@ -293,5 +301,79 @@ export function getR2VReferenceOrder(
     `/projects/${encodeURIComponent(projectId)}/elements/${encodeURIComponent(
       elementId,
     )}/r2v-references${stage === "storyboard" ? "?stage=storyboard" : ""}`,
+  );
+}
+
+export interface SubtitleToggleResult {
+  ok: boolean;
+  generation: number;
+  toggled: number;
+  enabled: boolean;
+}
+
+/** Batch enable or disable all subtitle overlay elements. */
+export function toggleSubtitles(
+  projectId: string,
+  enabled: boolean,
+): Promise<SubtitleToggleResult> {
+  return creatorRequest(
+    `/projects/${encodeURIComponent(projectId)}/subtitles/toggle`,
+    {
+      method: "PATCH",
+      body: jsonBody({ enabled }),
+    },
+  );
+}
+
+export interface SubtitleStyleUpdateResult {
+  ok: boolean;
+  generation: number;
+  subtitleTemplate: string | null;
+  subtitleStyle: SubtitleStyle | null;
+  /**
+   * The canonical style sentence the renderer drew from ("" = smart
+   * recommend).  Show this text rather than keeping a second copy of the
+   * wording in the frontend: it is what the burned-in captions look like.
+   */
+  styleLine: string;
+  syncedPrompts: number;
+  redrawnDocuments: number;
+  /**
+   * Captions whose look belongs to an independent design (a 花字 blueprint, a
+   * free-form document or authored css): the route refuses to promise a pack
+   * it cannot render there, so the UI has to say that instead of reporting a
+   * silent success.
+   */
+  skippedNonTemplate: number;
+}
+
+/**
+ * Switch the subtitle style pack and keep every layer of it in step.
+ *
+ * Only keys that are actually set are sent, so an untouched control cannot
+ * silently reset the project.
+ */
+export function setSubtitleStyle(
+  projectId: string,
+  request: SubtitleStyleUpdateRequest,
+): Promise<SubtitleStyleUpdateResult> {
+  const body: Record<string, unknown> = {};
+  if ("subtitleTemplate" in request) {
+    body.subtitleTemplate = request.subtitleTemplate ?? null;
+  }
+  if ("subtitleStyle" in request) {
+    body.subtitleStyle = request.subtitleStyle ?? null;
+  }
+  if (request.animation) body.animation = request.animation;
+  if (request.elementIds) body.elementIds = request.elementIds;
+  if (request.syncPrompts !== undefined) {
+    body.syncPrompts = request.syncPrompts;
+  }
+  return creatorRequest(
+    `/projects/${encodeURIComponent(projectId)}/subtitles/style`,
+    {
+      method: "PATCH",
+      body: jsonBody(body),
+    },
   );
 }

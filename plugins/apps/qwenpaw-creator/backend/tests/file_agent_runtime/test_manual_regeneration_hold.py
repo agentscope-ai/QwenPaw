@@ -493,7 +493,7 @@ def test_preparation_checks_before_propose_and_accept(env, monkeypatch, late):
     calls = []
 
     async def ready(*_args, **_kwargs):
-        return None, None, graph, {"video:a": "GATED"}
+        return None, None, graph, {"video:a": "GATED"}, {}
 
     async def propose(*_args, **_kwargs):
         calls.append("propose")

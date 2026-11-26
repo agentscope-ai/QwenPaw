@@ -212,10 +212,13 @@ export const chatApi = {
     ),
 
   stopChat: (chatId: string, agentId?: string) =>
-    request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
-      method: "POST",
-      ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
-    }),
+    request<{ stopped: boolean }>(
+      `/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`,
+      {
+        method: "POST",
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
+      },
+    ),
 };
 
 export const sessionApi = {

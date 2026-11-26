@@ -201,7 +201,7 @@ class SlackSender:
         mrkdwn = markdown_to_slack_mrkdwn(text)
         chunks = chunk_slack_text(mrkdwn, SLACK_TEXT_LIMIT)
         last_ts: Optional[str] = None
-        for chunk in chunks:
+        for index, chunk in enumerate(chunks, 1):
             try:
                 resp = await self._platform.effect_call(
                     client.chat_postMessage,
@@ -217,6 +217,10 @@ class SlackSender:
                     )
                 last_ts = resp["ts"]
             except SlackDeliveryError as exc:
+                logger.warning(
+                    f"Slack text chunk {index}/{len(chunks)} failed: "
+                    f"reason={exc.reason_code}",
+                )
                 if last_ts and not exc.side_effect_possible:
                     raise SlackDeliveryError(
                         exc.reason_code,
@@ -393,20 +397,27 @@ class SlackSender:
         """
 
         if not os.path.isfile(filepath):
-            logger.warning("slack send: local file not found %s", filepath)
+            logger.warning(f"Slack upload source file unavailable")
             return None
 
         file_size = os.path.getsize(filepath)
 
         self._platform.authorize_path(filepath)
-        upload_resp = await with_retry(
-            client.files_getUploadURLExternal,
-            filename=filename,
-            length=file_size,
-        )
+        try:
+            upload_resp = await with_retry(
+                client.files_getUploadURLExternal,
+                filename=filename,
+                length=file_size,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Slack upload URL request failed ({type(exc).__name__})",
+            )
+            raise
         upload_url = upload_resp.get("upload_url")
         file_id = upload_resp.get("file_id")
         if not upload_resp.get("ok") or not upload_url or not file_id:
+            logger.warning(f"Slack upload URL request was rejected")
             raise SlackDeliveryError("SLACK_UPLOAD_REJECTED")
         if not is_slack_host(upload_url) or urlparse(
             upload_url,
@@ -423,6 +434,9 @@ class SlackSender:
         try:
             async with session.post(upload_url, **post_kwargs) as response:
                 if response.status >= 400:
+                    logger.warning(
+                        f"Slack file upload failed: HTTP {response.status}",
+                    )
                     raise SlackDeliveryError(
                         "SLACK_UPLOAD_REJECTED",
                         side_effect_possible=response.status >= 500,
@@ -432,17 +446,22 @@ class SlackSender:
         except (SlackDeliveryError, asyncio.CancelledError):
             raise
         except Exception as exc:
+            logger.warning(
+                f"Slack file upload result unavailable ({type(exc).__name__})",
+            )
             raise SlackDeliveryError(
                 "SLACK_UPLOAD_UNKNOWN",
                 side_effect_possible=True,
             ) from exc
         complete = await self._platform.effect_call(
             client.files_completeUploadExternal,
+            operation=f"file upload completion",
             files=[{"id": file_id, "title": title or filename}],
             channel_id=channel_id,
             thread_ts=thread_ts,
         )
         if not complete.get("ok"):
+            logger.warning(f"Slack file upload completion rejected")
             raise SlackDeliveryError("SLACK_UPLOAD_REJECTED")
         return file_id
 
@@ -458,7 +477,7 @@ class SlackSender:
     ) -> Optional[str]:
         """Download an allowed URL, then upload its file via files.uploadV2."""
         if not _is_slack_ssrf_allowed(url):
-            logger.warning("slack send: SSRF blocked %s", url[:120])
+            logger.warning(f"Slack attachment policy rejected media URL")
             return None
         path = await self._platform.download_file(url, filename)
         if not path:
@@ -466,6 +485,7 @@ class SlackSender:
         try:
             resp = await self._platform.effect_call(
                 client.files_upload_v2,
+                operation=f"remote file upload",
                 channel=channel_id,
                 file=path,
                 filename=filename,

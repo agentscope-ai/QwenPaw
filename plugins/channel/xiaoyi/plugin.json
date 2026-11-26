@@ -1,7 +1,7 @@
 {
   "id": "xiaoyi",
   "name": "XiaoYi",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "channel",
   "description": "Huawei XiaoYi A2A protocol over authenticated dual WebSockets.",
   "author": "QwenPaw Team",
@@ -11,5 +11,16 @@
   "qwenpaw_version": {
     "min": "2.3.1"
   },
-  "publish": true
+  "publish": true,
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "dependencies"
+    ]
+  },
+  "optional_dependencies": {
+    "transport": [
+      "aiohttp>=3.9.0"
+    ]
+  }
 }

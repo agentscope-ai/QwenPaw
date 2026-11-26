@@ -44,15 +44,13 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 
 ## 在控制台中配置
 
-进入 **Agent 配置 → 运行配置 → 长期记忆 → 向量模型配置**：
+打开当前智能体的 **设置 → 运行配置 → 记忆与检索**，找到 **Embedding 模型中心**：
 
-1. 选择与服务接口匹配的 SDK 类型；
-2. 填写模型名称、API Key 和服务地址；
-3. 填写模型实际输出的向量维度；
-4. 点击“测试 Embedding 服务”；
-5. 测试成功后保存配置；如果控制台提示向量空间已变化，再执行“重建记忆索引”。
+1. 在 **Embedding 服务** 中选择 SDK 类型，填写模型名称和实际输出维度。按后端要求填写凭据和地址；Ollama 不需要 API Key。
+2. 点击 **服务验证**，用当前表单参数发送一次测试请求。验证成功时会显示实际维度和耗时；维度不匹配时先核对模型配置。
+3. 设置自动保存。若向量空间已变化，等更改保存后点击 **Embedding 索引**，核对确认框再重建。仅验证服务不会重建索引。
 
-![长期记忆中的 Embedding 模型配置区域](https://img.alicdn.com/imgextra/i2/O1CN01Er7z0tejkhL6wWB4_!!6000000004853-0-tps-3420-1314.jpg)
+![长期记忆中的 Embedding 模型配置区域](https://img.alicdn.com/imgextra/i1/O1CN01t8HOdSTpnzF3FPfU_!!6000000007832-2-tps-1600-1000.png)
 
 配置过程中需要区分以下几个阶段：
 
@@ -61,7 +59,7 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 - **已保存**：配置已经写入运行配置；同一向量空间的变更可热更新，向量空间变化则会暂停向量搜索并等待重建；
 - **需要重建索引**：模型的语义坐标系发生变化，旧向量需要重新生成。
 
-![Embedding 服务已验证并显示实际维度与耗时](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
+![Embedding 服务已验证并显示实际维度与耗时](https://img.alicdn.com/imgextra/i2/O1CN01b0m3vg4wK7G2On7V_!!6000000004461-2-tps-1182-183.png)
 
 测试会发送一条真实文本请求，并检查服务能否在 `health_check_timeout` 内返回非空、有限数值组成且维度正确的向量；该超时默认是 15 秒。它只能证明当前参数可以完成一次调用；首次启用或重建索引仍需处理全部现有记忆，也可能遇到配额、速率限制或超长输入。
 
@@ -88,7 +86,7 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 
 `dimensions` 默认用于严格校验。除非模型和接口明确支持可变维度，否则应填写模型的原生输出维度。配置期望 256 维而服务返回 1024 维时，测试会直接失败：
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i4/O1CN01ZFtJXcpF1MH1GnlE_!!6000000004901-0-tps-626-242.jpg" alt="Embedding 测试因期望维度与实际维度不一致而失败" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01NFEMUm1Db2L0qMm4_!!6000000000057-2-tps-416-188.png" alt="Embedding 测试因期望维度与实际维度不一致而失败" />
 
 `use_dimensions` 只决定 `openai` 后端是否把维度参数发给服务，不会关闭返回值校验。某些 OpenAI 兼容服务不接受该参数，此时关闭它，并把 `dimensions` 填成服务实际返回的维度。
 
@@ -108,7 +106,7 @@ POST /api/agents/{agentId}/memory/reindex?scope=embedding
 POST /api/agents/{agentId}/memory/reindex/undo
 ```
 
-<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的确认提示" />
+<img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i2/O1CN01t1PV3fCoKAF0qMm4_!!6000000007304-2-tps-416-188.png" alt="重建记忆索引前的确认提示" />
 
 ### 服务地址无法访问
 

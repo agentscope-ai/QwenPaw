@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import runpy
 import shutil
@@ -363,6 +364,36 @@ def test_real_harness_archives_contain_own_entries_and_frontends(
         assert index["files"][f"{plugin_id}-1.0.0"]["platform"] == "harness"
 
 
+def test_channel_template_packages_named_dependencies_and_public_entry(
+    tmp_path,
+):
+    from qwenpaw.plugins.channel_workers import ChannelDefinition
+    from qwenpaw.plugins.compliance import check_plugin
+
+    source = tmp_path / "mailbox"
+    template = REPO_ROOT / "src/qwenpaw/plugins/templates/channel"
+    shutil.copytree(template, source)
+    manifest_path = source / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["entry"]["backend"] = "plugin.py"
+    manifest["sdk"]["capabilities"].append("dependencies")
+    manifest["optional_dependencies"] = {"transport": ["packaging"]}
+    manifest_path.write_text(json.dumps(manifest))
+    (source / "plugin.py").write_text("def register(api): pass")
+    path = source / "channel.json"
+    data = json.loads(path.read_text())
+    data["requires"] = ["transport"]
+    path.write_text(json.dumps(data))
+    assert ChannelDefinition.load(path).to_dict()["requires"] == ["transport"]
+    assert check_plugin(source).ok
+    archive = tmp_path / "mailbox.zip"
+    _zip_plugin(source, archive, manifest)
+    with zipfile.ZipFile(archive) as packaged:
+        names = [Path(name).name for name in packaged.namelist()]
+    assert {"plugin.py", "driver.py", "channel.json"} <= set(names)
+    assert "requirements.txt" not in names
+
+
 def test_private_channel_zip_preserves_runtime_and_source_manifest(tmp_path):
     """Local zipper supports private previews while honoring exclusions."""
     plugin_dir = tmp_path / "channel-preview"
@@ -528,3 +559,25 @@ def test_immutable_release_distinguishes_legacy_hosts_from_broken_bundles(
             check_release(tmp_path, no_remote, dry_run=True)
     else:
         check_release(tmp_path, no_remote, dry_run=True)
+
+
+def test_official_mcp_protocol_archive_is_a_checked_release(tmp_path):
+    index, failed = discover_and_pack(
+        REPO_ROOT / "plugins",
+        tmp_path,
+        "/files/plugins",
+        only=["qwenpaw-mcp"],
+    )
+    assert not failed
+    row = index["files"]["qwenpaw-mcp-1.0.0"]
+    assert row["platform"] == "protocol"
+    checker = runpy.run_path(
+        str(REPO_ROOT / "scripts/pack/check_plugin_versions.py"),
+    )
+    candidates, _ = checker["_release_candidates"](tmp_path, None)
+    assert len(candidates) == 1
+    record, payload, _ = candidates[0]
+    assert record["kind"] == "protocol"
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        assert "qwenpaw-mcp/requirements.txt" in archive.namelist()
+        assert "qwenpaw-mcp/frontend/dist/index.js" in archive.namelist()

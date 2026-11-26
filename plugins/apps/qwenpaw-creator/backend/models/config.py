@@ -741,6 +741,42 @@ def get_vlm_model_name() -> str:
     )
 
 
+def _section_protocol(tool_name: str, section_key: str, env_name: str) -> str:
+    """Saved protocol label for one model section, request-scoped first."""
+
+    tool_config = get_request_tool_config(tool_name)
+    if tool_config:
+        return str(tool_config.get("protocol") or "").strip()
+    section = _get_user_config().get(section_key)
+    if isinstance(section, dict) and section.get("protocol"):
+        return str(section["protocol"]).strip()
+    return os.environ.get(env_name, "").strip()
+
+
+def get_asr_protocol() -> str:
+    return _section_protocol(
+        CREATOR_ASR_CONFIG_TOOL,
+        "asr",
+        "ASR_PROTOCOL",
+    )
+
+
+def get_tts_protocol() -> str:
+    return _section_protocol(
+        CREATOR_TTS_CONFIG_TOOL,
+        "tts",
+        "TTS_PROTOCOL",
+    )
+
+
+def get_video_protocol() -> str:
+    return _section_protocol(
+        CREATOR_VIDEO_CONFIG_TOOL,
+        "video",
+        "VIDEO_PROTOCOL",
+    )
+
+
 def get_vlm_protocol() -> str:
     if _vlm_use_llm():
         return get_text_protocol()
@@ -816,6 +852,25 @@ def is_token_plan_protocol(protocol: str) -> bool:
     """
     lowered = (protocol or "").casefold()
     return "token plan" in lowered or "tokenplan" in lowered
+
+
+def is_token_plan_endpoint(base_url: str) -> bool:
+    """True when *base_url* names the Token Plan gateway host.
+
+    A Token Plan key (``sk-sp-``) is scoped to its own gateway: the public
+    ``dashscope.aliyuncs.com`` refuses it (401) and the token-plan host
+    serves no ``/api/v1/uploads`` at all (404, both measured), so local
+    media bound for it must inline as Base64 instead of riding the
+    model-bound temporary upload. Hostname parsing (not a substring match)
+    mirrors ``is_maas_endpoint`` so a lookalike path cannot select it, and
+    every section decides through here rather than a private copy.
+    """
+    candidate = base_url if "://" in base_url else f"//{base_url}"
+    try:
+        hostname = (urlsplit(candidate).hostname or "").casefold()
+    except ValueError:
+        return False
+    return hostname == "token-plan" or hostname.startswith("token-plan.")
 
 
 # Gateways that reject any explicit ``temperature`` for a model. The seed

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "channel_key": "xiaoyi",
   "label": {
     "en": "XiaoYi",
@@ -12,7 +12,7 @@
     "module": "qwenpaw_channel_xiaoyi.driver",
     "qualname": "XiaoYiDriver"
   },
-  "requirements_file": "requirements.txt",
+  "requires": ["transport"],
   "config_schema": {
     "properties": {
       "enabled": {
@@ -137,6 +137,11 @@
         "default": 3600000,
         "title": "Task Timeout Ms",
         "type": "integer"
+      },
+      "streaming_enabled": {
+        "default": false,
+        "title": "Streaming Replies",
+        "type": "boolean"
       }
     },
     "title": "XiaoYiConfig",
@@ -164,12 +169,15 @@
     "sk",
     "agent_id",
     "ws_url",
-    "task_timeout_ms"
+    "task_timeout_ms",
+    "streaming_enabled"
   ],
   "capabilities": [
     "channel.generic.v1",
     "media",
+    "response.prepare",
     "send.content_source.v1",
-    "send.semantic_parts.v1"
+    "send.semantic_parts.v1",
+    "streaming"
   ]
 }

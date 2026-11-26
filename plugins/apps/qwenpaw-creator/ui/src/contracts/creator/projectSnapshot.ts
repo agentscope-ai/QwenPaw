@@ -6,6 +6,16 @@ export interface ProjectEntityCollection<T> {
   order: string[];
 }
 
+/** Persisted subtitle-bar overrides (snake_case mirror of the API model). */
+export interface SubtitleStyleDocument extends ProjectJsonRecord {
+  color?: string | null;
+  font_scale?: number | null;
+  stroke_scale?: number | null;
+  background_opacity?: number | null;
+  /** Typeface id (see backend overlay._SUBTITLE_FONT_FAMILIES); null = auto. */
+  font_family?: string | null;
+}
+
 export interface ProjectSettingsDocument extends ProjectJsonRecord {
   production_stage?: "script" | "media";
   script_approval_fingerprint?: string | null;
@@ -15,6 +25,9 @@ export interface ProjectSettingsDocument extends ProjectJsonRecord {
   language: string;
   target_duration_seconds: number | null;
   content_type: string | null;
+  subtitle_policy?: "auto" | "on" | "off";
+  subtitle_template?: string | null;
+  subtitle_style?: SubtitleStyleDocument | null;
   execution_preauthorization?: ProjectJsonRecord | null;
 }
 
@@ -210,6 +223,7 @@ export interface R2VCreationDocument extends ProjectJsonRecord {
   storyboard_prompt: string;
   storyboard_reference_version_ids: string[];
   video_prompt: string;
+  generate_audio?: boolean;
   video_reference_version_ids: string[];
   /** Server-owned provenance. Presentation consumes the prompt-sync API. */
   prompt_sync?: {
@@ -226,6 +240,7 @@ export interface T2VCreationDocument extends ProjectJsonRecord {
   narrative: string;
   continuity: string;
   video_prompt: string;
+  generate_audio?: boolean;
   recipe: GenerationRecipeDocument | null;
 }
 
@@ -236,6 +251,7 @@ export interface I2VCreationDocument extends ProjectJsonRecord {
   continuity: string;
   first_frame_version_id: string | null;
   video_prompt: string;
+  generate_audio?: boolean;
   recipe: GenerationRecipeDocument | null;
 }
 
@@ -277,6 +293,16 @@ export interface MotionGraphicDocument extends ProjectJsonRecord {
   intensity?: number;
 }
 
+export type CaptionRole =
+  | "dialogue"
+  | "narration"
+  | "opening_title"
+  | "opening_credit"
+  | "ending_credit"
+  | "location"
+  | "chapter"
+  | "interview_summary";
+
 export interface OverlayCreationDocument extends ProjectJsonRecord {
   type: "overlay";
   // The overlay role derives from data: non-empty text = caption card;
@@ -284,6 +310,7 @@ export interface OverlayCreationDocument extends ProjectJsonRecord {
   // reference their payload through the element's render_source.
   text: string;
   vibe: string;
+  caption_role?: CaptionRole | null;
   prompt: string;
   reference_version_ids: string[];
   motion?: MotionGraphicDocument | null;

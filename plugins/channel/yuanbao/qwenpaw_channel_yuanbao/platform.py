@@ -20,11 +20,17 @@ import aiohttp
 from qwenpaw.app.channels.utils import split_text
 from .auth import TokenManager
 from .codec import (
+    BIZ_CMD_GROUP_HB,
+    BIZ_CMD_PRIVATE_HB,
+    BIZ_CMD_SEND_C2C,
+    BIZ_CMD_SEND_GROUP,
     CMD_AUTH_BIND,
     CMD_KICKOUT,
     CMD_PING,
     CMD_TYPE_PUSH,
     CMD_TYPE_RESPONSE,
+    MODULE_BIZ,
+    MODULE_CONN_ACCESS,
     build_auth_bind_msg,
     build_heartbeat_msg,
     build_ping_msg,
@@ -77,6 +83,15 @@ _AUDIO_EXTS = frozenset(
     },
 )
 _QUOTE_TYPE_LABEL = {1: "message", 2: "image", 3: "file"}
+_LOGGED_COMMANDS = (
+    CMD_AUTH_BIND,
+    CMD_KICKOUT,
+    CMD_PING,
+    BIZ_CMD_GROUP_HB,
+    BIZ_CMD_PRIVATE_HB,
+    BIZ_CMD_SEND_C2C,
+    BIZ_CMD_SEND_GROUP,
+)
 
 
 def _short_id(raw_id: str) -> str:
@@ -145,8 +160,8 @@ class YuanbaoPlatform:
             self._tasks.discard(finished)
             if not finished.cancelled() and finished.exception() is not None:
                 logger.error(
-                    "yuanbao: background operation failed: %s",
-                    finished.exception(),
+                    f"Yuanbao background operation failed "
+                    f"({type(finished.exception()).__name__})",
                 )
 
         task.add_done_callback(done)
@@ -168,7 +183,9 @@ class YuanbaoPlatform:
             await self.on_state("disconnected")
             return
         if not self.app_id or not self.app_secret:
+            logger.error(f"Yuanbao missing required app credentials")
             raise ValueError("Yuanbao app_id and app_secret are required")
+        logger.info(f"Yuanbao starting channel")
         self._media_dir.mkdir(parents=True, exist_ok=True)
         self._token_manager = TokenManager(
             self.app_id,
@@ -180,8 +197,11 @@ class YuanbaoPlatform:
                 await self._connect()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("yuanbao: initial connection failed")
+            except Exception as exc:
+                logger.error(
+                    f"Yuanbao initial connection failed "
+                    f"({type(exc).__name__})",
+                )
                 await self._close_connection()
                 self._schedule_reconnect()
 
@@ -190,6 +210,7 @@ class YuanbaoPlatform:
         await self.on_state("connecting")
         token = await self._token_manager.get_token()
         self._bot_id = token.bot_id
+        logger.debug(f"Yuanbao gateway token ready")
         self._session = aiohttp.ClientSession()
         # ClientWSTimeout was added after the legacy aiohttp>=3.9 floor.
         timeout = (
@@ -198,6 +219,7 @@ class YuanbaoPlatform:
             else float(SEND_TIMEOUT)
         )
         self._ws = await self._session.ws_connect(self.ws_url, timeout=timeout)
+        logger.info(f"Yuanbao WebSocket connected; authenticating")
         raw = build_auth_bind_msg(
             biz_id="ybBot",
             uid=self._bot_id,
@@ -245,10 +267,7 @@ class YuanbaoPlatform:
 
         head = conn_msg["head"]
         if head.get("cmd") != CMD_AUTH_BIND:
-            logger.error(
-                "yuanbao: unexpected auth cmd: %s",
-                head.get("cmd"),
-            )
+            logger.error(f"Yuanbao unexpected authentication command")
             return False
 
         raw_data = conn_msg["data"]
@@ -267,18 +286,10 @@ class YuanbaoPlatform:
 
         code = rsp.get("code", status_code)
         if code in (0, AUTH_ALREADY_CODE):
-            connect_id = rsp.get("connectId", "")
-            logger.info(
-                "yuanbao: auth success connectId=%s",
-                connect_id,
-            )
+            logger.info(f"Yuanbao authenticated: code={code}")
             return True
 
-        logger.error(
-            "yuanbao: auth failed: code=%s, message=%s",
-            code,
-            rsp.get("message", ""),
-        )
+        logger.error(f"Yuanbao authentication rejected: code={code}")
         return False
 
     async def _heartbeat_loop(self) -> None:
@@ -319,7 +330,9 @@ class YuanbaoPlatform:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error("yuanbao: heartbeat error: %s", exc)
+                logger.error(
+                    f"Yuanbao heartbeat failed ({type(exc).__name__})",
+                )
                 await self._force_close_ws()
                 break
 
@@ -347,14 +360,15 @@ class YuanbaoPlatform:
         head = conn_msg["head"]
         cmd_type = head.get("cmdType", 0)
         cmd = head.get("cmd", "")
+        module = head.get("module", "")
+        if module not in (MODULE_BIZ, MODULE_CONN_ACCESS):
+            module = "unknown"
         data = conn_msg.get("data", b"")
 
         logger.debug(
-            "yuanbao: frame cmdType=%s cmd=%s module=%s data_len=%s",
-            cmd_type,
-            cmd,
-            head.get("module", ""),
-            len(data) if data else 0,
+            f"Yuanbao frame cmd_type={cmd_type} "
+            f"cmd={cmd if cmd in _LOGGED_COMMANDS else 'unknown'} "
+            f"module={module} bytes={len(data)}",
         )
 
         if cmd_type == CMD_TYPE_RESPONSE:
@@ -417,8 +431,7 @@ class YuanbaoPlatform:
                 )
             except Exception as exc:
                 logger.error(
-                    "yuanbao: token refresh failed: %s",
-                    exc,
+                    f"Yuanbao token refresh failed ({type(exc).__name__})",
                 )
         await self._force_close_ws()
 
@@ -436,7 +449,9 @@ class YuanbaoPlatform:
                 auth_headers,
             )
         except Exception as exc:
-            logger.warning("yuanbao: resolve media URL failed: %s", exc)
+            logger.warning(
+                f"Yuanbao media URL resolution failed ({type(exc).__name__})",
+            )
             return url
 
     def _is_bot_mention(self, content: dict) -> bool:
@@ -590,6 +605,7 @@ class YuanbaoPlatform:
         qtype_raw = quote.get("type")
         qtype = qtype_raw if isinstance(qtype_raw, int) else 0
         desc = str(quote.get("desc") or "").strip()
+        logger.debug(f"Yuanbao quote type={qtype} description_len={len(desc)}")
         label = _QUOTE_TYPE_LABEL.get(qtype, "message")
         # type=3 carries a filename in desc; use the same suffix set as
         # _classify_file so wording stays consistent with non-quoted
@@ -627,6 +643,7 @@ class YuanbaoPlatform:
 
     async def _receive_loop(self):
         ws = self._ws
+        close_code = None
         try:
             async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.BINARY:
@@ -635,19 +652,33 @@ class YuanbaoPlatform:
                     aiohttp.WSMsgType.CLOSE,
                     aiohttp.WSMsgType.CLOSED,
                 ):
-                    if (msg.data or ws.close_code) in NO_RECONNECT_CLOSE_CODES:
+                    close_code = msg.data or ws.close_code
+                    if close_code in NO_RECONNECT_CLOSE_CODES:
                         self._stopping = True
                     break
                 elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.warning(
+                        f"Yuanbao WebSocket receive error "
+                        f"({type(msg.data).__name__})",
+                    )
                     break
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.exception("yuanbao: receive failed")
+        except Exception as exc:
+            logger.error(f"Yuanbao receive loop failed ({type(exc).__name__})")
         finally:
             if ws is self._ws:
                 if ws.close_code in NO_RECONNECT_CLOSE_CODES:
                     self._stopping = True
+                if (close_code := close_code or ws.close_code) is not None:
+                    logger.debug(
+                        f"Yuanbao WebSocket closed: code={close_code}",
+                    )
+                    if close_code in NO_RECONNECT_CLOSE_CODES:
+                        logger.warning(
+                            f"Yuanbao terminal WebSocket close "
+                            f"code={close_code}",
+                        )
                 self._connected = False
                 self._fail_pending()
                 await self.on_state("disconnected")
@@ -662,20 +693,28 @@ class YuanbaoPlatform:
             interval = (rsp or {}).get("heartInterval")
             if isinstance(interval, (float, int)) and interval > 0:
                 self._heartbeat_interval = interval
+            logger.debug(f"Yuanbao heartbeat acknowledged")
             return
         if cmd == CMD_AUTH_BIND:
             rsp = decode_auth_bind_rsp(data) if data else {}
-            if (
-                head.get("status", 0) in AUTH_FAILED_CODES
-                or (rsp or {}).get("code") in AUTH_FAILED_CODES
-            ):
+            status, code = head.get("status", 0), (rsp or {}).get("code")
+            if status in AUTH_FAILED_CODES or code in AUTH_FAILED_CODES:
+                logger.warning(
+                    f"Yuanbao in-band auth rejected: status={status}, "
+                    f"code={code}; refreshing token",
+                )
                 await self._handle_auth_failure()
             return
         pending = self._pending_requests.get(head.get("msgId", ""))
         if pending is not None:
             expected, future = pending
             if expected == cmd and not future.done():
-                future.set_result((dict(head), decode_send_rsp(data)))
+                response = decode_send_rsp(data)
+                logger.debug(
+                    f"Yuanbao send response: status={head.get('status', 0)}, "
+                    f"code={(response or {}).get('code')}",
+                )
+                future.set_result((dict(head), response))
 
     async def _handle_push(self, head, data):
         # Native ACK means this push frame arrived, as in the legacy gateway.
@@ -691,20 +730,26 @@ class YuanbaoPlatform:
                 except Exception:
                     logger.warning("yuanbao: native push ACK write failed")
         if head.get("cmd") == CMD_KICKOUT:
-            reason = (decode_kickout_msg(data) or {}).get("reason", "")
-            logger.warning("yuanbao: kicked out: %s", reason)
+            kickout = decode_kickout_msg(data) or {}
+            status = kickout.get(f"status")
+            logger.warning(f"Yuanbao gateway kickout: status={status}")
             self._stopping = True
             await self._force_close_ws()
             return
         try:
             value = json.loads(data)
         except (ValueError, UnicodeDecodeError):
-            return
-        if isinstance(value, dict) and value.get("callback_command"):
-            # Keep the receive reader free to resolve concurrent send receipts.
-            self._spawn(
-                self._handle_chat_message(self._normalize_inbound(value)),
+            logger.warning(
+                f"Yuanbao push is not valid JSON: bytes={len(data)}",
             )
+            return
+        if not isinstance(value, dict) or not value.get("callback_command"):
+            logger.debug(f"Yuanbao push missing callback command")
+            return
+        # Keep the reader free to resolve concurrent send receipts.
+        self._spawn(
+            self._handle_chat_message(self._normalize_inbound(value)),
+        )
 
     async def _handle_chat_message(self, inbound):
         async with self._effect(), self._admission_lock:
@@ -721,6 +766,7 @@ class YuanbaoPlatform:
             is_group = str(inbound.get("callback_command") or "").startswith(
                 "Group.",
             )
+            logger.debug(f"Yuanbao received a chat event: group={is_group}")
             group_code = (
                 str(inbound.get("group_code") or "") if is_group else ""
             )
@@ -784,6 +830,8 @@ class YuanbaoPlatform:
                 },
             }
             accepted = await self.on_event(value)
+            if not accepted:
+                logger.warning(f"Yuanbao host did not accept inbound event")
             if accepted and msg_id:
                 self._seen_message_ids[
                     msg_id
@@ -813,8 +861,10 @@ class YuanbaoPlatform:
             data = json.loads(self._session_map_path().read_text("utf-8"))
             if isinstance(data, dict):
                 self._session_map = data
-        except (OSError, ValueError):
-            logger.debug("yuanbao: session map unavailable", exc_info=True)
+        except (OSError, ValueError) as exc:
+            logger.debug(
+                f"Yuanbao session map unavailable ({type(exc).__name__})",
+            )
 
     def _save_session_map_to_disk(self):
         self._write_session_map(blocking=True)
@@ -905,10 +955,9 @@ class YuanbaoPlatform:
                         msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
                     else:
                         fcntl.flock(lock, fcntl.LOCK_UN)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
             logger.warning(
-                "yuanbao: session map write skipped; existing data preserved",
-                exc_info=True,
+                f"Yuanbao session map write skipped ({type(exc).__name__})",
             )
         return True
 
@@ -936,6 +985,7 @@ class YuanbaoPlatform:
             or not isinstance(target, str)
             or not target
         ):
+            logger.warning(f"Yuanbao outbound target unresolved")
             raise YuanbaoDeliveryError("OUTBOUND_TARGET_UNKNOWN")
         return {
             key: str(value.get(key) or "")
@@ -949,6 +999,7 @@ class YuanbaoPlatform:
             or not self._ws
             or self._ws.closed
         ):
+            logger.debug(f"Yuanbao outbound operation requires a connection")
             raise YuanbaoDeliveryError("YUANBAO_NOT_CONNECTED", retryable=True)
         return self._ws
 
@@ -965,6 +1016,7 @@ class YuanbaoPlatform:
 
     async def _write_request(self, result):
         if result is None:
+            logger.warning(f"Yuanbao outbound frame encoding failed")
             raise YuanbaoDeliveryError("YUANBAO_ENCODING_FAILED")
         ws = self._require_connection()
         raw, msg_id = result
@@ -993,6 +1045,9 @@ class YuanbaoPlatform:
                 code,
             )
             if not receipt.business_accepted:
+                logger.warning(
+                    f"Yuanbao send rejected: status={status}, code={code}",
+                )
                 raise YuanbaoDeliveryError(
                     "YUANBAO_BUSINESS_REJECTED",
                     receipt=receipt,
@@ -1010,6 +1065,10 @@ class YuanbaoPlatform:
                 receipt=YuanbaoReceipt(msg_id, written),
             ) from exc
         except Exception as exc:
+            logger.warning(
+                f"Yuanbao send result unknown: written={written} "
+                f"({type(exc).__name__})",
+            )
             raise YuanbaoDeliveryError(
                 "YUANBAO_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -1088,6 +1147,10 @@ class YuanbaoPlatform:
                     p.get("text", "") for p in parts if p.get("type") == "text"
                 )
                 if text.strip():
+                    logger.debug(
+                        f"Yuanbao sending text: "
+                        f"chat_type={route['chat_type']} length={len(text)}",
+                    )
                     for chunk in split_text(text):
                         await send(
                             [
@@ -1117,13 +1180,19 @@ class YuanbaoPlatform:
                             allowed_roots=roots,
                         )
                     except PermissionError as exc:
+                        logger.warning(f"Yuanbao media path unauthorized")
                         raise YuanbaoDeliveryError(
                             "MEDIA_PATH_UNAUTHORIZED",
                         ) from exc
-                    except Exception:
+                    except Exception as exc:
                         # Only preparation/upload failure can select the legacy
                         # link fallback. Never fallback after a native send begins.
                         fallback = self._media_url_fallback_text(part)
+                        logger.warning(
+                            f"Yuanbao media preparation failed "
+                            f"({type(exc).__name__}); "
+                            f"link_fallback={bool(fallback)}",
+                        )
                         if fallback:
                             await send(
                                 [
@@ -1140,6 +1209,7 @@ class YuanbaoPlatform:
                         else build_file_msg_body(media)
                     )
                     await send(body)
+                    logger.debug(f"Yuanbao media accepted")
             except YuanbaoDeliveryError as exc:
                 raise YuanbaoDeliveryError(
                     exc.reason_code,
@@ -1201,10 +1271,10 @@ class YuanbaoPlatform:
                             )
                     except asyncio.CancelledError:
                         raise
-                    except Exception:
+                    except Exception as exc:
                         logger.warning(
-                            "yuanbao: typing keepalive stopped",
-                            exc_info=True,
+                            f"Yuanbao typing keepalive stopped "
+                            f"({type(exc).__name__})",
                         )
 
                 self._typing_tasks[owner] = self._spawn(keepalive())
@@ -1234,18 +1304,26 @@ class YuanbaoPlatform:
                     min(self._reconnect_attempts, len(RECONNECT_DELAYS) - 1)
                 ]
                 self._reconnect_attempts += 1
+                logger.info(
+                    f"Yuanbao reconnecting in {delay}s, "
+                    f"attempt {self._reconnect_attempts}",
+                )
                 await asyncio.sleep(delay)
                 if self._stopping:
                     return
                 try:
                     await self._connect()
+                    logger.info(f"Yuanbao reconnected successfully")
                     return
                 except asyncio.CancelledError:
                     raise
-                except Exception:
-                    logger.exception("yuanbao: reconnect failed")
+                except Exception as exc:
+                    logger.warning(
+                        f"Yuanbao reconnect failed ({type(exc).__name__})",
+                    )
                     await self._close_connection()
             if not self._stopping:
+                logger.error(f"Yuanbao reconnect attempts exhausted")
                 await self.on_state("failed")
 
         self._reconnect_task = self._spawn(reconnect())
@@ -1278,6 +1356,7 @@ class YuanbaoPlatform:
             self._media_session = None
 
     async def stop(self):
+        logger.debug(f"Yuanbao stopping channel")
         self._stopping = True
         self._connected = False
         self._fail_pending()
@@ -1295,3 +1374,4 @@ class YuanbaoPlatform:
         self._typing_tasks.clear()
         self._heartbeat_task = self._receive_task = self._reconnect_task = None
         await self.on_state("disconnected")
+        logger.info(f"Yuanbao channel stopped")

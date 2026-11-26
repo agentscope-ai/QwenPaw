@@ -479,15 +479,27 @@ def prepare_reader_scope(sites, scope):
 def lease_environment(sites, parent_pid=None, timeout=5):
     """Serialize process-owned reader publication, including worker callers."""
     with _READERS_LOCK:
-        _lease_environment(sites, parent_pid, timeout)
+        _lease_environment(sites, _READERS, parent_pid, timeout)
 
 
-def _lease_environment(sites, parent_pid=None, timeout=5):
-    """Acquire before importing from sites; descriptors live until exit."""
+@contextmanager
+def scoped_environment_readers(sites):
+    """Lease sites only while their owner can launch or use readers."""
+    readers = {}
+    try:
+        with _READERS_LOCK:
+            _lease_environment(sites, readers)
+        yield
+    finally:
+        _close_reader_leases(readers.values())
+
+
+def _lease_environment(sites, readers, parent_pid=None, timeout=5):
+    """Apply the same admission checks to process and scoped leases."""
     deadline = time.monotonic() + timeout
     for identity in sorted({str(canonical(site)) for site in sites}):
         root = Path(identity)
-        if identity in _READERS or not root.is_dir():
+        if identity in readers or not root.is_dir():
             continue
         # A live additive writer also holds a temporary repair marker. Classify
         # it only under the gate; maintenance still blocks new readers now.
@@ -515,10 +527,10 @@ def _lease_environment(sites, parent_pid=None, timeout=5):
                     yield
 
         with admission():
-            if identity in _READERS:
+            if identity in readers:
                 continue
             check_admission(root)
-            _READERS[identity] = _publish_reader(root)
+            readers[identity] = _publish_reader(root)
 
 
 def _publish_reader(root):
@@ -557,14 +569,18 @@ def observation_readers(sites):
             readers.append(_publish_reader(Path(site)))
         yield
     finally:
-        # Release every live lease before attempting pathname cleanup. A
-        # Windows scanner can still have a stale lease file open for reading.
-        with ExitStack() as cleanup:
-            for descriptor, _path in readers:
-                cleanup.callback(os.close, descriptor)
-        with ExitStack() as cleanup:
-            for _descriptor, path in readers:
-                cleanup.callback(_unlink_observation_reader, path)
+        _close_reader_leases(readers)
+
+
+def _close_reader_leases(readers):
+    # Release every lease before removing files. A Windows scanner can
+    # still have a stale lease file open for reading.
+    with ExitStack() as cleanup:
+        for descriptor, _path in readers:
+            cleanup.callback(os.close, descriptor)
+    with ExitStack() as cleanup:
+        for _descriptor, path in readers:
+            cleanup.callback(_unlink_observation_reader, path)
 
 
 def _unlink_observation_reader(path):
@@ -661,7 +677,14 @@ def maintenance(sites, operation_id, capability, *, ignore_pid=None):
 
 
 @contextmanager
-def maintenance_barrier(sites, operation_id, capability, *, ignore_pid=None):
+def maintenance_barrier(
+    sites,
+    operation_id,
+    capability,
+    *,
+    ignore_pid=None,
+    reader_timeout=0,
+):
     """Create maintenance markers; caller must hold every site's gate."""
     value = {
         "id": operation_id,
@@ -682,11 +705,15 @@ def maintenance_barrier(sites, operation_id, capability, *, ignore_pid=None):
                     json.dump(value, stream)
                     stream.flush()
                     os.fsync(stream.fileno())
-            if live_readers(sites, ignore_pid):
-                raise RuntimeError(
-                    "DEPENDENCY_ENVIRONMENT_BUSY: another backend or child "
-                    "still uses the environment.",
-                )
+            deadline = time.monotonic() + reader_timeout
+            while live_readers(sites, ignore_pid):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        "DEPENDENCY_ENVIRONMENT_BUSY: "
+                        "another backend or child still uses the environment.",
+                    )
+                time.sleep(min(0.1, remaining))
         except BaseException:
             # No mutation has started; all gates still exclude other writers.
             for path in created:

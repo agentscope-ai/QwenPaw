@@ -33,14 +33,18 @@ import httpx
 
 import os
 
+from pathlib import Path
+
 from models import config as model_config
 from models.media_transport import (
+    downscale_image_to_budget,
     read_reference_media,
+    reference_media_data_url,
     upload_reference_bytes_to_dashscope_temp,
     validate_reference_image_bytes,
 )
 from models.provider_tasks import note_provider_task
-from utils.exceptions import ModelError
+from utils.exceptions import ModelError, redact_urls
 from utils.logger import setup_logger
 from models.image.base import (
     BaseImageModel,
@@ -49,6 +53,7 @@ from models.image.base import (
     _image_api_key,
     download_remote_image,
     format_http_error_detail,
+    reference_download_model_error,
 )
 
 logger = setup_logger("model.image.dashscope")
@@ -82,6 +87,12 @@ POLL_REQUEST_TIMEOUT = 30
 SUBMIT_REQUEST_TIMEOUT = 60
 
 _TASK_TERMINAL_FAILED = ("FAILED", "CANCELED", "UNKNOWN")
+
+# Bailian inlines a Base64 reference image only when the original file is
+# under 7MB: Base64 inflates the payload ~33% against the 10MB per-image
+# cap, and a 7-10MB image must travel as a public URL instead. Token Plan
+# has no upload route to mint that URL, so this is the inline ceiling.
+TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES = 7 * 1024 * 1024
 
 
 class DashScopeImageModel(BaseImageModel):
@@ -225,18 +236,24 @@ class DashScopeImageModel(BaseImageModel):
         raw_url: str,
         *,
         model_name: str | None = None,
+        mode: str = "generate",
     ) -> str | None:
         """Return a provider-resolvable URL for one reference image.
 
         Public HTTP(S) URLs pass through; local/generated media is uploaded
         to DashScope model-bound temporary storage (``oss://`` + resolve
-        header). Corrupt local references return ``None`` so a stale project
-        file cannot fail the whole request.
+        header), except on a Token Plan endpoint: it has no upload route and
+        takes the bytes inline as a Base64 data URL instead. Corrupt local
+        references return ``None`` so a stale project file cannot fail the
+        whole request.
 
         ``model_name`` must be the model that will *consume* the URL: a
         temporary upload is bound to the model its policy was issued for
         (see :mod:`models.media_transport`), so translate uploads bind to
         ``qwen-mt-image`` rather than the generation model.
+
+        ``mode`` decides whether an oversized local reference may be shrunk;
+        see :meth:`_fit_token_plan_reference`.
         """
 
         url = raw_url.strip()
@@ -249,12 +266,81 @@ class DashScopeImageModel(BaseImageModel):
             validate_reference_image_bytes(media_bytes)
         except ValueError:
             return None
+        if self._is_token_plan_endpoint():
+            # A Token Plan key (sk-sp-) has no temporary-upload route: the
+            # public dashscope.aliyuncs.com/api/v1/uploads answers it 401
+            # and the token-plan host serves no /api/v1/uploads at all
+            # (both measured). Its multimodal-generation endpoint accepts a
+            # Base64 data URL, but only under the 7MB inline ceiling above.
+            if len(media_bytes) >= TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES:
+                media_bytes, filename = self._fit_token_plan_reference(
+                    media_bytes,
+                    filename,
+                    mode=mode,
+                    model_name=model_name,
+                )
+            return reference_media_data_url(media_bytes, filename)
         return await upload_reference_bytes_to_dashscope_temp(
             media_bytes,
             filename,
             api_key=self.api_key,
             model_name=model_name or self.model_name,
         )
+
+    def _fit_token_plan_reference(
+        self,
+        media_bytes: bytes,
+        filename: str,
+        *,
+        mode: str,
+        model_name: str | None,
+    ) -> tuple[bytes, str]:
+        """Shrink an oversized local reference, or refuse where pixels matter.
+
+        An ``edit`` or ``translate`` reference *is* the canvas the
+        instruction operates on, so it is never silently downscaled: those
+        pixels are what the instruction is told to keep. A ``generate``
+        reference only has to carry subject and style, so shrinking it beats
+        failing a request the provider could have served.
+
+        The re-encoded payload is JPEG whatever the source format was, so the
+        filename follows it: ``reference_media_data_url`` takes the MIME type
+        from the suffix first and would otherwise label JPEG bytes as PNG.
+        """
+        effective_model = model_name or self.model_name
+        oversized = (
+            "Token Plan 图像端点没有本地文件上传通道，参考图只能以 "
+            "Base64 内联且原图需小于 7MB（当前约 "
+            f"{len(media_bytes) / (1024 * 1024):.1f}MB）。"
+        )
+        if mode != "generate":
+            raise ModelError(
+                oversized + f"mode={mode} 的参考图就是指令要操作的画面，不会被自动"
+                "降采样。请压缩到 7MB 以内、改用公网图片 URL，或把图像"
+                "模型切到百炼直连端点后再用本地参考图。",
+                model_name=effective_model,
+                retryable=False,
+            )
+        downscaled = downscale_image_to_budget(
+            media_bytes,
+            TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES,
+            label=filename,
+        )
+        if downscaled is None:
+            # Permanent: the bytes cannot shrink below the inline ceiling,
+            # so retrying only burns backoff on a doomed request.
+            raise ModelError(
+                oversized + "自动降采样后仍然超限。请压缩到 7MB 以内、改用公网图片 "
+                "URL，或把图像模型切到百炼直连端点后再用本地参考图。",
+                model_name=effective_model,
+                retryable=False,
+            )
+        logger.info(
+            "Downscaled an oversized Token Plan image reference | "
+            f"filename={filename}, before={len(media_bytes)}, "
+            f"after={len(downscaled)}",
+        )
+        return downscaled, f"{Path(filename).stem}.jpg"
 
     async def _request(
         self,
@@ -279,12 +365,18 @@ class DashScopeImageModel(BaseImageModel):
         )
         from models.image.base import _mask_key
 
+        # The request body embeds the reference image URLs, and an OSS
+        # pre-signed URL is a usable grant (OSSAccessKeyId/Signature).
+        # Never log the body: keep only non-secret routing facts so a
+        # successful request cannot leak credentials into creator.log.
         logger.info(
-            "DashScope image request | model=%s, url=%s, api_key=%s, body=%s",
+            "DashScope image request | model=%s, url=%s, api_key=%s, "
+            "mode=%s, references=%d",
             self.model_name,
             self.generation_url,
             _mask_key(self.api_key),
-            body,
+            mode,
+            len(clean_reference_urls),
         )
         base_headers = {
             "Content-Type": "application/json",
@@ -412,9 +504,22 @@ class DashScopeImageModel(BaseImageModel):
                         message = str(
                             output.get("message") or output.get("code") or "",
                         )
+                    # The task payload echoes the reference URL, and an OSS
+                    # pre-signed URL is a usable grant: classify through the
+                    # same helper as the sync HTTP branch so a reference
+                    # download failure is scrubbed and stays permanent here
+                    # too, instead of surfacing the raw URL as retryable.
+                    reference_error = reference_download_model_error(
+                        message,
+                        self.model_name,
+                        prefix=f"Image task {task_id} ended {status}",
+                    )
+                    if reference_error is not None:
+                        raise reference_error
+                    detail = redact_urls(message)
                     raise ModelError(
                         f"Image task {task_id} ended {status}"
-                        + (f": {message}" if message else ""),
+                        + (f": {detail}" if detail else ""),
                         model_name=self.model_name,
                     )
             elif response is not None and (
@@ -443,7 +548,7 @@ class DashScopeImageModel(BaseImageModel):
         prompt: str,
         aspect_ratio: str,
         clean_reference_urls: list[str],
-        mode: str = "generate",  # pylint: disable=unused-argument
+        mode: str = "generate",
     ) -> dict:
         # Official qwen-image content order: reference image blocks first, then
         # the single text instruction last (see qwen-image / qwen-image-edit
@@ -452,7 +557,10 @@ class DashScopeImageModel(BaseImageModel):
         # multimodal-generation endpoint.
         content: list[dict] = []
         for raw_url in clean_reference_urls:
-            public_url = await self._public_reference_url(raw_url)
+            public_url = await self._public_reference_url(
+                raw_url,
+                mode=mode,
+            )
             if public_url is None:
                 # Dropping even a middle input changes every later 图N. A
                 # generate call with references has the same identity
@@ -483,7 +591,7 @@ class DashScopeImageModel(BaseImageModel):
         }
 
     def _is_token_plan_endpoint(self) -> bool:
-        return "token-plan" in self.base_url.lower()
+        return model_config.is_token_plan_endpoint(self.base_url)
 
     async def _decode(self, data: dict | list) -> dict:
         output = data.get("output") if isinstance(data, dict) else None
@@ -558,6 +666,7 @@ class DashScopeImageModel(BaseImageModel):
         public_url = await self._public_reference_url(
             image_url,
             model_name=translate_model,
+            mode="translate",
         )
         if public_url is None:
             raise ModelError(

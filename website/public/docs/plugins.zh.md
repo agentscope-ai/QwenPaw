@@ -82,6 +82,122 @@ plugin = Plugin()
 `register()` 只声明贡献；连接和后台任务放在 `context.on_activate(callback)`，
 通过 `context.resources` 管理。调用上下文的配置、日志、模型、存储均由宿主提供。
 
+## SDK 1.2：Driver 协议
+
+SDK `1.2.0` 新增 `drivers` capability 和 `DriverProtocolSpec`，继续兼容 SDK 1.0
+插件。声明 `drivers` 的插件必须要求 SDK 1.2；旧宿主在导入后端入口前拒绝不支持的声明。
+
+每个 `DriverCapabilitySpec.input_schema` 都必须在顶层声明 `type: "object"` 和对象形式的
+`properties`。无参数工具的标准写法是：
+
+```json
+{ "type": "object", "properties": {} }
+```
+
+空的 `properties` 表示没有声明具名参数。如果工具需要拒绝额外参数，请设置
+`additionalProperties: false`。SDK 在构造能力时检查格式，宿主在调用时按声明的 Schema
+校验参数。
+
+分别将下面两段保存为 `echo-driver/plugin.json` 与 `echo-driver/main.py`。
+这是只依赖公开 SDK 的完整本地 fake 协议示例：
+
+```json
+{
+  "id": "echo-driver",
+  "name": "Echo Driver",
+  "version": "1.0.0",
+  "entry": { "backend": "main.py" },
+  "sdk": { "version": "1.2.0", "capabilities": ["drivers"] }
+}
+```
+
+```python
+from qwenpaw.plugins import PluginContext, SDKError
+from qwenpaw.plugins.drivers import (
+    DriverCallResult, DriverCapabilitySpec, DriverProtocolSpec,
+)
+from qwenpaw.plugins.messages import ContentBlock
+
+class EchoConnection:
+    def __init__(self, context, source):
+        self.context = context
+
+    async def open(self):
+        pass
+
+    async def discover(self, request):
+        request.check_cancelled()
+        return (DriverCapabilitySpec(
+            name="echo", description="Echo text",
+            input_schema={"type": "object", "properties": {
+                "text": {"type": "string"}}, "required": ["text"],
+                "additionalProperties": False},
+        ),)
+
+    async def invoke(self, name, arguments, request):
+        request.check_cancelled()
+        if name != "echo":
+            raise SDKError("Unknown capability")
+        return DriverCallResult(content=(ContentBlock(text=arguments["text"]),))
+
+    async def close(self):
+        pass
+
+
+def validate(source):
+    if source.protocol != "echo":
+        raise SDKError("Expected echo protocol")
+
+class Plugin:
+    def register(self, context: PluginContext):
+        context.register_driver_protocol(DriverProtocolSpec(
+            protocol="echo", validate=validate, create=EchoConnection,
+        ))
+
+plugin = Plugin()
+```
+
+先执行 `python -m qwenpaw.plugins.check ./echo-driver --runtime`，再从父目录运行：
+
+```python
+import asyncio
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from qwenpaw.plugins.testing import PluginTestHost
+
+async def main():
+    with TemporaryDirectory() as directory:
+        async with PluginTestHost(Path(directory)) as host:
+            await host.load(Path("echo-driver"))
+            await host.open_driver({
+                "name": "echo-source", "protocol": "echo",
+                "endpoint": {}, "enabled": True,
+                "policy": {"default_effect": "allow"},
+            })
+            capabilities = await host.list_driver_capabilities("echo-source")
+            assert capabilities
+            result = await host.call_driver("echo-source", "echo", {"text": "hello"})
+            assert result.content[0].text == "hello"
+            await host.close_driver("echo-source")
+
+asyncio.run(main())
+```
+
+测试宿主经过生产 adapter、DriverManager 和治理路径。`open_driver` 接受 DriverCard
+结构的 JSON 映射；本地示例显式使用 `policy.default_effect: allow`。真实来源保留
+allow/deny/ask 策略与工具白名单，空 `tools` 列表表示全部禁止。
+
+同步 `validate` 检查不可变的 `DriverSource`；`create` 只创建连接对象。
+宿主管理 `open`、`discover`、`invoke`、`close` 的生命周期。后台任务和清理使用
+`DriverContext.resources`，凭据使用 `credentials` 的来源级别名，子进程环境通过
+`subprocess_environment()` 获取。插件不得导入宿主 Manager、凭据存储或内部 Registry。
+宿主验证工作区/来源身份、schema、策略和取消状态；`DriverRequestContext` 提供工作区
+实例、会话、用户与截止时间。不要吞掉取消，也不要在资源尚未关闭时报告关闭成功。
+重连后发现的能力发生变化时，调用 `context.invalidate_capabilities()` 刷新缓存。
+
+官方 `qwenpaw-mcp` 插件也通过这一契约注册 `mcp` 协议，管理页面保留在 `/mcp`。
+连接方式和配置示例见 [MCP 指南](./mcp.zh.md)。
+
 ## 异步存储与资源归属
 
 异步 handler 使用 `await storage.aread_bytes/awrite_bytes/aread_json/awrite_json/adelete`
@@ -100,6 +216,32 @@ App 和 Channel 还包含相应调用身份。工作区使用真实 ID，不根�
 
 任务、连接、线程和进程应交给 `context.resources` 托管。SDK 只能保证受管资源的生命周期，
 不能替作者停止未登记的全局线程、第三方服务或任意外部资源。
+
+### 自定义同步操作的取消与锁
+
+`resources.run_sync()` 从 SDK 1.2.0 提供。取消等待者会传播 `CancelledError`，
+但同步函数可能继续执行；资源作用域保留线程归属，关闭时等待实际线程结束。
+这不等于替调用者保留外层锁：如果在 `async with asyncio_lock` 内等待
+`run_sync()`，取消可能先退出锁，线程却还在写入。
+
+对完整的同步临界区，把获取锁、读写和释放锁放进同一个同步函数：
+
+```python
+def write_locked(path, lock, text):
+    with lock:
+        path.write_text(text, encoding="utf-8")
+
+
+async def save(call, shared_lock, text):
+    path = call.storage.path("state.txt")
+    await call.resources.run_sync(write_locked, path, shared_lock, text)
+```
+
+`shared_lock` 是由插件实例持有、供同一数据范围的调用共享的 `threading.Lock()`，
+不能每次调用重新创建；它只协调当前进程，不是跨进程文件锁。示例中的路径先通过
+当前存储作用域解析。这里展示自定义同步写入的锁边界，不提供原子替换；普通持久化
+优先使用 SDK 存储方法。锁还要覆盖其他异步步骤时，不能直接套用此模式，也不要在
+事件循环中同步等待这个锁。
 
 ## 只用 SDK 开发 Channel 和 PawApp
 
@@ -154,6 +296,56 @@ plugin = Plugin()
 处理器只接收公开 `AppContext/HttpRequest`；模型、聊天、任务、审批和跨工作区委托使用
 上下文方法。需要宿主标准前端能力时调用 `app.enable_standard_capabilities()`，再注册应用。
 
+### 在后台重新进入 App 调用作用域
+
+下例清单声明 `apps`、`resources`、`storage` 能力。HTTP 请求只提交工作；
+后台协程由插件根资源作用域持有，在执行时通过保留的同身份委托进入新作用域。
+
+```python
+from uuid import uuid4
+
+from qwenpaw.plugins.apps import ChatRequest, HttpResponse, PawApp
+
+
+class Plugin:
+    def register(self, plugin):
+        app = PawApp("Summaries", app_id="summaries")
+
+        @app.route("/summaries/{workspace}", methods=("POST",))
+        async def submit(call, request):
+            workspace_id = request.path_params["workspace"]
+            job_id = str(uuid4())
+            delegate = call.for_workspace
+
+            async def run():
+                async with delegate(workspace_id) as target:
+                    reply = await target.chat(
+                        ChatRequest(
+                            "Summarize this workspace.",
+                            session_id=job_id,
+                        ),
+                    )
+                    await target.storage.awrite_json(
+                        f"summary-{job_id}.json", {"text": reply.text},
+                    )
+
+            plugin.resources.task(run(), "workspace summary")
+            return HttpResponse({"job_id": job_id}, status=202)
+
+        app.register(plugin)
+
+
+plugin = Plugin()
+```
+
+HTTP 请求结束后不再直接调用旧 `call` 的聊天、存储或资源方法。`delegate` 只保留
+`for_workspace()` 委托；进入时重新校验插件代次及目标工作区，保留原用户、渠道和
+App 身份。后台工作使用 `target` 的服务，退出时释放本次调用资源。
+
+`202` 仅表示任务已提交，不保证目标仍可用或业务已成功。该任务不是持久化队列；
+宿主重启不会自动恢复它。插件停用或重载仍会协调其取消和清理，失败可从插件根资源
+诊断中查看。需要 SDK 已有的聊天任务状态、流与取消接口时，优先使用 `start_task()`。
+
 ## 独立测试与安全重载
 
 测试宿主运行真实加载和生命周期路径，不需要作者手工构造内部 Registry：
@@ -193,26 +385,85 @@ asyncio.run(main())
 `reload(plugin_id, interrupt_tasks=True)`；超时或资源未释放仍拒绝换代。
 故障解除后可通过公开生命周期操作重试。旧上下文不能写入或注册新一代资源。
 
+## 模型提供方
+
+`ctx.register_provider(spec)` 返回仅管理该 Provider 的 `ProviderHandle`。
+从 `qwenpaw.plugins.providers` 导入 `ProviderSpec` 和 `ProviderHandle`。
+
+自定义推理使用 `generate`，或声明 `protocol="openai-chat"` 复用宿主的 OpenAI 兼容传输。
+可选的 `connect(ctx, model_id)` 返回异步上下文管理器，yield 服务的 base URL。
+宿主在每次调用前进入它，并在该调用结束或流关闭时退出。宿主保留插件使用权直到所属 turn 结束。
+在 `connect` 中，`ctx.connection_purpose` 区分推理（`inference`）、连接检查（`check`）和多模态探测（`probe`）。
+
+通过 `handle.published_model_ids` 读取 `update(models=...)` 已保存的模型 ID。
+
+以下句柄方法均需 `await`：
+
+- `update(base_url=..., models=..., generate_kwargs=...)` 持久化提供的字段；
+  `None` 保持原值。`models` 替换发布列表，并保留同 ID 模型的已有配置。
+- `select(model_id, model_type="chat")` 将自身模型设为指定类型的默认模型；
+  `model_type` 可为 `chat` 或 `decision`，应与发布的 `ModelInfo.model_type` 一致。
+- `clear_selection(model_type="chat")` 仅清除该类型中指向自身 Provider 的默认选择，返回是否清除。
+  Agent 独立配置保持不变。
+- `close()` 撤销注册。重载后旧 Handle 失效。
+
 ## 能力与公开模块
 
-| 能力                         | 公开入口                                                             |
-| ---------------------------- | -------------------------------------------------------------------- |
-| 声明与版本                   | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
-| 工具与配置字段               | `qwenpaw.plugins.tools`                                              |
-| 配置、持久数据、媒体         | `qwenpaw.plugins.storage`，实例由上下文提供                          |
-| 日志、已配置模型调用         | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
-| 消息、附件、运行与审批观察   | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
-| 命令、钩子、模式、提示词     | `commands`、`hooks`、`modes`、`prompts`                              |
-| 渠道、应用                   | `channels`、`apps`                                                   |
-| 模型提供方、记忆、市场、技能 | `providers`、`memory`、`markets`、`skills`                           |
-| 资源、结果、测试             | `resources`、`results`、`testing`                                    |
-| 异常                         | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
+| 能力                       | 公开入口                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
+| 声明与版本                 | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
+| 工具与配置字段             | `qwenpaw.plugins.tools`                                              |
+| 配置、持久数据、媒体       | `qwenpaw.plugins.storage`，实例由上下文提供                          |
+| 日志、已配置模型调用       | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
+| 消息、附件、运行与审批观察 | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
+| 命令、钩子、模式、提示词   | `commands`、`hooks`、`modes`、`prompts`                              |
+| 渠道、应用                 | `channels`、`apps`                                                   |
+| 模型提供方                 | `providers.ProviderSpec`、`providers.ProviderHandle`                 |
+| 记忆、市场、技能           | `memory`、`markets`、`skills`                                        |
+| 资源、结果、测试           | `resources`、`results`、`testing`                                    |
+| 异常                       | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
 
 后六行模块均位于 `qwenpaw.plugins` 下，具体公开符号以白名单为准。
 
 前端 SDK 随 QwenPaw 分发，使用 `python -m qwenpaw.plugins.check --frontend ./frontend-sdk`
 导出，再从该目录安装 npm 包 `@qwenpaw/plugin-sdk`。包提供运行入口和类型声明；
 不要复制宿主内部类型。使用后端任务等可选能力前先查询能力，不能仅凭前端包版本假定宿主支持。
+
+## SDK 1.2 上下文与渠道契约
+
+上下文暴露服务不代表每个调用都满足使用条件。宿主始终在执行时检查身份、作用域和权限；能力预检不能替代这些检查。
+
+| 上下文                     | 适用范围与前置条件                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `PluginContext`            | 注册声明、插件根存储、激活后的托管后台工作；不带具体用户会话身份。                                      |
+| Tool、Command、Hook 等调用 | 使用本次绑定身份；运行信息、保存状态取决于所处阶段。普通工具只能预览 checkpoint 恢复。                  |
+| `AppContext`               | 本用户、渠道及应用的会话、任务和审批；通过 `for_workspace()` 受控委托。主聊天读取需要宿主绑定所选会话。 |
+| App 后台工作               | 由插件托管，进入新的 `for_workspace()` 调用；不直接复用已结束的请求作用域，不伪造执行者。               |
+| `WorkflowContext`          | 工作区服务任务，没有用户或会话身份，不能用作任意用户历史或审批入口。                                    |
+| `ChannelWorkerContext`     | 常驻 worker 服务；发送预算和 `delivery` 仅在对应回调中有效，`on_run` 不绑定投递事务。                   |
+| `ChannelManagementRequest` | 临时管理 worker 的独立资源与预算，不等同于常驻消息上下文。                                              |
+
+### 选择渠道接入方式
+
+新进程型平台渠道使用 `qwenpaw.plugins.channel_workers.ChannelDriver`。普通渠道先实现连接、接收、发送、健康状态与停止，再按需要启用流式、审批和投递步骤。`ChannelBackend/ChannelContext` 保留为宿主内渠道接入方式；它的 `receive()` 返回 `None`，进程型 `await ch.receive()` 返回入队结果。两套签名不能混用，独立进程本身也不是不可信代码沙箱。
+
+`ChannelDriver.response_policy_for(target)` 是可选同步方法，默认返回静态 `response_policy`。它在目标解析后为新路由选择策略，必须返回 `ResponsePolicy`，不得做 I/O 或启动任务。宿主校验声明能力并将策略与目标一起保存；重复入站及 worker 重启继续使用保存的策略，不能通过修改 Driver 共享字段改变另一个在途回复。升级前未保存策略的旧路由保持静态策略行为，不追溯调用回调。
+
+`ResponsePolicy.configured_prefix` 默认 `True`。设置 `False` 时，直接、内容块及流式发送不添加渠道配置中的 `bot_prefix`，但保留显式消息 metadata 的前缀。普通会话流式、线程会话非流式可以在目标策略中按 `target.metadata["thread_id"]` 选择；描述符仍必须声明 `streaming`。
+
+### 为会话选择 Shell 后端
+
+插件用 `register_shell_backend(ShellBackendSpec(...))` 注册后端。用户选择远程执行时，在控制命令或绑定当前主会话的 PawApp 请求里调用 `await call.select_shell_backend("backend-name")`，成功后再提示用户。宿主按工作区、用户、渠道和会话保存选择。连接、权限范围及远程目标仍由插件管理；`matches` 负责检查该身份是否能用这条连接，不会隐式选择或切回本机。
+
+连接断开、插件重载、停用或卸载后，已选择的后端不可用时，宿主拒绝执行。用户明确切回本机时，插件调用 `await call.select_shell_backend(None)`；插件不可用时，用户仍可在当前会话输入 `/shell-local`。该方法随 SDK 1.2.0 引入。
+
+### 执行失败与清理失败
+
+业务操作失败、外部结果未知和资源清理失败是不同事实。异常不表示副作用没有发生；清理重试也不能重新执行业务操作。渠道继续使用 `ChannelDeliveryError.side_effect_possible`、`retryable` 与未知回执，不能对所有异常自动重发。
+
+`ResourceScope.snapshot()` 保留 `owner/closed/resources/errors`，并增加 `cleanup_errors` 元组。每项包含 `description`、`error_type`、`message`，描述尚未关闭的 Registration 最近一次清理失败；快照可独立读取，修改它不会改变宿主状态。清理成功重试后，该项消失。`errors` 仍记录后台任务失败，不与清理状态混用。诊断不证明业务成功或失败，也不保证整个资源树已停止；未结束资源继续由原 owner 持有。
+
+这几项能力从 SDK 1.2.0 提供。维持现有异常类型，不要求插件采用新的通用 Result 包装；依赖新字段或方法的插件应声明相应最低版本。
 
 ## 安装与验收范围
 
@@ -289,27 +540,27 @@ plugin = Plugin()
 `API_EXPORTS` 为每个符号列出 `module/symbol/since/stability`；兼容入口单独标注。
 以下模块的列出类型属于 SDK 1.x 稳定契约；以下表格不能解释为允许模块所有属性。
 
-| 能力       | 公开声明                                                                          | 实际接入                                                          |
-| ---------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 插件       | `Plugin`, `PluginContext`                                                         | Loader / Lifecycle                                                |
-| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                        | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
-| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                  | AgentScope 转换，未知块明确拒绝                                   |
-| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                         | Workspace SlashCommandRegistry                                    |
-| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                   | 原 Runtime 各阶段                                                 |
-| 模式       | `modes.ModeSpec`, `ModeContext`                                                   | 每工作区 AgentMode 与工具模式过滤                                 |
-| 日志       | `logging.PluginLogger`                                                            | 宿主日志，固定插件及调用身份与独立作者字段                        |
-| 模型调用   | `models.ModelService`                                                             | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
-| 模型提供方 | `providers.ProviderSpec`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
-| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`               | 原 BaseMemoryManager / ServiceManager / shared worker             |
-| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability` | 原 Market 搜索及 Hub 安装/扫描                                    |
-| 技能       | `skills.SkillSpec`                                                                | 原技能投影、inventory、三方合并                                   |
-| 提示词     | `prompts.PromptSpec`                                                              | PromptManager，真实 priority 排序                                 |
-| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`     | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
-| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                       | 原 PawApp 聚合、身份与标准能力路由                                |
-| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`        | 真实 Workspace.stream_query 和审批状态变更                        |
-| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                        | 原 custody 及生命周期清理账本                                     |
-| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                             | 所有权限定的持久配置/数据/实际文件预览                            |
-| 测试       | `testing.PluginTestHost`、公开测试结果类型                                        | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
+| 能力       | 公开声明                                                                                            | 实际接入                                                          |
+| ---------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 插件       | `Plugin`, `PluginContext`                                                                           | Loader / Lifecycle                                                |
+| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                                          | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
+| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                                    | AgentScope 转换，未知块明确拒绝                                   |
+| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                                           | Workspace SlashCommandRegistry                                    |
+| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                                     | 原 Runtime 各阶段                                                 |
+| 模式       | `modes.ModeSpec`, `ModeContext`                                                                     | 每工作区 AgentMode 与工具模式过滤                                 |
+| 日志       | `logging.PluginLogger`                                                                              | 宿主日志，固定插件及调用身份与独立作者字段                        |
+| 模型调用   | `models.ModelService`                                                                               | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
+| 模型提供方 | `providers.ProviderSpec`, `ProviderHandle`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
+| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`                                 | 原 BaseMemoryManager / ServiceManager / shared worker             |
+| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability`                   | 原 Market 搜索及 Hub 安装/扫描                                    |
+| 技能       | `skills.SkillSpec`                                                                                  | 原技能投影、inventory、三方合并                                   |
+| 提示词     | `prompts.PromptSpec`                                                                                | PromptManager，真实 priority 排序                                 |
+| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`                       | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
+| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                                         | 原 PawApp 聚合、身份与标准能力路由                                |
+| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`                          | 真实 Workspace.stream_query 和审批状态变更                        |
+| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                                          | 原 custody 及生命周期清理账本                                     |
+| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                                               | 所有权限定的持久配置/数据/实际文件预览                            |
+| 测试       | `testing.PluginTestHost`、公开测试结果类型                                                          | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
 
 根模块原有 `PluginApi/PluginLoader/PluginRegistry/PluginLifecycle` 导出仍保留，
 但属于 **legacy 兼容**，不进入新 SDK 白名单。`qwenpaw.pawapp.PawApp.sdk(...)`
@@ -403,15 +654,22 @@ FunctionTool 流也会关闭内部 SDK handler。工具 `timeout` 使用真实�
 deadline，`call.cancelled/check_cancelled()` 可供同步线程协作退出。
 
 SDK 插件与旧插件共用框架的依赖检查、安装和复核流程，不按 `sdk` 字段分流。
-框架合并 `plugin.json` 的 `dependencies` 与 `requirements.txt`；本地已满足或
-不适用于当前平台的依赖直接放行，不联网。开机只检查，用户显式安装、更新或修复
-才允许安装依赖。
+框架合并 `plugin.json` 的 `dependencies` 与 `requirements.txt`，过滤不适用当前平台的
+依赖声明；本地已满足时直接放行，不联网。开机只检查，缺包时报告失败，
+用户显式安装、更新或修复才允许安装依赖。
 
 直接声明与框架保护的宿主包冲突时，框架拒绝安装，提示重启后端并准备依赖环境。
-取得安装锁后再次检查依赖是否满足，仍缺少依赖时调用公共 pip / uv 安装流程。
-桌面端使用随附 Python 安装到共享插件依赖目录，安装后复核依赖，通过后才加载插件。
-框架不做全环境多版本审计、版本锁定或完整安装计划预演；
-不保证拦截间接依赖造成的替换，也不提供共享依赖环境的原子回滚。
+取得安装锁后会再次检查依赖是否满足及宿主冲突；未取得锁则停止安装，提示稍后重试。
+缺少依赖时，先用 pip 按已观察到的版本约束准备 wheel 安装包，再经过共享依赖检查后
+写入目录。桌面端使用随附 Python 和共享插件依赖目录。
+安装完成后再次检查依赖是否满足，通过后才加载插件。
+缺少的包通过检查后可以安装。QwenPaw 提议替换共享包时，会先请用户确认。升级失败时，会尝试恢复这次替换的文件。
+
+SDK 插件与旧插件均可通过 `meta.dependency_install_timeout` 设置安装及等待安装锁的
+超时秒数，范围为 300–3600，默认 300。本地 Whisper 配置为 1800 秒，以允许大包下载。
+
+后端关闭或安装请求被取消时，框架会停止等待安装锁或终止正在运行的依赖安装进程，
+确认安装操作停止后再释放锁。重新启动后可主动安装或修复；已写入的共享依赖不回滚。
 
 公开异常为 `SDKError`、`SDKAccessError`、`SDKCompatibilityError`、`SDKRestartRequiredError`、`StaleContextError`、
 `ResourceError`、`ToolInputError` 和兼容导出的 `PluginBusyError`。
@@ -662,6 +920,15 @@ qwenpaw plugin install /path/to/plugin --force
 QwenPaw 运行时，CLI 会将安装请求交给热安装 API；QwenPaw 停止时，文件会被安装并在下次
 启动时加载。
 
+如果安装时提示升级共享 Python 包，先核对版本。在控制台点击**升级并安装**。在终端使用 `install` 显示的操作编号。
+
+```bash
+qwenpaw plugin dependency-upgrade apply <操作编号>
+qwenpaw plugin dependency-upgrade status <操作编号>
+```
+
+App 运行时，`accepted` 表示 App 已收到确认。等 `status` 显示 `succeeded` 后再使用插件。若显示 `failed`，命令会输出错误原因并以退出码 1 结束。
+
 #### 列出已安装插件
 
 ```bash
@@ -749,6 +1016,11 @@ my-plugin/
 | `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                                             |
 
 \* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
+
+Local Whisper 为旧用户提供一次性迁移。首次启动时，如果保存的转写提供者是
+`local_whisper`、插件尚未安装且配置允许启用，QwenPaw 会在后台安装插件，
+并安装缺失的 Python 依赖。迁移失败或中断后，需要在语音转写设置中手动重试。
+后续启动不会自动重装已卸载的插件。
 
 ##### `type` 取值
 
@@ -2491,6 +2763,13 @@ pydantic>=2.0.0
 `example-package>=1.0`、文件声明 `example-package<2.0`，环境必须同时满足两项约束；
 互相冲突的约束会使检查或依赖解析失败。建议只在一处维护同一项依赖，避免重复声明。
 这里的 `dependencies` 指 Python 包，不是其他插件 ID 或运行时服务依赖。
+
+对于独立进程运行的频道，schema v3 允许 driver 和 CLI 共用一份包声明。
+在 `plugin.json` 的 `sdk.capabilities` 加入 `dependencies`，并声明
+`"optional_dependencies": {"transport": ["example-sdk>=2"]}`。
+在 `channel.json` 设置 `"schema_version": 3` 和 `"requires": ["transport"]`。
+发送消息的 CLI 也可以声明 `"requires": ["transport"]`。只读配置的状态命令可以省略该字段。
+用到 SDK 的代码再导入它。已有的 v2 频道继续从 `requirements.txt` 读取 driver 依赖。
 
 显式安装、更新或修复时，框架检查并安装缺失依赖。开机只检查，不自动安装；缺失依赖会
 使该插件加载失败。可调用 `POST /api/plugins/{plugin_id}/repair-dependencies` 修复；

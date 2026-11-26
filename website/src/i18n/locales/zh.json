@@ -30,9 +30,9 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v2.2.0 智能体应用与平台能力全面升级：",
-    "sub1": "新增 QwenPaw Hub、Mail、Data 与 Creator 1.1，升级模型路由、扩展市场和运行体验",
-    "releaseNote": "QwenPaw v2.2.0 版本全新发布",
+    "sub": "v2.3.0：新增 Advisor Mode、Code Mode 和 Piccolo 本地决策模型。",
+    "sub1": "Channel 插件化重构，记忆支持图片和标签。",
+    "releaseNote": "QwenPaw v2.3.0 已发布",
     "cta": "查看文档",
     "quickStart": "快速开始",
     "quickTry": "快速体验"
@@ -46,7 +46,7 @@
   "channels": {
     "titleWe": "使用",
     "titleEverything": "全域互联",
-    "sub": "内置 10+ 个频道，更多即将上线"
+    "sub": "Console 可直接使用，其他官方频道通过插件按需启用。"
   },
   "finalCta": {
     "titleBefore": "欢迎使用",
@@ -67,37 +67,29 @@
     "sub": "记忆与个性化由你掌控。",
     "learnMore": "了解更多",
     "cards": {
-      "hub": {
-        "title": "QwenPaw Hub",
-        "desc": "在自己的服务器上为团队部署 QwenPaw。成员通过统一入口登录，同时拥有相互隔离的工作区、配置、凭据和会话，并支持本地进程与 Docker 运行时。"
+      "advisor": {
+        "title": "Advisor Mode",
+        "desc": "顾问模型先制定计划，执行模型遇到难题时可以咨询顾问，调整下一步。"
       },
-      "mail": {
-        "title": "QwenPaw Mail",
-        "desc": "让智能体实时监控、搜索、总结、回复、转发和整理邮件，并根据你的习惯持续完善自动分诊规则。陌生收件人与关键操作仍由你确认。"
+      "codeMode": {
+        "title": "Code Mode",
+        "desc": "用一段 Python 脚本组合多个工具，也可以并发调用。每个工具仍遵循原有权限检查。"
       },
-      "data": {
-        "title": "QwenPaw Data",
-        "desc": "用自然语言提出业务问题，获得由真实企业数据支撑、过程可追溯的分析结果。通过语义模型、图谱关系和受控 SQL 串联完整分析流程。"
+      "piccolo": {
+        "title": "Piccolo 本地决策模型",
+        "desc": "按需启用本地工具审批或上下文压缩。审批判断不确定时，交由你确认。"
       },
-      "creator": {
-        "title": "QwenPaw Creator 1.1",
-        "desc": "覆盖更多主流图片与视频生成模型，并强化叙事视频中的对白生成。新增网页和桌面操作录制、百炼 Wan3 视频生成及自动质量检查。"
+      "channels": {
+        "title": "Channel 插件化重构",
+        "desc": "除 Console 外，官方频道改为插件管理。已有配置保留，启用频道时才启动对应进程。"
       },
-      "modelRouting": {
-        "title": "统一模型路由",
-        "desc": "通过统一的提供商发现、能力感知路由、回退策略和思考控制，让模型配置与选择更加一致，并提供更完整的 Prompt Cache 用量洞察。"
+      "memory": {
+        "title": "图片记忆与标签",
+        "desc": "按需开启图片记忆和自动打标，再按标签查找相关记忆文件。"
       },
-      "backgroundWork": {
-        "title": "控制台与后台任务",
-        "desc": "更清晰地跟踪智能体协作和长时间运行的工作。子智能体会话支持分组和状态提醒，统一任务列表集中展示进度与生成产物。"
-      },
-      "extensions": {
-        "title": "统一扩展市场",
-        "desc": "在同一个入口搜索和管理应用、插件与 Skills。支持 Skill 搜索、批量启用或禁用、内置 Skills 自动更新，以及新安装 PawApp 的即时启动。"
-      },
-      "reliability": {
-        "title": "更快、更稳、更安全",
-        "desc": "加快工作区启动与长对话响应，降低流式处理开销，并全面加强模型流恢复、配置持久化、File Guard、沙箱及桌面端稳定性。"
+      "console": {
+        "title": "更简洁的控制台",
+        "desc": "侧边栏支持自定义导航；模型管理与智能体运行设置分开，常用入口更好找。"
       }
     }
   },

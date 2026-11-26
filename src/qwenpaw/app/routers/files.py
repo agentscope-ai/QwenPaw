@@ -33,7 +33,11 @@ def _is_preview_outside_workspace_allowed() -> bool:
         return False
 
 
-def _check_path(path: Path) -> str | None:
+def _check_path(
+    path: Path,
+    *,
+    guardian: FilePathToolGuardian | None = None,
+) -> str | None:
     """Return ``None`` when *path* is allowed, or an error reason string.
 
     When ``allow_preview_outside_workspace`` is enabled, skip the
@@ -45,7 +49,7 @@ def _check_path(path: Path) -> str | None:
     # 1. Must not be a FileGuard-sensitive path.
     normalized = _normalize_path(str(resolved))
     # pylint: disable-next=protected-access
-    if _file_guardian._is_sensitive(normalized):
+    if (guardian or _file_guardian)._is_sensitive(normalized):
         return "SENSITIVE_FILE_BLOCKED"
     # 2. Workspace scope check (skippable via config).
     if not _is_preview_outside_workspace_allowed():

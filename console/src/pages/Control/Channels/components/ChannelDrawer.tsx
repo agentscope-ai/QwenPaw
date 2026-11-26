@@ -33,6 +33,7 @@ import {
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 import {
   captureChannelSaveJob,
@@ -1453,6 +1454,8 @@ export function ChannelDrawer({
               onError={(type) => {
                 if (type === "expired") {
                   message.warning(t("channels.wechatQrcodeExpired"));
+                } else if (type === "account-in-use") {
+                  message.error(t("channels.botConflictTitle"));
                 } else {
                   message.error(t("channels.wechatQrcodeFailed"));
                 }
@@ -1472,7 +1475,7 @@ export function ChannelDrawer({
               label={t("channels.wechatBotTokenFile")}
               tooltip={t("channels.wechatBotTokenFileTooltip")}
             >
-              <Input placeholder="~/.qwenpaw/wechat_bot_token" />
+              <Input placeholder="<workspace>/wechat/wechat_bot_token" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />
@@ -2223,7 +2226,14 @@ export function ChannelDrawer({
             `channels.runtime.${channelSchema.availability}`,
             channelSchema.availability.replace(/_/g, " "),
           )}
-          description={channelSchema.diagnostic}
+          description={
+            channelSchema.diagnostic &&
+            pluginErrorMessage(
+              channelSchema.diagnostic,
+              t("pluginManager.installFailed"),
+              t,
+            )
+          }
           action={
             channelSchema.repair && (
               <Button
@@ -2240,7 +2250,11 @@ export function ChannelDrawer({
                     await onRuntimeChange?.();
                   } catch (error) {
                     message.error(
-                      error instanceof Error ? error.message : String(error),
+                      pluginErrorMessage(
+                        error,
+                        t("pluginManager.installFailed"),
+                        t,
+                      ),
                     );
                   } finally {
                     setRepairing(false);
@@ -2368,9 +2382,11 @@ export function ChannelDrawer({
                       activeKey === "telegram" ||
                       activeKey === "dingtalk" ||
                       activeKey === "feishu" ||
+                      activeKey === "qq" ||
                       activeKey === "discord" ||
                       activeKey === "slack" ||
-                      activeKey === "matrix") && (
+                      activeKey === "matrix" ||
+                      activeKey === "xiaoyi") && (
                       <>
                         <Form.Item
                           name="streaming_enabled"
@@ -2381,6 +2397,8 @@ export function ChannelDrawer({
                               ? t("channels.streamingEnabledDingtalkHint")
                               : activeKey === "feishu"
                               ? t("channels.streamingEnabledFeishuHint")
+                              : activeKey === "qq"
+                              ? t("channels.streamingEnabledQQHint")
                               : undefined
                           }
                         >

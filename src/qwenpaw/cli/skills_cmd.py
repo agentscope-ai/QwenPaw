@@ -29,8 +29,7 @@ from ..agents.skill_system import (
 )
 from ..agents.skill_system.models import SkillRequirements
 from ..agents.skill_system.registry import (
-    _build_skill_config_env_overrides,
-    _skill_env_key,
+    skill_dependency_environment,
     check_skill_dependencies,
 )
 from ..agents.skill_system.store import (
@@ -241,34 +240,27 @@ def _get_skill_test_env(
     workspace_dir: Path | None,
 ) -> dict[str, str]:
     """Resolve local skill env without mutating the process environment."""
-    env = {_skill_env_key(key): value for key, value in os.environ.items()}
     configured_envs = {
-        _skill_env_key(name): value
+        name: value
         for name, value in load_envs().items()
         if not is_bootstrap_protected_env_key(name)
     }
-    env = {**configured_envs, **env}
+    config = None
     if (
-        not require_envs
-        or workspace_dir is None
-        or skill_dir.resolve()
-        != (get_workspace_skills_dir(workspace_dir) / skill_dir.name).resolve()
+        require_envs
+        and workspace_dir is not None
+        and skill_dir.resolve()
+        == (get_workspace_skills_dir(workspace_dir) / skill_dir.name).resolve()
     ):
-        return env
-
-    entries = read_skill_manifest(workspace_dir).get("skills", {})
-    entry = normalize_skill_manifest_entry(entries.get(skill_dir.name))
-    skill_config = entry.get("config") or {}
-    if isinstance(skill_config, dict) and skill_config:
-        overrides = _build_skill_config_env_overrides(
-            skill_dir.name,
-            skill_config,
-            require_envs,
-        )
-        for key, value in overrides.items():
-            # Runtime injection also preserves existing values, even empty.
-            env.setdefault(_skill_env_key(key), value)
-    return env
+        entries = read_skill_manifest(workspace_dir).get("skills", {})
+        entry = normalize_skill_manifest_entry(entries.get(skill_dir.name))
+        config = entry.get("config")
+    return skill_dependency_environment(
+        (configured_envs, os.environ),
+        skill_dir.name,
+        config,
+        require_envs,
+    )
 
 
 def _validate_skill_dependencies(

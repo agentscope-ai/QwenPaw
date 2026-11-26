@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import {
   AgentScopePlatformIcon,
@@ -85,7 +86,10 @@ export function Hero() {
         animate="visible"
       >
         <div className="mx-auto max-w-7xl px-4 pt-10">
-          <div className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6">
+          <Link
+            to="/release-notes"
+            className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6"
+          >
             <PathIcon size={16} />
             <ShinyText
               text={t("hero.releaseNote")}
@@ -99,7 +103,7 @@ export function Hero() {
               pauseOnHover={false}
               disabled={false}
             />
-          </div>
+          </Link>
           <h1
             id="qwenpaw-hero-heading"
             className="font-newsreader font-semibold leading-[1.1] tracking-[-0.02em] text-(--color-text) sm:leading-[1.08] text-[32px] md:text-[48px] md:leading-[1.06]"

@@ -1,9 +1,21 @@
 // ─── MainLayout ───────────────────────────────────────────────────────────────
+/* Fix #8796: full-screen mobile containers (PWA standalone, home-screen
+ * shortcuts, edge-to-edge WebViews) extend the layout viewport under the
+ * status bar via viewport-fit=cover. The bottom edge already reserves
+ * env(safe-area-inset-bottom); reserve the remaining edges on the root
+ * layout so the header and sidebar start below the status bar while the
+ * page background keeps bleeding behind the notch. env() resolves to 0px
+ * in desktop windows and normal mobile browser tabs, so this is a no-op
+ * outside full-screen containers. */
 .mainLayout {
   height: 100vh;
   min-height: 100vh;
   flex-direction: row;
   overflow: hidden;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 .skipLink {

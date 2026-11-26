@@ -809,7 +809,17 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     current = getattr(agent, "agent_id", None)
                     if current is not None and current != self._agent_id:
                         return None
-                return self._provider(agent)
+                return self._provider(
+                    (
+                        ctx
+                        if getattr(
+                            self._provider,
+                            "_sdk_request_prompt",
+                            False,
+                        )
+                        else agent
+                    ),
+                )
 
         def extra_teardown():
             if self._registry is not None:
@@ -1303,6 +1313,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        _installation: bool = False,
     ):
         """Register a startup hook.
 
@@ -1310,6 +1321,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name: Unique hook identifier
             callback: Async or sync function to call on startup
             priority: Execution priority (lower = earlier, default=100)
+            _installation: Host setup that may write persistent state.
 
         Example:
             >>> api.register_startup_hook(
@@ -1325,6 +1337,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 hook_name=hook_name,
                 callback=callback,
                 priority=priority,
+                installation=_installation,
             )
             logger.info(
                 f"Plugin '{self.plugin_id}' registered startup hook "
@@ -1925,6 +1938,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=(f"register_tool_{self.plugin_id}_{tool_name}"),
             callback=_startup_register,
             priority=50,
+            _installation=True,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled tool "
@@ -2467,6 +2481,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             hook_name=f"install_skills_{self.plugin_id}",
             callback=_install_skills,
             priority=80,
+            _installation=True,
         )
 
         # Register hook to provision newly created workspaces

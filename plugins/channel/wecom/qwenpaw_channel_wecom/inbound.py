@@ -319,11 +319,8 @@ class InboundDecoder:
                 "meta": meta,
             }
             logger.info(
-                "wecom recv: sender=%s chatid=%s msgtype=%s text_len=%s",
-                sender_id[:20],
-                (chatid or "")[:20],
-                msgtype,
-                len(text),
+                f"WeCom message received: group={is_group} "
+                f"parts={len(content_parts)} text_chars={len(text)}",
             )
             self._check_epoch(epoch)
             accepted = await self.on_event(native)
@@ -333,8 +330,10 @@ class InboundDecoder:
                 while len(self._processed_message_ids) > 2000:
                     self._processed_message_ids.popitem(last=False)
             return accepted
-        except Exception:
-            logger.exception("wecom _on_message failed")
+        except Exception as exc:
+            logger.warning(
+                f"WeCom inbound message failed ({type(exc).__name__})",
+            )
 
     async def _download_media(
         self,
@@ -370,6 +369,8 @@ class InboundDecoder:
             path = self._media_dir / f"wecom_{url_hash}_{safe_name}"
             await self._file_work(path.write_bytes, data)
             return str(path)
-        except Exception:
-            logger.exception("wecom _download_media failed url=%s", url[:60])
+        except Exception as exc:
+            logger.warning(
+                f"WeCom media download failed ({type(exc).__name__})",
+            )
             return None

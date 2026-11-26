@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Literal
 
+from ..memory.registry import memory_registry
 from .activity import PluginActivity
 
 logger = logging.getLogger(__name__)
@@ -537,6 +538,10 @@ class PluginLifecycle:
         **kwargs,
     ):
         """Check execution eligibility before destructive lifecycle changes."""
+        await self._loader._prepare_registration_dependencies(
+            binding,
+            allow_install and kwargs.get("owns_dependency_env", True),
+        )
         async with self._loader._dependency_registration(
             binding,
             attach=False,
@@ -718,8 +723,6 @@ class PluginLifecycle:
         interrupt_tasks: bool = False,
     ) -> ConfigUpdateReport:
         """Rebuild contributions from *new_config* without reimporting."""
-        from qwenpaw.memory import memory_registry
-
         async with self._loader.plugin_lifecycle(plugin_id):
             async with self.activity(plugin_id).mutation(
                 interrupt_tasks=interrupt_tasks,
@@ -1038,7 +1041,11 @@ class PluginLifecycle:
         interrupt_tasks: bool = False,
     ) -> Any:
         """Persist an enable only after the bound definition activates."""
-        from .settings import persist_plugin_settings, runtime_config
+        from .settings import (
+            persist_plugin_settings,
+            runtime_config,
+            clear_plugin_intent,
+        )
         from .execution_backend import probes_before_activation
         from ..config.utils import load_config
         from ..utils.io_utils import run_sync_io
@@ -1073,6 +1080,12 @@ class PluginLifecycle:
                     plugin_id,
                     enabled=True,
                 )
+                await run_sync_io(
+                    clear_plugin_intent,
+                    plugin_id,
+                    plugins_dir=self._loader.plugin_dirs[0],
+                )
+                self._loader.startup_blocked_plugins.discard(plugin_id)
                 return record
             await self._loader._retry_plugin_recovery_unlocked(plugin_id)
             record = self._loader.get_loaded_plugin(plugin_id)
@@ -1119,20 +1132,34 @@ class PluginLifecycle:
                 )
                 if not report.quiescent:
                     return report
-            record = await self._loader._load_plugin_unlocked(
-                manifest,
-                source,
-                {**config, "enabled": True},
-                activate=True,
-                backend_binding=binding,
-                prepared=True,
-            )
+            blocked = plugin_id in self._loader.startup_blocked_plugins
+            self._loader.startup_blocked_plugins.discard(plugin_id)
+            try:
+                record = await self._loader._load_plugin_unlocked(
+                    manifest,
+                    source,
+                    {**config, "enabled": True},
+                    activate=True,
+                    backend_binding=binding,
+                    prepared=True,
+                )
+            except BaseException:
+                if blocked:
+                    self._loader.startup_blocked_plugins.add(plugin_id)
+                raise
             if record.status == "active" and record.enabled:
                 await run_sync_io(
                     persist_plugin_settings,
                     plugin_id,
                     enabled=True,
                 )
+                await run_sync_io(
+                    clear_plugin_intent,
+                    plugin_id,
+                    plugins_dir=self._loader.plugin_dirs[0],
+                )
+            elif blocked:
+                self._loader.startup_blocked_plugins.add(plugin_id)
             return record
 
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:

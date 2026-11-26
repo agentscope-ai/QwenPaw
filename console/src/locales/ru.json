@@ -825,18 +825,9 @@
     "builtinAutoUpdateFlow": "Встроенный пакет → Пул навыков",
     "autoSyncFlow": "Пул навыков → Рабочие пространства агентов",
     "automationBoth": "Автообновление + автосинхронизация",
-    "automationMixedHint": "Откройте подробности, чтобы выбрать автообновление или автосинхронизацию.",
-    "automationEnableHint": "Включить автообновление и автосинхронизацию.",
-    "automationDisableHint": "Отключить автообновление и автосинхронизацию.",
-    "automationEnabled": "Автообновление и автосинхронизация включены для {{name}}",
-    "automationDisabled": "Автообновление и автосинхронизация отключены для {{name}}",
     "automationFailed": "Не удалось изменить настройки автоматизации",
     "automationNeedsAttention": "Настройки сохранены. {{count}} пункт(а) требуют внимания; см. «Входящие».",
     "autoSync": "Автосинхронизация",
-    "autoSyncEnableHint": "Включить автосинхронизацию.",
-    "autoSyncDisableHint": "Отключить автосинхронизацию.",
-    "autoSyncEnabled": "Автосинхронизация включена для {{name}}",
-    "autoSyncDisabled": "Автосинхронизация отключена для {{name}}",
     "autoSyncAgentsPlaceholder": "Все агенты с этим навыком",
     "autoSyncAgentsHint": "Оставьте поле пустым для синхронизации существующих копий или выберите агентов.",
     "importBuiltin": "Импорт встроенных",
@@ -919,13 +910,17 @@
     "statusUpToDate": "Актуально",
     "statusSynced": "Синхронизировано",
     "statusOutdated": "Устарело",
+    "statusRemoved": "Прежний встроенный навык",
+    "statusRemovedHint": "В новых версиях приложения этот навык больше не поставляется. Установленная у вас копия сохранена.",
+    "updatedAgo": "Обновлено {{time}}",
     "statusNotSynced": "Не синхронизировано",
-    "statusConflict": "Конфликт",
+    "statusConflict": "Не удалось сравнить версии",
     "renameEntry": "Новое имя для \"{{name}}\":",
     "builtin": "встроенный",
     "custom": "пользовательский"
   },
   "mcp": {
+    "legacyArchived": "Часть старых подключений не перенесена. Резервная копия исходной конфигурации сохранена.",
     "title": "MCP-клиенты",
     "qwenpawManaged": "Под управлением QwenPaw",
     "qwenpawManagedHint": "Общая конфигурация панели управления внедряется в поддерживаемые сторонние агенты во время выполнения.",
@@ -1062,7 +1057,14 @@
     },
     "local": "Локальный",
     "remote": "Удалённый",
-    "invalidJson": "Введите корректный JSON хотя бы с одним сервером MCP."
+    "invalidJson": "Введите корректный JSON хотя бы с одним сервером MCP.",
+    "plugin": {
+      "version": "Версия плагина MCP: {{version}}",
+      "updateAvailable": "Доступен плагин MCP {{version}}",
+      "update": "Обновить плагин",
+      "versionCheckUnavailable": "Не удалось проверить версию. MCP может продолжать работу.",
+      "frontendRefreshFailed": "Плагин обновлён, но интерфейс не обновился. Перезагрузите страницу."
+    }
   },
   "heartbeat": {
     "title": "Пульс",
@@ -1392,6 +1394,7 @@
     "streamingEnabled": "Потоковый вывод",
     "streamingEnabledDingtalkHint": "Действует только при типе сообщения Card",
     "streamingEnabledFeishuHint": "Необходимо включить разрешение cardkit:card:write на странице управления разрешениями открытой платформы Feishu",
+    "streamingEnabledQQHint": "Потоковый вывод поддерживается только в личных чатах QQ (C2C); сообщения в группах и каналах по-прежнему отправляются целиком",
     "autoCollapseThinking": "Сворачивать рассуждения",
     "autoCollapseThinkingTooltip": "Автоматически сворачивать панель рассуждений после завершения потока. Панель можно раскрыть вручную.",
     "ackMessage": "Сообщение подтверждения",
@@ -1506,7 +1509,7 @@
     "wechatBotTokenTooltip": "Bearer-токен, полученный после входа по QR-коду. Оставьте пустым для запуска процедуры входа при старте.",
     "wechatBotTokenPlaceholder": "Заполняется автоматически после QR-входа или введите вручную",
     "wechatBotTokenFile": "Путь к файлу токена",
-    "wechatBotTokenFileTooltip": "Путь для сохранения Bot Token. По умолчанию: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Путь к файлу токена бота. Если поле пустое, используется wechat/wechat_bot_token в рабочей области этого агента.",
     "wechatMediaDir": "Директория медиафайлов",
     "wechatMessageMerge": "Объединение сообщений",
     "wechatMessageMergeTooltip": "Объединяет несколько ответных сообщений для отправки меньшим количеством, чтобы не превышать лимит WeChat в 10 сообщений на context_token. При задержке 0 все текстовые ответы объединяются в одно сообщение в конце запроса. Положительная задержка (в мс) объединяет соседние сообщения в указанном временном окне.",
@@ -3515,7 +3518,8 @@
     },
     "regenerate": "Создать заново",
     "regenerateUnavailable": "У этого старого сообщения нет ID запроса. Отправьте новое сообщение.",
-    "turnCanceled": "Остановлено"
+    "turnCanceled": "Остановлено",
+    "outputTruncated": "Модель достигла лимита вывода. Ответ неполный. Попросите модель продолжить или увеличьте лимит вывода."
   },
   "security": {
     "parent": "Настройки",
@@ -4402,9 +4406,9 @@
     "providerTypeWhisperApiDesc": "Использовать OpenAI-совместимый Whisper API от настроенного провайдера (например, OpenAI, Ollama).",
     "providerTypeLocalWhisper": "Локальный Whisper",
     "providerTypeLocalWhisperDesc": "Запускать транскрипцию локально с помощью библиотеки openai-whisper. Требуются ffmpeg и openai-whisper.",
-    "localWhisperReady": "Локальный Whisper готов к работе. ffmpeg и openai-whisper установлены.",
-    "localWhisperMissing": "Локальный Whisper не готов. Необходимо установить недостающие зависимости.",
-    "localWhisperMissingDesc": "ffmpeg: {{ffmpeg}} | openai-whisper: {{whisper}}. Установите недостающие зависимости: ffmpeg (системный пакет) и openai-whisper (uv pip install openai-whisper или установите QwenPaw с опцией [whisper]).",
+    "localWhisperInstall": "Установить плагин",
+    "localWhisperReview": "Проверить изменения зависимостей",
+    "localWhisperState_needs_confirmation": "Local Whisper · Ожидание подтверждения изменений зависимостей",
     "providerLabel": "Провайдер Whisper API",
     "providerDescription": "Выберите провайдера для транскрипции аудио через Whisper API. Отображаются только провайдеры с совместимым эндпоинтом.",
     "providerPlaceholder": "Выберите провайдера...",
@@ -4414,7 +4418,30 @@
     "modelPlaceholder": "напр. whisper-1",
     "transcriptionInfoTitle": "Как работает транскрипция",
     "transcriptionInfoDesc": "Whisper API транскрипция использует OpenAI-совместимый эндпоинт /v1/audio/transcriptions. Необходим провайдер с поддержкой Whisper (например, OpenAI). Выберите конкретного провайдера выше для включения транскрипции.",
-    "transcriptionInfoDescLocal": "Локальная Whisper транскрипция запускает библиотеку openai-whisper непосредственно на вашем устройстве. Требуются ffmpeg (для декодирования аудио) и пакет openai-whisper. API-ключ и подключение к интернету не нужны. Установка: uv pip install 'qwenpaw[whisper]'."
+    "transcriptionInfoDescLocal": "Локальный Whisper работает на этом устройстве. Нажмите «Установить плагин», чтобы подготовить плагин и зависимости Python. Если он отключён, нажмите «Включить плагин». Установите ffmpeg отдельно. При первой транскрипции модель base загружается, если её нет в кэше. Последующие вызовы используют кэш. Ключ API не требуется.",
+    "localWhisperEnable": "Включить плагин",
+    "localWhisperManage": "Управление плагином",
+    "localWhisperPlugin": "Плагин",
+    "localWhisperFfmpegHelp": "Инструкция по установке ffmpeg",
+    "localWhisperModelHint": "Модель загружается при первой транскрипции.",
+    "localWhisperDependenciesKept": "Зависимости Python сохранены. Для локальной транскрипции установите плагин.",
+    "localWhisperInstallFailed": "Установка локального Whisper не завершена",
+    "localWhisperState_missing": "Локальный Whisper · Не установлен",
+    "localWhisperState_disabled": "Локальный Whisper · Отключён",
+    "localWhisperState_installing": "Подготовка локального Whisper. При первой установке может потребоваться загрузка больших зависимостей Python.",
+    "localWhisperState_ready": "Локальный Whisper · Плагин и зависимости готовы",
+    "localWhisperImportFailed": "Локальный Whisper · Последняя загрузка зависимостей не удалась",
+    "localWhisperState_inactive": "Локальный Whisper · Не активен",
+    "localWhisperState_missing_dependencies": "Локальный Whisper · Не хватает зависимостей",
+    "localWhisperState_failed": "Локальный Whisper · Недоступен",
+    "localWhisperPlugin_missing": "Не установлен",
+    "localWhisperPlugin_disabled": "Отключён",
+    "localWhisperPlugin_active": "Включён",
+    "localWhisperPlugin_registered": "Загрузка",
+    "localWhisperPlugin_inactive": "Не активен",
+    "localWhisperPlugin_failed": "Ошибка загрузки",
+    "localWhisperDependency_installed": "Установлен",
+    "localWhisperDependency_missing": "Не найден"
   },
   "acp": {
     "title": "Подключения ACP",
@@ -4646,6 +4673,11 @@
     "executingAgent": "Исполняющий агент"
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "Не удалось однозначно определить источник зависимости. Найдите имя пакета в журнале приложения, исправьте окружение и повторите попытку.",
+      "invalidMetadata": "Сведения об установке зависимостей неполны или недействительны. Проверьте журнал приложения, исправьте окружение и повторите попытку.",
+      "failed": "Подготовка зависимостей не завершена. Проверьте журнал приложения, устраните проблему и повторите попытку."
+    },
     "title": "Менеджер плагинов",
     "description": "Установка, управление и удаление плагинов без перезапуска службы.",
     "installed": "Установленные плагины",
@@ -4725,7 +4757,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Протокол"
   },
   "approvalNotifications": {
     "settingTitle": "Уведомления о подтверждениях на компьютере",
@@ -5331,6 +5364,7 @@
     "emojiRecent": "Недавние",
     "emojiAll": "По умолчанию",
     "emojiCustom": "Снежный барс",
+    "emojiAnimated": "Милый снежный барс",
     "addCommentImage": "Загрузить изображение",
     "removeCommentImage": "Удалить изображение",
     "commentImageMax": "Можно добавить не более {{count}} изображений",
@@ -5347,6 +5381,7 @@
     "video": "Видео поста",
     "imagePreview": "Предпросмотр изображения",
     "editPost": "Изменить",
+    "fromGithub": "Из GitHub",
     "deletePost": "Удалить",
     "editHelp": "Редактируйте на Platform, чтобы сохранить изображения, видео и форматирование",
     "deleteTitle": "Удалить этот пост?",
@@ -5367,6 +5402,9 @@
     "login": "Войти в Platform",
     "account": "Публикует {{name}}",
     "postTitle": "Заголовок",
+    "githubLinkLabel": "Репозиторий GitHub",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Введите корректный адрес репозитория GitHub",
     "body": "Текст",
     "confirm": "Я проверил заголовок и текст и согласен опубликовать это содержимое публично.",
     "publish": "Опубликовать",

@@ -86,10 +86,10 @@ example.com {
 
 这是你和 QwenPaw 对话的地方。打开控制台后默认就是这个页面。
 
-![聊天](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
+![聊天](https://img.alicdn.com/imgextra/i2/O1CN01fF3zkDt03oB3FPfU_!!6000000000168-2-tps-1600-1000.png)
 
 **选择模型：**
-聊天页面右上角可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
+聊天输入区的模型选择器可以为当前会话选择模型。该选择随会话保存，不会修改 Agent 默认模型；在选择器中清除会话覆盖后，会重新继承 Agent 默认值。
 
 普通回复、手动 `/compact`、`/history` 的上下文上限和自动会话标题生成都会跟随这一选择。会话中的推理偏好按提供商和模型分别保存。图片和视频能力检查、按需探测会跟随实际执行本轮对话的模型，包括触发 fallback 后使用的模型。
 
@@ -134,7 +134,7 @@ example.com {
 **审批：**
 所有 Agent 在 console channel 的聊天中触发的需要审批的内容，都会出现在收件箱的审批页面中。
 
-![todo](https://img.alicdn.com/imgextra/i1/O1CN01SYaJiY1iBLX2ue6K6_!!6000000004374-2-tps-2966-1858.png)
+![收件箱的审批标签页，当前没有待处理请求](https://img.alicdn.com/imgextra/i4/O1CN01FBHlKIhZPfF3FPfU_!!6000000006654-2-tps-1600-1000.png)
 
 你可以在这个页面对来自所有agent的审批内容进行统一操作（批准/拒绝/取消任务）。审批操作有倒计时，结束时未操作则 **默认拒绝**。在该页面进行的审批操作与在聊天页面弹窗进行操作时同步的。
 
@@ -151,7 +151,7 @@ example.com {
 黑名单。通过待处理发件人后，系统会逐封补处理该记录中保存的所有邮件；失败任务会进入可跨
 重启重试的队列。
 
-![todo](https://img.alicdn.com/imgextra/i3/O1CN014IeD9J1xljELLdZL9_!!6000000006484-2-tps-2984-1882.png)
+![todo](https://img.alicdn.com/imgextra/i4/O1CN01hi2ryXZXGrK3FPfU_!!6000000000984-2-tps-1600-1000.png)
 
 ---
 
@@ -161,7 +161,7 @@ example.com {
 
 在这里管理各消息频道（Console、钉钉、飞书、Discord、QQ、微信、iMessage等）的开关和凭据。
 
-![频道](https://img.alicdn.com/imgextra/i1/O1CN01sDfcFb1kfEcUB66Va_!!6000000004710-2-tps-3810-2064.png)
+![频道](https://img.alicdn.com/imgextra/i4/O1CN01Rv9BsJNEXlH3FPfU_!!6000000007954-2-tps-1600-1000.png)
 
 **启用一个频道：**
 
@@ -186,7 +186,7 @@ example.com {
 
 在这里查看、筛选和清理所有频道的聊天会话。
 
-![会话](https://img.alicdn.com/imgextra/i4/O1CN01JTBZoq1KxOIIRuL6J_!!6000000001230-2-tps-3822-2070.png)
+![会话](https://img.alicdn.com/imgextra/i4/O1CN01H32SkeANxUJ3FPfU_!!6000000004818-2-tps-1600-1000.png)
 
 **查找会话：**
 在搜索框中输入用户名过滤，或用下拉菜单按频道筛选，表格会即时更新。
@@ -208,7 +208,7 @@ example.com {
 
 在这里创建和管理 QwenPaw 按时间自动执行的定时任务。
 
-![定时任务](https://img.alicdn.com/imgextra/i1/O1CN01UqMEHK1g2WfLs2wUQ_!!6000000004084-2-tps-3822-2070.png)
+![定时任务](https://img.alicdn.com/imgextra/i4/O1CN01o2Be8K5IeUL3FPfU_!!6000000003887-2-tps-1600-1000.png)
 
 **创建新任务：**
 
@@ -250,7 +250,7 @@ example.com {
 
 > 侧边栏：**控制 → 心跳**
 
-![心跳](https://img.alicdn.com/imgextra/i4/O1CN01jW2DeC1QIWeM4HHBM_!!6000000001953-2-tps-3822-2070.png)
+![心跳](https://img.alicdn.com/imgextra/i1/O1CN01Qq47daBj4GH3FPfU_!!6000000002660-2-tps-1600-1000.png)
 
 为**当前选中的智能体**配置定时「自检」：按间隔把 `HEARTBEAT.md` 里的内容当作用户消息发给 QwenPaw，并可把回复投递到指定目标。
 
@@ -277,7 +277,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 > 工作区、配置、记忆和对话历史。智能体之间还可以互相协作。在控制台顶部可以切换当前操作的智能体。
 > 详见 [多智能体](./multi-agent)。
 
-![文件](https://img.alicdn.com/imgextra/i4/O1CN01Buqn3J1YJSNgrz9eY_!!6000000003038-2-tps-3822-2070.png)
+![文件](https://img.alicdn.com/imgextra/i4/O1CN01ZYoawSq0eUG3FPfU_!!6000000001205-2-tps-1600-1000.png)
 
 **编辑文件：**
 
@@ -313,7 +313,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里管理扩展 QwenPaw 能力的技能（如读取 PDF、创建 Word 文档、获取新闻等），更详细的内容请看 [Skills](./skills)。
 
-![技能](https://img.alicdn.com/imgextra/i1/O1CN015rwm8V24Aoc48bGTp_!!6000000007351-2-tps-3822-2070.png)
+![技能](https://img.alicdn.com/imgextra/i1/O1CN01y2ukuWNyQaL3FPfU_!!6000000004805-2-tps-1600-1000.png)
 
 **启用技能：**
 点击技能卡片底部的 **启用** 链接，立即生效。
@@ -357,7 +357,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 工具**
 
-![工具](https://img.alicdn.com/imgextra/i1/O1CN01Ofuk2I1pH1kRvkwcr_!!6000000005334-2-tps-3822-2070.png)
+![工具](https://img.alicdn.com/imgextra/i3/O1CN01wUnAZ8bJJEL3FPfU_!!6000000005966-2-tps-1600-1000.png)
 
 按**内置工具名称**单独开启或关闭（如读文件、执行命令、浏览器等）。关闭后该 Agent 在对话中无法调用该工具。
 
@@ -369,11 +369,11 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 ## MCP
 
-> 侧边栏：**工作区 → MCP**
+> 侧边栏：**设置 → MCP**
 
-在这里启用/禁用/删除**MCP**，或者创建新的客户端。
+在这里可以创建、配置、启用、禁用或删除当前智能体的 MCP 客户端。
 
-![MCP](https://img.alicdn.com/imgextra/i2/O1CN01J0qnP91bQH7nxR2ww_!!6000000003459-2-tps-3822-2070.png)
+![MCP 客户端列表及右上角的创建客户端按钮](https://img.alicdn.com/imgextra/i1/O1CN011336iqi7wpB3FPfU_!!6000000002674-2-tps-1600-1000.png)
 
 **创建客户端**
 点击右上角的**创建客户端**，填写必要信息，点击**创建**，可以看到MCP客户端列表中新增内容。
@@ -382,7 +382,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 运行配置**
 
-![运行配置](https://img.alicdn.com/imgextra/i2/O1CN01isFubh1fmxDTGufCc_!!6000000004050-2-tps-3810-2064.png)
+![运行配置](https://img.alicdn.com/imgextra/i2/O1CN01VqUrK2lsWWE3FPfU_!!6000000000446-2-tps-1600-1000.png)
 
 本页集中配置**当前智能体**的运行参数，分多块卡片，改完后点底部 **保存**（**重置** 可重新拉取服务端数据）。
 
@@ -408,7 +408,7 @@ Console 会保留并标记该选项不可用，而不是静默改成其他记忆
 
 > 侧边栏：**设置 → 智能体管理**
 
-![智能体管理](https://img.alicdn.com/imgextra/i3/O1CN01mG2dkX1GHTaJLMjWo_!!6000000000597-2-tps-3822-2070.png)
+![智能体管理](https://img.alicdn.com/imgextra/i4/O1CN01JYBVge26cPH3FPfU_!!6000000002820-2-tps-1600-1000.png)
 
 创建、编辑、启用/禁用或删除智能体；列表中的 **描述** 会用于多智能体协作时的分工判断，建议写清用途。
 
@@ -427,12 +427,12 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
-![模型](https://img.alicdn.com/imgextra/i2/O1CN01ardjB01FvwzCXWW2f_!!6000000000550-2-tps-3810-2064.png)
+![全局默认模型与云端提供商](https://img.alicdn.com/imgextra/i2/O1CN010iWs8ko7wXC3FPfU_!!6000000002852-2-tps-1600-1000.png)
 
 在本页面，你可以：
 
 - 配置云端提供商（ModelScope、DashScope、OpenAI、Anthropic 等）
-- 配置本地提供商（llama.cpp、Ollama、LM Studio）
+- 连接 Ollama 或 LM Studio，或通过可选的 QwenPaw Local 插件管理 llama.cpp
 - 通过填写 API 详情添加自定义提供商
 - 选择智能体默认使用的模型
 
@@ -444,7 +444,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里对技能做全局管理，更详细的内容请看 [Skills](./skills)。
 
-![技能池](https://img.alicdn.com/imgextra/i2/O1CN014Kpiia1OW9CKI06jN_!!6000000001712-2-tps-3822-2070.png)
+![技能池](https://img.alicdn.com/imgextra/i1/O1CN01tyeYMcJ2h0K3FPfU_!!6000000002401-2-tps-1600-1000.png)
 
 在当前页面，可对技能做以下操作：
 
@@ -465,7 +465,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 在这里管理 QwenPaw 的工具和技能在运行时需要的环境变量（如 `TAVILY_API_KEY`）。
 
-![环境变量](https://img.alicdn.com/imgextra/i2/O1CN01EIfkyk1mR9epvvu5G_!!6000000004950-2-tps-3822-2070.png)
+![环境变量](https://img.alicdn.com/imgextra/i3/O1CN01HDTKRps8eGD3FPfU_!!6000000005710-2-tps-1600-1000.png)
 
 **添加变量：**
 
@@ -504,7 +504,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 工具后台策略**
 
-![设置 → 工具后台策略（保持前台执行 / 自动转入后台）](https://img.alicdn.com/imgextra/i4/O1CN01eve2Vfke2oJ7nOIU_!!6000000002955-0-tps-3840-1986.jpg)
+![设置 → 工具后台策略（保持前台执行 / 自动转入后台）](https://img.alicdn.com/imgextra/i3/O1CN01mEobxuyCu8C3FPfU_!!6000000000220-2-tps-1600-1000.png)
 
 配置工具到达转入后台截止时间时的默认行为，可选：
 
@@ -517,7 +517,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 安全**
 
-![安全](https://img.alicdn.com/imgextra/i4/O1CN01APDb151R02HB3zHet_!!6000000002048-2-tps-3822-2070.png)
+![安全](https://img.alicdn.com/imgextra/i3/O1CN01daeJW3fVIwC3FPfU_!!6000000004121-2-tps-1600-1000.png)
 
 分 **工具防护**、**文件防护**、**技能扫描器** 等页签：分别控制危险工具参数拦截、敏感路径访问拦截、技能包安全扫描策略。
 
@@ -529,15 +529,13 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → Token 消耗**
 
-![token消耗](https://img.alicdn.com/imgextra/i2/O1CN01hK1Elq270gie8c8NX_!!6000000007735-2-tps-3810-2064.png)
+![示例用量按模型和 Token 类型展示的趋势](https://img.alicdn.com/imgextra/i2/O1CN01Py8UFXjNn3K3FPfU_!!6000000005917-2-tps-1600-1000.png)
 
-在这里查看一段时间内的 LLM Token 消耗，按日期和模型统计。
+在 **趋势** 中选择日期范围，统计会自动更新。顶部显示 LLM 调用次数、输入和输出 Token、缓存命中 Token 和命中率。向下滚动可按模型、日期或智能体查看明细。
 
-**查看消耗：**
+切换到 **活跃度**，选择年份即可查看每日用量热力图。两张图均使用演示数据。
 
-1. 选择日期范围（默认最近 30 天）。
-2. 点击 **刷新** 获取数据。
-3. 页面展示总 Token 数、总调用次数、按模型和按日期的明细。
+![按年查看每日 Token 用量的活跃度热力图](https://img.alicdn.com/imgextra/i2/O1CN01fGXy4Pd7coH3FPfU_!!6000000006922-2-tps-1600-1000.png)
 
 **通过对话查询：**
 
@@ -551,7 +549,7 @@ QwenPaw 原生智能体还可以在这里配置 **邮箱管理**：连接已有�
 
 > 侧边栏：**设置 → 语音转写**
 
-![语音转写](https://img.alicdn.com/imgextra/i2/O1CN01yddyyw1HwWhQnbqwR_!!6000000000822-2-tps-3822-2070.png)
+![语音转写](https://img.alicdn.com/imgextra/i2/O1CN01Lg6fZzeC0RE3FPfU_!!6000000001409-2-tps-1600-1000.png)
 
 配置**各频道发来的语音/音频**在进入模型前的处理方式（与聊天里的语音输入、频道语音消息共用这套设置）。
 
@@ -594,7 +592,7 @@ python -c "import whisper; print('openai-whisper installed')"
 | 文件         | 工作区 → 文件       | 编辑人设文件、记忆、上传/下载         |
 | 技能         | 工作区 → 技能       | 启用/禁用、创建/Zip/URL/市场添加      |
 | 工具         | 工作区 → 工具       | 按名称开关内置工具                    |
-| MCP          | 工作区 → MCP        | 管理 MCP 客户端                       |
+| MCP          | 设置 → MCP          | 管理 MCP 客户端                       |
 | 运行配置     | 工作区 → 运行配置   | 迭代/上下文/重试/压缩/摘要/嵌入等     |
 | 智能体管理   | 设置 → 智能体       | 增删改智能体、启用/禁用               |
 | 模型         | 设置 → 模型         | 提供商、下载本地模型、选择活跃模型    |

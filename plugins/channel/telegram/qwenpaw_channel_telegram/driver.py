@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -17,6 +18,8 @@ from qwenpaw.channel_protocol.shared_response_driver import (
 )
 from qwenpaw.channel_protocol.targets import decode_reply_target
 from .errors import TelegramDeliveryError
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramDriver(SharedResponseDriver):
@@ -80,16 +83,27 @@ class TelegramDriver(SharedResponseDriver):
         target = decode_reply_target(str(handle))
         session = target["session_id"] if target else str(handle)
         user = target["user_id"] if target else str(handle)
-        chat = meta.get("chat_id") or (
-            session.split(":", 1)[1]
-            if session.startswith("telegram:")
-            else user
-        )
+        if target and not session.startswith("telegram:"):
+            chat, separator, thread = user, "", ""
+        else:
+            chat, separator, thread = session.removeprefix(
+                "telegram:",
+            ).partition(":")
+        if separator:
+            thread = thread.lstrip("0")
+            if not (thread.isascii() and thread.isdecimal()):
+                raise ValueError("OUTBOUND_TARGET_UNKNOWN")
+            if thread == "1":
+                thread = ""
+        chat = meta.get("chat_id") or chat
         if not str(chat).strip():
+            logger.warning(f"Telegram outbound chat is missing")
             raise ValueError("OUTBOUND_TARGET_UNKNOWN")
         return {
             "chat_id": str(chat),
-            "message_thread_id": str(meta.get("message_thread_id") or ""),
+            "message_thread_id": str(
+                meta.get("message_thread_id", thread) or "",
+            ),
             "session_id": str(meta.get("session_id") or session),
             "root_session_id": str(
                 meta.get("root_session_id")

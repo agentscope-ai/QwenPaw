@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
 import httpx
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
-from ..cli.windows_shutdown import install_shutdown_handlers
+from ..utils.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -33,10 +33,10 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..envs import load_envs_into_environ
-from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..remote_access.runtime import PlatformRuntimeConnection
 from ..utils.daily_telemetry import start_daily_telemetry
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -73,6 +73,7 @@ from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 from .routers.remote_access import callback_router as platform_callback_router
 from .routers.console_frontend import create_console_frontend_router
+from .routers.channel_callbacks import channel_callbacks_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -100,6 +101,11 @@ load_envs_into_environ()
 async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
+    if plugin_loader is not None:
+        await plugin_loader.stop_dependency_installs()
+    whisper_install = getattr(app.state, "local_whisper_install", None)
+    if whisper_install is not None:
+        await whisper_install.close()
     if plugin_loader is not None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
         from ..plugins.lifecycle import UnloadMode
@@ -178,10 +184,9 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    try:
-        await _stop_workspaces_after_dependents_impl(app, import_jobs)
-    finally:
-        completed.set()
+    await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    # A failed stop can leave live dependents; retain the exit deadline.
+    completed.set()
 
 
 async def _stop_workspaces_after_dependents_impl(
@@ -269,6 +274,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
+    from .mcp_plugin_upgrade import read_startup_migration
+
+    mcp_startup = await run_sync_io(read_startup_migration)
+
     auto_register_from_env()
     check_proxy_config_sanity()
 
@@ -315,9 +324,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
-    local_model_manager = await asyncio.to_thread(
-        LocalModelManager.get_instance,
-    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -446,7 +452,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # routers / agent_context that read app.state.multi_agent_manager.
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
-    app.state.local_model_manager = local_model_manager
     app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
@@ -549,12 +554,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_dirs,
                 channel_runtime=channel_runtime,
             )
-            from ..cli.app_cmd import _dependency_restart
+            from .server_context import dependency_restart
 
-            if _dependency_restart is not None:
+            restart_plan = dependency_restart()
+            if restart_plan is not None:
                 import signal
 
-                plugin_loader.dependency_upgrade_restart = _dependency_restart
+                plugin_loader.dependency_upgrade_restart = restart_plan
                 plugin_loader.dependency_upgrade_shutdown = (
                     lambda: signal.raise_signal(signal.SIGINT)
                 )
@@ -590,19 +596,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
             app.state.plugin_registry = plugin_loader.registry
 
-            config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
+            from ..plugins.local_model_legacy import (
+                load_upgraded_local_model,
+                prepare_startup_local_model,
             )
-            logger.debug(
-                f"Loading plugins with {len(plugin_configs)} config(s)",
-            )
+            from .mcp_plugin_upgrade import prepare_startup_plugins
 
-            # Phase 1: register only; projection waits for activate_all
-            await plugin_loader.load_all_plugins(
-                configs=plugin_configs,
-                types=["channel", "memory", "hub"],
-                activate=False,
+            await prepare_startup_plugins(
+                plugin_loader,
+                workspace_registry,
+                app=app,
+                startup=mcp_startup,
             )
             try:
                 seed_errors = await provision_bundled_channels(plugin_loader)
@@ -614,7 +618,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     )
             except (OSError, ValueError, KeyError, TypeError, RuntimeError):
                 logger.exception("Official channel migration pending")
-            logger.debug("Phase 1: channel, memory and Hub plugins loaded")
+            deferred_providers = await prepare_startup_local_model(
+                plugin_loader,
+                provider_manager,
+            )
+            plugin_configs = load_config(get_config_path()).plugins
+            await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+                types=["provider"],
+                activate=True,
+                exclude=deferred_providers,
+            )
+            logger.debug(
+                "Phase 1: workspace plugins registered and providers activated",
+            )
             app.state.market_ready.set()
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
@@ -637,7 +654,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
-            provider_manager.start_local_model_resume(local_model_manager)
             startup_provider_ids = provider_manager.startup_sync_provider_ids()
             asyncio.create_task(
                 provider_manager.sync_startup_provider_models(
@@ -652,11 +668,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
+            plugin_configs = load_config(get_config_path()).plugins
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 activate=False,
+                exclude=deferred_providers,
             )
-            logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+            logger.debug(
+                f"Loaded {len(loaded_plugins)} plugin(s) with "
+                f"{len(plugin_configs)} configured entries",
+            )
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
@@ -671,6 +692,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             logger.debug("Activating loaded plugins...")
             await plugin_loader.activate_all_loaded()
+            from ..plugins._providers import restore_selected_providers
+
+            restore_selected_providers(plugin_loader.registry)
+
+            from ..plugins.local_whisper import LocalWhisperInstallService
+
+            app.state.local_whisper_install = LocalWhisperInstallService(
+                plugin_loader,
+                WORKING_DIR
+                / "plugin_runtime"
+                / "migrations"
+                / "local-whisper.json",
+            )
+            await app.state.local_whisper_install.start()
 
             # ---- Approval Service ----
             try:
@@ -730,6 +765,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
+
+            if deferred_providers:
+                await load_upgraded_local_model(plugin_loader)
 
         except Exception:
             logger.error(
@@ -791,19 +829,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         from ..agents.tools import shutdown_browser_runtime
 
         await shutdown_browser_runtime()
-
-        local_model_mgr = getattr(app.state, "local_model_manager", None)
-        if local_model_mgr is not None:
-            logger.info("Stopping local model server...")
-            try:
-                await local_model_mgr.shutdown_server()
-            except Exception as exc:
-                logger.error(
-                    "Error shutting down local model server gracefully: %s",
-                    exc,
-                )
-                with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.shutdown_server_sync()
 
         # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
         _app_svc = getattr(app.state, "app_services", None)
@@ -958,8 +983,16 @@ def read_root():
 
 
 @app.get("/api/version")
-def get_version():
-    """Return the current application version (public-safe payload)."""
+def get_version(request: Request, response: Response):
+    """Report the version and optionally acknowledge a local profile probe."""
+    from ..utils.runtime_api import PROFILE_PROBE_HEADER, profile_probe_reply
+
+    probe = request.headers.get(PROFILE_PROBE_HEADER)
+    if probe:
+        reply = profile_probe_reply(probe)
+        if reply is not None:
+            response.headers[PROFILE_PROBE_HEADER] = reply
+            response.headers["Cache-Control"] = "no-store"
     return {
         "version": __version__,
     }
@@ -1023,6 +1056,7 @@ app.include_router(agent_scoped_router, prefix="/api")
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+app.include_router(channel_callbacks_router)
 
 
 # Console static files and SPA fallback

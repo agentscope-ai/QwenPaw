@@ -160,7 +160,7 @@ def _migrate_legacy_thinking_budget_range(
 _MODEL_SCALAR_MINIMUMS = (
     ("max_output_length", 1, True),
     ("max_input_length", 1000, False),
-    ("max_input_length_auto_detected", 1000, True),
+    ("max_input_length_auto_detected", 1, True),
     ("input_token_limit", 1, True),
     ("thinking_budget", 1, True),
 )

@@ -682,6 +682,266 @@ def test_review_decision_appends_exactly_one_action_specific_message(
             assert "人物状态不对" in messages[0].content_parts[0].text
 
 
+def test_review_decision_degrades_followup_failure_then_replays_it(
+    tmp_path,
+    run_scenario,
+    monkeypatch,
+) -> None:
+    """A committed decision must never surface as a failure because the
+    follow-up message could not be published; replay recovers it once."""
+
+    app, services, base = _app(tmp_path)
+    runtime = services.sessions.create_project_runtime(
+        "project-1",
+        session_id="session-1",
+        conversation_id="conversation-1",
+    )
+    review = _pending_review(services, base, interrupted_run_id=None)
+    payload = _decision_payload(review, "decision-deferred")
+
+    async def failing_followup(_self, **_kwargs):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(
+        CreatorFileServices,
+        "publish_review_followup",
+        failing_followup,
+    )
+
+    async def scenario(client):
+        return await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-deferred"},
+            json=payload,
+        )
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200, response.text
+    assert response.json()["followupDeferred"] is True
+    assert _messages(services.sessions, runtime.session.session_id) == []
+
+    # The FINALIZED journal is the outbox: startup/convergence replay must
+    # land the missing message and stay idempotent when it runs again.
+    services.recover_review_followup_messages("project-1")
+    services.recover_review_followup_messages("project-1")
+    messages = _messages(services.sessions, runtime.session.session_id)
+    assert len(messages) == 1
+    assert messages[0].source == "review_approval_resume"
+
+
+def test_recovery_replays_only_the_decision_that_cleared_the_round(
+    tmp_path,
+    run_scenario,
+) -> None:
+    """P1: recovery must not queue a second resume for an earlier decision.
+
+    The first of two decisions in one round commits while the other
+    operation is still pending, so it publishes no ACCEPT resume.  Once the
+    round clears, replaying every FINALIZED journal would otherwise queue a
+    second, non-idempotent resume for that first decision.
+    """
+
+    app, services, base = _app(tmp_path)
+    runtime = services.sessions.create_project_runtime(
+        "project-1",
+        session_id="session-1",
+        conversation_id="conversation-1",
+    )
+    candidate = base.project.model_dump(mode="json")
+    candidate["name"] = "Review candidate"
+    candidate["description"] = "Review description"
+    result = ProjectCommitBoundary(services.projects).commit(
+        base=base,
+        candidate=candidate,
+        origin="agentdock_interrupt",
+        review_policy="require_review",
+        review_boundary=ReviewBoundary(
+            request_message_seq=2,
+            request_id="request-2",
+            interrupted_run_id=None,
+            accepted_generation=base.generation,
+            accepted_etag=base.etag,
+        ),
+        caused_by_request_id="request-2",
+        caused_by_message_seq=2,
+        round_id="round-2",
+    )
+    review = result.review
+    assert review is not None
+    assert len(review.operations) == 2
+    first_operation = review.operations[0].operation_id
+    second_operation = review.operations[1].operation_id
+
+    async def scenario(client):
+        first = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-1"},
+            json={
+                "decisionId": "decision-op-1",
+                "decisionToken": review.decision_token,
+                "decisions": [
+                    {"operation_id": first_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        assert first.status_code == 200, first.text
+        updated = first.json()
+        second = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-2"},
+            json={
+                "decisionId": "decision-op-2",
+                "decisionToken": updated["decision_token"],
+                "decisions": [
+                    {"operation_id": second_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        # Retrying the earlier decision with its original body and
+        # idempotency key must replay the decision without publishing a
+        # second resume once the round has cleared.
+        retried = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-1"},
+            json={
+                "decisionId": "decision-op-1",
+                "decisionToken": review.decision_token,
+                "decisions": [
+                    {"operation_id": first_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        return first, second, retried
+
+    first, second, retried = run_scenario(app, scenario)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert retried.status_code == 200, retried.text
+    assert retried.json() == first.json()
+
+    def resumes():
+        return [
+            message
+            for message in _messages(
+                services.sessions,
+                runtime.session.session_id,
+            )
+            if message.source == "review_approval_resume"
+        ]
+
+    assert len(resumes()) == 1
+    assert resumes()[0].metadata["decisionId"] == "decision-op-2"
+
+    services.recover_review_followup_messages("project-1")
+    services.recover_review_followup_messages("project-1")
+    assert len(resumes()) == 1
+
+
+def test_upgrade_recovery_keeps_a_single_resume_for_legacy_journals(
+    tmp_path,
+    run_scenario,
+    monkeypatch,
+) -> None:
+    """Journals written before ``followup_expected`` existed still replay
+    only the decision that cleared the round."""
+
+    app, services, base = _app(tmp_path)
+    runtime = services.sessions.create_project_runtime(
+        "project-1",
+        session_id="session-1",
+        conversation_id="conversation-1",
+    )
+    candidate = base.project.model_dump(mode="json")
+    candidate["name"] = "Review candidate"
+    candidate["description"] = "Review description"
+    result = ProjectCommitBoundary(services.projects).commit(
+        base=base,
+        candidate=candidate,
+        origin="agentdock_interrupt",
+        review_policy="require_review",
+        review_boundary=ReviewBoundary(
+            request_message_seq=2,
+            request_id="request-2",
+            interrupted_run_id=None,
+            accepted_generation=base.generation,
+            accepted_etag=base.etag,
+        ),
+        caused_by_request_id="request-2",
+        caused_by_message_seq=2,
+        round_id="round-2",
+    )
+    review = result.review
+    assert review is not None
+    assert len(review.operations) == 2
+    first_operation = review.operations[0].operation_id
+    second_operation = review.operations[1].operation_id
+
+    async def failing_followup(_self, **_kwargs):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(
+        CreatorFileServices,
+        "publish_review_followup",
+        failing_followup,
+    )
+
+    async def scenario(client):
+        first = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-1"},
+            json={
+                "decisionId": "decision-op-1",
+                "decisionToken": review.decision_token,
+                "decisions": [
+                    {"operation_id": first_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        updated = first.json()
+        second = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-2"},
+            json={
+                "decisionId": "decision-op-2",
+                "decisionToken": updated["decision_token"],
+                "decisions": [
+                    {"operation_id": second_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        return first, second
+
+    first, second = run_scenario(app, scenario)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["followupDeferred"] is True
+    assert second.json()["followupDeferred"] is True
+    assert _messages(services.sessions, runtime.session.session_id) == []
+
+    # Downgrade both journals to the pre-field shape an upgrade has to
+    # replay: no recorded delivery decision at all.
+    transactions = (
+        services.projects.project_root("project-1")
+        / "runtime"
+        / "reviews"
+        / review.review_id
+        / "decision-transactions"
+    )
+    journals = sorted(transactions.glob("*/journal.json"))
+    assert len(journals) == 2
+    for path in journals:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload.pop("followup_expected", None)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    services.recover_review_followup_messages("project-1")
+    services.recover_review_followup_messages("project-1")
+    messages = _messages(services.sessions, runtime.session.session_id)
+    assert len(messages) == 1
+    assert messages[0].source == "review_approval_resume"
+    assert messages[0].metadata["decisionId"] == "decision-op-2"
+
+
 def test_rejection_feedback_requires_a_reject_decision(
     tmp_path,
     api_request,

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import weakref
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import fields, is_dataclass, replace
 from collections.abc import Mapping
@@ -16,17 +16,17 @@ from .apps import (
     CancelResult,
     ChatRequest,
     ChatReply,
-    HttpRequest,
     HttpResponse,
     SessionSummary,
     WorkspaceSummary,
     StreamingResponse,
+    FileResponse,
     TaskSnapshot,
     WebSocket,
 )
 from .errors import SDKError, SDKAccessError, StaleContextError
 from .storage import PluginStorage, MediaStore
-from ._events import _message, approval_snapshot, chat_event, _observing
+from ._events import _message, approval_snapshot, chat_event
 
 
 def plain(value):
@@ -45,10 +45,11 @@ def plain(value):
 
 def wire_event(value):
     """Restore the existing frontend wire envelope from finite public DTOs."""
-    from .events import ChatEvent
+    from .events import ChatEvent, StreamContent, StreamMessage
+    from ._event_json import event_dict
 
-    if isinstance(value, ChatEvent) and value.object == "content":
-        return wire_event(value.content[0])
+    if isinstance(value, (ChatEvent, StreamContent, StreamMessage)):
+        return event_dict(value)
     if is_dataclass(value):
         data = {
             field.name: wire_event(getattr(value, field.name))
@@ -165,8 +166,9 @@ def _summary(value):
 # Keep related adapter declarations and lifecycle ordering together.
 # pylint: disable-next=too-many-public-methods
 class Services:  # pylint: disable=protected-access
-    def __init__(self, plugin, legacy, admitted):
+    def __init__(self, plugin, legacy, admitted, *, selected_chat=""):
         self.plugin, self.legacy, self.admitted = plugin, legacy, admitted
+        self.selected_chat = selected_chat
         self._scope = None
         self._cancelled = lambda: False
 
@@ -184,6 +186,12 @@ class Services:  # pylint: disable=protected-access
             raise StaleContextError(
                 "App call has ended; enter for_workspace() for a new call",
             )
+
+    def driver_source(self, protocol, source_id):
+        from ._drivers import management_source
+
+        self.guard()
+        return management_source(self, protocol, source_id)
 
     async def workspaces(self):
         self.guard()
@@ -231,6 +239,8 @@ class Services:  # pylint: disable=protected-access
             yield services.context(base)
 
     def context(self, base):
+        from .context import RequestContext
+
         self._scope = base.resources
         self._cancelled = lambda: base.cancelled
         key = hashlib.sha256(
@@ -243,13 +253,14 @@ class Services:  # pylint: disable=protected-access
             base.storage._root / "apps" / key,
             self.guard,
             _admission=self.plugin._storage_admission,
+            _legacy_sources=base.storage._legacy_sources,
         )
         media_root = base.media._storage._root / "apps" / key
         return AppContext(
             **{
                 field.name: getattr(base, field.name)
                 for field in fields(base)
-                if field.name not in {"storage", "media"}
+                if field.name not in {"storage", "media", "identity"}
             },
             storage=storage,
             media=MediaStore(
@@ -261,6 +272,12 @@ class Services:  # pylint: disable=protected-access
                 "/api/files/preview/" + str(media_root),
             ),
             app_id=self.legacy.app_id,
+            identity=RequestContext(
+                base.workspace_id,
+                base.session_id,
+                self.legacy.channel,
+                self.legacy.user_id,
+            ),
             user_id=self.legacy.user_id,
             channel=self.legacy.channel,
             _services=self,
@@ -354,6 +371,34 @@ class Services:  # pylint: disable=protected-access
             for item in await self.legacy.get_session_history(sid)
         )
 
+    async def selected_conversation(self):
+        from ..app.auth import owns_default_console_chat
+
+        self.guard()
+        if not self.selected_chat:
+            raise SDKAccessError(
+                "No main conversation was selected for this operation",
+            )
+        workspace = await self.workspace()
+        chat = await workspace.chat_manager.get_chat(self.selected_chat)
+        if (
+            chat is None
+            or chat.channel != self.legacy.channel
+            or chat.session_id.startswith("pawapp:")
+            or (
+                chat.user_id != self.legacy.user_id
+                and not (
+                    chat.channel == "console"
+                    and chat.user_id == "default"
+                    and owns_default_console_chat(self.legacy.user_id)
+                )
+            )
+        ):
+            raise SDKAccessError(
+                "Selected conversation is outside this caller's scope",
+            )
+        return workspace, chat
+
     async def _owned_chat(self, run_id):
         workspace = await self.workspace()
         chat = await workspace.chat_manager.get_chat(run_id)
@@ -395,18 +440,14 @@ class Services:  # pylint: disable=protected-access
                 workspace.workspace_dir,
             )
             session_token = current_session_id.set(sid)
-            observation_token = _observing.set(True)
-            stream = workspace.stream_query(envelope)
             try:
-                async for event in stream:
-                    yield chat_event(event)
+                stream = workspace.stream_query(envelope)
+                async with aclosing(stream):
+                    async for event in stream:
+                        yield chat_event(event)
             finally:
-                try:
-                    await stream.aclose()
-                finally:
-                    _observing.reset(observation_token)
-                    current_session_id.reset(session_token)
-                    current_workspace_dir.reset(workspace_token)
+                current_session_id.reset(session_token)
+                current_workspace_dir.reset(workspace_token)
 
     def chat_stream(self, request):
         self.guard()
@@ -441,24 +482,32 @@ class Services:  # pylint: disable=protected-access
         # independently of the HTTP call that requested it.
         worker = Services(self.plugin, self.legacy, self.admitted)
         ready = asyncio.Event()
-        from ..agents.context.overflow_recovery import _stream_observer
-        from .sdk import _RunStreams, _stream_tasks
+        from ..runtime.turn_context import current_run_streams
+        from .sdk import _RunStreams
 
         owned = _RunStreams()
 
         # Keep related adapter declarations and lifecycle ordering together.
         # pylint: disable-next=too-many-branches,too-many-statements
         async def run(_payload):
+            from ..app.task_tracker import response_outcome
+
             # Do not execute author/model code until status persistence and
             # custody registration have both completed.
             await ready.wait()
             stream = worker.chat_stream(replace(request, session_id=sid))
-            outcome, error = "completed", ""
+            outcome, error = None, ""
             summary, truncated = "", False
             try:
                 async for event in stream:
-                    if event.status in {"failed", "cancelled"}:
-                        outcome = event.status
+                    outcome = (
+                        response_outcome(
+                            event.object,
+                            event.status,
+                            event.attributes.get("error"),
+                        )
+                        or outcome
+                    )
                     if event.output or (
                         event.object == "message"
                         and event.status == "completed"
@@ -516,6 +565,11 @@ class Services:  # pylint: disable=protected-access
                         retry = self.plugin._instance.activity.retry_cleanup
                         if await retry():
                             outcome = "cancelled"
+                if outcome is None:
+                    outcome, error = (
+                        "failed",
+                        "Stream ended without a response terminal",
+                    )
                 terminal = replace(
                     status,
                     status=outcome,
@@ -541,14 +595,12 @@ class Services:  # pylint: disable=protected-access
 
         async def produce(payload):
             with self.plugin._admission():
-                token = _stream_tasks.set(owned)
-                observer_token = _stream_observer.set(owned.retain)
+                token = current_run_streams.set(owned)
                 try:
                     event = await run(payload)
                 finally:
                     owned.closing = True
-                    _stream_observer.reset(observer_token)
-                    _stream_tasks.reset(token)
+                    current_run_streams.reset(token)
             yield event
 
         from .custody import stop_task
@@ -855,6 +907,54 @@ class Services:  # pylint: disable=protected-access
         )
 
 
+class AppDispatcher:  # pylint: disable=protected-access
+    """Private owned bridge for host compatibility routes, never an SDK API."""
+
+    def __init__(self, plugin, app, admitted):
+        self.plugin = plugin
+        self.generation = plugin.generation
+        self.app_id = app.app_id
+        self.admitted = admitted
+        self.routes = {
+            (method, path): handler
+            for path, methods, handler, _body_mode, _limit in app._routes
+            for method in methods
+        }
+
+    @asynccontextmanager
+    async def scope(self, legacy, *, selected_chat=""):
+        self.plugin._guard()
+        if not self.admitted():
+            raise StaleContextError("App has been released")
+        if legacy.app_id != self.app_id:
+            raise SDKAccessError("App identity does not match")
+        async with self.plugin._invocation(
+            workspace_id=legacy.agent_id,
+            session_id="",
+        ) as base:
+            services = Services(
+                self.plugin,
+                legacy,
+                self.admitted,
+                selected_chat=selected_chat,
+            )
+            yield services.context(base)
+
+    async def dispatch(self, legacy, request):
+        handler = self.routes.get((request.method, request.path))
+        if handler is None:
+            raise SDKAccessError("App route is unavailable")
+        async with self.scope(legacy) as context:
+            result = await self.plugin._call(handler, context, request)
+            return (
+                result
+                if isinstance(result, HttpResponse)
+                else HttpResponse(
+                    result,
+                )
+            )
+
+
 # Keep related adapter declarations and lifecycle ordering together.
 # pylint: disable-next=too-many-statements
 def register(plugin, app):
@@ -882,6 +982,7 @@ def register(plugin, app):
     plugin._app_task_locks = weakref.WeakValueDictionary()
     admitted = True
     current = ContextVar(f"sdk_app:{plugin.plugin_id}:{app.app_id}")
+    dispatcher = AppDispatcher(plugin, app, lambda: admitted)
 
     @asynccontextmanager
     async def scope(connection):
@@ -894,12 +995,10 @@ def register(plugin, app):
             else Request({**connection.scope, "type": "http"})
         )
         legacy = await get_scoped_ctx(identity_request)
-        async with plugin._invocation(
-            workspace_id=legacy.agent_id,
-            session_id="",
-        ) as base:
-            services = Services(plugin, legacy, lambda: admitted)
-            public = services.context(base)
+        async with dispatcher.scope(
+            legacy,
+            selected_chat=identity_request.headers.get("X-Chat-Id", ""),
+        ) as public:
             token = current.set(public)
             try:
                 yield public
@@ -915,18 +1014,23 @@ def register(plugin, app):
 
     router = APIRouter(route_class=Route)
 
-    def add_route(path, methods, handler):
+    def add_route(path, methods, handler, body_mode="bytes", limit=None):
         async def endpoint(request: Request):
-            public = HttpRequest(
-                request.method,
-                request.url.path,
-                dict(request.path_params),
-                dict(request.query_params),
-                dict(request.headers),
-                await request.body(),
+            from ._http import request_body, file_response, invoke
+
+            public = await request_body(
+                request,
+                body_mode,
+                limit,
+                current.get().resources,
             )
             try:
-                result = await plugin._call(handler, current.get(), public)
+                result = await invoke(
+                    request,
+                    lambda: plugin._call(handler, current.get(), public),
+                )
+                if isinstance(result, FileResponse):
+                    return await file_response(current.get(), result)
             except SDKAccessError as exc:
                 return JSONResponse({"detail": str(exc)}, status_code=403)
             if isinstance(result, StreamingResponse):
@@ -964,8 +1068,8 @@ def register(plugin, app):
         endpoint.__name__ = f"{app.app_id}_{len(router.routes)}"
         router.add_api_route(path, endpoint, methods=list(methods))
 
-    for path, methods, handler in app._routes:
-        add_route(path, methods, handler)
+    for path, methods, handler, body_mode, limit in app._routes:
+        add_route(path, methods, handler, body_mode, limit)
 
     async def capabilities(_context, _request):
         from .sdk_version import SDK_VERSION
@@ -977,7 +1081,14 @@ def register(plugin, app):
                 "http",
                 "websocket",
                 *(
-                    ["chat", "sessions", "storage", "tasks", "approvals"]
+                    [
+                        "chat",
+                        "sessions",
+                        "storage",
+                        "tasks",
+                        "approvals",
+                        "checkpoints",
+                    ]
                     if app._standard
                     else []
                 ),
@@ -1023,6 +1134,20 @@ def register(plugin, app):
 
     if app._standard:
         from ..pawapp.app import _build_capability_router
+        from ._checkpoints import http_handler
+
+        for action, path in (
+            ("timeline", "/checkpoints/timeline"),
+            ("snapshot", "/checkpoints/snapshot"),
+            ("preview", "/checkpoints/restore/preview"),
+            ("restore", "/checkpoints/restore"),
+        ):
+            add_route(
+                path,
+                ("GET",) if action == "timeline" else ("POST",),
+                http_handler(action),
+                limit=64 * 1024,
+            )
 
         async def capability_context():
             return CapabilityContext(current.get())
@@ -1112,11 +1237,17 @@ def register(plugin, app):
     native_app._sdk_app_id_injector = inject_app_id
     native_app.include_router(router)
     handle = plugin._register_contribution(native_app.register, plugin._api)
+    registry = plugin._api._registry
+    if not hasattr(registry, "_app_dispatchers"):
+        registry._app_dispatchers = {}
+    registry._app_dispatchers[app.app_id] = dispatcher
     from .resources import Registration
 
     async def release():
         nonlocal admitted
         admitted = False
+        if registry._app_dispatchers.get(app.app_id) is dispatcher:
+            registry._app_dispatchers.pop(app.app_id, None)
         await handle.close()
 
     return Registration(

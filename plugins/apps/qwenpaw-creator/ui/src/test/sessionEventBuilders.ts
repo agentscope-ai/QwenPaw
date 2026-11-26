@@ -57,6 +57,7 @@ export function bootstrapRoutes(
   options: {
     messages?: CreatorMessage[];
     session?: Partial<CreatorSessionView>;
+    runningTaskCount?: number;
   } = {},
 ) {
   const session = sessionView({ status: "RUNNING", ...options.session });
@@ -92,6 +93,7 @@ export function bootstrapRoutes(
               sourceEventSeq: session.lastEventSeq,
               updatedAt: "now",
             },
+            activity: { runningTaskCount: options.runningTaskCount ?? 0 },
             badges: [],
           },
         },

@@ -146,8 +146,9 @@ class ChatGPTProvider(Provider):
         mock_secret: bool = True,
         *,
         include_candidates: bool = True,
+        include_unselected_models: bool = False,
     ) -> ProviderInfo:
-        del mock_secret
+        del mock_secret, include_unselected_models
         info = ProviderInfo.model_validate(self.model_dump())
         info.name = f"ChatGPT Subscription"
         info.api_key = f""

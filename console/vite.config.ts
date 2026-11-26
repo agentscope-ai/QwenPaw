@@ -3,6 +3,10 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { startupMonitorPlugin } from "./scripts/startup-monitor-plugin";
+import {
+  chatScrollPolicyOptimizer,
+  chatScrollPolicyPlugin,
+} from "./scripts/chat-scroll-policy-plugin";
 import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
@@ -62,6 +66,7 @@ export default defineConfig(({ command, mode }) => {
           );
         },
       } satisfies Plugin,
+      chatScrollPolicyPlugin,
       ...(desktop
         ? [
             {
@@ -197,6 +202,7 @@ export default defineConfig(({ command, mode }) => {
     },
     optimizeDeps: {
       include: ["diff"],
+      esbuildOptions: { plugins: [chatScrollPolicyOptimizer] },
     },
     build: {
       ...(desktop ? { outDir: "dist-tauri" } : {}),

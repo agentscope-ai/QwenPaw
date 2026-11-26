@@ -2,13 +2,16 @@
 """Channel handshake adapter over the public plugin process component."""
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 from copy import deepcopy
-from ...channel_protocol.artifacts import code_root_digest
 from dataclasses import dataclass, field, replace
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+from ...channel_protocol.artifacts import code_root_digest
 from ...plugins.execution.bootstrap import validate_private_environment
 from ...plugins.execution.process import (  # pylint: disable=unused-import
     PluginProcess,
@@ -28,7 +31,6 @@ from ...channel_protocol.shared import (
     SharedChannelDescriptor,
     validate_shared_hello,
     validate_channel_contract,
-    _read_requirements,
 )
 
 
@@ -59,6 +61,9 @@ class LaunchSpec:
     workspace_id: str | None = None
     private_env: Mapping[str, str] = field(default_factory=dict, repr=False)
     send_timeout: float = DEFAULT_SEND_TIMEOUT
+    sdk_storage_root: Path | None = None
+    sdk_media_root: Path | None = None
+    sdk_workspace_id: str | None = None
 
     def __post_init__(self):
         validate_send_timeout(self.send_timeout)
@@ -263,11 +268,8 @@ class ChannelProcess(PluginProcess):
         if not path.resolve().is_relative_to(Path(spec.code_root).resolve()):
             raise ChannelProcessError("DESCRIPTOR_OUTSIDE_CODE_ROOT")
         descriptor = SharedChannelDescriptor.load(spec.descriptor_path)
-        requirements_path = path.parent / descriptor.requirements_file
         root = Path(spec.code_root).resolve()
-        if not requirements_path.resolve().is_relative_to(root):
-            raise self.error_type("DEPENDENCY_PATH_INVALID")
-        requirements = _read_requirements(requirements_path)
+        requirements = descriptor.read_requirements(root, path)
         if (
             descriptor.to_mapping() != spec.descriptor.to_mapping()
             or descriptor.channel_key != spec.channel_key
@@ -312,16 +314,25 @@ class ChannelProcess(PluginProcess):
             str(path) for path in spec.dependency_paths
         ]
         descriptor = spec.descriptor
-        packet["requirements_path"] = str(
-            (Path(spec.descriptor_path).parent / descriptor.requirements_file),
-        )
+        if descriptor.requirements_file is not None:
+            packet["requirements_path"] = str(
+                Path(spec.descriptor_path).parent
+                / descriptor.requirements_file,
+            )
         packet["config"] = dict(spec.config)
         packet["private_env"] = spec.private_env
-        if self._mode == "manage":
-            packet.update(
-                plugin_id=spec.plugin_id,
-                workspace_id=spec.workspace_id,
-            )
+        packet.update(
+            plugin_id=spec.plugin_id,
+            workspace_id=spec.workspace_id,
+            sdk_workspace_id=spec.sdk_workspace_id,
+        )
+        for name in ("sdk_storage_root", "sdk_media_root"):
+            value = getattr(spec, name)
+            packet[name] = str(value) if value is not None else None
+        if self._mode in {"run", "manage"}:
+            packet["channel_log_level"] = logging.getLogger(
+                "qwenpaw",
+            ).getEffectiveLevel()
         return self._encode_packet(packet)
 
     def _worker_path(self, spec):

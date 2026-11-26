@@ -1,0 +1,33 @@
+.popup {
+  width: min(280px, calc(100vw - 24px));
+
+  :global(.qwenpaw-dropdown-menu) {
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+  }
+
+  :global(.qwenpaw-dropdown-menu-item) {
+    min-height: 38px;
+    padding: 8px 10px;
+  }
+
+  :global(.qwenpaw-dropdown-menu-title-content) {
+    min-width: 0;
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: var(--app-text-secondary);
+}

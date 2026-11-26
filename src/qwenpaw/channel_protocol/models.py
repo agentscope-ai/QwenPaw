@@ -35,11 +35,13 @@ from .completed_text import RawCompletedTextSources
 JSONRPC_VERSION = "2.0"
 CONTENT_SOURCE_CAPABILITY = "send.content_source.v1"
 SEMANTIC_PARTS_CAPABILITY = "send.semantic_parts.v1"
+STRUCTURED_PARTS_CAPABILITY = "send.structured_parts.v1"
 RAW_COMPLETED_TEXT_CAPABILITY = "send.raw_completed_text.v1"
 UNKNOWN_ACTOR_CAPABILITY = "event.unknown_actor.v1"
 APPROVAL_RESOLUTION_CAPABILITY = "send.approval_resolution.v1"
 TEXT_MERGE_CAPABILITY = "channel.text_merge.v1"
 AUTH_QRCODE_CAPABILITY = "channel.auth.qrcode.v1"
+RUN_EVENTS_CAPABILITY = "channel.run_events.v1"
 MAX_METHOD_LENGTH = 128
 MAX_RESPONSE_HANDLE_LENGTH = 512
 MAX_AUTH_SCAN_URL_LENGTH = 4096
@@ -47,6 +49,8 @@ MAX_AUTH_SCAN_URL_LENGTH = 4096
 
 def send_source_capability(source, capabilities):
     """Raw completed text explicitly takes precedence over semantic output."""
+    if source is ContentSource.STRUCTURED:
+        return STRUCTURED_PARTS_CAPABILITY
     if source is ContentSource.EVENT:
         return (
             RAW_COMPLETED_TEXT_CAPABILITY
@@ -1022,6 +1026,7 @@ class ContentSource(StrEnum):
     CONTENT_PARTS = "content_parts"
     MEDIA = "media"
     EVENT = "event"
+    STRUCTURED = "structured"
 
 
 def _validate_event_part(value: object) -> dict[str, Any]:
@@ -1309,7 +1314,12 @@ class SendParams(IdentityParams):
             if source is ContentSource.EVENT
             else validate_content_part
         )
-        parts = tuple(validate_part(item) for item in raw_parts)
+        if source is ContentSource.STRUCTURED:
+            from .structured_content import validate_structured_parts
+
+            parts = validate_structured_parts(raw_parts)
+        else:
+            parts = tuple(validate_part(item) for item in raw_parts)
         target_delivery_id = _optional_string(data, "target_delivery_id")
         sequence = _optional_integer(data, "sequence", minimum=0)
         accumulated_text = _optional_string(

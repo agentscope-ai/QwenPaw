@@ -151,10 +151,17 @@ def _configure(
     package.__package__ = "qwenpaw"
     package.__path__ = [str(support / "qwenpaw")]
     sys.modules["qwenpaw"] = package
-    plugins = types.ModuleType("qwenpaw.plugins")
-    plugins.__package__ = "qwenpaw.plugins"
-    plugins.__path__ = [str(support / "qwenpaw/plugins")]
+    plugin_spec = importlib.util.spec_from_file_location(
+        "qwenpaw.plugins",
+        support / "qwenpaw/plugins/__init__.py",
+        submodule_search_locations=[str(support / "qwenpaw/plugins")],
+    )
+    if plugin_spec is None or plugin_spec.loader is None:
+        raise RuntimeError("SDK_BOOTSTRAP_UNAVAILABLE")
+    plugins = importlib.util.module_from_spec(plugin_spec)
     sys.modules["qwenpaw.plugins"] = plugins
+    # The trusted SDK initializer only declares lazy exports, not host services.
+    plugin_spec.loader.exec_module(plugins)
     # Direct path assignment never executes additional .pth files.
     boot._clean_environment(environment_passthrough)
     private_env = boot.validate_private_environment(
@@ -208,6 +215,7 @@ async def run(
             raise ProtocolValidationError("identity mismatch")
         if start_task is not None:
             start_task.cancel()
+            await asyncio.gather(start_task, return_exceptions=True)
         try:
             if component is not None:
                 await component.stop()
@@ -346,6 +354,9 @@ async def _prepare_component(
     packet["mode"] = mode
     packet["_reuse_ambiguous"] = mode == "audit"
     diagnostics.mark("dependency_read")
+    resolve_requirements = getattr(runtime, "requirements", None)
+    if resolve_requirements is not None:
+        packet["_requirements"] = resolve_requirements(boot, packet)
     snapshot = observe_dependencies(packet)
     diagnostics.mark("dependency_admission", versions=dict(snapshot.versions))
     accepted = await peer.call(
@@ -387,6 +398,9 @@ async def _prepare_component(
         _install_windows_crypto_path_fix()
     diagnostics.mark("driver_import", entrypoint=entrypoint)
     component_class = boot._load_driver_class(entrypoint, source)
+    prepare = getattr(runtime, "prepare_component", None)
+    if prepare is not None:
+        component_class = prepare(component_class, packet)
     if mode == "probe":
         validate_driver(component_class)
     return component_class
@@ -449,6 +463,7 @@ def main(
     protocol_input = None
     input_transferred = False
     diagnostics = None
+    log_writer = None
     try:
         _sibling("process_tree").watch_parent(int(sys.argv[1]))
         boot = _sibling("bootstrap")
@@ -464,16 +479,26 @@ def main(
         if len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
             return 70
         packet = json.loads(raw)
+        worker_logs = _sibling(f"worker_logs")
+        mode = packet.get(f"mode", f"run")
+        if mode in (f"run", f"manage") and f"channel_log_level" in packet:
+            log_writer = worker_logs.configure_channel_logging(
+                packet[f"channel_log_level"],
+            )
         diagnostics = _sibling("diagnostics").StartupDiagnostics(
             packet,
-            clean=_sibling("worker_logs")._clean,
+            clean=worker_logs._clean,
+            write=(
+                (lambda text, _event, _critical: log_writer.submit(text))
+                if log_writer is not None
+                else None
+            ),
         )
         diagnostics.mark(
             "bootstrap",
             executable=sys.executable,
             worker=__file__,
         )
-        mode = packet.get("mode", "run")
         if not isinstance(mode, str) or mode not in {
             "run",
             "manage",
@@ -547,12 +572,18 @@ def main(
                 if str(exc).startswith("DEPENDENCY_")
                 else type(exc).__name__
             )
-        sys.stderr.write(json.dumps({"error": reason}) + "\n")
-        sys.stderr.flush()
+        error = json.dumps({f"error": reason})
+        if log_writer is not None:
+            log_writer.submit(error)
+        else:
+            sys.stderr.write(f"{error}\n")
+            sys.stderr.flush()
         return 70
     finally:
         if diagnostics is not None:
             diagnostics.cancel_watch()
+        if log_writer is not None:
+            log_writer.close()
         # A Windows reader may hold the buffer lock in a blocking read.
         # Once transferred, it closes its stream or process exit reclaims it.
         if os.name == "nt" and protocol_input is not None:

@@ -12,17 +12,69 @@ router prefix contract.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import json
 import logging
 import os
 import sys
 from pathlib import Path
 
 from qwenpaw.pawapp import PawApp
+from qwenpaw.utils.io_utils import run_sync_io
 
 logger = logging.getLogger("qwenpaw").getChild("plugin.qwenpaw_creator")
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PLUGIN_DIR = BACKEND_DIR.parent
+
+# 宿主 PluginLoader 会把加载失败异常的可读文本写入 record.diagnostics
+# （Apps 页可见）。这里只负责把"缺了什么、怎么修"补进异常文案，
+# 不依赖也不修改宿主代码。
+_CREATOR_REMEDIATION = (
+    "请先重启 QwenPaw；若仍失败，在 Apps（设置 → 工具）中对 "
+    "QwenPaw Creator 执行修复或重新安装：插件加载时会自动安装 "
+    "plugin.json 声明的 Python 依赖。"
+)
+
+
+def _declared_dependencies() -> list[str]:
+    """Plugin.json 声明的 Python 依赖（唯一事实来源）。"""
+
+    try:
+        manifest = json.loads((PLUGIN_DIR / "plugin.json").read_text("utf-8"))
+    except Exception:  # noqa: BLE001 - diagnostics must never fail loading
+        return []
+    dependencies = manifest.get("dependencies")
+    if not isinstance(dependencies, list):
+        return []
+    return [str(item).strip() for item in dependencies if str(item).strip()]
+
+
+def _dependency_gaps() -> list[str]:
+    """本解释器找不到的已声明依赖，尽力而为，绝不影响加载。"""
+
+    gaps: list[str] = []
+    for name in _declared_dependencies():
+        try:
+            available = importlib.util.find_spec(name.replace("-", "_"))
+        except (ImportError, ValueError):
+            available = None
+        if available is None:
+            gaps.append(name)
+    return gaps
+
+
+def _load_failure_message(exc: BaseException) -> str:
+    """组装可执行的加载失败原因，供宿主写入插件诊断。"""
+
+    reason = str(exc) or type(exc).__name__
+    parts = [f"QwenPaw Creator 后端加载自检失败：{reason}"]
+    gaps = _dependency_gaps()
+    if gaps:
+        parts.append("缺少 Python 依赖：" + "、".join(gaps))
+    parts.append(_CREATOR_REMEDIATION)
+    return "；".join(parts)
+
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -31,56 +83,65 @@ from utils.env import load_project_env  # noqa: E402
 
 load_project_env()
 
-from api.router import router as creator_router  # noqa: E402
-from api.file_asset_routes import (  # noqa: E402
-    drain_remote_ingest_tasks,
-    reset_remote_ingest_admission,
-)
-from api.file_execution_routes import (  # noqa: E402
-    drain_timeline_render_jobs,
-)
-from services.file_agent_runtime.registry import (  # noqa: E402
-    start_creator_agent_runtime,
-    stop_creator_agent_runtime,
-)
-from services.media_files import (  # noqa: E402
-    shutdown_file_media_execution_services,
-    start_file_media_execution_services,
-)
-from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
-from services.media_files.task_scratch import (
-    release_orphaned_scratch,
-)  # noqa: E402
-from services.observability import trace_event  # noqa: E402
-from services.project_files.facade import (  # noqa: E402
-    CreatorFileServices,
-    clear_creator_file_service_registry,
-    creator_file_services,
-)
-from services.runtime_files.runtime_dependencies import (  # noqa: E402
-    CreatorBinaryDependencyError,
-    ensure_creator_runtime_dependencies,
-)
-from services.storage_root import (  # noqa: E402
-    CreatorDataRootError,
-    require_creator_data_root,
-)
-from services.source_analysis import (  # noqa: E402
-    recover_interrupted_source_analysis,
-    shutdown_source_analysis_services,
-)
-from services.media.source_memory import (  # noqa: E402
-    recover_interrupted_source_memory,
-)
-from services.media.source_observation import (  # noqa: E402
-    drain_source_observation_services,
-    recover_interrupted_source_observations,
-)
-from services.media.source_video_reader import (  # noqa: E402
-    drain_source_video_reader_services,
-    recover_interrupted_source_video_reads,
-)
-from utils.logger import configure_creator_file_logging  # noqa: E402
+try:
+    from api.router import router as creator_router  # noqa: E402
+    from api.file_asset_routes import (  # noqa: E402
+        drain_remote_ingest_tasks,
+        reset_remote_ingest_admission,
+    )
+    from api.file_execution_routes import (  # noqa: E402
+        drain_timeline_render_jobs,
+    )
+    from services.file_agent_runtime.registry import (  # noqa: E402
+        start_creator_agent_runtime,
+        stop_creator_agent_runtime,
+    )
+    from services.media_files import (  # noqa: E402
+        shutdown_file_media_execution_services,
+        start_file_media_execution_services,
+    )
+    from services.media_files.motion_engine import (
+        ensure_vendor_libs,
+    )  # noqa: E402
+    from services.media_files.task_scratch import (
+        release_orphaned_scratch,
+    )  # noqa: E402
+    from services.observability import trace_event  # noqa: E402
+    from services.project_files.facade import (  # noqa: E402
+        CreatorFileServices,
+        clear_creator_file_service_registry,
+        creator_file_services,
+        preparing_file_services,
+    )
+    from services.runtime_files.runtime_dependencies import (  # noqa: E402
+        CreatorBinaryDependencyError,
+        ensure_creator_runtime_dependencies,
+    )
+    from services.storage_root import (  # noqa: E402
+        CreatorDataRootError,
+        require_creator_data_root,
+    )
+    from services.source_analysis import (  # noqa: E402
+        recover_interrupted_source_analysis,
+        shutdown_source_analysis_services,
+    )
+    from services.media.source_memory import (  # noqa: E402
+        recover_interrupted_source_memory,
+    )
+    from services.media.source_observation import (  # noqa: E402
+        drain_source_observation_services,
+        recover_interrupted_source_observations,
+    )
+    from services.media.source_video_reader import (  # noqa: E402
+        drain_source_video_reader_services,
+        recover_interrupted_source_video_reads,
+    )
+    from utils.logger import configure_creator_file_logging  # noqa: E402
+except ModuleNotFoundError as exc:
+    # 依赖缺失时后端模块无法导入，宿主只会看到一句
+    # "No module named ..."；补上缺失清单与修复路径后再抛出，
+    # PluginLoader 会将 str(exc) 原样写入 record.diagnostics。
+    raise RuntimeError(_load_failure_message(exc)) from exc
 
 
 def configure_creator_runtime_environment(
@@ -165,7 +226,7 @@ async def _sweep_orphaned_scratch(services: CreatorFileServices) -> None:
     """
 
     try:
-        sweep = await asyncio.to_thread(release_orphaned_scratch, services)
+        sweep = await run_sync_io(release_orphaned_scratch, services)
     except Exception:  # noqa: BLE001 - cleanup must never gate startup
         logger.warning("orphaned task scratch sweep failed", exc_info=True)
         return
@@ -198,11 +259,9 @@ async def _startup() -> None:
             ensure_creator_runtime_dependencies,
         )
         await asyncio.to_thread(ensure_vendor_libs)
-        services = creator_file_services(data_root)
-        await asyncio.to_thread(
-            recover_interrupted_source_analysis,
-            services,
-        )
+        with preparing_file_services(data_root):
+            services = await run_sync_io(creator_file_services, data_root)
+            await run_sync_io(recover_interrupted_source_analysis, services)
         reset_remote_ingest_admission()
     except (CreatorDataRootError, CreatorBinaryDependencyError) as exc:
         trace_event(
@@ -217,7 +276,9 @@ async def _startup() -> None:
         logger.exception(
             "QwenPaw Creator runtime dependency preparation failed; startup aborted",
         )
-        raise
+        # 宿主 _fail_after_startup 会把 str(exc) 写进 record.diagnostics，
+        # 在这里补上缺失依赖清单与修复指引，Apps 页才能直接可读。
+        raise RuntimeError(_load_failure_message(exc)) from exc
     try:
         await start_file_media_execution_services(services)
         await start_creator_agent_runtime(services)
@@ -225,11 +286,11 @@ async def _startup() -> None:
         # Observation/read workers live only in process memory: fail their
         # orphaned QUEUED/RUNNING Tasks closed so waiters see a retryable
         # error instead of polling a record no worker will ever finish.
-        await asyncio.to_thread(
+        await run_sync_io(
             recover_interrupted_source_observations,
             services,
         )
-        await asyncio.to_thread(
+        await run_sync_io(
             recover_interrupted_source_video_reads,
             services,
         )
