@@ -17,6 +17,8 @@ from click.testing import CliRunner
 from qwenpaw import process_ownership as ownership
 from qwenpaw.cli import shutdown_cmd
 from qwenpaw.cli.shutdown_cmd import ShutdownOutcome, _terminate_pid
+from qwenpaw.plugins.channel_workers import ChannelDefinition
+from tests.channel_support.sdk import make_channel
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="POSIX receipts")
 
@@ -229,7 +231,7 @@ def test_corrupt_journal_does_not_skip_known_processes(monkeypatch, survivor):
                 path.unlink(missing_ok=True)
 
 
-@pytest.mark.parametrize("failure", ["workspace", "hook"])
+@pytest.mark.parametrize("failure", ["workspace", "hook", "channel"])
 def test_failure_is_reported_after_independent_services_close(
     tmp_path,
     monkeypatch,
@@ -237,6 +239,39 @@ def test_failure_is_reported_after_independent_services_close(
 ):
     ready = tmp_path / "ready"
     plugin = tmp_path / "checkpointer"
+    if failure == "channel":
+        make_channel(
+            plugin,
+            textwrap.dedent(
+                """
+                from pathlib import Path
+                from qwenpaw.plugins.channel_workers import ChannelDriver
+
+                class Driver(ChannelDriver):
+                    async def start(self, ch):
+                        await ch.report_status("connected")
+
+                    async def send(self, ch, response):
+                        raise AssertionError("Unexpected delivery")
+
+                    async def stop(self, ch):
+                        Path(ch.config["marker"]).touch()
+                        raise OSError("checkpoint write failed")
+                """,
+            ),
+            ChannelDefinition(
+                plugin.name,
+                {"en": "Checkpointer", "zh": "检查点"},
+                "driver:Driver",
+                {
+                    "type": "object",
+                    "properties": {"marker": {"type": "string"}},
+                },
+                ("marker",),
+                ("channel.generic.v1",),
+            ),
+            capabilities=["channels"],
+        )
     if failure == "hook":
         plugin.mkdir()
         (plugin / "plugin.json").write_text(
@@ -274,6 +309,8 @@ def test_failure_is_reported_after_independent_services_close(
         import sys
         from pathlib import Path
         from qwenpaw.app import _app
+        from qwenpaw.app.migration import ensure_default_agent_exists
+        from qwenpaw.config.config import load_agent_config, save_agent_config
         from qwenpaw.plugins.lifecycle import QuiescenceError
 
         ready = Path(sys.argv[1])
@@ -283,14 +320,25 @@ def test_failure_is_reported_after_independent_services_close(
             stop = asyncio.Event()
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(signal.SIGTERM, stop.set)
+            if failure == "channel":
+                ensure_default_agent_exists()
+                config = load_agent_config("default")
+                config.channels.checkpointer = {
+                    "enabled": True,
+                    "marker": str(ready.with_suffix(".called")),
+                }
+                save_agent_config("default", config)
             async with _app.lifespan(_app.app):
                 await _app.app.state.startup_ready.wait()
-                if failure == "hook":
+                if failure in {"channel", "hook"}:
                     loader = _app.app.state.plugin_loader
                     await loader.load_plugin_from_path(
                         ready.parent / "checkpointer",
                     )
                 workspaces = _app.app.state.multi_agent_manager
+                if failure == "channel":
+                    ws = await workspaces.get_agent("default")
+                    await ws.channel_manager.start_one("checkpointer", config)
                 stop_all = workspaces.stop_all
                 async def close_workspaces():
                     await stop_all()
@@ -356,7 +404,7 @@ def test_failure_is_reported_after_independent_services_close(
                     set,
                 )
                 result = CliRunner().invoke(shutdown_cmd.shutdown_cmd)
-                if failure == "hook":
+                if failure in {"channel", "hook"}:
                     assert ready.with_suffix(".called").exists()
                 assert result.exit_code == 1, result.output
                 assert f"Shutdown failed: {backend.pid}" in result.output
@@ -367,6 +415,12 @@ def test_failure_is_reported_after_independent_services_close(
                 error = (
                     "Plugin shutdown hooks failed: "
                     "checkpointer/flush-checkpoint"
+                )
+                assert error in log.read_text(encoding="utf-8")
+            if failure == "channel":
+                error = (
+                    "Channel shutdown failed: checkpointer/checkpointer: "
+                    "CHANNEL_STOP_INCOMPLETE"
                 )
                 assert error in log.read_text(encoding="utf-8")
             assert ready.with_suffix(".workspaces").exists()

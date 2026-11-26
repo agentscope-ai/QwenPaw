@@ -95,7 +95,7 @@ load_envs_into_environ()
 
 
 async def _shutdown_plugins(app: FastAPI) -> list[str]:
-    """Quiesce plugin resources and return any failed shutdown hooks."""
+    """Quiesce plugin resources and return deferred cleanup failures."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
         await plugin_loader.stop_dependency_installs()
@@ -114,11 +114,21 @@ async def _shutdown_plugins(app: FastAPI) -> list[str]:
             raise RuntimeError(
                 "Plugin shutdown incomplete: " + ", ".join(failed),
             )
-        return [
+        failed_hooks = [
             f"{report.plugin_id}/{hook}"
             for report in reports
             for hook in report.failed_shutdown_hooks
         ]
+        failures = [
+            f"Channel shutdown failed: {report.plugin_id}/{error}"
+            for report in reports
+            for error in report.failed_channel_stops
+        ]
+        if failed_hooks:
+            failures.append(
+                f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}",
+            )
+        return failures
     plugin_registry = getattr(app.state, "plugin_registry", None)
     if plugin_registry is None:
         return []
@@ -147,7 +157,9 @@ async def _shutdown_plugins(app: FastAPI) -> list[str]:
                 exc_info=True,
             )
 
-    return failed_hooks
+    if failed_hooks:
+        return [f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}"]
+    return []
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -188,16 +200,14 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    failed_hooks = await _stop_workspaces_after_dependents_impl(
+    failures = await _stop_workspaces_after_dependents_impl(
         app,
         import_jobs,
     )
-    # Resources have quiesced even if a hook failed to flush plugin state.
+    # Resources have quiesced even if a plugin failed to flush its state.
     completed.set()
-    if failed_hooks:
-        raise RuntimeError(
-            f"Plugin shutdown hooks failed: {', '.join(failed_hooks)}",
-        )
+    if failures:
+        raise RuntimeError("; ".join(failures))
 
 
 async def _stop_workspaces_after_dependents_impl(
@@ -228,7 +238,7 @@ async def _stop_workspaces_after_dependents_impl(
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
-    failed_hooks = await _shutdown_plugins(app)
+    plugin_failures = await _shutdown_plugins(app)
 
     # Hooks may access live workspaces. Stop them before unrelated cleanup
     # delays the memory drain, but only after their dependents have finished.
@@ -236,7 +246,7 @@ async def _stop_workspaces_after_dependents_impl(
     if multi_agent_mgr is not None:
         logger.info("Stopping MultiAgentManager...")
         await multi_agent_mgr.stop_all()
-    return failed_hooks
+    return plugin_failures
 
 
 async def _stop_browser_runtime(app: FastAPI) -> None:

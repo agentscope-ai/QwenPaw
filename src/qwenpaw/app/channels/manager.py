@@ -69,6 +69,7 @@ class StopReceipt:
     returncode: int | None = None
     forced: bool = False
     residual: tuple[str, ...] = ()
+    recovered_crash: bool = False
 
 
 @dataclass(frozen=True)
@@ -1767,7 +1768,10 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 self._stop_one_unlocked(key, channel_handoff=channel_handoff),
             )
             if retire_reaped and not receipt.stopped:
-                await self._retire_reaped_channel(channel, receipt)
+                if await self._retire_reaped_channel(channel, receipt):
+                    receipt.recovered_crash = (
+                        channel.channel_process.exited_before_stop
+                    )
             return receipt
 
     async def _stop_one_unlocked(
@@ -1884,9 +1888,10 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             self._forget_channel(channel)
             channel._wechat_auth_claims = ()
         logger.warning(
-            "Retired %s generation %s after exit without a stop reply",
+            "Retired %s generation %s after exit %s without a stop reply",
             receipt.key,
             receipt.generation,
+            result.returncode,
         )
         return True
 

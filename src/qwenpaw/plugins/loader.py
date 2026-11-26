@@ -1108,6 +1108,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 report.errors.append("RUNTIME_STILL_OWNED")
         return report
 
+    async def _recover_crashed_uninstall_channels(self, plugin_id):
+        leases = self.registry.runtime_owners.leases(plugin_id)
+        failures = await self.lifecycle.stop_channels_for_teardown(
+            leases,
+            UnloadMode.UNINSTALL,
+        )
+        return failures.get(plugin_id)
+
     def _install_requirements_locked(
         self,
         requirements_file: Path,
@@ -4693,6 +4701,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             )
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
+            if mode is UnloadMode.UNINSTALL:
+                blocked = await self._recover_crashed_uninstall_channels(
+                    plugin_id,
+                )
+                if blocked:
+                    return blocked
             report = await self._stop_runtime_owners(plugin_id, mode)
             if not report.quiescent:
                 return report
@@ -4772,7 +4786,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         was_committed = record.status == "active" or bool(
             instance is not None and instance.activated,
         )
-        before_install = None
         if mode is UnloadMode.UNINSTALL:
             from .provision import recorded_tool_names
 
@@ -4791,12 +4804,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     await run_sync_io(retire_agent_cleanup, instance)
                 await self._drop_uninstalled_settings(plugin_id, tool_names)
 
-            before_install = _cleanup_settings
-        disposal = (
-            await instance.dispose(mode, before_install=before_install)
-            if before_install is not None
-            else await instance.dispose(mode)
-        )
+            disposal = await self._recover_crashed_uninstall_channels(
+                plugin_id,
+            )
+            if disposal is None:
+                disposal = await instance.dispose(
+                    mode,
+                    before_install=_cleanup_settings,
+                )
+        else:
+            disposal = await instance.dispose(mode)
         report.absorb(disposal)
         if report.quiescent:
             report.absorb(await self._stop_runtime_owners(plugin_id, mode))

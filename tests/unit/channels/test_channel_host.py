@@ -1823,6 +1823,46 @@ async def test_shutdown_reports_reaped_crash_only_after_state_io_drains(host):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("pending_io", [False, True])
+async def test_uninstall_recovers_crashed_channel(host, pending_io, caplog):
+    ws = await host.workspace("uninstall-crash")
+    source = host.artifact()
+    descriptor = source / "channel.json"
+    spec = json.loads(descriptor.read_text(encoding="utf-8"))
+    spec["config_schema"]["x-qwenpaw-exclusive-resources"] = [
+        {"namespace": "test.account", "fields": ["app_id"]},
+    ]
+    descriptor.write_text(json.dumps(spec), encoding="utf-8")
+    await host.loader.load_plugin_from_path(source)
+    channel, before = await host.identity(ws)
+    host.expected_unacknowledged_channel = channel
+    leases = host.registry.runtime_owners.leases(KEY)
+    psutil.Process(before["pid"]).kill()
+    await eventually(lambda: not alive(before["pid"]))
+    if pending_io:
+        channel._launch_spec = replace(
+            channel._launch_spec,
+            shutdown_timeout=0.2,
+        )
+        async with channel._state_lock:
+            blocked = await host.loader.unload_plugin(KEY, delete_files=True)
+            assert not blocked.quiescent and blocked.needs_restart
+            assert host.registry.runtime_owners.leases(KEY) == leases
+            assert host.installed.exists()
+
+    report = await host.loader.unload_plugin(KEY, delete_files=True)
+    assert report.clean and report.quiescent, report
+    assert not host.installed.exists()
+    assert host.registry.runtime_owners.leases(KEY) == ()
+    assert await ws.channel_manager.get_channel(KEY) is None
+    assert channel.last_stop_result.acknowledged is False
+    assert "without a stop reply" in caplog.text
+    await host.loader.load_plugin_from_path(source)
+    _, successor = await host.identity(ws)
+    assert successor["pid"] != before["pid"] and alive(successor["pid"])
+
+
+@pytest.mark.asyncio
 async def test_explicit_restart_recovers_reaped_channel(host):
     from qwenpaw.plugins.lifecycle import QuiescenceError
 
@@ -1864,6 +1904,8 @@ async def test_explicit_restart_recovers_reaped_channel(host):
 
 @pytest.mark.asyncio
 async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
+    from qwenpaw.plugins.lifecycle import UnloadMode
+
     host.registry.channel_runtime = replace(
         host.registry.channel_runtime,
         shutdown_timeout=1.5,
@@ -1910,7 +1952,14 @@ async def test_unacknowledged_checkpoint_blocks_channel_replacement(host):
     assert host.registry.runtime_owners.leases(KEY) == (
         channel._runtime_lease,
     )
-    host.expected_unacknowledged_channel = channel
+    # Retrying shutdown after the forced exit must preserve the failed stop.
+    reports = await host.loader.lifecycle.unload_all(UnloadMode.SHUTDOWN)
+    assert len(reports) == 1
+    assert reports[0].quiescent and not reports[0].clean
+    assert reports[0].failed_channel_stops == [
+        f"{KEY}: CHANNEL_STOP_INCOMPLETE",
+    ]
+    assert not host.registry.runtime_owners.leases(KEY)
 
 
 @pytest.mark.asyncio

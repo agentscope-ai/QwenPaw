@@ -80,6 +80,7 @@ class UnloadReport:
     quiescent: bool = True
     needs_restart: bool = False
     failed_shutdown_hooks: list[str] = field(default_factory=list)
+    failed_channel_stops: list[str] = field(default_factory=list)
 
     def absorb(self, other: "UnloadReport") -> None:
         """Merge errors and flags from another report into this one."""
@@ -91,6 +92,7 @@ class UnloadReport:
             self.needs_restart = True
         self.errors.extend(other.errors)
         self.failed_shutdown_hooks.extend(other.failed_shutdown_hooks)
+        self.failed_channel_stops.extend(other.failed_channel_stops)
         self.leftovers.extend(other.leftovers)
         self.workspace_leaks.extend(other.workspace_leaks)
         if other.receipt is not None:
@@ -1177,8 +1179,9 @@ class PluginLifecycle:
                 self._loader.startup_blocked_plugins.add(plugin_id)
             return record
 
-    async def _stop_shutdown_channels(self, leases):
-        """Drain independent channel workers before serial plugin teardown."""
+    async def stop_channels_for_teardown(self, leases, mode):
+        """Drain channels for shutdown or retire crashed ones at uninstall."""
+        from ..app.channels.isolated_proxy import IsolatedChannelProxy
         from ..app.channels.manager import ChannelHandle
 
         owners = self._loader.registry.runtime_owners
@@ -1190,12 +1193,21 @@ class PluginLifecycle:
                 continue
             channel = owners.resource(lease)
             handle = getattr(channel, "_manager_handle", None)
-            if isinstance(handle, ChannelHandle) and handle.channel is channel:
-                stops[lease] = handle.manager.stop_one(
-                    handle.key,
-                    expected=handle,
-                    retire_reaped=True,
-                )
+            if (
+                not isinstance(handle, ChannelHandle)
+                or handle.channel is not channel
+            ):
+                continue
+            if mode is UnloadMode.UNINSTALL and not (
+                isinstance(channel, IsolatedChannelProxy)
+                and channel.channel_process.exited_before_stop
+            ):
+                continue
+            stops[lease] = handle.manager.stop_one(
+                handle.key,
+                expected=handle,
+                retire_reaped=True,
+            )
 
         results = await asyncio.gather(*stops.values(), return_exceptions=True)
         failures = {}
@@ -1204,19 +1216,24 @@ class PluginLifecycle:
                 raise result
             if isinstance(result, Exception):
                 detail = str(result)
-            elif not result.stopped:
+            elif not result.stopped and not (
+                mode is UnloadMode.UNINSTALL and result.recovered_crash
+            ):
                 detail = result.detail
             else:
                 continue
             report = failures.setdefault(
                 lease.plugin_id,
-                UnloadReport(lease.plugin_id, UnloadMode.SHUTDOWN),
+                UnloadReport(lease.plugin_id, mode),
             )
             report.clean = False
-            report.errors.append(f"{lease.key.name}: {detail}")
+            error = f"{lease.key.name}: {detail}"
+            report.errors.append(error)
             if lease in owners.leases(lease.plugin_id):
                 report.quiescent = False
                 report.needs_restart = True
+            elif isinstance(result, Exception) or not result.recovered_crash:
+                report.failed_channel_stops.append(error)
         return failures
 
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:
@@ -1277,10 +1294,13 @@ class PluginLifecycle:
 
             if paused:
                 owners = self._loader.registry.runtime_owners
-                failures = await self._stop_shutdown_channels(
-                    lease
-                    for lease in owners.leases()
-                    if lease.plugin_id in paused
+                failures = await self.stop_channels_for_teardown(
+                    (
+                        lease
+                        for lease in owners.leases()
+                        if lease.plugin_id in paused
+                    ),
+                    mode,
                 )
                 # Resume ledger teardown in order; only worker stops overlap.
                 for plugin_id, (task, channels) in paused.items():

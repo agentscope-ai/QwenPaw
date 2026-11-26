@@ -188,6 +188,7 @@ class PluginProcess:
         self._log_bytes = 0
         self._forced = False
         self._stop_acknowledged: bool | None = None
+        self._stop_requested_while_live = False
         self._mode = "run"
         self.dependency_snapshot: (
             DependencySnapshot | DependencyReadEvidence | None
@@ -597,6 +598,7 @@ class PluginProcess:
         self._last_error = None
         self._forced = False
         self._stop_acknowledged = None
+        self._stop_requested_while_live = False
         self._cleanup_task = None
         self._ready = None
         self.observed_hello = None
@@ -992,6 +994,16 @@ class PluginProcess:
                 raise
             raise unknown from None
 
+    @property
+    def exited_before_stop(self) -> bool:
+        """Whether a ready worker exited before any stop of this generation."""
+        code = self._process.returncode if self._process else self._returncode
+        return (
+            self._stop_acknowledged is False
+            and not self._stop_requested_while_live
+            and code is not None
+        )
+
     async def stop(self, *, timeout: float | None = None) -> StopResult:
         """Disable restart before waiting, then finish bounded tree cleanup."""
         self._restart_enabled = False
@@ -1002,6 +1014,8 @@ class PluginProcess:
         )
         if not math.isfinite(budget) or budget <= 0:
             raise ValueError("timeout must be positive")
+        if self._process is not None and self._process.returncode is None:
+            self._stop_requested_while_live = True
         deadline = asyncio.get_running_loop().time() + budget
         if self._stop_task is None or self._stop_task.done():
             self._stop_task = asyncio.create_task(self._stop(deadline))
