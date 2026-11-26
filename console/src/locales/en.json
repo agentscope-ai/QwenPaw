@@ -4329,7 +4329,8 @@
       },
       "attach": "Attach files",
       "send": "Send message",
-      "stop": "Stop generating"
+      "stop": "Stop generating",
+      "stopFailed": "Could not stop the current run. Try again."
     },
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
