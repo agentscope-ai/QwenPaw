@@ -10,6 +10,7 @@ from pathlib import Path
 import os
 import sys
 import threading
+import time
 
 import pytest
 import pytest_asyncio
@@ -417,6 +418,26 @@ async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     ):
         assert secret not in output
     assert "\x1b" not in output and "\r" not in output
+
+
+@pytest.mark.asyncio
+async def test_crash_before_asyncio_reports_exit(tmp_path, process):
+    spec, _ = launch(tmp_path)
+    await process.start(spec)
+    child = process._process
+    assert not process.exited_before_stop
+    child.kill()
+    # Keep the exit callback queued while observing the worker through the OS.
+    deadline = time.monotonic() + 5
+    while alive(child.pid):
+        assert time.monotonic() < deadline
+        time.sleep(0.001)
+    assert child.returncode is None
+    assert process.exited_before_stop
+    result = await process.stop(timeout=5)
+    assert result.exited and not result.residual
+    assert result.acknowledged is False
+    assert process.exited_before_stop
 
 
 @pytest.mark.asyncio
