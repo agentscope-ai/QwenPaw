@@ -476,6 +476,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
         )
 
         async def can_start():
+            if self.transcript_store is not None and await run_sync_io(
+                self.transcript_store.has_pending_session_deletion,
+                *identity,
+            ):
+                return False
             manager = self.chat_manager
             return manager is None or await manager.can_start_session(identity)
 
@@ -695,7 +700,14 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 except Exception:
                     # A failed final commit must not publish its staged state
                     # through either the error path or channel usage cleanup.
-                    request.request_context.get(TURN_COMMIT_KEY, {}).clear()
+                    pending = request.request_context.get(TURN_COMMIT_KEY, {})
+                    post_response = pending.pop("post_response", None)
+                    pending.clear()
+                    if post_response is not None:
+                        try:
+                            await post_response(False)
+                        except Exception:
+                            logger.exception("Post-save failure hook failed")
                     request.request_context[
                         _TURN_USAGE_SNAPSHOT_CONTEXT_KEY
                     ] = {
@@ -705,6 +717,10 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     }
                     raise
                 if terminal:
+                    pending = request.request_context.get(TURN_COMMIT_KEY, {})
+                    post_response = pending.pop("post_response", None)
+                    if post_response is not None:
+                        await post_response("runtime" in pending)
                     pending = request.request_context.pop(TURN_COMMIT_KEY, {})
                     checkpoint = pending.get("checkpoint")
                     if checkpoint is not None:

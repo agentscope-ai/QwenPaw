@@ -379,7 +379,7 @@ describe("history message window store", () => {
     },
   );
 
-  it("fills following context after a directory jump, not the nearby older edge", () => {
+  it("fills one following page after a directory jump", async () => {
     const older = vi.fn();
     const newer = vi.fn(() => historyMessageWindow.setLoading("chat-1", true));
     historyMessageWindow.begin({
@@ -411,6 +411,24 @@ describe("history message window store", () => {
       expect.objectContaining({ messageId: "user-2" }),
       "append-newer",
     );
+    act(() => {
+      historyMessageWindow.setTurnRows(
+        "chat-1",
+        [
+          [{ id: "user-2", role: "user" }],
+          [{ id: "user-3", role: "user" }],
+        ] as never[][],
+        true,
+      );
+      historyMessageWindow.setLoading("chat-1", false);
+    });
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    expect(newer).toHaveBeenCalledOnce();
   });
 
   it("loads an unloaded target with following context through an opaque anchor", async () => {

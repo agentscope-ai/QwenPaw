@@ -4149,15 +4149,27 @@ export default function ChatPage() {
                   ),
                 )
               : splitHistoryMessagesIntoTurnRows(messages);
+          const currentWindow = historyMessageWindow.getSnapshot();
+          const protectedMessageId =
+            currentWindow?.activeMessageId ?? boundaryMessageId;
+          const protectedIndex = protectedMessageId
+            ? allTurnRows.findIndex((row) =>
+                row.some((item) => item.id === protectedMessageId),
+              )
+            : -1;
+          const protectedRows =
+            protectedIndex >= 0 ? allTurnRows.length - protectedIndex : 1;
           const turnRows = boundHistoryRows(
             allTurnRows,
             "newest",
             mode === "append-newer"
-              ? splitHistoryMessagesIntoTurnRows(messages).length + 1
+              ? Math.max(
+                  splitHistoryMessagesIntoTurnRows(messages).length + 1,
+                  protectedRows,
+                )
               : 1,
           );
           historyTurnRowsRef.current = turnRows;
-          const currentWindow = historyMessageWindow.getSnapshot();
           historyMessageWindow.setTurnRows(
             sessionId,
             turnRows,
@@ -4338,6 +4350,19 @@ export default function ChatPage() {
         sessionApi.getEffectiveSessionId(visibleSessionId, null)
     ) {
       return session;
+    }
+    if (
+      historyTurnRowsRef.current !== null &&
+      sessionApi.isBrowsingHistory(requestedId)
+    ) {
+      historyMessageWindow.setCanLoadNewer(visibleSessionId, true);
+      historyMessageWindow.setReturnToLatest(visibleSessionId, () =>
+        restoreLatestHistory(true),
+      );
+      return {
+        ...session,
+        messages: [createHistoryMessageWindowCard(visibleSessionId)],
+      };
     }
     const turnRows = splitHistoryMessagesIntoTurnRows(session.messages);
     if (turnRows.length === 0) return session;

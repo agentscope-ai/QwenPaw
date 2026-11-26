@@ -55,6 +55,7 @@ export function boundHistoryRows(
 export interface HistoryWindowSnapshot {
   sessionId: string;
   turnRows: IAgentScopeRuntimeWebUIMessage[][];
+  activeMessageId?: string;
   loading: boolean;
   canLoadOlder: boolean;
   canLoadNewer?: boolean;
@@ -112,6 +113,14 @@ export const historyMessageWindow = {
   setLoading(sessionId: string, loading: boolean) {
     if (snapshot?.sessionId === sessionId && snapshot.loading !== loading) {
       publish({ ...snapshot, loading });
+    }
+  },
+  setActiveMessage(sessionId: string, activeMessageId: string | undefined) {
+    if (
+      snapshot?.sessionId === sessionId &&
+      snapshot.activeMessageId !== activeMessageId
+    ) {
+      publish({ ...snapshot, activeMessageId });
     }
   },
   setReturnToLatest(sessionId: string, onReturnToLatest: () => void) {

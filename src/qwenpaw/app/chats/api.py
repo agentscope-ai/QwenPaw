@@ -525,8 +525,15 @@ async def _delete_chats(workspace, mgr, chat_ids: list[str]) -> bool:
         raise HTTPException(409, str(exc)) from exc
 
 
-async def recover_pending_deletions(workspace) -> None:
-    """Retry durable post-commit deletion cleanup during workspace startup."""
+async def recover_pending_deletions(workspace, chat_id=None) -> None:
+    """Drain cleanup before cancellation can release writer protection."""
+    await run_async_to_completion(
+        _recover_pending_deletions(workspace, chat_id),
+    )
+
+
+async def _recover_pending_deletions(workspace, chat_id) -> None:
+    """Retry committed cleanup, or recover prepared owners at startup."""
     store = getattr(workspace, "transcript_store", None)
     manager = getattr(workspace, "chat_manager", None)
     if store is None or manager is None:
@@ -538,11 +545,14 @@ async def recover_pending_deletions(workspace) -> None:
     for operation in operations:
         operation_id = operation["operation_id"]
         chat_ids = set(operation["chat_ids"])
+        if chat_id is not None and chat_id not in chat_ids:
+            continue
         if operation["phase"] == "prepared" and chat_ids & active_ids:
-            await run_sync_io(
-                store.finish_deletion_operation,
-                operation_id,
-            )
+            if chat_id is None:
+                await run_sync_io(
+                    store.finish_deletion_operation,
+                    operation_id,
+                )
             continue
         if chat_ids & active_ids:
             logger.error(
@@ -550,26 +560,51 @@ async def recover_pending_deletions(workspace) -> None:
                 operation_id,
             )
             continue
-        targets = [ChatSpec(**target) for target in operation["targets"]]
+        targets = [
+            ChatSpec(
+                **{
+                    key: value
+                    for key, value in target.items()
+                    if key != "storage_id"
+                },
+            )
+            for target in operation["targets"]
+        ]
         try:
-            if targets:
-                await _delete_chat_data(
-                    workspace,
-                    targets,
-                    delete_transcripts=False,
-                    manager=manager,
+            identities = [
+                (chat.session_id, chat.user_id, chat.channel)
+                for chat in targets
+            ]
+            async with workspace.task_tracker.stop_session_writers(identities):
+                for target in operation["targets"]:
+                    await run_sync_io(store.cleanup_deletion_target, target)
+                if targets:
+                    await _delete_chat_data(
+                        workspace,
+                        targets,
+                        delete_transcripts=False,
+                        manager=manager,
+                    )
+                await run_sync_io(
+                    store.finish_deletion_operation,
+                    operation_id,
                 )
-        except HTTPException as exc:
+        except Exception as exc:
             await run_sync_io(
                 store.record_deletion_cleanup_failure,
                 operation_id,
-                str(exc.detail),
+                str(exc),
             )
             continue
-        await run_sync_io(store.finish_deletion_operation, operation_id)
 
 
 async def recover_pending_forks(workspace) -> None:
+    """Recover native forks only while no request owns a live fork."""
+    async with workspace.task_tracker.native_fork_lock:
+        await run_async_to_completion(_recover_pending_forks(workspace))
+
+
+async def _recover_pending_forks(workspace, child_chat_id=None) -> None:
     """Register provider-bound forks that survived a local write failure."""
     store = getattr(workspace, "transcript_store", None)
     manager = getattr(workspace, "chat_manager", None)
@@ -577,6 +612,10 @@ async def recover_pending_forks(workspace) -> None:
         return
     pending_forks = await run_sync_io(store.pending_forks)
     for pending in pending_forks:
+        if child_chat_id is not None and (
+            pending["child_chat_id"] != child_chat_id
+        ):
+            continue
         chat = ChatSpec.model_validate(pending["chat"])
         if pending["phase"] == "local_ready":
             await run_sync_io(
@@ -1202,6 +1241,7 @@ async def _enriched_history_page(page, chat, mgr, workspace, **options):
     """Include receipt bytes in the page budget, keeping the same cursor."""
     budget = options.get("max_bytes", 2 * 1024 * 1024)
     read_budget = budget
+    native_capabilities = {}
     while True:
         result = ChatMessagePage(
             messages=page.messages,
@@ -1211,6 +1251,7 @@ async def _enriched_history_page(page, chat, mgr, workspace, **options):
                 chat,
                 mgr,
                 workspace,
+                native_capabilities=native_capabilities,
             ),
             steer_scope=_history_steer_scope(workspace, chat),
             **_history_metadata(page).model_dump(),
@@ -1236,7 +1277,14 @@ async def _enriched_history_page(page, chat, mgr, workspace, **options):
             raise HTTPException(503, "Conversation history unavailable")
 
 
-async def _history_fork_capabilities(messages, chat, mgr, workspace):
+async def _history_fork_capabilities(
+    messages,
+    chat,
+    mgr,
+    workspace,
+    *,
+    native_capabilities=None,
+):
     """Resolve each visible turn once without failing history reads."""
     turn_ids = dict.fromkeys(
         position["turn_id"]
@@ -1249,6 +1297,22 @@ async def _history_fork_capabilities(messages, chat, mgr, workspace):
         and position.get("turn_id")
     )
     capabilities = {}
+    if turn_ids and workspace.config.backend != "qwenpaw":
+        cache = {} if native_capabilities is None else native_capabilities
+        if "available" not in cache:
+            cache["available"] = set()
+            if not _is_app_owned_chat(chat):
+                try:
+                    cache["available"], _ = await _native_fork_turns(
+                        chat,
+                        workspace,
+                    )
+                except Exception:
+                    logger.warning(
+                        "History native fork capability unavailable",
+                        exc_info=True,
+                    )
+        return {turn: turn in cache["available"] for turn in turn_ids}
     for turn_id in turn_ids:
         try:
             result = await get_fork_capability(
@@ -1295,12 +1359,22 @@ async def get_fork_capability(
             "can_fork": available,
             "reason": None if available else "Incomplete turn boundary",
         }
+    available, reason = await _native_fork_turns(chat, workspace)
+    return {
+        "can_fork": turn_id in available,
+        "reason": None if turn_id in available else reason,
+    }
+
+
+async def _native_fork_turns(chat, workspace):
+    """Recover native boundaries once for one capability snapshot."""
+    backend = workspace.config.backend
     descriptor = PluginRegistry().backend_registry.describe(backend)
     if descriptor is None or descriptor.status != "available":
-        return {"can_fork": False, "reason": "Backend is unavailable"}
+        return set(), "Backend is unavailable"
     mode = descriptor.capabilities.fork_mode
     if mode == "none":
-        return {"can_fork": False, "reason": "Backend cannot fork"}
+        return set(), "Backend cannot fork"
     if backend == "qoder":
         try:
             await run_sync_io(
@@ -1333,21 +1407,18 @@ async def get_fork_capability(
         user_id=chat.user_id,
         channel=chat.channel,
     )
-    anchor = state["boundaries"].get(turn_id)
-    available = bool(anchor and anchor["provider"] == backend)
-    if mode == "latest":
-        available = available and turn_id == next(
-            reversed(state["boundaries"]),
-            None,
-        )
-    return {
-        "can_fork": available,
-        "reason": (
-            None
-            if available
-            else ("This turn has no completed native fork boundary")
-        ),
+    available = {
+        turn_id
+        for turn_id, anchor in state["boundaries"].items()
+        if anchor["provider"] == backend
     }
+    if mode == "latest":
+        available.intersection_update(
+            {
+                next(reversed(state["boundaries"]), None),
+            },
+        )
+    return available, "This turn has no completed native fork boundary"
 
 
 @router.post("/{chat_id}/fork", response_model=ChatSpec)
@@ -1357,6 +1428,16 @@ async def fork_chat_at_turn(
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatSpec:
+    """Serialize native fork ownership through registration and recovery."""
+    if workspace.config.backend == "qwenpaw":
+        return await _fork_chat_at_turn(chat_id, payload, mgr, workspace)
+    async with workspace.task_tracker.native_fork_lock:
+        return await run_async_to_completion(
+            _fork_chat_at_turn(chat_id, payload, mgr, workspace),
+        )
+
+
+async def _fork_chat_at_turn(chat_id, payload, mgr, workspace) -> ChatSpec:
     """Create an independent conversation at a verified turn boundary."""
     parent = await mgr.get_chat(chat_id)
     if parent is None or _is_app_owned_chat(parent):
@@ -1383,7 +1464,7 @@ async def fork_chat_at_turn(
             payload.turn_id,
         )
         if pending is not None:
-            await recover_pending_forks(workspace)
+            await _recover_pending_forks(workspace, pending["child_chat_id"])
             still_pending = await run_sync_io(
                 store.pending_fork_for,
                 parent.id,
@@ -2413,7 +2494,7 @@ async def delete_chat(
             store.has_pending_deletion,
             chat_id,
         ):
-            await recover_pending_deletions(workspace)
+            await recover_pending_deletions(workspace, chat_id)
             return {"deleted": True}
         raise HTTPException(
             status_code=404,

@@ -193,7 +193,7 @@ interface ContentsProps {
 }
 
 interface ScrollAnchor {
-  element: HTMLElement;
+  messageId: string;
   offset: number;
 }
 
@@ -213,7 +213,10 @@ class HistoryContents extends Component<ContentsProps> {
       content.querySelectorAll<HTMLElement>("[data-role][id]"),
     ).find((item) => item.id && item.getBoundingClientRect().bottom > top);
     return element
-      ? { element, offset: element.getBoundingClientRect().top - top }
+      ? {
+          messageId: element.id,
+          offset: element.getBoundingClientRect().top - top,
+        }
       : null;
   }
 
@@ -223,10 +226,12 @@ class HistoryContents extends Component<ContentsProps> {
     anchor: ScrollAnchor | null,
   ) {
     const scroll = this.content?.parentElement;
-    if (!scroll || !anchor?.element.isConnected) return;
+    const element = Array.from(
+      this.content?.querySelectorAll<HTMLElement>("[data-role][id]") ?? [],
+    ).find((item) => item.id === anchor?.messageId);
+    if (!scroll || !element || !anchor) return;
     const offset =
-      anchor.element.getBoundingClientRect().top -
-      scroll.getBoundingClientRect().top;
+      element.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
     if (Math.abs(offset - anchor.offset) > 0.5) {
       scroll.scrollTop += offset - anchor.offset;
     }
@@ -386,6 +391,10 @@ export function HistoryMessageWindowCard() {
       return;
     }
     if (lastUser?.id) {
+      // A directory jump requests one following page. Further prefetching
+      // follows the reader's next scroll gesture instead of evicting the
+      // target before it can be read.
+      scrollIntentRef.current = null;
       current.onNavigateToUserMessage(
         {
           messageId: lastUser.id,
@@ -426,6 +435,11 @@ export function HistoryMessageWindowCard() {
     const remaining =
       scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop;
     setAtBottom(remaining <= BOTTOM_THRESHOLD_PX);
+    const top = scroll.getBoundingClientRect().top;
+    const active = Array.from(
+      scroll.querySelectorAll<HTMLElement>("[data-role][id]"),
+    ).find((item) => item.getBoundingClientRect().bottom > top);
+    historyMessageWindow.setActiveMessage(current.sessionId, active?.id);
     const delta = scroll.scrollTop - previousScrollTopRef.current;
     previousScrollTopRef.current = scroll.scrollTop;
     if (directScrollRef.current && Math.abs(delta) > EDGE_TOLERANCE_PX) {

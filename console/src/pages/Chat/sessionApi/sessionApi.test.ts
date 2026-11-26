@@ -532,6 +532,38 @@ describe("durable transcript pagination", () => {
     });
   });
 
+  it("keeps an anchor opened while a latest refresh is in flight", async () => {
+    const chatId = "66666666-6666-4666-8666-666666666666";
+    const refresh = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat")
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "latest-before" })],
+        status: "idle",
+        history: { has_more: true, next_before: "before-refresh" },
+      })
+      .mockReturnValueOnce(refresh.promise);
+    vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [msg({ id: "old-user" })],
+      has_more: true,
+      next_before: "old-cursor",
+    });
+
+    await sessionApi.getSession(chatId);
+    const pendingRefresh = sessionApi.refreshSession(chatId);
+    await sessionApi.loadHistoryAtAnchor(chatId, "old-anchor", "old-user");
+    refresh.resolve({
+      messages: [msg({ id: "latest-after" })],
+      status: "idle",
+      history: { has_more: true, next_before: "after-refresh" },
+    });
+    await pendingRefresh;
+
+    expect(sessionApi.isBrowsingHistory(chatId)).toBe(true);
+    expect(
+      sessionApi.showLatestHistory(chatId)?.map((message) => message.id),
+    ).toEqual(["latest-after"]);
+  });
+
   it("continues a split user message and stops at its beginning", async () => {
     const chatId = "44444444-4444-4444-8444-444444444444";
     const fragment = (contentStart: number) =>

@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats.api import (
     _delete_chat_data,
+    _history_fork_capabilities,
     ChatForkRequest,
     fork_chat_at_turn,
     batch_delete_chats,
@@ -29,7 +30,11 @@ from qwenpaw.app.chats.api import (
     recover_pending_forks,
 )
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.app.task_tracker import RunUnavailableError
+from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.app.chats.session import (
     DatabaseSession,
     LegacyConversationSnapshot,
@@ -38,7 +43,7 @@ from qwenpaw.app.chats.session import (
 )
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
-from qwenpaw.schemas import Message, Role, RunStatus, TextContent
+from qwenpaw.schemas import AgentRequest, Message, Role, RunStatus, TextContent
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
@@ -907,6 +912,116 @@ async def test_delete_chat_data_removes_all_persistence(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["checkpoint", "staged"])
+async def test_delete_retry_finishes_original_storage(
+    tmp_path,
+    monkeypatch,
+    failure,
+):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / "chats.json"))
+    chat = await manager.create_chat(_chat())
+    store = TranscriptCatalog(tmp_path)
+    _append_turn(store, 1, "original")
+    identity = dict(
+        session_id=chat.session_id,
+        user_id=chat.user_id,
+        channel=chat.channel,
+    )
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        chat_manager=manager,
+        session=DatabaseSession(
+            catalog=store,
+            legacy_save_dir=str(tmp_path / "sessions"),
+        ),
+        task_tracker=TaskTracker(),
+    )
+    unlink = Path.unlink
+    failed = False
+
+    def fail_once(path, *args, **kwargs):
+        nonlocal failed
+        if (
+            failure == "staged"
+            and not failed
+            and path.name.startswith(
+                ".deleting-",
+            )
+        ):
+            failed = True
+            raise OSError("busy")
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_once)
+    cleanup_entered = asyncio.Event()
+    cleanup_release = asyncio.Event()
+    checkpoint_calls = 0
+
+    async def cleanup_checkpoint(*_args):
+        nonlocal checkpoint_calls
+        checkpoint_calls += 1
+        if checkpoint_calls == 1:
+            if failure == "checkpoint":
+                raise OSError("busy")
+        else:
+            cleanup_entered.set()
+            await cleanup_release.wait()
+
+    checkpoint = AsyncMock(side_effect=cleanup_checkpoint)
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.api.CHECKPOINT_RUNTIME."
+        "delete_session_checkpoints",
+        checkpoint,
+    )
+    try:
+        assert await delete_chat(chat.id, manager, workspace) == {
+            "deleted": True,
+        }
+        assert store.has_pending_session_deletion(**identity)
+        pending = store.pending_deletion_operations()[0]
+        assert pending["targets"][0]["storage_id"] == chat.storage_id
+        replacement = await manager.get_or_create_chat(**identity)
+        assert replacement.id != chat.id
+        workspace._manager = None
+        workspace._stream_query = Mock()
+        stream = Workspace.stream_query.__wrapped__(
+            workspace,
+            AgentRequest(**identity, input=[]),
+        )
+        with pytest.raises(RunUnavailableError, match="deletion is pending"):
+            await anext(stream)
+        workspace._stream_query.assert_not_called()
+        with pytest.raises(RuntimeError, match="deletion is pending"):
+            store.ensure_empty_session_database(**identity)
+        retry = asyncio.create_task(delete_chat(chat.id, manager, workspace))
+        await asyncio.wait_for(cleanup_entered.wait(), 5)
+        retry.cancel()
+        try:
+            with pytest.raises(RunUnavailableError):
+                async with workspace.task_tracker.session_execution(
+                    tuple(identity.values()),
+                    owner="probe",
+                    can_start=AsyncMock(return_value=True),
+                ):
+                    pytest.fail("Cleanup released its writer protection")
+        finally:
+            cleanup_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await retry
+        assert not store.pending_deletion_operations()
+        assert not list((tmp_path / "transcripts").glob(".deleting-*"))
+        _append_turn(store, 2, "replacement")
+        assert store.storage_id_for(**identity) == replacement.storage_id
+        assert [
+            m.content[0].text for m in store.get_page(**identity).messages
+        ] == [
+            "replacement",
+        ]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ("copy", "registration"))
 async def test_fork_cancellation_waits_for_consistent_finish(
     phase: str,
@@ -1121,6 +1236,193 @@ async def test_native_fork_registration_failure_keeps_provider_owner() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_owner", [False, True])
+async def test_concurrent_native_forks_keep_live_local_copy(
+    tmp_path,
+    cancel_owner,
+):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / "chats.json"))
+    parent = await manager.create_chat(_chat())
+    store = TranscriptCatalog(tmp_path)
+    _append_turn(store, 1, "source")
+    entered = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    begin = store.begin_pending_fork
+    children = []
+
+    def pause_first(child, provider):
+        begin(child, provider)
+        children.append(child)
+        if len(children) == 1:
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5)
+
+    call = AsyncMock(side_effect=["native-one", "native-two"])
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        chat_manager=manager,
+        session=SimpleNamespace(ensure_legacy_migrated=AsyncMock()),
+        config=SimpleNamespace(backend="codex", backend_settings={}),
+        backend_runtime=SimpleNamespace(call=call),
+        task_tracker=TaskTracker(),
+    )
+    tasks = []
+    try:
+        with patch.object(store, "begin_pending_fork", pause_first), patch(
+            "qwenpaw.app.chats.api.get_fork_capability",
+            AsyncMock(return_value={"can_fork": True}),
+        ), patch.object(
+            store,
+            "read_provider_state",
+            return_value={
+                "boundaries": {"turn-1": {"provider": "codex"}},
+            },
+        ):
+            tasks.append(
+                asyncio.create_task(
+                    fork_chat_at_turn(
+                        parent.id,
+                        ChatForkRequest(turn_id="turn-1"),
+                        manager,
+                        workspace,
+                    ),
+                ),
+            )
+            await asyncio.wait_for(entered.wait(), 5)
+            if cancel_owner:
+                tasks[0].cancel()
+            tasks.append(
+                asyncio.create_task(
+                    fork_chat_at_turn(
+                        parent.id,
+                        ChatForkRequest(turn_id="turn-1"),
+                        manager,
+                        workspace,
+                    ),
+                ),
+            )
+            await asyncio.wait({tasks[1]}, timeout=0.2)
+            assert workspace.task_tracker.native_fork_lock.locked()
+            assert not tasks[1].done()
+            live_copy = (
+                tmp_path / "transcripts" / (children[0].storage_id + ".db")
+            )
+            assert live_copy.exists()
+            release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            if cancel_owner:
+                assert isinstance(results[0], asyncio.CancelledError)
+            else:
+                assert isinstance(results[0], ChatSpec)
+            assert isinstance(results[1], ChatSpec)
+            assert call.await_count == 2
+            assert not store.pending_forks()
+            for child in children:
+                assert await manager.get_chat(child.id) is not None
+                assert (
+                    tmp_path / "transcripts" / (child.storage_id + ".db")
+                ).exists()
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_history_recovers_unmatched_native_boundaries_once(tmp_path):
+    store = TranscriptCatalog(tmp_path)
+    identity = dict(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    store.import_legacy_messages(
+        **identity,
+        messages=[
+            Message(
+                id=f"old-{i}",
+                role=role,
+                content=[TextContent(text=str(i))],
+            )
+            for i in range(10)
+            for role in ["user" if i % 2 == 0 else "assistant"]
+        ],
+    )
+    store.record_provider_fact(
+        **identity,
+        kind="session_bound",
+        data={
+            "provider": "codex",
+            "external_session_id": "native-parent",
+        },
+    )
+    call = AsyncMock(return_value=[])
+    workspace = SimpleNamespace(
+        transcript_store=store,
+        config=SimpleNamespace(backend="codex"),
+        backend_runtime=SimpleNamespace(call=call),
+    )
+    descriptor = SimpleNamespace(
+        status="available",
+        capabilities=SimpleNamespace(fork_mode="any"),
+    )
+    try:
+        with patch("qwenpaw.app.chats.api.PluginRegistry") as registry:
+            registry.return_value.backend_registry.describe.return_value = (
+                descriptor
+            )
+            page = store.get_page(**identity, limit=5)
+            request_cache = {}
+            result = await _history_fork_capabilities(
+                page.messages,
+                _chat(),
+                SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+                workspace,
+                native_capabilities=request_cache,
+            )
+            assert len(result) == 5
+            assert not any(result.values())
+            assert call.await_count == 1
+            # Budget retries share this request's capability snapshot.
+            assert (
+                await _history_fork_capabilities(
+                    page.messages,
+                    _chat(),
+                    None,
+                    workspace,
+                    native_capabilities=request_cache,
+                )
+                == result
+            )
+            assert call.await_count == 1
+            for turn_id in result:
+                store.record_provider_fact(
+                    **identity,
+                    kind="turn_boundary",
+                    turn_id=turn_id,
+                    data={
+                        "provider": "codex",
+                        "external_session_id": "native-parent",
+                        "boundary_kind": "turn",
+                        "boundary_id": turn_id,
+                    },
+                )
+            descriptor.capabilities.fork_mode = "latest"
+            refreshed = await _history_fork_capabilities(
+                page.messages,
+                _chat(),
+                None,
+                workspace,
+            )
+            assert sum(refreshed.values()) == 1
+            assert refreshed[next(reversed(result))]
+            assert call.await_count == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("already_registered", [False, True])
 async def test_pending_native_fork_recovers_from_recorded_binding(
     tmp_path: Path,
@@ -1165,6 +1467,7 @@ async def test_pending_native_fork_recovers_from_recorded_binding(
     workspace = SimpleNamespace(
         transcript_store=store,
         chat_manager=manager,
+        task_tracker=TaskTracker(),
     )
     try:
         await recover_pending_forks(workspace)

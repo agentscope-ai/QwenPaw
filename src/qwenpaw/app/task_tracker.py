@@ -171,6 +171,7 @@ class TaskTracker:
         if reconnect_grace_seconds < 0 or completed_run_max < 1:
             raise ValueError("completed replay limits are invalid")
         self._lock = asyncio.Lock()
+        self.native_fork_lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
         self._blocked_runs: set[str] = set()
         self._session_tasks: dict[tuple[str, str, str], dict] = {}

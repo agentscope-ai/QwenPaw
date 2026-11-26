@@ -1506,6 +1506,16 @@ class TranscriptCatalog:
         """Persist one deletion owner before any visible side effect."""
         operation_id = str(uuid4())
         with self._condition, self._conn:
+            targets = [dict(target) for target in targets]
+            for target in targets:
+                row = self._resolve_catalog_row(
+                    session_id=target["session_id"],
+                    user_id=target["user_id"],
+                    channel=target["channel"],
+                )
+                target["storage_id"] = (
+                    str(row["storage_id"]) if row is not None else None
+                )
             self._conn.execute(
                 "INSERT INTO deletion_operations("
                 "operation_id, chat_ids_json, targets_json, phase) "
@@ -1517,6 +1527,50 @@ class TranscriptCatalog:
                 ),
             )
         return operation_id
+
+    def has_pending_session_deletion(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Keep new writers out while identity-based cleanup is pending."""
+        identity = session_storage_identity(session_id, user_id, channel)
+        return any(
+            session_storage_identity(
+                target["session_id"],
+                target["user_id"],
+                target["channel"],
+            )
+            == identity
+            for operation in self.pending_deletion_operations()
+            for target in operation["targets"]
+        )
+
+    def cleanup_deletion_target(self, target: dict[str, Any]) -> None:
+        """Retry only the database owned by the original deletion."""
+        with self._condition:
+            row = self._resolve_catalog_row(
+                session_id=target["session_id"],
+                user_id=target["user_id"],
+                channel=target["channel"],
+            )
+            storage_id = target["storage_id"]
+            if row is not None and str(row["storage_id"]) != storage_id:
+                raise ValueError("deletion target has a new storage owner")
+            if row is not None:
+                self.delete_session(
+                    target["session_id"],
+                    target["user_id"],
+                    target["channel"],
+                )
+            if storage_id is not None:
+                path = self._store_path(storage_id)
+                for suffix in ("", "-wal", "-shm"):
+                    staged = self._staged_path(
+                        path.with_name(path.name + suffix),
+                    )
+                    staged.unlink(missing_ok=True)
 
     def mark_deletion_mapping_deleted(self, operation_id: str) -> None:
         """Record the logical commit after the chat mapping is removed."""

@@ -1233,6 +1233,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.renderHistoryWindow(backendId);
   }
 
+  isBrowsingHistory(sessionId: string): boolean {
+    const state = this.historyWindows.get(this.getHistoryBackendId(sessionId));
+    return Boolean(
+      state && (state.activeIndex > 0 || state.latestBeforeAnchor),
+    );
+  }
+
   private getCachedConvertedSession(
     backendId: string,
     currentUpdatedAt?: string | null,
@@ -1290,8 +1297,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /** Invalidate the converted cache for a session (call after sending a message). */
-  invalidateConvertedCache(backendId: string): void {
+  invalidateConvertedCache(
+    backendId: string,
+    preserveHistoryWindow = false,
+  ): void {
     this.convertedSessionCache.delete(backendId);
+    if (preserveHistoryWindow) return;
     this.historyPages.delete(backendId);
     this.historyPageRequests.delete(backendId);
     this.historyWindows.delete(backendId);
@@ -2297,8 +2308,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const backendId = this.getRealIdForSession(sessionId) || sessionId;
     this.sessionResultCache.delete(sessionId);
     this.sessionResultCache.delete(backendId);
-    this.invalidateConvertedCache(backendId);
-    return this._doGetSession(sessionId, signal, owner);
+    this.invalidateConvertedCache(backendId, true);
+    return this._doGetSession(sessionId, signal, owner, true);
   }
 
   async getSession(sessionId: string, signal?: AbortSignal) {
@@ -2373,6 +2384,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     listEntry: ExtendedSession | undefined,
     signal: AbortSignal | undefined,
     owner: SessionOwnerToken,
+    preserveHistoryWindow = false,
   ): Promise<ExtendedSession> {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
@@ -2428,7 +2440,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       throw new DOMException("Aborted", "AbortError");
     }
     if (this.isActiveOwner(owner)) {
-      this.setHistoryPage(backendId, historyPage);
       if (historyPage.migration_pending) {
         this.prepareForkTurns(backendId, chatHistory.messages || [], owner);
       }
@@ -2456,7 +2467,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             chatHistory.steer_scope,
             chatHistory.steer,
           );
-      this.resetHistoryWindow(backendId, messages);
+      const historyWindow = this.historyWindows.get(backendId);
+      if (
+        preserveHistoryWindow &&
+        historyWindow &&
+        (historyWindow.activeIndex > 0 || historyWindow.latestBeforeAnchor)
+      ) {
+        historyWindow.latestBeforeAnchor = {
+          messages,
+          page: historyPage,
+        };
+      } else {
+        this.setHistoryPage(backendId, historyPage);
+        this.resetHistoryWindow(backendId, messages);
+      }
     }
 
     const session: ExtendedSession = {
@@ -2495,6 +2519,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     sessionId: string,
     signal: AbortSignal | undefined,
     owner: SessionOwnerToken,
+    preserveHistoryWindow = false,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
@@ -2522,6 +2547,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           fromList,
           signal,
           owner,
+          preserveHistoryWindow,
         );
       }
       // A triggerResolve may be in-flight (POST succeeded but getSessionList
@@ -2538,6 +2564,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             resolved,
             signal,
             owner,
+            preserveHistoryWindow,
           );
         }
       }
@@ -2559,6 +2586,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       listEntry,
       signal,
       owner,
+      preserveHistoryWindow,
     );
   }
 
