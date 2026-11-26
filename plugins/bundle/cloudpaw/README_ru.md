@@ -38,7 +38,7 @@ CloudPaw полностью работает в вашей собственно�
 | **Python** | 3.10 ~ 3.13 |
 | **Аккаунт Alibaba Cloud** | Требуется Access Key для облачных операций |
 
-> Информацию об установке QwenPaw см. в [Быстром старте QwenPaw](https://qwenpaw.agentscope.io/docs/quickstart). Если версия QwenPaw ниже v1.1.7, сначала обновите: `pip install --upgrade qwenpaw>=1.1.7`.
+> Информацию об установке QwenPaw см. в [Быстром старте QwenPaw](https://qwenpaw.agentscope.io/docs/quickstart). Если версия QwenPaw ниже v1.1.7, сначала обновите: `pip install --upgrade "qwenpaw>=1.1.7"`.
 
 ### 1. Установка плагина CloudPaw
 
