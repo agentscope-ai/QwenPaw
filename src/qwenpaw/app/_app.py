@@ -123,7 +123,7 @@ async def _shutdown_plugins(app: FastAPI) -> list[str]:
     if plugin_registry is None:
         return []
     logger.info("Executing plugin shutdown hooks...")
-    failures = []
+    failed_hooks = []
     for hook in plugin_registry.get_shutdown_hooks():
         try:
             logger.info(
@@ -139,7 +139,7 @@ async def _shutdown_plugins(app: FastAPI) -> list[str]:
                 f"from plugin '{hook.plugin_id}'",
             )
         except Exception as exc:
-            failures.append(exc)
+            failed_hooks.append(f"{hook.plugin_id}/{hook.hook_name}")
             logger.error(
                 f"✗ Failed to execute shutdown hook "
                 f"'{hook.hook_name}' "
@@ -147,9 +147,7 @@ async def _shutdown_plugins(app: FastAPI) -> list[str]:
                 exc_info=True,
             )
 
-    if failures:
-        raise failures[0]
-    return []
+    return failed_hooks
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
