@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "channel_key": "matrix",
   "label": {
     "en": "Matrix",
@@ -12,7 +12,7 @@
     "module": "qwenpaw_channel_matrix.driver",
     "qualname": "MatrixDriver"
   },
-  "requirements_file": "requirements.txt",
+  "requires": ["transport"],
   "config_schema": {
     "properties": {
       "enabled": {

@@ -1,6 +1,6 @@
 # Discord official channel plugin
 
-Private integration preview. The v2 descriptor runs
+Private integration preview. The channel descriptor runs
 `qwenpaw_channel_discord.driver.DiscordDriver` in the existing runner
 process with shared dependencies. `discord-py` and Gateway callbacks are loaded in that worker only.
 Install dependencies explicitly through the existing plugin installation flow.

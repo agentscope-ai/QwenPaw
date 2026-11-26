@@ -1,6 +1,6 @@
 # WeCom AI Bot
 
-This private official plugin runs `qwenpaw_channel_wecom.driver.WeComDriver` with the shared schema-v2 channel runner and shared dependency environment. Install `requirements.txt` through the normal plugin dependency repair flow, then configure `bot_id` and `secret`. The native SDK is pinned to `wecom-aibot-python-sdk==1.0.2`.
+This private official plugin runs `qwenpaw_channel_wecom.driver.WeComDriver` with the shared channel runner and shared dependency environment. Install the `transport` dependencies through the plugin manager, then configure `bot_id` and `secret`. The native SDK is pinned to `wecom-aibot-python-sdk==1.0.2`.
 
 All 25 `WecomConfig` fields and their defaults are described in `channel.json`. Existing `wecom:<userid>` and `wecom:group:<chatid>` sessions remain valid; group sessions share `user_id=group` by default while host authorization receives the actual sender. `streaming_enabled` defaults to false and `max_reconnect_attempts` defaults to -1. `ws_url` retains the native gateway override. The common host owns configuration, ACL, Agent execution and environment-variable compatibility.
 
