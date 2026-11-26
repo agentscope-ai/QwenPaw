@@ -6,6 +6,9 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import anthropic
+import httpx
+
 import qwenpaw.providers.anthropic_provider as anthropic_provider_module
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
 
@@ -131,16 +134,14 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
 
     class FakeModels:
         async def list(self):
-            raise RuntimeError("boom")
+            raise anthropic.APIConnectionError(
+                message="boom",
+                request=httpx.Request("GET", provider.base_url),
+            )
 
     close = AsyncMock()
     fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(
-        anthropic_provider_module.anthropic,
-        "APIError",
-        Exception,
-    )
 
     ok, msg = await provider.check_connection(timeout=1.0)
 
@@ -329,15 +330,13 @@ async def test_check_model_connection_api_error_returns_false(
     class FakeMessages:
         async def create(self, **kwargs):
             _ = kwargs
-            raise RuntimeError("failed")
+            raise anthropic.APIConnectionError(
+                message="failed",
+                request=httpx.Request("POST", provider.base_url),
+            )
 
     fake_client = SimpleNamespace(messages=FakeMessages())
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(
-        anthropic_provider_module.anthropic,
-        "APIError",
-        Exception,
-    )
 
     ok, msg = await provider.check_model_connection(
         "claude-3-5-haiku",
@@ -488,9 +487,7 @@ async def test_try_video_source_400_returns_none(
 ) -> None:
     provider = _make_provider()
 
-    class Fake400Error(
-        anthropic_provider_module.anthropic.APIError,
-    ):
+    class Fake400Error(anthropic.APIError):
         def __init__(self):
             self.status_code = 400
             self.message = "bad"
