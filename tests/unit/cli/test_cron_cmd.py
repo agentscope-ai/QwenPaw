@@ -2,6 +2,7 @@
 import copy
 
 import click
+import httpx
 import pytest
 from click.testing import CliRunner
 
@@ -52,6 +53,32 @@ def test_create_help_exposes_silent_delivery_flag():
 
     assert result.exit_code == 0
     assert "--silent / --no-silent" in result.output
+
+
+@pytest.mark.parametrize("host", ["::1", "[::1]"])
+def test_list_jobs_supports_ipv6_host(monkeypatch, host):
+    requests = []
+
+    def handle_request(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    def api_client(base_url):
+        return httpx.Client(
+            base_url=base_url,
+            transport=httpx.MockTransport(handle_request),
+        )
+
+    monkeypatch.setattr("qwenpaw.cli.http.api_client", api_client)
+    result = CliRunner().invoke(
+        cron_group,
+        ["list"],
+        obj={"host": host, "port": 8088},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert requests[0].url == httpx.URL("http://[::1]:8088/api/cron/jobs")
+    assert requests[0].headers["X-Agent-Id"] == "default"
 
 
 # --- _resolve_update_spec regression tests (issue #6176) ---
