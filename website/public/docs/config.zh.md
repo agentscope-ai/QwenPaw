@@ -709,7 +709,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 - **`qwenpaw init`** — 初始化时会问 "Configure environment variables?"
 - **控制台 UI** — 在设置页面编辑
-- **API** — `GET/PUT/DELETE /envs`
+- **API** — `GET /envs` 列出已存储的变量；`PATCH /envs` 合并更新并保留未提交的键；`PUT /envs` 替换全部已存储变量（未提交的键会被删除）；`DELETE /envs/{key}` 删除自定义变量（已知设置会返回 400，需使用 reset）；`POST /envs/{key}/reset` 将已知设置恢复为继承/默认值；`GET /envs/catalog` 列出已知设置及其有效值、来源和可编辑性
 
 设置好的变量会在应用启动时自动加载，所有工具和子进程都可以通过 `os.environ` 读取。
 
