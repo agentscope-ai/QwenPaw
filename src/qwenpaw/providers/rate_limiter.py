@@ -31,6 +31,7 @@ import asyncio
 import collections
 import logging
 import random
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,10 @@ class LLMRateLimiter:
         self._lock = asyncio.Lock()
         self._default_pause = default_pause_seconds
         self._jitter_range = jitter_range
+        # Bound on first use.  asyncio primitives are loop-affine; sharing
+        # one limiter across loops silently waits forever on a future that
+        # the old loop will never complete.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # QPM sliding window — stores monotonic timestamps of dispatched calls.
         self._max_qpm = max_qpm
@@ -87,6 +92,33 @@ class LLMRateLimiter:
         self._total_paused: int = 0
         self._total_qpm_waited: int = 0
         self._total_rate_limited: int = 0
+
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop | None:
+        """Return the event loop this limiter was first used on."""
+        return self._loop
+
+    def bind_loop(
+        self,
+        loop: asyncio.AbstractEventLoop | None = None,
+    ) -> asyncio.AbstractEventLoop:
+        """Bind this limiter to the running loop, rejecting cross-loop use.
+
+        ``asyncio.Semaphore`` / ``asyncio.Lock`` are loop-affine.  Reusing a
+        limiter from another live loop is never safe: the old loop owns its
+        waiter futures, so the new caller can block forever with no
+        timeout.  Raising here turns that silent process-wide stall into a
+        clear, diagnosable error.
+        """
+        current = loop or asyncio.get_running_loop()
+        if self._loop is None:
+            self._loop = current
+        elif self._loop is not current:
+            raise RuntimeError(
+                "LLMRateLimiter was created on a different event loop; "
+                "this indicates a cross-loop task leak",
+            )
+        return current
 
     async def acquire(self) -> float:
         """Acquire an execution permit.
@@ -113,6 +145,7 @@ class LLMRateLimiter:
         # on_success() can compare it against _pause_until to determine whether
         # the currently-set pause predates this call (stale) or was installed
         # by a concurrent 429 after we passed through the cooldown (fresh).
+        self.bind_loop()
         acquired_at = time.monotonic()
 
         # Step 1 — 429 cooldown.
@@ -193,6 +226,7 @@ class LLMRateLimiter:
                 installed by a concurrent 429 *after* this call acquired
                 its slot is presumed to be fresh and is left intact.
         """
+        self.bind_loop()
         async with self._lock:
             if 0 < self._pause_until <= acquired_at:
                 self._pause_until = 0.0
@@ -226,6 +260,7 @@ class LLMRateLimiter:
                 raw_pause,
                 pause,
             )
+        self.bind_loop()
         async with self._lock:
             new_until = time.monotonic() + pause
             if new_until > self._pause_until:
@@ -268,52 +303,42 @@ class LLMRateLimiter:
 # (e.g. a dream cron using DashScope) does not stall user chats on a
 # completely different provider (e.g. OpenRouter, Anthropic).
 _limiters: dict[str, LLMRateLimiter] = {}
-_limiters_lock: asyncio.Lock | None = None
+# Creation is synchronous; a thread lock keeps it safe across loops and
+# avoids the previous module-level ``asyncio.Lock`` whose loop binding could
+# turn one cross-loop wait into a process-wide silent stall.
+_limiters_guard = threading.Lock()
 
 
-def _get_limiters_lock() -> asyncio.Lock:
-    global _limiters_lock
-    if _limiters_lock is None:
-        _limiters_lock = asyncio.Lock()
-    return _limiters_lock
-
-
-async def get_rate_limiter(
-    limiter_key: str = "",
-    max_concurrent: int | None = None,
-    max_qpm: int | None = None,
-    default_pause_seconds: float | None = None,
-    jitter_range: float | None = None,
+def _resolve_rate_limiter(
+    limiter_key: str,
+    max_concurrent: int | None,
+    max_qpm: int | None,
+    default_pause_seconds: float | None,
+    jitter_range: float | None,
 ) -> LLMRateLimiter:
-    """Return a per-model ``LLMRateLimiter``, lazily initialised
-    (coroutine-safe).
+    """Resolve or construct one limiter for the current event loop."""
+    loop = asyncio.get_running_loop()
+    with _limiters_guard:
+        limiter = _limiters.get(limiter_key)
+        if limiter is not None:
+            limiter_loop = limiter.loop
+            if limiter_loop is loop:
+                return limiter
+            if limiter_loop is None:
+                limiter.bind_loop(loop)
+                return limiter
+            if limiter_loop.is_closed():
+                # A previous test/lifespan loop is gone; its waiters cannot
+                # complete.  Replace it rather than waiting on dead futures.
+                _limiters.pop(limiter_key, None)
+            else:
+                raise RuntimeError(
+                    "LLM rate limiter "
+                    f"{limiter_key!r} is already bound to a different "
+                    "live event loop; cross-loop model calls are not "
+                    "supported",
+                )
 
-    Each unique *limiter_key* (typically ``"provider_id:model_name"``) gets
-    its own independent limiter instance.  A 429 on one model therefore does
-    not pause calls to other models — background tasks (dream, heartbeat) that
-    hit their quota limit can no longer stall interactive user chats on a
-    different provider.
-
-    On the *first* call for a given key the provided config values (or
-    env-var constants as fallback) are used to construct the limiter.  All
-    subsequent calls for the same key return the same instance regardless of
-    the arguments passed.
-
-    Args:
-        limiter_key: Stable identifier for the limiter scope, e.g.
-            ``"dashscope:qwen-plus"`` or
-            ``"openrouter:nemotron-3-super-free"``.
-            An empty string uses a shared fallback limiter.
-        max_concurrent: Cap on concurrent in-flight LLM calls.
-        max_qpm: Maximum queries per minute (sliding window). 0 = disabled.
-        default_pause_seconds: Pause duration (s) applied on a 429 response.
-        jitter_range: Random jitter (s) added on top of the pause.
-    """
-    if limiter_key in _limiters:
-        return _limiters[limiter_key]
-    async with _get_limiters_lock():
-        if limiter_key in _limiters:
-            return _limiters[limiter_key]
         from ..constant import (
             LLM_MAX_CONCURRENT,
             LLM_MAX_QPM,
@@ -342,6 +367,7 @@ async def get_rate_limiter(
             default_pause_seconds=resolved_pause,
             jitter_range=resolved_jitter,
         )
+        limiter.bind_loop(loop)
         _limiters[limiter_key] = limiter
         logger.debug(
             "LLM rate limiter initialized: key=%r max_concurrent=%d "
@@ -352,4 +378,43 @@ async def get_rate_limiter(
             resolved_pause,
             resolved_jitter,
         )
-    return limiter
+        return limiter
+
+
+async def get_rate_limiter(
+    limiter_key: str = "",
+    max_concurrent: int | None = None,
+    max_qpm: int | None = None,
+    default_pause_seconds: float | None = None,
+    jitter_range: float | None = None,
+) -> LLMRateLimiter:
+    """Return a per-model ``LLMRateLimiter``, lazily initialised.
+
+    Each unique *limiter_key* (typically ``"provider_id:model_name"``) gets
+    its own independent limiter instance.  A 429 on one model therefore does
+    not pause calls to other models — background tasks (dream, heartbeat) that
+    hit their quota limit can no longer stall interactive user chats on a
+    different provider.
+
+    On the *first* call for a given key the provided config values (or
+    env-var constants as fallback) are used to construct the limiter.  All
+    subsequent calls for the same key return the same instance regardless of
+    the arguments passed.
+
+    Args:
+        limiter_key: Stable identifier for the limiter scope, e.g.
+            ``"dashscope:qwen-plus"`` or
+            ``"openrouter:nemotron-3-super-free"``.
+            An empty string uses a shared fallback limiter.
+        max_concurrent: Cap on concurrent in-flight LLM calls.
+        max_qpm: Maximum queries per minute (sliding window). 0 = disabled.
+        default_pause_seconds: Pause duration (s) applied on a 429 response.
+        jitter_range: Random jitter (s) added on top of the pause.
+    """
+    return _resolve_rate_limiter(
+        limiter_key,
+        max_concurrent,
+        max_qpm,
+        default_pause_seconds,
+        jitter_range,
+    )

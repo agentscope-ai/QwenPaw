@@ -41,6 +41,23 @@ class ConfigurationException(AppBaseException):
         super().__init__(message=message, **kwargs)
 
 
+class AgentPreModelStallError(AppBaseException):
+    """Agent was built but produced no event before its first model call."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            message=(
+                "Agent produced no response within "
+                f"{timeout_seconds:g}s after it was built; the run was "
+                "stopped to avoid a silent hang. If this happens during "
+                "startup, wait for 'Background startup completed' and "
+                "retry. If it persists, restart QwenPaw."
+            ),
+            error_code="AGENT_PRE_MODEL_STALL",
+        )
+
+
 class AgentConfigConflictError(ConfigurationException):
     """An agent configuration changed after it was loaded."""
 

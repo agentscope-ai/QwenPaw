@@ -21,7 +21,8 @@ from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from ..exceptions import ConfigurationException
+from ..constant import EnvVarLoader
+from ..exceptions import AgentPreModelStallError, ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
 from ..utils.io_utils import run_async_to_completion
 from .builder import AgentBuilder
@@ -33,6 +34,9 @@ from .phases import Phase
 from .provider_turn import ProviderTurn
 
 logger = logging.getLogger(__name__)
+
+_PRE_MODEL_TIMEOUT_ENV = "QWENPAW_AGENT_PRE_MODEL_TIMEOUT"
+_PRE_MODEL_TIMEOUT_DEFAULT_SECONDS = 180.0
 
 
 class Runtime:
@@ -171,6 +175,18 @@ class Runtime:
                 from ..plugins._identity import from_runtime, request_identity
 
                 exhausted = object()
+                pre_model_timeout = EnvVarLoader.get_float(
+                    _PRE_MODEL_TIMEOUT_ENV,
+                    _PRE_MODEL_TIMEOUT_DEFAULT_SECONDS,
+                    min_value=0.0,
+                )
+                loop = asyncio.get_running_loop()
+                first_event_deadline = (
+                    loop.time() + pre_model_timeout
+                    if pre_model_timeout > 0
+                    else None
+                )
+                first_real_event = False
                 async with aclosing(executor.run(ctx.input_msgs)) as events:
                     while True:
                         # Reset before yielding: consumers and finalizers may
@@ -178,6 +194,28 @@ class Runtime:
                         with runtime_model_context(
                             getattr(ctx.agent, "model", None),
                         ):
+                            if (
+                                first_real_event
+                                or first_event_deadline is None
+                            ):
+                                ev = await anext(events, exhausted)
+                            else:
+                                remaining = first_event_deadline - loop.time()
+                                if remaining <= 0:
+                                    self._log_task_stacks(pre_model_timeout)
+                                    raise AgentPreModelStallError(
+                                        pre_model_timeout,
+                                    )
+                                try:
+                                    ev = await asyncio.wait_for(
+                                        anext(events, exhausted),
+                                        timeout=remaining,
+                                    )
+                                except asyncio.TimeoutError as exc:
+                                    self._log_task_stacks(pre_model_timeout)
+                                    raise AgentPreModelStallError(
+                                        pre_model_timeout,
+                                    ) from exc
                             identity_token = request_identity.set(
                                 from_runtime(ctx),
                             )
@@ -187,6 +225,14 @@ class Runtime:
                                 request_identity.reset(identity_token)
                         if ev is exhausted:
                             break
+                        # Heartbeats keep the transport alive while the
+                        # agent is inside hooks/compaction.  They are not
+                        # evidence that the model call started.
+                        if (
+                            not first_real_event
+                            and getattr(ev, "type", None) != "heartbeat"
+                        ):
+                            first_real_event = True
                         yield ev
 
             # --- [phase 6] POST_RESPONSE ---
@@ -224,6 +270,22 @@ class Runtime:
             await self._try_save_on_cancel(ctx)
 
             async for ev in envelope.cancel_envelope():
+                yield ev
+            raise
+        except AgentPreModelStallError as e:
+            # Emit the terminal error before any cleanup that might itself
+            # be blocked by the same condition, so the client never keeps
+            # an open-ended "running" spinner.
+            ctx.error = e
+            logger.error(
+                "runtime: pre-model stall session=%s: %s",
+                getattr(ctx, "session_id", ""),
+                e,
+            )
+            async for ev in envelope.error_envelope(
+                str(e),
+                e.error_code or "AGENT_PRE_MODEL_STALL",
+            ):
                 yield ev
             raise
         except ConfigurationException as e:
@@ -296,6 +358,44 @@ class Runtime:
                 logger.warning(
                     "mode '%s' turn start raised",
                     getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
+
+    @staticmethod
+    def _log_task_stacks(timeout_seconds: float) -> None:
+        """Dump every live task's await chain after a pre-model stall.
+
+        The dump is deliberately limited to task names, coroutine
+        qualnames and source locations.  It identifies which shared lock
+        or thread hand-off the run is stuck on without logging prompt
+        content or credentials.
+        """
+        logger.error(
+            "runtime: no agent event before the model call within %.1fs; "
+            "dumping task stacks",
+            timeout_seconds,
+        )
+        current = asyncio.current_task()
+        for task in asyncio.all_tasks():
+            if task is current or task.done():
+                continue
+            try:
+                frames = task.get_stack(limit=8)
+                locations = " <- ".join(
+                    f"{frame.f_code.co_filename}:{frame.f_lineno}"
+                    for frame in frames
+                )
+                coro = task.get_coro()
+                logger.error(
+                    "runtime stall: task=%s coro=%s stack=%s",
+                    task.get_name(),
+                    getattr(coro, "__qualname__", type(coro).__name__),
+                    locations or "<no frames>",
+                )
+            except Exception:  # pylint: disable=broad-except
+                logger.debug(
+                    "runtime stall: could not inspect task %s",
+                    task.get_name(),
                     exc_info=True,
                 )
 

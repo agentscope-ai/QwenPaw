@@ -23,6 +23,7 @@ from ..providers.model_selection import (
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
+from ..utils.runtime_readiness import wait_runtime_ready
 
 _logger = logging.getLogger(__name__)
 
@@ -345,6 +346,13 @@ class AgentBuilder:
         middlewares.  The agent receives all dependencies externally —
         it does not build any of them internally.
         """
+        # Every entry point (console, channels, cron, sub-agents) reaches
+        # this method before constructing an agent.  Waiting here prevents
+        # a request from racing background plugin/workspace projection and
+        # building a half-initialised toolkit.  The gate is inert when the
+        # application lifespan never bound it (CLI/tests).
+        await wait_runtime_ready()
+
         from agentscope.agent import ReActConfig
 
         from ..agents.react_agent import QwenPawAgent
