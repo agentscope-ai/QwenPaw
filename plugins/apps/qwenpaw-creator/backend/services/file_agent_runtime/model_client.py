@@ -63,11 +63,10 @@ from .model_context import (
 )
 
 try:
-    # The platform owns the recovery boundary (one attempt, one retry, and a
-    # refusal to replay output the model already spoke).  The plugin imports
-    # only that boundary; the marker list and the classifier that feeds it
-    # stay on this side of the plugin boundary so enabling compression never
-    # has to patch the host package.
+    # The platform owns the recovery boundary and its replay protections.
+    # Creator selects one recovery per nested boundary below; the marker list
+    # and the classifier that feeds it stay on this side of the plugin
+    # boundary so enabling compression never has to patch the host package.
     from qwenpaw.agents.context.overflow_recovery import (
         call_with_overflow_recovery,
     )
@@ -79,14 +78,17 @@ except ImportError:  # pragma: no cover - standalone plugin installs
     async def call_with_overflow_recovery(
         call_model: Callable[..., Awaitable[Any]],
         recover: Callable[[Exception], Awaitable[Any]],
+        *,
+        max_recoveries: int = 1,
         **kwargs: Any,
     ) -> Any:
-        """Standalone stand-in for the platform's one-shot boundary.
+        """Standalone stand-in for Creator's one-recovery boundary.
 
         Creator consumes a stream inside ``complete()`` and hands back a
         finished turn, so there is no generator for the platform wrapper to
         own here; the retry shape is the part worth keeping identical.
         """
+        del max_recoveries
         try:
             return await call_model(**kwargs)
         except Exception as exc:
@@ -1792,6 +1794,7 @@ class AgentScopeAgentChatClient:
                                 retry_kwargs=retry_kwargs,
                                 demotion_notes=_demotion_notes,
                             ),
+                            max_recoveries=1,
                             messages=smaller,
                             tools=tools,
                             _context_budget_bytes=half_budget,
@@ -1819,6 +1822,7 @@ class AgentScopeAgentChatClient:
                             retry_kwargs=retry_kwargs,
                             demotion_notes=notes,
                         ),
+                        max_recoveries=1,
                         messages=smaller,
                         tools=tools,
                         _context_budget_bytes=smaller_budget,
