@@ -1,26 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Extensible hooks for `qwenpaw doctor`
-(entry points + programmatic registration).
+"""Run Doctor checks from manual registrations, entry points and SDK plugins.
 
-Plugins can expose a setuptools entry point in group ``qwenpaw.doctor``::
-
-    [project.entry-points."qwenpaw.doctor"]
-    my_pkg = "my_pkg.doctor:doctor_notes"
-
-The group ``copaw.doctor`` is still discovered when present (legacy plugins).
-
-The callable must accept :class:`DoctorRunContext` and return a list of
-informational strings (empty if nothing to report).
-
-Alternatively, call :func:`register_doctor_contribution` at import time
-(e.g. from a channel package).
+Manual checks and the qwenpaw.doctor / copaw.doctor entry points receive
+DoctorRunContext. Installed SDK contributions receive DoctorContext.
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
+from copy import deepcopy
 from dataclasses import dataclass
+from functools import partial
 from importlib.metadata import entry_points as metadata_entry_points
 from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import urlsplit
+
+import click
+import httpx
+
+from ..plugins.doctor import DOCTOR, DoctorContext, DoctorResult
+from ..plugins.errors import SDKError
+from ..utils.io_utils import run_sync_io
+from ..utils.runtime_api import async_api_client
 
 if TYPE_CHECKING:
     from ..config.config import Config
@@ -99,11 +101,114 @@ def _resolved_eps() -> list[tuple[str, DoctorNotesFn]]:
     return _eps_cached
 
 
+async def _get_runtime(context, path):
+    target = urlsplit(path)
+    if target.scheme or target.netloc or path.startswith("/"):
+        raise SDKError("Runtime API path must be relative")
+    try:
+        async with async_api_client(
+            context.cli_base_url.rstrip("/") + "/api/",
+        ) as client:
+            response = await client.get(path, timeout=context.timeout)
+            response.raise_for_status()
+            return response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise SDKError(f"Runtime API read failed: {exc}") from exc
+
+
+async def _run_doctor_check(contribution, call):
+    await contribution.admit()
+    with contribution.invocation() as spec:
+        if inspect.iscoroutinefunction(spec.check):
+            notes = await spec.check(call)
+        else:
+            notes = await run_sync_io(spec.check, call)
+        if inspect.isawaitable(notes):
+            notes = await notes
+        if not isinstance(notes, list) or not all(
+            isinstance(note, (str, DoctorResult)) for note in notes
+        ):
+            raise TypeError(
+                "Diagnostic must return notes or DoctorResult values",
+            )
+        return notes
+
+
+def doctor_contributions(context):
+    """Report CLI discovery issues and run each enabled plugin's checks."""
+    from .doctor_checks import selected_provider_ids
+    from .plugin_cli import catalog_for, missing_cli_root_messages
+    from .plugin_session import session_for
+
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return []
+    catalog = catalog_for(ctx)
+    result = [
+        (issue.source_path.name, [f"(discovery error) {issue.message}"])
+        for issue in catalog.issues
+    ]
+    for message in missing_cli_root_messages(ctx, catalog):
+        result.append(("cli", [message]))
+    for path, mounts in catalog.mounts.items():
+        if len(mounts) > 1:
+            result.append(("cli", [f"CLI path conflict: {' '.join(path)}"]))
+
+    selected = None
+    for manifest, source in catalog.enabled_plugins:
+        if not manifest.declares_extension(DOCTOR.id):
+            continue
+        session = session_for(ctx)
+        try:
+            session.load_registration(manifest, source)
+            if selected is None:
+                selected = session.run(
+                    run_sync_io(selected_provider_ids, context.cfg),
+                )
+            checks = session.loader.registry.get_extensions(
+                DOCTOR,
+                plugin_id=manifest.id,
+            )
+        except (click.Abort, click.exceptions.Exit):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            reason = str(exc) or type(exc).__name__
+            result.append((manifest.id, [f"(extension error) {reason}"]))
+            continue
+        for check in checks:
+            try:
+                call = DoctorContext(
+                    config=context.cfg.model_dump(mode="json")
+                    if context.cfg is not None
+                    else None,
+                    raw_config=deepcopy(context.raw_cfg),
+                    base_url=context.cli_base_url,
+                    timeout=context.timeout,
+                    deep=context.deep,
+                    _get_runtime=partial(_get_runtime, context),
+                    selected_providers=selected,
+                )
+                notes = session.run(
+                    asyncio.wait_for(
+                        _run_doctor_check(check, call),
+                        timeout=call.timeout,
+                    ),
+                )
+            except (click.Abort, click.exceptions.Exit):
+                raise
+            except Exception as exc:  # noqa: BLE001
+                reason = str(exc) or type(exc).__name__
+                notes = [f"(extension error) {reason}"]
+            result.append((f"{manifest.id}:{check.id}", notes))
+    return result
+
+
 def run_extension_contributions(
     ctx: DoctorRunContext,
-) -> list[tuple[str, list[str]]]:
-    """Run manual registrations first, then setuptools entry points."""
-    results: list[tuple[str, list[str]]] = []
+) -> list[tuple[str, list[str | DoctorResult]]]:
+    """Run manual checks, entry points, then installed SDK checks."""
+    results: list[tuple[str, list[str | DoctorResult]]] = []
+    lines: list[str | DoctorResult]
 
     for cid in sorted(_manual):
         fn = _manual[cid]
@@ -122,4 +227,4 @@ def run_extension_contributions(
             lines = [f"(entry point {name!r} error) {exc}"]
         results.append((f"ep:{name}", lines))
 
-    return results
+    return results + doctor_contributions(ctx)

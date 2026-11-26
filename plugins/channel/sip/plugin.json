@@ -1,7 +1,7 @@
 {
   "id": "sip",
   "name": "SIP",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "channel",
   "description": "SIP audio calls through pyVoIP or LiveKit in the shared runner.",
   "author": "QwenPaw Team",
@@ -9,7 +9,21 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.3.0.post1"
+    "min": "2.3.1"
   },
-  "publish": true
+  "publish": true,
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "dependencies"
+    ]
+  },
+  "optional_dependencies": {
+    "transport": [
+      "pyVoIP>=1.6.0",
+      "dashscope>=1.0.0",
+      "dashscope-realtime>=0.1.0",
+      "audioop-lts; python_version >= '3.13'"
+    ]
+  }
 }

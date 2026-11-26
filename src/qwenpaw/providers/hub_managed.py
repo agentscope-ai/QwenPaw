@@ -94,13 +94,21 @@ class ManagedProvider(OpenAIProvider):
         """Organization grants are candidates until selected locally."""
         return model.source == f"user"
 
-    async def get_info(self, mock_secret=True, *, include_candidates=True):
+    async def get_info(
+        self,
+        mock_secret=True,
+        *,
+        include_candidates=True,
+        include_unselected_models=False,
+    ):
         """Expose safe catalog metadata without the runtime credential."""
         return ProviderInfo(
             model_count=len({m.id for m in self.discovery_candidates()}),
             id=PROVIDER_ID,
             name=f"Hub",
-            models=self.configured_models(),
+            models=self.all_models()
+            if include_unselected_models
+            else self.configured_models(),
             discovered_models=(
                 self.discovery_candidates() if include_candidates else []
             ),

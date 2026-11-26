@@ -21,6 +21,8 @@ from qwenpaw.providers.openai_response_provider import (
     _extract_reasoning_text,
     _extract_response_text,
 )
+from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider() -> OpenAIResponseProvider:
@@ -728,6 +730,93 @@ async def test_summary_call_explicitly_disables_known_reasoning(
 
     assert result == "ok"
     assert captured["reasoning"] == {"effort": "none"}
+
+
+async def test_summary_call_uses_declared_thinking_control(
+    monkeypatch,
+) -> None:
+    """Check native and legacy off controls reach the Responses API correctly.
+
+    @param monkeypatch: Pytest monkeypatch fixture.
+    @returns None
+    """
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        """Capture request kwargs instead of issuing a network call.
+
+        @param self: Model instance receiving the request.
+        @param args: Positional request arguments.
+        @param kwargs: Keyword request arguments.
+        @returns str
+        """
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        models=[
+            ModelInfo(
+                id="custom-reasoner",
+                name="Custom Reasoner",
+                thinking_control=ThinkingControl(
+                    kind="effort",
+                    efforts=["low", "high"],
+                    supports_off=True,
+                ),
+            ),
+        ],
+        generate_kwargs={"reasoning": {"effort": "high"}},
+    )
+    model = provider.get_chat_model_instance("custom-reasoner")
+
+    result = await model._call_api(
+        "custom-reasoner",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["reasoning"] == {"effort": "none"}
+
+    legacy_provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        models=[
+            ModelInfo(
+                id="legacy-reasoner",
+                name="Legacy Reasoner",
+                thinking_param_style="effort",
+                reasoning_effort_options=["low", "none"],
+            ),
+        ],
+        generate_kwargs={"reasoning": {"effort": "high"}},
+    )
+    legacy_model = legacy_provider.get_chat_model_instance("legacy-reasoner")
+    captured.clear()
+
+    legacy_result = await legacy_model._call_api(
+        "legacy-reasoner",
+        [],
+        disable_thinking=True,
+    )
+
+    assert legacy_result == "ok"
+    assert captured["reasoning"] == {"effort": "none"}
+    assert "disable_thinking" not in captured
 
 
 async def test_reasoning_is_preserved_when_thinking_is_enabled(

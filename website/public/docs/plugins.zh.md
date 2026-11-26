@@ -663,8 +663,7 @@ SDK 插件与旧插件共用框架的依赖检查、安装和复核流程，不�
 缺少依赖时，先用 pip 按已观察到的版本约束准备 wheel 安装包，再经过共享依赖检查后
 写入目录。桌面端使用随附 Python 和共享插件依赖目录。
 安装完成后再次检查依赖是否满足，通过后才加载插件。
-共享依赖检查会核验环境信息，只允许通过验证的新增包；不兼容的替换需要显式维护环境。
-这不等于提供共享依赖环境的通用原子回滚。
+缺少的包通过检查后可以安装。QwenPaw 提议替换共享包时，会先请用户确认。升级失败时，会尝试恢复这次替换的文件。
 
 SDK 插件与旧插件均可通过 `meta.dependency_install_timeout` 设置安装及等待安装锁的
 超时秒数，范围为 300–3600，默认 300。本地 Whisper 配置为 1800 秒，以允许大包下载。
@@ -920,6 +919,15 @@ qwenpaw plugin install /path/to/plugin --force
 
 QwenPaw 运行时，CLI 会将安装请求交给热安装 API；QwenPaw 停止时，文件会被安装并在下次
 启动时加载。
+
+如果安装时提示升级共享 Python 包，先核对版本。在控制台点击**升级并安装**。在终端使用 `install` 显示的操作编号。
+
+```bash
+qwenpaw plugin dependency-upgrade apply <操作编号>
+qwenpaw plugin dependency-upgrade status <操作编号>
+```
+
+App 运行时，`accepted` 表示 App 已收到确认。等 `status` 显示 `succeeded` 后再使用插件。若显示 `failed`，命令会输出错误原因并以退出码 1 结束。
 
 #### 列出已安装插件
 
@@ -2755,6 +2763,13 @@ pydantic>=2.0.0
 `example-package>=1.0`、文件声明 `example-package<2.0`，环境必须同时满足两项约束；
 互相冲突的约束会使检查或依赖解析失败。建议只在一处维护同一项依赖，避免重复声明。
 这里的 `dependencies` 指 Python 包，不是其他插件 ID 或运行时服务依赖。
+
+对于独立进程运行的频道，schema v3 允许 driver 和 CLI 共用一份包声明。
+在 `plugin.json` 的 `sdk.capabilities` 加入 `dependencies`，并声明
+`"optional_dependencies": {"transport": ["example-sdk>=2"]}`。
+在 `channel.json` 设置 `"schema_version": 3` 和 `"requires": ["transport"]`。
+发送消息的 CLI 也可以声明 `"requires": ["transport"]`。只读配置的状态命令可以省略该字段。
+用到 SDK 的代码再导入它。已有的 v2 频道继续从 `requirements.txt` 读取 driver 依赖。
 
 显式安装、更新或修复时，框架检查并安装缺失依赖。开机只检查，不自动安装；缺失依赖会
 使该插件加载失败。可调用 `POST /api/plugins/{plugin_id}/repair-dependencies` 修复；
