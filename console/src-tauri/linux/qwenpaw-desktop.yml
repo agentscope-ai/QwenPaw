@@ -1,0 +1,21 @@
+# AppStream catalog for the deb. Ubuntu App Center lists an installed deb, and
+# offers to remove it, only when a catalog names its package; it does not read
+# /usr/share/metainfo. One malformed catalog stops App Center loading all of
+# them, so tests/unit/tauri checks this file against its parser's rules.
+---
+File: DEP-11
+Version: '1.0'
+Origin: qwenpaw-desktop
+---
+Type: desktop-application
+ID: io.agentscope.qwenpaw.desktop
+Package: qwenpaw-desktop
+Name:
+  C: QwenPaw Desktop
+Summary:
+  C: Personal AI assistant that runs on your computer
+Icon:
+  stock: qwenpaw-desktop
+Launchable:
+  desktop-id:
+  - QwenPaw Desktop.desktop

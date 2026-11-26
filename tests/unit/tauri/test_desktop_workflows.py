@@ -44,6 +44,38 @@ def test_linux_deb_dependencies_stay_frozen_for_in_app_updates():
     ], "updates install with `pkexec dpkg -i`, which resolves no dependencies"
 
 
+def test_linux_appstream_catalog_lets_app_center_remove_the_deb():
+    """App Center lists a deb for removal only through a catalog entry."""
+    tauri = REPO_ROOT / "console/src-tauri"
+    config = json.loads((tauri / "tauri.conf.json").read_text("utf-8"))
+    files = config["bundle"]["linux"]["deb"]["files"]
+    catalog = tauri / files["/usr/share/swcatalog/yaml/qwenpaw-desktop.yml"]
+    # App Center splits DEP-11 on bare "---" lines, and one document it
+    # cannot read stops it loading every catalog on the system.
+    header, component = [
+        document
+        for document in (
+            yaml.safe_load(text)
+            for text in re.split(r"(?m)^---$", catalog.read_text("utf-8"))
+        )
+        if document is not None
+    ]
+    assert header["File"] == "DEP-11"
+    assert header["Version"] and isinstance(header["Origin"], str)
+    assert component["Type"] == "desktop-application"
+    assert component["ID"] == config["identifier"]
+    script = REPO_ROOT / "scripts/pack-tauri/build_linux_pyinstaller.sh"
+    assert component["Package"] == "qwenpaw-desktop"
+    assert '("Package", "qwenpaw-desktop")' in script.read_text("utf-8")
+    assert component["Name"] == {"C": config["productName"]}
+    assert isinstance(component["Summary"]["C"], str)
+    assert component["Icon"] == {"stock": "qwenpaw-desktop"}
+    # Tauri names the desktop entry after productName.
+    assert component["Launchable"] == {
+        "desktop-id": [config["productName"] + ".desktop"],
+    }
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux packaging script")
 @pytest.mark.parametrize(
     ("status", "version", "expected"),

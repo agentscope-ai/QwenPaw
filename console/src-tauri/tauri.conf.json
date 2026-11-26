@@ -61,7 +61,10 @@
           "libgtk-3-0t64 | libgtk-3-0",
           "libayatana-appindicator3-1",
           "pkexec"
-        ]
+        ],
+        "files": {
+          "/usr/share/swcatalog/yaml/qwenpaw-desktop.yml": "linux/qwenpaw-desktop.yml"
+        }
       }
     },
     "windows": {
