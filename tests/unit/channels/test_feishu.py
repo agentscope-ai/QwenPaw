@@ -637,3 +637,12 @@ async def test_supervisor_stop_cancels_persistent_cleanup_retry(reconnect):
     assert rt.driver._supervisor is None
     assert rt.calls == ["disconnect"] * 7 + ["close"]
     assert rt.states[-1] == "disconnected"
+
+
+async def test_extract_json_key_ignores_non_object_json():
+    feishu_utils = module("feishu", "utils")
+    for raw in ("[1, 2]", '"text"', "42", "true", "null"):
+        assert feishu_utils.extract_json_key(raw, "text", "title") is None
+    assert (
+        feishu_utils.extract_json_key('{"text": "hello"}', "text") == "hello"
+    )

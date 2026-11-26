@@ -237,3 +237,58 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
     # A failed restore must retain the snapshot for a possible retry.
     with pytest.raises(RuntimeError, match="restoration failed"):
         await CronMemoryRestoreHook().run(ctx)
+
+
+@pytest.mark.asyncio
+async def test_independent_cron_estimates_only_current_turn(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.config import config
+    from qwenpaw.token_usage.model_wrapper import isolated_turn_usage
+    from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
+
+    monkeypatch.setattr(config, "load_agent_config", lambda _agent_id: None)
+    monkeypatch.setattr(config, "get_model_max_input_length", lambda _: 1000)
+    session = SafeJSONSession(save_dir=str(tmp_path))
+    agent = Agent(AgentState())
+    ctx = SimpleNamespace(
+        extras={},
+        agent=agent,
+        session_id="cron:test",
+        request=SimpleNamespace(
+            session_source="cron",
+            user_id="user",
+            channel="console",
+        ),
+        workspace=SimpleNamespace(session=session, agent_id="default"),
+        mode_state={},
+    )
+
+    for _ in range(2):
+        with isolated_turn_usage():
+            await CronContextHook().run(ctx)
+            await CronMemoryIsolateHook().run(ctx)
+            agent.state.context.extend(
+                [message("Daily summary"), message("Ready", "assistant")],
+            )
+            await CronMemoryRestoreHook().run(ctx)
+            await SessionSaveHook().run(ctx)
+
+    saved = await session.get_session_state_dict(
+        "cron:test",
+        "user",
+        "console",
+    )
+    messages = saved["agent"]["state"]["context"]
+    assert [msg["content"][0]["text"] for msg in messages] == [
+        "Daily summary",
+        "Ready",
+        "Daily summary",
+        "Ready",
+    ]
+    assert [
+        msg["metadata"][TURN_USAGE_META_KEY]["usage"]["prompt_tokens"]
+        for msg in messages
+        if msg["role"] == "assistant"
+    ] == [3, 3]
