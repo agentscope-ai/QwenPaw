@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ...process_ownership import managed_launch
 from ...utils.io_utils import run_async_to_completion, run_sync_io
 
 from .bootstrap import (
@@ -67,12 +68,17 @@ class PluginLaunchSpec:
 
 @dataclass(frozen=True)
 class StopResult:
-    """B-internal cleanup evidence, not the application StopReceipt."""
+    """Process cleanup evidence for one worker generation.
+
+    Acknowledgment is None until a component reaches readiness, False while
+    its stop reply is outstanding, and True once the reply is received.
+    """
 
     exited: bool
     returncode: int | None
     forced: bool
     residual: tuple[str, ...] = ()
+    acknowledged: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +187,8 @@ class PluginProcess:
         self._counter = 0
         self._log_bytes = 0
         self._forced = False
+        self._stop_acknowledged: bool | None = None
+        self._stop_requested_while_live = False
         self._mode = "run"
         self.dependency_snapshot: (
             DependencySnapshot | DependencyReadEvidence | None
@@ -236,7 +244,7 @@ class PluginProcess:
         finally:
             cleanup = await _settle(
                 asyncio.create_task(
-                    self._cleanup(spec.shutdown_timeout, graceful=False),
+                    self._cleanup(graceful=False),
                 ),
             )
             self.last_cleanup = cleanup
@@ -411,7 +419,7 @@ class PluginProcess:
                 pass
             await _settle(
                 asyncio.create_task(
-                    self._cleanup(spec.shutdown_timeout, graceful=False),
+                    self._cleanup(graceful=False),
                 ),
             )
             raise
@@ -589,6 +597,8 @@ class PluginProcess:
         self._state, self._platform = "starting", self.initial_state
         self._last_error = None
         self._forced = False
+        self._stop_acknowledged = None
+        self._stop_requested_while_live = False
         self._cleanup_task = None
         self._ready = None
         self.observed_hello = None
@@ -657,7 +667,7 @@ class PluginProcess:
                 error=exc,
                 reason=self._last_error,
             )
-            await self._cleanup(spec.shutdown_timeout, graceful=False)
+            await self._cleanup(graceful=False)
             if self._state != "residual":
                 self._state = "failed"
             if isinstance(exc, asyncio.CancelledError):
@@ -736,21 +746,26 @@ class PluginProcess:
             else None
         )
         logs = WorkerLogs(spec, self._mode, channel_clean=channel_clean)
-        spawn = asyncio.create_task(
-            asyncio.create_subprocess_exec(
-                spec.python_executable,
-                "-I",
-                "-B",
-                str(worker),
-                str(os.getpid()),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=environment,
-                cwd=str(spec.code_root),
-                **options,
-            ),
-        )
+        options["env"] = environment
+
+        async def launch():
+            with managed_launch(options) as started:
+                child = await asyncio.create_subprocess_exec(
+                    spec.python_executable,
+                    "-I",
+                    "-B",
+                    str(worker),
+                    str(os.getpid()),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(spec.code_root),
+                    **options,
+                )
+                started(child.pid)
+                return child
+
+        spawn = asyncio.create_task(launch())
         self._spawn_task = spawn
         self._spawn_error = None
         spawn.add_done_callback(lambda task: self._spawn_done(task, logs))
@@ -818,10 +833,7 @@ class PluginProcess:
             and (self._cleanup_task is None or self._cleanup_task.done())
         ):
             self._cleanup_task = asyncio.create_task(
-                self._cleanup_owned(
-                    self._spec.shutdown_timeout,
-                    graceful=False,
-                ),
+                self._cleanup_owned(graceful=False),
             )
 
     async def _hello(self, hello: Any, _request: Any) -> dict[str, bool]:
@@ -867,6 +879,8 @@ class PluginProcess:
                     return
                 if self._mode == "run":
                     self._platform = self.connecting_state
+                if self._mode in {"run", "manage"}:
+                    self._stop_acknowledged = False
                 self._ready.set_result(None)
         elif (
             self._mode != "manage"
@@ -980,6 +994,33 @@ class PluginProcess:
                 raise
             raise unknown from None
 
+    def _worker_exited(self) -> bool:
+        process = self._process
+        if process is None:
+            return self._returncode is not None
+        if process.returncode is not None:
+            return True
+        import psutil
+
+        # The worker can exit before asyncio dispatches its exit callback.
+        # Observe the PID without reaping the child out from under asyncio.
+        try:
+            status = psutil.Process(process.pid).status()
+        except psutil.NoSuchProcess:
+            return True
+        except (psutil.AccessDenied, OSError):
+            return False
+        return status in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+
+    @property
+    def exited_before_stop(self) -> bool:
+        """Whether a ready worker exited before any stop of this generation."""
+        return (
+            self._stop_acknowledged is False
+            and not self._stop_requested_while_live
+            and self._worker_exited()
+        )
+
     async def stop(self, *, timeout: float | None = None) -> StopResult:
         """Disable restart before waiting, then finish bounded tree cleanup."""
         self._restart_enabled = False
@@ -990,12 +1031,14 @@ class PluginProcess:
         )
         if not math.isfinite(budget) or budget <= 0:
             raise ValueError("timeout must be positive")
+        if self._process is not None and not self._worker_exited():
+            self._stop_requested_while_live = True
         deadline = asyncio.get_running_loop().time() + budget
         if self._stop_task is None or self._stop_task.done():
-            self._stop_task = asyncio.create_task(self._stop(budget))
+            self._stop_task = asyncio.create_task(self._stop(deadline))
         elif self._state == "residual":
             self._stop_task = asyncio.create_task(
-                self._stop(budget, previous=self._stop_task),
+                self._stop(deadline, previous=self._stop_task),
             )
         wait = asyncio.create_task(self._wait_stop(self._stop_task, deadline))
         try:
@@ -1032,14 +1075,13 @@ class PluginProcess:
             self._process.returncode if self._process else self._returncode,
             self._forced,
             tuple(residual) or ("STOP_PENDING",),
+            acknowledged=self._stop_acknowledged,
         )
 
-    async def _stop(self, budget: float, *, previous=None) -> StopResult:
+    async def _stop(self, deadline: float, *, previous=None) -> StopResult:
         if previous is not None:
-            deadline = asyncio.get_running_loop().time() + budget
             result = await asyncio.shield(previous)
-            budget = deadline - asyncio.get_running_loop().time()
-            if result.exited or budget <= 0:
+            if result.exited or asyncio.get_running_loop().time() >= deadline:
                 return result
         self._state = "stopping"
         if self._start_task is not None and not self._start_task.done():
@@ -1048,7 +1090,7 @@ class PluginProcess:
                 await _settle(self._start_task)
             except (asyncio.CancelledError, Exception):
                 pass
-        result = await self._cleanup(budget, graceful=True)
+        result = await self._cleanup(graceful=True, deadline=deadline)
         if (
             self._monitor_task is not None
             and self._monitor_task is not asyncio.current_task()
@@ -1059,7 +1101,12 @@ class PluginProcess:
             self._state = "stopped"
         return result
 
-    async def _cleanup(self, budget: float, *, graceful: bool) -> StopResult:
+    async def _cleanup(
+        self,
+        *,
+        graceful: bool,
+        deadline: float | None = None,
+    ) -> StopResult:
         if self._cleanup_task is None or (
             self._cleanup_task.done()
             and (
@@ -1069,52 +1116,65 @@ class PluginProcess:
             )
         ):
             self._cleanup_task = asyncio.create_task(
-                self._cleanup_owned(budget, graceful=graceful),
+                self._cleanup_owned(graceful=graceful, deadline=deadline),
             )
         result = await asyncio.shield(self._cleanup_task)
         self.last_cleanup = result
         return result
 
-    async def _close_peer(self, budget: float, *, graceful: bool) -> bool:
-        """Request component shutdown and bound private transport closure."""
+    def _stop_rpc_budget(self, budget: float) -> float:
+        return budget / 3
+
+    async def _request_stop(self, deadline: float) -> bool:
+        """Read the stop acknowledgment from the current generation."""
         peer = self._peer
-        if (
-            graceful
-            and peer is not None
-            and not peer.is_closed
-            and self._spec is not None
-        ):
+        spec = self._spec
+        timeout = deadline - asyncio.get_running_loop().time()
+        if peer is None or peer.is_closed or spec is None or timeout <= 0:
+            return False
+
+        async def call():
             try:
-                result = await asyncio.wait_for(
-                    peer.call(
-                        self.control_prefix + "stop",
-                        self._identity(self._spec).to_mapping(),
-                        timeout=budget / 3,
-                    ),
-                    budget / 3,
+                result = await peer.call(
+                    self.control_prefix + "stop",
+                    self._identity(spec).to_mapping(),
+                    timeout=timeout,
                 )
             except Exception:
                 return False
-            if (
-                not isinstance(result, dict)
-                or result.get("stopped") is not True
-            ):
-                return False
-        elif graceful:
-            return False
+            return isinstance(result, dict) and result.get("stopped") is True
+
+        request = asyncio.create_task(call())
+        try:
+            done, _ = await asyncio.wait({request}, timeout=timeout)
+            return bool(done) and request.result()
+        finally:
+            # Cancellation can wait for a protocol write to a hung worker.
+            # Let process termination unblock the write.
+            request.cancel()
+
+    async def _close_peer(self, deadline: float) -> None:
+        peer = self._peer
         if peer is not None:
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
             try:
-                await asyncio.wait_for(peer.aclose(), max(0.01, budget / 6))
+                await asyncio.wait_for(peer.aclose(), remaining / 6)
             except Exception:
                 pass
-        return True
 
     async def _cleanup_owned(
         self,
-        budget: float,
         *,
         graceful: bool,
+        deadline: float | None = None,
     ) -> StopResult:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        if deadline is None:
+            assert self._spec is not None
+            deadline = started + self._spec.shutdown_timeout
+        budget = max(0.0, deadline - started)
+        rpc_deadline = started + self._stop_rpc_budget(budget)
         if self._spawn_task is not None and not self._spawn_task.done():
             try:
                 await asyncio.wait_for(
@@ -1131,7 +1191,7 @@ class PluginProcess:
             if (
                 self._payloads is not None
                 and not await self._payloads.cleanup(
-                    deadline=asyncio.get_running_loop().time() + budget,
+                    deadline=deadline,
                 )
             ):
                 self._state = "residual"
@@ -1140,22 +1200,28 @@ class PluginProcess:
                     self._returncode,
                     False,
                     ("PAYLOAD_STORE_REMAINING",),
+                    acknowledged=self._stop_acknowledged,
                 )
             self._payloads = None
-            return StopResult(True, self._returncode, False)
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + budget
-        confirmed = await self._close_peer(budget, graceful=graceful)
-        if graceful and confirmed:
-            until = min(deadline, loop.time() + budget / 6)
-            while process.returncode is None and loop.time() < until:
-                await asyncio.sleep(0.01)
-        forced = await self._terminate_tree(process, tree, deadline, budget)
-        if graceful and not confirmed:
-            await self._close_peer(
-                max(0.0, deadline - loop.time()),
-                graceful=False,
+            return StopResult(
+                True,
+                self._returncode,
+                False,
+                acknowledged=self._stop_acknowledged,
             )
+        confirmed = graceful and await self._request_stop(rpc_deadline)
+        if confirmed:
+            self._stop_acknowledged = True
+        if confirmed or not graceful:
+            await self._close_peer(deadline)
+        if confirmed:
+            now = loop.time()
+            until = now + (deadline - now) / 6
+            while process.returncode is None and loop.time() < until:
+                await asyncio.sleep(min(0.01, until - loop.time()))
+        forced = await self._terminate_tree(process, tree, deadline)
+        if graceful and not confirmed:
+            await self._close_peer(deadline)
         residual = []
         if process.returncode is None:
             residual.append("PROCESS_RUNNING")
@@ -1172,15 +1238,20 @@ class PluginProcess:
         if residual:
             self._state = "residual"
         else:
-            await self._release_tree(tree)
+            await self._release_tree(tree, deadline)
         return StopResult(
             not residual,
             process.returncode,
             forced,
             tuple(residual),
+            acknowledged=self._stop_acknowledged,
         )
 
-    async def _release_tree(self, tree: ProcessTree | None) -> None:
+    async def _release_tree(
+        self,
+        tree: ProcessTree | None,
+        deadline: float,
+    ) -> None:
         """Release transport/log handles only after the entire tree exits."""
         if tree is not None:
             tree.close()
@@ -1189,7 +1260,8 @@ class PluginProcess:
         self._spawn_task = None
         if self._log_task is not None:
             try:
-                await asyncio.wait_for(self._log_task, 0.1)
+                remaining = deadline - asyncio.get_running_loop().time()
+                await asyncio.wait_for(self._log_task, min(0.1, remaining))
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._log_task.cancel()
         if self._state == "residual":
@@ -1200,7 +1272,6 @@ class PluginProcess:
         process: asyncio.subprocess.Process,
         tree: ProcessTree | None,
         deadline: float,
-        budget: float,
     ) -> bool:
         """Escalate against the owned group/job within the cleanup budget."""
         loop = asyncio.get_running_loop()
@@ -1222,9 +1293,8 @@ class PluginProcess:
                         process.terminate()
             except OSError:
                 pass
-            until = (
-                deadline if force else min(deadline, loop.time() + budget / 3)
-            )
+            now = loop.time()
+            until = deadline if force else now + (deadline - now) / 3
             while loop.time() < until:
                 if process.returncode is not None and (
                     tree is None or not tree.alive()
@@ -1247,7 +1317,7 @@ class PluginProcess:
                 self._state = "stopping"
             assert self._spec is not None
             spec = self._spec
-            result = await self._cleanup(spec.shutdown_timeout, graceful=False)
+            result = await self._cleanup(graceful=False)
             self.log_startup(
                 "worker_exited",
                 pid=pid,
