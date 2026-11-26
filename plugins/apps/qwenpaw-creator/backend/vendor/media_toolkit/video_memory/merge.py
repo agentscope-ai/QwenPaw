@@ -113,8 +113,8 @@ def merged_graph_payload(
         root = data.get("root", {})
         if root.get("title"):
             titles.append(f"{prefix}: {root['title']}")
-        all_themes.update(root.get("themes", []))
-        all_entities.update(str(e) for e in root.get("key_entities", []))
+        all_themes.update(str(t) for t in (root.get("themes") or []))
+        all_entities.update(str(e) for e in (root.get("key_entities") or []))
 
     merged["root"]["title"] = f"Merged memory: {len(sources)} sources"
     merged["root"]["description"] = "; ".join(titles[:20])
