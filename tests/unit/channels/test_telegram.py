@@ -6,8 +6,9 @@ from types import SimpleNamespace as NS
 
 import pytest
 from telegram import Update
+from qwenpaw.channel_protocol.targets import encode_reply_target
 from tests.channel_support.driver import bind, module
-from tests.channel_support.protocol import send
+from tests.channel_support.protocol import open_route, send
 
 
 class Bot:
@@ -110,7 +111,19 @@ async def telegram(tmp_path, monkeypatch):
     await driver.stop()
 
 
-def update(chat_type="private", topic=None, ident=1):
+def update(
+    chat_type="private",
+    topic=None,
+    ident=1,
+    is_topic=True,
+    is_forum=False,
+):
+    chat = {
+        "id": -100 if chat_type != "private" else 42,
+        "type": chat_type,
+    }
+    if is_forum:
+        chat["is_forum"] = True
     message = {
         "message_id": ident,
         "date": 1000000000,
@@ -120,14 +133,13 @@ def update(chat_type="private", topic=None, ident=1):
             "first_name": "Human",
             "username": "human",
         },
-        "chat": {
-            "id": -100 if chat_type != "private" else 42,
-            "type": chat_type,
-        },
+        "chat": chat,
         "text": "hello",
     }
     if topic:
-        message.update(message_thread_id=topic, is_topic_message=True)
+        message["message_thread_id"] = topic
+        if is_topic:
+            message["is_topic_message"] = True
     return Update.de_json({"update_id": ident, "message": message}, None)
 
 
@@ -138,22 +150,41 @@ async def receive(value, **kwargs):
 
 
 @pytest.mark.parametrize(
-    "kind,topic",
-    [("private", None), ("supergroup", None), ("supergroup", 77)],
+    "kind,topic,is_topic,is_forum,session,thread",
+    [
+        ("private", None, True, False, "telegram:42", None),
+        ("private", 77, True, False, "telegram:42", 77),
+        ("supergroup", None, True, False, "telegram:-100", None),
+        ("supergroup", 77, True, True, "telegram:-100:77", 77),
+        ("supergroup", 1, True, True, "telegram:-100", None),
+        ("supergroup", 1, False, True, "telegram:-100", None),
+        ("supergroup", 77, False, False, "telegram:-100", 77),
+    ],
 )
 async def test_native_update_keeps_chat_and_topic_reply_target(
     telegram,
     kind,
     topic,
+    is_topic,
+    is_forum,
+    session,
+    thread,
 ):
     driver, peer, identity, app = telegram
-    event = await receive(telegram, chat_type=kind, topic=topic)
+    event = await receive(
+        telegram,
+        chat_type=kind,
+        topic=topic,
+        is_topic=is_topic,
+        is_forum=is_forum,
+    )
     chat = "42" if kind == "private" else "-100"
     assert event["conversation"] == {
         "id": chat,
         "type": "dm" if kind == "private" else "group",
-        "thread_id": str(topic) if topic else None,
+        "thread_id": str(thread) if thread else None,
     }
+    assert event["metadata"]["session_id"] == session
     assert event["acl_sender_id"] == "42"
     assert event["content_parts"] == [{"type": "text", "text": "hello"}]
     assert (await send(peer, identity, event["response_handle"]))[
@@ -161,7 +192,65 @@ async def test_native_update_keeps_chat_and_topic_reply_target(
     ] == "acknowledged"
     kwargs = app.bot.calls[-1][1]
     assert kwargs["chat_id"] == int(chat) and kwargs["text"] == "native answer"
-    assert kwargs.get("message_thread_id") == topic
+    assert kwargs.get("message_thread_id") == thread
+
+
+async def test_forum_topics_use_independent_sessions(telegram):
+    first = await receive(
+        telegram,
+        chat_type="supergroup",
+        topic=201,
+        ident=1,
+    )
+    second = await receive(
+        telegram,
+        chat_type="supergroup",
+        topic=202,
+        ident=2,
+    )
+    assert first["metadata"]["session_id"] == "telegram:-100:201"
+    assert second["metadata"]["session_id"] == "telegram:-100:202"
+
+
+@pytest.mark.parametrize(
+    "session,chat,thread",
+    [
+        ("telegram:-100", -100, None),
+        ("telegram:-100:1", -100, None),
+        ("telegram:-100:77", -100, 77),
+        ("123", 42, None),
+        ("reminders", 42, None),
+        ("", 42, None),
+    ],
+)
+async def test_open_reply_target_routes_to_chat_and_topic(
+    telegram,
+    session,
+    chat,
+    thread,
+):
+    _, peer, identity, app = telegram
+    handle = await open_route(
+        peer,
+        identity,
+        encode_reply_target(user_id="42", session_id=session),
+    )
+    result = await send(peer, identity, handle)
+    assert result["state"] == "acknowledged"
+    kwargs = app.bot.calls[-1][1]
+    assert kwargs["chat_id"] == chat
+    assert kwargs.get("message_thread_id") == thread
+
+
+async def test_open_reply_target_rejects_empty_topic_id(telegram):
+    _, peer, identity, app = telegram
+    with pytest.raises(ValueError, match="^OUTBOUND_TARGET_UNKNOWN$"):
+        await open_route(
+            peer,
+            identity,
+            encode_reply_target(user_id="42", session_id="telegram:-100:"),
+        )
+    assert not app.bot.calls
 
 
 async def test_attachment_reads_local_file_and_uses_same_topic(
