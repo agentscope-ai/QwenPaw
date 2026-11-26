@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFallbackSystemMessage,
+  buildMediaOmittedSystemMessage,
+  mediaOmittedNoticeKey,
   modelFallbackEventKey,
+  parseMediaOmittedNotice,
   parseModelFallbackEvents,
 } from "./fallbackNotice";
 
@@ -62,5 +65,57 @@ describe("fallbackNotice", () => {
       ],
       metadata: { qwenpaw_model_fallbacks: [event] },
     });
+  });
+
+  it("parses the media-omission summary from direct and nested metadata", () => {
+    const notice = { count: 3, reason: "provider media limit" };
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { qwenpaw_media_omitted: notice },
+      }),
+    ).toEqual(notice);
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { metadata: { qwenpaw_media_omitted: notice } },
+      }),
+    ).toEqual(notice);
+  });
+
+  it("rejects an empty or malformed media-omission summary", () => {
+    expect(parseMediaOmittedNotice({})).toBeNull();
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { qwenpaw_media_omitted: { count: 0 } },
+      }),
+    ).toBeNull();
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { qwenpaw_media_omitted: { count: -1 } },
+      }),
+    ).toBeNull();
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { qwenpaw_media_omitted: { count: "3" } },
+      }),
+    ).toBeNull();
+    expect(
+      parseMediaOmittedNotice({
+        metadata: { qwenpaw_media_omitted: "3 items" },
+      }),
+    ).toBeNull();
+  });
+
+  it("builds the media-omission system message", () => {
+    const notice = { count: 2, reason: "" };
+    expect(
+      buildMediaOmittedSystemMessage(notice, "2 media items did not arrive"),
+    ).toEqual({
+      type: "message",
+      role: "system",
+      content: [{ type: "text", text: "2 media items did not arrive" }],
+      metadata: { qwenpaw_media_omitted: notice },
+    });
+    expect(mediaOmittedNoticeKey(notice)).toBe("2:");
+    expect(mediaOmittedNoticeKey({ count: 2, reason: "x" })).toBe("2:x");
   });
 });
