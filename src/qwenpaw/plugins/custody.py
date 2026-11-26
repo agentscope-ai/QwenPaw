@@ -9,6 +9,7 @@ import io
 import logging
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -52,10 +53,16 @@ def _stop_thread_blocking(
     thread: threading.Thread,
     stop: threading.Event | None,
     desc: str,
+    deadline: float | None,
 ) -> None:
     if stop is not None:
         stop.set()
-    thread.join(timeout=THREAD_STOP_SECONDS)
+    timeout = (
+        THREAD_STOP_SECONDS
+        if deadline is None
+        else max(0.0, deadline - time.monotonic())
+    )
+    thread.join(timeout=timeout)
     if thread.is_alive():
         raise TimeoutError(
             f"thread {desc!r} did not stop in {THREAD_STOP_SECONDS:.0f}s",
@@ -66,9 +73,11 @@ async def stop_thread(
     thread: threading.Thread,
     stop: threading.Event | None,
     desc: str,
+    *,
+    deadline: float | None = None,
 ) -> None:
     """Signal *stop* and join *thread* off the event loop."""
-    await run_sync_io(_stop_thread_blocking, thread, stop, desc)
+    await run_sync_io(_stop_thread_blocking, thread, stop, desc, deadline)
 
 
 def _stop_subprocess_blocking(proc: Any, desc: str) -> None:
