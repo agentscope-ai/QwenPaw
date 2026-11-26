@@ -183,7 +183,7 @@ async def test_upgrade_preparation_uses_install_policy_and_stops_on_shutdown(
             with patch("subprocess.Popen", observe):
                 return runner(cmd, **kwargs)
 
-        async def prepare(_source, _force, *, prepared=None):
+        async def prepare(_source, _force, _prepared, _entry):
             return await loader._run_dependency_install_command(
                 [sys.executable, "-c", "import time; time.sleep(30)"],
                 local_whisper.PLUGIN_ID,

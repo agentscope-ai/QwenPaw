@@ -1,6 +1,6 @@
 # Matrix channel plugin
 
-This official descriptor-based plugin uses the schema v2 shared worker, dependency
+This official descriptor-based plugin uses the shared worker, dependency
 interpreter, RPC transport and `SharedResponseDriver`. The host retains Agent
 execution, the queue, ACL, display rendering and response coordination.
 `driver.MatrixDriver` imports the Matrix platform only when started; importing
@@ -15,7 +15,7 @@ that omit them still use `enabled=True`, `vision_enabled=False`.
 
 ## Dependencies and encryption
 
-`requirements.txt` is the single mandatory dependency list. Matrix requires
+The `transport` group in `plugin.json` lists the required Python packages. Matrix requires
 matrix-nio 0.26 with its E2EE dependencies and `httpx>=0.27.0`; Markdown HTML
 uses `markdown-it-py` and `linkify-it-py`, with escaped plain HTML fallback.
 

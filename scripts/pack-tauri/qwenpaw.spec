@@ -265,6 +265,9 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
+        # Model download SDKs reuse the host's tqdm at runtime. Their
+        # imports are outside PyInstaller's analysis of the host.
+        "tqdm.auto",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("chromadb"),

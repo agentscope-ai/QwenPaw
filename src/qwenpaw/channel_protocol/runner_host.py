@@ -48,9 +48,10 @@ class RunnerProtocolHost:
         instance_id: str,
         generation: int,
         qwenpaw_version: str,
-        requirements_path: str | Path,
+        requirements_path: str | Path | None,
         capabilities: tuple[str, ...] = (),
         versions: Mapping[str, str] | None = None,
+        requirements: tuple[str, ...] | None = None,
     ) -> SharedHelloParams:
         """Observe actual child metadata before importing any Driver."""
         from packaging.markers import default_environment
@@ -63,7 +64,11 @@ class RunnerProtocolHost:
             audit_shared_dependencies,
         )
 
-        audit = audit_shared_dependencies(requirements_path, versions=versions)
+        audit = audit_shared_dependencies(
+            requirements_path,
+            versions=versions,
+            requirements=requirements,
+        )
         audit.require_satisfied()
         return SharedHelloParams.from_mapping(
             {

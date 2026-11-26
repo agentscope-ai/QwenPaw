@@ -36,7 +36,7 @@ class _Resp:
 
 
 class _FakeClient:
-    """Context manager recording get/head/request calls."""
+    """Context manager recording get/request calls."""
 
     def __init__(self, base_url):
         self.base_url = base_url
@@ -48,10 +48,6 @@ class _FakeClient:
 
     def __exit__(self, *a):
         return False
-
-    def head(self, path):
-        CALLS.append(("head", path, self.base_url))
-        return _Resp()
 
     def get(self, path):
         CALLS.append(("get", path, self.base_url))
@@ -130,7 +126,7 @@ class TestBaseUrl:
 class TestEnsureDaemonAlive:
     def test_healthy_daemon_returns_silently(self, fake_client):
         auto_mod._ensure_daemon_alive("http://x")
-        assert any(c[0] == "head" for c in fake_client["calls"])
+        assert fake_client["calls"] == [("get", "/version", "http://x")]
 
     def test_unreachable_daemon_exits_with_code_2(
         self,
@@ -157,7 +153,7 @@ class TestEnsureDaemonAlive:
 
     def test_non_2xx_health_response_exits_2(self, fake_client, monkeypatch):
         class _Client(_FakeClient):
-            def head(self, path):
+            def get(self, path):
                 return _Resp(fail=True)
 
         monkeypatch.setattr(auto_mod, "client", _Client)
