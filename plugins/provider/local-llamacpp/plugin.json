@@ -1,7 +1,7 @@
 {
   "id": "local-llamacpp",
   "name": "QwenPaw Local",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Install and download local models; manage the llama.cpp server.",
   "type": "provider",
   "entry": {
@@ -15,9 +15,47 @@
       "apps",
       "config",
       "logging",
-      "storage"
+      "storage",
+      "cli",
+      "extensions"
     ]
   },
   "author": "QwenPaw",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "cli": [
+    {
+      "id": "download",
+      "path": [
+        "models",
+        "download"
+      ],
+      "help": "Download a local model repository."
+    },
+    {
+      "id": "local",
+      "path": [
+        "models",
+        "local"
+      ],
+      "help": "List all downloaded local models."
+    },
+    {
+      "id": "remove-local",
+      "path": [
+        "models",
+        "remove-local"
+      ],
+      "help": "Remove a downloaded local model."
+    }
+  ],
+  "extensions": [
+    {
+      "point": "qwenpaw.doctor",
+      "id": "local-model"
+    },
+    {
+      "point": "qwenpaw.doctor",
+      "id": "local-server"
+    }
+  ]
 }

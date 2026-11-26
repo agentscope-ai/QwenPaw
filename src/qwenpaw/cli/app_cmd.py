@@ -14,10 +14,9 @@ from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
-from .windows_shutdown import install_shutdown_handlers
+from ..utils.windows_shutdown import install_shutdown_handlers
 
 logger = logging.getLogger(__name__)
-_dependency_restart = None
 
 
 def _format_bind_address(host: str, port: int) -> str:
@@ -135,8 +134,9 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run QwenPaw FastAPI app."""
-    global _dependency_restart  # pylint: disable=global-statement
-    _dependency_restart = None
+    from ..app.server_context import set_dependency_restart
+
+    set_dependency_restart(None)
 
     if desktop_root:
         if reload:
@@ -197,10 +197,12 @@ def app_cmd(
             "SUPERVISOR_GROUP_NAME",
         )
     ):
-        _dependency_restart = {
-            "command": [sys.executable, *sys.orig_argv[1:]],
-            "cwd": os.getcwd(),
-        }
+        set_dependency_restart(
+            {
+                "command": [sys.executable, *sys.orig_argv[1:]],
+                "cwd": os.getcwd(),
+            },
+        )
 
     from uvicorn.main import STARTUP_FAILURE
     from uvicorn.supervisors import ChangeReload

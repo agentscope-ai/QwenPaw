@@ -8,13 +8,27 @@ import os
 import tempfile
 from contextlib import AbstractContextManager as ContextManager
 from contextlib import nullcontext
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 from typing import Any, Callable, Mapping, TypeVar
 
 from .errors import SDKError
 from .messages import Attachment
 
 _T = TypeVar("_T")
+
+
+def _comparison_path(path: PurePath) -> PurePath:
+    """Windows resolve() can retain a prefix when a parent is created."""
+    prefix = "\\\\?\\"
+    if isinstance(path, PureWindowsPath) and path.drive.startswith(prefix):
+        unc_prefix = prefix + "UNC\\"
+        text = str(path)
+        if text[: len(unc_prefix)].upper() == unc_prefix:
+            return PureWindowsPath("\\\\" + text[len(unc_prefix) :])
+        drive = path.drive[len(prefix) :]
+        if len(drive) == 2 and drive.endswith(":"):
+            return PureWindowsPath(text[len(prefix) :])
+    return path
 
 
 class PluginStorage:
@@ -27,6 +41,7 @@ class PluginStorage:
         _legacy_sources: Mapping[str, Path] | None = None,
     ):
         self._root = root.resolve()
+        self._comparison_root = _comparison_path(self._root)
         self._guard = guard
         self._admission = _admission
         self._legacy_sources = dict(_legacy_sources or {})
@@ -55,7 +70,9 @@ class PluginStorage:
 
     def _path(self, name: str) -> Path:
         path = (self._root / name).resolve()
-        if not path.is_relative_to(self._root) or path == self._root:
+        candidate = _comparison_path(path)
+        root = self._comparison_root
+        if not candidate.is_relative_to(root) or candidate == root:
             raise SDKError(
                 "Storage path must remain inside this plugin's data directory",
             )
@@ -92,7 +109,9 @@ class PluginStorage:
 
         self._guard()
         origin = declared_source(self._legacy_sources, source)
-        target = self._path(name)
+        relative_target = _comparison_path(self._path(name)).relative_to(
+            self._comparison_root,
+        )
         if not origin.exists():
             return ()
         if not origin.is_dir():
@@ -114,10 +133,8 @@ class PluginStorage:
             for filename in sorted(files):
                 path = Path(directory) / filename
                 relative = (
-                    (target / path.relative_to(origin))
-                    .relative_to(self._root)
-                    .as_posix()
-                )
+                    relative_target / path.relative_to(origin)
+                ).as_posix()
                 if copy_missing(path, self.path(relative), self._guard):
                     copied.append(relative)
         return tuple(copied)

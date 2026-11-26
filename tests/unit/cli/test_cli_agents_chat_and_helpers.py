@@ -26,7 +26,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli import agents_cmd as mod
 from qwenpaw.cli.main import cli
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 
 # --------------------------------------------------------------------- #
 # shared stubs
@@ -809,7 +809,7 @@ def test_initialize_new_agent_workspace_delegates(monkeypatch) -> None:
         seen["call"] = (workspace_dir, skill_names, md_template_id)
 
     monkeypatch.setattr(
-        "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        "qwenpaw.services.agent_setup.initialize_agent_workspace",
         _fake,
     )
     target = Path("/tmp/ws-target")
@@ -1067,14 +1067,14 @@ def test_create_cmd_default_workspace_lands_under_working_dir(
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
     monkeypatch.setattr("qwenpaw.cli.agents_cmd.WORKING_DIR", tmp_path)
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_config",
-        lambda updated: saved.setdefault("config", updated),
+        "qwenpaw.services.agent_setup.mutate_config",
+        lambda update: update(config),
     )
     monkeypatch.setattr(
-        "qwenpaw.cli.agents_cmd.save_agent_config",
-        lambda agent_id, agent_config: saved.setdefault(
+        "qwenpaw.services.agent_setup.write_json_atomic",
+        lambda path, data: saved.setdefault(
             "agent_config",
-            (agent_id, agent_config),
+            (data["id"], AgentProfileConfig.model_validate(data)),
         ),
     )
     monkeypatch.setattr(

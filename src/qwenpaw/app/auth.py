@@ -391,6 +391,42 @@ def owns_default_console_chat(username: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def registered_username() -> Optional[str]:
+    """Read the local account identity for password recovery."""
+    data = _load_recovery_data()
+    user = data.get("user")
+    return user.get("username", "<unknown>") if user else None
+
+
+def _load_recovery_data() -> dict:
+    data = _load_auth_data()
+    if data.get("_auth_load_error"):
+        raise ValueError(
+            "Failed to read auth data. Check auth.json for corruption.",
+        )
+    return data
+
+
+def reset_password(new_password: str) -> bool:
+    """Reset the local account password and invalidate existing sessions.
+
+    This recovery operation requires local filesystem access. Remote account
+    changes use update_credentials and verify the current password.
+    """
+    if not new_password or not new_password.strip():
+        raise ValueError("Password cannot be empty.")
+    data = _load_recovery_data()
+    user = data.get("user")
+    if not user:
+        return False
+    pw_hash, salt = _hash_password(new_password)
+    user["password_hash"] = pw_hash
+    user["password_salt"] = salt
+    data["jwt_secret"] = secrets.token_hex(32)
+    _save_auth_data(data)
+    return True
+
+
 def register_user(
     username: str,
     password: str,

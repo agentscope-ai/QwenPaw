@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
-from ..cli.windows_shutdown import install_shutdown_handlers
+from ..utils.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -554,12 +554,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_dirs,
                 channel_runtime=channel_runtime,
             )
-            from ..cli.app_cmd import _dependency_restart
+            from .server_context import dependency_restart
 
-            if _dependency_restart is not None:
+            restart_plan = dependency_restart()
+            if restart_plan is not None:
                 import signal
 
-                plugin_loader.dependency_upgrade_restart = _dependency_restart
+                plugin_loader.dependency_upgrade_restart = restart_plan
                 plugin_loader.dependency_upgrade_shutdown = (
                     lambda: signal.raise_signal(signal.SIGINT)
                 )
@@ -972,8 +973,16 @@ def read_root():
 
 
 @app.get("/api/version")
-def get_version():
-    """Return the current application version (public-safe payload)."""
+def get_version(request: Request, response: Response):
+    """Report the version and optionally acknowledge a local profile probe."""
+    from ..utils.runtime_api import PROFILE_PROBE_HEADER, profile_probe_reply
+
+    probe = request.headers.get(PROFILE_PROBE_HEADER)
+    if probe:
+        reply = profile_probe_reply(probe)
+        if reply is not None:
+            response.headers[PROFILE_PROBE_HEADER] = reply
+            response.headers["Cache-Control"] = "no-store"
     return {
         "version": __version__,
     }

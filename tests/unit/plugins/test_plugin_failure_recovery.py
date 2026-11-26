@@ -671,13 +671,11 @@ async def test_memory_config_rejected_before_any_teardown(
     registry,
     monkeypatch,
 ):
-    from qwenpaw.agents.memory.base_memory_manager import MemoryBackendRegistry
-    from qwenpaw import memory
+    from qwenpaw.memory.registry import memory_registry
 
-    isolated = MemoryBackendRegistry()
-    monkeypatch.setattr(memory, "memory_registry", isolated)
-    # The guard reads the registry exposed by qwenpaw.memory.
-    isolated.register_backend(
+    # Isolate registrations in the singleton shared by all lifecycle paths.
+    monkeypatch.setattr(memory_registry, "_registrations", {})
+    memory_registry.register_backend(
         backend_id="selected",
         factory=type("Factory", (), {}),
         plugin_id="memory-plugin",

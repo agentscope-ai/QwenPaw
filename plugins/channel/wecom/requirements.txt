@@ -1,3 +1,0 @@
-wecom-aibot-python-sdk==1.0.2
-Pillow
-httpx

@@ -66,6 +66,107 @@ class ProviderManagerPersistenceMixin(
 ):  # pylint: disable=abstract-method
     """Provide provider snapshot persistence and migration operations."""
 
+    def saved_plugin_provider_infos(self) -> dict[str, ProviderInfo]:
+        """Read unavailable plugin providers without loading their code."""
+        result = {}
+        for path in self.plugin_path.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                info = ProviderInfo.model_validate(
+                    decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS),
+                )
+                key = self._normalize_provider_id(info.id)
+                if (
+                    key not in self.plugin_providers
+                    and self._remember_provider_path(
+                        "plugin",
+                        key,
+                        path,
+                    )
+                ):
+                    result[key] = info
+            except (OSError, ValueError, TypeError) as exc:
+                logger.warning(
+                    "Cannot read plugin provider snapshot %s: %s",
+                    path,
+                    exc,
+                )
+        return result
+
+    async def update_saved_plugin_provider_async(
+        self,
+        provider_id: str,
+        values: dict,
+    ) -> ProviderInfo | None:
+        """Serialize a retained configuration edit with plugin registration."""
+        provider_key = self._normalize_provider_id(provider_id)
+        lock = self._provider_save_locks.setdefault(
+            provider_key,
+            asyncio.Lock(),
+        )
+        async with lock:
+            return await run_sync_io(
+                self.update_saved_plugin_provider,
+                provider_key,
+                values,
+            )
+
+    def update_saved_plugin_provider(
+        self,
+        provider_id: str,
+        values: dict,
+    ) -> ProviderInfo | None:
+        """Merge edits into an unregistered plugin's existing snapshot."""
+        provider_key = self._normalize_provider_id(provider_id)
+        if provider_key in self.plugin_providers:
+            return None
+        path = self._provider_path_for_kind("plugin", provider_key)
+        with get_sync_path_lock(path):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                return None
+            current = decrypt_dict_fields(raw, PROVIDER_SECRET_FIELDS)
+            updates = {
+                key: value
+                for key, value in values.items()
+                if value is not None
+            }
+            before = ProviderInfo.model_validate(current)
+            if self._normalize_provider_id(before.id) != provider_key:
+                return None
+            candidate = ProviderInfo.model_validate({**current, **updates})
+            changed = {
+                key
+                for key in _CONNECTION_CONFIG_FIELDS.intersection(updates)
+                if getattr(before, key, None) != getattr(candidate, key, None)
+            }
+            if changed:
+                self._reset_model_availability(candidate)
+                invalidate_api_metadata(candidate)
+                candidate.models_syncing = False
+                for key in ("models", "extra_models"):
+                    updates[key] = [
+                        {**original, **model.model_dump(mode="json")}
+                        for original, model in zip(
+                            current.get(key, ()),
+                            getattr(candidate, key),
+                        )
+                    ]
+                for key in (
+                    "discovered_models",
+                    "models_last_synced_at",
+                    "models_last_sync_error",
+                    "models_syncing",
+                ):
+                    updates[key] = getattr(candidate, key)
+            secured = encrypt_dict_fields(updates, PROVIDER_SECRET_FIELDS)
+            provider_persistence.write_snapshot_payload(
+                {**raw, **secured},
+                path,
+            )
+        return candidate
+
     async def _mutate_provider_async(
         self,
         provider_id: str,
@@ -508,6 +609,7 @@ class ProviderManagerPersistenceMixin(
         base_url: str,
         *,
         metadata: Dict,
+        persist_migrations: bool = True,
     ) -> None:
         """Register a plugin provider without blocking the event loop."""
         provider_key = self._ensure_plugin_provider_id_available(provider_id)
@@ -516,20 +618,21 @@ class ProviderManagerPersistenceMixin(
             provider_id,
         )
         revision = self._bump_provider_revision(provider_key)
-        registration = await asyncio.to_thread(
-            self._prepare_plugin_registration,
-            provider_id,
-            provider_class,
-            label,
-            base_url,
-            metadata=metadata,
-            saved_config_path=provider_path,
-        )
         lock = self._provider_save_locks.setdefault(
             provider_key,
             asyncio.Lock(),
         )
         async with lock:
+            registration = await run_sync_io(
+                self._prepare_plugin_registration,
+                provider_id,
+                provider_class,
+                label,
+                base_url,
+                metadata=metadata,
+                saved_config_path=provider_path,
+                persist_migrations=persist_migrations,
+            )
             if revision != self._provider_revision(provider_key):
                 return
             self.plugin_providers[provider_key] = registration
@@ -543,8 +646,9 @@ class ProviderManagerPersistenceMixin(
         *,
         metadata: Dict,
         saved_config_path: Path,
+        persist_migrations: bool,
     ) -> dict:
-        """Build plugin registration data without touching shared state."""
+        """Restore provider settings and optionally save the migrated snapshot."""
         default_models = []
         if hasattr(provider_class, "get_default_models"):
             try:
@@ -582,7 +686,7 @@ class ProviderManagerPersistenceMixin(
                     provider_info,
                     provider_class.model_validate(saved_config),
                 )
-                if snapshot_migrated:
+                if snapshot_migrated and persist_migrations:
                     provider_persistence.write_snapshot_payload(
                         snapshot,
                         saved_config_path,

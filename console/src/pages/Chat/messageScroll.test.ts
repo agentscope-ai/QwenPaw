@@ -1,11 +1,110 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getNextReverseScrollTop,
+  preserveReverseMessageViewport,
   scrollReverseMessageList,
 } from "./messageScroll";
 
 afterEach(() => {
   document.body.innerHTML = "";
+});
+
+describe("preserveReverseMessageViewport", () => {
+  function fixture() {
+    const { root, scroller, content } = createReverseScroller();
+    content.remove();
+    let height = 1300;
+    const rect = (top: number, size: number) => new DOMRect(0, top, 600, size);
+    const addBubble = (id: string, fromBottom: number, size: number) => {
+      const bubble = document.createElement("div");
+      bubble.id = id;
+      bubble.dataset.role = "assistant";
+      bubble.getBoundingClientRect = () =>
+        rect(500 - fromBottom - scroller.scrollTop, size);
+      scroller.append(bubble);
+      return bubble;
+    };
+    Object.defineProperty(scroller, "scrollHeight", { get: () => height });
+    scroller.getBoundingClientRect = () => rect(0, 500);
+    addBubble("newest", 500, 500);
+    const anchor = addBubble("reading", 1000, 500);
+    addBubble("oldest", 1300, 300);
+    scroller.scrollTop = -450;
+
+    let resize!: () => void;
+    const observer = vi.mocked(ResizeObserver);
+    observer.mockImplementationOnce(function (
+      callback: ResizeObserverCallback,
+    ) {
+      resize = () => callback([], this);
+      return { observe: vi.fn(), disconnect: vi.fn(), unobserve: vi.fn() };
+    });
+    const disconnect = preserveReverseMessageViewport(root);
+    return {
+      scroller,
+      anchor,
+      addBubble,
+      disconnect,
+      resize,
+      setHeight: (next: number) => (height = next),
+    };
+  }
+
+  it("preserves the same bubble and offset after height changes and clamping", () => {
+    const { scroller, anchor, resize, disconnect, setHeight } = fixture();
+    try {
+      expect(anchor.getBoundingClientRect().top).toBe(-50);
+      setHeight(800);
+      anchor.getBoundingClientRect = () =>
+        new DOMRect(0, -scroller.scrollTop - 250, 600, 300);
+      scroller.scrollTop = -300;
+      scroller.dispatchEvent(new Event("scroll"));
+      resize();
+      expect(scroller.scrollTop).toBe(-200);
+      expect(anchor.getBoundingClientRect().top).toBe(-50);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("preserves a replaced bubble by ID but falls back when it disappears", async () => {
+    const { scroller, anchor, addBubble, disconnect } = fixture();
+    try {
+      anchor.replaceWith(addBubble("reading", 950, 450));
+      await Promise.resolve();
+      expect(scroller.scrollTop).toBe(-400);
+      scroller.children.namedItem("reading")?.remove();
+      await Promise.resolve();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("honors return to latest before restored history changes the layout", async () => {
+    const { scroller, addBubble, disconnect } = fixture();
+    try {
+      addBubble("newest-reply", 250, 250);
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event("qwenpaw:chat-scroll-to-latest"));
+      await Promise.resolve();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      disconnect();
+    }
+  });
+
+  it("keeps following the newest message after an explicit scroll to bottom", () => {
+    const { scroller, resize, disconnect } = fixture();
+    try {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event("scroll"));
+      resize();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      disconnect();
+    }
+  });
 });
 
 describe("getNextReverseScrollTop", () => {

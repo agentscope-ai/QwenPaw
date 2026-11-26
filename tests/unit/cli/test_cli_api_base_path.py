@@ -17,7 +17,7 @@ from qwenpaw.config.utils import LastApiEndpoint
         (("cron", "list"), [("GET", "/cron/jobs")]),
         (
             ("auto", "crons-list_jobs"),
-            [("HEAD", "/version"), ("GET", "/crons/jobs")],
+            [("GET", "/version"), ("GET", "/crons/jobs")],
         ),
         (("chats", "list"), [("GET", "/chats")]),
         (("agents", "list"), [("GET", "/agents")]),
@@ -222,3 +222,36 @@ def test_standalone_plugin_discovery_uses_same_record(
     monkeypatch.setenv("QWENPAW_BASE_PATH", "/client")
 
     assert _get_api_base() == "http://127.0.0.1:9002/server/api/api"
+
+
+def test_local_runtime_uses_recorded_mount(monkeypatch, recorded_endpoint):
+    from qwenpaw.cli import http
+    from qwenpaw.utils.runtime_api import (
+        PROFILE_PROBE_HEADER,
+        profile_probe_reply,
+    )
+
+    recorded_endpoint({"base_path": "/server"})
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/client")
+    requests = []
+
+    def respond(request):
+        requests.append(str(request.url))
+        reply = profile_probe_reply(request.headers[PROFILE_PROBE_HEADER])
+        headers = {PROFILE_PROBE_HEADER: reply} if reply is not None else {}
+        return httpx.Response(200, json={"version": "test"}, headers=headers)
+
+    monkeypatch.setattr(
+        http,
+        "api_client",
+        lambda url, **options: httpx.Client(
+            base_url=url,
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+
+    assert (
+        http.local_runtime_url(require_verified=True)
+        == "http://127.0.0.1:9002/server"
+    )
+    assert requests == ["http://127.0.0.1:9002/server/api/version"]
