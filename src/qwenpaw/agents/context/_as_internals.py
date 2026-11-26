@@ -11,7 +11,10 @@ Native, Scroll, and decision compaction.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
+
+from ...token_usage import calibration
 
 
 async def prepare_model_input(agent: Any) -> dict:
@@ -32,7 +35,13 @@ async def split_for_compression(
 
 
 async def count_model_input_tokens(agent: Any, kwargs: dict) -> int:
-    """Count the formatter's omission view without altering model input."""
+    """Count the formatter's omission view without altering model input.
+
+    The local estimator is scaled by the last provider-reported prompt size
+    for the same model. Bytes/4 undercounts digit- and identifier-heavy
+    prompts by up to 4x, and Scroll's trigger is only safe when the number it
+    compares is expressed in provider tokens.
+    """
     get_formatter = getattr(agent, "_get_active_formatter", None)
     formatter = get_formatter() if callable(get_formatter) else None
     project = getattr(
@@ -42,4 +51,15 @@ async def count_model_input_tokens(agent: Any, kwargs: dict) -> int:
     )
     if callable(project):
         kwargs = {**kwargs, "messages": project(kwargs["messages"])}
-    return await agent.model.count_tokens(**kwargs)
+    estimate = await agent.model.count_tokens(**kwargs)
+    ratio = calibration.ratio_for(_model_identity(agent), estimate)
+    if ratio <= 1.0:
+        return estimate
+    return math.ceil(estimate * ratio)
+
+
+def _model_identity(agent: Any) -> str | None:
+    """Return the ``provider:model`` key used for calibration."""
+    model = getattr(agent, "model", None)
+    key = getattr(model, "model_key", None)
+    return key if isinstance(key, str) and key else None
