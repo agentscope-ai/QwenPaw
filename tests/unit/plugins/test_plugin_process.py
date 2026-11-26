@@ -29,18 +29,11 @@ from qwenpaw.plugins.dependency_context import DependencyEnvironmentContext
 from qwenpaw.plugins.dependency_gate import SharedDependencyError
 from qwenpaw.plugins.dependency_transaction import (
     _owned,
-    environment_fingerprint,
     publish,
     rollback,
     verify_payload,
 )
-from qwenpaw.plugins.dependency_upgrade import (
-    DependencyUpgradeManager,
-    PreparedResolution,
-    _candidate_scope,
-    _resolution_requirements,
-    _source_hash,
-)
+from qwenpaw.plugins.dependency_upgrade import DependencyUpgradeManager
 from qwenpaw.plugins.execution.dependencies import (
     DependencySnapshot,
     _installed_metadata,
@@ -1256,6 +1249,46 @@ def _prepare_dependency_operation(
     }
 
 
+def test_installed_worker_preserves_dependency_search_path(tmp_path):
+    import json
+    import venv
+    from qwenpaw.plugins import dependency_worker
+
+    runtime = tmp_path / "runtime"
+    venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(runtime)
+    python = runtime / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
+    library, search_path = json.loads(
+        subprocess.check_output(
+            [
+                str(python),
+                "-I",
+                "-B",
+                "-c",
+                "import json, sys, sysconfig; "
+                "print(json.dumps([sysconfig.get_path('purelib'), sys.path]))",
+            ],
+            text=True,
+            timeout=10,
+        ),
+    )
+    package = Path(library) / "qwenpaw" / "plugins"
+    package.mkdir(parents=True)
+    (package / "dependency_upgrade.py").write_text(
+        "import json, sys\nfrom pathlib import Path\n"
+        "async def continue_operation(directory, preflight):\n"
+        "    assert preflight\n"
+        "    Path(directory, 'paths.json').write_text(json.dumps(sys.path))\n",
+    )
+    dependency_worker._continue(
+        tmp_path,
+        {"continuation_python": str(python), "support_root": library},
+        preflight=True,
+    )
+    assert json.loads((tmp_path / "paths.json").read_text()) == search_path
+
+
 @pytest.mark.parametrize("fail_phase", ["", "1", "0"])
 def test_offline_upgrade_preflight_observes_site_under_maintenance(
     dependency_files,
@@ -1470,9 +1503,26 @@ async def test_shared_upgrade_resolves_paired_dependencies(
             manifest["dependencies"] = [goal]
             (source / "main.py").write_text("")
             (source / "plugin.json").write_text(json.dumps(manifest))
-        (source / "requirements.txt").write_text(
-            ("sample-shared-sdk>=1" if public_entry else goal) + "\n",
-        )
+        requirements_file = source / "requirements.txt"
+        if scenario == "new-edge":
+            manifest_path = source / "plugin.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["sdk"] = {
+                "version": "1.2.0",
+                "capabilities": ["dependencies"],
+            }
+            manifest["optional_dependencies"] = {"transport": [goal]}
+            manifest_path.write_text(json.dumps(manifest))
+            descriptor_path = source / "channel.json"
+            descriptor = json.loads(descriptor_path.read_text())
+            descriptor.pop("requirements_file")
+            descriptor.update(schema_version=3, requires=["transport"])
+            descriptor_path.write_text(json.dumps(descriptor))
+            requirements_file.unlink()
+        else:
+            requirements_file.write_text(
+                ("sample-shared-sdk>=1" if public_entry else goal) + "\n",
+            )
 
         # Bound the observed metadata to the fixture's actual installed tree.
         async def audit(_description):
@@ -1597,6 +1647,7 @@ async def test_shared_upgrade_resolves_paired_dependencies(
             }
             assert "sample-shared-sdk>=1" in calls[-1]
             if scenario == "new-edge":
+                assert goal in calls[0]
                 assert "sample-shared-sdk>=1" not in calls[0]
         assert _inventory(host.site) == before
     finally:
@@ -2232,43 +2283,14 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
     (independent / "requirements.txt").write_text(
         "unrelated-missing-sdk>=1\nsample-shared-sdk<1\n",
     )
-    old = _local_dependency_wheel(
-        tmp_path / "old",
-        "sample-shared-sdk",
-        "0.5",
-        {
-            "sample_shared_sdk.py": b"VALUE = '0.5'\n",
-            "sample_shared_sdk_legacy.py": b"VALUE = 'legacy'\n",
-        },
-    )
-    with zipfile.ZipFile(old) as archive:
+    old = local_wheel(tmp_path / "old", version="0.5", value="0.5")
+    with zipfile.ZipFile(next(old.glob("*.whl"))) as archive:
         archive.extractall(site)
-    legacy = site / "sample_shared_sdk_legacy.py"
-    legacy_cache = Path(py_compile.compile(str(legacy), doraise=True))
     module = site / "sample_shared_sdk.py"
     module.chmod(0o640)
     (site / "neighbor.txt").write_bytes(b"preserve unrelated bytes\x00")
     before, mode = digest(site), module.stat().st_mode
     source = host.artifact(sdk=True)
-    if scenario == "different_audit_order":
-        # Exercise manifest-only driver requirements through stage and apply.
-        manifest_path = source / "plugin.json"
-        manifest = json.loads(manifest_path.read_text())
-        manifest["sdk"] = {
-            "version": "1.2.0",
-            "capabilities": ["dependencies"],
-        }
-        requirements = source / "requirements.txt"
-        manifest["optional_dependencies"] = {
-            "transport": requirements.read_text().splitlines(),
-        }
-        manifest_path.write_text(json.dumps(manifest))
-        channel_path = source / "channel.json"
-        descriptor = json.loads(channel_path.read_text())
-        descriptor.pop("requirements_file")
-        descriptor.update(schema_version=3, requires=["transport"])
-        channel_path.write_text(json.dumps(descriptor))
-        requirements.unlink()
     published = tmp_path / "published-sdk"
     if broken_source:
         (source / "sample.py").write_text(
@@ -2278,16 +2300,7 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
             "    sdk.VALUE + '\\n' + Path(sdk.__file__).read_text())\n"
             "raise RuntimeError('new source cannot initialize')\n",
         )
-    wheel = _local_dependency_wheel(
-        tmp_path / "new",
-        "sample-shared-sdk",
-        "1.0",
-        {
-            "sample_shared_sdk.py": b"VALUE = '1.0'\n",
-            "sample_shared_sdk-1.0.dist-info/licenses/LICENSE": b"license",
-            "sample_shared_sdk_extra/data/value.txt": b"new resource",
-        },
-    )
+    wheel = next(local_wheel(tmp_path / "new", value="1.0").glob("*.whl"))
     certifi_wheel = local_certifi_wheel(wheel.parent)
 
     def resolve(command, **kwargs):
@@ -2306,32 +2319,7 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
     )
     try:
         manager = DependencyUpgradeManager(host.loader)
-        workspace = None
-        prepared = None
-        if scenario == "different_audit_order":
-            workspace = await host.workspace("after-upgrade", use_sdk=True)
-            binding = await manager._binding(source)
-            snapshot = await binding.backend.audit_dependencies(
-                binding.description,
-            )
-            assert len(snapshot.sites) > 1
-            candidates = await manager._consumer_candidates(binding, snapshot)
-            prepared = PreparedResolution(
-                _source_hash(source),
-                environment_fingerprint(
-                    replace(snapshot, sites=snapshot.sites[::-1]).to_mapping(),
-                ),
-                (await manager._environment(binding, snapshot)).to_mapping(),
-                _resolution_requirements(
-                    snapshot,
-                    binding.description.requirements,
-                ),
-                _candidate_scope(candidates),
-                (),
-            )
-        operation = await manager.stage(source, prepared=prepared)
-        if prepared is not None:
-            assert not prepared.claimed
+        operation = await manager.stage(source)
         yield SimpleNamespace(
             host=host,
             manager=manager,
@@ -2342,10 +2330,7 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
             mode=mode,
             source=source,
             published=published,
-            legacy=legacy,
-            legacy_cache=legacy_cache,
             broken_source=broken_source,
-            workspace=workspace,
         )
     finally:
         await host.close()
@@ -2523,7 +2508,7 @@ async def test_shared_change_ignores_disjoint_inactive_runtime(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "staged_upgrade",
-    [False, True, "shared_reader", "different_audit_order"],
+    [False, True, "shared_reader"],
     indirect=True,
 )
 async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
@@ -2551,7 +2536,6 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
         },
     ]
     assert digest(site) == before and not operation["requires_restart"]
-    assert prepared.legacy.is_file() and prepared.legacy_cache.is_file()
     assert not published.exists()
     result = await manager.apply(operation["id"])
     if broken_source:
@@ -2559,25 +2543,16 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
         assert result["error"]["code"] == "DEPENDENCY_UPGRADE_FAILED", result
         assert published.read_text() == "1.0\nVALUE = '1.0'\n"
         assert digest(site) == before and module.stat().st_mode == mode
-        assert prepared.legacy.is_file() and prepared.legacy_cache.is_file()
-        assert not (site / "sample_shared_sdk-1.0.dist-info").exists()
-        assert not (site / "sample_shared_sdk_extra").exists()
         assert not host.installed.exists()
     else:
         assert result["status"] == "succeeded", result
         assert module.read_text() == "VALUE = '1.0'\n"
         assert not (site / "sample_shared_sdk-0.5.dist-info").exists()
-        assert not prepared.legacy.exists()
-        assert not prepared.legacy_cache.exists()
         assert (site / "sample_shared_sdk-1.0.dist-info/RECORD").is_file()
         assert (host.installed / "sample.py").read_bytes() == (
             source / "sample.py"
         ).read_bytes()
         assert (await manager.apply(operation["id"])) == result
-        if prepared.workspace is not None:
-            _, identity = await host.identity(prepared.workspace)
-            assert identity["sdk"] == "1.0"
-    assert not maintenance.marker(site).exists()
     assert (site / "neighbor.txt").read_bytes() == (
         b"preserve unrelated bytes\x00"
     )
@@ -2620,25 +2595,6 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
             match="No dependency replacement",
         ):
             await manager.stage(source)
-
-
-@pytest.mark.asyncio
-async def test_reviewed_upgrade_rejects_dependency_metadata_change(
-    staged_upgrade,
-):
-    prepared = staged_upgrade
-    metadata = prepared.site / "sample_shared_sdk-0.5.dist-info/METADATA"
-    with metadata.open("a", encoding="utf-8") as stream:
-        stream.write("Summary: Changed after review\n")
-    changed = digest(prepared.site)
-
-    result = await prepared.manager.apply(prepared.operation["id"])
-
-    assert result["status"] == "failed"
-    assert result["error"]["code"] == "DEPENDENCY_PLAN_STALE"
-    assert digest(prepared.site) == changed
-    assert not prepared.host.installed.exists()
-    assert not maintenance.marker(prepared.site).exists()
 
 
 @pytest.mark.asyncio

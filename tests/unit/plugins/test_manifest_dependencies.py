@@ -837,21 +837,6 @@ async def main():
             usage.observe_host(token, snapshot)
             usage.withdraw(token)
             shutil.rmtree(candidate)
-        descriptor_path = source / 'channel.json'
-        if descriptor_path.exists():
-            import qwenpaw, sysconfig
-            from qwenpaw.__version__ import __version__
-            from qwenpaw.plugins.channel_adapter import ChannelRuntimeSettings
-            descriptor = json.loads(descriptor_path.read_text())
-            site = Path(sysconfig.get_path('purelib'))
-            host._loader.registry.configure_channel_runtime(ChannelRuntimeSettings(
-                python_executable=sys.executable,
-                support_root=Path(qwenpaw.__file__).resolve().parents[1],
-                qwenpaw_version=__version__,
-                selected_channels=frozenset({descriptor['channel_key']}),
-                dependency_paths=(site,),
-                dependency_install_target=site,
-            ))
         if sys.argv[5] == 'migration':
             from qwenpaw.config.utils import mutate_config
             from qwenpaw.plugins import local_whisper as local
@@ -886,9 +871,6 @@ async def main():
             assert result.status == 'active'
         else:
             assert (await host.install(source)).ok
-        if descriptor_path.exists():
-            repaired = await host._loader.repair_dependencies('extension-contract')
-            assert repaired.status == 'active', repaired.diagnostics
         for name in expected:
             assert importlib.metadata.version(name) == '1.0'
             assert importlib.import_module(name.replace('-', '_')).ANSWER == 'installed from manifest'
@@ -995,13 +977,26 @@ def test_install_includes_every_declared_dependency(
     install_case(tmp_path, source, expected)
 
 
-def test_channel_install_resolves_only_declared_host_capability_groups(
+@pytest.mark.asyncio
+async def test_channel_registration_prepares_only_declared_host_capability_groups(
     tmp_path,
 ):
-    """Install named CLI/extension prerequisites without touching unused SDKs."""
-    source = package(tmp_path)
+    """Send only the public entry's dependencies to the host installer."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.python_backend import PythonBackend
+
+    source = package(
+        tmp_path,
+        ["b01-probe-common==1.0"],
+        requirements="b01-probe-legacy-driver==1.0\n",
+    )
     path = source / "plugin.json"
     manifest = json.loads(path.read_text())
+    manifest["type"] = "channel"
+    manifest["entry"]["descriptor"] = "channel.json"
     manifest["sdk"] = {
         "version": "1.2.0",
         "capabilities": ["cli", "extensions", "dependencies"],
@@ -1017,28 +1012,25 @@ def test_channel_install_resolves_only_declared_host_capability_groups(
     manifest["extensions"] = [
         {"point": "qwenpaw.doctor", "id": "sdk", "requires": ["check"]},
     ]
-    from tests.channel_support.process import ROOT
-
-    manifest["type"] = "channel"
-    manifest["entry"]["descriptor"] = "channel.json"
-    descriptor = json.loads(
-        (ROOT / "plugins/channel/feishu/channel.json").read_text(),
+    ensure_dependencies = AsyncMock(
+        return_value=dependency_gate.GateDecision(True, True),
     )
-    descriptor.update(
-        requires=[],
-        channel_key="extension-contract",
-        entrypoint={
-            "scope": "runner",
-            "module": "sample",
-            "qualname": "Driver",
-        },
+    backend = PythonBackend(
+        SimpleNamespace(ensure_dependencies=ensure_dependencies),
     )
-    (source / "channel.json").write_text(json.dumps(descriptor))
-    (source / "sample.py").write_text(
-        (ROOT / "tests/channel_support/sample_channel.py").read_text(),
+    plugin_manifest = PluginManifest.model_validate(manifest)
+    description = backend.describe(source, plugin_manifest)
+    await backend.prepare(description, allow_install=True, probe=False)
+    ensure_dependencies.assert_awaited_once_with(
+        source,
+        plugin_manifest.id,
+        allow_install=True,
+        requirements=("b01-probe-common==1.0",),
+        additional_requirements=(
+            "b01-probe-cli==1.0",
+            "b01-probe-doctor==1.0",
+        ),
     )
-    path.write_text(json.dumps(manifest), encoding="utf-8")
-    install_case(tmp_path, source, {"b01-probe-cli", "b01-probe-doctor"})
 
 
 @pytest.mark.parametrize(

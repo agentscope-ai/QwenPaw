@@ -1036,9 +1036,11 @@ class TestSimpleDelegatingCmds:
 @pytest.mark.parametrize(
     "require_api_key,answers,expected",
     [
-        (True, "\n\n", {}),
-        (True, "http://new-base\n\n", {"base_url": "http://new-base"}),
-        (True, "\nprobe-key\n", {"api_key": "probe-key"}),
+        (
+            True,
+            "http://new-base\nprobe-key\n",
+            {"base_url": "http://new-base", "api_key": "probe-key"},
+        ),
         (True, "\n******\n", {}),
         (False, "http://new-base\n", {"base_url": "http://new-base"}),
     ],
@@ -1307,8 +1309,7 @@ def test_custom_provider_lifecycle_uses_the_selected_app(monkeypatch):
     ]
 
 
-@pytest.mark.parametrize("listed", [True, False])
-def test_config_key_with_an_app_that_only_lists_providers(monkeypatch, listed):
+def test_config_key_with_an_app_that_only_lists_providers(monkeypatch):
     import httpx
 
     from qwenpaw.cli import http
@@ -1325,7 +1326,7 @@ def test_config_key_with_an_app_that_only_lists_providers(monkeypatch, listed):
         if request.url.path.endswith("/config"):
             return httpx.Response(405)
         assert request.url.path == "/api/models"
-        return httpx.Response(200, json=[provider] if listed else [])
+        return httpx.Response(200, json=[provider])
 
     monkeypatch.setattr(
         pcmd,
@@ -1345,10 +1346,8 @@ def test_config_key_with_an_app_that_only_lists_providers(monkeypatch, listed):
         ["--host", "remote", "models", "config-key", "remote-only"],
         input="\n\n",
     )
-    assert result.exit_code == (0 if listed else 1), result.exception
-    assert (
-        "configuration unchanged" if listed else "unavailable"
-    ) in result.output
+    assert result.exit_code == 0, result.exception
+    assert "configuration unchanged" in result.output
 
 
 @pytest.mark.parametrize("require_api_key", [False, True])

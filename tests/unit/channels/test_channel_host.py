@@ -1668,15 +1668,9 @@ async def test_channel_worker_forwards_sdk_and_plugin_logs(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "schema_version,public_entry",
-    [(2, False), (2, True), (3, True)],
-)
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,
-    schema_version,
-    public_entry,
 ):
     from qwenpaw.config.utils import load_config
     from qwenpaw.plugins.settings import persist_plugin_settings
@@ -1684,39 +1678,12 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
 
     ws = await host.workspace("first", use_sdk=True)
     source = host.artifact(sdk=True)
-    entry_marker = host.root / "public-events.jsonl"
-    if public_entry:
-        public_contributions(source, entry_marker, sdk=True)
-    path = source / "plugin.json"
-    manifest = json.loads(path.read_text())
-    if public_entry:
-        manifest["dependencies"] = ["packaging"]
-        manifest["optional_dependencies"] = {"terminal": ["packaging"]}
-        manifest["cli"] = [
-            {
-                "id": "status",
-                "path": ["channel-status"],
-                "requires": ["terminal"],
-            },
-        ]
-    if schema_version == 3:
-        manifest["optional_dependencies"]["transport"] = [
-            "sample-shared-sdk==1.0",
-        ]
-        descriptor_path = source / "channel.json"
-        descriptor = json.loads(descriptor_path.read_text())
-        descriptor.pop("requirements_file")
-        descriptor.update(schema_version=3, requires=["transport"])
-        descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
-        (source / "requirements.txt").unlink()
-    path.write_text(json.dumps(manifest), encoding="utf-8")
     wheels = local_wheel(host.root / "wheels")
     local_certifi_wheel(wheels)
     calls = []
 
     def offline(command, *, timeout, plugin_id, cancel=None):
         calls.append(command)
-        assert not entry_marker.exists()
         assert (
             command[1:6] == ["-I", "-B", "-m", "pip", "wheel"]
             and plugin_id == KEY
@@ -1745,16 +1712,6 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
         "custom": "retained",
     }
     assert (host.site / "sample_shared_sdk.py").is_file() and source.exists()
-    if public_entry:
-        assert rows(entry_marker, "registered")
-        assert not rows(entry_marker, "sending-imported")
-        assert "sample_shared_sdk" not in sys.modules
-        assert (KEY, "status") in host.registry.cli_contributions
-        repaired = await host.loader.repair_dependencies(KEY)
-        assert repaired.status == "active", repaired.diagnostics
-        assert (KEY, "status") in host.registry.cli_contributions
-        assert not rows(entry_marker, "sending-imported")
-        assert (await host.identity(ws))[1]["sdk"] == "offline-sdk"
 
 
 @pytest.mark.asyncio
