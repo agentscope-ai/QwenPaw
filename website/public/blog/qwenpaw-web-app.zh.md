@@ -1,8 +1,8 @@
 ---
-title: "在手机上继续使用你的 QwenPaw：Web App Beta"
+title: "在手机上继续使用你的 QwenPaw：Web App"
 date: 2026-11-16
 author: QwenPaw Team
-tags: [Web App, PWA, Mobile, Beta]
+tags: [Web App, PWA, Mobile]
 excerpt: "离开电脑，也能在手机上继续对话。扫码登录、添加到桌面，在熟悉的 Console 中切换云端和本地工作区。"
 related:
   heading: "在手机上开始使用"
@@ -13,11 +13,11 @@ related:
       href: "/docs/mobile"
 ---
 
-# 在手机上继续使用你的 QwenPaw：Web App Beta
+# 在手机上继续使用你的 QwenPaw：Web App
 
 离开电脑后，也可以拿起手机继续使用本地的 QwenPaw。通过 Web App，你能在浏览器中打开工作区，也能把它添加到手机桌面，在同一个入口切换云端部署和已绑定的本地实例，无需安装原生 App。
 
-Web App 目前为 **Beta** 功能，可能不稳定；本地 QwenPaw 和 Platform 都需要支持此功能。
+本地 QwenPaw 和 Platform 都需要支持 Web App。
 
 ## 从 Console 开始
 
@@ -45,6 +45,6 @@ Hub 用户的本地账号和云账号分别显示，每次绑定只连接该用�
 
 iPhone 和 iPad 按需打开 Safari 的 **⋯** 菜单，再选择**分享 → 添加到主屏幕**。支持安装提示的 Android 浏览器会在点击**添加到桌面**后直接弹出确认，也可以从浏览器菜单添加。HarmonyOS 可在系统浏览器中查找添加到桌面的选项，具体能力取决于系统和浏览器版本。
 
-附件、文件工作台和终端沿用所选节点的配置与权限。当前 Beta 暂不支持推送通知或离线执行，安装、麦克风权限和后台恢复仍需在具体设备上验证。
+附件、文件工作台和终端沿用所选节点的配置与权限。Web App 暂不支持推送通知或离线执行。
 
 完整步骤、账号授权范围和常见问题见[手机 Web App 使用指南](/docs/mobile)。

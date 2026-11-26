@@ -1,6 +1,6 @@
-# Mobile Web App (Beta)
+# Mobile Web App
 
-> Web App access is in Beta and may be unstable. Your QwenPaw installation and Platform deployment must both support this feature.
+> Your QwenPaw installation and Platform deployment must both support Web App access.
 
 Use QwenPaw from your phone's browser, or add it to your home screen for easy access. One workspace menu lets you switch between cloud deployments and connected local instances. There is no native app to install from an app store; home-screen installation varies by browser and operating system.
 
@@ -52,7 +52,7 @@ Your home-screen icon uses the QwenPaw logo. Whether the installed app keeps you
 - You can add an offline node to your phone, but the node must come online before you can use it. Offline execution is not supported.
 - After a node upgrade, wait for the current response to finish, then choose **Update** to reload its Console. Unsent drafts are retained; sent requests are never automatically replayed.
 
-Upgrade older nodes that do not support Web App access. Nodes do not all need to run the same version: each supplies its own Console, as long as Platform supports its connection protocol. Terminal access still requires the node's usual authentication and dependencies. Uploads are limited to 8 MiB. Push notifications are not available in this Beta. Installation, microphone permissions, and background behavior still need to be checked on individual devices.
+Each supported node supplies its own Console. Terminal access requires the node's usual authentication and dependencies. Uploads are limited to 8 MiB. Push notifications are unavailable.
 
 ## Sign out or disconnect a node
 

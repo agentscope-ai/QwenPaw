@@ -10,7 +10,6 @@ import {
 } from "./api";
 import { usePlatformAccess } from "./store";
 import styles from "./platformAccess.module.less";
-import { ExperimentalFeature } from "./ExperimentalFeature";
 import { isPlatformWebApp } from "../platform-web/client";
 import { WorkspaceSwitcher } from "../platform-web/WorkspaceSwitcher";
 
@@ -216,16 +215,11 @@ function PlatformAccessDialog() {
       open={panel !== null}
       onCancel={() => open(null)}
       footer={null}
-      title={
-        <span className={styles.title}>
-          {t(
-            panel === "account"
-              ? "platformAccess.account"
-              : "platformAccess.addToPhoneTitle",
-          )}
-          <ExperimentalFeature />
-        </span>
-      }
+      title={t(
+        panel === "account"
+          ? "platformAccess.account"
+          : "platformAccess.addToPhone",
+      )}
       width={400}
     >
       <div className={styles.content}>
@@ -267,7 +261,7 @@ function PlatformAccessDialog() {
               <>
                 {connection.node_id ? (
                   <Button type="primary" onClick={() => open("mobile")} block>
-                    {t("platformAccess.addToPhoneTitle")}
+                    {t("platformAccess.addToPhone")}
                   </Button>
                 ) : (
                   <Button

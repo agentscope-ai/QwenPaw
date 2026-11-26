@@ -7,7 +7,6 @@ import {
   Download,
   LogOut,
   Monitor,
-  FlaskConical,
   RefreshCw,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -120,23 +119,18 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
           className={`${styles.workspace} ${
             className ? styles.menuWorkspace : ""
           } ${className ?? ""}`}
-          aria-label={`${t("webApp.switchTarget")}: ${
-            target?.name ?? ""
-          } (Beta)`}
-          title={`${target?.name ?? t("webApp.switchTarget")} · Beta`}
+          aria-label={
+            target
+              ? `${t("webApp.switchTarget")}: ${target.name}`
+              : t("webApp.switchTarget")
+          }
+          title={target?.name ?? t("webApp.switchTarget")}
           icon={
-            <span className={styles.workspaceIcon}>
-              {target?.kind === "cloud" ? (
-                <Cloud size={18} />
-              ) : (
-                <Monitor size={18} />
-              )}
-              <FlaskConical
-                size={10}
-                className={styles.beta}
-                aria-label="Beta"
-              />
-            </span>
+            target?.kind === "cloud" ? (
+              <Cloud size={18} />
+            ) : (
+              <Monitor size={18} />
+            )
           }
         >
           <span className={styles.workspaceName}>

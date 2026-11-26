@@ -9,7 +9,6 @@ export interface PlatformConnection {
   authorization_url: string | null;
   logged_in: boolean;
   transport_status: string;
-  beta: boolean;
 }
 
 export interface MobileLogin {

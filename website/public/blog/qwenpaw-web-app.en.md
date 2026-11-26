@@ -1,8 +1,8 @@
 ---
-title: "QwenPaw on your phone: Web App Beta"
+title: "QwenPaw on your phone: Web App"
 date: 2026-11-16
 author: QwenPaw Team
-tags: [Web App, PWA, Mobile, Beta]
+tags: [Web App, PWA, Mobile]
 excerpt: "Pick up a conversation from your phone, switch between cloud and local workspaces, and keep using the Console you already know."
 related:
   heading: "Get started on your phone"
@@ -13,11 +13,11 @@ related:
       href: "/docs/mobile"
 ---
 
-# QwenPaw on your phone: Web App Beta
+# QwenPaw on your phone: Web App
 
 You no longer need to be at your computer to use your local QwenPaw. Web App access lets you pick up a conversation from your phone and switch between cloud deployments and connected local workspaces. Open it in your browser or add it to your home screen. No native app is needed.
 
-Web App access is in **Beta** and may be unstable. Your QwenPaw installation and Platform deployment must both support it.
+Your QwenPaw installation and Platform deployment must both support Web App access.
 
 ## Start from Console
 
@@ -45,6 +45,6 @@ Your local QwenPaw still runs on your computer, so keep it on and connected. You
 
 On iPhone and iPad, open Safari's **⋯** menu if needed, then choose **Share → Add to Home Screen**. On supported Android browsers, **Add to home screen** opens the installation prompt directly; otherwise, use the browser menu. On HarmonyOS, look for an option to add the page to your home screen in the system browser. Availability varies by OS and browser version.
 
-Attachments, files, and terminal access follow the selected node's configuration and permissions. This Beta does not support push notifications or offline execution. Installation, microphone access, and background behavior still need to be checked on individual devices.
+Attachments, files, and terminal access follow the selected node's configuration and permissions. Push notifications and offline execution are unavailable.
 
 See the [Mobile Web App guide](/docs/mobile) for setup steps, account access, and troubleshooting.

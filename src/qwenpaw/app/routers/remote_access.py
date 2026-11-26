@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Beta Platform login, binding, and mobile handoff for the Console."""
+"""Platform login, binding, and mobile handoff for the Console."""
 
 from __future__ import annotations
 
@@ -79,7 +79,6 @@ async def status(request: Request) -> dict:
     return {
         **asdict(await service.account.status()),
         "transport_status": service.supervisor.status,
-        "beta": True,
     }
 
 
