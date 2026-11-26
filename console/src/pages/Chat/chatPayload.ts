@@ -50,5 +50,11 @@ export function applyChatPayloadTransforms(
       },
     };
   }
-  return requestBody;
+  return {
+    ...requestBody,
+    request_context: {
+      ...(requestBody.request_context as Record<string, unknown> | undefined),
+      followup_supported: true,
+    },
+  };
 }

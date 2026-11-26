@@ -1430,6 +1430,12 @@ class LightContextConfig(BaseModel):
         return self
 
 
+class FollowupConfig(BaseModel):
+    """Optional inline follow-up suggestions for web conversations."""
+
+    enabled: bool = False
+
+
 class AutoTitleConfig(BaseModel):
     """Async chat-title generation configuration.
 
@@ -2023,6 +2029,7 @@ class AgentsRunningConfig(BaseModel):
         default_factory=LightContextConfig,
     )
 
+    followup: FollowupConfig = Field(default_factory=FollowupConfig)
     auto_title_config: AutoTitleConfig = Field(
         default_factory=AutoTitleConfig,
         description=(

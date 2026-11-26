@@ -130,6 +130,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     reme_light_memory_config:
       {} as unknown as Config["reme_light_memory_config"],
     approval_level: "AUTO",
+    followup: { enabled: false },
     auto_title_config: { enabled: true, timeout_seconds: 30 },
     ...overrides,
   };

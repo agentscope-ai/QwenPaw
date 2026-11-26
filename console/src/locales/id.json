@@ -1149,6 +1149,8 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
+    "followupAdd": "Tambahkan ke input",
+    "followupFailed": "Saran tidak dapat ditambahkan. Periksa percakapan dan status input.",
     "longTextPaste": {
       "title": "Tempel teks panjang",
       "asText": "Tempel sebagai teks",
@@ -4291,6 +4293,8 @@
     "openDirectory": "Buka {{name}}"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "Buat saran tindak lanjut",
+    "autoGenerateFollowupTooltip": "Tampilkan saran setelah balasan terakhir berhasil. Klik untuk menambahkan ke draf. Menonaktifkan menghentikan saran untuk balasan berikutnya.",
     "title": "Konfigurasi",
     "projectDirectoryTitle": "Workspace Agent bawaan",
     "projectDirectoryDescription": "Workspace Agent bawaan untuk file dan perintah.",

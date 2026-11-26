@@ -11,6 +11,8 @@ import types
 
 import pytest
 
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.runtime.prompt_contributors import build_default_prompt_manager
 from qwenpaw.runtime import builder as builder_mod
 
 
@@ -328,3 +330,60 @@ class TestBoundSkillLoaderDirs:
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(skill)]
+
+
+@pytest.mark.parametrize(
+    "enabled,supported,channel,backend,expected",
+    [
+        (True, True, "console", "qwenpaw", True),
+        (False, True, "console", "qwenpaw", False),
+        (True, None, "console", "qwenpaw", False),
+        (True, True, "telegram", "qwenpaw", False),
+        (True, True, "console", "codex", False),
+    ],
+)
+def test_followup_prompt_request_scope(
+    monkeypatch,
+    tmp_path,
+    enabled,
+    supported,
+    channel,
+    backend,
+    expected,
+):
+    """Exercise actual builder-to-prompt-manager capability propagation."""
+    config = AgentProfileConfig(
+        id="test",
+        name="Test",
+        backend=backend,
+        running={"followup": {"enabled": enabled}},
+        system_prompt_files=[],
+    )
+    builder = builder_mod.AgentBuilder(app_services=None)
+    monkeypatch.setattr(builder, "_build_env_context", lambda *args: "")
+    monkeypatch.setattr(builder, "_get_driver_prompt_hints", lambda *args: [])
+    ctx = types.SimpleNamespace(
+        workspace_dir=tmp_path,
+        agent_id="test",
+        extras={},
+        request=types.SimpleNamespace(
+            channel=channel,
+            request_context={"followup_supported": supported},
+        ),
+        workspace=types.SimpleNamespace(
+            plugins=types.SimpleNamespace(
+                prompt_manager=build_default_prompt_manager(),
+            ),
+        ),
+    )
+    prompt = builder.build_prompt(ctx, config)
+    assert ("## Optional follow-up suggestions" in prompt) is expected
+    disabled = (
+        not enabled
+        and supported is True
+        and channel == "console"
+        and backend == "qwenpaw"
+    )
+    assert ("Follow-up suggestions are disabled" in prompt) is disabled
+    if not expected and not disabled:
+        assert "followup-suggestions" not in prompt

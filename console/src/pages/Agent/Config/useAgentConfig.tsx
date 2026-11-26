@@ -88,6 +88,7 @@ export function useAgentConfig(
         memory_manager_backend: memoryBackend,
         memory_backend_configs: config.memory_backend_configs || {},
         reme_light_memory_config: config.reme_light_memory_config,
+        followup: config.followup ?? { enabled: false },
         auto_title_config: config.auto_title_config ?? {
           enabled: true,
           timeout_seconds: 30.0,
@@ -180,6 +181,9 @@ export function useAgentConfig(
               original.memory_backend_configs,
               formValues.memory_backend_configs,
             ) || {},
+          followup: deepMergeConfig(original.followup, formValues.followup) ?? {
+            enabled: false,
+          },
           auto_title_config: deepMergeConfig(
             original.auto_title_config,
             formValues.auto_title_config,

@@ -2394,6 +2394,8 @@
     "openDirectory": "{{name}} を開く"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "次の質問候補を自動生成",
+    "autoGenerateFollowupTooltip": "最新の応答が正常に完了すると候補を表示します。クリックで入力欄に追加します。オフにすると以降の応答では生成しません。",
     "title": "設定",
     "projectDirectoryTitle": "既定の Agent ワークスペース",
     "projectDirectoryDescription": "ファイルとコマンドで使用する既定の Agent ワークスペースです。",
@@ -3325,6 +3327,8 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
+    "followupAdd": "入力欄に追加",
+    "followupFailed": "候補を追加できませんでした。現在のチャットと入力状態を確認してください。",
     "longTextPaste": {
       "title": "長いテキストを貼り付け",
       "asText": "テキストとして貼り付け",

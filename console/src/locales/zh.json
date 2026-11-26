@@ -3185,6 +3185,8 @@
     "openDirectory": "进入 {{name}}"
   },
   "agentConfig": {
+    "autoGenerateFollowup": "自动生成后续建议",
+    "autoGenerateFollowupTooltip": "在最新一轮成功结束后的最终回复中显示后续建议，点击可填入输入框。关闭后不再为后续回复生成建议。",
     "advancedRuntime": "高级运行设置",
     "title": "运行配置",
     "projectDirectoryTitle": "默认智能体工作区",
@@ -4150,6 +4152,8 @@
     "system": "跟随系统"
   },
   "chat": {
+    "followupAdd": "添加到输入框",
+    "followupFailed": "无法添加建议，请确认当前对话和输入状态后重试。",
     "quoteFollowUp": "引用并追问",
     "longTextPaste": {
       "title": "粘贴长文本",

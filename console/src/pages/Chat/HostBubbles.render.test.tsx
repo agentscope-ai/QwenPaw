@@ -6,6 +6,8 @@ import {
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
 } from "@agentscope-ai/chat";
+import { FollowupContext } from "./followupContext";
+import { FollowupSuggestions } from "./FollowupSuggestions";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import * as assistantMarkdown from "./AssistantMarkdown";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
@@ -29,7 +31,7 @@ vi.mock("../../components/RenderableCodeBlock", () => ({
   renderableCodeComponents: {},
 }));
 vi.mock("../../features/files-workspace/ResponseArtifactList", () => ({
-  default: () => null,
+  default: () => <div data-testid="response-artifacts" />,
 }));
 vi.mock("../../components/Chat/MediaDownload", () => ({
   DownloadableAudios: () => null,
@@ -345,4 +347,95 @@ describe("merged host bubbles behavior", () => {
       /prepend-early[\s\S]*prepend-late[\s\S]*original request content[\s\S]*append-content[\s\S]*request-actions/,
     );
   });
+});
+
+it("offers followups only for the latest successful final assistant", () => {
+  const markdown = vi
+    .spyOn(assistantMarkdown, "AssistantMarkdown")
+    .mockImplementation(({ content, followupSource }) => (
+      <>
+        <p data-followup={followupSource?.messageId}>{content}</p>
+        {followupSource && (
+          <FollowupSuggestions
+            source={followupSource}
+            text={'[{"label":"Next step","prompt":"Continue"}]'}
+          />
+        )}
+      </>
+    ));
+  const answer = (id: string) => ({
+    id,
+    role: "assistant",
+    type: "message",
+    status: "completed",
+    content: [{ type: "text", text: id }],
+  });
+  const renderCard = (
+    status: string,
+    isLast: boolean,
+    mediaLast = false,
+    blocked = false,
+  ) =>
+    provider(
+      <FollowupContext.Provider
+        value={{
+          agentId: "a",
+          chatId: "chat",
+          blocked,
+          addFollowup: () => true,
+        }}
+      >
+        <HostResponseCard
+          id="card"
+          isLast={isLast}
+          data={{
+            id: "response",
+            status,
+            output: [
+              answer("early"),
+              answer("final"),
+              ...(mediaLast
+                ? [
+                    {
+                      id: "media",
+                      role: "assistant",
+                      type: "message",
+                      content: [],
+                    },
+                  ]
+                : []),
+            ],
+          }}
+        />
+      </FollowupContext.Provider>,
+    );
+  try {
+    setAssistantMessageDisplayPreference("expanded");
+    const view = render(renderCard("completed", true));
+    expect(
+      view.container.querySelector('[data-followup="final"]'),
+    ).not.toBeNull();
+    expect(view.container.querySelector('[data-followup="early"]')).toBeNull();
+    expect(
+      screen
+        .getByTestId("response-artifacts")
+        .compareDocumentPosition(
+          screen.getByRole("button", { name: "Next step" }),
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    for (const [status, latest, media, blocked] of [
+      ["completed", false, false, false],
+      ["in_progress", true, false, false],
+      ["failed", true, false, false],
+      ["canceled", true, false, false],
+      ["completed", true, true, false],
+      ["completed", true, false, true],
+    ] as const) {
+      view.rerender(renderCard(status, latest, media, blocked));
+      expect(view.container.querySelector("[data-followup]")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Next step" })).toBeNull();
+    }
+  } finally {
+    markdown.mockRestore();
+  }
 });
