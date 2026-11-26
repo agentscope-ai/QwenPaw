@@ -128,6 +128,7 @@ vi.mock("@agentscope-ai/chat", () => ({
         cancel: vi.fn(async () => ({ status: "not-found" })),
         resume: mockRuntimeResume,
         getActiveRun: mockRuntimeGetActiveRun,
+        subscribe: vi.fn(() => vi.fn()),
       },
     }));
     return (
@@ -189,7 +190,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
-    stopChat: vi.fn(() => Promise.resolve()),
+    stopChat: vi.fn(async () => ({ stopped: true })),
   },
 }));
 

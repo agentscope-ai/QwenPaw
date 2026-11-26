@@ -29,6 +29,7 @@ import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { composer } from "@/plugins/hostSdk/composer";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
+import sessionApi from "./sessionApi";
 import { useStoppedTurnsStore } from "./stoppedTurns";
 import {
   getPendingProjectDirectory,
@@ -42,6 +43,7 @@ import { listenForProjectDirectoryChanges } from "../../features/project-directo
 const {
   mockListProviders,
   mockPreviewModelInfo,
+  mockMessageError,
   mockMessageWarning,
   mockGetActiveModels,
   mockUploadFile,
@@ -68,6 +70,7 @@ const {
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockPreviewModelInfo: vi.fn(),
+  mockMessageError: vi.fn(),
   mockMessageWarning: vi.fn(),
   mockGetActiveModels: vi.fn(),
   mockUploadFile: vi.fn(),
@@ -106,7 +109,11 @@ let observedSdkSessions: Array<{ agent: string; sessionId?: string }> = [];
 // ---------------------------------------------------------------------------
 vi.mock("../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { success: vi.fn(), error: vi.fn(), warning: mockMessageWarning },
+    message: {
+      success: vi.fn(),
+      error: mockMessageError,
+      warning: mockMessageWarning,
+    },
   }),
 }));
 
@@ -705,6 +712,8 @@ describe("ChatPage coverage", () => {
     mockExecutionGetActiveRun.mockResolvedValue(undefined);
     mockExecutionResume.mockReset();
     mockExecutionResume.mockResolvedValue(undefined);
+    vi.mocked(sessionApi.refreshSession).mockReset();
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue(undefined);
     mockSdkRunListeners.clear();
     useStoppedTurnsStore.setState({ stoppedSessionIds: new Set() });
     chatExtensions.__resetForTests();
@@ -1597,10 +1606,16 @@ describe("ChatPage coverage", () => {
     ).toBeNull();
   });
 
-  it("keeps Stop hidden while backend status lags SDK completion", async () => {
+  it("recovers a later backend run without observing idle between runs", async () => {
     mockGetChatStatus.mockResolvedValue({ status: "running" });
     mockExecutionGetActiveRun.mockResolvedValue({
       getState: () => "streaming",
+    });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "External run",
+      messages: [],
+      generating: true,
     });
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1609,27 +1624,91 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
     await act(async () => window.dispatchEvent(new Event("online")));
     await screen.findByRole("button", { name: "Stop generating" });
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
-    await act(async () => {
-      for (const listener of mockSdkRunListeners) {
-        listener({ sessionId: "test-session", state: "completed" });
-      }
+    const now = vi.spyOn(performance, "now");
+    try {
+      const completedAt = performance.now();
+      now.mockReturnValue(completedAt);
+      await act(async () => {
+        for (const listener of mockSdkRunListeners) {
+          listener({ sessionId: "test-session", state: "completed" });
+        }
+      });
+      mockExecutionGetActiveRun.mockResolvedValue(undefined);
+      await act(async () => window.dispatchEvent(new Event("online")));
+
+      expect(
+        screen.queryByRole("button", { name: "Stop generating" }),
+      ).toBeNull();
+      expect(mockExecutionResume).not.toHaveBeenCalled();
+
+      now.mockReturnValue(completedAt + 5000);
+      await act(async () => window.dispatchEvent(new Event("online")));
+
+      expect(
+        screen.getByRole("button", { name: "Stop generating" }),
+      ).toBeVisible();
+      expect(mockExecutionResume).toHaveBeenCalledWith({
+        sessionId: "test-session",
+        source: "direct",
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("allows Stop again when SDK cancellation fails but the backend is still running", async () => {
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockExecutionGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
     });
-    expect(
-      screen.queryByRole("button", { name: "Stop generating" }),
-    ).toBeNull();
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "Disconnected run",
+      messages: [],
+      generating: true,
+    });
+    const failure = new Error("Temporary stop failure");
+    mockStopChat.mockRejectedValueOnce(failure).mockResolvedValueOnce({
+      stopped: true,
+    });
+    mockExecutionCancel.mockImplementationOnce(async () => {
+      try {
+        await capturedOptions.api.cancel({ session_id: "test-session" });
+      } catch (error) {
+        // The SDK cancels its local run even when backend cancellation throws.
+        mockExecutionGetActiveRun.mockResolvedValue(undefined);
+        for (const listener of mockSdkRunListeners) {
+          listener({ sessionId: "test-session", state: "canceled" });
+        }
+        return { status: "failed", error, locallyCanceled: true };
+      }
+      throw new Error("Expected backend cancellation to fail");
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
 
-    mockExecutionGetActiveRun.mockResolvedValue(undefined);
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await screen.findByTestId("chat-ui");
     await act(async () => window.dispatchEvent(new Event("online")));
-    await waitFor(() =>
-      expect(mockExecutionGetActiveRun).toHaveBeenCalledTimes(2),
-    );
+    expect(mockExecutionResume).toHaveBeenCalledTimes(1);
+    const pollsBeforeStop = mockGetChatStatus.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop generating" }));
+    });
 
+    expect(mockMessageError).toHaveBeenCalledWith(failure.message);
+    expect(mockGetChatStatus).toHaveBeenCalledTimes(pollsBeforeStop + 1);
+    expect(mockExecutionResume).toHaveBeenCalledTimes(2);
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds.size).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop generating" }));
+    });
+    expect(mockStopChat).toHaveBeenCalledTimes(2);
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds.size).toBe(1);
     expect(
       screen.queryByRole("button", { name: "Stop generating" }),
     ).toBeNull();
-    expect(mockExecutionResume).not.toHaveBeenCalled();
   });
 
   it.each([

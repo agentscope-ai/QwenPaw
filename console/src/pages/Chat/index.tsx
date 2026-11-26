@@ -839,6 +839,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
+const ACTIVE_RUN_SETTLE_MS = 1000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -2137,6 +2138,7 @@ export default function ChatPage() {
   const showDetachedRunStop =
     runningVisit === queueVisit && !isSessionTransition;
   const stoppingDetachedRun = stoppingVisit === queueVisit;
+  const recheckRunAfterStopFailureRef = useRef<(() => void) | null>(null);
   const stopBackendRun = useCallback(async () => {
     if (
       !backendChatId ||
@@ -2164,6 +2166,7 @@ export default function ChatPage() {
             ? error.message
             : t("chat.composer.stopFailed"),
         );
+        recheckRunAfterStopFailureRef.current?.();
       }
     } finally {
       setStoppingVisit((visit) => (visit === queueVisit ? null : visit));
@@ -2187,6 +2190,7 @@ export default function ChatPage() {
 
     const controller = new AbortController();
     let inFlight = false;
+    let recheckPending = false;
     const syncKey = `${selectedAgent}:${queueSessionId}`;
     if (activeRunSyncRef.current.key !== syncKey) {
       activeRunSyncRef.current = {
@@ -2197,10 +2201,13 @@ export default function ChatPage() {
     }
     const syncState = activeRunSyncRef.current;
     let terminalEventRevision = 0;
-    let terminalRunObserved = false;
-    const refreshMessages = async ({
-      requireIdle,
-    }: { requireIdle?: boolean } = {}) => {
+    let settleUntil = 0;
+    const isCurrent = (revision: number) =>
+      !controller.signal.aborted && revision === terminalEventRevision;
+    const refreshMessages = async (
+      revision: number,
+      { requireIdle }: { requireIdle?: boolean } = {},
+    ) => {
       const session = await sessionApi.refreshSession(
         queueSessionId,
         controller.signal,
@@ -2208,7 +2215,7 @@ export default function ChatPage() {
       if (
         !session ||
         (requireIdle && (session.generating || chatLoadingRef.current)) ||
-        controller.signal.aborted ||
+        !isCurrent(revision) ||
         queueSessionIdRef.current !== queueSessionId ||
         !isChatActiveRef.current
       ) {
@@ -2227,51 +2234,28 @@ export default function ChatPage() {
           agentId: selectedAgent,
           signal: controller.signal,
         });
-        if (
-          controller.signal.aborted ||
-          requestRevision !== terminalEventRevision
-        ) {
-          return;
-        }
+        if (!isCurrent(requestRevision)) return;
 
         if (runStatus.status === "running") {
           const firstRunningObservation = !syncState.sawRunning;
           const execution = chatRef.current?.execution;
           const activeRun = await execution?.getActiveRun(queueSessionId);
-          if (
-            controller.signal.aborted ||
-            requestRevision !== terminalEventRevision
-          ) {
-            return;
-          }
-          if (activeRun) {
-            const state = activeRun.getState();
-            if (
-              state === "completed" ||
-              state === "failed" ||
-              state === "canceled"
-            ) {
-              terminalRunObserved = true;
-              setRunningVisit((visit) => (visit === queueVisit ? null : visit));
-              return;
-            }
-            if (state !== "disconnected") {
-              terminalRunObserved = false;
-              setRunningVisit(queueVisit);
-              syncState.resumeAttempted = false;
-              return;
-            }
-            terminalRunObserved = false;
-          } else if (terminalRunObserved) {
-            setRunningVisit((visit) => (visit === queueVisit ? null : visit));
-            return;
-          }
+          if (!isCurrent(requestRevision)) return;
+          // A terminal SDK event can precede backend cleanup. Without a
+          // backend run ID, only defer briefly before trusting a fresh poll.
+          if (!activeRun && performance.now() < settleUntil) return;
+          settleUntil = 0;
           setRunningVisit(queueVisit);
+          if (activeRun && activeRun.getState() !== "disconnected") {
+            syncState.resumeAttempted = false;
+            return;
+          }
           if (syncState.resumeAttempted) return;
           if (!execution) return;
           if (firstRunningObservation || !activeRun) {
-            if (!(await refreshMessages())) return;
+            if (!(await refreshMessages(requestRevision))) return;
           }
+          if (!isCurrent(requestRevision)) return;
           syncState.sawRunning = true;
           syncState.resumeAttempted = true;
           try {
@@ -2280,7 +2264,7 @@ export default function ChatPage() {
               source: "direct",
             });
           } catch (error) {
-            if (!controller.signal.aborted) {
+            if (isCurrent(requestRevision)) {
               syncState.resumeAttempted = false;
             }
             throw error;
@@ -2288,10 +2272,13 @@ export default function ChatPage() {
           return;
         }
 
-        terminalRunObserved = false;
+        settleUntil = 0;
         setRunningVisit(null);
         if (!syncState.sawRunning) return;
-        if (await refreshMessages({ requireIdle: true })) {
+        if (
+          (await refreshMessages(requestRevision, { requireIdle: true })) &&
+          isCurrent(requestRevision)
+        ) {
           syncState.sawRunning = false;
           syncState.resumeAttempted = false;
         }
@@ -2301,7 +2288,19 @@ export default function ChatPage() {
         }
       } finally {
         inFlight = false;
+        if (recheckPending) {
+          recheckPending = false;
+          void syncRun();
+        }
       }
+    };
+
+    recheckRunAfterStopFailureRef.current = () => {
+      terminalEventRevision += 1;
+      settleUntil = 0;
+      syncState.resumeAttempted = false;
+      if (inFlight) recheckPending = true;
+      else void syncRun();
     };
 
     const unsubscribeExecution = chatRef.current?.execution.subscribe(
@@ -2311,9 +2310,10 @@ export default function ChatPage() {
           event.state === "completed" ||
           event.state === "failed" ||
           event.state === "canceled";
-        terminalRunObserved = terminal;
+        settleUntil = terminal ? performance.now() + ACTIVE_RUN_SETTLE_MS : 0;
         if (!terminal) return;
         terminalEventRevision += 1;
+        syncState.resumeAttempted = false;
         setRunningVisit((visit) => (visit === queueVisit ? null : visit));
       },
     );
@@ -2329,6 +2329,7 @@ export default function ChatPage() {
     document.addEventListener("visibilitychange", retryWhenVisible);
     return () => {
       controller.abort();
+      recheckRunAfterStopFailureRef.current = null;
       unsubscribeExecution?.();
       window.clearInterval(retryTimer);
       window.removeEventListener("online", retryWhenVisible);
