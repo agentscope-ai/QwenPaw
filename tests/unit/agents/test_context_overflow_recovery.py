@@ -25,6 +25,9 @@ from google.genai import errors as genai_errors
 from PIL import Image
 
 from qwenpaw.agents import prompt
+from qwenpaw.agents.context.overflow_recovery import (
+    call_with_overflow_recovery,
+)
 from qwenpaw.agents.context.visual_compression.runtime.middleware import (
     VisualCompressionMiddleware,
 )
@@ -34,6 +37,7 @@ from qwenpaw.agents.model_factory import (
 )
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.agents.utils.message_request_normalizer import (
+    _omitted_ids,
     mark_media_omitted_after_overflow,
 )
 from qwenpaw.providers.capping_formatter import (
@@ -127,7 +131,7 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
     assert len(scroll.calls) == 1
     assert scroll.calls[0] is agent
     agent.compress_context.assert_not_awaited()
-    agent._prepare_model_input.assert_awaited_once()
+    assert agent._prepare_model_input.await_count == 1
     assert calls == [
         (
             ["system", "old-1", "old-2"],
@@ -535,11 +539,17 @@ async def test_body_recovery_rebuilds_once_without_scroll(
             )
             == "recovered"
         )
-    assert requests == (
-        [(9, [], "auto"), (1, [], "auto")]
-        + ([] if retry_fails else [(1, [], "auto")])
-    )
-    agent._prepare_model_input.assert_awaited_once()
+    # Both refusals share one recovery budget. A retry that is refused
+    # again spends the remaining recovery — omit history first, then try a
+    # smaller rendition — instead of ending the turn.
+    first_call = [(9, [], "auto"), (1, [], "auto")]
+    if retry_fails:
+        first_call.append((1, [], "auto"))
+    assert requests == first_call + ([] if retry_fails else [(1, [], "auto")])
+    # Each recovery rebuilds the input. A retry that is refused again spends
+    # the second recovery on a smaller rendition, so a failing retry
+    # prepares the input twice.
+    assert agent._prepare_model_input.await_count == (2 if retry_fails else 1)
     assert [msg.model_dump()["content"] for msg in agent.state.context] == (
         original_content
     )
@@ -670,9 +680,19 @@ async def test_text_body_overflow_uses_context_recovery(monkeypatch, changes):
     assert len(requests) == (2 if changes else 1)
 
 
-async def test_body_recovery_does_not_fold_active_media(monkeypatch):
+async def test_body_recovery_tightens_limits_without_folding_active_media(
+    monkeypatch,
+):
+    """A body rejection with no historical media tightens, never deletes.
+
+    The active turn is what the user is asking about, so its media must not
+    be folded away. Shrinking the request-scoped limits and retrying once
+    keeps the block and still gives the request a second chance.
+    """
     agent = _media_agent(_media_history()[:2])
     before = agent.state_dict()
+    original_side = agent.formatter.max_image_side
+    original_bytes = agent.formatter.max_bytes
     manager = _ScrollManager([])
     agent._context_manager = manager
     calls = []
@@ -684,6 +704,350 @@ async def test_body_recovery_does_not_fold_active_media(monkeypatch):
     monkeypatch.setattr(Agent, "_call_model", call)
     with pytest.raises(_BodyOverflowError):
         await agent._call_model(agent.state.context, [])
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert not manager.calls
     assert agent.state_dict() == before
+    # The retry keeps every media block: rescaling is not omission.
+    assert _count_wire_media_blocks(calls[1]) == _count_wire_media_blocks(
+        calls[0],
+    )
+    # The tightened limits are only borrowed for that one retry.
+    assert agent.formatter.max_image_side == original_side
+    assert agent.formatter.max_bytes == original_bytes
+
+
+async def test_media_payload_rejection_marks_history_and_retries(monkeypatch):
+    """A 400 naming the media payload must not be replayed forever.
+
+    The non-streaming path used to recognise only 413 / body-size wording,
+    so a "image dimensions exceed the maximum" rejection raised straight
+    through and the block stayed in state.context for every later turn.
+    """
+    agent = _media_agent(_media_history())
+    agent.formatter._qwenpaw_last_wire_media_count = 8
+    agent._retry_with_refreshed_input = AsyncMock(return_value="ok")
+    rejection = _BodyOverflowError(
+        400,
+        "image dimensions exceed the maximum allowed size",
+    )
+
+    assert (
+        await agent._recover_model_overflow(rejection, tool_choice=None)
+        == "ok"
+    )
+    assert agent._retry_with_refreshed_input.await_count == 1
+    marked = sum(len(_omitted_ids(message)) for message in agent.state.context)
+    assert marked == 8
+
+
+async def test_media_payload_rejection_tightens_limits_for_active_turn(
+    monkeypatch,
+):
+    """With no historical media to omit, the failing rendition is rescaled."""
+    agent = _media_agent(
+        [Msg(name="user", role="user", content=[_image("only-active")])],
+    )
+    agent.formatter._qwenpaw_last_wire_media_count = 1
+    # The image is base64, so tightening the limits can re-encode it.
+    agent.formatter._qwenpaw_last_wire_resizable_images = 1
+    original_side = agent.formatter.max_image_side
+    original_bytes = agent.formatter.max_bytes
+    seen = {}
+
+    async def retry(tool_choice, retry=None):
+        seen["side"] = agent.formatter.max_image_side
+        seen["bytes"] = agent.formatter.max_bytes
+        return "ok"
+
+    agent._retry_with_refreshed_input = AsyncMock(side_effect=retry)
+    rejection = _BodyOverflowError(
+        400,
+        "image size exceeds the maximum allowed pixels",
+    )
+
+    assert (
+        await agent._recover_model_overflow(rejection, tool_choice=None)
+        == "ok"
+    )
+    assert seen["side"] < original_side
+    assert seen["bytes"] < original_bytes
+    assert agent.formatter.max_image_side == original_side
+    assert agent.formatter.max_bytes == original_bytes
+
+
+def test_media_omission_notice_is_attached_to_the_reply():
+    """Users must be able to tell "ignored" from "never delivered"."""
+    agent = _media_agent(_media_history()[:1])
+    reply = Msg(
+        name="assistant",
+        role="assistant",
+        content=[TextBlock(text="done")],
+    )
+    agent._note_media_omission(3, "provider media limit")
+    agent._attach_media_omission_notice(reply)
+    assert reply.metadata["qwenpaw_media_omitted"] == {
+        "count": 3,
+        "reason": "provider media limit",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_retry_may_recover_once_more():
+    """The second refusal of one request shares the recovery budget.
+
+    A 413 that omits historical media can be followed by a second 413 about
+    the media in the active turn. Without covering the retry, that second
+    refusal ended the turn with the active image at its original size.
+    """
+    attempts = {"n": 0}
+
+    async def call_model(**_kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("request body too large")
+
+    async def recover(_exc):
+        async def retry():
+            attempts["n"] += 1
+            raise RuntimeError("request body too large")
+            yield  # pragma: no cover
+
+        return retry()
+
+    result = await call_with_overflow_recovery(call_model, recover)
+    with pytest.raises(RuntimeError, match="too large"):
+        async for _ in result:
+            pass
+
+    # initial call + first retry + second retry, then the budget is spent
+    assert attempts["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_recovery_budget_is_capped():
+    """A provider that keeps refusing must not be retried forever."""
+    attempts = {"n": 0}
+
+    async def call_model(**_kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("request body too large")
+
+    async def recover(_exc):
+        async def retry():
+            attempts["n"] += 1
+            raise RuntimeError("request body too large")
+            yield  # pragma: no cover
+
+        return retry()
+
+    result = await call_with_overflow_recovery(
+        call_model,
+        recover,
+        max_recoveries=1,
+    )
+    with pytest.raises(RuntimeError):
+        async for _ in result:
+            pass
+
+    assert attempts["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_second_non_streaming_refusal_reaches_the_shared_budget() -> None:
+    """A refusal raised by the retry itself must recover from the budget.
+
+    With one historical image and an oversized current image, the first
+    recovery omits history and the retried call is refused again. That
+    second refusal used to escape ``call_with_overflow_recovery`` and end
+    the turn, because the recovery call sat outside the retry loop.
+    """
+    attempts: list[int] = []
+    recoveries: list[str] = []
+
+    async def call_model(**kwargs):
+        attempts.append(len(attempts))
+        if len(attempts) < 3:
+            raise RuntimeError(f"413 attempt {len(attempts)}")
+        return "ok"
+
+    async def recover(exc):
+        recoveries.append(str(exc))
+        return await call_model()
+
+    result = await call_with_overflow_recovery(
+        call_model,
+        recover,
+        max_recoveries=2,
+    )
+
+    assert result == "ok"
+    assert len(recoveries) == 2
+    assert len(attempts) == 3
+
+
+async def test_mixed_media_retry_keeps_the_configured_side_cap():
+    """A large GIF must not raise the PNG above the configured cap.
+
+    ``max_image_side=256`` with a 500 px animated GIF and a 600 px PNG: the
+    request's observed side is 500, so the retry used to set the cap to 500
+    and sent the PNG at 500 px as well.
+    """
+    agent = _media_agent(_media_history()[:2])
+    agent.formatter.max_image_side = 256
+    agent.formatter.max_bytes = 16 * 1024 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 500
+    agent.formatter._qwenpaw_last_wire_resizable_images = 2
+
+    saved = agent._tighten_media_limits()
+
+    assert saved is not None
+    assert agent.formatter.max_image_side == 256
+
+
+async def test_identical_tighten_target_is_not_retried():
+    """Recomputing the same target cannot fix a refusal; stop before it."""
+    agent = _media_agent(_media_history()[:2])
+    agent.formatter.max_image_side = 1024
+    agent.formatter.max_bytes = 1024 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 1024
+    agent.formatter._qwenpaw_last_wire_resizable_images = 1
+
+    first = agent._tighten_media_limits()
+    assert first is not None
+    agent._restore_media_limits(first)
+
+    # The provider refused the retry too, and recomputing from restored
+    # limits yields the exact same rendition.
+    assert agent._tighten_media_limits() is None
+
+
+async def test_accepted_rendition_is_keyed_by_the_size_that_succeeded():
+    """1000 px refused, 512 px accepted: cache 512, not the guess."""
+    agent = _media_agent(_media_history()[:2])
+    agent._media_rendition_pending = (1000, (1000, 512 * 1024))
+    agent.formatter.max_image_side = 512
+    agent.formatter.max_bytes = 128 * 1024
+    agent.formatter._qwenpaw_last_wire_max_image_side = 512
+
+    agent._accept_media_rendition()
+
+    assert agent._media_rendition_target == (512, (512, 128 * 1024))
+
+
+async def test_unreadable_image_is_returned_without_reopening(monkeypatch):
+    """A bomb error must not be raised a second time by ``_emit()``."""
+    from qwenpaw.agents.utils import image_resize
+
+    opens = []
+
+    def exploding_open(*args, **kwargs):
+        opens.append(1)
+        raise image_resize.Image.DecompressionBombError("too large")
+
+    monkeypatch.setattr(image_resize.Image, "open", exploding_open)
+    observed: list[int] = []
+
+    data, media_type = image_resize.downscale_image_bytes(
+        b"not-an-image",
+        "image/png",
+        max_side=256,
+        max_bytes=1024,
+        observed_sides=observed,
+    )
+
+    assert (data, media_type) == (b"not-an-image", "image/png")
+    assert opens == [1]
+    assert observed == []
+
+
+def test_an_unchanged_rendition_side_is_not_retried():
+    """2000 -> 1000 -> 512, then stop: another 512 would resend the payload.
+
+    Halving the byte budget below the side floor re-encodes the same pixels,
+    so the formatted request is identical. The reviewer saw the last two
+    attempts carry the same 120-byte PNG; this pins that the chain ends at
+    the second 512 instead of replaying it.
+    """
+    agent = _media_agent(_media_history()[:2])
+    formatter = agent.formatter
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_resizable_images = 1
+    # A 120-byte PNG: no tightened byte budget can re-encode it, so only the
+    # side matters for whether a retry could carry a different payload.
+    formatter._qwenpaw_last_wire_max_image_bytes = 120
+    original = (8192, 2 * 1024 * 1024)
+
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+    assert agent._tighten_media_limits(enforce_payload_check=True) is not None
+    assert formatter.max_image_side == 1000
+    agent._restore_media_limits(original)
+
+    formatter._qwenpaw_last_wire_max_image_side = 1000
+    assert agent._tighten_media_limits(enforce_payload_check=True) is not None
+    assert formatter.max_image_side == 512
+    agent._restore_media_limits(original)
+
+    # 512 is the floor and the image is already 120 bytes, so no limit can
+    # re-encode it: another attempt would format the identical payload.
+    formatter._qwenpaw_last_wire_max_image_side = 512
+    assert agent._tighten_media_limits(enforce_payload_check=True) is None
+
+
+def test_a_media_free_success_does_not_cache_a_rendition():
+    """A call that carried no media proves nothing about the rendition.
+
+    The reviewer's run succeeded with ``500 px -> 500 px -> no image``; caching
+    500 px as accepted made the next iteration resend a size the provider had
+    never accepted.
+    """
+    agent = _media_agent(_media_history()[:2])
+    agent._media_rendition_pending = (500, (512, 128 * 1024))
+    agent.formatter._qwenpaw_last_wire_media_count = 0
+    agent.formatter._qwenpaw_last_wire_media_summary = []
+
+    agent._accept_media_rendition()
+
+    assert agent._media_rendition_pending is None
+    assert agent._media_rendition_target is None
+
+
+def test_an_accepted_rendition_is_reused_by_its_source_image():
+    """The next call in the turn starts from the accepted limits, not 2000.
+
+    Keying the cache by the last rejected rendition made every iteration walk
+    2000 -> 1000 -> 512 again. The source image is what the cache belongs to.
+    """
+    agent = _media_agent(_media_history()[:2])
+    formatter = agent.formatter
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_resizable_images = 1
+    # A 120-byte PNG: no tightened byte budget can re-encode it, so only the
+    # side matters for whether a retry could carry a different payload.
+    formatter._qwenpaw_last_wire_max_image_bytes = 120
+    original = (8192, 2 * 1024 * 1024)
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+    assert agent._tighten_media_limits() is not None
+    agent._restore_media_limits(original)
+    formatter._qwenpaw_last_wire_max_image_side = 1000
+    assert agent._tighten_media_limits() is not None
+    # The provider accepted the 512 rendition this attempt carried.
+
+    # The provider accepted the 512 rendition of this call.
+    formatter.max_image_side = 512
+    formatter.max_bytes = 128 * 1024
+    formatter._qwenpaw_last_wire_media_count = 1
+    formatter._qwenpaw_last_wire_media_summary = ["#1 image 512x512"]
+    agent._accept_media_rendition()
+    agent._restore_media_limits(original)
+
+    # Next call in the same turn: rebuilt from the stored source image.
+    agent._media_tighten_history = None
+    agent._media_rendition_source = None
+    formatter.max_image_side = 8192
+    formatter.max_bytes = 2 * 1024 * 1024
+    formatter._qwenpaw_last_wire_max_image_side = 2000
+
+    assert agent._tighten_media_limits() is not None
+    assert formatter.max_image_side == 512
+    assert formatter.max_bytes == 128 * 1024

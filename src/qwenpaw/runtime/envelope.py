@@ -22,6 +22,10 @@ from ..providers.completion_reason import COMPLETION_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
+# Set on an assistant event when request media was left out. Channels read it
+# from the completed message, so the envelope has to carry it that far.
+QWENPAW_MEDIA_OMITTED_KEY = "qwenpaw_media_omitted"
+
 
 def _gen_msg_id() -> str:
     return "msg_" + uuid.uuid4().hex
@@ -76,6 +80,9 @@ def _propagate_event_metadata(
                 yield output.output
                 continue
 
+            event_metadata = getattr(event, "metadata", None)
+            if isinstance(event_metadata, dict):
+                envelope._absorb_turn_metadata(event_metadata)
             yield _with_event_metadata(output, event)
 
     return wrapped
@@ -138,6 +145,25 @@ class Envelope:
     def _next_seq(self) -> int:
         self._seq_counter += 1
         return self._seq_counter
+
+    def _absorb_turn_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Carry per-turn notices onto the completed message.
+
+        Streamed deltas reach Console consumers with this metadata, but a
+        channel reads the notice from the ``Completed`` message that
+        :meth:`_finalize_response` builds. That message is assembled from
+        accumulated text and starts without any of it, so a notice that only
+        rode the deltas never arrived off Console.
+        """
+        notice = metadata.get(QWENPAW_MEDIA_OMITTED_KEY)
+        if not isinstance(notice, dict):
+            return
+        count = notice.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return
+        if self._completed_message.metadata is None:
+            self._completed_message.metadata = {}
+        self._completed_message.metadata[QWENPAW_MEDIA_OMITTED_KEY] = notice
 
     def _tag_seq(self, obj: Any) -> Any:
         obj.sequence_number = self._next_seq()
