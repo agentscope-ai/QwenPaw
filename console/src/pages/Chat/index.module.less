@@ -201,11 +201,25 @@
     justify-self: start;
   }
 
+  .detachedRunStop {
+    grid-row: 1;
+    grid-column: 2;
+    justify-self: end;
+  }
+
   // Ant Design appends Flex classes after the SDK's presets class.
   :global([class~="qwenpaw-sender-actions-list-presets"]) {
     grid-row: 1;
     grid-column: 2;
     justify-self: end;
+  }
+
+  &:has(.detachedRunStop) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+
+    :global([class~="qwenpaw-sender-actions-list-presets"]) {
+      grid-column: 3;
+    }
   }
 }
 
@@ -394,6 +408,10 @@
   overflow-x: hidden;
 
   :global {
+    [class*="chat-anywhere-message-list-bubble-scroll"][class*="bubble-list-order-desc"] {
+      overflow-anchor: none;
+    }
+
     [class*="chat-anywhere-default-header-right"] {
       flex: 1;
       display: flex;
