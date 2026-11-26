@@ -201,6 +201,14 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 
 > For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in QwenPaw.
 
+### Use your own decision model
+
+1. In **Settings → Models**, add a custom provider with the base URL of your service (for example, `http://localhost:8000/v1`) and its API key if required.
+2. Open the provider's model manager, add the model ID exposed by the service, and set **Model type** to **Decision**. Choose **System One** for a native `/v1/systemone` service, or **OpenAI Chat Completions** for a `/v1/chat/completions` service that supports JSON object responses. You can also edit the protocol of an existing decision model.
+3. Test the model connection, then choose it under **Default models → Decision model** or in an individual agent's model settings. Tool review and context compaction use their existing, separate enable switches.
+
+Chat Completions models supply their own probability estimates as JSON. An incomplete or invalid decision goes through the existing error handling, including requesting user approval when a tool review needs a decision.
+
 ## Selecting a Model
 
 Under **Settings → Models → Default models**, choose a **Chat model**. The selection is saved immediately. **Decision model** is a separate slot, not a second chat model.

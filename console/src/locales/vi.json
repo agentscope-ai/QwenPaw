@@ -3053,6 +3053,7 @@
     "memoryAutoRecordTitle": "Bật bộ nhớ hội thoại"
   },
   "models": {
+    "decisionProtocol": "Giao thức quyết định",
     "primaryModel": "Mô hình chính",
     "connect": "Xác thực OAuth",
     "settings": "Cài đặt",

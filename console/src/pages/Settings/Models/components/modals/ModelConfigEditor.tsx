@@ -4,11 +4,16 @@ import InlineHelp from "../../../../../components/InlineHelp";
 import { ThinkingControl } from "@/features/thinking/ThinkingControl";
 import type { ThinkingLevel } from "@/features/thinking/types";
 import { ThinkingCapabilityFields } from "./ThinkingCapabilityFields";
+import { decisionProtocolOptions } from "./decisionProtocols";
 import type { ThinkingControlSpec } from "@/features/thinking/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Switch } from "@agentscope-ai/design";
 import { Select, Space } from "antd";
-import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
+import type {
+  DecisionProtocol,
+  ModelInfo,
+  ProviderInfo,
+} from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
@@ -34,6 +39,7 @@ function editableGenerateConfig(
 
 export function ModelConfigEditor({
   providerId,
+  isCustomProvider = false,
   model,
   onSaved,
   onProviderUpdated,
@@ -44,6 +50,7 @@ export function ModelConfigEditor({
   chatModel,
 }: {
   providerId: string;
+  isCustomProvider?: boolean;
   model: ModelInfo;
   onSaved: () => void | Promise<void>;
   onProviderUpdated?: (provider: ProviderInfo) => void;
@@ -61,6 +68,7 @@ export function ModelConfigEditor({
   >();
   const [capabilities, setCapabilities] = useState<CapabilityOverrides>({});
   const [modelType, setModelType] = useState<ModelInfo["model_type"]>();
+  const [decisionProtocol, setDecisionProtocol] = useState<DecisionProtocol>();
   const isDecision = (modelType ?? model.model_type) === "decision";
   const configuredMaxTokens = requestMaxTokens(model);
 
@@ -124,6 +132,7 @@ export function ModelConfigEditor({
   useEffect(() => {
     setCapabilities({});
     setModelType(undefined);
+    setDecisionProtocol(undefined);
     setThinkingDeclaration(undefined);
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
@@ -137,6 +146,7 @@ export function ModelConfigEditor({
   }, [
     model.id,
     model.model_type,
+    model.decision_protocol,
     initialText,
     configuredMaxTokens,
     resolvedContext,
@@ -234,6 +244,9 @@ export function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         model_type: modelType,
+        ...(isCustomProvider && isDecision && decisionProtocol
+          ? { decision_protocol: decisionProtocol }
+          : {}),
         ...(!isDecision
           ? {
               ...capabilities,
@@ -408,6 +421,21 @@ export function ModelConfigEditor({
           }}
         />
       </Space>
+      {isCustomProvider && isDecision && (
+        <Space wrap>
+          <span>{t("models.decisionProtocol")}</span>
+          <Select
+            size="small"
+            aria-label={t("models.decisionProtocol")}
+            options={decisionProtocolOptions}
+            value={decisionProtocol ?? model.decision_protocol ?? "systemone"}
+            onChange={(value: DecisionProtocol) => {
+              setDecisionProtocol(value);
+              setDirty(true);
+            }}
+          />
+        </Space>
+      )}
       {chatFields}
       <div className={styles.actions}>
         <Button

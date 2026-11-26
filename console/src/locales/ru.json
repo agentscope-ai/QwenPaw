@@ -1876,6 +1876,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "decisionProtocol": "Протокол принятия решений",
     "primaryModel": "Основная модель",
     "disableBtn": "Отключить",
     "modelType": "Тип модели",

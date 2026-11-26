@@ -26,6 +26,7 @@ import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ModelIdentityFields } from "./ModelIdentityFields";
 import { ModelInfoPreview } from "./ModelInfoPreview";
 import { ModelConfigEditor } from "./ModelConfigEditor";
+import { decisionProtocolOptions } from "./decisionProtocols";
 import { BillingTag, CapabilityTags } from "./ModelCapabilityTags";
 import { ModelPoolFilters } from "./ModelPoolFilters";
 import { emptyPoolFilters } from "./modelPool";
@@ -262,6 +263,9 @@ export function RemoteModelManageModal({
         id,
         name: values.name?.trim() || id,
         model_type: values.model_type ?? "chat",
+        ...(current.is_custom && values.model_type === "decision"
+          ? { decision_protocol: values.decision_protocol }
+          : {}),
         template_id: templateId,
       });
       await onSaved();
@@ -629,6 +633,7 @@ export function RemoteModelManageModal({
             <ModelConfigEditor
               providerId={current.id}
               model={configuredModel}
+              isCustomProvider={current.is_custom}
               onSaved={onSaved}
               onProviderUpdated={(updated) => {
                 setCurrent(updated);
@@ -667,6 +672,7 @@ export function RemoteModelManageModal({
           layout="vertical"
           initialValues={{
             model_type: current.chat_model ? "chat" : "decision",
+            decision_protocol: "systemone",
           }}
         >
           <ModelIdentityFields
@@ -679,6 +685,7 @@ export function RemoteModelManageModal({
               if (model)
                 form.setFieldsValue({
                   model_type: model.model_type ?? "chat",
+                  decision_protocol: model.decision_protocol ?? "systemone",
                 });
             }}
           />
@@ -691,7 +698,16 @@ export function RemoteModelManageModal({
             />
           </Form.Item>
           {enteredModelType === "decision" ? (
-            <p>{t("models.decisionModelHint")}</p>
+            current.is_custom ? (
+              <Form.Item
+                name="decision_protocol"
+                label={t("models.decisionProtocol")}
+              >
+                <Select options={decisionProtocolOptions} />
+              </Form.Item>
+            ) : (
+              <p>{t("models.decisionModelHint")}</p>
+            )
           ) : (
             <ModelInfoPreview
               providerId={current.id}

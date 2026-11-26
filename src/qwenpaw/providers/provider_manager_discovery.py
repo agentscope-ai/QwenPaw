@@ -470,7 +470,19 @@ class ProviderManagerDiscoveryMixin(
             )
         revision = self._provider_revision(provider_id)
 
-        raw_result = await provider.check_model_connection(
+        probe = provider
+        model = provider.get_model_info(
+            model_id,
+        ) or provider.get_discovered_model_info(model_id)
+        if (
+            provider.is_custom
+            and model is not None
+            and model.model_type == "decision"
+        ):
+            from .custom_decision_model import CustomDecisionProvider
+
+            probe = CustomDecisionProvider.for_model(provider, model)
+        raw_result = await probe.check_model_connection(
             model_id=model_id,
             timeout=timeout,
         )

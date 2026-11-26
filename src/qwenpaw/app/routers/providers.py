@@ -49,6 +49,7 @@ from ...providers.provider_discovery_policy import (
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
 from ...providers.model_metadata import list_model_templates
+from ...providers.model_info import DecisionProtocol
 from ...providers.model_resolution import resolve_model_info
 from ...providers.hub_managed import (
     PROVIDER_ID,
@@ -218,6 +219,7 @@ class CreateCustomProviderRequest(BaseModel):
 
 class AddModelRequest(BaseModel):
     model_type: ModelType = "chat"
+    decision_protocol: DecisionProtocol = "systemone"
     template_id: str | None = None
     id: str = Field(...)
     name: str = Field(...)
@@ -245,6 +247,7 @@ class AddModelRequest(BaseModel):
 
 class ModelConfigRequest(BaseModel):
     model_type: ModelType = "chat"
+    decision_protocol: DecisionProtocol = "systemone"
     thinking_control: ThinkingControl | None = None
     supports_image: bool | None = None
     supports_video: bool | None = None
@@ -728,6 +731,7 @@ async def add_model_endpoint(
         model_payload = {"id": body.id, "name": body.name}
         for field in (
             "model_type",
+            "decision_protocol",
             "supports_multimodal",
             "supports_image",
             "supports_video",
@@ -737,8 +741,13 @@ async def add_model_endpoint(
         ):
             if field in body.model_fields_set:
                 model_payload[field] = getattr(body, field)
-        if "model_type" in body.model_fields_set:
-            model_payload["config_overrides"] = ["model_type"]
+        overrides = [
+            field
+            for field in ("model_type", "decision_protocol")
+            if field in body.model_fields_set
+        ]
+        if overrides:
+            model_payload["config_overrides"] = overrides
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
             model_info=ModelInfo(**model_payload),

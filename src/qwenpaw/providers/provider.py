@@ -9,7 +9,16 @@ from contextvars import ContextVar
 import re
 from uuid import uuid4
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    Type,
+    get_args,
+)
 
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -33,7 +42,7 @@ from .model_billing import (
 
 # Public re-export retained for provider extensions.
 from .model_info import ExtendedModelInfo  # pylint: disable=unused-import
-from .model_info import ModelInfo
+from .model_info import DecisionProtocol, ModelInfo
 from .model_resolution import resolve_model_info
 from .model_ranking import Recommendation, recommend
 from .model_metadata import provider_catalog_models
@@ -1161,6 +1170,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         raise ValueError(
                             "model_type must be chat or decision",
                         )
+                if "decision_protocol" in config and config[
+                    "decision_protocol"
+                ] not in get_args(DecisionProtocol):
+                    raise ValueError("Unsupported decision model protocol")
                 for field in (
                     f"supports_image",
                     f"supports_video",
@@ -1191,12 +1204,22 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 ):
                     raise ValueError("thinking_budget must be at least 1")
                 changed_fields: list[str] = []
+                if self.is_custom and (
+                    config.get("model_type", model.model_type)
+                    != model.model_type
+                    or config.get("decision_protocol", model.decision_protocol)
+                    != model.decision_protocol
+                ):
+                    model.reset_availability()
                 if "model_type" in config:
                     value = config["model_type"]
                     if value not in ("chat", "decision"):
                         raise ValueError("model_type must be chat or decision")
                     model.model_type = value
                     changed_fields.append("model_type")
+                if "decision_protocol" in config:
+                    model.decision_protocol = config["decision_protocol"]
+                    changed_fields.append("decision_protocol")
                 for field in (
                     f"supports_image",
                     f"supports_video",

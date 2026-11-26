@@ -3745,6 +3745,7 @@
     "executeDefault": "Jalankan alat"
   },
   "models": {
+    "decisionProtocol": "Protokol keputusan",
     "primaryModel": "Model utama",
     "discoveryOriginApi": "Terdeteksi via API",
     "discoveryOriginCatalog": "Katalog resmi",

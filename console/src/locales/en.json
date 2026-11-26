@@ -2645,6 +2645,7 @@
     "retry": "Retry"
   },
   "models": {
+    "decisionProtocol": "Decision protocol",
     "modelType": "Model type",
     "modelTypeChat": "Chat",
     "modelTypeDecision": "Decision",
@@ -3940,7 +3941,7 @@
       "jevRequiresDecision": "Configure a decision model in Model settings first",
       "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
       "decisionModelConnected": "Decision model provider configured",
-      "decisionModelNotConnected": "No decision model configured. Configure a local Piccolo or TypeSafe decision model in Model settings.",
+      "decisionModelNotConnected": "Add a decision model in Model settings.",
       "decisionModelConfigure": "Configure Decision Model Provider",
       "auto": "Auto Mode",
       "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
