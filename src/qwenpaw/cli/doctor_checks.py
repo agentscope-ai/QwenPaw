@@ -58,9 +58,6 @@ from ..providers.provider import Provider
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
 APP_LOG_BASENAME = LOG_FILE_BASENAME
 
-# Local llama.cpp provider IDs; legacy configs may still use copaw-local.
-_QWENPAW_LOCAL_PROVIDER_IDS = frozenset({"qwenpaw-local", "copaw-local"})
-
 
 def _resolve_existing_path_anchor(path: Path) -> Path | None:
     """First existing ancestor of *path* (for ``stat`` / ``disk_usage``)."""
@@ -1034,12 +1031,6 @@ def active_llm_local_failure_hint(provider: Provider, provider_id: str) -> str:
             "Hint: open LM Studio, load a model, and enable the local server. "
             f"Typical base URL: {base.rstrip('/')}"
         )
-    if provider_id in _QWENPAW_LOCAL_PROVIDER_IDS:
-        return (
-            f"Hint: {PROJECT_NAME} Local uses llama.cpp. Start the local "
-            f"server from the {PROJECT_NAME} console or install the llama.cpp "
-            "binary from there."
-        )
     if getattr(provider, "is_local", False):
         base = (
             getattr(provider, "base_url", None) or ""
@@ -1049,51 +1040,6 @@ def active_llm_local_failure_hint(provider: Provider, provider_id: str) -> str:
             f"server is running and matches {base}."
         )
     return ""
-
-
-# TODO: Move local model diagnostics into the plugin CLI integration.
-def qwenpaw_local_llm_deep_notes() -> list[str]:
-    """Read-only llama.cpp install + server snapshot (``--deep`` / local)."""
-    try:
-        from ..local_models.manager import (  # pylint: disable=no-name-in-module
-            LocalModelManager,
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return [f"LocalModelManager unavailable: {exc}"]
-    try:
-        lm = LocalModelManager.get_instance()
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return [f"LocalModelManager: {exc}"]
-    notes: list[str] = []
-    try:
-        ok, msg = lm.check_llamacpp_installation()
-        line = (
-            "llama.cpp binary: OK"
-            if ok
-            else "llama.cpp binary: missing or not installed"
-        )
-        if msg:
-            line += f" — {msg}"
-        notes.append(line)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        notes.append(f"llama.cpp install check failed: {exc}")
-    try:
-        st = lm.get_llamacpp_server_status()
-        notes.append(
-            "llama.cpp server: "
-            f"running={st.get('running')}, port={st.get('port')}, "
-            f"model={st.get('model_name')!r}, pid={st.get('pid')}",
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        notes.append(f"llama.cpp server status failed: {exc}")
-    try:
-        if lm.is_llamacpp_server_transitioning():
-            notes.append(
-                "llama.cpp server is transitioning (start/stop in progress).",
-            )
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
-    return notes
 
 
 def _slot_is_set(slot: Any) -> bool:
@@ -1107,27 +1053,41 @@ def _resolve_agent_effective_model_slot(
     active_slot: Any | None,
 ) -> tuple[Any | None, str]:
     """Resolve provider/model for the agent default chat model."""
-    if agent_cfg.active_model is not None and _slot_is_set(
-        agent_cfg.active_model,
-    ):
-        return agent_cfg.active_model, "agent.active_model"
+    from ..providers.model_selection import select_primary_model
 
-    routing = agent_cfg.llm_routing
-    if getattr(routing, "enabled", False):
-        if routing.mode == "cloud_first":
-            if routing.cloud is not None and _slot_is_set(routing.cloud):
-                return routing.cloud, "agent.llm_routing.cloud"
-            if active_slot is not None and _slot_is_set(active_slot):
-                return active_slot, "providers.active_llm (cloud fallback)"
-            return None, "routing enabled but no cloud slot and no active LLM"
-        # local_first
-        if routing.local is not None and _slot_is_set(routing.local):
-            return routing.local, "agent.llm_routing.local"
-        return None, "routing enabled but local slot is not set"
+    slot = select_primary_model(agent_cfg.active_model, active_slot)
+    if slot is None:
+        return None, "no agent.active_model and no active LLM"
+    source = (
+        "agent.active_model"
+        if slot is agent_cfg.active_model
+        else "providers.active_llm"
+    )
+    return slot, source
 
-    if active_slot is not None and _slot_is_set(active_slot):
-        return active_slot, "providers.active_llm"
-    return None, "no agent.active_model and no active LLM"
+
+def selected_provider_ids(cfg: Config | None) -> frozenset[str]:
+    """Read model selections for diagnostics without activating providers."""
+    from ..providers.provider_manager import ProviderManager
+
+    active_slot = ProviderManager.get_instance().get_active_model()
+    slots = [active_slot]
+    if cfg is not None:
+        for agent_id, ref in cfg.agents.profiles.items():
+            if not ref.enabled:
+                continue
+            try:
+                agent = load_agent_config(agent_id)
+            except Exception:  # pylint: disable=broad-exception-caught
+                # The per-agent checks report unreadable configurations.
+                continue
+            slot, _ = _resolve_agent_effective_model_slot(agent, active_slot)
+            slots.append(slot)
+    return frozenset(
+        slot.provider_id.strip().lower()
+        for slot in slots
+        if slot is not None and slot.provider_id.strip()
+    )
 
 
 async def check_enabled_agents_model_connections(
@@ -1176,13 +1136,6 @@ async def check_enabled_agents_model_connections(
 
         provider = await run_sync_io(mgr.get_provider, pid)
         if provider is None:
-            # TODO: Resolve plugin providers through the plugin CLI contract.
-            if pid in _QWENPAW_LOCAL_PROVIDER_IDS:
-                lines.append(
-                    f"{agent_id}: SKIP — {pid} / {model} "
-                    "(plugin CLI integration pending)",
-                )
-                continue
             all_ok = False
             lines.append(f"{agent_id}: FAIL — provider not found: {pid!r}")
             continue
@@ -1201,15 +1154,16 @@ async def check_enabled_agents_model_connections(
             )
             continue
 
-        # TODO: Restore local diagnostics through the plugin CLI contract.
-        # if deep and pid in _QWENPAW_LOCAL_PROVIDER_IDS:
-        #     # Only add once (same underlying llama.cpp runtime).
-        #     if not any("llama.cpp" in n for n in notes):
-        #         notes.extend(qwenpaw_local_llm_deep_notes())
+        if getattr(provider, "connection_check_requires_activation", False):
+            lines.append(
+                f"{agent_id}: SKIP — {pid} / {model} "
+                "(live check requires plugin activation; see Doctor extensions)",
+            )
+            continue
 
         if not getattr(provider, "support_connection_check", True):
             lines.append(
-                f"{agent_id}: OK — {pid} / {model} "
+                f"{agent_id}: SKIP — {pid} / {model} "
                 "(live check skipped for this provider)",
             )
             continue
@@ -1231,7 +1185,6 @@ async def check_enabled_agents_model_connections(
         if getattr(provider, "is_local", False) or pid in (
             "ollama",
             "lmstudio",
-            *_QWENPAW_LOCAL_PROVIDER_IDS,
         ):
             hint = active_llm_local_failure_hint(provider, pid)
             if hint:

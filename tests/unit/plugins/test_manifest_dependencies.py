@@ -977,6 +977,142 @@ def test_install_includes_every_declared_dependency(
     install_case(tmp_path, source, expected)
 
 
+@pytest.mark.asyncio
+async def test_channel_registration_prepares_only_declared_host_capability_groups(
+    tmp_path,
+):
+    """Send only the public entry's dependencies to the host installer."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.python_backend import PythonBackend
+
+    source = package(
+        tmp_path,
+        ["b01-probe-common==1.0"],
+        requirements="b01-probe-legacy-driver==1.0\n",
+    )
+    path = source / "plugin.json"
+    manifest = json.loads(path.read_text())
+    manifest["type"] = "channel"
+    manifest["entry"]["descriptor"] = "channel.json"
+    manifest["sdk"] = {
+        "version": "1.2.0",
+        "capabilities": ["cli", "extensions", "dependencies"],
+    }
+    manifest["optional_dependencies"] = {
+        "client": ["b01-probe-cli==1.0"],
+        "check": ["b01-probe-doctor==1.0"],
+        "driver": ["qwenpaw-unavailable-driver-sdk==1.0"],
+    }
+    manifest["cli"] = [
+        {"id": "send", "path": ["example-send"], "requires": ["client"]},
+    ]
+    manifest["extensions"] = [
+        {"point": "qwenpaw.doctor", "id": "sdk", "requires": ["check"]},
+    ]
+    ensure_dependencies = AsyncMock(
+        return_value=dependency_gate.GateDecision(True, True),
+    )
+    backend = PythonBackend(
+        SimpleNamespace(ensure_dependencies=ensure_dependencies),
+    )
+    plugin_manifest = PluginManifest.model_validate(manifest)
+    description = backend.describe(source, plugin_manifest)
+    await backend.prepare(description, allow_install=True, probe=False)
+    ensure_dependencies.assert_awaited_once_with(
+        source,
+        plugin_manifest.id,
+        allow_install=True,
+        requirements=("b01-probe-common==1.0",),
+        additional_requirements=(
+            "b01-probe-cli==1.0",
+            "b01-probe-doctor==1.0",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    ["pkg @ https://example.com/pkg.whl", "pkg\nother", "--index-url=x"],
+)
+def test_optional_dependency_syntax_is_checked_without_loading_code(
+    declaration,
+):
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    with pytest.raises(ValueError):
+        PluginManifest.model_validate(
+            {
+                "id": "example",
+                "version": "1",
+                "entry": {"backend": "main.py"},
+                "sdk": {
+                    "version": "1.2.0",
+                    "capabilities": ["cli", "dependencies"],
+                },
+                "optional_dependencies": {"transport": [declaration]},
+                "cli": [
+                    {
+                        "id": "status",
+                        "path": ["status"],
+                        "requires": ["transport"],
+                    },
+                ],
+            },
+        )
+
+
+def test_optional_dependency_extras_use_supported_manifest_syntax():
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.dependency_requirements import (
+        resolve_optional_dependencies,
+    )
+
+    manifest = PluginManifest.model_validate(
+        {
+            "id": "example",
+            "version": "1",
+            "entry": {"backend": "main.py"},
+            "sdk": {"version": "1.2.0", "capabilities": ["dependencies"]},
+            "optional_dependencies": {"transport": ["pkg[extra]>=1"]},
+        },
+    )
+    assert resolve_optional_dependencies(
+        manifest.optional_dependencies,
+        ("transport",),
+    ) == ("pkg[extra]>=1",)
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    [
+        ["qwenpaw.doctor"],
+        [
+            {"point": "qwenpaw.doctor", "id": "config"},
+            {"point": "qwenpaw.doctor", "id": "config"},
+        ],
+    ],
+)
+def test_extensions_require_named_unique_contributions(declarations):
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    with pytest.raises(ValueError):
+        PluginManifest.model_validate(
+            {
+                "id": "example",
+                "version": "1",
+                "entry": {"backend": "main.py"},
+                "sdk": {
+                    "version": "1.2.0",
+                    "capabilities": ["extensions"],
+                },
+                "extensions": declarations,
+            },
+        )
+
+
 @pytest.mark.parametrize("sdk", [False, True])
 async def test_satisfied_and_marker_excluded_manifest_does_not_install(
     tmp_path,

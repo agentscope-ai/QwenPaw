@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared bounded plugin archive extraction for HTTP and bundled sources."""
+"""Shared bounded plugin archive extraction and source-root selection."""
 
 from pathlib import Path, PurePosixPath
 import stat
@@ -34,3 +34,16 @@ def safe_extract_zip(archive, destination):
             raise ValueError("Zip Slip detected: unsafe plugin archive path")
         names.add(name.casefold())
     archive.extractall(root)
+
+
+def find_plugin_root(base: Path) -> Path:
+    """Locate a root manifest or a manifest in an archive wrapper directory."""
+    if (base / "plugin.json").is_file():
+        return base
+    for child in base.iterdir():
+        if child.is_dir() and (child / "plugin.json").is_file():
+            return child
+    raise ValueError(
+        "Invalid plugin archive structure: no plugin.json found in archive "
+        "root or top-level subdirectory",
+    )

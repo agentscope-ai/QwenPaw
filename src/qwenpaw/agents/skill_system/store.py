@@ -685,6 +685,27 @@ def default_workspace_manifest() -> dict[str, Any]:
     }
 
 
+def manifest_for_external_skills(directory: Path) -> dict[str, Any]:
+    """Describe an enabled external skill directory for a temporary workspace.
+
+    Only inspect entry filenames; leave metadata scanning and dependency
+    checks to the normal skill resolver. The source directory is read-only.
+    """
+    manifest = default_workspace_manifest()
+    manifest["version"] = 1
+    if directory.is_dir():
+        manifest["skills"] = {
+            entry.name: {
+                "enabled": True,
+                "channels": ["all"],
+                "source": "headless",
+            }
+            for entry in sorted(directory.iterdir())
+            if entry.is_dir() and (entry / "SKILL.md").exists()
+        }
+    return manifest
+
+
 def default_pool_manifest() -> dict[str, Any]:
     return {
         "schema_version": _POOL_MANIFEST_SCHEMA,

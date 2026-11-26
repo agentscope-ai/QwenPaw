@@ -342,6 +342,9 @@ def register_native(context, spec):
 
     class Adapter(LocalDecisionProviderMixin, OpenAIProvider):
         _sdk_binding: ClassVar[ProviderBinding] = binding
+        connection_check_requires_activation: ClassVar[bool] = (
+            spec.connect is not None or spec.check_connection is not None
+        )
 
         @classmethod
         def get_default_models(cls):
@@ -362,6 +365,15 @@ def register_native(context, spec):
 
         async def check_model_connection(self, model_id, timeout=5):
             try:
+                if not self.connection_check_requires_activation:
+                    binding.guard()
+                    async with asyncio.timeout(timeout):
+                        with binding.context._admission():
+                            return await OpenAIProvider.check_model_connection(
+                                self.configuration_snapshot(),
+                                model_id,
+                                timeout,
+                            )
                 async with (
                     asyncio.timeout(timeout) as budget,
                     binding.connect(model_id, purpose="check") as endpoint,
@@ -647,6 +659,7 @@ def register(context, spec):
 
     class Adapter(Provider):
         _sdk_binding: ClassVar[ProviderBinding] = binding
+        connection_check_requires_activation: ClassVar[bool] = True
 
         @classmethod
         def get_default_models(cls):

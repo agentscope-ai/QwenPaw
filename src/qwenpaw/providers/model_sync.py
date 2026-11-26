@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from .model_info import ModelInfo
 
 if TYPE_CHECKING:
-    from .provider import Provider
+    from .provider import Provider, ProviderInfo
 
 
 def sync_due(provider: Provider) -> bool:
@@ -72,7 +72,7 @@ def reconcile_models(
     return list(by_id.values())
 
 
-def invalidate_api_metadata(provider: Provider) -> None:
+def invalidate_api_metadata(provider: ProviderInfo) -> None:
     """Discard endpoint facts on connection changes, retaining user choices."""
     provider.discovered_models = []
     provider.models_last_synced_at = None

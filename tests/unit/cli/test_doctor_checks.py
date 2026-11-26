@@ -1425,13 +1425,6 @@ class TestActiveLlmLocalFailureHint:
         hint = dc.active_llm_local_failure_hint(provider, "lmstudio")
         assert "LM Studio" in hint
 
-    def test_qwenpaw_local(self):
-        hint = dc.active_llm_local_failure_hint(
-            SimpleNamespace(),
-            "qwenpaw-local",
-        )
-        assert "llama.cpp" in hint
-
     def test_generic_local(self):
         provider = SimpleNamespace(is_local=True, base_url="http://x:1")
         hint = dc.active_llm_local_failure_hint(provider, "custom-local")
@@ -1461,58 +1454,24 @@ class TestResolveAgentEffectiveModelSlot:
         assert slot2 is slot
         assert source == "agent.active_model"
 
-    def test_routing_cloud_first_uses_cloud(self):
-        cloud = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="cloud_first",
-            cloud=cloud,
-        )
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is cloud
+    @pytest.mark.parametrize("mode", ["cloud_first", "local_first"])
+    def test_legacy_routing_uses_runtime_primary_model(self, mode):
+        from qwenpaw.providers.model_selection import select_primary_model
 
-    def test_routing_cloud_first_falls_back_to_active(self):
-        active = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            active,
+        legacy = SimpleNamespace(provider_id="legacy", model="unused")
+        active = SimpleNamespace(provider_id="current", model="used")
+        cfg = self._agent_cfg(
+            routing=SimpleNamespace(
+                enabled=True,
+                mode=mode,
+                cloud=legacy,
+                local=legacy,
+            ),
         )
+        slot, source = dc._resolve_agent_effective_model_slot(cfg, active)
+        assert slot is select_primary_model(cfg.active_model, active)
         assert slot is active
-        assert "cloud fallback" in source
-
-    def test_routing_cloud_first_nothing(self):
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-
-    def test_routing_local_first(self):
-        local = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="local_first",
-            local=local,
-        )
-        slot, _ = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is local
-
-    def test_routing_local_first_unset(self):
-        routing = SimpleNamespace(enabled=True, mode="local_first", local=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-        assert "local slot is not set" in source
+        assert source == "providers.active_llm"
 
     def test_no_routing_uses_active(self):
         active = SimpleNamespace(provider_id="p", model="m")
@@ -1544,6 +1503,45 @@ class TestResolveAgentEffectiveModelSlot:
             )
             is True
         )
+
+
+@pytest.mark.parametrize("local_source", ["default", "agent", "disabled"])
+def test_selected_providers_follow_default_and_enabled_agents(
+    monkeypatch,
+    local_source,
+):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    default = SimpleNamespace(
+        provider_id="qwenpaw-local" if local_source == "default" else "cloud",
+        model="test",
+    )
+    monkeypatch.setattr(
+        ProviderManager,
+        "get_instance",
+        lambda: SimpleNamespace(get_active_model=lambda: default),
+    )
+    config = _make_config(
+        {"example": SimpleNamespace(enabled=local_source != "disabled")},
+    )
+
+    def load(agent_id):
+        assert agent_id == "example" and local_source != "disabled"
+        return SimpleNamespace(
+            active_model=SimpleNamespace(
+                provider_id="qwenpaw-local",
+                model="test",
+            ),
+        )
+
+    monkeypatch.setattr(dc, "load_agent_config", load)
+    assert dc.selected_provider_ids(config) == (
+        {"qwenpaw-local"}
+        if local_source == "default"
+        else {"cloud", "qwenpaw-local"}
+        if local_source == "agent"
+        else {"cloud"}
+    )
 
 
 class TestCheckEnabledAgentsModelConnections:
@@ -1828,7 +1826,15 @@ class TestCheckEnabledAgentsModelConnections:
                 return None
 
             def get_provider(self, pid):
-                return provider if pid == "cloud" else None
+                return (
+                    provider
+                    if pid == "cloud"
+                    else SimpleNamespace(
+                        is_local=True,
+                        require_api_key=False,
+                        connection_check_requires_activation=True,
+                    )
+                )
 
         self._patch_pm(monkeypatch, _Mgr())
         monkeypatch.setattr(

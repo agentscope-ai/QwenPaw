@@ -332,7 +332,8 @@ def _validate_official_archive(payload, row, channel_key, host_version):
             ):
                 raise ValueError("Bundled official archive root invalid")
             names.add(info.filename)
-        manifest = json.loads(archive.read(prefix + "plugin.json"))
+        manifest_bytes = archive.read(prefix + "plugin.json")
+        manifest = json.loads(manifest_bytes)
         entry = manifest.get("entry", {}).get("descriptor", "")
         if (
             manifest.get("id") != row["plugin_id"]
@@ -352,14 +353,26 @@ def _validate_official_archive(payload, row, channel_key, host_version):
         if current < Version(minimum):
             raise ValueError("Bundled official host version incompatible")
         descriptor_bytes = archive.read(prefix + entry)
-        requirements = archive.read(prefix + "requirements.txt")
         descriptor = json.loads(descriptor_bytes)
+        version = descriptor.get("schema_version")
+        if type(version) is not int or version not in (2, 3):
+            raise ValueError("Bundled official channel schema unsupported")
+        if version == 2:
+            if descriptor.get("requirements_file") != "requirements.txt":
+                raise ValueError(
+                    "Bundled official channel requirements invalid",
+                )
+            requirements = archive.read(prefix + "requirements.txt")
+        else:
+            if not isinstance(descriptor.get("requires"), list):
+                raise ValueError(
+                    "Bundled official channel requirements invalid",
+                )
+            requirements = manifest_bytes
         if (
             descriptor.get("channel_key") != channel_key
-            or descriptor.get("schema_version") != 2
             or descriptor.get("process_mode") != "runner_process"
             or descriptor.get("dependency_mode") != "shared"
-            or descriptor.get("requirements_file") != "requirements.txt"
             or hashlib.sha256(descriptor_bytes).hexdigest()
             != row["descriptor_sha256"]
             or hashlib.sha256(requirements).hexdigest()

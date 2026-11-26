@@ -1227,13 +1227,16 @@ def test_load_provider_migrates_v210_custom_snapshot(
     assert configured["generate_kwargs"]["max_tokens"] == 4096
 
 
+@pytest.mark.parametrize("persist_migrations", [True, False])
 def test_prepare_plugin_registration_migrates_v210_snapshot(
     isolated_secret_dir,
+    persist_migrations,
 ) -> None:
     manager = ProviderManager()
     provider_path = manager.plugin_path / "legacy-plugin.json"
     _install_v210_provider_fixture("plugin_provider.json", provider_path)
 
+    original = provider_path.read_bytes()
     registration = manager._prepare_plugin_registration(
         "legacy-plugin",
         OpenAIProvider,
@@ -1241,6 +1244,7 @@ def test_prepare_plugin_registration_migrates_v210_snapshot(
         "https://plugin.example/v1",
         metadata={"chat_model": "OpenAIChatModel"},
         saved_config_path=provider_path,
+        persist_migrations=persist_migrations,
     )
     provider = registration["class"](**registration["info"].model_dump())
 
@@ -1250,6 +1254,10 @@ def test_prepare_plugin_registration_migrates_v210_snapshot(
     assert model.parameters.temperature == 0.5
     assert model.parameters.top_p == 0.7
     assert provider.custom_headers == {"X-Plugin-Legacy": "kept"}
+
+    if not persist_migrations:
+        assert provider_path.read_bytes() == original
+        return
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
     assert persisted["snapshot_schema_version"] == 2

@@ -607,6 +607,17 @@ qwenpaw plugin install /path/to/plugin --force
 When QwenPaw is running, the CLI delegates installation to the hot-install API.
 When it is stopped, files are installed for loading on the next startup.
 
+If installation asks you to upgrade a shared Python package, review the versions.
+In the Console, select **Upgrade and install**. In the terminal, use the ID shown by `install`.
+
+```bash
+qwenpaw plugin dependency-upgrade apply <operation-id>
+qwenpaw plugin dependency-upgrade status <operation-id>
+```
+
+When the App is running, `accepted` means the App received your confirmation.
+Wait for `status` to show `succeeded` before using the plugin. If it shows `failed`, the command prints the error and exits with code 1.
+
 #### List Installed Plugins
 
 ```bash
@@ -2493,6 +2504,14 @@ the check or dependency resolution. Prefer maintaining each dependency in one
 place to avoid duplicate declarations. These are Python package dependencies,
 not other plugin IDs or runtime service dependencies.
 
+For a process-backed channel, schema v3 lets the driver and a CLI command
+share a package declaration. Add `dependencies` to `sdk.capabilities` and
+`"optional_dependencies": {"transport": ["example-sdk>=2"]}` to `plugin.json`.
+Set `"schema_version": 3` and `"requires": ["transport"]` in `channel.json`.
+A CLI command that sends messages can also declare `"requires": ["transport"]`.
+A status command that only reads configuration can omit it. Import the SDK
+in the code that uses it. Existing schema v2 drivers read `requirements.txt`.
+
 SDK and legacy plugins share the framework's dependency checks, installation, and
 post-install verification; the `sdk` declaration does not select a separate installer.
 Satisfied requirements and inapplicable environment markers need no network access.
@@ -2511,9 +2530,8 @@ and published through the shared dependency gate. Desktop builds use the bundled
 Python interpreter and shared plugin dependency directory.
 The plugin loads only after its requirements pass post-install verification.
 
-The shared gate audits dependency evidence and permits validated additions;
-incompatible replacements require explicit environment maintenance. This does not
-provide general atomic rollback of the shared dependency environment.
+Missing packages can be added after validation. When QwenPaw offers to replace a shared package, it asks for approval.
+If the upgrade fails, QwenPaw attempts to restore the files it replaced.
 
 Both SDK and legacy plugins can set `meta.dependency_install_timeout` to control the
 installation timeout and the time limit for waiting for the installation lock.
