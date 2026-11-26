@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ...schemas import (
@@ -89,7 +89,11 @@ class _ToolState:
 
     name: str
     output_message: Message
-    output_text: str = ""
+    output_fragments: list[str] = field(default_factory=list)
+    output_preview: str = ""
+
+
+_TOOL_PROGRESS_PREVIEW_CHARS = 4096
 
 
 class ToolStream:
@@ -152,12 +156,19 @@ class ToolStream:
         state = self._states.get(event.item_id)
         if state is None or not event.text:
             return []
-        state.output_text += event.text
+        state.output_fragments.append(event.text)
+        # The Console replaces tool output snapshots rather than merging
+        # data deltas. Keep each live snapshot bounded and send the full
+        # result at completion.
+        limit = _TOOL_PROGRESS_PREVIEW_CHARS
+        state.output_preview = (state.output_preview + event.text[-limit:])[
+            -limit:
+        ]
         return [
             self._output_content(
                 event,
                 state.output_message.id,
-                state.output_text,
+                state.output_preview,
                 RunStatus.InProgress,
                 name=state.name,
             ),
@@ -168,7 +179,7 @@ class ToolStream:
         state = self._states.pop(event.item_id, None)
         if state is None:
             return emitted
-        output = event.text or state.output_text
+        output = event.text or "".join(state.output_fragments)
         final_content = self._output_content(
             event,
             state.output_message.id,
