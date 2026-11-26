@@ -11,22 +11,15 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
-from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
-from ..providers.model_selection import (
-    request_model_override,
-    resolve_model_slot_override,
-)
-from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 
 _logger = logging.getLogger(__name__)
-
-_PORTABILITY_MAX_ITERS = 4_000
 
 _PORTABILITY_ADAPTATION_SYSTEM_RULES = (
     "\n\n<portability_adaptation_security>\n"
@@ -42,22 +35,6 @@ _PORTABILITY_ADAPTATION_SYSTEM_RULES = (
     "passes.\n"
     "</portability_adaptation_security>"
 )
-
-
-def _resolve_react_iterations(
-    configured: int,
-    request_context: dict[str, Any],
-) -> int:
-    """Let a bounded internal migration outgrow the normal chat limit."""
-    requested = request_context.get("max_react_iterations")
-    if (
-        request_context.get("source") != "portability_adaptation"
-        or isinstance(requested, bool)
-        or not isinstance(requested, int)
-        or requested < 1
-    ):
-        return configured
-    return max(configured, min(requested, _PORTABILITY_MAX_ITERS))
 
 
 def _descriptor_for(tool: Any) -> Any | None:
@@ -146,6 +123,7 @@ class AgentBuilder:
         if local_ws is not None:
             tools: list[Any] = await local_ws.list_tools(
                 agent_config=agent_config,
+                governor=governor,
                 agent_id=agent_id,
                 request_context=request_context,
                 active_modes=active_modes or (),
@@ -352,37 +330,15 @@ class AgentBuilder:
             ensure_skills_initialized,
             resolve_effective_skills,
         )
-        from ..config.config import load_agent_config
         from ..constant import WORKING_DIR
         from ..providers.provider_manager import ProviderManager
 
-        agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = getattr(ctx, "agent_config", None)
-        if agent_config is None:
-            agent_config = await run_sync_io(load_agent_config, agent_id)
-        else:
-            # Callers may supply an invocation snapshot, such as a local task's
-            # model and iteration settings. Never mutate the caller's copy.
-            agent_config = agent_config.model_copy(deep=True)
+        agent_id = ctx.agent_id or "default"
+        agent_config = ctx.agent_config
         request_context = self._build_request_context(ctx)
-        agent_config = self._apply_request_project(
-            agent_config,
-            request_context,
-        )
-        if request_context.get(f"coding_mode") is True:
-            agent_config = agent_config.model_copy(deep=True)
-            agent_config.coding_mode.enabled = True
-        agent_config = await apply_session_thinking(ctx, agent_config)
-        ctx.agent_config = agent_config
 
         # Validate model availability.
-        model_slot_override = request_model_override(
-            getattr(ctx, "request", None),
-        )
-        active = (
-            resolve_model_slot_override(model_slot_override)
-            or agent_config.active_model
-        )
+        active = agent_config.active_model
         if not (active and active.provider_id and active.model):
             active = await run_sync_io(
                 ProviderManager.get_instance().get_active_model,
@@ -417,12 +373,9 @@ class AgentBuilder:
             effective_skills = [s for s in subagent_skills if s in parent_set]
 
         # Compute active modes.
-        active_modes: set[str] = set()
         workspace = getattr(ctx, "workspace", None)
-        if workspace is not None:
-            plugins = getattr(workspace, "plugins", None)
-            if plugins is not None:
-                active_modes = plugins.active_mode_names(ctx)
+        plugins = getattr(workspace, "plugins", None)
+        active_modes = plugins.active_mode_names(ctx) if plugins else set()
 
         # Governor (governance policy layer). Built per request against
         # the dirs the tools will actually use, so a session-level
@@ -448,12 +401,6 @@ class AgentBuilder:
             _extra_project_dirs,
         )
 
-        # Inject governor into local_workspace so list_tools() can
-        # wrap tools with PolicyGuardedTool.
-        local_ws = self._get_local_workspace(ctx) if ctx else None
-        if local_ws is not None:
-            local_ws.set_governor(governor)
-
         # Toolkit.
         extra_tools = self._collect_context_recall_tools(
             agent_config,
@@ -475,10 +422,13 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
+        parameters = getattr(ctx, "parameters", None)
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
-            model_slot_override=model_slot_override,
+            model_slot_override=(
+                parameters.model_slot_override if parameters else None
+            ),
         )
 
         ctx.extras[f"active_model_display_name"] = getattr(
@@ -563,10 +513,7 @@ class AgentBuilder:
             resolve_max_iterations,
         )
 
-        effective_max = _resolve_react_iterations(
-            resolve_max_iterations(running_config),
-            request_context,
-        )
+        effective_max = resolve_max_iterations(running_config) or sys.maxsize
 
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
@@ -576,6 +523,7 @@ class AgentBuilder:
             react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
+            stop_handlers=tuple(plugins.stop_handlers) if plugins else (),
             workspace_dir=workspace_dir,
             request_context=request_context,
             offloader=offloader,
@@ -596,7 +544,7 @@ class AgentBuilder:
                 agent._acting
             )  # pylint: disable=protected-access
 
-        # Load session state if SessionLoadHook populated it.
+        # Restore the state loaded during core session preparation.
         if ctx.session_state:
             agent.load_state_dict(ctx.session_state)
 
@@ -611,19 +559,12 @@ class AgentBuilder:
         )
         return agent
 
-    def build_prompt(self, ctx: Any, agent_config: Any = None) -> str:
+    def build_prompt(self, ctx: Any, agent_config: Any) -> str:
         """Build the system prompt via the per-workspace
         :class:`PromptManager`.
         """
         from types import SimpleNamespace
         from ..constant import WORKING_DIR
-
-        if agent_config is None:
-            from ..config.config import load_agent_config
-
-            agent_config = load_agent_config(
-                getattr(ctx, "agent_id", "default"),
-            )
 
         workspace_dir = getattr(ctx, "workspace_dir", None) or WORKING_DIR
 
@@ -671,8 +612,8 @@ class AgentBuilder:
 
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
-            model_slot_override=model_slot_override,
             agent_config=agent_config,
+            model_slot_override=model_slot_override,
         )
         if formatter is not None:
             innermost = model
@@ -784,122 +725,7 @@ class AgentBuilder:
                 for key, value in _payload_ctx.items()
                 if key not in {"agent_id", "session_id", "user_id", "channel"}
             )
-        mode_state = getattr(ctx, "mode_state", {}) or {}
-        mission_state = mode_state.get("mission", {})
-        if isinstance(mission_state, dict) and mission_state.get("active"):
-            loop_dir = mission_state.get("loop_dir")
-            if isinstance(loop_dir, str) and loop_dir:
-                from ..modes.mission.state import read_loop_config
-
-                mission_config = read_loop_config(Path(loop_dir))
-                source_project = mission_config.get("source_project_dir")
-                if isinstance(source_project, str) and source_project:
-                    rc["active_mode_project_dir"] = source_project
         return rc
-
-    @staticmethod
-    def _stamp_resolved_project(agent_config: Any) -> Any:
-        """Stamp the already-resolved primary dir, or ``None`` if unset.
-
-        Returns ``None`` only when the resolver never ran, which tells
-        the caller to fall back to validating the request keys itself.
-        """
-        from ..config.context import (
-            get_current_project_dir,
-            get_current_project_dir_source,
-        )
-
-        resolved = get_current_project_dir()
-        if resolved is None:
-            return None
-        if get_current_project_dir_source() == "workspace_fallback":
-            # Nothing configured: keep project_dir unset instead of
-            # repointing it at the agent's internal workspace.
-            return agent_config
-        if not hasattr(agent_config, "model_copy"):
-            _logger.warning(
-                "Ignoring request project for unsupported config type: %s",
-                type(agent_config).__name__,
-            )
-            return agent_config
-        stamped = agent_config.model_copy(deep=True)
-        stamped.project_dir = str(resolved)
-        return stamped
-
-    @staticmethod
-    def _apply_request_project(
-        agent_config: Any,
-        request_context: dict[str, Any],
-    ) -> Any:
-        """Stamp the effective primary project dir onto the config copy.
-
-        Resolution happens exactly once in ``ContextVarsSetupHook``
-        (PRE_DISPATCH); this stamps the same result onto
-        ``agent_config`` for consumers that still read the config field
-        (env context, coding tools, fork registry binding). When the
-        hook did not run (context vars unset — direct builder calls in
-        tests), the trusted request keys are validated directly as
-        before.
-        """
-        stamped = AgentBuilder._stamp_resolved_project(agent_config)
-        if stamped is not None:
-            return stamped
-
-        from ..agents.fork_project import resolve_allowed_fork_project_dir
-
-        raw_project_dir = request_context.get("active_mode_project_dir")
-        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            raw_project_dir = request_context.get("project_dir")
-        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            raw_project_dir = request_context.get(ACP_PROJECT_DIR_META_KEY)
-        fork_raw = request_context.get("fork_project_dir")
-        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            # spawn_subagent(fork=True) places the worktree here.
-            raw_project_dir = fork_raw
-        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            return agent_config
-
-        # When fork_project_dir is present, the final project directory MUST be
-        # the validated worktree — never fall through to an unchecked ACP path.
-        if isinstance(fork_raw, str) and fork_raw.strip():
-            existing_pd = getattr(agent_config, "project_dir", None)
-            workspace_hint = request_context.get("workspace_dir") or getattr(
-                agent_config,
-                "workspace_dir",
-                None,
-            )
-            validated = resolve_allowed_fork_project_dir(
-                fork_raw,
-                workspace_dir=workspace_hint,
-                project_dirs=[existing_pd] if existing_pd else None,
-            )
-            if validated is None:
-                _logger.warning(
-                    "Rejecting fork_project_dir outside allowed worktree "
-                    "subtree: %s",
-                    sanitize_log_value(fork_raw),
-                )
-                return agent_config
-            raw_project_dir = str(validated)
-
-        project_dir = Path(raw_project_dir).expanduser().resolve()
-        if not project_dir.is_dir():
-            _logger.warning(
-                "Ignoring non-directory request project: %s",
-                sanitize_log_value(raw_project_dir),
-            )
-            return agent_config
-
-        if not hasattr(agent_config, "model_copy"):
-            _logger.warning(
-                "Ignoring request project for unsupported config type: %s",
-                type(agent_config).__name__,
-            )
-            return agent_config
-
-        agent_config = agent_config.model_copy(deep=True)
-        agent_config.project_dir = str(project_dir)
-        return agent_config
 
     @staticmethod
     def _build_env_context(ctx: Any, agent_config: Any) -> str:

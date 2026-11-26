@@ -3,11 +3,103 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
+from ..runtime.message_convert import rewrite_user_msg
+
+if TYPE_CHECKING:
+    from agentscope.message import Msg
+
+    from ..runtime.hooks import HookContext
+    from .base import AgentMode
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ModeActivation:
+    """Native mode entry shared by every transport."""
+
+    id: str
+    command: str = ""
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def prepare_message(self, text: str) -> str:
+        """Enter command-driven modes without changing explicit commands."""
+        if not self.command or text.lstrip().startswith("/"):
+            return text
+        return f"/{self.command} {text}"
+
+
+@dataclass(frozen=True)
+class ModeEntry:
+    """Track whether a session should retry its automatic mode command."""
+
+    mode_id: str
+    retry: bool = False
+
+
+def _resolve_mode(
+    workspace: Any,
+    mode_id: str,
+) -> tuple[AgentMode, ModeActivation]:
+    for mode in workspace.plugins.modes:
+        activation = mode.describe_activation(workspace)
+        if activation is not None and activation.id == mode_id:
+            command = activation.command
+            if (
+                command
+                and workspace.plugins.slash_command_registry.resolve(
+                    f"/{command}",
+                )
+                is None
+            ):
+                break
+            return mode, activation
+    raise ValueError(f"Unknown or unavailable agent mode: {mode_id!r}")
+
+
+def resolve_mode_activation(workspace: Any, mode_id: str) -> ModeActivation:
+    """Resolve mode-owned configuration and its optional entry command."""
+    return _resolve_mode(workspace, mode_id)[1]
+
+
+async def dispatch_session_command(ctx: HookContext, text: str) -> Msg | None:
+    """Apply automatic mode entry once, retrying failed automatic attempts."""
+    plugins = ctx.workspace.plugins
+    dispatch = plugins.slash_command_registry.dispatch
+    mode_id = ctx.agent_config.agent_mode
+    session_id = ctx.session_id
+    entries = plugins.session_modes
+    if mode_id is None:
+        entries.pop(session_id, None)
+        return await dispatch(text, ctx)
+    handled = ModeEntry(mode_id)
+    previous = entries.get(session_id)
+    if previous == handled:
+        return await dispatch(text, ctx)
+
+    mode, activation = _resolve_mode(ctx.workspace, mode_id)
+    restored = previous is None and mode_id == ctx.parameters.restored_mode
+    if restored or not activation.command or mode.is_active(ctx):
+        entries[session_id] = handled
+        return await dispatch(text, ctx)
+
+    retry = ModeEntry(mode_id, retry=True)
+    prepared = activation.prepare_message(text)
+    if prepared == text:
+        if previous != retry:
+            entries[session_id] = handled
+        return await dispatch(text, ctx)
+    rewrite_user_msg(ctx, prepared, preserve_non_text=True)
+    entries[session_id] = retry
+    result = await dispatch(prepared, ctx)
+    if mode.is_active(ctx):
+        entries[session_id] = handled
+    return result
 
 
 class LoopModeInfo(BaseModel):
@@ -65,15 +157,3 @@ def _as_str_dict(value: Any) -> dict[str, str]:
         if text:
             result[str(key)] = text
     return result
-
-
-def resolve_loop_mode(workspace: Any, mode_id: str) -> LoopModeInfo:
-    """Resolve a selectable mode and verify its activation command exists."""
-    catalog, _ = build_loop_catalog(workspace)
-    mode = next((item for item in catalog if item.id == mode_id), None)
-    if mode is None:
-        available = ", ".join(item.id for item in catalog)
-        raise ValueError(
-            f"Unknown loop mode '{mode_id}'. Available: {available}",
-        )
-    return mode

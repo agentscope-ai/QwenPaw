@@ -150,7 +150,7 @@ def session_preference(
     return ThinkingPreference.model_validate(raw) if raw is not None else None
 
 
-def _with_session_model(config, selected):
+def with_session_model(config, selected):
     """Keep agent reasoning defaults attached to the agent's own model."""
     if selected is None:
         return config
@@ -187,7 +187,7 @@ async def thinking_view(
         if config.active_model
         else f"global"
     )
-    config = await run_sync_io(_with_session_model, config, model_override)
+    config = await run_sync_io(with_session_model, config, model_override)
     inherited = ThinkingPreference(
         level=config.thinking_level,
         budget_tokens=config.thinking_budget,
@@ -331,31 +331,31 @@ async def get_session_chat(ctx, *, chat=None):
     return await manager.get_chat(chat_id) if chat_id else None
 
 
+async def chat_thinking_overrides(config, meta=None) -> dict:
+    """Read saved thinking settings for the model selected for this turn."""
+    if not meta:
+        return {}
+    slot = config.active_model or await run_sync_io(
+        lambda: ProviderManager.get_instance().get_active_model(),
+    )
+    model_key = f"{slot.provider_id}:{slot.model}" if slot else ""
+    preference = session_preference(meta, model_key)
+    if preference is None or preference.level == "inherit":
+        return {}
+    return {
+        "thinking_level": preference.level,
+        "thinking_budget": preference.budget_tokens,
+    }
+
+
 async def apply_chat_model_settings(config, meta=None, *, model_override=None):
     """Resolve thinking for the final model: request > session > defaults."""
     selected, _source = select_chat_model(meta, model_override=model_override)
-    config = await run_sync_io(_with_session_model, config, selected)
-    if meta:
-
-        def selected_key():
-            slot = config.active_model or (
-                ProviderManager.get_instance().get_active_model()
-            )
-            return f"{slot.provider_id}:{slot.model}" if slot else f""
-
-        model_key = await run_sync_io(selected_key)
-        preference = session_preference(meta, model_key)
-    else:
-        preference = None
-    if preference is None or preference.level == f"inherit":
+    config = await run_sync_io(with_session_model, config, selected)
+    thinking = await chat_thinking_overrides(config, meta)
+    if not thinking:
         return config
-    return config.model_copy(
-        update={
-            f"thinking_level": preference.level,
-            f"thinking_budget": preference.budget_tokens,
-        },
-        deep=True,
-    )
+    return config.model_copy(update=thinking, deep=True)
 
 
 async def apply_session_thinking(ctx, config):

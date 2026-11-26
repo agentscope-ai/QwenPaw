@@ -267,7 +267,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             )
             log_legacy_archive(self._workspace.agent_id, snapshot.legacy_skips)
         await migrate_legacy_mcp_if_needed(
-            self._workspace,
+            self._workspace.agent_id,
             self,
             clients=snapshot.legacy_mcp.clients,
         )
@@ -441,6 +441,8 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             await self._reclaim()
 
     def _watch_protocols(self):
+        if getattr(self._workspace, "session_owned", False) is True:
+            return frozenset()
         return frozenset(
             protocol
             for protocol in self._monitoring

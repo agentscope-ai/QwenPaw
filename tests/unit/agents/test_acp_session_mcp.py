@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
-from acp import text_block
+from acp import RequestError, text_block
 from acp.schema import (
     EnvVariable,
     HttpHeader,
@@ -20,11 +23,13 @@ from acp.schema import (
     SseMcpServer,
 )
 
+from qwenpaw.agents.acp.meta import ACP_CONFIG_META_KEY
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 from qwenpaw.agents.acp.session_mcp import (
     acp_mcp_scope_id,
     build_acp_mcp_driver_cards,
 )
+from qwenpaw.config.context import current_runtime_parameters
 from qwenpaw.drivers.constants import (
     DRIVER_SCOPE_CONTEXT_KEY,
     POLICY_EFFECT_ASK,
@@ -182,6 +187,9 @@ class _FakeWorkspace:
         self.driver_manager = _FakeDriverManager()
         self.requests: list[Any] = []
 
+    async def release_session(self, session_id: str) -> None:
+        self.released_session = session_id
+
     async def stream_query(
         self,
         request: Any,
@@ -189,6 +197,16 @@ class _FakeWorkspace:
         self.requests.append(request)
         for event in ():
             yield event
+
+    async def for_session(self, session_id, parameters):
+        return self
+
+    @asynccontextmanager
+    async def configure_session(self, session_id, parameters):
+        yield self
+
+    def session_workspace(self, session_id):
+        return self
 
 
 class _TestACPAgent(QwenPawACPAgent):
@@ -321,7 +339,7 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
         assert load_task.done()
         load_task.cancel()
         await load_task
-        assert agent._sessions[response.session_id]["cwd"] == str(new_cwd)
+        assert agent._sessions[response.session_id].cwd == str(new_cwd)
         handler_name = next(iter(manager._scope_handlers[scope_id]))
         assert manager._handlers[handler_name].card.endpoint["cwd"] == str(
             new_cwd,
@@ -370,27 +388,132 @@ async def test_acp_new_session_rolls_back_failed_mcp_registration(
     assert len(workspace.driver_manager.removals) == 1
 
 
-async def test_acp_load_session_restores_metadata_on_mcp_failure(
+@pytest.mark.parametrize("method", ["load_session", "resume_session"])
+async def test_acp_workspace_handoff_keeps_old_mcp_until_ready(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
 ) -> None:
     workspace = _FakeWorkspace()
+    replacement = _FakeWorkspace()
+    directory = str(tmp_path / "replacement")
+    owner = workspace
+
+    @asynccontextmanager
+    async def configure_session(session_id, parameters):
+        nonlocal owner
+        candidate = (
+            replacement
+            if parameters.config.workspace_dir == directory
+            else workspace
+        )
+        yield candidate
+        owner = candidate
+
+    monkeypatch.setattr(workspace, "configure_session", configure_session)
+    monkeypatch.setattr(workspace, "session_workspace", lambda _: owner)
     agent = _TestACPAgent(workspace)
+    agent.on_connect(_FakeConn())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     await agent.load_session(
         cwd=str(tmp_path),
         session_id="session-1",
-        mcp_servers=[],
+        mcp_servers=[_stdio_server()],
     )
-    previous = dict(agent._sessions["session-1"])
-    workspace.driver_manager.fail_replacement = True
+    scope = acp_mcp_scope_id("session-1")
+    previous = agent._sessions["session-1"]
+    restore = getattr(agent, method)
+    metadata = {ACP_CONFIG_META_KEY: {"workspace_dir": directory}}
+    replacement.driver_manager.fail_replacement = True
 
     with pytest.raises(RuntimeError, match="registration failed"):
-        await agent.load_session(
-            cwd="/replacement",
+        await restore(
+            cwd=str(tmp_path),
             session_id="session-1",
             mcp_servers=[_stdio_server()],
+            **metadata,
         )
 
-    assert agent._sessions["session-1"] == previous
+    assert agent._sessions["session-1"] is previous
+    assert owner is workspace
+    assert workspace.driver_manager.removals == []
+
+    replacement.driver_manager.fail_replacement = False
+    prepared, publish = asyncio.Event(), asyncio.Event()
+    prompt_entered, announce_entered = asyncio.Event(), asyncio.Event()
+    replace = replacement.driver_manager.replace_transient_drivers
+    announced = []
+
+    async def prepare_replacement(scope_id, cards):
+        await replace(scope_id, cards)
+        prepared.set()
+        await publish.wait()
+
+    async def bind_owner(session_id, parameters):
+        async with configure_session(session_id, parameters) as candidate:
+            return candidate
+
+    async def stream_query(request):
+        parameters = current_runtime_parameters.get()
+        assert parameters is not None
+        selected = await bind_owner(request.session_id, parameters)
+        async for event in _FakeWorkspace.stream_query(selected, request):
+            yield event
+
+    def available_commands(selected):
+        announced.append(selected)
+        return []
+
+    async def submit_prompt():
+        prompt_entered.set()
+        return await agent.prompt([text_block("continue")], "session-1")
+
+    async def announce():
+        announce_entered.set()
+        await QwenPawACPAgent._advertise_commands(agent, "session-1")
+
+    monkeypatch.setattr(
+        replacement.driver_manager,
+        "replace_transient_drivers",
+        prepare_replacement,
+    )
+    monkeypatch.setattr(workspace, "for_session", bind_owner)
+    monkeypatch.setattr(workspace, "stream_query", stream_query)
+    monkeypatch.setattr(agent, "_build_available_commands", available_commands)
+
+    handoff = asyncio.create_task(
+        restore(
+            cwd=str(tmp_path),
+            session_id="session-1",
+            mcp_servers=[_stdio_server()],
+            **metadata,
+        ),
+    )
+    try:
+        await asyncio.wait_for(prepared.wait(), timeout=2)
+        prompt = asyncio.create_task(submit_prompt())
+        advertisement = asyncio.create_task(announce())
+        await asyncio.wait_for(
+            asyncio.gather(prompt_entered.wait(), announce_entered.wait()),
+            timeout=2,
+        )
+    finally:
+        publish.set()
+    _, response, _ = await asyncio.wait_for(
+        asyncio.gather(handoff, prompt, advertisement),
+        timeout=2,
+    )
+    assert response.stop_reason == "end_turn"
+    assert not workspace.requests and len(replacement.requests) == 1
+    assert announced == [replacement]
+    assert agent._sessions["session-1"].config.workspace_dir == directory
+    assert owner is replacement
+    assert workspace.driver_manager.removals == [scope]
+    assert replacement.driver_manager.removals == []
+
+    await agent.close_session("session-1")
+    assert workspace.driver_manager.removals == [scope]
+    assert replacement.driver_manager.removals == [scope]
 
 
 async def test_acp_resume_session_removes_new_metadata_on_mcp_failure(
@@ -415,10 +538,14 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
 ) -> None:
     started = asyncio.Event()
     stopped = asyncio.Event()
+    closing = asyncio.Event()
+    release = asyncio.Event()
 
     class _OrderedDriverManager(_FakeDriverManager):
         async def remove_transient_drivers(self, scope_id: str) -> None:
             assert stopped.is_set()
+            closing.set()
+            await release.wait()
             await super().remove_transient_drivers(scope_id)
 
     class _BlockingWorkspace(_FakeWorkspace):
@@ -430,7 +557,7 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
             self,
             request: Any,
         ) -> AsyncIterator[Any]:
-            del request
+            self.requests.append(request)
             started.set()
             try:
                 await asyncio.Future()
@@ -453,8 +580,26 @@ async def test_acp_close_waits_for_prompt_before_removing_mcp(
     )
     await asyncio.wait_for(started.wait(), timeout=1)
 
-    await agent.close_session(session_id=response.session_id)
+    close_task = asyncio.create_task(agent.close_session(response.session_id))
+    try:
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        queued = asyncio.create_task(
+            agent.prompt([text_block("queued prompt")], response.session_id),
+        )
+        await asyncio.sleep(0)
+        assert not queued.done()
+    finally:
+        release.set()
+        await asyncio.wait_for(close_task, timeout=1)
     prompt_response = await asyncio.wait_for(prompt_task, timeout=1)
 
     assert prompt_response.stop_reason == "cancelled"
     assert stopped.is_set()
+    with pytest.raises(RequestError) as rejected:
+        await asyncio.wait_for(queued, timeout=1)
+    assert rejected.value.code == RequestError.resource_not_found().code
+    for blocks in ([text_block("late prompt")], []):
+        with pytest.raises(RequestError) as rejected:
+            await agent.prompt(blocks, response.session_id)
+        assert rejected.value.code == RequestError.resource_not_found().code
+    assert len(workspace.requests) == 1

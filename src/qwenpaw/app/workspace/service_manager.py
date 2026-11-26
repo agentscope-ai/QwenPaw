@@ -90,6 +90,7 @@ class ServiceDescriptor:
         default_factory=tuple,
     )
     require_clean_stop: bool = False
+    session_owned: bool = True
 
 
 class ServiceManager:
@@ -185,6 +186,8 @@ class ServiceManager:
         """
         groups: Dict[int, List[ServiceDescriptor]] = {}
         for descriptor in self.descriptors.values():
+            if self.workspace.session_owned and not descriptor.session_owned:
+                continue
             if descriptor.priority not in groups:
                 groups[descriptor.priority] = []
             groups[descriptor.priority].append(descriptor)

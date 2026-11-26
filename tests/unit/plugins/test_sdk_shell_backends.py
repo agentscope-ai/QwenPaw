@@ -4,6 +4,7 @@
 import asyncio
 import os
 import shlex
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,9 +14,11 @@ from qwenpaw.agents.tools import shell as native_shell
 from qwenpaw.app.channels.command_registry import CommandRegistry
 from qwenpaw.app.chats.api import create_chat
 from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.plugins._identity import bind_request_runtime
 from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.runtime.builder import AgentBuilder
+from qwenpaw.runtime.runtime import Runtime
 from qwenpaw.runtime.tool_guard import GuardedFunctionTool
 from qwenpaw.governance.tool_adapter import PolicyGuardedTool
 from qwenpaw.schemas import AgentRequest
@@ -103,6 +106,35 @@ async def test_remote_and_local_share_effective_timeout(
             0
         ].text == "LOCAL"
         assert local.call_args.args[2] == expected
+
+        isolated = await host._workspace("isolated")
+        owner = SimpleNamespace(
+            agent_id=workspace.agent_id,
+            workspace_dir=isolated.workspace_dir,
+            chat_manager=isolated.chat_manager,
+        )
+        await owner.chat_manager.get_or_create_chat(
+            "selected",
+            "alice",
+            "console",
+        )
+        assert await owner.chat_manager.set_shell_backend(
+            "selected",
+            "alice",
+            "console",
+            "resource-contract:remote",
+        )
+        turn = Runtime(workspace=owner, app_services=None)._build_context(
+            AgentRequest(
+                session_id="selected",
+                user_id="alice",
+                channel="console",
+            ),
+        )
+        with bind_request_runtime(turn):
+            result = await native(command="echo ok", **arguments)
+        assert result.content[0].text == "REMOTE"
+        assert local.await_count == 1
 
 
 async def test_reload_does_not_deselect_remote_backend(tmp_path):

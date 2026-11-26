@@ -123,6 +123,23 @@ class CheckpointRuntime:
         with self._lock:
             return self._services.get(key)
 
+    async def wait_for_query(self, workspace: Any) -> None:
+        """Wait for maintenance before reading the turn's session state."""
+        if getattr(workspace, "workspace_dir", None) is None:
+            return
+        service = await self.get_existing_for_workspace_async(workspace)
+        if service is None or service.query_gate.is_set():
+            return
+        task = asyncio.current_task()
+        if task is not None:
+            service._query_waiters.add(task)
+        try:
+            while not service.query_gate.is_set():
+                await service.query_gate.wait()
+        finally:
+            if task is not None:
+                service._query_waiters.discard(task)
+
     async def get_for_workspace_dir_async(
         self,
         workspace_dir: str | Path,

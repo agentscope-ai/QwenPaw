@@ -437,6 +437,7 @@ async def test_run_task_sends_a_valid_user_message(
     """
     from qwenpaw.config.config import AgentProfileConfig
     from qwenpaw.cli.task_cmd import _run_task
+    from qwenpaw.modes.default import resolve_max_iterations
 
     captured: dict = {}
 
@@ -482,7 +483,7 @@ async def test_run_task_sends_a_valid_user_message(
     assert msg.content[0].type == "text"
     assert msg.content[0].text == "do the thing"
 
-    assert captured["ctx"].agent_config.running.max_iters == 1
+    assert resolve_max_iterations(captured["ctx"].agent_config.running) == 1
     assert captured["ctx"].request.request_context == {
         "_headless_tool_guard": "false",
     }

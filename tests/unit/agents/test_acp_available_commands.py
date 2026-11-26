@@ -17,6 +17,8 @@ import pytest
 
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.agents.acp.parameters import ACPRuntimeParameters
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
@@ -122,7 +124,7 @@ async def _drain(conn: _FakeConn, *, timeout: float = 5.0) -> None:
 def test_build_available_commands_set():
     agent = object.__new__(QwenPawACPAgent)
     agent._workspace = None
-    commands = agent._build_available_commands()
+    commands = agent._build_available_commands(agent._workspace)
     names = {c.name for c in commands}
 
     # When workspace is None, no commands should be advertised.
@@ -167,7 +169,7 @@ async def test_registered_help_text_command_is_executed_and_advertised():
     agent._workspace = SimpleNamespace(
         plugins=SimpleNamespace(slash_command_registry=registry),
     )
-    commands = agent._build_available_commands()
+    commands = agent._build_available_commands(agent._workspace)
     by_name = {cmd.name: cmd.description for cmd in commands}
     assert by_name["demo_cmd"] == "Demo command for ACP advertise regression"
 
@@ -225,6 +227,13 @@ async def test_load_session_advertises_commands(mcp_host):
 
 async def test_new_session_reports_agent_id_in_meta(monkeypatch):
     agent = QwenPawACPAgent(agent_id="my-agent")
+    agent._configuration = ACPRuntimeParameters.from_profile(
+        AgentProfileConfig(id="my-agent", name="Test"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.load_persisted_agent_config",
+        lambda _agent_id: agent._configuration.profile,
+    )
     monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     conn = _FakeConn()
@@ -244,8 +253,22 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
             if self.request is None:
                 yield None
 
+        async def for_session(self, session_id, parameters):
+            return self
+
+        def session_workspace(self, session_id):
+            return self
+
     agent = QwenPawACPAgent(agent_id="my-agent")
+    agent._configuration = ACPRuntimeParameters.from_profile(
+        AgentProfileConfig(id="my-agent", name="Test"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.acp.server.load_persisted_agent_config",
+        lambda _agent_id: agent._configuration.profile,
+    )
     monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     conn = _FakeConn()
     workspace = _FakeWorkspace()
     agent.on_connect(conn)
@@ -255,9 +278,10 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
 
     monkeypatch.setattr(agent, "_ensure_workspace", _fake_workspace)
 
+    session = await agent.new_session(cwd="/tmp")
     await agent.prompt(
         [{"type": "text", "text": "hello"}],
-        session_id="sess-123",
+        session_id=session.session_id,
     )
 
     assert getattr(workspace.request, "agent_id", None) == "my-agent"

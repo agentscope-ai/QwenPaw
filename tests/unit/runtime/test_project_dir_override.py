@@ -7,69 +7,17 @@ from __future__ import annotations
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from qwenpaw.services.session_config import resolve_runtime_parameters
+from qwenpaw.modes.mission.state import write_loop_config
+
+
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
-
-
-def test_session_project_override_uses_canonical_request_key(tmp_path):
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(tmp_path)},
-    )
-
-    assert updated is not config
-    assert updated.project_dir == str(tmp_path.resolve())
-
-
-def test_active_mode_project_precedes_session_project(tmp_path):
-    active_dir = tmp_path / "active"
-    session_dir = tmp_path / "session"
-    active_dir.mkdir()
-    session_dir.mkdir()
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {
-            "active_mode_project_dir": str(active_dir),
-            "project_dir": str(session_dir),
-        },
-    )
-
-    assert updated.project_dir == str(active_dir.resolve())
-
-
-def test_request_project_ignores_non_directory(tmp_path):
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {ACP_PROJECT_DIR_META_KEY: str(tmp_path / "missing")},
-    )
-
-    assert updated is config
-
-
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_request_project_warns_for_unsupported_config(
-    caplog,
-    tmp_path,
-):
-    config = {}
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {ACP_PROJECT_DIR_META_KEY: str(tmp_path)},
-    )
-
-    assert updated is config
-    assert "unsupported config type: dict" in caplog.text
+from qwenpaw.config.runtime import RuntimeParameters
 
 
 def test_normal_prompt_includes_workspace_fallback_as_project(tmp_path):
@@ -103,10 +51,10 @@ def test_normal_prompt_uses_session_project_snapshot(tmp_path):
     workspace_dir.mkdir()
     project_dir.mkdir()
     config = AgentProfileConfig(id="default", name="Default")
-    config = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(project_dir)},
-    )
+    config = RuntimeParameters(
+        profile=config,
+        overrides={"project_dir": str(project_dir)},
+    ).config
     ctx = SimpleNamespace(
         workspace_dir=workspace_dir,
         agent_id="default",
@@ -124,3 +72,52 @@ def test_normal_prompt_uses_session_project_snapshot(tmp_path):
     assert str(project_dir) in prompt
     assert str(workspace_dir) in prompt
     assert "Agent workspace (internal" in prompt
+
+
+@pytest.mark.asyncio
+async def test_restored_mission_pins_the_runtime_project_before_build(
+    tmp_path,
+):
+    workspace_dir = tmp_path / "workspace"
+    project = tmp_path / "mission-project"
+    other = tmp_path / "other"
+    for directory in (workspace_dir, project, other):
+        directory.mkdir()
+    mission_dir = tmp_path / "mission"
+    mission_dir.mkdir()
+    write_loop_config(mission_dir, {"source_project_dir": str(project)})
+
+    async def load(**kwargs):
+        kwargs["agent"].load_state_dict(
+            {
+                "mode_state": {
+                    "mission": {
+                        "active": True,
+                        "loop_dir": str(mission_dir),
+                    },
+                },
+            },
+        )
+
+    session = SimpleNamespace(load_session_state=AsyncMock(side_effect=load))
+    ctx = SimpleNamespace(
+        workspace_dir=workspace_dir,
+        agent_id="default",
+        session_id="mission",
+        mode_state={},
+        workspace=SimpleNamespace(session=session),
+        request=SimpleNamespace(user_id="user", channel="console"),
+    )
+    parameters = RuntimeParameters(
+        profile=AgentProfileConfig(id="default", name="Default"),
+        overrides={"project_dir": str(other)},
+    )
+    with parameters.scope():
+        snapshot, directories = await resolve_runtime_parameters(ctx)
+    assert snapshot.config.project_dir == str(project)
+    assert directories.primary_path == project
+    assert ctx.mode_state["mission"]["active"] is True
+    session.load_session_state.assert_awaited_once()
+    prompt = AgentBuilder().build_prompt(ctx, snapshot.config)
+    assert str(project) in prompt
+    assert str(other) not in prompt

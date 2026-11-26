@@ -146,8 +146,12 @@ def workspace_is_current(registry, workspace):
     live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
     return (
         live.get(workspace.agent_id) is workspace
-        or getattr(registry, "_stop_workspaces", {}).get(workspace.agent_id)
+        or getattr(registry, "_driver_workspaces", {}).get(workspace.agent_id)
         is workspace
+        or (
+            getattr(workspace, "session_owned", False) is True
+            and getattr(workspace, "_started", False) is True
+        )
     )
 
 

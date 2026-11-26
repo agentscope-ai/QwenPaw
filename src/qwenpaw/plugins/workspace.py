@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._identity import bound_runtime
 from .errors import SDKAccessError, SDKError, StaleContextError
 
 if TYPE_CHECKING:
@@ -31,16 +32,28 @@ class WorkspaceService:
         if call.resources.closed or call.resources._closing or call.cancelled:
             raise StaleContextError("The workspace caller's scope has ended")
 
+    def _runtime(self):
+        call = self._context
+        identity = call.identity
+        if (
+            call.workspace_id == identity.workspace_id
+            and call.session_id == identity.session_id
+        ):
+            return bound_runtime(identity)
+        return None
+
     @property
     def directory(self) -> Path:
-        """The configured workspace root; never the process working directory."""
+        """Return the workspace root for this invocation."""
         from ..config.utils import load_config
 
         self._guard()
         profile = load_config().agents.profiles.get(self._context.workspace_id)
         if profile is None or not profile.enabled:
             raise SDKAccessError("Workspace is not configured and enabled")
-        return Path(profile.workspace_dir).expanduser().resolve()
+        runtime = self._runtime()
+        directory = runtime.workspace_dir if runtime else profile.workspace_dir
+        return Path(directory or profile.workspace_dir).expanduser().resolve()
 
     async def _directory_async(self) -> Path:
         self._guard()
@@ -75,6 +88,11 @@ class WorkspaceService:
         )
 
         call = self._context
+        if (runtime := self._runtime()) is not None:
+            resolved = runtime.project_directories
+            return (
+                tuple(item.path for item in resolved.dirs) if resolved else ()
+            )
         pinned = get_current_project_dirs()
         ambient = get_current_workspace_dir()
         if (

@@ -15,13 +15,24 @@ The fix moves the judgement onto an explicit, persisted schema watermark
 * the ``env:`` self-heal upgrade (#6029) is folded in as a one-shot v1->v2
   step instead of being re-scanned on every start.
 """
+import json
 from pathlib import Path
-from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 import qwenpaw.config.config as cfg_config
-from qwenpaw.config.config import MCPConfig
+from qwenpaw.config import utils as config_utils
+from qwenpaw.config.config import (
+    AgentProfileConfig,
+    AgentProfileRef,
+    AgentsConfig,
+    Config,
+    MCPClientConfig,
+    MCPConfig,
+)
+from qwenpaw.config.runtime import RuntimeParameters
+from qwenpaw.drivers.adapters import mcp_legacy_config
 from qwenpaw.drivers.adapters.mcp_legacy_config import (
     CURRENT_MCP_MIGRATION_VERSION,
     migrate_legacy_mcp_if_needed,
@@ -38,35 +49,48 @@ from qwenpaw.drivers.storage import (
 )
 
 
-def _client() -> SimpleNamespace:
-    """A minimal legacy MCP client config (read via getattr by migration)."""
-    return SimpleNamespace(
+def _client() -> MCPClientConfig:
+    return MCPClientConfig(
+        name="wind",
         transport="streamable_http",
         url="https://mcp.example.com/api/",
-        headers={},
     )
-
-
-def _mcp(clients: dict, version: int) -> SimpleNamespace:
-    """Fake MCPConfig exposing .clients and a writable .migration_version."""
-    return SimpleNamespace(clients=dict(clients), migration_version=version)
-
-
-def _ws(mcp: SimpleNamespace, agent_id: str = "default") -> SimpleNamespace:
-    """Fake Workspace exposing ._config.mcp and .agent_id for migration."""
-    return SimpleNamespace(_config=SimpleNamespace(mcp=mcp), agent_id=agent_id)
 
 
 @pytest.fixture
-def captured_saves(monkeypatch: pytest.MonkeyPatch) -> list:
-    """Capture save_agent_config calls without touching global config."""
-    saves: list = []
-    monkeypatch.setattr(
-        cfg_config,
-        "save_agent_config",
-        lambda agent_id, config: saves.append((agent_id, config)),
+def save_mcp(tmp_path, monkeypatch):
+    """Give the migration a real saved profile in the card store's owner."""
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr(config_utils, "get_config_path", lambda: config_path)
+    monkeypatch.setattr(config_utils, "_config_cache", None)
+    monkeypatch.setattr(config_utils, "_config_mtime", None)
+    monkeypatch.setattr(config_utils, "_agent_config_cache", {})
+    config_utils.save_config(
+        Config(
+            agents=AgentsConfig(
+                profiles={
+                    "default": AgentProfileRef(
+                        id="default",
+                        workspace_dir=str(tmp_path),
+                    ),
+                },
+            ),
+        ),
     )
-    return saves
+
+    def save(clients, version):
+        cfg_config.save_agent_config(
+            "default",
+            AgentProfileConfig(
+                id="default",
+                name="Default",
+                workspace_dir=str(tmp_path),
+                mcp=MCPConfig(clients=clients, migration_version=version),
+            ),
+        )
+        return tmp_path / "agent.json"
+
+    return save
 
 
 def test_mcp_config_defaults_migration_version_zero() -> None:
@@ -79,13 +103,13 @@ def test_mcp_config_defaults_migration_version_zero() -> None:
 @pytest.mark.asyncio
 async def test_migration_skipped_when_already_at_current_version(
     tmp_path: Path,
-    captured_saves: list,
+    save_mcp,
 ) -> None:
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
     manager = DriverManager(tmp_path / "drivers", store)
-    mcp = _mcp({"wind": _client()}, version=CURRENT_MCP_MIGRATION_VERSION)
-
-    report = await migrate_legacy_mcp_if_needed(_ws(mcp), manager)
+    path = save_mcp({"wind": _client()}, CURRENT_MCP_MIGRATION_VERSION)
+    before = path.stat().st_mtime_ns
+    report = await migrate_legacy_mcp_if_needed("default", manager)
 
     # A legacy client whose card does not exist is NOT re-created (#6130).
     assert not card_path(
@@ -94,57 +118,98 @@ async def test_migration_skipped_when_already_at_current_version(
         protocol="mcp",
     ).exists()
     assert report.migrated == []
-    assert captured_saves == []  # nothing persisted on the skip path
+    assert path.stat().st_mtime_ns == before
 
 
 @pytest.mark.asyncio
 async def test_migration_runs_and_persists_watermark_when_unmigrated(
     tmp_path: Path,
-    captured_saves: list,
+    save_mcp,
 ) -> None:
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
     manager = DriverManager(tmp_path / "drivers", store)
-    mcp = _mcp({"wind": _client()}, version=0)
+    path = save_mcp({"wind": _client()}, 0)
+    profile = cfg_config.load_persisted_agent_config("default")
+    parameters = RuntimeParameters.from_profile(
+        profile,
+        defaults={"approval_level": "OFF"},
+    )
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    alternate = DriverManager(
+        other_dir / "drivers",
+        AsyncCredentialStore(other_dir / "credentials.yaml"),
+    )
+    saved_config = path.read_bytes()
+    with parameters.scope():
+        await migrate_legacy_mcp_if_needed("default", alternate)
+        assert await alternate.card_store.list_paths() == []
+        other_path = other_dir / "agent.json"
+        other_path.write_bytes(saved_config)
+        other_report = await migrate_legacy_mcp_if_needed(
+            "default",
+            alternate,
+        )
+        assert [client.client_key for client in other_report.migrated] == [
+            "wind",
+        ]
+        assert path.read_bytes() == saved_config
+        expected = json.loads(saved_config)
+        expected["mcp"]["migration_version"] = CURRENT_MCP_MIGRATION_VERSION
+        assert json.loads(other_path.read_bytes()) == expected
+        with patch.object(
+            mcp_legacy_config,
+            "write_json_atomic",
+            side_effect=OSError("save failed"),
+        ):
+            with pytest.raises(OSError, match="save failed"):
+                await migrate_legacy_mcp_if_needed("default", manager)
+        assert card_path(tmp_path / "drivers", "wind", protocol="mcp").exists()
+        assert cfg_config.load_persisted_agent_config("default") == profile
+        report = await migrate_legacy_mcp_if_needed("default", manager)
 
-    await migrate_legacy_mcp_if_needed(_ws(mcp), manager)
-
-    assert card_path(tmp_path / "drivers", "wind", protocol="mcp").exists()
-    assert mcp.migration_version == CURRENT_MCP_MIGRATION_VERSION
-    assert captured_saves and captured_saves[0][0] == "default"
+    assert [client.reason for client in report.skipped] == [
+        "driver_card_exists",
+    ]
+    saved = cfg_config.load_persisted_agent_config("default")
+    assert saved.mcp.migration_version == CURRENT_MCP_MIGRATION_VERSION
+    assert saved.approval_level == profile.approval_level
 
 
 @pytest.mark.asyncio
 async def test_deleted_card_not_resurrected_after_watermark(
     tmp_path: Path,
-    captured_saves: list,
+    save_mcp,
 ) -> None:
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
     manager = DriverManager(tmp_path / "drivers", store)
-    mcp = _mcp({"wind": _client()}, version=0)
-    ws = _ws(mcp)
+    path = save_mcp({"wind": _client()}, 0)
 
     # First boot: migrate -> card created, watermark bumped once.
-    await migrate_legacy_mcp_if_needed(ws, manager)
+    await migrate_legacy_mcp_if_needed("default", manager)
     target = card_path(tmp_path / "drivers", "wind", protocol="mcp")
     assert target.exists()
+    migrated = path.stat().st_mtime_ns
 
     # Console delete: card removed, legacy mcp.clients entry left intact.
     delete_card(target)
     assert not target.exists()
-    assert "wind" in mcp.clients
+    assert (
+        "wind" in cfg_config.load_persisted_agent_config("default").mcp.clients
+    )
 
     # Restart: migration sees the watermark and does NOT recreate the card,
     # and performs no further persistence (steady state is write-free).
-    report = await migrate_legacy_mcp_if_needed(ws, manager)
+    report = await migrate_legacy_mcp_if_needed("default", manager)
     assert not target.exists()
     assert report.migrated == []
-    assert len(captured_saves) == 1
+    assert path.stat().st_mtime_ns == migrated
 
 
 @pytest.mark.asyncio
 async def test_migration_folds_env_ref_upgrade_step(
     tmp_path: Path,
-    captured_saves: list,
+    save_mcp,
 ) -> None:
     # A card already migrated (v1) but still holding a ${VAR} literal.
     store = AsyncCredentialStore(tmp_path / "credentials.yaml")
@@ -178,9 +243,8 @@ async def test_migration_folds_env_ref_upgrade_step(
     )
     manager = DriverManager(cards_dir, store)
     # version=1 -> only the v1->v2 env: ref upgrade step should run.
-    mcp = _mcp({}, version=1)
-
-    await migrate_legacy_mcp_if_needed(_ws(mcp), manager)
+    save_mcp({}, 1)
+    await migrate_legacy_mcp_if_needed("default", manager)
 
     card = load_card(card_path(cards_dir, "wind", protocol="mcp"))
     assert card.endpoint["headers"]["Authorization"] == {
@@ -189,5 +253,5 @@ async def test_migration_folds_env_ref_upgrade_step(
         "field": "value",
         "format": "Bearer {value}",
     }
-    assert mcp.migration_version == CURRENT_MCP_MIGRATION_VERSION
-    assert len(captured_saves) == 1
+    saved = cfg_config.load_persisted_agent_config("default")
+    assert saved.mcp.migration_version == CURRENT_MCP_MIGRATION_VERSION

@@ -1656,11 +1656,6 @@ async def _spawn_forked_subagent(
     fork_extra: dict[str, Any] | None = None
     fork_scope_id = ""
     if worktree_path:
-        # ``fork_project_dir`` is the spawn-level key; also set the ACP
-        # project-directory meta key so AgentBuilder / ContextVars rebind
-        # tools/cwd to the worktree.
-        from ..acp.meta import ACP_PROJECT_DIR_META_KEY
-
         workspace_dir = get_current_workspace_dir()
         registered = await asyncio.to_thread(
             register_fork,
@@ -1678,7 +1673,6 @@ async def _spawn_forked_subagent(
         fork_scope_id = get_active_fork_scope(workspace_dir)
         fork_extra = {
             "fork_project_dir": worktree_path,
-            ACP_PROJECT_DIR_META_KEY: worktree_path,
             "fork_worktree_branch": worktree_branch,
             "fork_scope_id": fork_scope_id,
         }

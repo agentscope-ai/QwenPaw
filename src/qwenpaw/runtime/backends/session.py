@@ -12,9 +12,9 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
-from .._state_utils import StateProxy
 from ...schemas import AgentResponse, Message, MessageType
 from ...plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from ...services.session_state import StateProxy
 from ...utils.io_utils import run_sync_io
 
 

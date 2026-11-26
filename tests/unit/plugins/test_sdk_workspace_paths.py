@@ -2,11 +2,15 @@
 """Real workspace/chat metadata, filesystem links and stale call ownership."""
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.plugins._identity import bind_request_runtime
 from qwenpaw.plugins.context import RequestContext
 from qwenpaw.plugins.errors import SDKAccessError, StaleContextError
+from qwenpaw.runtime.runtime import Runtime
+from qwenpaw.schemas import AgentRequest
 
 
 async def test_workspace_paths_follow_exact_session_owner_and_reject_escapes(
@@ -132,3 +136,28 @@ async def test_pinned_turn_projects_and_other_workspace_do_not_mix(
         finally:
             for variable, token in reversed(tokens):
                 variable.reset(token)
+
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        owner = SimpleNamespace(agent_id="one", workspace_dir=isolated)
+        request = AgentRequest(session_id="same", user_id="alice")
+        runtime = Runtime(workspace=owner, app_services=None)
+        turn = runtime._build_context(request)
+        turn.project_directories = resolve_effective_project_dirs(
+            isolated,
+            request_override=str(project),
+        )
+        identity = RequestContext("one", "same", "", "alice")
+        with bind_request_runtime(turn):
+            async with ctx._invocation(
+                workspace_id="one",
+                session_id="same",
+                identity=identity,
+            ) as call:
+                assert call.workspace_ops.directory == isolated.resolve()
+                assert await call.workspace_ops.project_directories() == (
+                    project.resolve(),
+                )
+                assert await call.workspace_ops.resolve_path("file") == (
+                    project.resolve() / "file"
+                )

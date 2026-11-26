@@ -136,6 +136,7 @@ def make_create_goal(owner: "GoalMode") -> Any:
             goal=objective.strip(),
             token_counter=track_session_tokens(key),
             max_tokens=budget,
+            max_iterations=owner.settings.max_iterations,
         )
         owner.sessions[key] = session
         logger.info(

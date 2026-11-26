@@ -8,6 +8,8 @@ import mimetypes
 from typing import Any, List
 from urllib.parse import urlparse
 
+from agentscope.message import Msg, TextBlock
+
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
@@ -79,7 +81,7 @@ def _request_input_to_msgs(
     Handles text, image, audio, video, and file content blocks.
     """
     try:
-        from agentscope.message import Msg, TextBlock, DataBlock
+        from agentscope.message import DataBlock
         from agentscope.message._block import URLSource
     except Exception:
         logger.error(
@@ -185,3 +187,27 @@ def _request_input_to_msgs(
             ),
         )
     return out
+
+
+def rewrite_user_msg(
+    ctx: Any,
+    text: str,
+    *,
+    preserve_non_text: bool = False,
+) -> None:
+    """Replace the command text in the last user message.
+
+    Optionally keep non-text blocks such as images attached to the task.
+    """
+    msgs = getattr(ctx, "input_msgs", None)
+    if not msgs:
+        return
+    last = msgs[-1]
+    if not isinstance(last, Msg):
+        return
+    attachments = (
+        [block for block in last.content if not isinstance(block, TextBlock)]
+        if preserve_non_text
+        else []
+    )
+    last.content = [TextBlock(type="text", text=text), *attachments]

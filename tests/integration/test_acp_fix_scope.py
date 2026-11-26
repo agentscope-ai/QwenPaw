@@ -65,6 +65,12 @@ class _FakeWorkspace:
         async for event in self._stream():
             yield event
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 def _content_event(text: str = "hello"):
     return SimpleNamespace(
@@ -343,12 +349,12 @@ async def test_config_resolution_runs_off_loop_and_reports_failure(
     agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
     monkeypatch.setattr(acp_server, f"_ACP_KEEPALIVE_SECONDS", 0.01)
 
-    def resolve():
+    def resolve(_agent_id):
         assert threading.get_ident() != loop_thread
         time.sleep(0.08)
         raise OSError(f"Configuration unreadable")
 
-    monkeypatch.setattr(agent, f"_resolve_agent_id", resolve)
+    monkeypatch.setattr(acp_server, "load_persisted_agent_config", resolve)
     with pytest.raises(RequestError):
         await agent.prompt([text_block(f"hello")], session_id)
     assert any(_is_keepalive(update) for _, update in conn.updates)
@@ -397,12 +403,11 @@ async def test_harness_terminal_preserves_output_and_status(
             "cancelled": RunStatus.Cancelled,
             "completed": RunStatus.Completed,
         }[outcome]
+        error = {"message": "backend secret"} if outcome == "error" else None
         yield AgentResponse(
             object="response",
             status=status,
-            error={"message": "backend secret"}
-            if status == RunStatus.Failed
-            else None,
+            error=error,
         )
 
     agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)

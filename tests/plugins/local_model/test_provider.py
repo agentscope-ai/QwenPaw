@@ -307,7 +307,7 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
             return HookResult()
 
         workspace = SimpleNamespace(
-            agent_id="test",
+            agent_id="default",
             workspace_dir=tmp_path,
             plugins=SimpleNamespace(hook_registry=SimpleNamespace(run=hook)),
         )
@@ -383,7 +383,7 @@ async def test_cancelled_agent_close_releases_native_stream(tmp_path):
             )
 
         workspace = SimpleNamespace(
-            agent_id="test",
+            agent_id="default",
             workspace_dir=tmp_path,
             plugins=SimpleNamespace(hook_registry=SimpleNamespace(run=hook)),
         )

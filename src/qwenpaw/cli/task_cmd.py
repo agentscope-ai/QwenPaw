@@ -87,12 +87,15 @@ async def _run_task(
 ) -> dict:
     from agentscope.message import UserMsg
 
+    from ..config.config import IterationGateConfig
     from ..runtime.builder import AgentBuilder
     from ..runtime.hooks import HookContext
     from ..schemas import AgentRequest
 
     agent_config = agent_config.model_copy(deep=True)
-    agent_config.running.max_iters = max_iters
+    agent_config.running.loop.iteration = IterationGateConfig(
+        max_iterations=max_iters,
+    )
 
     base_workspace: Path | None = None
     if agent_config.workspace_dir:

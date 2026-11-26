@@ -56,7 +56,9 @@ def _register(
 
 @pytest.mark.asyncio
 async def test_required_clean_stop_failure_is_propagated():
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
     service = SimpleNamespace(
         stop=AsyncMock(side_effect=RuntimeError("worker is still alive")),
     )
@@ -75,7 +77,9 @@ async def test_required_clean_stop_failure_is_propagated():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("async_stop", [True, False])
 async def test_required_clean_stop_false_result_is_propagated(async_stop):
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
 
     if async_stop:
         stop = AsyncMock(return_value=False)
@@ -100,7 +104,9 @@ async def test_required_clean_stop_false_result_is_propagated(async_stop):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("async_stop", [True, False])
 async def test_stop_cancellation_is_propagated_after_siblings(async_stop):
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
     sibling_stop = AsyncMock()
 
     if async_stop:
@@ -153,7 +159,11 @@ async def test_stop_cancellation_does_not_commit_workspace_stopped(workspace):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("present", [True, False])
 async def test_reused_service_can_be_rejected_by_configuration(present):
-    workspace = SimpleNamespace(agent_id="agent-1", marker="new")
+    workspace = SimpleNamespace(
+        agent_id="agent-1",
+        marker="new",
+        session_owned=False,
+    )
     manager = ServiceManager(workspace)
 
     class Service:
@@ -251,7 +261,9 @@ def test_memory_reuse_requires_identical_runtime_context(
 
 @pytest.mark.asyncio
 async def test_candidate_cleanup_preserves_only_borrowed_services():
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
     services = {
         name: SimpleNamespace(close=AsyncMock())
         for name in ("borrowed", "candidate_owned", "ordinary")
@@ -459,7 +471,9 @@ async def test_published_async_factory_is_cleaned_on_sibling_failure(
 
 @pytest.mark.asyncio
 async def test_optional_service_is_cleaned_before_removal():
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
     closed = AsyncMock()
 
     async def failing_factory(_workspace, _service, publish):
@@ -483,7 +497,9 @@ async def test_optional_service_is_cleaned_before_removal():
 
 @pytest.mark.asyncio
 async def test_fatal_exception_from_optional_service_aborts_startup():
-    manager = ServiceManager(SimpleNamespace(agent_id="agent-1"))
+    manager = ServiceManager(
+        SimpleNamespace(agent_id="agent-1", session_owned=False),
+    )
 
     class FatalConfigurationError(RuntimeError):
         pass

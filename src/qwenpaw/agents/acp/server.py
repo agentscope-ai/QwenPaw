@@ -16,9 +16,12 @@ import json
 import logging
 import os
 import sys
+from contextlib import aclosing
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from weakref import WeakValueDictionary
 
 import anthropic
 import openai
@@ -71,7 +74,7 @@ from acp.schema import (
     ToolCallUpdate,
     UsageUpdate,
 )
-from qwenpaw.schemas import (
+from ...schemas import (
     AgentRequest,
     Message,
     MessageType,
@@ -79,23 +82,24 @@ from qwenpaw.schemas import (
 )
 
 from ...__version__ import __version__
-from ...constant import WORKING_DIR
 from ...config.config import (
-    AgentProfileConfig,
     ModelSlotConfig,
-    load_agent_config,
-    update_agent_config_async,
+    load_persisted_agent_config,
 )
+from ...config.overrides import merge_overrides
+from ...config.utils import load_config
 from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
-from ...providers.provider_manager import ProviderManager
 from ...plugins.registry import PluginRegistry
-from ...modes.catalog import resolve_loop_mode
-from ...utils.io_utils import run_sync_io
+from ...providers.provider_manager import ProviderManager
+from ...utils.io_utils import run_async_to_completion, run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
-    ACP_EPHEMERAL_META_KEY,
-    ACP_PROJECT_DIR_META_KEY,
+)
+from .parameters import (
+    ACPRuntimeParameters,
+    MODE_DEFAULT,
+    MODE_BYPASS,
 )
 from .runtime_provider import (
     RUNTIME_OPENAI_PROVIDER_ID,
@@ -111,7 +115,6 @@ logger = logging.getLogger(__name__)
 
 ACP_ERROR_META_KEY = "qwenpaw.error"
 ACP_AGENT_META_KEY = "qwenpaw.agent"
-_ACP_RUNTIME_MODEL_SLOT_KEY = "qwenpaw.runtime_model_slot"
 
 _GENERIC_PROMPT_ERROR = (
     "QwenPaw failed to process the request. Check server logs for details."
@@ -366,8 +369,8 @@ class QwenPawACPAgent(Agent):
     _conn: Client
 
     MODE_CONFIG_ID = "mode"
-    MODE_DEFAULT = "default"
-    MODE_BYPASS = "bypassPermissions"
+    MODE_DEFAULT = MODE_DEFAULT
+    MODE_BYPASS = MODE_BYPASS
 
     def __init__(
         self,
@@ -376,7 +379,8 @@ class QwenPawACPAgent(Agent):
         local_diagnostics: bool = False,
         runtime_provider: OpenAIRuntimeProviderConfig | None = None,
         agent_mode: str | None = None,
-        goal_token_budget: int = 0,
+        goal_token_budget: int | None = None,
+        config_overrides: dict[str, Any] | None = None,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
@@ -384,14 +388,18 @@ class QwenPawACPAgent(Agent):
         self._runtime_provider = runtime_provider
         # Runtime loop mode (e.g. "goal"); distinct from the ACP session
         # config option "mode" (MODE_CONFIG_ID), which is a permission mode.
-        self._agent_mode = agent_mode
         self._goal_token_budget = goal_token_budget
-        self._agent_mode_started: set[str] = set()
-        self._stop_gate_workspace: tuple[str, Any] | None = None
+        self._config_overrides = dict(config_overrides or {})
+        if agent_mode is not None:
+            self._config_overrides["agent_mode"] = agent_mode
+        self._configuration: ACPRuntimeParameters | None = None
         self._runtime_provider_manager: ProviderManager | None = None
         self._runtime_provider_instance: Any | None = None
-        self._previous_active_model: ModelSlotConfig | None = None
-        self._sessions: dict[str, dict[str, Any]] = {}
+        self._sessions: dict[str, ACPRuntimeParameters] = {}
+        self._session_locks: WeakValueDictionary[
+            str,
+            asyncio.Lock,
+        ] = WeakValueDictionary()
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._prompt_tasks: dict[str, asyncio.Task[Any]] = {}
         self._workspace: Any | None = None
@@ -497,8 +505,6 @@ class QwenPawACPAgent(Agent):
         if self._agent_id is not None:
             return self._agent_id
 
-        from ...config.utils import load_config
-
         config = load_config()
         agents_cfg = getattr(config, "agents", None)
         if agents_cfg is not None:
@@ -507,43 +513,94 @@ class QwenPawACPAgent(Agent):
                 return aid
         return "default"
 
-    def _resolve_workspace_dir(
-        self,
-        agent_id: str,
-    ) -> Path:
-        """Return the effective workspace directory."""
-        if self._workspace_dir is not None:
-            return self._workspace_dir
-        return WORKING_DIR / "workspaces" / agent_id
+    def _session_configuration(self) -> ACPRuntimeParameters:
+        """Resolve and pin this ACP instance's configuration once."""
+        if self._configuration is None:
+            agent_id = self._resolve_agent_id()
+            defaults = dict(self._config_overrides)
+            if self._workspace_dir is not None:
+                defaults["workspace_dir"] = str(self._workspace_dir)
+            if self._goal_token_budget is not None:
+                defaults = merge_overrides(
+                    defaults,
+                    {
+                        "running": {
+                            "loop": {
+                                "goal": {
+                                    "max_tokens": self._goal_token_budget,
+                                },
+                            },
+                        },
+                    },
+                )
+            if self._runtime_provider is not None:
+                defaults = merge_overrides(
+                    defaults,
+                    {
+                        "active_model": (
+                            self._runtime_provider.model_slot.model_dump()
+                        ),
+                        "session_persistence": False,
+                        "fallback_policy": {"enabled": False},
+                    },
+                )
+            self._configuration = ACPRuntimeParameters.from_profile(
+                load_persisted_agent_config(agent_id),
+                global_config=load_config(),
+                defaults=defaults,
+            )
+            self._agent_id = self._configuration.base.id
+        return self._configuration
 
-    def _session_info(
+    def _resolve_session(
         self,
         *,
         cwd: str,
-        session_id: str,
         meta: dict[str, Any],
-    ) -> dict[str, Any]:
-        info: dict[str, Any] = {
-            "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
-            "mode": QwenPawACPAgent.MODE_DEFAULT,
-            DRIVER_SCOPE_CONTEXT_KEY: acp_mcp_scope_id(session_id),
-        }
-        project_dir = meta.get(ACP_PROJECT_DIR_META_KEY)
-        if project_dir is None:
-            project_dir = cwd
-        if isinstance(project_dir, str) and project_dir.strip():
-            info[ACP_PROJECT_DIR_META_KEY] = project_dir
-        if (
-            meta.get(ACP_EPHEMERAL_META_KEY) is True
-            or self._runtime_provider is not None
+        previous: ACPRuntimeParameters | None = None,
+        resume: bool = False,
+        restored: bool = False,
+    ) -> ACPRuntimeParameters:
+        try:
+            parameters = self._session_configuration().for_session(
+                cwd,
+                meta,
+                previous=previous,
+                resume=resume,
+                restored=restored,
+            )
+            return self._with_current_model(parameters)
+        except (ValueError, AppBaseException) as error:
+            raise RequestError.invalid_params(
+                {"details": f"Invalid session configuration: {error}"},
+            ) from error
+
+    @staticmethod
+    def _with_current_model(
+        parameters: ACPRuntimeParameters,
+    ) -> ACPRuntimeParameters:
+        """Refresh the inherited model before resolving a session or turn."""
+        profile = parameters.profile
+        active_model = load_persisted_agent_config(profile.id).active_model
+        if active_model != profile.active_model or parameters.fallback_model:
+            parameters = replace(
+                parameters,
+                profile=profile.model_copy(
+                    update={"active_model": active_model},
+                ),
+                fallback_model=None,
+            )
+        selected = parameters.config.active_model
+        if selected is not None and not (
+            selected.provider_id and selected.model
         ):
-            info[ACP_EPHEMERAL_META_KEY] = True
-        if self._runtime_provider is not None:
-            info[
-                _ACP_RUNTIME_MODEL_SLOT_KEY
-            ] = self._runtime_provider.model_slot
-        return info
+            fallback = ProviderManager.get_instance().get_active_model()
+            return replace(parameters, fallback_model=fallback)
+        if parameters.needs_model_fallback:
+            fallback = ProviderManager.get_instance().active_model
+            if fallback is not None:
+                return replace(parameters, fallback_model=fallback)
+        return parameters
 
     async def _install_runtime_provider(self) -> None:
         """Register the process-scoped provider without persisting it."""
@@ -559,9 +616,7 @@ class QwenPawACPAgent(Agent):
             )
 
         provider = self._runtime_provider.build_provider()
-        self._previous_active_model = manager.active_model
         manager.custom_providers[RUNTIME_OPENAI_PROVIDER_ID] = provider
-        manager.active_model = self._runtime_provider.model_slot
         self._runtime_provider_manager = manager
         self._runtime_provider_instance = provider
 
@@ -579,10 +634,8 @@ class QwenPawACPAgent(Agent):
                 RUNTIME_OPENAI_PROVIDER_ID,
                 None,
             )
-        manager.active_model = self._previous_active_model
         self._runtime_provider_manager = None
         self._runtime_provider_instance = None
-        self._previous_active_model = None
 
     async def _ensure_app_services(self) -> Any:
         """Create and start ACP-local cross-workspace services."""
@@ -635,20 +688,17 @@ class QwenPawACPAgent(Agent):
         if self._workspace is None:
             from ...app.workspace.workspace import Workspace
             from ...app.mcp_plugin_upgrade import (
-                capture_workspace_usage,
                 bind_workspace_usage,
+                capture_workspace_usage,
             )
 
-            agent_id = await run_sync_io(self._resolve_agent_id)
-            workspace_dir = self._resolve_workspace_dir(agent_id)
-            usage = await capture_workspace_usage(agent_id, workspace_dir)
-            workspace = Workspace(
-                agent_id=agent_id,
-                workspace_dir=str(workspace_dir),
-                mode_config_overrides={
-                    f"goal": {f"max_tokens": self._goal_token_budget},
-                },
+            parameters = await run_sync_io(self._session_configuration)
+            config = parameters.config
+            usage = await capture_workspace_usage(
+                config.id,
+                config.workspace_dir,
             )
+            workspace = Workspace(config.id, config.workspace_dir)
             bind_workspace_usage(workspace, usage)
             self._workspace = workspace
         return self._workspace
@@ -669,62 +719,52 @@ class QwenPawACPAgent(Agent):
                 return self._workspace
 
             workspace = await self._workspace_candidate()
-            agent_id = workspace.agent_id
-            workspace_dir = workspace.workspace_dir
-            app_services = await self._ensure_app_services()
-            workspace.bootstrap_plugins(
-                **self._build_bootstrap_kwargs(app_services),
-            )
-            workspace.set_app_services(app_services)
-            try:
-                await workspace.start()
-                self._install_stop_gate_bridge(agent_id, workspace)
-                if workspace.driver_manager is not None:
-                    await workspace.driver_manager.activate_registered_protocols()
-            except BaseException:
+            registry = PluginRegistry()
+            with self._session_configuration().scope():
                 try:
-                    await workspace.stop(final=True)
-                except Exception:
-                    logger.exception(f"ACP workspace startup cleanup failed")
-                self._workspace = None
-                self._workspace_ready = False
-                raise
+                    app_services = await self._ensure_app_services()
+                    workspace.bootstrap_plugins(
+                        **self._build_bootstrap_kwargs(app_services),
+                    )
+                    workspace.set_app_services(app_services)
+                    await workspace.start()
+                    registry.register_driver_workspace(workspace)
+                    if driver_manager := workspace.driver_manager:
+                        await driver_manager.activate_registered_protocols()
+                except BaseException:
+                    try:
+                        await workspace.stop(final=True)
+                    except Exception:
+                        logger.exception(
+                            "ACP workspace startup cleanup failed",
+                        )
+                    finally:
+                        registry.unregister_driver_workspace(workspace)
+                        self._workspace = None
+                    raise
 
-            self._workspace = workspace
             self._workspace_ready = True
             logger.info(
                 "QwenPaw ACP Agent workspace started:"
                 " agent_id=%s workspace=%s",
-                agent_id,
-                workspace_dir,
+                workspace.agent_id,
+                workspace.workspace_dir,
             )
             return workspace
 
-    def _install_stop_gate_bridge(self, agent_id: str, workspace: Any) -> None:
-        """Register ACP stop gates without replacing the app's manager.
-
-        ReAct resolves handlers by agent ID through PluginRegistry. ACP
-        owns this standalone workspace registration until shutdown.
-        """
-        PluginRegistry().register_stop_workspace(agent_id, workspace)
-        self._stop_gate_workspace = (agent_id, workspace)
-
     async def _shutdown_workspace(self) -> None:
         """Gracefully stop the workspace."""
-        if self._stop_gate_workspace is not None:
-            PluginRegistry().unregister_stop_workspace(
-                *self._stop_gate_workspace,
-            )
-            self._stop_gate_workspace = None
-        if self._workspace is not None:
+        if workspace := self._workspace:
             try:
-                await self._workspace.stop(final=True)
+                await workspace.stop(final=True)
             except Exception:
                 logger.exception(
                     "Error stopping ACP workspace",
                 )
-            self._workspace = None
-            self._workspace_ready = False
+            finally:
+                PluginRegistry().unregister_driver_workspace(workspace)
+                self._workspace = None
+                self._workspace_ready = False
         if self._app_services is not None and self._app_services_started:
             try:
                 await self._app_services.stop()
@@ -791,15 +831,14 @@ class QwenPawACPAgent(Agent):
     ) -> NewSessionResponse:
         await self._require_mcp()
         session_id = uuid4().hex
-        self._sessions[session_id] = self._session_info(
+        parameters = await run_sync_io(
+            self._resolve_session,
             cwd=cwd,
-            session_id=session_id,
             meta=kwargs,
         )
         try:
-            await self._sync_session_mcp(session_id, mcp_servers)
+            await self._configure_session(session_id, parameters, mcp_servers)
         except BaseException:
-            self._sessions.pop(session_id, None)
             await self._remove_session_mcp(session_id)
             raise
         logger.info(
@@ -811,7 +850,7 @@ class QwenPawACPAgent(Agent):
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
-            models=await self._build_model_state(),
+            models=await self._build_model_state(session_id),
             field_meta=await run_sync_io(self._session_meta),
         )
 
@@ -824,23 +863,7 @@ class QwenPawACPAgent(Agent):
     ) -> LoadSessionResponse | None:
         await self._require_mcp()
         session_meta = await run_sync_io(self._session_meta)
-        previous_session = self._sessions.get(session_id)
-        self._sessions[session_id] = self._session_info(
-            cwd=cwd,
-            session_id=session_id,
-            meta=kwargs,
-        )
-        try:
-            await self._sync_session_mcp(session_id, mcp_servers)
-        except BaseException:
-            if previous_session is None:
-                self._sessions.pop(session_id, None)
-            else:
-                self._sessions[session_id] = previous_session
-            raise
-        # A loaded session already had its first message, so the mode
-        # prefix must not apply to any subsequent prompt.
-        self._agent_mode_started.add(session_id)
+        await self._restore_session(session_id, cwd, kwargs, mcp_servers)
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -863,29 +886,26 @@ class QwenPawACPAgent(Agent):
         )
 
         text = _extract_text(prompt)
-        if not text:
-            return PromptResponse(stop_reason="end_turn")
+        user_id = f"acp_{session_id[:8]}"
 
-        session_info = self._sessions.get(
-            session_id,
-            {},
-        )
-        user_id = session_info.get(
-            "user_id",
-            f"acp_{session_id[:8]}",
-        )
+        # Once admitted, a restore must drain this task before changing owners.
+        async with self._session_lock(session_id):
+            session_info = self._sessions.get(session_id)
+            if session_info is None:
+                raise RequestError.resource_not_found()
+            if not text:
+                return PromptResponse(stop_reason="end_turn")
+            active_prompt = self._prompt_tasks.get(session_id)
+            if active_prompt is not None and not active_prompt.done():
+                raise RequestError.invalid_params(
+                    {"details": "This session already has an active prompt"},
+                )
+            cancel_event = asyncio.Event()
+            self._cancel_events[session_id] = cancel_event
+            prompt_task = asyncio.current_task()
+            if prompt_task is not None:
+                self._prompt_tasks[session_id] = prompt_task
 
-        active_prompt = self._prompt_tasks.get(session_id)
-        if active_prompt is not None and not active_prompt.done():
-            raise RequestError.invalid_params(
-                {f"details": f"This session already has an active prompt"},
-            )
-
-        cancel_event = asyncio.Event()
-        self._cancel_events[session_id] = cancel_event
-        prompt_task = asyncio.current_task()
-        if prompt_task is not None:
-            self._prompt_tasks[session_id] = prompt_task
         approval_bridge = asyncio.create_task(
             self._bridge_approval_requests(session_id),
         )
@@ -911,52 +931,53 @@ class QwenPawACPAgent(Agent):
             try:
                 await self._require_mcp()
                 workspace = await self._ensure_workspace()
-                agent_id = await run_sync_io(self._resolve_agent_id)
-                prompt_text = self._apply_agent_mode(
-                    text,
-                    session_id,
-                    workspace,
+                parameters = await run_sync_io(
+                    self._with_current_model,
+                    session_info,
                 )
-                request_context = self._build_request_context(session_info)
+                with parameters.scope():
+                    request = AgentRequest(
+                        input=[
+                            Message(
+                                role="user",
+                                content=[
+                                    {"type": "text", "text": text},
+                                ],
+                            ),
+                        ],
+                        session_id=session_id,
+                        user_id=user_id,
+                        agent_id=parameters.profile.id,
+                        request_context={
+                            DRIVER_SCOPE_CONTEXT_KEY: acp_mcp_scope_id(
+                                session_id,
+                            ),
+                        },
+                    )
 
-                request = AgentRequest(
-                    input=[
-                        Message(
-                            role="user",
-                            content=[
-                                {"type": "text", "text": prompt_text},
-                            ],
-                        ),
-                    ],
-                    session_id=session_id,
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    request_context=request_context or None,
-                    model_slot_override=session_info.get(
-                        _ACP_RUNTIME_MODEL_SLOT_KEY,
-                    ),
-                )
-
-                events_since_yield = 0
-                async for event in workspace.stream_query(request):
-                    if getattr(event, f"object", None) == f"response":
-                        status = getattr(event, f"status", None)
-                        if status == RunStatus.Failed:
-                            outcome = (
-                                f"error",
-                                RuntimeError(
-                                    f"Workspace failed: {event.error}",
-                                ),
-                            )
-                        elif status == RunStatus.Cancelled:
-                            outcome = (f"cancelled", None)
-                    for upd in tracker.process(event):
-                        await queue.put(("update", upd))
-                    events_since_yield += 1
-                    if events_since_yield >= 64:
-                        # Ready, unmapped events need explicit fairness too.
-                        events_since_yield = 0
-                        await asyncio.sleep(0)
+                    events_since_yield = 0
+                    async with aclosing(
+                        workspace.stream_query(request),
+                    ) as stream:
+                        async for event in stream:
+                            if getattr(event, "object", None) == "response":
+                                status = getattr(event, "status", None)
+                                if status == RunStatus.Failed:
+                                    outcome = (
+                                        "error",
+                                        RuntimeError(
+                                            f"Workspace failed: {event.error}",
+                                        ),
+                                    )
+                                elif status == RunStatus.Cancelled:
+                                    outcome = ("cancelled", None)
+                            for upd in tracker.process(event):
+                                await queue.put(("update", upd))
+                            events_since_yield += 1
+                            if events_since_yield >= 64:
+                                # Unmapped events need a yield point too.
+                                events_since_yield = 0
+                                await asyncio.sleep(0)
             except asyncio.CancelledError:
                 if consumer_stopped:
                     raise
@@ -1057,50 +1078,21 @@ class QwenPawACPAgent(Agent):
         stop_reason = "cancelled" if was_cancelled else "end_turn"
         return PromptResponse(stop_reason=stop_reason)
 
-    def _apply_agent_mode(
-        self,
-        text: str,
-        session_id: str,
-        workspace: Any,
-    ) -> str:
-        """Prefix the session's first message with the mode command.
-
-        Only the first user message of a session gets the prefix (for
-        example ``/goal``); messages that already start with a slash
-        command are left untouched so explicit commands always win.
-        Later messages and resumed sessions are never prefixed.
-        """
-        if self._agent_mode is None or self._agent_mode == f"code":
-            return text
-        if session_id in self._agent_mode_started:
-            return text
-        if text.lstrip().startswith(f"/"):
-            self._agent_mode_started.add(session_id)
-            return text
-        try:
-            mode = resolve_loop_mode(workspace, self._agent_mode)
-        except ValueError as exc:
-            raise RequestError.invalid_params(
-                {f"agent_mode": self._agent_mode, f"details": str(exc)},
-            ) from exc
-        self._agent_mode_started.add(session_id)
-        if not mode.slash_command:
-            return text
-        return f"/{mode.slash_command} {text}"
-
     async def close_session(  # pylint: disable=unused-argument
         self,
         session_id: str,
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
-        await self._cancel_active_prompt(session_id)
-        await self._cancel_pending_approvals(session_id)
-        await self._remove_session_mcp(session_id)
-        self._sessions.pop(session_id, None)
-        self._agent_mode_started.discard(session_id)
-        self._cancel_events.pop(session_id, None)
-        self._prompt_tasks.pop(session_id, None)
+        async with self._session_lock(session_id):
+            await self._cancel_active_prompt(session_id)
+            await self._cancel_pending_approvals(session_id)
+            await self._remove_session_mcp(session_id)
+            if self._workspace is not None:
+                await self._workspace.release_session(session_id)
+            self._sessions.pop(session_id, None)
+            self._cancel_events.pop(session_id, None)
+            self._prompt_tasks.pop(session_id, None)
         return CloseSessionResponse()
 
     async def list_sessions(  # pylint: disable=unused-argument
@@ -1112,7 +1104,7 @@ class QwenPawACPAgent(Agent):
         logger.info("ACP list_sessions: cwd=%s", cwd)
         sessions: list[SessionInfo] = []
         for sid, info in self._sessions.items():
-            sess_cwd = info.get("cwd", "")
+            sess_cwd = info.cwd
             if cwd is not None and sess_cwd != cwd:
                 continue
             sessions.append(
@@ -1137,31 +1129,13 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        previous_session = self._sessions.get(session_id)
-        if previous_session is None:
-            candidate_session = self._session_info(
-                cwd=cwd,
-                session_id=session_id,
-                meta=kwargs,
-            )
-        else:
-            candidate_session = dict(previous_session)
-            candidate_session["cwd"] = cwd
-            project_dir = kwargs.get(ACP_PROJECT_DIR_META_KEY)
-            if isinstance(project_dir, str) and project_dir.strip():
-                candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
-        self._sessions[session_id] = candidate_session
-        try:
-            await self._sync_session_mcp(session_id, mcp_servers)
-        except BaseException:
-            if previous_session is None:
-                self._sessions.pop(session_id, None)
-            else:
-                self._sessions[session_id] = previous_session
-            raise
-        # A resumed session already had its first message, so the mode
-        # prefix must not apply to any subsequent prompt.
-        self._agent_mode_started.add(session_id)
+        await self._restore_session(
+            session_id,
+            cwd,
+            kwargs,
+            mcp_servers,
+            resume=True,
+        )
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument
@@ -1188,9 +1162,12 @@ class QwenPawACPAgent(Agent):
                     "details": str(exc),
                 },
             ) from None
-        session_info = self._sessions.get(session_id)
-        if session_info is not None:
-            session_info[_ACP_RUNTIME_MODEL_SLOT_KEY] = model_slot
+        async with self._session_lock(session_id):
+            session_info = self._sessions.get(session_id)
+            if session_info is not None:
+                self._sessions[session_id] = session_info.with_overrides(
+                    {"active_model": model_slot.model_dump()},
+                )
         logger.info(
             "Model switched to %s for agent %s",
             model_id,
@@ -1225,11 +1202,15 @@ class QwenPawACPAgent(Agent):
                     "calls will bypass security checks.",
                     session_id,
                 )
-            if session_id in self._sessions:
-                self._sessions[session_id]["mode"] = str_value
-            return SetSessionConfigOptionResponse(
-                config_options=self._build_config_options(session_id),
-            )
+            async with self._session_lock(session_id):
+                session_info = self._sessions.get(session_id)
+                if session_info is not None:
+                    self._sessions[
+                        session_id
+                    ] = session_info.with_permission_mode(str_value)
+                return SetSessionConfigOptionResponse(
+                    config_options=self._build_config_options(session_id),
+                )
         return None
 
     async def cancel(  # pylint: disable=unused-argument
@@ -1241,12 +1222,21 @@ class QwenPawACPAgent(Agent):
             "ACP cancel: session=%s",
             session_id,
         )
-        await self._cancel_active_prompt(session_id)
-        await self._cancel_pending_approvals(session_id)
+        async with self._session_lock(session_id):
+            await self._cancel_active_prompt(session_id)
+            await self._cancel_pending_approvals(session_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        """Serialize admission and lifecycle changes for one ACP session."""
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
 
     async def _cancel_all_prompts(self) -> None:
         """Cancel every active prompt before workspace shutdown."""
@@ -1268,80 +1258,101 @@ class QwenPawACPAgent(Agent):
         ):
             return
 
-        prompt_task.cancel()
-        try:
-            await prompt_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception(
+        if not prompt_task.cancelling():
+            prompt_task.cancel()
+        (result,) = await run_async_to_completion(
+            asyncio.gather(prompt_task, return_exceptions=True),
+        )
+        if isinstance(result, Exception):
+            logger.error(
                 "ACP prompt failed while cancelling session=%s",
                 session_id,
+                exc_info=result,
             )
 
-    def _build_request_context(
+    async def _restore_session(
         self,
-        session_info: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build the runtime request context for one ACP session."""
-        request_context: dict[str, Any] = {}
-        if self._agent_mode == f"code":
-            request_context[f"coding_mode"] = True
-        if session_info.get("mode", self.MODE_DEFAULT) == self.MODE_BYPASS:
-            request_context["_headless_tool_guard"] = "false"
+        session_id: str,
+        cwd: str,
+        meta: dict[str, Any],
+        mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
+        *,
+        resume: bool = False,
+    ) -> None:
+        """Drain the admitted prompt before replacing its session owner."""
+        async with self._session_lock(session_id):
+            parameters = await run_sync_io(
+                self._resolve_session,
+                cwd=cwd,
+                meta=meta,
+                previous=self._sessions.get(session_id),
+                resume=resume,
+                restored=not resume,
+            )
+            await self._cancel_active_prompt(session_id)
+            await run_async_to_completion(
+                self._configure_session(session_id, parameters, mcp_servers),
+            )
 
-        project_dir = session_info.get(ACP_PROJECT_DIR_META_KEY)
-        if isinstance(project_dir, str) and project_dir.strip():
-            request_context["project_dir"] = project_dir
-
-        if session_info.get(ACP_EPHEMERAL_META_KEY) is True:
-            request_context[ACP_EPHEMERAL_META_KEY] = True
-
-        driver_scope_id = session_info.get(DRIVER_SCOPE_CONTEXT_KEY)
-        if isinstance(driver_scope_id, str) and driver_scope_id:
-            request_context[DRIVER_SCOPE_CONTEXT_KEY] = driver_scope_id
-        return request_context
+    async def _configure_session(
+        self,
+        session_id: str,
+        parameters: ACPRuntimeParameters,
+        mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
+    ) -> None:
+        """Publish session parameters after the resource owner is ready."""
+        await self._sync_session_mcp(session_id, parameters, mcp_servers)
+        self._sessions[session_id] = parameters
 
     async def _sync_session_mcp(
         self,
         session_id: str,
+        parameters: ACPRuntimeParameters,
         mcp_servers: list[ACP_MCP_SERVER_TYPES] | None,
     ) -> None:
         """Replace the transient MCP Drivers owned by one ACP session."""
         scope_id = acp_mcp_scope_id(session_id)
-        session_info = self._sessions.get(session_id)
-        if session_info is not None:
-            session_info[DRIVER_SCOPE_CONTEXT_KEY] = scope_id
-
-        if session_info is None:
-            raise RuntimeError(
-                f"ACP session {session_id!r} is not registered",
-            )
-        session_cwd = session_info.get("cwd")
-        if not isinstance(session_cwd, str):
-            raise ValueError("ACP session cwd must be a string")
         cards = build_acp_mcp_driver_cards(
             session_id,
             mcp_servers,
-            session_cwd=session_cwd,
+            session_cwd=parameters.cwd,
         )
         # Admission may retain a candidate before its runtime has started.
         if not cards and not self._workspace_ready:
             return
 
         workspace = await self._ensure_workspace()
-        driver_manager = getattr(workspace, "driver_manager", None)
-        if driver_manager is None:
-            raise RuntimeError(
-                "QwenPaw workspace has no DriverManager for ACP MCP",
-            )
-        await driver_manager.replace_transient_drivers(scope_id, cards)
+        async with workspace.configure_session(
+            session_id,
+            parameters,
+        ) as owner:
+            driver_manager = owner.driver_manager
+            if driver_manager is None:
+                raise RuntimeError(
+                    "QwenPaw workspace has no DriverManager for ACP MCP",
+                )
+            await driver_manager.replace_transient_drivers(scope_id, cards)
+            # Dedicated owners stop on replacement. The shared owner lives
+            # on, so retire its old scope while the handoff lock is held.
+            if (
+                owner is not workspace
+                and session_id in self._sessions
+                and workspace.session_workspace(session_id) is workspace
+            ):
+                try:
+                    await self._remove_session_mcp(session_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to retire ACP MCP scope for session=%s",
+                        session_id,
+                    )
 
     async def _remove_session_mcp(self, session_id: str) -> None:
         """Remove transient MCP Drivers for one ACP session if initialized."""
         workspace = self._workspace
         if workspace is None:
             return
+        workspace = workspace.session_workspace(session_id)
         driver_manager = getattr(workspace, "driver_manager", None)
         if driver_manager is None:
             return
@@ -1739,7 +1750,7 @@ class QwenPawACPAgent(Agent):
         """Return the current mode for *session_id*."""
         info = self._sessions.get(session_id)
         if info is not None:
-            return info.get("mode", self.MODE_DEFAULT)
+            return info.mode
         return self.MODE_DEFAULT
 
     def _session_meta(self) -> dict[str, Any] | None:
@@ -1751,7 +1762,10 @@ class QwenPawACPAgent(Agent):
             return None
         return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
-    async def _build_model_state(self) -> SessionModelState | None:
+    async def _build_model_state(
+        self,
+        session_id: str | None = None,
+    ) -> SessionModelState | None:
         """Build the ACP ``SessionModelState`` from the provider manager.
 
         Collects all available models across all providers and determines
@@ -1759,26 +1773,22 @@ class QwenPawACPAgent(Agent):
         selector to users.
         """
         try:
-            if self._runtime_provider is not None:
-                slot = self._runtime_provider.model_slot
-                model_id = f"{slot.provider_id}:{slot.model}"
-                return SessionModelState(
-                    available_models=[
-                        ACPModelInfo(
-                            model_id=model_id,
-                            name=slot.model,
-                        ),
-                    ],
-                    current_model_id=model_id,
-                )
-
             manager = await run_sync_io(ProviderManager.get_instance)
-            agent_id = await run_sync_io(self._resolve_agent_id)
-            agent_config = await run_sync_io(load_agent_config, agent_id)
+            session = self._sessions.get(session_id or "")
+            agent_config = (
+                session.config
+                if session is not None
+                else self._session_configuration().base
+            )
+            agent_id = agent_config.id
             provider_infos = await manager.list_provider_info()
 
             available_models: list[ACPModelInfo] = []
             for pinfo in provider_infos:
+                if self._runtime_provider is not None and (
+                    pinfo.id != RUNTIME_OPENAI_PROVIDER_ID
+                ):
+                    continue
                 for model in pinfo.models + pinfo.extra_models:
                     available_models.append(
                         ACPModelInfo(
@@ -1788,6 +1798,8 @@ class QwenPawACPAgent(Agent):
                     )
 
             active = agent_config.active_model
+            if not (active and active.provider_id and active.model):
+                active = await run_sync_io(manager.get_active_model)
             if active and active.provider_id and active.model:
                 current_model_id = f"{active.provider_id}:{active.model}"
             else:
@@ -1807,8 +1819,9 @@ class QwenPawACPAgent(Agent):
             )
             return None
 
+    @staticmethod
     def _build_available_commands(
-        self,
+        workspace: Any,
     ) -> list[AvailableCommand]:
         """Build slash-command list from workspace registry.
 
@@ -1829,7 +1842,7 @@ class QwenPawACPAgent(Agent):
             },
         )
 
-        ws = self._workspace
+        ws = workspace
         if ws is None:
             return []
 
@@ -1895,12 +1908,18 @@ class QwenPawACPAgent(Agent):
         the wait does not block ``new_session`` / ``load_session``.
         """
         try:
-            await self._ensure_workspace()
+            workspace = await self._ensure_workspace()
+            async with self._session_lock(session_id):
+                parameters = self._sessions.get(session_id)
+                if parameters is None:
+                    return
+                owner = await workspace.for_session(session_id, parameters)
+                commands = self._build_available_commands(owner)
             await self._conn.session_update(
                 session_id=session_id,
                 update=AvailableCommandsUpdate(
                     sessionUpdate="available_commands_update",
-                    available_commands=self._build_available_commands(),
+                    available_commands=commands,
                 ),
             )
         except Exception:
@@ -1945,13 +1964,7 @@ class QwenPawACPAgent(Agent):
         self,
         model_spec: str,
     ) -> ModelSlotConfig:
-        """Switch the active model for the current agent.
-
-        Validates the provider/model pair exists, then writes the
-        choice into ``agent.json`` so ``create_model_and_formatter``
-        picks it up on the next ``prompt()`` call.  The global
-        ``ProviderManager`` state is **not** modified — the change
-        is scoped to this agent only.
+        """Validate a session model without changing saved agent defaults.
 
         *model_spec* should be ``"provider_id:model_id"``.
         Falls back to treating the whole string as *model_id* with
@@ -2000,14 +2013,7 @@ class QwenPawACPAgent(Agent):
                     f"Model {model_id!r} not found in any provider",
                 )
 
-        agent_id = await run_sync_io(self._resolve_agent_id)
-        slot = ModelSlotConfig(provider_id=provider_id, model=model_id)
-
-        def select_model(config: AgentProfileConfig) -> None:
-            config.active_model = slot
-
-        await update_agent_config_async(agent_id, select_model)
-        return slot
+        return ModelSlotConfig(provider_id=provider_id, model=model_id)
 
 
 async def run_qwenpaw_agent(
@@ -2016,7 +2022,8 @@ async def run_qwenpaw_agent(
     local_diagnostics: bool = False,
     runtime_provider: OpenAIRuntimeProviderConfig | None = None,
     agent_mode: str | None = None,
-    goal_token_budget: int = 0,
+    goal_token_budget: int | None = None,
+    config_overrides: dict[str, Any] | None = None,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
@@ -2026,9 +2033,11 @@ async def run_qwenpaw_agent(
         runtime_provider=runtime_provider,
         agent_mode=agent_mode,
         goal_token_budget=goal_token_budget,
+        config_overrides=config_overrides,
     )
     try:
         # pylint: disable=protected-access
+        await run_sync_io(agent._session_configuration)
         await agent._install_runtime_provider()
         try:
             await run_agent(agent, use_unstable_protocol=True)

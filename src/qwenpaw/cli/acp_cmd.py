@@ -9,8 +9,20 @@ import sys
 
 import click
 
+from ..config.overrides import parse_config_overrides
+
 
 @click.command("acp")
+@click.option(
+    "--config",
+    "config_values",
+    multiple=True,
+    metavar="PATH=VALUE",
+    help=(
+        "Override session configuration without saving. "
+        "Repeat for multiple paths; values accept JSON or plain strings."
+    ),
+)
 @click.option(
     "--agent",
     default=None,
@@ -62,9 +74,8 @@ import click
 @click.option(
     f"--goal-token-budget",
     type=click.IntRange(min=-1),
-    default=0,
-    show_default=True,
-    help=f"Token budget per goal. -1 or 0 means unlimited.",
+    default=None,
+    help="Token budget per goal. -1 or 0 means unlimited; omit to inherit.",
 )
 def acp_cmd(
     agent: str | None,
@@ -73,7 +84,8 @@ def acp_cmd(
     local_diagnostics: bool,
     runtime_provider: str | None,
     agent_mode: str | None,
-    goal_token_budget: int,
+    goal_token_budget: int | None,
+    config_values: tuple[str, ...],
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -87,6 +99,10 @@ def acp_cmd(
     )
 
     workspace_dir = Path(workspace) if workspace else None
+    try:
+        config_overrides = parse_config_overrides(config_values)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
     provider_config = None
     if runtime_provider == "openai-env":
         from ..agents.acp.runtime_provider import (
@@ -123,6 +139,7 @@ def acp_cmd(
                 runtime_provider=provider_config,
                 agent_mode=agent_mode,
                 goal_token_budget=goal_token_budget,
+                config_overrides=config_overrides,
             ),
         )
     finally:

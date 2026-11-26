@@ -13,15 +13,11 @@ class TestWorkspaceBootstrapFactory:
         assert isinstance(kwargs, dict)
 
     def test_includes_builtin_hook_clses(self) -> None:
-        from qwenpaw.checkpoints.hooks import (
-            CheckpointAutoSnapshotHook,
-            CheckpointQueryGateHook,
-        )
+        from qwenpaw.checkpoints.hooks import CheckpointAutoSnapshotHook
 
         kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(None)
         hook_clses = kwargs.get("builtin_hook_clses", [])
         assert len(hook_clses) > 0, "Expected at least some hook classes"
-        assert CheckpointQueryGateHook in hook_clses
         assert CheckpointAutoSnapshotHook in hook_clses
 
     def test_includes_builtin_tool_funcs(self) -> None:

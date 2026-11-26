@@ -3,6 +3,7 @@
 """Tests for BaseMemoryManager abstract base class."""
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -173,6 +174,11 @@ class TestBaseMemoryManagerSubmitAutoMemory:
 
     async def test_worker_does_not_retain_the_submitting_turn(self, manager):
         from contextvars import ContextVar
+        from qwenpaw.plugins._identity import (
+            bind_request_runtime,
+            bound_runtime,
+            from_runtime,
+        )
         from qwenpaw.plugins.sdk import _RunStreams
         from qwenpaw.runtime.provider_turn import ProviderTurn
         from qwenpaw.runtime.turn_context import (
@@ -182,11 +188,19 @@ class TestBaseMemoryManagerSubmitAutoMemory:
 
         workspace = ContextVar("test_workspace")
         released = asyncio.Event()
+        runtime = SimpleNamespace(
+            workspace=SimpleNamespace(agent_id="agent"),
+            agent_id="agent",
+            session_id="session",
+            request=SimpleNamespace(user_id="user", channel="console"),
+        )
+        identity = from_runtime(runtime)
 
         async def auto_memory(**_kwargs):
             await released.wait()
             assert current_provider_turn.get() is None
             assert current_run_streams.get() is None
+            assert bound_runtime(identity) is None
             return workspace.get()
 
         manager.auto_memory = auto_memory
@@ -195,7 +209,8 @@ class TestBaseMemoryManagerSubmitAutoMemory:
         owner_token = current_run_streams.set(owned)
         token = workspace.set("agent")
         try:
-            with turn.bind():
+            with turn.bind(), bind_request_runtime(runtime):
+                assert bound_runtime(identity) is runtime
                 manager.submit_auto_memory([])
         finally:
             workspace.reset(token)

@@ -902,6 +902,7 @@ async def test_workspace_stop_releases_its_plugin_bindings(registry):
     from qwenpaw.app.workspace.workspace import Workspace
 
     old = Workspace.__new__(Workspace)
+    old._session_workspaces = {}
     old.agent_id = "same-agent"
     old.plugins = WorkspacePlugins()
     old._started = True
@@ -945,6 +946,7 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     from qwenpaw.plugins.lifecycle import QuiescenceError
 
     old = Workspace.__new__(Workspace)
+    old._session_workspaces = {}
     old.agent_id = "retiring"
     old._started = old._start_attempted = True
     old._task_tracker = TaskTracker()
@@ -994,6 +996,7 @@ async def test_workspace_stop_retains_failed_backend_for_retry(registry):
     from qwenpaw.app.workspace.workspace import Workspace
 
     old = Workspace.__new__(Workspace)
+    old._session_workspaces = {}
     old.agent_id = "retiring"
     old._started = old._start_attempted = True
     old._service_manager = SimpleNamespace(

@@ -11,7 +11,7 @@ from agentscope.tool import ToolChunk
 
 from ..agents.tools.shell import resolve_shell_command_timeout
 from .context import RequestContext
-from ._identity import control_context
+from ._identity import bound_runtime, control_context
 from .errors import SDKAccessError, SDKError
 from .shell import ShellRequest, ShellResult
 
@@ -33,7 +33,7 @@ _UNAVAILABLE = (
 
 
 async def _chat_manager(registry, workspace_id):
-    workspace = registry._stop_workspaces.get(workspace_id)
+    workspace = registry.get_driver_workspace(workspace_id)
     manager = registry.get_workspace_manager()
     if workspace is None and manager is not None:
         workspace = await manager.get_agent(workspace_id)
@@ -103,7 +103,12 @@ class ShellRouter:
             # Unbound direct calls cannot select someone else's connection.
             return None
         try:
-            chats = await _chat_manager(self.registry, identity.workspace_id)
+            runtime = bound_runtime(identity)
+            chats = (
+                runtime.workspace.chat_manager
+                if runtime is not None
+                else await _chat_manager(self.registry, identity.workspace_id)
+            )
             if chats is None:
                 if self.backends:
                     raise SDKError("Shell selection state is unavailable")

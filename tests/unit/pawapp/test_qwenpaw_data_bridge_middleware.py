@@ -15,7 +15,7 @@ from agentscope.state import AgentState
 
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.hooks.session.session_hook import SessionSaveHook
-from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.services.session_state import StateProxy
 from qwenpaw.runtime.hooks import HookContext, HookRegistry
 from qwenpaw.runtime.phases import Phase
 
@@ -241,6 +241,7 @@ async def test_takeover_turn_survives_session_save_hook_and_reload(
         workspace=SimpleNamespace(session=session),
         app_services=None,
         agent=agent,
+        agent_config=SimpleNamespace(session_persistence=True),
     )
     await hooks.run(Phase.POST_RESPONSE, ctx)
 

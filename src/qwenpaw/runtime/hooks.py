@@ -100,6 +100,8 @@ class HookContext:
     # ── Per-request mutable state, filled in across phases ──
     input_msgs: list = field(default_factory=list)
     agent_config: Any | None = None
+    parameters: Any | None = None
+    project_directories: Any | None = None
     session_state: dict | None = None
     agent: "Agent | None" = None
     error: BaseException | None = None

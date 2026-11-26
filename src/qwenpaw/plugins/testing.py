@@ -618,18 +618,13 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace._service_manager.services["session"] = SafeJSONSession(
                 save_dir=str(path / "sessions"),
             )
-            from ..hooks.session import SessionLoadHook, SessionSaveHook
-            from ..checkpoints.hooks import CheckpointQueryGateHook
+            from ..hooks.session import SessionPrepareHook, SessionSaveHook
             from ..runtime.builtin_commands import (
                 collect_builtin_command_specs,
             )
 
             workspace.bootstrap_plugins(
-                builtin_hook_clses=[
-                    CheckpointQueryGateHook,
-                    SessionLoadHook,
-                    SessionSaveHook,
-                ],
+                builtin_hook_clses=[SessionPrepareHook, SessionSaveHook],
                 builtin_command_specs=collect_builtin_command_specs(),
             )
             self._workspaces[workspace_id] = workspace

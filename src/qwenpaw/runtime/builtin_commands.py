@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ._state_utils import StateProxy
+from ..services.session_state import StateProxy
 from .slash_command_registry import CommandSpec, FallbackHandler
 
 if TYPE_CHECKING:

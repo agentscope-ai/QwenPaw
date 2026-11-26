@@ -48,6 +48,7 @@ async def until(predicate):
 async def test_restore_waits_for_existing_run_not_requests_at_closed_gate(
     tmp_path,
     outcome,
+    monkeypatch,
 ):
     source = make_checkpoint_plugin(tmp_path)
     async with PluginTestHost(tmp_path / "host") as host:
@@ -59,6 +60,19 @@ async def test_restore_waits_for_existing_run_not_requests_at_closed_gate(
         workspace = await host._workspace("test")
         tracker = workspace.task_tracker
         engine = await RUNTIME.get_for_workspace_async(workspace)
+        load_state = workspace.session.load_session_state
+        queued_reads = []
+
+        async def load_session_state(**kwargs):
+            if kwargs["session_id"] == "queued":
+                queued_reads.append(engine.query_gate.is_set())
+            return await load_state(**kwargs)
+
+        monkeypatch.setattr(
+            workspace.session,
+            "load_session_state",
+            load_session_state,
+        )
 
         async def tracked(session):
             async def stream(_):
@@ -121,6 +135,7 @@ async def test_restore_waits_for_existing_run_not_requests_at_closed_gate(
             await asyncio.sleep(0.05)
             assert await tracker.get_status("queued") == "running"
             assert not provider.storage.read_json("queued-entered", 0)
+            assert not queued_reads
             assert path.read_bytes() == original and not restoring.done()
             if outcome == "cancel-queued":
                 assert await tracker.request_stop("queued")
@@ -145,6 +160,9 @@ async def test_restore_waits_for_existing_run_not_requests_at_closed_gate(
             await queued
             if outcome != "cancel-queued":
                 assert provider.storage.read_json("queued-exited") == 1
+                assert queued_reads and all(queued_reads)
+            else:
+                assert not queued_reads
             assert not engine._query_waiters
             assert not await host.approval_requests("conversation")
         finally:

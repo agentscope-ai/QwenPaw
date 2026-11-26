@@ -458,7 +458,7 @@ def default_live_workspaces() -> list[Any]:
         manager = registry.get_workspace_manager()
         workspaces = [
             *getattr(manager, "agents", {}).values(),
-            *registry._stop_workspaces.values(),
+            *registry._driver_workspaces.values(),
         ]
         return list(
             {id(workspace): workspace for workspace in workspaces}.values(),

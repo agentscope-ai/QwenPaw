@@ -13,6 +13,8 @@ from agentscope.message import Msg, TextBlock
 from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import scoped_session_id
+from ...config.config import MissionLoopModeConfig
+from ...config.context import current_runtime_parameters
 from ...loop.gates.base import StopAction
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
@@ -42,10 +44,15 @@ class MissionMode(AgentMode):
 
     def __init__(self) -> None:
         self._gate: MissionGate | None = None
-        self._default_max_iterations = 20
-        self._max_retries_per_story = 3
-        self._default_verification_instructions = ""
-        self._default_verify_command = ""
+        self._defaults = MissionLoopModeConfig()
+
+    @property
+    def settings(self) -> MissionLoopModeConfig:
+        """Read execution defaults from the current session snapshot."""
+        parameters = current_runtime_parameters.get()
+        if parameters is not None:
+            return parameters.config.running.loop.mission
+        return self._defaults
 
     # ── commands ──
 
@@ -69,12 +76,10 @@ class MissionMode(AgentMode):
 
     def hooks(self) -> list[HookBase]:
         from .hooks import (
-            MissionStateLoadHook,
             MissionStateSaveHook,
         )
 
         return [
-            MissionStateLoadHook(owner_mode=self),
             MissionStateSaveHook(owner_mode=self),
         ]
 
@@ -90,13 +95,7 @@ class MissionMode(AgentMode):
     def setup(self, workspace: object) -> None:
         """Register MissionGate in a separate handler."""
         super().setup(workspace)
-        mission_config = workspace.config.running.loop.mission
-        self._default_max_iterations = mission_config.max_iterations
-        self._max_retries_per_story = mission_config.max_retries_per_story
-        self._default_verification_instructions = (
-            mission_config.default_verification_instructions
-        )
-        self._default_verify_command = mission_config.default_verify_command
+        self._defaults = workspace.config.running.loop.mission
 
         from .gates import MissionGate as _MG
         from ...loop.gates import (
@@ -177,8 +176,8 @@ class MissionMode(AgentMode):
 
         parsed = parse_mission_args(
             args or "",
-            default_max_iterations=self._default_max_iterations,
-            default_verify_command=self._default_verify_command,
+            default_max_iterations=self.settings.max_iterations,
+            default_verify_command=self.settings.default_verify_command,
         )
         task_text = parsed["task_text"]
         from ...config.context import get_current_project_dir
@@ -207,7 +206,7 @@ class MissionMode(AgentMode):
         # --- help / empty ---
         if not task_text or len(task_text.strip()) < 5:
             return _info_msg(
-                format_help(self._default_max_iterations),
+                format_help(self.settings.max_iterations),
             )
 
         conflict = find_active_explicit_mode(ctx)
@@ -228,10 +227,10 @@ class MissionMode(AgentMode):
             session_id=session_id,
             verify_commands=parsed["verify_commands"],
             verification_instructions=(
-                self._default_verification_instructions
+                self.settings.default_verification_instructions
             ),
             max_iterations=parsed["max_iterations"],
-            max_retries_per_story=self._max_retries_per_story,
+            max_retries_per_story=self.settings.max_retries_per_story,
         )
 
         if self._gate is not None:
@@ -258,7 +257,7 @@ class MissionMode(AgentMode):
     @property
     def max_retries_per_story(self) -> int:
         """Configured retry allowance used by Mission workers."""
-        return self._max_retries_per_story
+        return self.settings.max_retries_per_story
 
     def start_internal_mission(self, session_id: str, loop_dir: Path) -> None:
         """Activate existing Mission state for a private workflow."""

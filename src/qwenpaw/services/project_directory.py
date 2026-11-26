@@ -19,7 +19,7 @@ Effective-directory precedence, highest first::
 
     fork worktree (replaces the primary; the rest is inherited)
     mode pin (Mission snapshots the whole list for the run)
-    trusted request override (ACP / cron; becomes the primary)
+    trusted request override (e.g. cron; becomes the primary)
     per-chat session override (whole list, persisted on the chat)
     agent-level default (an ordered list, inherited by new chats)
     workspace fallback (nothing configured; primary = workspace)
@@ -505,7 +505,7 @@ def resolve_effective_project_dirs(
        primary; the remaining entries are inherited.
     2. ``mode_override`` — a running mode (Mission) snapshots the whole
        list at start so a mid-run session switch cannot move it.
-    3. ``request_override`` — a trusted per-run path (ACP / cron) that
+    3. ``request_override`` — a trusted per-run path (e.g. cron) that
        becomes the primary; the rest is inherited.
     4. ``session_project_dirs`` — per-chat override list. ``None``
        means "not set" (inherit the agent default).

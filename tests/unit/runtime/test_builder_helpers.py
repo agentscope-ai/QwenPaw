@@ -2,7 +2,7 @@
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 """Unit tests for the module-level helpers in runtime/builder.py.
 
-These three helpers are pure (no I/O beyond an injected language preference),
+These helpers are pure (no I/O beyond an injected language preference),
 so they are tested directly; AgentBuilder itself needs the full runtime and is
 covered elsewhere.
 """
@@ -12,81 +12,6 @@ import types
 import pytest
 
 from qwenpaw.runtime import builder as builder_mod
-
-
-# ── _resolve_react_iterations ─────────────────────────────────────────
-
-
-class TestResolveReactIterations:
-    def test_plain_chat_request_keeps_the_configured_limit(self):
-        assert builder_mod._resolve_react_iterations(25, {}) == 25
-
-    def test_non_portability_source_ignores_a_larger_request(self):
-        ctx = {"source": "chat", "max_react_iterations": 9999}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_portability_source_may_outgrow_the_limit(self):
-        ctx = {"source": "portability_adaptation", "max_react_iterations": 200}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 200
-
-    def test_portability_request_below_configured_keeps_configured(self):
-        """max(configured, ...) means a smaller request cannot shrink."""
-        ctx = {"source": "portability_adaptation", "max_react_iterations": 5}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_portability_request_is_capped_at_the_hard_ceiling(self):
-        ctx = {
-            "source": "portability_adaptation",
-            "max_react_iterations": 999_999,
-        }
-        assert (
-            builder_mod._resolve_react_iterations(25, ctx)
-            == builder_mod._PORTABILITY_MAX_ITERS
-        )
-
-    def test_hard_ceiling_value(self):
-        assert builder_mod._PORTABILITY_MAX_ITERS == 4000
-
-    def test_bool_request_is_rejected_even_though_bool_is_an_int(self):
-        """True == 1 here, so the isinstance(bool) guard is load-bearing."""
-        ctx = {
-            "source": "portability_adaptation",
-            "max_react_iterations": True,
-        }
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_float_request_is_rejected(self):
-        ctx = {
-            "source": "portability_adaptation",
-            "max_react_iterations": 200.0,
-        }
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_string_request_is_rejected(self):
-        ctx = {
-            "source": "portability_adaptation",
-            "max_react_iterations": "200",
-        }
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_zero_request_is_rejected(self):
-        ctx = {"source": "portability_adaptation", "max_react_iterations": 0}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_negative_request_is_rejected(self):
-        ctx = {"source": "portability_adaptation", "max_react_iterations": -5}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_missing_request_key_keeps_configured(self):
-        ctx = {"source": "portability_adaptation"}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
-
-    def test_none_request_keeps_configured(self):
-        ctx = {
-            "source": "portability_adaptation",
-            "max_react_iterations": None,
-        }
-        assert builder_mod._resolve_react_iterations(25, ctx) == 25
 
 
 # ── _descriptor_for ───────────────────────────────────────────────────

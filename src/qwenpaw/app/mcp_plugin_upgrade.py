@@ -16,6 +16,7 @@ from ..plugins.install_receipts import (
     write_install_commit,
 )
 from ..plugins.safe_fs import same_location
+from ..drivers.adapters.mcp_legacy_config import normalize_legacy_mcp
 from ..drivers.errors import driver_error_diagnostic
 from .mcp_plugin_migration import (
     MCPPluginUpgradeResult,
@@ -58,55 +59,6 @@ def _root_profiles(root):
 def _root_plugins(root):
     plugins = root.get("plugins")
     return plugins if isinstance(plugins, dict) else {}
-
-
-def normalize_legacy_mcp(raw, *, root=False):
-    """Use the legacy model on saved values, leaving model defaults implicit."""
-    from pydantic import ValidationError
-
-    from ..config.config import MCPClientConfig, MCPConfig
-    from ..drivers.adapters.mcp_legacy_config import (
-        CURRENT_MCP_MIGRATION_VERSION,
-        args_may_contain_secret,
-    )
-    from ..drivers.contracts import validate_card_name
-    from ..drivers.errors import DriverCardError
-    from ..exceptions import ConfigurationException
-
-    if raw is None and not root:
-        return None, ()
-    if not isinstance(raw, dict) or not isinstance(
-        raw.get("clients", {}),
-        dict,
-    ):
-        return MCPConfig(clients={}), (("mcp", "invalid section"),)
-    try:
-        mcp = MCPConfig.model_validate({**raw, "clients": {}})
-    except ValidationError:
-        return MCPConfig(clients={}), (("mcp", "invalid settings"),)
-    if not 0 <= mcp.migration_version <= CURRENT_MCP_MIGRATION_VERSION:
-        return MCPConfig(clients={}), (("mcp", "invalid migration version"),)
-    if mcp.migration_version:
-        # Consumed source definitions can remain on disk for downgrade.
-        return mcp, ()
-
-    skipped = []
-    for index, (name, value) in enumerate(raw.get("clients", {}).items(), 1):
-        try:
-            validate_card_name(name)
-        except DriverCardError:
-            skipped.append((f"entry #{index}", "invalid source name"))
-            continue
-        try:
-            model = MCPClientConfig.model_validate(value)
-        except (DriverCardError, ValidationError, ConfigurationException):
-            skipped.append((name, "invalid client configuration"))
-        else:
-            if args_may_contain_secret(model.args):
-                skipped.append((name, "possible secret in launch arguments"))
-                continue
-            mcp.clients[name] = model
-    return mcp, tuple(skipped)
 
 
 def log_legacy_archive(scope, skipped):
