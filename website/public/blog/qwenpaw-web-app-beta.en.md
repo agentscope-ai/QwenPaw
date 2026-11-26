@@ -23,8 +23,6 @@ Web App access is in **Beta** and may be unstable. Your QwenPaw installation and
 
 Open [platform.agentscope.io/m](https://platform.agentscope.io/m), or connect your local workspace from Console.
 
-![The local Console workspace menu and phone button (demo environment)](https://github.com/user-attachments/assets/99a956a4-8e86-4b74-903f-e76ba134ba03)
-
 Click the phone icon at the top right of your local Console. If you have not connected a cloud account, sign in from that dialog. Once connected, the same dialog shows a QR code. Scan it with your phone, check that the digits match on both screens, and confirm sign-in on your computer.
 
 You can use any QR scanner. If the link opens inside WeChat, DingTalk, or another app, follow the page's instructions to open it in Safari or your system browser before continuing. You can also copy the full link. After sign-in, the page explains how to add QwenPaw to your home screen.
@@ -34,8 +32,6 @@ This signs your phone in to your **full Platform account**, with access to its c
 Hub users keep their local and cloud accounts separate, and each connection is limited to that user's personal Runtime. Standalone users can sign in to Platform without creating a local account. A cloud account can connect multiple local accounts or devices, up to its node quota.
 
 ## The Console you already know
-
-![The shared Console's model and thinking controls (demo environment)](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
 Your phone loads the Console that comes with the workspace you select. The familiar model, thinking intensity, and mode controls are right in the composer; thinking settings are available when the selected model supports them. Conversations and approvals stay with their workspace when you switch.
 

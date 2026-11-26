@@ -378,7 +378,9 @@ vi.mock("./components/ChatActionGroup", () => ({
 }));
 
 vi.mock("./components/ChatHeaderTitle", () => ({
-  default: () => <div data-testid="header-title" />,
+  default: ({ actions }: { actions: React.ReactNode }) => (
+    <div data-testid="header-title">{actions}</div>
+  ),
 }));
 
 vi.mock("@/api/modules/skill", () => ({

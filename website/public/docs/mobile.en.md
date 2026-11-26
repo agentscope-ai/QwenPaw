@@ -18,8 +18,6 @@ One cloud account can connect multiple local accounts or devices, up to its node
 
 ## Sign in on your phone
 
-![The local Console workspace menu and phone button (demo environment)](https://github.com/user-attachments/assets/99a956a4-8e86-4b74-903f-e76ba134ba03)
-
 1. Click the **Add to phone** icon at the top right of Console.
 2. Scan the QR code with your phone. If the page opens inside another app, follow the browser instructions or copy the full link into Safari on iOS or your system browser on Android or HarmonyOS. Do this before continuing sign-in.
 3. Tap **Continue sign-in** and check that the digits match on your phone and computer.
@@ -43,8 +41,6 @@ No Android Quick App or HarmonyOS native package is needed. Use an HTTPS address
 Your home-screen icon uses the QwenPaw logo. Whether the installed app keeps your browser session depends on your operating system and browser. If it asks you to sign in, scan a new QR code from Console after launching the app.
 
 ## Workspaces and conversations
-
-![The shared Console's model and thinking controls (demo environment)](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
 - Open the workspace menu at the top or in **Settings**. Choose a **Cloud** or **Connected** workspace, then select an agent and conversation.
 - Use **Refresh workspace** if a page gets stuck. Your account and selected workspace stay in place.
@@ -75,5 +71,7 @@ Choose **Disconnect node** in the Console account panel to stop remote access to
 **No Install button:** Use the browser-menu steps above. A website cannot guarantee that your browser will show an installation prompt.
 
 **Console fails to load:** Choose **Refresh** on the recovery page, or select another workspace. If a loaded Console page fails, use **Refresh workspace** at the top. Refreshing does not resend your last message.
+
+If refreshing reports `Unsupported Console host request` after an update, close all QwenPaw Web App tabs and windows, then reopen the app so the browser can activate the new version.
 
 See also [Console](./console), [Hub](./hub), and [Security](./security).

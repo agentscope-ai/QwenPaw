@@ -23,8 +23,6 @@ Web App 目前为 **Beta** 功能，可能不稳定；本地 QwenPaw 和 Platfor
 
 手机入口是 [platform.agentscope.io/m](https://platform.agentscope.io/m)。要接入本地工作区，可以先从电脑上的 Console 开始。
 
-![本地 Console 的工作区菜单与手机入口（演示环境）](https://github.com/user-attachments/assets/99a956a4-8e86-4b74-903f-e76ba134ba03)
-
 点击本地 Console 右上角的手机图标。如果还没有绑定云账号，直接在弹窗中登录；连接成功后，原弹窗就会显示二维码。用手机扫码，核对两端显示的数字，再在电脑上确认登录。
 
 你可以使用任意扫码工具。如果链接在微信、钉钉等应用内打开，按页面指引切换到 Safari 或系统浏览器，再继续登录；也可以复制完整链接到浏览器中。登录成功后，页面会介绍如何将 QwenPaw 添加到桌面。
@@ -34,8 +32,6 @@ Web App 目前为 **Beta** 功能，可能不稳定；本地 QwenPaw 和 Platfor
 Hub 用户的本地账号和云账号分别显示，每次绑定只连接该用户自己的 Runtime。非 Hub 用户直接登录 Platform 即可，无需额外创建本地账号。在节点配额允许的范围内，一个云账号可以绑定多个本地账号或设备。
 
 ## 还是你熟悉的 Console
-
-![手机端共享 Console 的模型与思考强度控件（演示环境）](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
 手机加载的是所选节点自带的 Console。模型、思考强度和模式依然在聊天输入框中设置；思考强度能否调节，取决于所选模型是否支持。切换工作区时，对话和审批各自独立，不会串到其他节点。
 
