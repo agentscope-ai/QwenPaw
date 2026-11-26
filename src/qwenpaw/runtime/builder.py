@@ -357,7 +357,13 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = await run_sync_io(load_agent_config, agent_id)
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = await run_sync_io(load_agent_config, agent_id)
+        else:
+            # Callers may supply an invocation snapshot, such as a local task's
+            # model and iteration settings. Never mutate the caller's copy.
+            agent_config = agent_config.model_copy(deep=True)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,

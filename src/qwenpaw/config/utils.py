@@ -1049,18 +1049,18 @@ def is_qwenpaw_running() -> bool:
             return False
 
         host, port = api_info
+        host = host.strip("[]")
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
 
         # Try to connect to the API
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(1)  # 1 second timeout
 
         try:
             result = sock.connect_ex((host, port))
-            sock.close()
             return result == 0  # 0 means connection successful
-        except Exception:
+        finally:
             sock.close()
-            return False
 
     except Exception:
         return False

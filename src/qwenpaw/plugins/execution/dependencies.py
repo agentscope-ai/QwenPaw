@@ -438,7 +438,10 @@ def _record_names(entries, *, allow_external=False):
 
 
 def host_module_affected(row, facts, *, record_reads=None):
-    """Relevant writes include both physical ownership and public shadowing."""
+    """Check file ownership and module shadowing.
+
+    Reuse record_reads only within the same filesystem observation.
+    """
     facts = tuple(facts)
     if not facts:
         return False
@@ -477,7 +480,6 @@ def host_module_affected(row, facts, *, record_reads=None):
                 and "/".join(parts[:-1]) in namespace_ancestors
             ):
                 return True
-    site = Path(origin).parent
     sources = {
         os.path.normcase(os.path.realpath(value))
         for fact in facts
@@ -487,11 +489,17 @@ def host_module_affected(row, facts, *, record_reads=None):
             *(witness[0] for witness in fact.file_witness),
         )
     }
-    for name in names:
-        value = os.path.normcase(os.path.realpath(site / name))
-        if value in sources:
-            return True
-    return False
+    key = ("resolved_paths", origin)
+    if record_reads is None or key not in record_reads:
+        site = Path(origin).parent
+        paths = {
+            os.path.normcase(os.path.realpath(site / name)) for name in names
+        }
+        if record_reads is not None:
+            record_reads[key] = paths
+    else:
+        paths = record_reads[key]
+    return not sources.isdisjoint(paths)
 
 
 def _provides_loaded_modules(

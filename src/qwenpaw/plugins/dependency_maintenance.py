@@ -677,7 +677,14 @@ def maintenance(sites, operation_id, capability, *, ignore_pid=None):
 
 
 @contextmanager
-def maintenance_barrier(sites, operation_id, capability, *, ignore_pid=None):
+def maintenance_barrier(
+    sites,
+    operation_id,
+    capability,
+    *,
+    ignore_pid=None,
+    reader_timeout=0,
+):
     """Create maintenance markers; caller must hold every site's gate."""
     value = {
         "id": operation_id,
@@ -698,11 +705,15 @@ def maintenance_barrier(sites, operation_id, capability, *, ignore_pid=None):
                     json.dump(value, stream)
                     stream.flush()
                     os.fsync(stream.fileno())
-            if live_readers(sites, ignore_pid):
-                raise RuntimeError(
-                    "DEPENDENCY_ENVIRONMENT_BUSY: another backend or child "
-                    "still uses the environment.",
-                )
+            deadline = time.monotonic() + reader_timeout
+            while live_readers(sites, ignore_pid):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        "DEPENDENCY_ENVIRONMENT_BUSY: "
+                        "another backend or child still uses the environment.",
+                    )
+                time.sleep(min(0.1, remaining))
         except BaseException:
             # No mutation has started; all gates still exclude other writers.
             for path in created:

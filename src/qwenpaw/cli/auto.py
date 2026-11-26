@@ -36,10 +36,10 @@ _MANAGER_CLASSES: list[str] = [
 
 
 def _ensure_daemon_alive(base_url: str) -> None:
-    """HEAD ``/healthz`` and abort if the daemon is not reachable."""
+    """GET ``/version`` and abort if the daemon is not reachable."""
     try:
         with client(base_url) as c:
-            r = c.head("/version")
+            r = c.get("/version")
             r.raise_for_status()
     except Exception:
         click.echo(

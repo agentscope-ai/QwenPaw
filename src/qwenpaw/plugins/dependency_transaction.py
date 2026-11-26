@@ -42,6 +42,7 @@ _PLAN_FIELDS = (
     "host_bundle_identity",
     "dependency_state_dir",
     "policy_version",
+    "dependency_entry",
 )
 
 
@@ -77,6 +78,7 @@ def authenticate_plan(directory, operation, *, seal=False):
                 "host_bundle_identity",
                 "dependency_state_dir",
                 "policy_version",
+                "dependency_entry",
             }
         },
         sort_keys=True,
@@ -160,7 +162,35 @@ def verify_providers(observed, proposed, changes, *, full_metadata=True):
         )
 
 
-def _owned(row, prefix):
+def _unchanged_launcher_owns(path, content, distributions):
+    """Prove an external command was installed by an unchanged package."""
+    digest = (
+        base64.urlsafe_b64encode(
+            hashlib.sha256(content).digest(),
+        )
+        .decode()
+        .rstrip("=")
+    )
+    for row in distributions.values():
+        record = Path(row["metadata_path"]) / "RECORD"
+        if record.is_symlink() or not record.is_file():
+            continue
+        try:
+            relative = Path(
+                os.path.relpath(path, canonical(record.parent.parent)),
+            ).as_posix()
+        except ValueError:
+            continue
+        expected = [relative, "sha256=" + digest, str(len(content))]
+        for entry in csv.reader(
+            record.read_text(encoding="utf-8").splitlines(),
+        ):
+            if entry == expected:
+                return True
+    return False
+
+
+def _owned(row, prefix, unchanged=None):
     site = canonical(Path(row["metadata_path"]).parent)
     record = Path(row["metadata_path"]) / "RECORD"
     if record.is_symlink() or not record.is_file():
@@ -218,6 +248,13 @@ def _owned(row, prefix):
             except ValueError:
                 actual = None
             if not separator or actual != digest:
+                # A later installation may have replaced a shared command.
+                if (
+                    unchanged
+                    and not contains_environment_path(site, resolved)
+                    and _unchanged_launcher_owns(resolved, content, unchanged)
+                ):
+                    continue
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: installed file differs from RECORD.",
                 )
@@ -306,8 +343,12 @@ def prepare_payload(
     """Authorize individual files only; never delete a package directory."""
     from email.parser import BytesParser
 
+    installed = snapshot["distributions"]
+    unchanged = {
+        name: row for name, row in installed.items() if name not in changed
+    }
     old_files, ownership = {}, {}
-    for name, row in snapshot["distributions"].items():
+    for name, row in installed.items():
         if name in changed:
             site = canonical(Path(row["metadata_path"]).parent)
             if not dependency_site_is_mutable(
@@ -319,7 +360,7 @@ def prepare_payload(
                 raise RuntimeError(
                     "DEPENDENCY_ENVIRONMENT_PROTECTED: installed site is protected.",
                 )
-            owned = _owned(row, snapshot["prefix"])
+            owned = _owned(row, snapshot["prefix"], unchanged)
             for path, evidence in owned.items():
                 if _immutable_path(path, context):
                     raise RuntimeError(
@@ -364,9 +405,7 @@ def prepare_payload(
             return str(canonical(path))
         return None
 
-    for name, row in snapshot["distributions"].items():
-        if name in changed:
-            continue
+    for name, row in unchanged.items():
         record = Path(row["metadata_path"]) / "RECORD"
         if record.is_file():
             before = signature(record)
@@ -723,6 +762,12 @@ def _verify_publication_scope(directory, operation, old_files):
     snapshot, payload = operation["environment"], operation["payload"]
     prefix = snapshot["prefix"]
     context = operation.get("dependency_context")
+    changed = {change["name"] for change in operation["changes"]}
+    unchanged = {
+        name: row
+        for name, row in snapshot["distributions"].items()
+        if name not in changed
+    }
     remaining_old, remaining_new = set(old_files), set(payload["new"])
     sites = set()
     for change in operation["changes"]:
@@ -740,7 +785,7 @@ def _verify_publication_scope(directory, operation, old_files):
                 "DEPENDENCY_ENVIRONMENT_PROTECTED: dependency site is protected.",
             )
         sites.add(str(site))
-        owned = _owned(old, prefix) if old else {}
+        owned = _owned(old, prefix, unchanged) if old else {}
         for path in set(old_files).intersection(map(str, owned)):
             if _immutable_path(path, context):
                 raise RuntimeError(
@@ -897,6 +942,20 @@ def restore_source(directory, operation):
     _sync_directories((target.parent, directory))
 
 
+def _remove_empty_directories(directories):
+    """Remove owned empty directories from the leaves up."""
+    for path in sorted(
+        directories,
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        if not any(parent.is_symlink() for parent in (path, *path.parents)):
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+
+
 def publish(directory, operation):
     """Journal and backup precede every installed-file mutation."""
     from .dependency_maintenance import repair_marker
@@ -916,10 +975,18 @@ def publish(directory, operation):
             },
         )
     _sync_directories((backup, directory))
+    new = operation["payload"]["new"]
+    created_directories = set()
+    for destination in new:
+        for parent in Path(destination).parents:
+            if parent.exists():
+                break
+            created_directories.add(str(parent))
     journal = {
         "phase": "prepared",
         "old": entries,
-        "new": operation["payload"]["new"],
+        "new": new,
+        "created_directories": sorted(created_directories),
         "sites": operation["payload"]["sites"],
     }
     atomic_json(directory / "journal.json", journal)
@@ -938,7 +1005,7 @@ def publish(directory, operation):
     atomic_json(directory / "journal.json", journal)
     for entry in entries:
         Path(entry["path"]).unlink()
-    for path, evidence in operation["payload"]["new"].items():
+    for path, evidence in new.items():
         _write_file(
             Path(path),
             (directory / evidence["payload"]).read_bytes(),
@@ -951,23 +1018,15 @@ def publish(directory, operation):
         if name not in changed:
             continue
         metadata = Path(row["metadata_path"])
-        for child in sorted(
-            metadata.rglob("*"),
-            key=lambda path: len(path.parts),
-            reverse=True,
-        ):
-            if child.is_dir():
-                try:
-                    child.rmdir()
-                except OSError:
-                    pass
-        if metadata.is_dir():
-            try:
-                metadata.rmdir()
-            except OSError:
-                pass
+        if not metadata.is_symlink():
+            _remove_empty_directories(
+                (
+                    metadata,
+                    *(path for path in metadata.rglob("*") if path.is_dir()),
+                ),
+            )
     _sync_directories(
-        {Path(path).parent for path in (*owned, *operation["payload"]["new"])}
+        {Path(path).parent for path in (*owned, *new)}
         | {Path(site) for site in journal["sites"]},
     )
     journal["phase"] = "published"
@@ -1008,12 +1067,9 @@ def rollback(directory):
                 "DEPENDENCY_REPAIR_REQUIRED: rollback backup is damaged.",
             )
         _write_file(Path(row["path"]), saved.read_bytes(), row["mode"])
-    for site in journal["sites"]:
-        for metadata in Path(site).glob("*.dist-info"):
-            try:
-                metadata.rmdir()
-            except OSError:
-                pass
+    _remove_empty_directories(
+        map(Path, journal.get("created_directories", ())),
+    )
     journal["phase"] = "dependencies_restored"
     _sync_directories(
         {Path(row["path"]).parent for row in journal["old"]}
@@ -1116,7 +1172,7 @@ def _reconcile_pending_commit(directory, operation):
     return False
 
 
-async def apply_operation(manager, operation_id):
+async def apply_operation(manager, operation_id, wait_for_readers=False):
     """Stop exact consumers, replace bytes, verify, and resume installation."""
     import asyncio
     from .dependency_maintenance import maintenance_barrier, capability_context
@@ -1142,6 +1198,12 @@ async def apply_operation(manager, operation_id):
         mutated = False
         token = None
         try:
+            operation.update(
+                status="preparing",
+                message="Checking the dependency upgrade plan.",
+                error=None,
+            )
+            await run_sync_io(manager._save, directory, operation)
             source = directory / "source"
             if (
                 await run_sync_io(_source_hash, source)
@@ -1150,7 +1212,10 @@ async def apply_operation(manager, operation_id):
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: retained source changed after review.",
                 )
-            binding = await manager._binding(source)
+            binding = await manager._binding(
+                source,
+                operation.get("dependency_entry"),
+            )
             fresh = await binding.backend.audit_dependencies(
                 binding.description,
             )
@@ -1326,6 +1391,7 @@ async def apply_operation(manager, operation_id):
                         operation_id,
                         operation["capability"],
                         ignore_pid=os.getpid(),
+                        reader_timeout=5 if wait_for_readers else 0,
                     ),
                     on_acquired=claim_maintenance,
                 ):
