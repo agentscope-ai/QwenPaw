@@ -29,8 +29,11 @@ class TypeSafeEvaluationError(RuntimeError):
         self.status_code = status_code
 
 
-def validate_decision_provider(provider_id: str, provider: Provider | None):
-    """Check whether the host can use this provider for decision models."""
+def validate_decision_provider(
+    provider_id: str,
+    provider: Provider | None,
+) -> Provider:
+    """校验并返回可用于决策模型的提供商。"""
     from .local_decision_model import LocalDecisionProviderMixin
 
     if provider is not None and provider.is_custom:
@@ -41,16 +44,17 @@ def validate_decision_provider(provider_id: str, provider: Provider | None):
                 "Decision model provider is unavailable",
             )
         decision_base_url(provider.base_url)
-        return
+        return provider
     if provider_id not in {"typesafe", "qwenpaw-local"}:
         raise TypeSafeEvaluationError("Decision model provider is unsupported")
-    expected = (
-        TypeSafeProvider
+    matches_builtin = (
+        isinstance(provider, TypeSafeProvider)
         if provider_id == "typesafe"
-        else LocalDecisionProviderMixin
+        else isinstance(provider, LocalDecisionProviderMixin)
     )
-    if not isinstance(provider, expected) or not provider.enabled:
+    if provider is None or not matches_builtin or not provider.enabled:
         raise TypeSafeEvaluationError("Decision model provider is unavailable")
+    return provider
 
 
 def resolve_decision_model(slot=None, *, default_model: str | None = None):
@@ -59,26 +63,28 @@ def resolve_decision_model(slot=None, *, default_model: str | None = None):
 
     manager = ProviderManager.get_instance()
     slot = slot or manager.default_models.get("decision")
-    if slot is None and default_model is None:
+    model_id = slot.model if slot is not None else default_model
+    if model_id is None:
         raise TypeSafeEvaluationError("Configure a decision model")
     provider_id = slot.provider_id if slot is not None else "typesafe"
-    provider = manager.get_provider(provider_id)
-    validate_decision_provider(provider_id, provider)
-    model_id = slot.model if slot is not None else default_model
+    provider = validate_decision_provider(
+        provider_id,
+        manager.get_provider(provider_id),
+    )
     if provider.is_custom:
         from ..exceptions import AppBaseException
         from .custom_decision_model import CustomDecisionProvider
 
         try:
-            provider.validate_model_selection(model_id, "decision")
+            model_info = provider.validate_model_selection(
+                model_id,
+                "decision",
+            )
         except AppBaseException as exc:
             raise TypeSafeEvaluationError(
                 "Decision model is not configured",
             ) from exc
-        provider = CustomDecisionProvider.for_model(
-            provider,
-            provider.get_model_info(model_id),
-        )
+        provider = CustomDecisionProvider.for_model(provider, model_info)
     return provider, model_id
 
 

@@ -194,7 +194,11 @@ class CustomDecisionProvider(TypeSafeProvider):
     """沿用提供商的连接设置，只向显式选择的决策模型发送请求。"""
 
     @classmethod
-    def for_model(cls, provider: Provider, model: ModelInfo):
+    def for_model(
+        cls,
+        provider: Provider,
+        model: ModelInfo,
+    ) -> CustomDecisionProvider:
         return cls(
             id=provider.id,
             name=provider.name,

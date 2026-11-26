@@ -375,8 +375,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self,
         model_id: str,
         model_type: ModelType = "chat",
-    ) -> None:
-        """Check a configured model before assigning it to a model slot."""
+    ) -> ModelInfo:
+        """校验模型类型和可用状态，并返回已配置的模型信息。"""
         model = self.get_model_info(model_id)
         if model is None:
             raise ModelNotFoundException(
@@ -396,6 +396,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             raise ProviderError(
                 message=f"Model '{model_id}' cannot be activated: {reason}",
             )
+        return model
 
     def validate_chat_model(self, model_id: str) -> None:
         """Reject decision models before sending a chat request."""
