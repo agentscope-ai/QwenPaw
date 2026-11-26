@@ -40,7 +40,7 @@ Any other domain (e.g. enterprise mail on a custom company domain) is supported 
 
 ## How It Works
 
-qwenpawmail-mcp is a pure-Python (>= 3.10) MCP server built on the FastMCP SDK (`mcp>=1.28`) plus `imap-tools`, communicating over **stdio**.
+qwenpawmail-mcp is a pure-Python (>= 3.10) MCP server built on the MCP Python SDK (MCPServer) (`mcp>=2.0.0`) plus `imap-tools`, communicating over **stdio**.
 
 Within QwenPaw, the main process spawns it automatically as a subprocess (`sys.executable -m qwenpawmail_mcp`) and injects credentials and state directories through environment variables — users never start it by hand. Outside QwenPaw, any MCP client that supports stdio transport (Claude Desktop, Cursor, etc.) can launch it the same way.
 

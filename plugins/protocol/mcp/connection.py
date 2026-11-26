@@ -5,7 +5,7 @@ import asyncio
 import time
 from collections.abc import Mapping
 
-import httpx
+import httpx2
 
 from qwenpaw.plugins.drivers import DriverCapabilitySpec
 
@@ -50,7 +50,7 @@ def _build_capabilities(tools, source_id):
     return tuple(specs)
 
 
-class _CredentialAuth(httpx.Auth):
+class _CredentialAuth(httpx2.Auth):
     """Refresh declared credentials on requests without replacing sessions."""
 
     def __init__(self, context, resolver, binding, headers, logger):
@@ -65,7 +65,7 @@ class _CredentialAuth(httpx.Auth):
         """Lease only this transport's existing session for its final DELETE."""
         if session_id:
             self._termination = (
-                httpx.URL(url),
+                httpx2.URL(url),
                 session_id,
                 dict(self._snapshot),
             )

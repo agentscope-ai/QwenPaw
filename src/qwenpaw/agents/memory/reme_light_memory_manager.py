@@ -80,7 +80,7 @@ from ...utils.io_utils import run_sync_io
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
     from reme import ReMe
-    from reme.application import Response
+    from reme.schema import Response
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
-_REQUIRED_REME_VERSION = "0.4.2.0"
+_REQUIRED_REME_VERSION = "0.4.2.2"
 
 
 def _consume_detached_task_result(task: asyncio.Task[Any]) -> None:

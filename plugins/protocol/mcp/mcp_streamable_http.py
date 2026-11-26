@@ -18,7 +18,7 @@ from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-import httpx
+import httpx2
 from mcp import types as mcp_types
 
 from .diagnostics import error_summary
@@ -137,13 +137,13 @@ def timeout_seconds(value: float | timedelta) -> float:
     )
 
 
-def _normalized_port(url: httpx.URL) -> int:
+def _normalized_port(url: httpx2.URL) -> int:
     if url.port is not None:
         return url.port
     return 443 if url.scheme == "https" else 80
 
 
-def _same_origin(left: httpx.URL, right: httpx.URL) -> bool:
+def _same_origin(left: httpx2.URL, right: httpx2.URL) -> bool:
     return (
         left.scheme == right.scheme
         and left.host == right.host
@@ -151,7 +151,7 @@ def _same_origin(left: httpx.URL, right: httpx.URL) -> bool:
     )
 
 
-def _is_https_upgrade(url: httpx.URL, location: httpx.URL) -> bool:
+def _is_https_upgrade(url: httpx2.URL, location: httpx2.URL) -> bool:
     """Allow http:80 → https:443 on the same host only."""
     return (
         url.host == location.host
@@ -226,12 +226,6 @@ def _is_legacy_protocol_evidence(
     # a plain-text body) -- same fallback as 400/404/405. Auth codes are
     # handled separately, so this cannot mask a real authorization problem.
     return status_code in {400, 404, 405, 422}
-
-
-class _ModernCallToolResult(mcp_types.CallToolResult):
-    """Accept any JSON structuredContent per MCP 2026-07-28."""
-
-    structuredContent: Any = None
 
 
 def _normalize_call_tool_result(result: Any) -> Any:
@@ -405,7 +399,7 @@ def _unwrap_jsonrpc_result(
     method: str,
     status: int,
     data: Any,
-    request: httpx.Request,
+    request: httpx2.Request,
     request_id: int | str,
     content: bytes = b"",
     headers: dict[str, str] | None = None,
@@ -417,7 +411,7 @@ def _unwrap_jsonrpc_result(
             # Legacy peers may omit/null id on HTTP 4xx JSON-RPC errors.
             raise _JsonRpcError.from_payload(data["error"], http_status=status)
         # aread() already decoded gzip/deflate/br; leftover encoding
-        # headers would make httpx.Response try to decompress again.
+        # headers would make httpx2.Response try to decompress again.
         stale = {
             "content-encoding",
             "content-length",
@@ -436,10 +430,10 @@ def _unwrap_jsonrpc_result(
             resp_kw["json"] = data
         else:
             resp_kw["content"] = content
-        raise httpx.HTTPStatusError(
+        raise httpx2.HTTPStatusError(
             f"MCP {method} rejected with HTTP {status}",
             request=request,
-            response=httpx.Response(status, **resp_kw),
+            response=httpx2.Response(status, **resp_kw),
         )
     if not _is_jsonrpc_envelope(data):
         raise RuntimeError(
@@ -553,7 +547,7 @@ class _HttpClientBase:
         self.is_connected = False
 
 
-class _AsyncClient(httpx.AsyncClient):
+class _AsyncClient(httpx2.AsyncClient):
     """Refuse cross-origin redirects; credentials use arbitrary headers."""
 
     def _redirect_headers(self, request, url, method):
@@ -580,7 +574,7 @@ class HttpStatelessClient(_HttpClientBase):
             "follow_redirects",
             True,
         )
-        self._http: httpx.AsyncClient | None = None
+        self._http: httpx2.AsyncClient | None = None
         self._rpc_ids = itertools.count(1)
         self._tool_param_headers: dict[str, list[_HeaderBinding]] = {}
         self._tools_listed = False
@@ -595,7 +589,7 @@ class HttpStatelessClient(_HttpClientBase):
         headers = _headers_without_session_id(self.headers)
         self._http = _AsyncClient(
             headers=headers,
-            timeout=httpx.Timeout(connect=t, read=r, write=t, pool=t),
+            timeout=httpx2.Timeout(connect=t, read=r, write=t, pool=t),
             follow_redirects=self._follow_redirects,
             **self.client_kwargs,
         )
@@ -745,7 +739,7 @@ class HttpStatelessClient(_HttpClientBase):
                     f"MCP tool returned unsupported resultType="
                     f"{result_type!r}",
                 )
-        return _ModernCallToolResult.model_validate(normalized)
+        return mcp_types.CallToolResult.model_validate(normalized)
 
     async def _negotiate(self) -> None:
         """Probe ``server/discover``; confirm the peer supports 2026-07-28."""
@@ -785,7 +779,7 @@ class HttpStatelessClient(_HttpClientBase):
             raise _LegacyProtocolError(
                 f"discover probe got HTTP 401: {exc}",
             ) from exc
-        except httpx.HTTPStatusError as exc:
+        except httpx2.HTTPStatusError as exc:
             # Bare 400/404/405/422 ⇒ one legacy fallback.
             if _is_legacy_protocol_evidence(
                 status_code=exc.response.status_code,
@@ -898,7 +892,7 @@ class HttpStatelessClient(_HttpClientBase):
 
     async def _read_sse_rpc_response(
         self,
-        response: httpx.Response,
+        response: httpx2.Response,
         *,
         method: str,
         request_id: int | str,

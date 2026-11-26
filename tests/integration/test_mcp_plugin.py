@@ -40,7 +40,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.p1]
 
 
 @asynccontextmanager
-async def local_peer(tmp_path, transport):
+async def local_peer(tmp_path, transport, *, legacy=True):
     """The host owns stdio; this fixture owns only the HTTP server process."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     endpoint = {"transport": transport}
@@ -57,12 +57,16 @@ async def local_peer(tmp_path, transport):
     base = f"http://127.0.0.1:{port}"
     endpoint["url"] = base + ("/sse" if transport == "sse" else "/mcp")
     evidence = tmp_path / "oauth.json"
+    if transport == "sse":
+        peer_mode = "sse"
+    else:
+        peer_mode = "legacy-streamable-http" if legacy else "streamable-http"
     with (tmp_path / "peer.log").open("wb") as log:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-B",
             str(PEER),
-            "sse" if transport == "sse" else "streamable-http",
+            peer_mode,
             str(port),
             str(evidence),
             stdout=log,
@@ -201,9 +205,22 @@ async def assert_endpoint_credentials_isolated(host, tmp_path, endpoint):
             await assert_sessions_terminated(other)
 
 
-@pytest.mark.parametrize("transport", ["stdio", "sse", "streamable_http"])
-async def test_mcp_connect_discover_call_and_reconnect(tmp_path, transport):
-    async with local_peer(tmp_path, transport) as endpoint:
+@pytest.mark.parametrize(
+    ("transport", "legacy"),
+    [
+        ("stdio", True),
+        ("sse", True),
+        ("streamable_http", True),
+        ("streamable_http", False),
+    ],
+    ids=["stdio", "sse", "stateful-http", "stateless-http"],
+)
+async def test_mcp_connect_discover_call_and_reconnect(
+    tmp_path,
+    transport,
+    legacy,
+):
+    async with local_peer(tmp_path, transport, legacy=legacy) as endpoint:
         async with PluginTestHost(tmp_path / "host") as host:
             await host.load(PLUGIN)
             source = {
@@ -241,7 +258,15 @@ async def test_mcp_connect_discover_call_and_reconnect(tmp_path, transport):
                 await echo(host, text="reconnected")
             await host.close_driver("echo")
             if transport == "streamable_http":
-                await assert_sessions_terminated(endpoint)
+                if legacy:
+                    await assert_sessions_terminated(endpoint)
+                else:
+                    async with httpx.AsyncClient() as http:
+                        response = await http.get(
+                            endpoint["url"].removesuffix("/mcp") + "/sessions",
+                        )
+                        response.raise_for_status()
+                        assert response.json() == []
 
 
 # Keep the representative management/authentication journey in one scenario.

@@ -569,7 +569,8 @@ def test_official_mcp_protocol_archive_is_a_checked_release(tmp_path):
         only=["qwenpaw-mcp"],
     )
     assert not failed
-    row = index["files"]["qwenpaw-mcp-1.0.0"]
+    (row,) = index["files"].values()
+    assert row["plugin_id"] == "qwenpaw-mcp"
     assert row["platform"] == "protocol"
     checker = runpy.run_path(
         str(REPO_ROOT / "scripts/pack/check_plugin_versions.py"),
