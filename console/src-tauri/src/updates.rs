@@ -173,9 +173,9 @@ async fn run_cached_install(app: AppHandle) {
         return emit_error(&app, "install", &err);
     }
 
-    // macOS installation needs the updater's bundle metadata. Verify it before
-    // asking the user to close any windows, so network failures are harmless.
-    let update = if meta.platform == "macos" {
+    // Tauri installs cached macOS and Linux packages using live update metadata.
+    // Check it before asking the user to close any windows.
+    let update = if !cfg!(windows) {
         match check_installable_update(&app).await {
             Ok(Some(update))
                 if update.version == meta.version
@@ -233,9 +233,10 @@ async fn install_verified(
             None => Err(emit_error(app, "install", &"Missing update metadata")),
         }
     };
+    // The replacement process can start before this process exits.
+    // Release the admission and runtime leases before restart or recovery.
+    drop(installation);
     if result.is_err() {
-        // Release both admission and runtime launch leases before recovery.
-        drop(installation);
         backend::recover_after_update(app).await;
         return;
     }

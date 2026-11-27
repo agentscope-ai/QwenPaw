@@ -64,7 +64,7 @@ jobs:
       - name: Download and verify desktop installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2
+        run: bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" --attempts 2 --require-linux
 
       - name: Attach desktop installers to the draft release
         env:
@@ -73,7 +73,11 @@ jobs:
           shopt -s nullglob
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
-          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip)
+          files=(
+            QwenPaw-Tauri-*-Windows-setup.exe
+            QwenPaw-Tauri-*-macOS.zip
+            QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-linux-x86_64.deb
+          )
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::No desktop installers found to attach to the release"
             exit 1
@@ -132,6 +136,7 @@ jobs:
         run: |
           bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
             --attempts 2 \
+            --require-linux \
             --include-updater-metadata
 
       - name: Install ossutil
@@ -201,6 +206,13 @@ jobs:
             "mac-tauri" \
             "QwenPaw-Tauri-${VERSION}-macOS.zip" \
             "mac-tauri-metadata.json"
+
+          upload_versioned \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-linux-x86_64.deb" \
+            "linux-tauri" \
+            "QwenPaw-Tauri-${VERSION}-linux-x86_64.deb" \
+            "linux-tauri-metadata.json"
 
       - name: Upload Tauri macOS updater archive to OSS
         # The .zip is for first-install; the auto-updater pulls .app.tar.gz.
