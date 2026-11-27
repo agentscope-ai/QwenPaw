@@ -258,6 +258,62 @@ describe("history message window store", () => {
     vi.useRealTimers();
   });
 
+  it("restores a detached live anchor instead of following the initial bottom", () => {
+    vi.useFakeTimers();
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(500);
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockReturnValue(3000);
+    let scrollTarget: HTMLElement | null = null;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function getBounds(this: HTMLElement) {
+        if (this.id === "reading-message") {
+          return rect(140 - (scrollTarget?.scrollTop ?? 0));
+        }
+        if (this.hasAttribute("data-history-message-window")) {
+          return rect(0, 500);
+        }
+        return rect(0);
+      });
+    historyMessageWindow.begin({
+      sessionId: "chat-1",
+      turnRows: Array.from({ length: 40 }, (_, index) => [
+        {
+          id: index === 5 ? "reading-message" : `message-${index}`,
+          role: "assistant",
+          cards: [],
+        },
+      ]) as never[][],
+      canLoadOlder: false,
+      initialScrollAnchor: { id: "reading-message", offsetTop: 40 },
+      onLoadOlder: vi.fn(),
+      onFillOlder: vi.fn(),
+    });
+    historyMessageWindow.setLoading("chat-1", false);
+
+    const { container } = render(
+      createElement(
+        "div",
+        { className: "qwenpaw-chat-anywhere-message-list" },
+        createElement(HistoryMessageWindowCard),
+      ),
+    );
+    scrollTarget = container.querySelector<HTMLElement>(
+      "[data-history-message-window]",
+    );
+    act(() => vi.runAllTimers());
+
+    expect(scrollTarget?.scrollTop).toBe(100);
+
+    bounds.mockRestore();
+    clientHeight.mockRestore();
+    scrollHeight.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("fills another page when the history viewport is not scrollable", () => {
     vi.useFakeTimers();
     const clientHeight = vi

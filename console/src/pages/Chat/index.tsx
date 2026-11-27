@@ -229,6 +229,7 @@ import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
 import {
+  captureMessageScrollAnchor,
   getMessageScroller,
   getUnscrollableHistoryTarget,
   isOldestLoadedMessageVisible,
@@ -4087,6 +4088,9 @@ export default function ChatPage() {
               .reverse()
               .find((item) => item.role === "user")?.id
           : undefined;
+      const isLatestTarget =
+        historyMessageWindow.getSnapshot()?.userMessages.slice(-1)[0]
+          ?.messageId === entry.messageId;
       const load = sessionApi
         .loadHistoryAtAnchor(
           sessionId,
@@ -4094,8 +4098,7 @@ export default function ChatPage() {
           boundaryMessageId ?? entry.messageId,
           controller.signal,
           mode,
-          historyMessageWindow.getSnapshot()?.userMessages.slice(-1)[0]
-            ?.messageId === entry.messageId,
+          isLatestTarget,
         )
         .then(({ messages, noMore }) => {
           if (controller.signal.aborted || chatIdRef.current !== sessionId) {
@@ -4106,7 +4109,7 @@ export default function ChatPage() {
             return;
           }
           if (mode === "replace")
-            historyMessageWindow.setCanLoadNewer(sessionId, true);
+            historyMessageWindow.setCanLoadNewer(sessionId, !isLatestTarget);
           if (historyTurnRowsRef.current === null) {
             const messagesApi = chatRef.current?.messages;
             if (messagesApi) {
@@ -4366,10 +4369,18 @@ export default function ChatPage() {
     }
     const turnRows = splitHistoryMessagesIntoTurnRows(session.messages);
     if (turnRows.length === 0) return session;
+    const liveScroller = chatMessagesAreaRef.current
+      ? getMessageScroller(chatMessagesAreaRef.current)
+      : null;
+    const initialScrollAnchor =
+      liveScroller && distanceFromBottom(liveScroller) > BOTTOM_THRESHOLD_PX
+        ? captureMessageScrollAnchor(liveScroller) ?? undefined
+        : undefined;
     historyTurnRowsRef.current = turnRows;
     historyMessageWindow.begin({
       sessionId: visibleSessionId,
       turnRows,
+      initialScrollAnchor,
       canLoadOlder: Boolean(
         (
           session as IAgentScopeRuntimeWebUISession & {

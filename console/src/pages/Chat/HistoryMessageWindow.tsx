@@ -19,8 +19,12 @@ import { ArrowDown, LocateFixed } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { FixedSizeList } from "react-window";
 import { EagerHistoryContent } from "./HostBubbles";
-import { MeasuredMessageWindow } from "./MeasuredMessageWindow";
+import {
+  MeasuredMessageWindow,
+  revealCachedMessage,
+} from "./MeasuredMessageWindow";
 import { followInitialHistoryBottom } from "./initialHistoryBottom";
+import { restoreMessageScrollAnchor } from "./messageScroll";
 import {
   createMessageWindowState,
   MessageWindowStateContext,
@@ -279,6 +283,7 @@ export function HistoryMessageWindowCard() {
   const pendingNavigationRef = useRef<string>();
   const pendingBottomRef = useRef(false);
   const stopBottomFollowRef = useRef<() => void>();
+  const restoredInitialAnchorRef = useRef<string>();
   const [atBottom, setAtBottom] = useState(true);
   const wheelUntilRef = useRef(0);
   const scrollIntentRef = useRef<"older" | "newer" | null>(null);
@@ -333,9 +338,27 @@ export function HistoryMessageWindowCard() {
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     if (!scroll || !current?.sessionId) return;
+    const initialAnchor = current.initialScrollAnchor;
+    if (
+      initialAnchor &&
+      restoredInitialAnchorRef.current !== current.sessionId
+    ) {
+      restoredInitialAnchorRef.current = current.sessionId;
+      stopBottomFollowRef.current?.();
+      const restore = () => {
+        restoreMessageScrollAnchor(scroll, initialAnchor);
+      };
+      if (restoreMessageScrollAnchor(scroll, initialAnchor)) return;
+      if (revealCachedMessage(scroll, initialAnchor.id, restore)) return;
+    }
     followBottom();
     return () => stopBottomFollowRef.current?.();
-  }, [current?.sessionId, portalTarget, followBottom]);
+  }, [
+    current?.initialScrollAnchor,
+    current?.sessionId,
+    portalTarget,
+    followBottom,
+  ]);
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
