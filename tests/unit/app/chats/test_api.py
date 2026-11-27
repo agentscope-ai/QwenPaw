@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats import api as chats_api
 from qwenpaw.app.chats.api import get_chat, get_chat_status, list_chats
@@ -64,6 +64,7 @@ async def test_get_chat_hides_app_owned_dialogue_when_caller_opts_out():
     with pytest.raises(HTTPException) as raised:
         await get_chat(
             chat_id="app-owned",
+            background_tasks=BackgroundTasks(),
             include_app_owned=False,
             mgr=manager,
             session=SimpleNamespace(),
@@ -122,9 +123,15 @@ async def test_delete_chat_stops_a_live_run():
 
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=_chat("chat-live")),
+        list_chats=AsyncMock(return_value=[_chat("chat-live")]),
         delete_chats=AsyncMock(return_value=True),
+        mark_deleting=AsyncMock(),
     )
-    workspace = SimpleNamespace(task_tracker=tracker)
+    workspace = SimpleNamespace(
+        task_tracker=tracker,
+        transcript_store=None,
+        session=None,
+    )
 
     with patch.object(
         chats_api.CHECKPOINT_RUNTIME,

@@ -69,8 +69,10 @@ function Composer({
   attachments = true,
   scopeKey = "session-a",
   beforeSubmit,
+  queue,
 }: {
   upload: UploadRequest;
+  queue?: ComponentProps<typeof SdkInput>["queue"];
   submit?: ComponentProps<typeof SdkInput>["onSubmit"];
   attachments?: boolean;
   scopeKey?: string;
@@ -96,7 +98,7 @@ function Composer({
             },
           }}
         >
-          <SdkInput onCancel={vi.fn()} onSubmit={submit} />
+          <SdkInput onCancel={vi.fn()} onSubmit={submit} queue={queue} />
         </ComposedProvider>
       </LongTextPasteProvider>
     </ConfigProvider>
@@ -380,4 +382,104 @@ describe("long-text paste with the installed SDK", () => {
       expect(screen.getByText("next.txt")).toBeInTheDocument();
     },
   );
+
+  it.each([false, true])(
+    "shares attachment filtering and cleanup for ordinary/steer submission (steer=%s)",
+    async (steer) => {
+      const upload = vi.fn<UploadRequest>();
+      const submit = vi.fn();
+      const enqueue = vi.fn();
+      const beforeSubmit = vi.fn(
+        async (
+          _data: Parameters<
+            NonNullable<
+              NonNullable<
+                IAgentScopeRuntimeWebUIOptions["sender"]
+              >["beforeSubmit"]
+            >
+          >[0],
+        ) => ({ proceed: !steer, clear: true }),
+      );
+      render(
+        <Composer
+          upload={upload}
+          submit={submit}
+          beforeSubmit={beforeSubmit}
+          queue={
+            steer
+              ? { items: [], isOwner: false, onEnqueue: enqueue }
+              : undefined
+          }
+        />,
+      );
+      const textarea = screen.getByRole("textbox");
+      const pasteFile = (name: string) =>
+        fireEvent.paste(textarea, {
+          clipboardData: { files: [new File([name], name)], getData: () => "" },
+        });
+      pasteFile("failed.txt");
+      await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        upload.mock.calls[0][0].onError?.(new Error("Upload failed"));
+      });
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      await act(async () => {});
+      expect(beforeSubmit).not.toHaveBeenCalled();
+      fireEvent.change(textarea, { target: { value: "send valid content" } });
+      pasteFile("ready.txt");
+      await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      await act(async () => {});
+      expect(beforeSubmit).not.toHaveBeenCalled();
+      expect(textarea).toHaveValue("send valid content");
+      await act(async () => {
+        upload.mock.calls[1][0].onSuccess?.({ url: "/ready.txt" });
+      });
+      fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+      await waitFor(() => expect(beforeSubmit).toHaveBeenCalledOnce());
+      expect(beforeSubmit.mock.calls[0][0]).toMatchObject({
+        query: "send valid content",
+        fileList: [{ name: "ready.txt" }],
+      });
+      expect(beforeSubmit.mock.calls[0][0].fileList).toHaveLength(1);
+      await waitFor(() => expect(textarea).toHaveValue(""));
+      expect(screen.getByText("failed.txt")).toBeInTheDocument();
+      expect(screen.queryByText("ready.txt")).not.toBeInTheDocument();
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(submit).toHaveBeenCalledTimes(steer ? 0 : 1);
+    },
+  );
+
+  it("retains a rejected busy submission without enqueueing or ordinary fallback", async () => {
+    const upload = vi.fn<UploadRequest>();
+    const submit = vi.fn();
+    const enqueue = vi.fn();
+    const beforeSubmit = vi.fn(async () => false);
+    render(
+      <Composer
+        upload={upload}
+        submit={submit}
+        beforeSubmit={beforeSubmit}
+        queue={{ items: [], isOwner: false, onEnqueue: enqueue }}
+      />,
+    );
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "task just ended" } });
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [new File(["retain"], "retain.txt")],
+        getData: () => "",
+      },
+    });
+    await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    await act(async () => {
+      upload.mock.calls[0][0].onSuccess?.({ url: "/retain.txt" });
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter", ctrlKey: true });
+    await waitFor(() => expect(beforeSubmit).toHaveBeenCalledOnce());
+    expect(textarea).toHaveValue("task just ended");
+    expect(screen.getByText("retain.txt")).toBeInTheDocument();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
 });

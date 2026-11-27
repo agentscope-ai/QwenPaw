@@ -7,11 +7,14 @@ and delegates each ``EventType`` event to ``Envelope.translate_event()``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
 from .envelope import Envelope
+from .steer import SteerOutput
 from .heartbeat import (
     _iter_with_heartbeat,
     _HEARTBEAT_TICK,
@@ -45,19 +48,47 @@ class AgentExecutor:
         envelopes instead of letting the connection drop.
         """
         agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
-        async for event in _iter_with_heartbeat(
+        last_activity = time.monotonic()
+        events = _iter_with_heartbeat(
             agent_iter,
-            HEARTBEAT_INTERVAL_SECONDS,
-        ):
-            if event is _HEARTBEAT_TICK:
-                async for obj in self._envelope.heartbeat():
+            min(1.0, HEARTBEAT_INTERVAL_SECONDS),
+        )
+        failure = None
+        try:
+            async for event in events:
+                if event is _HEARTBEAT_TICK:
+                    async for obj in self._envelope.flush_tool_snapshots():
+                        yield obj
+                    if (
+                        time.monotonic() - last_activity
+                        >= HEARTBEAT_INTERVAL_SECONDS
+                    ):
+                        async for obj in self._envelope.heartbeat():
+                            yield obj
+                        last_activity = time.monotonic()
+                    continue
+
+                if isinstance(event, SteerOutput):
+                    yield event.output
+                    continue
+                last_activity = time.monotonic()
+                self._maybe_stamp_finished_at(event)
+
+                async for obj in self._envelope.translate_event(event):
                     yield obj
-                continue
-
-            self._maybe_stamp_finished_at(event)
-
-            async for obj in self._envelope.translate_event(event):
-                yield obj
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            try:
+                await events.aclose()
+            except BaseException:
+                if failure is None or isinstance(
+                    failure,
+                    (asyncio.CancelledError, GeneratorExit),
+                ):
+                    raise
+                logger.warning("Executor cleanup failed", exc_info=True)
 
     def _maybe_stamp_finished_at(self, event: Any) -> None:
         """Backfill ``finished_at`` on the reply's assistant message.

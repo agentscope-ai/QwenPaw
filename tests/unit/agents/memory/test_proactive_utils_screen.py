@@ -183,10 +183,10 @@ class TestReadChatSessionsMetadata:
         )
         result = await pu._read_chat_sessions_metadata(workspace)
         assert len(result) == 1
-        assert result[0]["filename"] == "user1_s1.json"
+        assert result[0]["session_id"] == "s1"
         assert result[0]["user_id"] == "user1"
 
-    async def test_colon_in_ids_replaced(self):
+    async def test_colon_in_ids_preserved(self):
         chats = [self._chat(user_id="console:user", session_id="console:s1")]
         workspace = SimpleNamespace(
             chat_manager=SimpleNamespace(
@@ -194,8 +194,8 @@ class TestReadChatSessionsMetadata:
             ),
         )
         result = await pu._read_chat_sessions_metadata(workspace)
-        assert ":" not in result[0]["user_id"]
-        assert ":" not in result[0]["session_id"]
+        assert result[0]["user_id"] == "console:user"
+        assert result[0]["session_id"] == "console:s1"
 
     async def test_list_chats_failure_returns_empty(self):
         workspace = SimpleNamespace(

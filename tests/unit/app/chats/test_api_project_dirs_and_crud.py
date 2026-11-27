@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats import api as chats_api
 from qwenpaw.app.chats.models import BatchArchiveResult, ChatSpec
@@ -672,6 +672,7 @@ async def test_get_chat_missing_spec_is_404(chat_config_loader) -> None:
     with pytest.raises(HTTPException) as raised:
         await chats_api.get_chat(
             chat_id="gone",
+            background_tasks=BackgroundTasks(),
             include_app_owned=True,
             mgr=mgr,
             session=SimpleNamespace(),
@@ -691,6 +692,7 @@ async def test_get_chat_projects_context_messages(chat_config_loader) -> None:
     workspace = _chat_workspace(status="running")
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -716,6 +718,7 @@ async def test_get_chat_without_state_returns_empty_history(
     )
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -743,6 +746,7 @@ async def test_get_chat_hydrates_third_party_backend_sessions(
     workspace = _chat_workspace()
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -777,6 +781,7 @@ async def test_get_chat_swallows_failed_third_party_recovery(
     )
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -808,6 +813,7 @@ async def test_get_chat_skips_hydration_for_native_backend(
     workspace = _chat_workspace()
     await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -841,6 +847,7 @@ async def test_get_chat_falls_back_to_legacy_memory(
     )
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,
@@ -861,6 +868,7 @@ async def test_get_chat_ignores_empty_legacy_memory(
     )
     history = await chats_api.get_chat(
         chat_id="c1",
+        background_tasks=BackgroundTasks(),
         include_app_owned=True,
         mgr=_mgr(),
         session=session,

@@ -5,6 +5,7 @@ Complements ``test_turn_usage.py`` (pure helpers) by covering the
 context-stats snapshot builder, the turn/ctx resolver, and the
 session-persistence writer.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -231,9 +232,11 @@ class TestResolveTurnUsage:
         assert ctx is None
         assert state is agent_state
 
+    @pytest.mark.parametrize(f"estimate_missing", [False, True])
     async def test_stats_present_builds_ctx_and_estimated_turn(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        estimate_missing,
     ):
         agent_state = SimpleNamespace()
         stats = {
@@ -264,6 +267,7 @@ class TestResolveTurnUsage:
             session=SimpleNamespace(),
             user_id="u",
             channel="console",
+            estimate_missing_usage=estimate_missing,
         )
 
         assert ctx == {
@@ -271,10 +275,13 @@ class TestResolveTurnUsage:
             "max_input_length": 1000,
             "context_usage_ratio": 0.5,
         }
-        assert got_turn is not None
-        assert got_turn["estimated"] is True
-        assert got_turn["total_tokens"] == 500
-        assert got_turn["completion_tokens"] == 100
+        if estimate_missing:
+            assert got_turn is not None
+            assert got_turn["estimated"] is True
+            assert got_turn["total_tokens"] == 500
+            assert got_turn["completion_tokens"] == 100
+        else:
+            assert got_turn is None
         assert state is agent_state
 
     async def test_existing_turn_is_reconciled(
