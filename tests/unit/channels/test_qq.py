@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """QQ native gateway, routing, media and heartbeat with local wire peers."""
+
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -101,6 +102,224 @@ def test_gateway_lookup_reports_platform_rejection(
         f"invalid gateway content",
     ):
         assert sensitive not in caplog.text
+
+
+def test_cleanup_error_does_not_interrupt_reconnect(monkeypatch, caplog):
+    """A failed socket close must not permanently kill the reconnect loop."""
+    platform = module(f"qq", f"platform").QQPlatform(
+        {
+            f"app_id": f"local-app",
+            f"client_secret": f"local-secret",
+            f"max_reconnect_attempts": 2,
+        },
+        None,
+        lambda *_args: None,
+    )
+
+    def handle(request):
+        if request.url.path.endswith(f"/getAppAccessToken"):
+            return httpx.Response(200, json={f"access_token": f"local-token"})
+        assert request.url.path == f"/gateway"
+        return httpx.Response(200, json={f"url": f"ws://qq.test"})
+
+    timeout_error = type(f"WebSocketTimeoutException", (Exception,), {})
+    closed_error = type(
+        f"WebSocketConnectionClosedException",
+        (Exception,),
+        {},
+    )
+
+    class Socket:
+        connected = True
+
+        def settimeout(self, _timeout):
+            pass
+
+        def recv(self):
+            raise closed_error()
+
+        def close(self):
+            raise OSError(f"close handshake failed")
+
+    monkeypatch.setattr(platform, f"_bridge", lambda *_args: None)
+    monkeypatch.setattr(platform._stop_event, f"wait", lambda _delay: False)
+    gateway = SimpleNamespace(
+        WebSocketTimeoutException=timeout_error,
+        WebSocketConnectionClosedException=closed_error,
+        create_connection=lambda *_args, **_kwargs: Socket(),
+    )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        platform._sync_http = client
+        state = platform._state
+        assert platform._ws_connect_once(state, gateway)
+
+    assert state.reconnect_attempts == 1
+    assert platform._close_errors == []
+    assert platform._ws is None
+    assert f"continuing reconnect" in caplog.text
+
+
+def test_failed_state_publish_error_is_logged(monkeypatch, caplog):
+    """Failure-state delivery errors must not disappear into except: pass."""
+    platform = module(f"qq", f"platform").QQPlatform(
+        {
+            f"app_id": f"local-app",
+            f"client_secret": f"local-secret",
+        },
+        None,
+        lambda *_args: None,
+    )
+    platform._loop = object()
+    monkeypatch.setattr(
+        platform,
+        f"_ws_connect_once",
+        lambda *_args: False,
+    )
+
+    def failed_publish(*_args):
+        raise RuntimeError(f"state publication failed")
+
+    monkeypatch.setattr(platform, f"_bridge", failed_publish)
+    platform._run_ws_forever()
+    assert f"failed to publish platform failure state" in caplog.text
+
+
+async def test_stop_preserves_close_failure(monkeypatch):
+    """An explicit stop must still report an incomplete socket close."""
+    platform = module(f"qq", f"platform").QQPlatform(
+        {
+            f"app_id": f"local-app",
+            f"client_secret": f"local-secret",
+        },
+        None,
+        lambda *_args: None,
+    )
+
+    def handle(request):
+        if request.url.path.endswith(f"/getAppAccessToken"):
+            return httpx.Response(200, json={f"access_token": f"local-token"})
+        return httpx.Response(200, json={f"url": f"ws://qq.test"})
+
+    closed_error = type(
+        f"WebSocketConnectionClosedException",
+        (Exception,),
+        {},
+    )
+    socket = SimpleNamespace(connected=True)
+    socket.settimeout = lambda _timeout: None
+    socket.abort = lambda: None
+
+    def recv():
+        platform._stop_event.set()
+        raise closed_error()
+
+    def close():
+        raise OSError(f"close handshake failed")
+
+    socket.recv = recv
+    socket.close = close
+    monkeypatch.setattr(platform, f"_bridge", lambda *_args: None)
+    gateway = SimpleNamespace(
+        WebSocketTimeoutException=type(f"Timeout", (Exception,), {}),
+        WebSocketConnectionClosedException=closed_error,
+        create_connection=lambda *_args, **_kwargs: socket,
+    )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        platform._sync_http = client
+        assert not platform._ws_connect_once(platform._state, gateway)
+        platform._sync_http = (
+            None  # _run_ws_forever normally closes this client.
+        )
+        with pytest.raises(RuntimeError, match=f"QQ_NATIVE_CLOSE_FAILED"):
+            await platform.stop()
+
+    assert platform._ws is socket
+    assert platform._close_errors
+
+
+async def test_stop_rechecks_socket_after_gateway_exit_race(monkeypatch):
+    """stop() must recheck a socket retained during a disconnect race."""
+    platform = module(f"qq", f"platform").QQPlatform(
+        {
+            f"app_id": f"local-app",
+            f"client_secret": f"local-secret",
+        },
+        None,
+        lambda *_args: None,
+    )
+
+    def handle(request):
+        if request.url.path.endswith(f"/getAppAccessToken"):
+            return httpx.Response(200, json={f"access_token": f"local-token"})
+        return httpx.Response(200, json={f"url": f"ws://qq.test"})
+
+    closed_error = type(
+        f"WebSocketConnectionClosedException",
+        (Exception,),
+        {},
+    )
+    socket = SimpleNamespace(connected=True)
+    socket.settimeout = lambda _timeout: None
+    socket.abort = lambda: None
+    socket.recv = lambda: (_ for _ in ()).throw(closed_error())
+    socket.close = lambda: (_ for _ in ()).throw(
+        OSError(f"close handshake failed"),
+    )
+    monkeypatch.setattr(platform, f"_bridge", lambda *_args: None)
+
+    def stop_during_warning(*_args, **_kwargs):
+        platform._stop_event.set()
+
+    platform_module = module(f"qq", f"platform")
+    monkeypatch.setattr(
+        platform_module.logger,
+        f"warning",
+        stop_during_warning,
+    )
+    gateway = SimpleNamespace(
+        WebSocketTimeoutException=type(f"Timeout", (Exception,), {}),
+        WebSocketConnectionClosedException=closed_error,
+        create_connection=lambda *_args, **_kwargs: socket,
+    )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        platform._sync_http = client
+        assert not platform._ws_connect_once(platform._state, gateway)
+        platform._sync_http = None
+        assert platform._ws is socket
+        assert platform._close_errors == []
+        with pytest.raises(RuntimeError, match=f"QQ_NATIVE_CLOSE_FAILED"):
+            await platform.stop()
+
+    assert platform._ws is socket
+    assert platform._close_errors
+
+
+def test_reconnect_reaps_only_exited_heartbeat_controllers():
+    """Repeated disconnects must not accumulate exited heartbeat owners."""
+    platform = module(f"qq", f"platform").QQPlatform({}, None, None)
+
+    class Timer:
+        def __init__(self, alive):
+            self.alive = alive
+
+        def is_alive(self):
+            return self.alive
+
+    def controller(alive):
+        hb = platform_module._HeartbeatController(None, None, None)
+        hb._timers = {Timer(alive)}
+        return hb
+
+    platform_module = module(f"qq", f"platform")
+    live = controller(True)
+    platform._heartbeats.add(live)
+    for _ in range(3):
+        platform._heartbeats.add(controller(False))
+        platform._reap_heartbeats()
+        assert platform._heartbeats == {live}
 
 
 class Gateway:
