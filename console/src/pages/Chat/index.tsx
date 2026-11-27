@@ -4030,6 +4030,7 @@ export default function ChatPage() {
   }, [chatId, historyViewActive]);
   const historyLoadRef = useRef<Promise<void> | null>(null);
   const historyLoadAbortRef = useRef<AbortController | null>(null);
+  const historyLoadFailedRef = useRef(false);
   const historyLoadSessionRef = useRef(chatId);
   const replayRecoveryRef = useRef<AbortController | null>(null);
   const [historyLoadFailed, setHistoryLoadFailed] = useState(false);
@@ -4039,6 +4040,7 @@ export default function ChatPage() {
     historyLoadAbortRef.current?.abort();
     historyLoadAbortRef.current = null;
     historyLoadRef.current = null;
+    historyLoadFailedRef.current = false;
     replayRecoveryRef.current?.abort();
     replayRecoveryRef.current = null;
     historyTurnRowsRef.current = null;
@@ -4219,7 +4221,8 @@ export default function ChatPage() {
   const loadOlderHistory = useCallback(
     (_target: HTMLElement, accumulate = false) => {
       const sessionId = chatIdRef.current;
-      if (!sessionId || historyLoadRef.current) return;
+      if (!sessionId || historyLoadRef.current || historyLoadFailedRef.current)
+        return;
       const alreadyInHistory = historyTurnRowsRef.current !== null;
       const messagesApi = chatRef.current?.messages;
       if (!messagesApi) return;
@@ -4310,12 +4313,14 @@ export default function ChatPage() {
           }
         })
         .catch((error) => {
-          if (error instanceof DOMException && error.name === "AbortError") {
+          if (
+            controller.signal.aborted ||
+            historyLoadSessionRef.current !== sessionId ||
+            (error instanceof DOMException && error.name === "AbortError")
+          ) {
             return;
           }
-          message.error(
-            t("chat.olderHistoryLoadFailed", "Failed to load older messages"),
-          );
+          historyLoadFailedRef.current = true;
           setHistoryLoadFailed(true);
         })
         .finally(() => {
@@ -4333,10 +4338,8 @@ export default function ChatPage() {
     [
       chatId,
       cancelPendingHistoryInteraction,
-      message,
       navigateToHistoryUserMessage,
       restoreLatestHistory,
-      t,
     ],
   );
 
@@ -5942,7 +5945,9 @@ export default function ChatPage() {
                       type="text"
                       onClick={() => {
                         const target = chatMessagesAreaRef.current;
-                        if (target) loadOlderHistory(target);
+                        if (!target) return;
+                        historyLoadFailedRef.current = false;
+                        loadOlderHistory(target);
                       }}
                     />
                   </Tooltip>
