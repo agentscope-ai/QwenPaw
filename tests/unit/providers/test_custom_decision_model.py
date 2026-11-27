@@ -11,8 +11,10 @@ from agentscope.classifier import BinaryQuestion, ChoiceQuestion, ScoreQuestion
 from typesafe_sdk import AsyncTypeSafeClient
 
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers import ModelInfo, ProviderInfo, ProviderManager
 from qwenpaw.providers import local_decision_model
+from qwenpaw.providers.custom_decision_model import decision_base_url
 from qwenpaw.providers.typesafe_provider import (
     TypeSafeEvaluationError,
     TypeSafeProvider,
@@ -58,7 +60,7 @@ async def configure(protocol):
         ProviderInfo(
             id="my-endpoint",
             name="My endpoint",
-            base_url="http://endpoint.test/gateway/v1/",
+            base_url="http://endpoint.test:8000/gateway/v1/",
             api_key="fixture-key",
             custom_headers={"X-Project": "decisions"},
         ),
@@ -137,6 +139,7 @@ async def test_select_reload_and_probe(protocol, endpoint, monkeypatch):
     assert checked.success and checked.verification == "live"
     assert len(calls) == 1
     request, body = calls[0]
+    assert request.url.port == 8000
     assert request.extensions["timeout"]["read"] == 7
     assert request.headers["authorization"] == "Bearer fixture-key"
     assert request.headers["X-Project"] == "decisions"
@@ -158,6 +161,78 @@ async def test_select_reload_and_probe(protocol, endpoint, monkeypatch):
         "privilege_change",
     }
     assert state["tool"] == "write_file" and state["target"] == "example.txt"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://endpoint.test/v1", "http://localhost:0", "http://[::1]:65535"],
+)
+def test_decision_base_url_accepts_valid_ports(url):
+    assert decision_base_url(url) == url
+
+
+@pytest.mark.parametrize("port", ["-1", "65536"])
+def test_decision_base_url_rejects_out_of_range_ports(port):
+    with pytest.raises(TypeSafeEvaluationError, match="base URL"):
+        decision_base_url(f"http://localhost:{port}/v1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("protocol", ["systemone", "chat_completions"])
+async def test_invalid_saved_port_fails_probe_and_requires_approval(
+    protocol,
+    endpoint,
+):
+    calls, _ = endpoint
+    manager, slot = await configure(protocol)
+    await manager.update_provider_async(
+        slot.provider_id,
+        {"base_url": "http://localhost:8000v1"},
+    )
+    with pytest.raises(ProviderError, match="base URL"):
+        await manager.set_default_model("decision", slot)
+    result = await assess_tool_call("write_file", "notes.txt")
+    assert result.needs_approval and result.error_type
+    checked = await manager.check_provider_model(slot.provider_id, slot.model)
+    assert not checked.success and "base URL" in checked.message
+    assert not calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "protocol, constructor, error",
+    [
+        (
+            "systemone",
+            "local_decision_model.AsyncTypeSafeClient",
+            httpx2.InvalidURL,
+        ),
+        (
+            "chat_completions",
+            "custom_decision_model.AsyncOpenAI",
+            httpx.InvalidURL,
+        ),
+    ],
+)
+async def test_client_setup_error_fails_probe_and_requires_approval(
+    protocol,
+    constructor,
+    error,
+    monkeypatch,
+):
+    manager, slot = await configure(protocol)
+
+    def reject_settings(**_kwargs):
+        raise error("Invalid fixture URL")
+
+    monkeypatch.setattr(f"qwenpaw.providers.{constructor}", reject_settings)
+    result = await assess_tool_call("write_file", "notes.txt")
+    assert (
+        result.needs_approval
+        and result.error_type == "TypeSafeEvaluationError"
+    )
+    checked = await manager.check_provider_model(slot.provider_id, slot.model)
+    assert not checked.success and "client setup failed" in checked.message
 
 
 @pytest.mark.asyncio

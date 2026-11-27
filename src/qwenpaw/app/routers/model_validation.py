@@ -6,6 +6,10 @@ from fastapi import HTTPException
 from ...config.config import ModelType
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
+from ...providers.typesafe_provider import (
+    TypeSafeEvaluationError,
+    validate_decision_provider,
+)
 
 
 def validate_model_slot(
@@ -23,5 +27,7 @@ def validate_model_slot(
         )
     try:
         provider.validate_model_selection(model_id, model_type)
-    except AppBaseException as exc:
+        if model_type == "decision" and provider.is_custom:
+            validate_decision_provider(provider_id, provider)
+    except (AppBaseException, TypeSafeEvaluationError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

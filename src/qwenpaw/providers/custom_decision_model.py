@@ -55,6 +55,8 @@ def decision_base_url(value: str) -> str:
     url = value.strip().rstrip("/")
     try:
         parsed = urlsplit(url)
+        # 与控制台的 URL 校验一致，读取端口才会检查格式和取值范围。
+        _ = parsed.port
         if (
             parsed.scheme in {"http", "https"}
             and parsed.hostname
@@ -264,24 +266,30 @@ class CustomDecisionProvider(TypeSafeProvider):
         url = decision_base_url(self.base_url)
         # SDK 要求非空密钥，显式占位可防止读取环境中的其他服务密钥。
         key = self.api_key.strip() or "local"
-        if protocol == "chat_completions":
-            return ChatCompletionsDecisionModel(
-                OpenAICredential(
+        try:
+            if protocol == "chat_completions":
+                return ChatCompletionsDecisionModel(
+                    OpenAICredential(
+                        api_key=key,
+                        base_url=url if urlsplit(url).path else url + "/v1",
+                    ),
+                    model,
+                    timeout=timeout,
+                    max_retries=max_retries,
+                    headers=self.custom_headers,
+                )
+            return LocalDecisionModel(
+                credential=TypeSafeCredential(
                     api_key=key,
-                    base_url=url if urlsplit(url).path else url + "/v1",
+                    base_url=url.removesuffix("/v1"),
                 ),
-                model,
+                model=model,
                 timeout=timeout,
                 max_retries=max_retries,
-                headers=self.custom_headers,
+                provider_headers=self.custom_headers,
             )
-        return LocalDecisionModel(
-            credential=TypeSafeCredential(
-                api_key=key,
-                base_url=url.removesuffix("/v1"),
-            ),
-            model=model,
-            timeout=timeout,
-            max_retries=max_retries,
-            provider_headers=self.custom_headers,
-        )
+        except Exception as exc:
+            # 两种 SDK 初始化失败时都交给现有的连接测试和审批流程处理。
+            raise TypeSafeEvaluationError(
+                f"Decision model client setup failed ({type(exc).__name__})",
+            ) from exc
