@@ -1051,3 +1051,34 @@ def test_an_accepted_rendition_is_reused_by_its_source_image():
     assert agent._tighten_media_limits() is not None
     assert formatter.max_image_side == 512
     assert formatter.max_bytes == 128 * 1024
+
+
+@pytest.mark.asyncio
+async def test_recovery_marked_terminal_stops_the_loop() -> None:
+    """A recovery that gives up with a report must stop the loop at once.
+
+    A give-up report has to be a fresh exception object, so the boundary
+    cannot recognise it by identity. The marker is what lets a recovery end
+    the turn while still carrying the user-facing report; without it the
+    boundary read the new object as another refusal of a different part of
+    the same request and re-ran the step, which cost one extra provider call.
+    """
+    attempts: list[int] = []
+    recoveries: list[str] = []
+
+    class _Terminal(Exception):
+        recovery_terminal = True
+
+    async def call_model(**kwargs):
+        attempts.append(len(attempts))
+        raise RuntimeError("request body too large")
+
+    async def recover(exc):
+        recoveries.append(str(exc))
+        raise _Terminal("gave up: 120000 bytes over the window")
+
+    with pytest.raises(_Terminal, match="gave up"):
+        await call_with_overflow_recovery(call_model, recover)
+
+    assert attempts == [0]
+    assert recoveries == ["request body too large"]
