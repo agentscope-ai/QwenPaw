@@ -326,3 +326,38 @@ def test_model3d_renders_canonical_views(tmp_path) -> None:
     assert grouped["meta"][0]["format"] == "model3d"
     assert len(grouped["image"]) == 3, "one image per canonical view"
     assert "8 vertices" in grouped["full_text"][0]["text"]
+
+
+def test_merged_graph_payload_tolerates_bad_root_fields() -> None:
+    from vendor.media_toolkit.video_memory.merge import merged_graph_payload
+
+    def _src(prefix: str, root: dict) -> tuple[str, dict]:
+        return (
+            prefix,
+            {
+                "root": root,
+                "super_events": [],
+                "macro_events": [],
+                "macro_relations": [],
+                "super_relations": [],
+            },
+        )
+
+    merged = merged_graph_payload(
+        [
+            _src(
+                "s1",
+                {"title": "A", "themes": None, "key_entities": ["Alice"]},
+            ),
+            _src(
+                "s2",
+                {
+                    "title": "B",
+                    "themes": [{"name": "journey"}, 42, "hope"],
+                    "key_entities": None,
+                },
+            ),
+        ],
+    )
+    assert merged["root"]["themes"] == ["42", "hope", "{'name': 'journey'}"]
+    assert merged["root"]["key_entities"] == ["Alice"]
