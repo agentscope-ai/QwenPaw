@@ -341,6 +341,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if not pending.future.done():
                 pending.future.cancel()
 
+        for workspace in self._workspaces.values():
+            if workspace.transcript_store is not None:
+                workspace.transcript_store.close()
         await self._app_services.stop()
         AuditLog.close_instance()
         for governor in self._governors.values():
@@ -399,7 +402,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         name: str,
         *,
         workspace_id: str = "default",
-        parameters: "Mapping[str, JSONValue] | None" = None,
+        parameters: Mapping[str, JSONValue] | None = None,
         scheduled: bool = False,
     ) -> "WorkflowResult":
         """Invoke plugin-id:workflow through the real registered job callback.
@@ -608,15 +611,20 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace.set_app_services(self._app_services)
             from ..app.chats.manager import ChatManager
             from ..app.chats.repo.json_repo import JsonChatRepository
-            from ..app.chats.session import SafeJSONSession
+            from ..app.chats.session import DatabaseSession
+            from ..app.chats.transcript_catalog import TranscriptCatalog
 
             workspace._service_manager.services["chat_manager"] = ChatManager(
                 repo=JsonChatRepository(path / "chats.json"),
                 shell_workspace_id=workspace_id,
                 shell_targets_dir=self.root / "shell-targets",
             )
-            workspace._service_manager.services["session"] = SafeJSONSession(
-                save_dir=str(path / "sessions"),
+            catalog = TranscriptCatalog(path)
+            workspace._service_manager.services["transcript_store"] = catalog
+            workspace._service_manager.services["session"] = DatabaseSession(
+                catalog=catalog,
+                legacy_save_dir=str(path / "sessions"),
+                backend_runtime=lambda: workspace.backend_runtime,
             )
             from ..hooks.session import SessionLoadHook, SessionSaveHook
             from ..checkpoints.hooks import CheckpointQueryGateHook
@@ -689,7 +697,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
     ):
         from ..runtime.hooks import HookContext
         from ..schemas import AgentRequest
-        from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+        from .._session_signals import SESSION_SAVE_SUCCEEDED_KEY
         from ._messages import to_host
 
         workspace = await self._workspace(workspace_id)
@@ -845,7 +853,6 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         cancelled: bool = False,
     ) -> "StopResult":
         """Evaluate the real host chain with an explicit simulated turn."""
-        from types import SimpleNamespace
         from ..loop.gates.runner import run_stop_handlers
         from ._messages import to_host
         from .stops import StopResult
@@ -1639,7 +1646,17 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             channel=channel,
             agent_id=workspace_id,
         )
-        stream = workspace.backend_runtime.stream(backend_id, trusted)
+        from ..config.config import load_agent_config, save_agent_config
+        from ..utils.io_utils import run_sync_io
+
+        def select_backend():
+            config = load_agent_config(workspace_id)
+            config.backend = backend_id
+            save_agent_config(workspace_id, config)
+            return config
+
+        workspace._config = await run_sync_io(select_backend)
+        stream = workspace.stream_query(trusted)
         try:
             async for item in stream:
                 yield chat_event(item)

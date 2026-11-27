@@ -504,3 +504,35 @@ describe("assistant code block plugins", () => {
     log.mockRestore();
   });
 });
+
+describe("segmented Markdown rendering", () => {
+  it("preserves completed DOM while appending a mixed Markdown tail", () => {
+    const prefix = Array.from(
+      { length: 100 },
+      (_, index) =>
+        `## Section ${index}\n\n${"A paragraph with **emphasis**. ".repeat(
+          20,
+        )}\n\n`,
+    ).join("");
+    const content =
+      prefix +
+      "| Name | Value |\n| --- | --- |\n| Item | 1 |\n\n```text\ncode example\n```\n\nTail";
+    const view = render(
+      <AssistantMarkdown messageId="large" content={content} cursor={false} />,
+    );
+    const heading = screen.getByRole("heading", { name: "Section 0" });
+    expect(view.container.querySelector("table")).toHaveTextContent("Item");
+    expect(view.container.querySelector("code")).toHaveTextContent(
+      "code example",
+    );
+    view.rerender(
+      <AssistantMarkdown
+        messageId="large"
+        content={content + " continues"}
+        cursor={false}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Section 0" })).toBe(heading);
+    expect(view.container.textContent).toContain("Tail continues");
+  });
+});

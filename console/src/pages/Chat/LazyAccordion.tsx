@@ -1,11 +1,13 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Accordion } from "@agentscope-ai/chat";
+import { MessageWindowStateContext } from "./messageWindowState";
 
 type AccordionProps = React.ComponentProps<typeof Accordion>;
 
 interface LazyAccordionProps
   extends Omit<AccordionProps, "children" | "defaultOpen" | "open"> {
   className?: string;
+  stateKey?: string;
   defaultOpen?: boolean;
   renderChildren: () => React.ReactElement;
 }
@@ -13,7 +15,7 @@ interface LazyAccordionProps
 const HEADER_SELECTOR =
   '[class*="-accordion-group-header-open"], [class*="-accordion-group-header-close"]';
 const MESSAGE_SCROLL_SELECTOR =
-  '[class*="chat-anywhere-message-list-bubble-scroll"]';
+  '[data-history-message-window="true"], [class*="chat-anywhere-message-list-bubble-scroll"]';
 
 /**
  * Adds destroy-on-close semantics to the vendor Accordion.
@@ -24,11 +26,16 @@ const MESSAGE_SCROLL_SELECTOR =
  */
 export default function LazyAccordion({
   className,
+  stateKey,
   defaultOpen = false,
   renderChildren,
   ...accordionProps
 }: LazyAccordionProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const memory = React.useContext(MessageWindowStateContext);
+  const [open, setOpen] = useState(
+    () =>
+      (stateKey ? memory?.expanded.get(stateKey) : undefined) ?? defaultOpen,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingHeaderTopRef = useRef<number | null>(null);
   const pendingScrollerRef = useRef<HTMLElement | null>(null);
@@ -46,24 +53,30 @@ export default function LazyAccordion({
     if (Math.abs(topDelta) > 0.5) scroller.scrollTop += topDelta;
   }, [open]);
 
-  const handleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!(event.target instanceof Element)) return;
-    const header = event.target.closest(HEADER_SELECTOR);
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!(event.target instanceof Element)) return;
+      const header = event.target.closest(HEADER_SELECTOR);
 
-    // The vendor contract exposes open/close header classes, but its wrapper
-    // depth is not stable. Only the first (outer) header controls this group;
-    // later headers belong to nested tool/reasoning accordions.
-    if (
-      !header ||
-      header !== event.currentTarget.querySelector(HEADER_SELECTOR)
-    )
-      return;
-    pendingHeaderTopRef.current = header.getBoundingClientRect().top;
-    pendingScrollerRef.current = header.closest<HTMLElement>(
-      MESSAGE_SCROLL_SELECTOR,
-    );
-    setOpen((current) => !current);
-  }, []);
+      // The vendor contract exposes open/close header classes, but its wrapper
+      // depth is not stable. Only the first (outer) header controls this group;
+      // later headers belong to nested tool/reasoning accordions.
+      if (
+        !header ||
+        header !== event.currentTarget.querySelector(HEADER_SELECTOR)
+      )
+        return;
+      pendingHeaderTopRef.current = header.getBoundingClientRect().top;
+      pendingScrollerRef.current = header.closest<HTMLElement>(
+        MESSAGE_SCROLL_SELECTOR,
+      );
+      setOpen((current) => {
+        if (stateKey) memory?.expanded.set(stateKey, !current);
+        return !current;
+      });
+    },
+    [memory, stateKey],
+  );
 
   return (
     <div ref={rootRef} className={className} onClick={handleClick}>

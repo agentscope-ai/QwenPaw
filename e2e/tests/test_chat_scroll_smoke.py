@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -126,8 +126,38 @@ def _register_chat_routes(page: Page) -> None:
                     "agent_project_dir": "/workspace/default",
                 }
             )
+        elif path == f"/api/chats/{CHAT_ID}/user-messages":
+            route.fulfill(json={
+                "items": [
+                    {
+                        "message_id": f"history-{index}",
+                        "preview": f"history message {index}",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "anchor": f"anchor-{index}",
+                    }
+                    for index in range(62, 0, -1)
+                ],
+                "total": 62,
+                "has_more": False,
+                "next_before": None,
+            })
+        elif path == f"/api/chats/{CHAT_ID}/messages":
+            query = parse_qs(urlsplit(request.url).query)
+            messages = _chat_history()["messages"]
+            older = bool(query.get("before"))
+            route.fulfill(json={
+                "messages": messages[:int(query.get("limit", [5])[0])]
+                    if older else messages[-5:],
+                "has_more": False,
+                "next_before": None,
+            })
         elif path == f"/api/chats/{CHAT_ID}":
-            route.fulfill(json=_chat_history())
+            history = _chat_history()
+            history["messages"] = history["messages"][-5:]
+            history["history"] = {
+                "has_more": True, "next_before": "latest-before",
+            }
+            route.fulfill(json=history)
         else:
             route.fallback()
 
@@ -141,6 +171,7 @@ def test_old_history_bottom_keeps_return_to_latest_visible(
     page: Page,
 ) -> None:
     """Jump to the oldest message, scroll to the page end, and return."""
+    page.set_viewport_size({"width": 1280, "height": 480})
     _register_api_mocks(page)
     _register_chat_routes(page)
     page.add_init_script(
@@ -151,36 +182,36 @@ def test_old_history_bottom_keeps_return_to_latest_visible(
     page.locator(ChatPage.CHAT_INPUT).first.wait_for(state="visible")
 
     directory_button = page.get_by_role(
-        "button", name="Open user message directory"
+        "button", name="User message directory"
     )
-    directory_button.hover()
-    directory = page.locator('[class*="anchor-directory-list"]')
+    directory_button.click()
+    directory = page.locator('[class*="navigationDirectoryList"]')
     expect(directory).to_be_visible()
+    directory.evaluate(
+        "element => { element.scrollTop = 0; "
+        "element.dispatchEvent(new Event('scroll')); }"
+    )
     oldest_message = directory.locator(
-        'button[class*="anchor-directory-item"]'
+        'button[class*="navigationItem"]'
     ).first
     expect(oldest_message).to_contain_text("history message 62")
     oldest_message.click()
 
     old_bubble = page.locator("#history-62")
-    expect(old_bubble).to_be_visible()
-    scroller = page.locator('[class*="bubble-list-order-desc"]').first
-    page.wait_for_function(
-        """() => {
-          const scroller = document.querySelector(
-            '[class*="bubble-list-order-desc"]'
-          );
-          return scroller && scroller.scrollTop < -10;
-        }"""
+    expect(old_bubble).to_be_in_viewport()
+    scroller = page.locator('[data-history-message-window="true"]')
+    expect(scroller).to_be_visible()
+    assert scroller.evaluate(
+        "element => element.scrollHeight > element.clientHeight"
     )
     scroller.evaluate(
-        "element => { element.scrollTop = 0; "
+        "element => { element.scrollTop = element.scrollHeight; "
         "element.dispatchEvent(new Event('scroll')); }"
     )
 
     return_to_latest = page.locator(
-        '[class*="bubble-list-scroll-to-bottom-show"] button'
+        '[aria-label="Scroll to bottom"]'
     )
     expect(return_to_latest).to_be_visible()
     return_to_latest.click()
-    expect(page.locator("#history-1")).to_be_visible()
+    expect(page.locator("#history-1")).to_be_in_viewport()

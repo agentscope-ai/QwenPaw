@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/request";
 import { createSdkSessionAdapter } from "../sdkSessionAdapter";
@@ -17,7 +11,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-it("hides the SDK surface and welcome until hydration completes", async () => {
+it("keeps the SDK surface inert and suppresses welcome until ready", async () => {
   const session = { id: "target", name: "target", messages: [] };
   const adapter = createSdkSessionAdapter({
     getSession: async () => session,
@@ -40,14 +34,13 @@ it("hides the SDK surface and welcome until hydration completes", async () => {
   );
   const surface = screen.getByText("Previous conversation").parentElement!;
   expect(surface.inert).toBe(true);
-  expect(surface).not.toBeVisible();
+  expect(surface).toBeVisible();
   expect(screen.queryByText("Welcome")).toBeNull();
   expect(screen.getByRole("status")).toHaveTextContent("common.loading");
   await act(async () => {
     await adapter.api.getSession("target");
   });
   expect(surface.inert).toBe(false);
-  await waitFor(() => expect(surface).toBeVisible());
   expect(screen.getByText("Welcome")).toBeVisible();
   expect(screen.queryByRole("status")).toBeNull();
 });
@@ -70,7 +63,7 @@ it("keeps the SDK mounted and inert while route ownership is pending", () => {
     </ChatSessionTransition>,
   );
   const surface = screen.getByText("SDK surface").parentElement!;
-  expect(surface).not.toBeVisible();
+  expect(surface).toBeVisible();
   expect(surface.inert).toBe(true);
   expect(screen.getByRole("status")).toHaveTextContent("common.loading");
 
@@ -99,7 +92,8 @@ it.each([
     </ChatSessionTransition>,
   );
 
-  expect(screen.getByText("SDK surface")).not.toBeVisible();
+  expect(screen.getByText("SDK surface")).toBeVisible();
+  expect(screen.getByText("SDK surface").parentElement?.inert).toBe(true);
   expect(screen.getByRole("alert")).toHaveTextContent(key as string);
   fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
   expect(retry).toHaveBeenCalledOnce();
@@ -153,7 +147,7 @@ it("delegates failed hydration retry without bypassing the SDK loader", async ()
 
   const surface = screen.getByText("Recovered conversation").parentElement!;
   expect(surface.inert).toBe(true);
-  expect(surface).not.toBeVisible();
+  expect(surface).toBeVisible();
   expect(screen.getByRole("alert")).toHaveTextContent("chat.historyLoadFailed");
 
   fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
@@ -161,6 +155,6 @@ it("delegates failed hydration retry without bypassing the SDK loader", async ()
   expect(onRetry).toHaveBeenCalledOnce();
   expect(getSession).toHaveBeenCalledOnce();
   expect(surface.inert).toBe(true);
-  expect(surface).not.toBeVisible();
+  expect(surface).toBeVisible();
   expect(screen.getByRole("alert")).toHaveTextContent("chat.historyLoadFailed");
 });

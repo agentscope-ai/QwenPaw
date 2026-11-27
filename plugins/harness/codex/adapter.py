@@ -531,6 +531,7 @@ class CodexBackend:
             settings,
         )
         self._thread_contexts[thread_id] = context
+        yield self._binding_event(thread_id)
         queue = client.subscribe()
         turn_id = ""
         try:
@@ -551,6 +552,7 @@ class CodexBackend:
                 params["sandboxPolicy"] = sandbox_policy
             result = await client.request("turn/start", params)
             turn_id = str((result or {}).get("turn", {}).get("id", ""))
+            yield self._boundary_event(thread_id, turn_id)
             while True:
                 message = await queue.get()
                 params = message.get("params") or {}
@@ -617,11 +619,35 @@ class CodexBackend:
             settings,
         )
         if command == "compact":
-            await client.request(
-                "thread/compact/start",
-                {"threadId": thread_id},
-            )
-            text = "Codex context compacted."
+            queue = client.subscribe()
+            try:
+                await client.request(
+                    "thread/compact/start",
+                    {"threadId": thread_id},
+                )
+                while True:
+                    notification = await queue.get()
+                    params = notification.get("params") or {}
+                    if params.get("threadId") != thread_id:
+                        continue
+                    if notification.get("method") != "turn/completed":
+                        continue
+                    turn = params.get("turn") or {}
+                    if turn.get("status") != "completed":
+                        raise CodexAppServerError(
+                            f"Codex compaction failed: {turn.get('error')}",
+                        )
+                    return (
+                        self._binding_event(thread_id),
+                        self._boundary_event(thread_id, str(turn["id"])),
+                        HarnessEvent(
+                            kind=HarnessEventKind.TEXT_DELTA,
+                            text="Codex context compacted.",
+                        ),
+                        HarnessEvent(kind=HarnessEventKind.COMPLETED),
+                    )
+            finally:
+                client.unsubscribe(queue)
         elif command == "review":
             return await self._run_review(
                 client,
@@ -644,6 +670,7 @@ class CodexBackend:
                 f"Unsupported Codex command: " f"/{command}",
             )
         return (
+            self._binding_event(thread_id),
             HarnessEvent(kind=HarnessEventKind.TEXT_DELTA, text=text),
             HarnessEvent(kind=HarnessEventKind.COMPLETED),
         )
@@ -723,16 +750,12 @@ class CodexBackend:
             if thread_id:
                 loaded_key = (id(client), thread_id)
                 if loaded_key not in self._loaded_threads:
-                    try:
-                        await client.request(
-                            "thread/resume",
-                            {"threadId": thread_id},
-                        )
-                        self._loaded_threads.add(loaded_key)
-                        return thread_id
-                    except CodexAppServerError:
-                        self._threads.pop(session_id, None)
-                        thread_id = None
+                    await client.request(
+                        "thread/resume",
+                        {"threadId": thread_id},
+                    )
+                    self._loaded_threads.add(loaded_key)
+                    return thread_id
             if thread_id:
                 return thread_id
             params = {
@@ -826,9 +849,11 @@ class CodexBackend:
         name = (
             "Codex command"
             if is_command
-            else "Codex permission request"
-            if is_permissions
-            else "Codex file change"
+            else (
+                "Codex permission request"
+                if is_permissions
+                else "Codex file change"
+            )
         )
         key = (str(params.get("threadId") or ""), id(context))
         task = asyncio.current_task()
@@ -841,9 +866,9 @@ class CodexBackend:
                     description=command
                     or str(params.get("reason") or "")
                     or name,
-                    severity="high"
-                    if is_command or is_permissions
-                    else "medium",
+                    severity=(
+                        "high" if is_command or is_permissions else "medium"
+                    ),
                     parameters={
                         "provider": "codex",
                         "provider_item_id": params.get("itemId"),
@@ -862,9 +887,11 @@ class CodexBackend:
                     self._approval_tasks.pop(key, None)
         if is_permissions:
             return {
-                "permissions": dict(params.get("permissions") or {})
-                if decision == "approved"
-                else {},
+                "permissions": (
+                    dict(params.get("permissions") or {})
+                    if decision == "approved"
+                    else {}
+                ),
                 "scope": "turn",
             }
         return {"decision": "accept" if decision == "approved" else "decline"}
@@ -901,7 +928,10 @@ class CodexBackend:
             )
             self._thread_contexts[review_thread_id] = context
             turn_id = str((result or {}).get("turn", {}).get("id") or "")
-            events: list[HarnessEvent] = []
+            events = [
+                self._binding_event(review_thread_id),
+                self._boundary_event(review_thread_id, turn_id),
+            ]
             while True:
                 message = await queue.get()
                 params = message.get("params") or {}
@@ -946,6 +976,91 @@ class CodexBackend:
         if not entries:
             return "No Codex skills are available in this workspace."
         return "Codex skills:\n" + "\n".join(entries)
+
+    async def bind_session(self, context, external_session_id):
+        """Restore the durable identity without replaying local history."""
+        await self.prepare()
+        async with self._session_lock:
+            key = self._session_key(context)
+            if external_session_id:
+                self._threads[key] = external_session_id
+            else:
+                self._threads.pop(key, None)
+            self._threads.pop(context.session_id, None)
+            await self._save_threads()
+
+    async def turn_history(self, context, *, external_session_id):
+        """Read full native turn boundaries without resuming the thread."""
+        del context
+        client = CodexAppServerClient(binary=self._binary)
+        try:
+            await client.start()
+            result = await client.request(
+                "thread/read",
+                {"threadId": external_session_id, "includeTurns": True},
+            )
+            return tuple(
+                (
+                    turn["id"],
+                    tuple(
+                        entry
+                        for item in turn.get("items", [])
+                        for entry in self._history_item(item)
+                    ),
+                )
+                for turn in result["thread"]["turns"]
+                if turn.get("status") == "completed"
+            )
+        finally:
+            await finish(client.stop())
+
+    async def fork_session(
+        self,
+        context: HarnessCallContext,
+        *,
+        boundary: dict[str, Any],
+    ) -> str:
+        """Fork native stored history through the requested Codex turn."""
+        if boundary["boundary_kind"] != "turn":
+            raise ValueError("invalid Codex fork boundary")
+        client = CodexAppServerClient(binary=self._binary)
+        try:
+            await client.start()
+            result = await client.request(
+                "thread/fork",
+                {
+                    "threadId": boundary["external_session_id"],
+                    "lastTurnId": boundary["boundary_id"],
+                    "cwd": str(context.cwd),
+                },
+            )
+        finally:
+            # Release the native writer before a runtime resumes the child.
+            await finish(client.stop())
+        thread_id = str((result or {}).get("thread", {}).get("id") or "")
+        if not thread_id:
+            raise CodexAppServerError("Codex fork returned no thread id")
+        return thread_id
+
+    @staticmethod
+    def _binding_event(thread_id: str) -> HarnessEvent:
+        return HarnessEvent(
+            kind=HarnessEventKind.SESSION_BOUND,
+            data={"external_session_id": thread_id},
+        )
+
+    @staticmethod
+    def _boundary_event(thread_id: str, turn_id: str) -> HarnessEvent:
+        if not turn_id:
+            raise CodexAppServerError("Codex returned no turn id")
+        return HarnessEvent(
+            kind=HarnessEventKind.TURN_BOUNDARY,
+            data={
+                "external_session_id": thread_id,
+                "boundary_kind": "turn",
+                "boundary_id": turn_id,
+            },
+        )
 
     async def _interrupt_turn(
         self,

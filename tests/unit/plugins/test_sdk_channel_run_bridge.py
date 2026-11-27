@@ -59,8 +59,13 @@ async def test_repeated_cancellation_preserves_queued_terminal_callback(
                     await asyncio.sleep(0.01)
             tracker = (await host._workspace("test")).task_tracker
             tasks = await tracker.snapshot_active_tasks()
-            assert len(tasks) == 1
-            producer = next(iter(tasks.values()))
+            producers = {
+                key: task
+                for key, task in tasks.items()
+                if not key.startswith("session:")
+            }
+            assert len(producers) == 1
+            producer = next(iter(producers.values()))
             producer.cancel()
             await wait_for(
                 lambda: bool(ctx.storage.read_json("model-finished.json", [])),

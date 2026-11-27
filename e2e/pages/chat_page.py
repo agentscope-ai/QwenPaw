@@ -319,15 +319,6 @@ class ChatPage(BasePage):
         "older": ("Earlier", "更早"),
     }
 
-    # --- Non-owner tab banner — upstream #5664 ---
-    # antd <Alert type="info" banner> injected into the sender beforeUI slot
-    # when this tab lost the qwenpaw:queue-owner:<sessionId> Web Lock. Appears
-    # only after a 300ms ownershipResolved fallback timer.
-    QUEUE_BANNER = '.qwenpaw-alert-banner'
-    _QUEUE_BANNER_RE = re.compile(
-        r"This tab queues only|当前标签页仅入队"
-    )
-
     # Action buttons
     COPY_BTN = 'span[title="复制"]'
 
@@ -2313,14 +2304,6 @@ class ChatPage(BasePage):
         """
         return self.page.locator(
             f'div[class*="sessionItem-module__item"]:has-text("{name}")'
-        ).first
-
-    # ========== Non-owner tab banner (upstream #5664) ==========
-
-    def get_queue_banner(self) -> Locator:
-        """The queue-only info banner in the sender area (non-owner tab)."""
-        return self.page.locator(self.QUEUE_BANNER).filter(
-            has_text=self._QUEUE_BANNER_RE
         ).first
 
     # ========== Model and Agent switching ==========

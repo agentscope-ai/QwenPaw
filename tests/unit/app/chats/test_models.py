@@ -39,6 +39,16 @@ def test_chat_spec_auto_generates_uuid():
     spec = ChatSpec(session_id="console:u1", user_id="u1")
     assert spec.id  # non-empty UUID string
     assert len(spec.id) == 36  # standard UUID format
+    assert spec.storage_id == spec.id
+    assert ChatSpec.model_validate(spec.model_dump()).storage_id == spec.id
+    assert ChatSpec(
+        id="legacy-chat",
+        session_id="s",
+        user_id="u",
+    ).storage_id == ("legacy-chat")
+    for unsafe in ("../escape", "a/b", "a\\b", "CON", "LPT1", "bad:id"):
+        with pytest.raises(ValidationError):
+            ChatSpec(id=unsafe, session_id="s", user_id="u")
 
 
 def test_chat_spec_default_values():

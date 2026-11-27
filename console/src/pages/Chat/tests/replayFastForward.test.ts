@@ -12,7 +12,7 @@
  *
  * Backends without the marker fall back to an idle-timeout flush.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { wrapReplayFastForward } from "../replayFastForward";
 
 const encoder = new TextEncoder();
@@ -138,6 +138,22 @@ describe("wrapReplayFastForward", () => {
 
     const chunks = await readAllChunks(wrapped);
     expect(chunks).toEqual(["data: only\n\n"]);
+  });
+
+  it("requests one durable resync when replay overflowed", async () => {
+    const { response, push, close } = makeSseResponse();
+    const onReconnectRequired = vi.fn();
+    const wrapped = wrapReplayFastForward(response, 5000, onReconnectRequired);
+
+    push('data: {"type":"reconnect_required","reason":"buffer_overflow"}');
+    push("\n\n");
+    push('data: {"type":"reconnect_required","reason":"buffer_overflow"}');
+    push("\n\n");
+    close();
+
+    const chunks = await readAllChunks(wrapped);
+    expect(onReconnectRequired).toHaveBeenCalledTimes(1);
+    expect(chunks.join("")).toContain("reconnect_required");
   });
 
   it("forwards a trailing partial event at stream end", async () => {
