@@ -2714,6 +2714,33 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
     return wrapped, formatter
 
 
+def _global_model_for_disabled_agent_slot(
+    manager: Any,
+    model_slot: Any,
+    *,
+    explicit: bool,
+) -> tuple[Any, Any] | None:
+    """Return a different enabled global model for a saved agent slot.
+
+    Explicit per-request overrides are never rewritten. The global
+    active model is used only when it names another enabled provider.
+    """
+    if explicit:
+        return None
+    active = manager.get_active_model()
+    if active is None or not active.provider_id or not active.model:
+        return None
+    if (
+        active.provider_id == model_slot.provider_id
+        and active.model == model_slot.model
+    ):
+        return None
+    fallback = manager.get_provider(active.provider_id)
+    if fallback is None or not fallback.enabled:
+        return None
+    return active, fallback
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -2726,6 +2753,12 @@ def create_model_and_formatter(
 
     This method handles both local and remote models, selecting the
     appropriate chat model class and formatter based on configuration.
+
+    A persisted agent ``active_model`` whose provider was disabled
+    falls back to the global active model (the same path as an unset
+    agent model) and logs a warning. An explicit
+    ``model_slot_override`` of a disabled provider still raises
+    ``ProviderError``.
 
     Args:
         agent_id: Optional agent ID to load agent-specific model config.
@@ -2788,7 +2821,26 @@ def create_model_and_formatter(
             message=f"Provider '{model_slot.provider_id}' not found.",
         )
     if not provider.enabled:
-        raise ProviderError(message=f"Provider is disabled")
+        # agent.json keeps the last selected model after the provider
+        # is switched off. Channel runs then die with "Provider is
+        # disabled" even though a global model is still usable.
+        fallback = _global_model_for_disabled_agent_slot(
+            manager,
+            model_slot,
+            explicit=explicit,
+        )
+        if fallback is None:
+            raise ProviderError(message=f"Provider is disabled")
+        active_slot, provider = fallback
+        logger.warning(
+            "Agent %s model provider %s is disabled; falling back "
+            "to active model %s:%s",
+            agent_id or "unspecified",
+            model_slot.provider_id,
+            active_slot.provider_id,
+            active_slot.model,
+        )
+        model_slot = active_slot
     with agent_thinking_level(
         settings.thinking_level,
         settings.thinking_budget,
