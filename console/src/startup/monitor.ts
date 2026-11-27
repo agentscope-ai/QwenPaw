@@ -1,3 +1,4 @@
+import { reloadConsole } from "../features/platform-web/hostBridge";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
@@ -27,6 +28,7 @@ export interface StartupMessages {
     timeout: string;
   };
   reload: string;
+  reloadFailed: string;
   details: string;
   copy: string;
   copied: string;
@@ -105,13 +107,22 @@ export function installStartupMonitor(
     const reload = element("button", messages.reload);
     copy.type = reload.type = "button";
     reload.className = "qwenpaw-boot__reload";
-    reload.addEventListener("click", () => {
-      stop();
-      window.location.reload();
-    });
     const feedback = element("p");
     feedback.setAttribute("role", "status");
     feedback.hidden = true;
+    reload.addEventListener("click", async () => {
+      reload.disabled = true;
+      feedback.hidden = true;
+      try {
+        await reloadConsole();
+        stop();
+      } catch {
+        feedback.textContent = messages.reloadFailed;
+        feedback.hidden = false;
+      } finally {
+        reload.disabled = false;
+      }
+    });
     copy.addEventListener("click", () => {
       void copyText(diagnosticText())
         .then(() => {
