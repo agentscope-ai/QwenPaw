@@ -15,7 +15,12 @@ import { harnessNamespace } from "../harnesses";
 import { auditStore } from "../registry/audit";
 import { pluginSystem } from "../hostExternals";
 import { combineDisposables } from "../registry/types";
-import { ChatScalar, ThemeTokens } from "../registry/slotKeys";
+import {
+  ChatScalar,
+  EXTENDED_THEME_TOKENS,
+  ThemeTokens,
+} from "../registry/slotKeys";
+import { getPluginSdkDeclaration } from "../registry/pluginSdk";
 import type {
   ChatActionSpec,
   ChatApprovalRendererItem,
@@ -77,6 +82,11 @@ interface ThemePartial {
 const THEME_TOKEN_KEYS: ReadonlySet<string> = new Set(
   Object.values(ThemeTokens),
 );
+const EXTENDED_THEME_TOKEN_KEYS: ReadonlySet<string> = new Set(
+  Object.values(EXTENDED_THEME_TOKENS),
+);
+/** Capability a plugin must declare before using those roles. */
+const EXTENDED_THEME_TOKENS_CAPABILITY = "themeTokens";
 
 /**
  * Reject anything the token layer cannot honour.
@@ -109,6 +119,31 @@ function validateThemeTokens(
         `[QwenPaw] chat.theme.overrideTokens: token "${key}" from plugin "${pluginId}" ` +
           `must provide both "light" and "dark" values.`,
       );
+    }
+    // The semantic roles are newer than the original six, so using one is a
+    // declaration: the plugin must say it was built for an SDK that has them.
+    if (EXTENDED_THEME_TOKEN_KEYS.has(key)) {
+      const declaration = getPluginSdkDeclaration(pluginId);
+      if (!declaration) {
+        throw new Error(
+          `[QwenPaw] chat.theme.overrideTokens: token "${key}" from plugin "${pluginId}" ` +
+            `requires the "${EXTENDED_THEME_TOKENS_CAPABILITY}" capability, ` +
+            `but the plugin declares no SDK.`,
+        );
+      }
+      // The backend already validated `sdk.version` against this capability
+      // table, using PEP 440 semantics — `0!1.2.0` is the same release as
+      // `1.2.0`. Re-parsing the raw string here rejected versions the backend
+      // had accepted, so only the capability is checked.
+      if (
+        !declaration.capabilities.includes(EXTENDED_THEME_TOKENS_CAPABILITY)
+      ) {
+        throw new Error(
+          `[QwenPaw] chat.theme.overrideTokens: token "${key}" from plugin "${pluginId}" ` +
+            `requires the "${EXTENDED_THEME_TOKENS_CAPABILITY}" capability in ` +
+            `sdk.capabilities, but the plugin does not declare it.`,
+        );
+      }
     }
     validated[key as ThemeTokenKey] = { light, dark };
   }

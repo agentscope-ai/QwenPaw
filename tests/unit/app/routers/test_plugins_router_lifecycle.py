@@ -1645,6 +1645,138 @@ class TestPublicPluginAndFileContracts:
             assert isinstance(item.get("id"), str) and item["id"]
             assert isinstance(item.get("name"), str) and item["name"]
 
+    def test_frontend_list_reports_declared_sdk(self):
+        record = _record()
+        record.manifest.sdk = {
+            "version": "1.2.0",
+            "capabilities": ["themeTokens"],
+        }
+        response = _client(_loader_stub([], record=record)).get(
+            "/api/frontend_plugin",
+        )
+        assert response.status_code == 200
+        item = response.json()[0]
+        assert item["sdk_version"] == "1.2.0"
+        assert item["sdk_capabilities"] == ["themeTokens"]
+
+    def test_frontend_list_normalises_a_malformed_sdk_declaration(
+        self,
+        tmp_path,
+    ):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        (plugins / "odd").mkdir()
+        (plugins / "odd" / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "odd",
+                    "name": "Odd",
+                    "version": "1.0.0",
+                    "entry": {"frontend": "ui/index.js"},
+                    "sdk": {
+                        "version": "1.2.0",
+                        "capabilities": "themeTokens",
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+        with patch(
+            "qwenpaw.config.utils.get_plugins_dir",
+            return_value=plugins,
+        ):
+            response = _client(None).get("/api/frontend_plugin")
+        assert response.status_code == 200
+        item = response.json()[0]
+        # A malformed declaration is not forwarded at all: the loader would
+        # reject it, so the disk fallback reports "not declared" instead of
+        # expanding the bare string into one entry per character.
+        assert item["sdk_capabilities"] == []
+        assert item["sdk_version"] is None
+
+    @pytest.mark.parametrize("version", ["1.2.0rc1", "1.2.0.dev1"])
+    def test_frontend_list_rejects_incompatible_prerelease_on_disk(
+        self,
+        tmp_path,
+        version,
+    ):
+        """A pre-release below 1.2.0 may not carry `themeTokens`.
+
+        The loader rejects that combination, so the disk fallback must reach
+        the same verdict instead of forwarding it for the console to judge.
+        """
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        (plugins / "pre").mkdir()
+        (plugins / "pre" / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "pre",
+                    "name": "Pre",
+                    "version": "1.0.0",
+                    "entry": {"frontend": "ui/index.js"},
+                    "sdk": {
+                        "version": version,
+                        "capabilities": ["themeTokens"],
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+        with patch(
+            "qwenpaw.config.utils.get_plugins_dir",
+            return_value=plugins,
+        ):
+            response = _client(None).get("/api/frontend_plugin")
+        assert response.status_code == 200
+        item = response.json()[0]
+        assert item["sdk_version"] is None
+        assert item["sdk_capabilities"] == []
+
+    def test_frontend_list_keeps_a_prerelease_without_extended_capabilities(
+        self,
+        tmp_path,
+    ):
+        """Only the incompatible combination is downgraded, not pre-releases."""
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        (plugins / "pre").mkdir()
+        (plugins / "pre" / "plugin.json").write_text(
+            json.dumps(
+                {
+                    "id": "pre",
+                    "name": "Pre",
+                    "version": "1.0.0",
+                    "entry": {"frontend": "ui/index.js"},
+                    "sdk": {"version": "1.2.0rc1", "capabilities": []},
+                },
+            ),
+            encoding="utf-8",
+        )
+        with patch(
+            "qwenpaw.config.utils.get_plugins_dir",
+            return_value=plugins,
+        ):
+            response = _client(None).get("/api/frontend_plugin")
+        assert response.status_code == 200
+        item = response.json()[0]
+        assert item["sdk_version"] == "1.2.0rc1"
+        assert item["sdk_capabilities"] == []
+
+    def test_frontend_list_applies_the_same_check_when_loaded(self):
+        record = _record()
+        record.manifest.sdk = {
+            "version": "1.2.0rc1",
+            "capabilities": ["themeTokens"],
+        }
+        response = _client(_loader_stub([], record=record)).get(
+            "/api/frontend_plugin",
+        )
+        assert response.status_code == 200
+        item = response.json()[0]
+        assert item["sdk_version"] is None
+        assert item["sdk_capabilities"] == []
+
     @pytest.mark.parametrize("endpoint", ["plugins", "frontend_plugin"])
     def test_unknown_plugin_file_is_404(self, endpoint):
         response = _client(_loader_stub([])).get(

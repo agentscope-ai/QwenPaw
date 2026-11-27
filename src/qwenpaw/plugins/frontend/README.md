@@ -109,6 +109,24 @@ checker explicitly reports frontend checking as uncovered. Existing legacy
 plugins are not rejected merely for lacking TypeScript sources.
 
 
+Theme overrides accept the six original roles (`bg`, `surface`,
+`surface-raised`, `border`, `text`, `text-secondary`) at any SDK version. The
+semantic colour roles (`accent*`, `success*`, `warning*`, `error*`, `info*`,
+`surface-subtle`, `surface-sunken`, `shell-bg`, `text-tertiary`,
+`text-quaternary`, `border-subtle`, `border-strong`) require SDK 1.2 and the
+`themeTokens` capability. Every role must supply both `light` and `dark`;
+unknown names are rejected rather than ignored, so a typo fails loudly.
+
+What an override does not reach: this is a colour surface, not a full UI theme.
+Only the roles listed above participate — every other `--app-*` name stays
+internal, and layout, spacing, typography, iconography and chart palettes are
+out of scope. Host markup that hardcodes `rgb()`/`rgba()` instead of referencing
+a token will not follow the override, and neither will anything a third party
+paints itself (canvases, embedded charts, plugin-owned component libraries that
+ship their own colours). Declaring `themeTokens` therefore means "this plugin
+restyles the surfaces that use these roles", not "this plugin rethemes the whole
+console".
+
 Harness Settings extensions require SDK 1.1. Import `HarnessSettingsProps` and
 `getHost` from this public package and register through
 `getHost().harnesses.register(pluginId, extension)`. The host renders only the

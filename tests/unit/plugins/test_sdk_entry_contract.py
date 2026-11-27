@@ -165,3 +165,25 @@ async def test_sdk_identity_cannot_escape_owned_storage_roots(
     with pytest.raises(SDKError):
         await loader.load_plugin(manifest, root, {})
     assert not marker.exists()
+
+
+def test_theme_tokens_capability_gates_on_sdk_version():
+    """Core roles stay at 1.0.0; the semantic colour surface needs 1.2.0."""
+    from qwenpaw.plugins import SDKCompatibilityError
+    from qwenpaw.plugins.sdk_version import validate_sdk
+
+    # The six original roles need no declaration, so 1.0.0 stays valid.
+    validate_sdk({"version": "1.0.0", "capabilities": ["tools"]})
+
+    with pytest.raises(
+        SDKCompatibilityError,
+        match="themeTokens requires SDK version",
+    ):
+        validate_sdk({"version": "1.1.0", "capabilities": ["themeTokens"]})
+
+    validate_sdk({"version": "1.2.0", "capabilities": ["themeTokens"]})
+
+    # PEP 440 epochs normalise away: `0!1.2.0` is the same release as `1.2.0`,
+    # so the backend accepts it and the console must not re-parse the raw
+    # string into "0.x" and reject a plugin that this check just approved.
+    validate_sdk({"version": "0!1.2.0", "capabilities": ["themeTokens"]})
