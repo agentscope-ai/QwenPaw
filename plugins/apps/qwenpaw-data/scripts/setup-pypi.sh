@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
 # -*- coding: utf-8 -*-
-# Install the qwenpaw-data runtime from PyPI into the current Python environment.
-#
-# This is the out-of-the-box path: it does not require a QwenPaw-Data source
-# workspace, uv, or any development tooling. It simply pip-installs the four
-# runtime packages that the qwenpaw-data plugin needs to start its managed context
-# service.
+# Install the published runtime for the managed Context and Engine services.
 #
 # If you prefer to run against an existing Context service, set
 # QWENPAW_DATA_CONTEXT_MODE=external instead of installing the runtime locally.
 
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PYTHON_BIN="${QWENPAW_DATA_CONTEXT_PYTHON:-${PYTHON:-$(command -v python3 || command -v python)}}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -23,10 +15,10 @@ fi
 
 echo "==> Installing qwenpaw-data runtime packages with $PYTHON_BIN"
 "$PYTHON_BIN" -m pip install --upgrade \
-  "qwenpaw-data-context>=0.3.3,<0.4" \
-  "qwenpaw-data-host-core[service]>=0.3.3,<0.4" \
-  "qwenpaw-data-cli>=0.3.3,<0.4" \
-  "qwenpaw-data-skills>=0.3.3,<0.4"
+  "qwenpaw-data-context==0.4.1" \
+  "qwenpaw-data-host-core[service]==0.4.1" \
+  "qwenpaw-data-cli==0.4.1" \
+  "qwenpaw-data-skills==0.4.1"
 
 echo ""
 echo "==> Installed versions:"
@@ -38,12 +30,14 @@ done
 
 echo ""
 echo "==> Verifying Context and engine service entry points"
-"$PYTHON_BIN" -c "import context_manager.api.server"
-"$PYTHON_BIN" -c "from qwenpaw_data.host.core.api.app import create_app; create_app()"
+"$PYTHON_BIN" - <<'PY'
+from importlib.util import find_spec
+
+for module in ("context_manager.api.server", "qwenpaw_data.host.core.api.app"):
+    if find_spec(module) is None:
+        raise SystemExit(f"Missing runtime entry point: {module}")
+PY
 
 echo ""
 echo "QwenPaw Data runtime is ready. Start QwenPaw with the qwenpaw-data plugin enabled."
-echo "To use an external Context service instead, set:"
-echo "  export QWENPAW_DATA_CONTEXT_MODE=external"
-echo "  export QWENPAW_DATA_CONTEXT_URL=<context-service-url>"
-echo "  export QWENPAW_DATA_CONTEXT_TOKEN=<token>"
+echo "For external Engine, Context, and Auth settings, see the QwenPaw Data plugin README."

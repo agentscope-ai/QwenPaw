@@ -16,6 +16,26 @@
 
   var API_PREFIX = "/api/qwenpaw-data/";
   var TOKEN_KEY = "qwenpaw_auth_token";
+  var CONTEXT_CONSOLE_URL =
+    "/api/frontend_plugin/qwenpaw-data/files/ui/dist/context-console/index.html#";
+
+  // The embed bundle reads its API base and DataBridge entry from this global,
+  // so publish it before the module bundle executes.
+  var consoleConfig = window.QWENPAW_DATA_CONSOLE || {};
+  window.QWENPAW_DATA_CONSOLE = Object.assign({}, consoleConfig, {
+    api_base_url: API_PREFIX + "engine",
+    auth: { mode: "host", api_base_url: API_PREFIX + "identity", login_url: "/" },
+    capabilities: Object.assign({}, consoleConfig.capabilities, {
+      contextConsole: true,
+      channels: false,
+      mcpHub: false,
+    }),
+    databridge: Object.assign({}, consoleConfig.databridge, {
+      base_path: CONTEXT_CONSOLE_URL,
+      api_base_url: API_PREFIX + "context",
+      open_in_console: true,
+    }),
+  });
 
   function workspaceId() {
     try {
@@ -44,6 +64,14 @@
       return false;
     }
   }
+
+  var initialWorkspace = workspaceId();
+  var initialToken = hostToken();
+  window.setInterval(function () {
+    if (workspaceId() !== initialWorkspace || hostToken() !== initialToken) {
+      window.location.reload();
+    }
+  }, 1000);
 
   // --- fetch ---------------------------------------------------------------
   var originalFetch = window.fetch;

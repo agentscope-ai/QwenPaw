@@ -1,0 +1,1 @@
+import{a4 as t,a5 as a,j as s,cq as e,a9 as o}from"./index-KHiSGKUd.js";var r=()=>{const{t:r}=t(),n=a();return s.jsx(e,{status:"404",title:"404",subTitle:r("empty.notFoundSubtitle"),extra:s.jsx(o.Button,{type:"primary",onClick:()=>n("/"),children:r("common.back")})})};export{r as default};

@@ -27,8 +27,7 @@ WORKING_DIR="${WORKING_DIR/#\~/$HOME}"
 
 python3 "$SCRIPT_DIR/verify-data-console.py" \
   "$APP_DIR/ui/public/data-console" \
-  --canonical-bridge "$SCRIPT_DIR/data-console/paw-bridge.js" \
-  --canonical-patch "$SCRIPT_DIR/data-console/patches/console-embed.patch"
+  --canonical-bridge "$SCRIPT_DIR/data-console/paw-bridge.js"
 
 echo "==> Building the QwenPaw-Data native UI"
 (cd "$APP_DIR/ui" && npm install --ignore-scripts --no-audit --no-fund && npm run build)
@@ -56,8 +55,8 @@ CONTEXT_CONSOLE_DIR="$APP_DIR/ui/dist/context-console"
 if [[ -d "$CONTEXT_CONSOLE_DIR" ]]; then
   cp -R "$CONTEXT_CONSOLE_DIR" "$STAGE_DIR/ui/dist/context-console"
 else
-  echo "NOTE: embedded Context console not found; run" \
-    "scripts/sync-context-ui.sh to vendor it." >&2
+  echo "Required DataBridge compatibility entry was not built." >&2
+  exit 1
 fi
 
 DATA_CONSOLE_DIR="$APP_DIR/ui/dist/data-console"

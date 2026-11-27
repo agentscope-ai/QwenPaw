@@ -1,0 +1,36 @@
+QwenPaw-Data
+Copyright 2026 QwenPaw-Data Authors
+
+This product includes software developed by the QwenPaw-Data Authors.
+
+Licensed under the Apache License, Version 2.0.
+
+Repository assets and examples
+------------------------------
+
+Unless otherwise stated in or adjacent to a file, the documentation,
+examples, sample data, and project-specific visual assets distributed in
+this repository are part of the QwenPaw-Data Work and are licensed under
+the Apache License, Version 2.0. This statement covers copyright permission
+only; names, logos, and trademarks remain subject to Section 6 of the
+License. The repository-maintained asset inventory and provenance categories
+are documented in ASSET_LICENSES.md.
+
+--------------------------------------------------------------------------
+Third-party notices
+--------------------------------------------------------------------------
+
+This product depends on third-party open source components installed at
+build time via PyPI (see uv.lock) and npm (see
+packages/qwenpaw-data-context/frontend/package-lock.json). Each component is
+distributed under its own license; license texts ship inside the installed
+packages.
+
+The frontend dependency exposed under the local package name "xlsx" is the
+Apache-2.0 package "@e965/xlsx" version 0.20.3, fetched from the public npm
+registry. Its exact source URL and integrity digest are pinned in
+packages/qwenpaw-data-context/frontend/package-lock.json.
+
+NetworkX version 3.6.1, installed transitively through dbt-core, is distributed
+under the BSD-3-Clause license. Its wheel declares the SPDX identifier through
+the PEP 639 License-Expression metadata field and includes LICENSE.txt.

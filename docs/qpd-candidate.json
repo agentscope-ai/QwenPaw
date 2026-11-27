@@ -1,0 +1,11 @@
+{
+  "status": "local-candidate-not-published",
+  "version": "0.4.1.dev0",
+  "upstream_branch": "feat/consumer-package-contracts",
+  "upstream_base": "24b0965",
+  "superseded_by": "0.4.1 (coordinated PyPI release, 2026-11-24)",
+  "wheels": {
+    "qwenpaw_data_host_core-0.4.1.dev0-py3-none-any.whl": "76092e29e25da45556c08d5cc179e8ebf7ce7b66b6017265333764a038b8e348",
+    "qwenpaw_data_console-0.4.1.dev0-py3-none-any.whl": "4450461c0cd8f2987b5e6cfb44b23ef22d871ef9a70b31f2dad9e450c3001b5b"
+  }
+}

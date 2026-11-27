@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import importlib
+from importlib.util import find_spec
 import json
 import os
 import stat
@@ -17,13 +17,14 @@ DEV_DIR = PLUGIN_DIR / ".qwenpaw-data-dev"
 
 
 def runtime_packages_available() -> bool:
-    """Return True when the current interpreter can run both sidecars."""
+    """Locate both entry points without initializing a service in the host."""
     for module in (
         "context_manager.api.server",
         "qwenpaw_data.host.core.api.app",
     ):
         try:
-            importlib.import_module(module)
+            if find_spec(module) is None:
+                return False
         except ImportError:
             return False
     return True

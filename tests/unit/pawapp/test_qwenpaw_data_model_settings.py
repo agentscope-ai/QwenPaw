@@ -96,7 +96,8 @@ async def test_references_and_metadata_never_copy_keys(configured, tmp_path):
     runtime = await service.runtime(scope())
     assert runtime["analysis"]["model_id"] == "model-a"
     assert runtime["lightweight"]["model_id"] == "model-b"
-    assert runtime["databridge"]["model_id"] == "model-a"
+    assert runtime["databridge"] is None
+    assert "databridge" not in runtime["inherit_analysis"]
     provider.api_key = "rotated-key"
     assert (await service.runtime(scope()))["analysis"][
         "api_key"

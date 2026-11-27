@@ -163,10 +163,10 @@ qoder = [
     "qoder-agent-sdk==1.0.9",
 ]
 qwenpaw-data = [
-    "qwenpaw-data-context>=0.3.3,<0.4",
-    "qwenpaw-data-host-core[service]>=0.3.3,<0.4",
-    "qwenpaw-data-cli>=0.3.3,<0.4",
-    "qwenpaw-data-skills>=0.3.3,<0.4",
+    "qwenpaw-data-context==0.4.1",
+    "qwenpaw-data-host-core[service]==0.4.1",
+    "qwenpaw-data-cli==0.4.1",
+    "qwenpaw-data-skills==0.4.1",
 ]
 channels = [
     "aiofiles>=24.1.0",

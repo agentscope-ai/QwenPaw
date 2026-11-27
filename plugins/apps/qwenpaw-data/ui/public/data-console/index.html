@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#1677ff" />
     <script>
       try {
-        if (localStorage.getItem('datapaw-color-mode') === 'dark') {
-          document.documentElement.dataset.datapawTheme = 'dark';
+        if (localStorage.getItem('qwenpaw-data-color-mode') === 'dark') {
+          document.documentElement.dataset.qwenpawDataTheme = 'dark';
           document.documentElement.style.colorScheme = 'dark';
         }
       } catch (_) {
@@ -38,7 +38,12 @@
         justify-items: center;
         gap: 4px;
         color: #64748b;
-        font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font:
+          13px/1.5 system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
         letter-spacing: 0.02em;
         background: #fff;
       }
@@ -55,17 +60,17 @@
         object-fit: contain;
       }
 
-      html[data-datapaw-theme='dark'] .initial-loading {
+      html[data-qwenpaw-data-theme='dark'] .initial-loading {
         color: #b8c2cf;
         background: #000;
       }
 
-      html[data-datapaw-theme='dark'] .initial-loading__visual {
+      html[data-qwenpaw-data-theme='dark'] .initial-loading__visual {
         overflow: hidden;
         background: #000;
       }
 
-      html[data-datapaw-theme='dark'] .initial-loading__media {
+      html[data-qwenpaw-data-theme='dark'] .initial-loading__media {
         background: #000;
       }
     </style>
@@ -92,8 +97,8 @@
         };
       }
     </script>
-    <script type="module" crossorigin src="./assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/style.css">
+    <script type="module" crossorigin src="./assets/index-KHiSGKUd.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/style-Kr6pWW7D.css">
   </head>
   <body>
     <div id="initial-loading" class="initial-loading" role="status" aria-live="polite">
@@ -104,8 +109,11 @@
     <script>
       (function () {
         var visual = document.getElementById('initial-loading-visual');
-        var prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        var darkAssetSuffix = document.documentElement.dataset.datapawTheme === 'dark' ? '-dark' : '';
+        var prefersReducedMotion = globalThis.matchMedia?.(
+          '(prefers-reduced-motion: reduce)',
+        ).matches;
+        var darkAssetSuffix =
+          document.documentElement.dataset.qwenpawDataTheme === 'dark' ? '-dark' : '';
         var media;
 
         if (prefersReducedMotion) {

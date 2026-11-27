@@ -4,8 +4,9 @@ on:
   push:
     branches: [main, master, dev, develop, "dev/**"]
     paths:
-      - "plugins/apps/qwenpaw-data/ui/**"
-      - "plugins/apps/qwenpaw-data/backend/**"
+      - "plugins/apps/qwenpaw-data/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "tests/unit/pawapp/test_qwenpaw_data*.py"
       - "src/qwenpaw/pawapp/service.py"
       - ".github/workflows/qwenpaw-data-app-tests.yml"
@@ -13,8 +14,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop, "dev/**"]
     paths:
-      - "plugins/apps/qwenpaw-data/ui/**"
-      - "plugins/apps/qwenpaw-data/backend/**"
+      - "plugins/apps/qwenpaw-data/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - "tests/unit/pawapp/test_qwenpaw_data*.py"
       - "src/qwenpaw/pawapp/service.py"
       - ".github/workflows/qwenpaw-data-app-tests.yml"
@@ -50,13 +52,11 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install runtime test dependencies
-        run: python -m pip install -e ".[test]"
-      - name: Check model errors and managed service lifecycle
+        run: python -m pip install -e ".[test,qwenpaw-data]"
+      - name: Check Data gateways, identity, console snapshot and managed services
         run: >-
           python -m pytest -q
-          tests/unit/pawapp/test_qwenpaw_data_model_settings.py
-          tests/unit/pawapp/test_qwenpaw_data_standalone.py
-          tests/unit/pawapp/test_qwenpaw_data_service_lifecycle.py
+          tests/unit/pawapp/test_qwenpaw_data*.py
 
   ui-tests:
     name: QwenPaw Data UI Build & Tests

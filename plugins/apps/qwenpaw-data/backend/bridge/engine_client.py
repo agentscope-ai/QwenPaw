@@ -7,10 +7,19 @@ browser traffic; server-side bridge calls skip the extra hop.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from http import HTTPStatus
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+)
 
 import httpx
 
@@ -61,7 +70,7 @@ class EngineClient:
 
     def __init__(
         self,
-        endpoint: Callable[[], tuple[str, str]],
+        endpoint: Callable[[], tuple[str, str] | Awaitable[tuple[str, str]]],
         *,
         timeout: float = 30.0,
     ) -> None:
@@ -79,9 +88,12 @@ class EngineClient:
             self._client = httpx.AsyncClient(timeout=self._timeout)
         return self._client
 
-    def _base_and_headers(self) -> tuple[str, Dict[str, str]]:
+    async def _base_and_headers(self) -> tuple[str, Dict[str, str]]:
         try:
-            base_url, token = self._endpoint()
+            endpoint = self._endpoint()
+            base_url, token = (
+                await endpoint if inspect.isawaitable(endpoint) else endpoint
+            )
         except RuntimeError as exc:
             raise EngineUnavailableError(str(exc)) from exc
         if not base_url:
@@ -107,7 +119,7 @@ class EngineClient:
         path: str,
         **kwargs: Any,
     ) -> Any:
-        base, headers = self._base_and_headers()
+        base, headers = await self._base_and_headers()
         try:
             response = await self._http().request(
                 method,
@@ -193,7 +205,7 @@ class EngineClient:
         return items if isinstance(items, list) else []
 
     async def download_artifact(self, session_id: str, path: str) -> bytes:
-        base, headers = self._base_and_headers()
+        base, headers = await self._base_and_headers()
         try:
             response = await self._http().get(
                 f"{base}/api/v1/sessions/{session_id}/artifacts/file",
@@ -213,7 +225,7 @@ class EngineClient:
         after_sequence_number: int = -1,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Yield parsed stream-object frames from the chat's SSE feed."""
-        base, headers = self._base_and_headers()
+        base, headers = await self._base_and_headers()
         url = f"{base}/api/v1/sessions/{session_id}/chats/{chat_id}/events"
         try:
             async with self._http().stream(

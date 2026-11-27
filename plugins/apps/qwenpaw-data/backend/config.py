@@ -360,8 +360,16 @@ def context_service_env() -> dict[str, str]:
     Managed keys are never inherited from the Host. Empty fields stay absent
     on the next start; no keys are set or cleared in the Host process.
     """
+    config = load_config()
     return {
-        **_context_env_values(load_config()),
+        **_context_env_values(config),
+        "QWENPAW_DATA_LOCAL_GRAPH_CREDENTIALS": json.dumps(
+            {
+                "user": config.neo4j.user,
+                "password": config.neo4j.password,
+                "database": config.neo4j.database,
+            },
+        ),
         "QWENPAW_DATA_ENV_FILE": str(ENV_FILE_PATH),
         "MODEL_CONFIG_PATH": str(MODELS_JSON_PATH),
     }

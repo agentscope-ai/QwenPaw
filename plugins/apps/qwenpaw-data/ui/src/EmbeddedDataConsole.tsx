@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Same-origin static build of the engine console (the Data-Cloud host-core
- * console frontend), refreshed by scripts/update-data-console.sh. The build uses
+ * Same-origin official qwenpaw-data-console embed bundle, refreshed by scripts/update-data-console.sh. The build uses
  * hash routing, so tab switches navigate the live iframe without reloading
  * it — chat runs keep streaming while other pages are visible.
  */

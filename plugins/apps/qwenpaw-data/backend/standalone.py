@@ -82,7 +82,7 @@ async def dispatch_console_chat(request: Request, gateway, model_resolver):
         if exc.status_code == 404:
             raise HTTPException(
                 503,
-                "Update the Data Engine runtime to 0.3.3 or later",
+                "Install the 0.4.1 Data Engine runtime",
             ) from None
         raise
     if (
@@ -99,7 +99,7 @@ async def dispatch_console_chat(request: Request, gateway, model_resolver):
     ):
         raise HTTPException(
             503,
-            "Update the Data Engine runtime to 0.3.3 or later",
+            "Install the 0.4.1 Data Engine runtime",
         )
     inputs["runtime_models"] = await model_resolver(scope)
     return await gateway.json(

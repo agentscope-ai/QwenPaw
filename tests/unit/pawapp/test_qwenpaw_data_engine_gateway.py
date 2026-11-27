@@ -269,13 +269,19 @@ def test_unready_service_maps_to_503() -> None:
 
 @pytest.mark.asyncio
 async def test_proxy_refuses_engine_without_session_scope_capability():
+    async def workspace_token(user_id):
+        assert user_id == "alice-sales"
+        return "scoped-test-token"
+
     gateway = _gateway_class()(
         SimpleNamespace(is_external=False, base_url="http://engine"),
         "test-token",
+        workspace_token=workspace_token,
     )
     seen = []
 
     async def handle(request):
+        assert request.headers["Authorization"] == "Bearer scoped-test-token"
         seen.append(request.url.path)
         return httpx.Response(200, json={"protocol_version": 1})
 

@@ -6,11 +6,7 @@
 # verifies immutable content before uploading to OSS. Can also be
 # run manually via the Actions tab (with an optional force flag).
 #
-# The full Data console is a reviewed snapshot tracked in this repository.
-# The qwenpaw-data-context console is generated separately, so the upload job
-# checks out public QwenPaw-Data at a pinned ref and runs sync-context-ui.sh
-# before building ui/dist. No QwenPaw-Data-Cloud access is needed. The packer's
-# pack_requires validation fails the run if either console is incomplete.
+# The Data console and DataBridge ship together in the tracked wheel snapshot.
 
 name: QwenPaw Data Plugin Release
 
@@ -26,10 +22,6 @@ on:
         required: false
         type: boolean
         default: false
-      data_ref:
-        description: "QwenPaw-Data ref to vendor the context console from"
-        required: false
-        type: string
 
 # Least-privilege token: this workflow only reads the repo; all uploads
 # go through ossutil with OSS secrets.
@@ -139,15 +131,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Checkout QwenPaw-Data (context console sources)
-        uses: actions/checkout@v4
-        with:
-          repository: agentscope-ai/QwenPaw-Data
-          # Pinned for reproducible vendoring; bump together with the
-          # plugin version, or override per-run via the data_ref input.
-          ref: ${{ github.event.inputs.data_ref || 'v0.3.3' }}
-          path: qwenpaw-data
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -164,16 +147,7 @@ jobs:
         run: |
           python "${PLUGIN_DIR}/scripts/verify-data-console.py" \
             "${PLUGIN_DIR}/ui/public/data-console" \
-            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js" \
-            --canonical-patch "${PLUGIN_DIR}/scripts/data-console/patches/console-embed.patch"
-
-      - name: Vendor the context console
-        run: |
-          # Builds the qwenpaw-data-context frontend from the QwenPaw-Data
-          # checkout, patches it for static hash routing, injects the auth
-          # bridge, and lands the output in ui/public/context-console.
-          QWENPAW_DATA_SOURCE_DIR="${GITHUB_WORKSPACE}/qwenpaw-data" \
-            "${PLUGIN_DIR}/scripts/sync-context-ui.sh"
+            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js"
 
       - name: Build qwenpaw-data plugin frontend
         run: |
@@ -181,8 +155,7 @@ jobs:
           npm --prefix "${PLUGIN_DIR}/ui" run build
           python "${PLUGIN_DIR}/scripts/verify-data-console.py" \
             "${PLUGIN_DIR}/ui/dist/data-console" \
-            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js" \
-            --canonical-patch "${PLUGIN_DIR}/scripts/data-console/patches/console-embed.patch"
+            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js"
           diff -qr \
             "${PLUGIN_DIR}/ui/public/data-console" \
             "${PLUGIN_DIR}/ui/dist/data-console"
@@ -225,14 +198,16 @@ jobs:
             "${PLUGIN_ID}/ui/dist/data-console/paw-bridge.js" \
             "${PLUGIN_ID}/ui/dist/data-console/BUILD_INFO" \
             "${PLUGIN_ID}/ui/dist/data-console/SHA256SUMS" \
-            "${PLUGIN_ID}/ui/dist/data-console/assets/index.js" \
-            "${PLUGIN_ID}/ui/dist/data-console/assets/style.css" \
             "${PLUGIN_ID}/ui/dist/app/logo-mark-v4.png"; do
             if ! grep -qxF "$required" <<< "$names"; then
               echo "ERROR: required file missing from zip: $required" >&2
               exit 1
             fi
           done
+          unzip -q "$zip_path" "${PLUGIN_ID}/ui/dist/data-console/*" -d "$RUNNER_TEMP/packed"
+          python "${PLUGIN_DIR}/scripts/verify-data-console.py" \
+            "$RUNNER_TEMP/packed/${PLUGIN_ID}/ui/dist/data-console" \
+            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js"
           if grep -qE "^${PLUGIN_ID}/ui/dist/data-console/.*\.map$" <<< "$names"; then
             echo "ERROR: Data console source maps must not ship." >&2
             exit 1

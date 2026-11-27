@@ -25,9 +25,8 @@ _ALLOWED_ROUTES = (
     # Subtree: datasource CRUD lives under /api/semantic-config/datasource,
     # while the active-datasource switch is mounted at /api/datasources/active.
     ("/api/datasources", True),
-    # Read-only auth probe used by the embedded Context console; the managed
-    # service runs without QWENPAW_DATA_AUTH_SECRET so it reports auth
-    # disabled.
+    ("/api/datasource-types", False),
+    # Legacy read-only probe; the current unified embed uses /identity.
     ("/api/auth/status", False),
 )
 _FORWARDED_REQUEST_HEADERS = {
@@ -52,16 +51,23 @@ _FORWARDED_RESPONSE_HEADERS = {
 # service mounts some routes at "/", e.g. GET /api/system/model-config/).
 # Segment semantics (allowlist, traversal) remain _validate_path's job.
 _CONTEXT_PATH_RE = re.compile(
-    r"/api/(?:health|auth/status"
+    r"/api/(?:health|auth/status|datasource-types/?"
     r"|(?:v1|system/model-config|semantic-config|datasources)"
     r"(?:/[^/?#\\\x00-\x20]+)*/?)\Z",
 )
 
 
 class ContextGateway:
-    def __init__(self, service: ManagedService, managed_token: str):
+    def __init__(
+        self,
+        service: ManagedService,
+        managed_token: str,
+        *,
+        workspace_token=None,
+    ):
         self._service = service
         self._managed_token = managed_token
+        self._workspace_token = workspace_token
         self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
@@ -82,12 +88,14 @@ class ContextGateway:
         *,
         body: Any = None,
         params: dict[str, Any] | None = None,
+        user_id: str | None = None,
     ) -> Any:
         response = await self._send(
             method,
             path,
             json=body,
             params=params,
+            user_id=user_id,
         )
         try:
             response.raise_for_status()
@@ -103,7 +111,7 @@ class ContextGateway:
         path: str,
         request: Request,
         *,
-        model_binding: str | None = None,
+        user_id: str | None = None,
     ) -> Response:
         upstream_path = self._proxy_upstream_path(path)
         headers = {
@@ -111,8 +119,6 @@ class ContextGateway:
             for key, value in request.headers.items()
             if key.lower() in _FORWARDED_REQUEST_HEADERS
         }
-        if model_binding is not None:
-            headers["x-qwenpaw-model-binding"] = model_binding
         body = await request.body()
         response = await self._send(
             request.method,
@@ -120,6 +126,7 @@ class ContextGateway:
             content=body or None,
             params=list(request.query_params.multi_items()),
             headers=headers,
+            user_id=user_id,
         )
         response_headers = {
             key: value
@@ -176,6 +183,18 @@ class ContextGateway:
             else self._managed_token
         )
         headers = dict(kwargs.pop("headers", {}) or {})
+        user_id = kwargs.pop("user_id", None)
+        if user_id or (
+            self._workspace_token
+            and not self._service.is_external
+            and path != "/api/health"
+        ):
+            if self._workspace_token is None:
+                raise HTTPException(
+                    503,
+                    "Context delegated identity is not configured",
+                )
+            token = await self._workspace_token(user_id)
         if token:
             headers["Authorization"] = f"Bearer {token}"
         try:

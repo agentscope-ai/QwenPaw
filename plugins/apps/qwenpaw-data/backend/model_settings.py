@@ -37,7 +37,9 @@ class ModelSettings(BaseModel):
     revision: int = Field(default=0, ge=0)
     analysis: ModelChoice = Field(default_factory=ModelChoice)
     lightweight: ModelChoice = Field(default_factory=ModelChoice)
-    databridge: ModelChoice = Field(default_factory=ModelChoice)
+    databridge: ModelChoice = Field(
+        default_factory=lambda: ModelChoice(source="local"),
+    )
 
 
 class ModelSettingsService:

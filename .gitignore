@@ -101,6 +101,8 @@ Desktop.ini
 *.py[cod]
 *$py.class
 uv.lock
+# Pin the coordinated Data runtime candidate and its host dependencies.
+!/uv.lock
 venv/
 .venv/
 providers.json
@@ -160,6 +162,10 @@ docs/
 .local-review/
 docs/reviews/
 tmp/
+
+# lavish temp
+.lavish/
+.artifacts/
 
 # Local Harness acceptance reports and raw measurements
 /docs/research/harness-*

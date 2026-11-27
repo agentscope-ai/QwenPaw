@@ -8,23 +8,43 @@ import re
 import sys
 from pathlib import Path
 
-REQUIRED_INFO = {
-    "format_version",
-    "source_project",
-    "source_commit",
-    "source_lock_sha256",
-    "patch_sha256",
-    "bridge_sha256",
-    "gateway_base",
-    "context_console_url",
+INFO_FIELDS = {
+    # Layout used before the snapshot was sourced from a published wheel.
+    "1": {
+        "format_version",
+        "source_project",
+        "source_commit",
+        "source_lock_sha256",
+        "patch_sha256",
+        "bridge_sha256",
+        "gateway_base",
+        "context_console_url",
+    },
+    # Coherent wheel-sourced snapshot: no Cloud checkout or integration patch.
+    "2": {
+        "format_version",
+        "source_project",
+        "package_version",
+        "wheel_filename",
+        "wheel_sha256",
+        "bridge_sha256",
+        "gateway_base",
+        "context_console_url",
+    },
+}
+SOURCE_PROJECTS = {
+    "1": "QwenPaw-Data-Cloud",
+    "2": "qwenpaw-data-console",
+}
+HASH_KEYS = {
+    "1": ("source_lock_sha256", "patch_sha256", "bridge_sha256"),
+    "2": ("wheel_sha256", "bridge_sha256"),
 }
 REQUIRED_FILES = {
     "index.html",
     "paw-bridge.js",
     "BUILD_INFO",
     "SHA256SUMS",
-    "assets/index.js",
-    "assets/style.css",
 }
 INTERNAL_MARKERS = (
     b"alibaba-inc",
@@ -35,6 +55,7 @@ INTERNAL_MARKERS = (
 )
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+WHEEL_RE = re.compile(r"^qwenpaw_data_console-[^/\\]+\.whl$")
 HTML_ASSET_RE = re.compile(r'(?:src|href)=["\']([^"\']+)["\']')
 ROOT_STATIC_RE = re.compile(
     r"(?:"
@@ -79,19 +100,31 @@ def parse_build_info(path: Path) -> dict[str, str]:
         if not key or key in values:
             raise ValidationError(f"invalid BUILD_INFO key: {key!r}")
         values[key] = value
-    if set(values) != REQUIRED_INFO:
-        missing = sorted(REQUIRED_INFO - set(values))
-        extra = sorted(set(values) - REQUIRED_INFO)
+    version = values.get("format_version")
+    if version not in INFO_FIELDS:
+        raise ValidationError(
+            f"unsupported BUILD_INFO format_version: {version!r}",
+        )
+    expected = INFO_FIELDS[version]
+    if set(values) != expected:
+        missing = sorted(expected - set(values))
+        extra = sorted(set(values) - expected)
         raise ValidationError(
             f"invalid BUILD_INFO fields: missing={missing}, extra={extra}",
         )
-    if values["format_version"] != "1":
-        raise ValidationError("unsupported BUILD_INFO format_version")
-    if values["source_project"] != "QwenPaw-Data-Cloud":
+    if values["source_project"] != SOURCE_PROJECTS[version]:
         raise ValidationError("unexpected BUILD_INFO source_project")
-    if not COMMIT_RE.fullmatch(values["source_commit"]):
-        raise ValidationError("source_commit must be a full Git commit")
-    for key in ("source_lock_sha256", "patch_sha256", "bridge_sha256"):
+    if version == "1":
+        if not COMMIT_RE.fullmatch(values["source_commit"]):
+            raise ValidationError("source_commit must be a full Git commit")
+    else:
+        if not values["package_version"]:
+            raise ValidationError("package_version is required")
+        if not WHEEL_RE.fullmatch(values["wheel_filename"]):
+            raise ValidationError(
+                "wheel_filename must be a console wheel name",
+            )
+    for key in HASH_KEYS[version]:
         if not HASH_RE.fullmatch(values[key]):
             raise ValidationError(f"{key} must be a SHA-256 digest")
     if values["gateway_base"] != "/api/qwenpaw-data/engine":
@@ -130,19 +163,8 @@ def write_checksums(root: Path) -> None:
 def validate_provenance(
     files: dict[str, Path],
     canonical_bridge: Path | None,
-    canonical_patch: Path | None,
 ) -> None:
     info = parse_build_info(files["BUILD_INFO"])
-    if canonical_patch is not None:
-        if not canonical_patch.is_file():
-            raise ValidationError(
-                f"canonical patch not found: {canonical_patch}",
-            )
-        if sha256(canonical_patch) != info["patch_sha256"]:
-            raise ValidationError(
-                "BUILD_INFO does not match the canonical patch",
-            )
-
     checksums = parse_checksums(files["SHA256SUMS"])
     expected_files = set(files) - {"SHA256SUMS"}
     if set(checksums) != expected_files:
@@ -173,6 +195,14 @@ def validate_provenance(
 
 def validate_index_assets(root: Path, files: dict[str, Path]) -> None:
     index = files["index.html"].read_text(encoding="utf-8")
+    if re.search(
+        r'<script src="(?:/|\./)console-config\.js"></script>',
+        index,
+    ):
+        raise ValidationError(
+            "embed snapshot must not load console-config.js; paw-bridge.js "
+            "supplies runtime configuration",
+        )
     bridge_position = index.find('<script src="./paw-bridge.js"></script>')
     module_position = index.find('<script type="module"')
     if (
@@ -226,7 +256,6 @@ def validate_file_contents(files: dict[str, Path]) -> None:
 def validate(
     root: Path,
     canonical_bridge: Path | None,
-    canonical_patch: Path | None = None,
 ) -> None:
     if not root.is_dir():
         raise ValidationError(f"snapshot directory not found: {root}")
@@ -235,7 +264,7 @@ def validate(
     if missing:
         raise ValidationError(f"required files are missing: {missing}")
 
-    validate_provenance(files, canonical_bridge, canonical_patch)
+    validate_provenance(files, canonical_bridge)
     validate_index_assets(root, files)
     validate_file_contents(files)
 
@@ -246,13 +275,12 @@ def main() -> int:
     )
     parser.add_argument("snapshot", type=Path)
     parser.add_argument("--canonical-bridge", type=Path)
-    parser.add_argument("--canonical-patch", type=Path)
     parser.add_argument("--write-checksums", action="store_true")
     args = parser.parse_args()
     try:
         if args.write_checksums:
             write_checksums(args.snapshot)
-        validate(args.snapshot, args.canonical_bridge, args.canonical_patch)
+        validate(args.snapshot, args.canonical_bridge)
     except (OSError, UnicodeError, ValidationError) as exc:
         print(f"Data console verification failed: {exc}", file=sys.stderr)
         return 1
