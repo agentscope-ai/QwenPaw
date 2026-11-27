@@ -1,6 +1,7 @@
 import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
+import { isPlatformWebApp } from "../features/platform-web/client";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -158,6 +159,7 @@ export async function request<T = unknown>(
 
       if (!response.ok) {
         if (response.status === 401) {
+          if (isPlatformWebApp) throw new Error("Not authenticated");
           clearAuthToken();
           if (!isLoginPath(window.location.pathname)) {
             window.location.href = getLoginHref(window.location);

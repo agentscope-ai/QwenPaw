@@ -134,16 +134,28 @@
 }
 
 .titleBlock {
+  flex: 1 1 auto;
   display: grid;
-  gap: 2px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
   min-width: 0;
   padding: 8px 0;
 }
 .titleRow {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
   min-width: 0;
   gap: 3px;
+}
+.actions {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .titleEdit,
 .switchButton,
@@ -197,6 +209,7 @@
 }
 
 .titleEdit {
+  flex: 0 1 auto;
   min-width: 0;
   margin-left: -6px;
 }
@@ -209,6 +222,8 @@
   opacity: 1;
 }
 .activity {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
   gap: 5px;
   align-items: center;
@@ -216,6 +231,44 @@
   line-height: 16px;
   color: var(--app-text-tertiary);
   white-space: nowrap;
+  overflow: hidden;
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  > svg {
+    flex-shrink: 0;
+  }
+}
+@media (max-width: 768px) {
+  .titleEdit {
+    flex: 1 1 auto;
+  }
+  .chatName:not(.chatNameCoding) {
+    max-width: 100%;
+  }
+  .switchButton {
+    flex-shrink: 0;
+  }
+  .titleBlock[data-editing="true"] {
+    .titleRow {
+      grid-column: 1 / -1;
+    }
+    .renameForm {
+      width: 100%;
+    }
+    .actions {
+      grid-row: 2;
+    }
+    .activity {
+      grid-column: 1;
+    }
+  }
+}
+@media (max-width: 480px) {
+  .editIcon {
+    display: none;
+  }
 }
 .renameForm {
   display: flex;

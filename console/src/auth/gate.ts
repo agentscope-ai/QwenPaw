@@ -1,5 +1,6 @@
 import { authApi, type AuthStatusResponse } from "../api/modules/auth";
 import { clearAuthToken, getApiToken, getApiUrl } from "../api/config";
+import { isPlatformWebApp } from "../features/platform-web/client";
 
 export type AuthGateState = "ok" | "auth-required";
 export type BackendMode = "standard" | "hub";
@@ -24,6 +25,7 @@ export async function resolveBackendMode(): Promise<BackendMode> {
 export async function resolveAuthGate(
   knownStatus?: AuthStatusResponse,
 ): Promise<AuthGateState> {
+  if (isPlatformWebApp) return "ok";
   const status = knownStatus ?? (await authApi.getStatus());
   if (!status.enabled) {
     return "ok";

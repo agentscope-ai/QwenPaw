@@ -29,9 +29,9 @@ export default function BottomSheet({
     <Drawer.Root
       open={open}
       onOpenChange={onOpenChange}
-      snapPoints={tall ? [0.5, 0.9] : undefined}
-      activeSnapPoint={tall ? snap : undefined}
-      setActiveSnapPoint={setSnap}
+      snapPoints={tall ? [0.5, 0.9] : [1]}
+      activeSnapPoint={tall ? snap : 1}
+      setActiveSnapPoint={tall ? setSnap : undefined}
       fixed
       repositionInputs
       noBodyStyles
