@@ -139,12 +139,11 @@ class OpenVikingClient:
 
     async def commit(self, session_id: str) -> dict[str, Any]:
         """Archive the live session and enqueue memory extraction."""
-        result = await self._request(
+        return await self._request(
             "POST",
             f"/api/v1/sessions/{session_id}/commit",
             json={"keep_recent_count": 0},
         )
-        return result
 
     async def search_context(
         self,
@@ -155,7 +154,7 @@ class OpenVikingClient:
         token_budget: int,
     ) -> dict[str, Any]:
         """Return OpenViking's injection-ready, budgeted memory context."""
-        result = await self._request(
+        return await self._request(
             "POST",
             "/api/v1/search/search",
             json={
@@ -168,7 +167,6 @@ class OpenVikingClient:
                 "max_tokens": token_budget,
             },
         )
-        return result
 
     async def search_memories(
         self,
@@ -203,7 +201,7 @@ class OpenVikingClient:
         allowed_statuses = allowed_statuses or set()
         try:
             response = await self._http.request(method, path, json=json)
-        except (httpx.TimeoutException, httpx.RequestError) as exc:
+        except httpx.RequestError as exc:
             raise OpenVikingServiceError(
                 "OpenViking request failed: "
                 + safe_openviking_exception_summary(
