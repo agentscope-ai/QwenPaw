@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -14,6 +15,79 @@ from plugins.bundle.chrome import extension_setup
 # test_chrome_host_launcher.py
 
 # pylint: disable=protected-access,unused-argument
+
+
+@pytest.mark.parametrize(
+    ("base_path", "expected_path"),
+    [("/app", "/app"), ("/my console", "/my%20console")],
+)
+def test_bridge_endpoint_includes_runtime_base_path(
+    monkeypatch,
+    base_path: str,
+    expected_path: str,
+) -> None:
+    monkeypatch.setattr(
+        extension_setup,
+        "read_last_api",
+        lambda: ("127.0.0.1", 8088),
+    )
+    monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
+
+    assert extension_setup.require_bridge_endpoint() == (
+        f"ws://127.0.0.1:8088{expected_path}/api/ws/chrome"
+    )
+
+
+@pytest.fixture
+def legacy_extension_setup(monkeypatch: pytest.MonkeyPatch):
+    """Load the real installer with the post1 core's missing prefix module."""
+    monkeypatch.setitem(sys.modules, "qwenpaw.app.base_path", None)
+    spec = importlib.util.spec_from_file_location(
+        "plugins.bundle.chrome._legacy_extension_setup",
+        extension_setup.__file__,
+    )
+    assert spec is not None and spec.loader is not None
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    return installer
+
+
+@pytest.mark.parametrize("base_path", [None, "", " / "])
+def test_legacy_core_keeps_root_bridge_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_extension_setup,
+    base_path: str | None,
+) -> None:
+    if base_path is None:
+        monkeypatch.delenv("QWENPAW_BASE_PATH", raising=False)
+    else:
+        monkeypatch.setenv("QWENPAW_BASE_PATH", base_path)
+    monkeypatch.setattr(legacy_extension_setup, "read_last_api", lambda: None)
+    assert legacy_extension_setup.require_bridge_endpoint() == (
+        "ws://127.0.0.1:8088/api/ws/chrome"
+    )
+
+
+def test_legacy_core_rejects_prefix_before_installing(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_extension_setup,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/console")
+    with pytest.raises(
+        legacy_extension_setup.BridgeEndpointUnavailable,
+        match="Upgrade QwenPaw",
+    ):
+        legacy_extension_setup.setup_extension_files(home=tmp_path)
+    assert not (tmp_path / ".qwenpaw").exists()
+
+
+def test_prefix_capable_core_rejects_invalid_bridge_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/console?query")
+    with pytest.raises(ValueError, match="without query or fragment"):
+        extension_setup.require_bridge_endpoint()
 
 
 SETUP_SOURCE = Path("plugins/bundle/chrome/extension_setup.py")

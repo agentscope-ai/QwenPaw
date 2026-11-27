@@ -13,6 +13,7 @@ Two tiers:
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
@@ -145,6 +146,36 @@ def test_cli_chats_list(app_server) -> None:
     """qwenpaw chats list reads sessions over HTTP."""
     proc = _run_cli("chats", "list", "--base-url", app_server.base_url)
     assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_fresh_cli_uses_running_mount_after_env_save(app_server, monkeypatch):
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", str(app_server.working_dir))
+    monkeypatch.setenv(
+        "QWENPAW_SECRET_DIR",
+        str(app_server.working_dir.parent / "working.secret"),
+    )
+    response = app_server.api_request(
+        "PATCH",
+        "/api/envs",
+        json={"QWENPAW_BASE_PATH": "/next"},
+    )
+    assert response.status_code == 200, app_server.logs_tail()
+    try:
+        saved = {"key": "QWENPAW_BASE_PATH", "value": "/next"}
+        assert saved in response.json()
+        inactive = app_server.api_request("GET", "/next/api/chats")
+        assert inactive.status_code == 404
+        proc = _run_cli("chats", "list")
+        assert proc.returncode == 0, proc.stderr
+        assert isinstance(json.loads(proc.stdout), list)
+    finally:
+        cleanup = app_server.api_request(
+            "DELETE",
+            "/api/envs/QWENPAW_BASE_PATH",
+        )
+        assert cleanup.status_code == 200, app_server.logs_tail()
 
 
 @pytest.mark.integration

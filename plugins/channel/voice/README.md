@@ -13,11 +13,18 @@ aiohttp and Twilio. No SDK or tunnel starts on import or disabled start.
 
 ## Public ingress dependency
 
+Before enabling `QWENPAW_BASE_PATH`, update any existing Voice installation
+from `0.1.1` or earlier to `0.1.2` or later and use a QwenPaw core that supports
+this setting. Upgrading the core alone does not replace an installed Voice
+plugin. Older Voice releases do not include the prefix in the public callback
+URLs.
+
 The paths remain `/voice/incoming`, `/voice/ws` and `/voice/status-callback`.
 The child registers its real listener with Core and requires the frozen A3
 `forwarding` binding in the register ACK: route_query_key, route_selector,
-host_port, three paths and bridge_token. Missing binding raises
-`VOICE_HOST_FORWARDING_UNAVAILABLE` **before tunnel creation or webhook apply**.
+host_port, three paths, bridge_token and the runtime base_path (omitted at the
+root). Missing binding raises `VOICE_HOST_FORWARDING_UNAVAILABLE` **before
+tunnel creation or webhook apply**.
 A1 endpoint ACK alone is insufficient. The tunnel targets the supplied host API
 port, never the child listener or a remembered/default API port.
 

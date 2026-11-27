@@ -130,13 +130,14 @@ class IngressBridge:
                 return url
 
             binding = ChannelIngressBinding(
-                wire.host_port,
-                wire.paths,
-                spec.public_base_url,
-                wire.route_query_key,
-                wire.route_selector,
-                verify,
-                current,
+                host_port=wire.host_port,
+                paths=wire.paths,
+                public_base_url=spec.public_base_url,
+                _query_key=wire.route_query_key,
+                _selector=wire.route_selector,
+                _verify=verify,
+                _guard=current,
+                base_path=wire.base_path,
             )
             self.binding = binding
             return binding

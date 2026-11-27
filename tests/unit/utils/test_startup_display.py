@@ -8,7 +8,10 @@ from unittest.mock import patch
 from rich.console import Console
 from rich.file_proxy import FileProxy
 
-from qwenpaw.utils.startup_display import AgentStartupDisplay
+from qwenpaw.utils.startup_display import (
+    AgentStartupDisplay,
+    _build_startup_panel,
+)
 
 
 def test_startup_display_renders_progress_on_terminal() -> None:
@@ -36,6 +39,22 @@ def test_startup_display_renders_progress_on_terminal() -> None:
         assert "http://127.0.0.1:8088" in rendered
     finally:
         display.stop()
+
+
+def test_startup_display_uses_active_base_path(monkeypatch) -> None:
+    monkeypatch.setattr("qwenpaw.app.base_path._server_base_path", "/app")
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/next")
+    output = StringIO()
+    Console(file=output, color_system=None, width=100).print(
+        _build_startup_panel(
+            ("127.0.0.1", 8088),
+            None,
+            status="Ready",
+            ready=True,
+        ),
+    )
+
+    assert "http://127.0.0.1:8088/app" in output.getvalue()
 
 
 def test_startup_display_is_silent_without_tty() -> None:

@@ -44,6 +44,32 @@ def test_managed_env_set_uses_runtime_api(monkeypatch):
     assert requests[0].method == "PATCH"
     assert requests[0].url.host == "127.0.0.1"
     assert requests[0].url.port == 9001
+    assert requests[0].url.path == "/api/envs"
+
+
+@pytest.mark.usefixtures("managed")
+def test_managed_env_includes_runtime_base_path(monkeypatch):
+    requests = []
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(
+        env_cmd,
+        "api_client",
+        lambda url: httpx.Client(
+            base_url=url,
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+
+    result = CliRunner().invoke(env_cmd.env_group, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert len(requests) == 1
+    assert requests[0].url.path == "/app/api/envs"
 
 
 @pytest.mark.usefixtures("managed")

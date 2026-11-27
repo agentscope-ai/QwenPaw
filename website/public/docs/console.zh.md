@@ -32,51 +32,65 @@
 
 ## 反向代理子路径部署
 
-如果需要通过 `https://example.com/qwenpaw/` 访问控制台，在
-`console/.env.production.local` 中设置构建变量：
-
-```dotenv
-VITE_CONSOLE_BASENAME=/qwenpaw
-VITE_API_BASE_URL=/qwenpaw
-```
-
-从仓库根目录执行：
+如果需要通过 `https://example.com/qwenpaw/` 访问控制台和 API，在启动
+QwenPaw 前设置运行时路径前缀：
 
 ```bash
-cd console
-npm install
-npm run build
+QWENPAW_BASE_PATH=/qwenpaw qwenpaw app
 ```
 
-`VITE_CONSOLE_BASENAME` 同时设置路由前缀和静态资源 URL 前缀，例如
-`/qwenpaw/assets/`。首尾斜杠会统一处理，也支持 `/apps/qwenpaw` 等多级路径。
-未设置或留空时，保留现有根路径和 `/console` 路由，资源仍从 `/assets/` 加载。
-显式设为 `/` 时，路由仅以站点根路径为基准。
+该值必须是以 `/` 开头的 URL 路径，不能包含查询参数、片段或控制字符，也支持
+`/apps/qwenpaw` 等多级路径。请填写解码后的路径段，不接受 `/apps/%71wenpaw`
+等百分号编码形式。名称中间可以有空格（如 `/my console/`），但末尾斜杠前有空格
+（如 `/demo /`）会导致启动失败。未设置或设为 `/` 时，保留现有根路径和
+`/console` 行为。同一运行时配置覆盖 SPA 路由、静态资源、API 和 WebSocket，
+无需重新构建前端。在控制台的环境变量设置中保存新值后，需重启 QwenPaw 才会生效。
 
-`VITE_API_BASE_URL` 独立设置 `/api` 之前的后端地址。如果代理通过
-`/qwenpaw/api/` 提供 API，设为 `/qwenpaw`；如果 API 仍位于 `/api/`，留空即可，
-也可以设置为后端的外部访问地址。这些变量会在构建时写入产物，后续仅修改服务端
-环境变量不会生效，需要重新构建前端。
-
-在运行 `qwenpaw app` 的环境中，将 `QWENPAW_CONSOLE_STATIC_DIR` 设置为生成的
-`console/dist` 目录的绝对路径。pip/uv 安装也可以通过此方式使用自定义构建，无需
-替换安装包内的文件。Docker 部署时，将自定义构建放入镜像或挂载到容器，并将
-`QWENPAW_CONSOLE_STATIC_DIR` 设置为容器内的对应目录。
-
-代理转发所有请求时，需要去除 `/qwenpaw` 前缀，包括 SPA 深层路由、静态资源、
-API 和 WebSocket 请求。例如 Caddy 配置：
+代理转发请求时必须保留此前缀，不要使用会去除路径前缀的代理指令。例如
+Caddy 配置：
 
 ```caddyfile
 example.com {
     redir /qwenpaw /qwenpaw/ 308
-    handle_path /qwenpaw/* {
+    handle /qwenpaw/* {
         reverse_proxy 127.0.0.1:8088
     }
 }
 ```
 
-随后访问 `https://example.com/qwenpaw/`。如果转发时保留此前缀，资源请求会进入
-后端的 SPA 回退路由，返回 HTML，导致 JavaScript 模块加载失败。
+随后访问 `https://example.com/qwenpaw/`。QwenPaw 会把不带末尾斜杠的前缀
+重定向到此地址；配置前缀之外的请求返回 404。
+
+`qwenpaw chats list` 等本机 CLI 命令会使用独立服务为当前主机和端口记录的挂载路径。
+保存新前缀后，即使新开 CLI 也仍连接旧路径，直到服务重启。如果连接其他地址，或者
+旧版服务没有记录挂载路径，请将 `QWENPAW_BASE_PATH` 设为目标服务的前缀。显式传入的
+`--base-url` 优先，例如 `http://127.0.0.1:8088/qwenpaw`。单独设置 Chrome Bridge 时，
+仍需使用与服务相同的 `QWENPAW_BASE_PATH`。
+
+已有部署切换到非根路径前，请在服务仍位于 `/` 时将已安装的 Chrome 和 Voice
+插件更新到 `0.1.2` 或更高版本，再设置前缀并重启 QwenPaw。如果使用 Chrome Bridge，
+请重新运行其设置，让本机桥接程序记录新的 WebSocket 地址。
+
+如果部署前缀本身以 `/api` 结尾，`QWENPAW_BASE_PATH` 仍填写原前缀。
+对 `qwenpaw cron list` 这类命令显式指定 API 地址时，要保留两段：例如部署在
+`/tenant/api` 时，使用 `--base-url http://127.0.0.1:8088/tenant/api/api`。
+
+请一次配置完整的外部前缀，不要将它拆分到外层 ASGI 挂载（或 Uvicorn
+`--root-path`）和 `QWENPAW_BASE_PATH` 两处。桌面应用的私有后端始终从 `/`
+启动，不会改写已保存的 Web 部署设置。
+
+### 构建时自定义控制台
+
+单独构建控制台时，仍可在 `console/.env.production.local` 中使用
+`VITE_CONSOLE_BASENAME` 和 `VITE_API_BASE_URL`，分别设置路由/资源前缀和
+`/api` 之前的后端地址。执行 `cd console && npm install && npm run build`，
+然后将 `QWENPAW_CONSOLE_STATIC_DIR` 设置为 `console/dist` 的绝对路径。
+
+修改这两个构建时变量后需要重新构建前端。例如，若两者都设为 `/qwenpaw`，而后端仍在 `/` 提供服务，请保持
+`QWENPAW_BASE_PATH` 未设置。将上方 Caddy 示例中的 `handle /qwenpaw/*` 改为
+`handle_path /qwenpaw/*`，代理就会剥离前缀：外部请求 `/qwenpaw/api/version`
+到达后端时为 `/api/version`。使用运行时前缀则保留 `handle`，后端收到的仍是
+`/qwenpaw/api/version`。不要混用两种模式。
 
 ---
 

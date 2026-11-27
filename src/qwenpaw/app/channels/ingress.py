@@ -7,11 +7,12 @@ import asyncio
 from dataclasses import dataclass, field
 import math
 import secrets
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import aiohttp
 from multidict import CIMultiDict
 from starlette.responses import Response
+from starlette.routing import get_route_path
 from starlette.websockets import WebSocketState
 from yarl import URL
 
@@ -169,6 +170,7 @@ class ChannelIngressService:
         routes=None,
         trusted_proxy=None,
         limits=None,
+        base_path="",
     ):
         if host_port is not None and (
             type(host_port) is not int or not 1 <= host_port <= 65535
@@ -176,6 +178,7 @@ class ChannelIngressService:
             raise ValueError("HOST_INGRESS_PORT_INVALID")
         self.registry = registry
         self.host_port = host_port
+        self.base_path = base_path
         self.limits = limits or IngressLimits()
         self.trusted_proxy = trusted_proxy or (lambda request: False)
         self.routes = {}
@@ -208,6 +211,7 @@ class ChannelIngressService:
                         "host_port": 1,
                         "paths": [path],
                         "bridge_token": "validation",
+                        "base_path": self.base_path,
                     },
                 )
             if not values or len(set(values)) != len(values):
@@ -337,11 +341,12 @@ class ChannelIngressService:
                 reference,
                 routes,
                 HostForwardingBinding(
-                    "_qp_endpoint",
-                    secrets.token_urlsafe(24),
-                    self.host_port,
-                    paths,
-                    secrets.token_urlsafe(32),
+                    route_query_key="_qp_endpoint",
+                    route_selector=secrets.token_urlsafe(24),
+                    host_port=self.host_port,
+                    paths=paths,
+                    bridge_token=secrets.token_urlsafe(32),
+                    base_path=self.base_path,
                 ),
             )
             self._bindings[service] = binding
@@ -429,15 +434,13 @@ class ChannelIngressService:
             raise _Unavailable(400) from None
         if len(selectors) > 1 or selectors == [""]:
             raise _Unavailable(400)
-        if (
-            request.scope["path"].startswith("/channel-callbacks/")
-            and not selectors
-        ):
+        route_path = get_route_path(request.scope)
+        if route_path.startswith("/channel-callbacks/") and not selectors:
             raise _Unavailable(400)
         candidates = [
             binding
             for binding in self._bindings.values()
-            if (method, request.scope["path"]) in binding.routes
+            if (method, route_path) in binding.routes
             and (not selectors or binding.wire.route_selector == selectors[0])
             and self._current(binding, binding.reference)
         ]
@@ -574,13 +577,22 @@ class ChannelIngressService:
         host = reference.loopback_host
         if ":" in host:
             host = "[" + host + "]"
+        target = self._raw_target(request)
+        if request.scope.get("root_path"):
+            # The worker owns the application route, not its public mount.
+            _, separator, query = target.partition("?")
+            target = (
+                quote(get_route_path(request.scope), safe="/")
+                + separator
+                + query
+            )
         return URL(
             ("ws" if websocket else "http")
             + "://"
             + host
             + ":"
             + str(reference.endpoint.port)
-            + self._raw_target(request),
+            + target,
             encoded=True,
         )
 

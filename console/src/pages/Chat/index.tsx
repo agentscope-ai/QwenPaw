@@ -87,6 +87,7 @@ import { ApiError } from "../../api/request";
 import { agentApi } from "../../api/modules/agent";
 import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
+import { getConsoleAssetUrl } from "../../utils/runtimeBasePath";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { SkillSpec } from "../../api/types";
@@ -5208,7 +5209,7 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: extNick ?? "QwenPaw",
-        avatar: extAvatar ?? `${import.meta.env.BASE_URL}qwenpaw.png`,
+        avatar: extAvatar ?? getConsoleAssetUrl("qwenpaw.png"),
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
           ? { description: extDescription }

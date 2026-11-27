@@ -37,6 +37,7 @@ from ..config.config import (
     load_agent_config,
 )
 from ..config.utils import (
+    LastApiEndpoint,
     _normalize_working_dir_bound_paths,
     _read_config_data,
     get_config_path,
@@ -54,6 +55,7 @@ from ..constant import (
 from ..utils.logging import LOG_FILE_BASENAME
 from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
+from .http import deployment_url
 
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
 APP_LOG_BASENAME = LOG_FILE_BASENAME
@@ -1261,7 +1263,8 @@ def api_target_mismatch_note(cfg: Config, cli_base: str) -> str | None:
         return None
     eff_host = host or "127.0.0.1"
     eff_port = 8088 if port is None else port
-    expected = f"http://{eff_host}:{eff_port}".rstrip("/")
+    record = LastApiEndpoint(eff_host, eff_port, cfg.last_api.base_path)
+    expected = deployment_url(eff_host, eff_port, record)
     got = cli_base.rstrip("/")
     if got == expected:
         return None

@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Mapping
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from .errors import SDKError
 
@@ -55,6 +55,7 @@ class ChannelIngressBinding:
         compare=False,
     )
     _guard: Callable[[], None] = field(repr=False, compare=False)
+    base_path: str = ""
 
     def url(self, path: str) -> str:
         """Build a declared callback URL including this workspace's selector."""
@@ -63,6 +64,7 @@ class ChannelIngressBinding:
             raise SDKError("A declared path and public origin are required")
         return (
             self.public_base_url.rstrip("/")
+            + quote(self.base_path, safe="/")
             + path
             + "?"
             + urlencode({self._query_key: self._selector})

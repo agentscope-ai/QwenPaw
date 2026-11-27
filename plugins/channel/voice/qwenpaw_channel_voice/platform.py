@@ -931,9 +931,24 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             "bridge_token",
         }
         paths = {"/voice/incoming", "/voice/ws", "/voice/status-callback"}
+        base_path = (
+            value.get("base_path", "") if isinstance(value, dict) else ""
+        )
         if (
             not isinstance(value, dict)
-            or set(value) != fields
+            or set(value) not in (fields, fields | {"base_path"})
+            or not isinstance(base_path, str)
+            or base_path
+            and (
+                not base_path.startswith("/")
+                or base_path.startswith("//")
+                or base_path.endswith("/")
+                or any(char in base_path for char in "?#\\%")
+                or any(
+                    segment in {"", ".", ".."}
+                    for segment in base_path.split("/")[1:]
+                )
+            )
             or value.get("route_query_key") != "_qp_endpoint"
             or type(value.get("host_port")) is not int
             or not 1 <= value["host_port"] <= 65535
@@ -957,6 +972,7 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             raise VoicePlatformError("VOICE_HOST_FORWARDING_UNAVAILABLE")
         return (
             base
+            + quote(binding.get("base_path", ""), safe="/")
             + path
             + "?"
             + binding["route_query_key"]
@@ -987,9 +1003,15 @@ class VoicePlatform:  # pylint: disable=too-many-instance-attributes
             or parsed.fragment
         ):
             return None
-        raw_target = parsed.path + ("?" + parsed.query if parsed.query else "")
+        prefix = quote(binding.get("base_path", ""), safe="/")
+        route_path = parsed.path
+        if prefix:
+            if not route_path.startswith(prefix + "/"):
+                return None
+            route_path = route_path[len(prefix) :]
+        raw_target = route_path + ("?" + parsed.query if parsed.query else "")
         if (
-            parsed.path not in binding["paths"]
+            route_path not in binding["paths"]
             or raw_target != request.raw_path
         ):
             return None

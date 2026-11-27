@@ -1,4 +1,5 @@
 import { normalizeConsoleBasename } from "./consoleBasename";
+import { getRuntimeBasePath } from "./runtimeBasePath";
 import { consoleHost } from "../features/platform-web/context";
 
 interface LocationLike {
@@ -7,9 +8,13 @@ interface LocationLike {
   hash?: string;
 }
 
-const CONSOLE_BASENAME = normalizeConsoleBasename(
-  consoleHost?.basename ?? import.meta.env.VITE_CONSOLE_BASENAME,
-);
+const runtimeBase = consoleHost ? "" : getRuntimeBasePath();
+const runtimeBaseSegments = runtimeBase.split("/");
+const CONSOLE_BASENAME = consoleHost
+  ? normalizeConsoleBasename(consoleHost.basename)
+  : (runtimeBase &&
+      new URL(runtimeBase + "/", window.location.href).pathname.slice(0, -1)) ||
+    normalizeConsoleBasename(import.meta.env.VITE_CONSOLE_BASENAME);
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 
 function historyStateRecord(state: unknown): Record<string, unknown> {
@@ -22,11 +27,30 @@ function pathnameOnly(path: string): string {
 }
 
 export function getRouterBasename(pathname: string): string | undefined {
-  return CONSOLE_BASENAME &&
+  if (
+    CONSOLE_BASENAME &&
     (pathname === CONSOLE_BASENAME ||
       pathname.startsWith(`${CONSOLE_BASENAME}/`))
-    ? CONSOLE_BASENAME
-    : undefined;
+  ) {
+    return CONSOLE_BASENAME;
+  }
+  if (!runtimeBase) return undefined;
+
+  const segments = pathname.split("/", runtimeBaseSegments.length);
+  try {
+    if (
+      segments.length === runtimeBaseSegments.length &&
+      segments.every(
+        (segment, index) =>
+          decodeURIComponent(segment) === runtimeBaseSegments[index],
+      )
+    ) {
+      return segments.join("/");
+    }
+  } catch {
+    // A malformed escape is not an equivalent mount path.
+  }
+  return undefined;
 }
 
 export function stripRouterBasename(pathname: string): string {

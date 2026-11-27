@@ -30,6 +30,25 @@ def test_hub_dispatches_to_control_plane() -> None:
     )
 
 
+def test_hub_keeps_control_plane_endpoint_address_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/review-mount")
+    with (
+        patch("qwenpaw.cli.hub_cmd.configure_server_process") as configure,
+        patch("qwenpaw.cli.hub_cmd.write_last_api") as write_endpoint,
+        patch("qwenpaw.hub.control_app.run_hub_app"),
+    ):
+        result = CliRunner().invoke(
+            hub_cmd,
+            ["--host", "127.0.0.1", "--port", "9090"],
+        )
+
+    assert result.exit_code == 0
+    assert configure.call_args.kwargs["base_path"] == ""
+    write_endpoint.assert_called_once_with("127.0.0.1", 9090, "")
+
+
 def test_hub_passes_config_path(tmp_path) -> None:
     config_path = tmp_path / "hub.yaml"
     config_path.write_text("version: 1", encoding="utf-8")

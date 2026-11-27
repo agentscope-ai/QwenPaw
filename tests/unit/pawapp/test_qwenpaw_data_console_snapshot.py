@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from urllib.parse import urljoin
 
 import pytest
 
@@ -55,8 +56,7 @@ def _snapshot(tmp_path: Path):
                 f"patch_sha256={'c' * 64}",
                 f"bridge_sha256={verifier.sha256(root / 'paw-bridge.js')}",
                 "gateway_base=/api/qwenpaw-data/engine",
-                "context_console_url=/api/frontend_plugin/qwenpaw-data/files/"
-                "ui/dist/context-console/index.html#",
+                "context_console_url=../context-console/index.html#",
             ),
         )
         + "\n",
@@ -70,6 +70,27 @@ def test_checked_in_data_console_snapshot_is_valid() -> None:
     verifier = _load_verifier()
 
     verifier.validate(SNAPSHOT_DIR, BRIDGE_FILE, PATCH_FILE)
+
+
+@pytest.mark.parametrize("prefix", ["", "/app"])
+def test_context_console_entry_preserves_runtime_base_path(
+    prefix: str,
+) -> None:
+    info = _load_verifier().parse_build_info(SNAPSHOT_DIR / "BUILD_INFO")
+    data_console = (
+        f"https://example.test{prefix}/api/frontend_plugin/qwenpaw-data/"
+        "files/ui/dist/data-console/index.html"
+    )
+
+    target = urljoin(
+        data_console,
+        info["context_console_url"] + "/data-source",
+    )
+
+    assert target == (
+        f"https://example.test{prefix}/api/frontend_plugin/qwenpaw-data/"
+        "files/ui/dist/context-console/index.html#/data-source"
+    )
 
 
 @pytest.mark.parametrize(

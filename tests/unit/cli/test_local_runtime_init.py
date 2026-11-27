@@ -82,7 +82,12 @@ def test_app_initializes_only_local_hub_runtime(monkeypatch, provisioner):
         "_warn_if_auth_off_non_loopback_bind",
         Mock(),
     )
-    monkeypatch.setattr(app_module.uvicorn, "run", Mock())
+    from qwenpaw.app.api_server import ApiServer
+
+    def run(server):
+        server.started = True
+
+    monkeypatch.setattr(ApiServer, "run", run)
     result = CliRunner().invoke(app_module.app_cmd, [])
     assert result.exit_code == 0, result.output
     assert initialize.call_count == (1 if provisioner == "local" else 0)

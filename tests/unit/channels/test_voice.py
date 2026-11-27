@@ -3,7 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 import aiohttp
 from multidict import MultiDict
@@ -93,16 +93,21 @@ async def form_request(
     suffix="?x=one%2Ftwo&x=three&_qp_endpoint=voice%2Fprivate%3Ascope",
     headers=None,
     signed_url=None,
+    public_path=None,
 ):
-    original = "https://voice.example" + path + suffix
+    original = (
+        "https://voice.example" + quote(public_path or path, safe="/") + suffix
+    )
     data = MultiDict(
-        fields
-        if fields is not None
-        else [
-            ("CallSid", "CA-one"),
-            ("From", "+15550001"),
-            ("To", "+15550002"),
-        ],
+        (
+            fields
+            if fields is not None
+            else [
+                ("CallSid", "CA-one"),
+                ("From", "+15550001"),
+                ("To", "+15550002"),
+            ]
+        ),
     )
     signed = RequestValidator(AUTH).compute_signature(
         signed_url or original,
@@ -130,10 +135,12 @@ async def incoming(
     call="CA-one",
     caller="+15550001",
     callee="+15550002",
+    public_path=None,
 ):
     status, text = await form_request(
         r,
         fields=[("CallSid", call), ("From", caller), ("To", callee)],
+        public_path=public_path,
     )
     assert status == 200, text
     relay = ElementTree.fromstring(text).find("./Connect/ConversationRelay")
@@ -148,10 +155,19 @@ async def connect(
     caller="+15550001",
     callee="+15550002",
     setup=True,
+    public_path=None,
 ):
-    relay = await incoming(r, call=call, caller=caller, callee=callee)
+    relay = await incoming(
+        r,
+        call=call,
+        caller=caller,
+        callee=callee,
+        public_path=public_path,
+    )
     parsed = urlsplit(relay.attrib["url"])
-    target = parsed.path + "?" + parsed.query
+    prefix = quote(r.binding.get("base_path", ""), safe="/")
+    assert parsed.path.startswith(prefix + "/voice/ws")
+    target = parsed.path[len(prefix) :] + "?" + parsed.query
     ws = await r.session.ws_connect(
         URL(
             "http://127.0.0.1:" + str(r.platform.listen_port) + target,
@@ -193,8 +209,9 @@ async def send(r, event, parts, *, source="event", delivery="delivery-one"):
 @pytest_asyncio.fixture
 async def voice(monkeypatch, tmp_path):
     @asynccontextmanager
-    async def create():
+    async def create(binding=None):
         manager, tunnel = Manager(), Tunnel()
+        binding = dict(binding or BINDING)
         platform = VoicePlatform(
             tunnel_factory=lambda: tunnel,
             twilio_manager_factory=lambda *args: manager,
@@ -208,7 +225,7 @@ async def voice(monkeypatch, tmp_path):
         async def forwarding(name, params):
             result = await call(name, params)
             if name == "ingress.endpoint.register":
-                result["forwarding"] = dict(BINDING)
+                result["forwarding"] = dict(binding)
             return result
 
         peer.call = forwarding
@@ -220,6 +237,7 @@ async def voice(monkeypatch, tmp_path):
             tunnel=tunnel,
             peer=peer,
             session=session,
+            binding=binding,
         )
         try:
             await driver.start(
@@ -262,6 +280,37 @@ async def test_signed_full_original_query_twiml_and_committed_cleanup(voice):
         assert r.manager.closed == 1 and r.tunnel.stops == 1
         assert r.platform.cleanup_complete and r.platform.listen_port is None
         assert not r.platform._tokens and not r.platform._connections
+
+
+async def test_base_path_is_preserved_in_public_callbacks(voice):
+    async with voice({**BINDING, "base_path": "/app"}) as r:
+        committed = r.manager.current
+        assert committed.voice_url == (
+            "https://voice.example/app/voice/incoming?"
+            "_qp_endpoint=voice%2Fprivate%3Ascope"
+        )
+        assert committed.status_callback == (
+            "https://voice.example/app/voice/status-callback?"
+            "_qp_endpoint=voice%2Fprivate%3Ascope"
+        )
+
+
+@pytest.mark.parametrize("base_path", ["/app", "/my console", "/控制台"])
+async def test_base_path_signed_http_and_websocket(voice, base_path):
+    async with voice({**BINDING, "base_path": base_path}) as r:
+        ws, relay = await connect(
+            r,
+            public_path=base_path + "/voice/incoming",
+        )
+        assert relay.attrib["url"].startswith(
+            "wss://voice.example" + quote(base_path, safe="/") + "/voice/ws?",
+        )
+        status, _ = await form_request(
+            r,
+            public_path="/other/voice/incoming",
+        )
+        assert status == 403
+        await ws.close()
 
 
 async def test_completed_fragments_and_finish_do_not_hang_up(voice):

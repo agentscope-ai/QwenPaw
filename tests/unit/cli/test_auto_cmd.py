@@ -96,28 +96,39 @@ def _manager(prefix="crons", actions=None):
 
 
 class TestBaseUrl:
-    def test_explicit_base_url_wins_and_is_rstripped(self):
+    def test_explicit_base_url_wins(self):
         ctx = click.Context(click.Command("x"), obj={"host": "h", "port": 1})
-        assert auto_mod._base_url(ctx, "http://a:9/") == "http://a:9"
+        assert auto_mod._base_url(ctx, "http://a:9/") == "http://a:9/api"
 
     def test_strips_multiple_trailing_slashes(self):
         ctx = click.Context(click.Command("x"), obj={})
-        assert auto_mod._base_url(ctx, "http://a:9///") == "http://a:9"
+        assert auto_mod._base_url(ctx, "http://a:9///") == "http://a:9/api"
 
-    def test_falls_back_to_ctx_host_and_port(self):
+    def test_includes_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
         ctx = click.Context(
             click.Command("x"),
             obj={"host": "1.2.3.4", "port": 9999},
         )
-        assert auto_mod._base_url(ctx, None) == "http://1.2.3.4:9999"
+        assert auto_mod._base_url(ctx, None) == "http://1.2.3.4:9999/app/api"
 
-    def test_defaults_when_ctx_obj_is_empty(self):
+    def test_falls_back_to_ctx_host_and_port(self, monkeypatch):
+        monkeypatch.delenv("QWENPAW_BASE_PATH", raising=False)
+        ctx = click.Context(
+            click.Command("x"),
+            obj={"host": "1.2.3.4", "port": 9999},
+        )
+        assert auto_mod._base_url(ctx, None) == "http://1.2.3.4:9999/api"
+
+    def test_defaults_when_ctx_obj_is_empty(self, monkeypatch):
+        monkeypatch.delenv("QWENPAW_BASE_PATH", raising=False)
         ctx = click.Context(click.Command("x"), obj={})
-        assert auto_mod._base_url(ctx, None) == "http://127.0.0.1:8088"
+        assert auto_mod._base_url(ctx, None) == "http://127.0.0.1:8088/api"
 
-    def test_defaults_when_ctx_obj_is_none(self):
+    def test_defaults_when_ctx_obj_is_none(self, monkeypatch):
+        monkeypatch.delenv("QWENPAW_BASE_PATH", raising=False)
         ctx = click.Context(click.Command("x"), obj=None)
-        assert auto_mod._base_url(ctx, None) == "http://127.0.0.1:8088"
+        assert auto_mod._base_url(ctx, None) == "http://127.0.0.1:8088/api"
 
 
 # ── _ensure_daemon_alive ─────────────────────────────────────────────
@@ -315,7 +326,7 @@ class TestGeneratedCommand:
         )
 
         assert result.exit_code == 0, result.output
-        assert ("get", "/crons/jobs", "http://x") in fake_client["calls"]
+        assert ("get", "/crons/jobs", "http://x/api") in fake_client["calls"]
 
     def test_path_falls_back_to_prefix_and_name(
         self,
@@ -329,7 +340,9 @@ class TestGeneratedCommand:
         )
 
         assert result.exit_code == 0, result.output
-        assert ("get", "/crons/list_jobs", "http://x") in fake_client["calls"]
+        assert ("get", "/crons/list_jobs", "http://x/api") in fake_client[
+            "calls"
+        ]
 
     def test_response_is_printed(self, fake_client, monkeypatch):
         group = self._build(

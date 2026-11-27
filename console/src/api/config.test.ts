@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   getApiUrl,
   getApiToken,
@@ -7,16 +7,30 @@ import {
   updateBrowserSession,
 } from "./config";
 
-// VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
-const setViteBase = (v: string) => {
-  (globalThis as any).VITE_API_BASE_URL = v;
-};
-const setToken = (v: string) => {
-  (globalThis as any).TOKEN = v;
-};
+const setViteBase = (v: string) => vi.stubGlobal("VITE_API_BASE_URL", v);
+const setToken = (v: string) => vi.stubGlobal("TOKEN", v);
+let runtimeBaseMeta: HTMLMetaElement | undefined;
+
+function setRuntimeBase(content: string) {
+  runtimeBaseMeta = document.createElement("meta");
+  runtimeBaseMeta.name = "qwenpaw-base-path";
+  runtimeBaseMeta.content = content;
+  document.head.append(runtimeBaseMeta);
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  runtimeBaseMeta?.remove();
+});
 
 describe("getApiUrl", () => {
+  let baseElement: HTMLBaseElement | undefined;
+
   beforeEach(() => setViteBase(""));
+  afterEach(() => {
+    baseElement?.remove();
+    setViteBase("");
+  });
 
   it("prepends /api prefix when base is empty", () => {
     expect(getApiUrl("/models")).toBe("/api/models");
@@ -40,6 +54,24 @@ describe("getApiUrl", () => {
     expect(getApiUrl("/models/openai/config")).toBe(
       "/api/models/openai/config",
     );
+  });
+
+  it("uses the server-injected prefix for same-origin API requests", () => {
+    baseElement = document.createElement("base");
+    baseElement.href = "/app/qwenpaw/web/";
+    document.head.append(baseElement);
+    setRuntimeBase("/app/qwenpaw/web");
+    expect(getApiUrl("/models")).toBe("/app/qwenpaw/web/api/models");
+    setViteBase("http://localhost:8088");
+    expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
+  });
+
+  it("does not use a custom Console build basename as the API prefix", () => {
+    baseElement = document.createElement("base");
+    baseElement.href = "/custom/";
+    document.head.append(baseElement);
+    setRuntimeBase("");
+    expect(getApiUrl("/auth/status")).toBe("/api/auth/status");
   });
 });
 

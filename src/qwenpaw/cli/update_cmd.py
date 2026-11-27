@@ -20,11 +20,11 @@ from packaging.version import InvalidVersion, Version
 
 from ..__version__ import __version__
 from ..constant import WORKING_DIR
-from ..config.utils import read_last_api
+from ..config.utils import LastApiEndpoint, read_last_api_record
 from ..utils.runtime_environment import require_pip, require_uv
-from ..utils.runtime_api import api_client
+from ..utils.runtime_api import api_client, read_runtime_api
+from .http import deployment_url
 from .process_utils import (
-    _base_url,
     _candidate_hosts,
     _extract_port_from_command,
     _is_qwenpaw_service_command,
@@ -246,19 +246,20 @@ def _process_candidate_ports() -> list[int]:
 
 def _detect_running_service_from_processes(
     preferred_hosts: list[str],
+    record: LastApiEndpoint | None,
 ) -> RunningServiceInfo:
     """Best-effort local process fallback for service detection."""
     for port in _process_candidate_ports():
         hosts = preferred_hosts or ["127.0.0.1", "localhost"]
         for host in hosts:
-            result = _probe_service(_base_url(host, port))
+            result = _probe_service(deployment_url(host, port, record))
             if result.is_running:
                 return result
 
         fallback_host = next(iter(hosts), "127.0.0.1")
         return RunningServiceInfo(
             is_running=True,
-            base_url=_base_url(fallback_host, port),
+            base_url=deployment_url(fallback_host, port, record),
         )
 
     return RunningServiceInfo(is_running=False)
@@ -272,6 +273,8 @@ def _detect_running_service(
     candidates: list[str] = []
     seen: set[str] = set()
     preferred_hosts: list[str] = []
+    last = read_last_api_record()
+    record = None if read_runtime_api() else last
 
     def _remember_hosts(candidate_host: str | None) -> None:
         for item in _candidate_hosts(candidate_host):
@@ -286,16 +289,15 @@ def _detect_running_service(
             return
         _remember_hosts(candidate_host)
         for resolved_host in _candidate_hosts(candidate_host):
-            base_url = _base_url(resolved_host, candidate_port)
+            base_url = deployment_url(resolved_host, candidate_port, record)
             if base_url in seen:
                 continue
             seen.add(base_url)
             candidates.append(base_url)
 
     _add_candidate(host, port)
-    last = read_last_api()
     if last:
-        _add_candidate(last[0], last[1])
+        _add_candidate(last.host, last.port)
     _add_candidate("127.0.0.1", 8088)
 
     for base_url in candidates:
@@ -303,7 +305,7 @@ def _detect_running_service(
         if result.is_running:
             return result
 
-    return _detect_running_service_from_processes(preferred_hosts)
+    return _detect_running_service_from_processes(preferred_hosts, record)
 
 
 def _running_service_display(running: RunningServiceInfo) -> str:

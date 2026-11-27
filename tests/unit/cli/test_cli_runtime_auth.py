@@ -22,6 +22,7 @@ from qwenpaw.cli import http as cli_http
 from qwenpaw.cli import doctor_cmd, plugin_commands, update_cmd
 from qwenpaw.utils.runtime_api import async_api_client
 from qwenpaw.cli.main import cli
+from qwenpaw.config.utils import LastApiEndpoint
 
 _RUNTIME_URL = "http://127.0.0.1:9001"
 _TOKEN_HEADER = "X-QwenPaw-Runtime-Token"
@@ -34,8 +35,8 @@ def managed_runtime(monkeypatch):
     monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "secret-a")
     monkeypatch.setenv("QWENPAW_RUNTIME_API_URL", _RUNTIME_URL)
     monkeypatch.setattr(
-        "qwenpaw.cli.main.read_last_api",
-        lambda: ("127.0.0.1", 9002),
+        "qwenpaw.cli.main.read_last_api_record",
+        lambda: LastApiEndpoint("127.0.0.1", 9002),
     )
     monkeypatch.setattr(
         agent_management,
@@ -69,6 +70,11 @@ def test_agents_list_passes_real_boundary(monkeypatch, managed):
     app = FastAPI()
     app.add_middleware(RuntimeBoundaryMiddleware)
     seen = []
+    if managed:
+        monkeypatch.setattr(
+            "qwenpaw.cli.main.read_last_api_record",
+            lambda: LastApiEndpoint("127.0.0.1", 9001, "/not-the-runtime"),
+        )
 
     @app.get("/api/agents")
     async def agents(request: Request):
@@ -211,13 +217,15 @@ def test_explicit_cli_endpoint_never_receives_token(monkeypatch, arguments):
     assert seen == [None]
 
 
-@pytest.mark.parametrize("target", [None, "http://127.0.0.1:9002"])
+@pytest.mark.parametrize("mount", ["", "/api"])
+@pytest.mark.parametrize("target", [None, "http://127.0.0.1:9002/api/"])
 @pytest.mark.asyncio
-async def test_async_agent_requests_scope_token(monkeypatch, target):
+async def test_async_agent_requests_scope_token(monkeypatch, target, mount):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", mount)
     seen = []
 
     def respond(request):
-        seen.append(request.headers.get(_TOKEN_HEADER))
+        seen.append((request.url.path, request.headers.get(_TOKEN_HEADER)))
         return httpx.Response(200, json={"ok": True})
 
     monkeypatch.setattr(
@@ -238,7 +246,12 @@ async def test_async_agent_requests_scope_token(monkeypatch, target):
         base_url=target,
     )
     expected = "secret-a" if target is None else None
-    assert seen == [expected] * 3
+    endpoint_path = f"{mount}/api" if target is None else "/api"
+    assert seen == [
+        (f"{endpoint_path}/console/chat", expected),
+        (f"{endpoint_path}/console/chat/stop", expected),
+        (f"{endpoint_path}/fork/agent", expected),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -366,8 +379,8 @@ def test_cli_api_operations_pass_boundary(
             monkeypatch.delenv(name)
     monkeypatch.setattr(
         plugin_commands.config_utils,
-        "read_last_api",
-        lambda: ("127.0.0.1", 9002),
+        "read_last_api_record",
+        lambda: LastApiEndpoint("127.0.0.1", 9002),
     )
     archive = tmp_path / "plugin.zip"
     archive.write_bytes(b"fixture zip")
@@ -400,6 +413,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
     caplog,
     slow_stream,
 ):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/paw/api/")
     seen = []
     closed = []
 
@@ -417,6 +431,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
         seen.append(
             (
                 request.url.port,
+                request.url.path,
                 request.headers.get(_TOKEN_HEADER),
                 request.headers.get("X-Agent-Id"),
             ),
@@ -430,7 +445,7 @@ async def test_proactive_request_auth_stream_and_total_timeout(
     )
     with caplog.at_level("INFO"):
         await send_proactive_message_via_http("agent-a", "message", 1)
-    assert seen == [(9001, "secret-a", "agent-a")]
+    assert seen == [(9001, "/paw/api/api/console/chat", "secret-a", "agent-a")]
     assert closed == [True]
     expected = "Timeout (1s)" if slow_stream else "sent successfully via HTTP"
     assert expected in caplog.text

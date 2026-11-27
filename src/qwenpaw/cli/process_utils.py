@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -199,14 +200,6 @@ def _extract_port_from_command(command: str, default: int = 8088) -> int:
     """Extract `--port` from a command line when present."""
     match = _PORT_ARG_PATTERN.search(command)
     return int(match.group(1)) if match else default
-
-
-def _base_url(host: str, port: int) -> str:
-    """Build a base URL from host and port."""
-    normalized_host = host.strip()
-    if ":" in normalized_host and not normalized_host.startswith("["):
-        normalized_host = f"[{normalized_host}]"
-    return f"http://{normalized_host}:{port}"
 
 
 def _candidate_hosts(host: str | None) -> list[str]:

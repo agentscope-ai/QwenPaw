@@ -38,13 +38,12 @@ export default defineConfig(({ command, mode }) => {
   const consoleBasename = env.VITE_CONSOLE_BASENAME?.trim();
 
   return {
-    // Preserve root asset URLs for existing root and /console deployments.
-    base:
-      !desktop && consoleBasename
-        ? `${normalizeConsoleBasename(consoleBasename)}/`
-        : desktop
-        ? "/"
-        : "./",
+    // The server-injected document base resolves these relative entry assets.
+    base: desktop
+      ? "/"
+      : consoleBasename
+      ? `${normalizeConsoleBasename(consoleBasename)}/`
+      : "./",
     define: {
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -52,7 +51,7 @@ export default defineConfig(({ command, mode }) => {
     },
     plugins: [
       react(),
-      startupMonitorPlugin(),
+      startupMonitorPlugin(desktop ? "" : apiBaseUrl),
       {
         name: "console-host-document",
         transformIndexHtml(html: string) {
@@ -60,9 +59,11 @@ export default defineConfig(({ command, mode }) => {
             !desktop && consoleBasename
               ? `${normalizeConsoleBasename(consoleBasename)}/`
               : "/";
+          const baseTag =
+            base === "/" ? '<base href="/" />' : `<base href="${base}">`;
           return html.replace(
-            "<head>",
-            `<head><base href="${base}"><meta name="qwenpaw-console-protocol" content="1">`,
+            '<base href="/" />',
+            `${baseTag}<meta name="qwenpaw-console-protocol" content="1">`,
           );
         },
       } satisfies Plugin,

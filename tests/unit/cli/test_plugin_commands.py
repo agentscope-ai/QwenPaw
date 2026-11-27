@@ -127,16 +127,26 @@ def _write_plugin(
 
 class TestGetApiBase:
     def test_returns_none_when_no_last_api(self, monkeypatch):
-        monkeypatch.setattr(config_utils, "read_last_api", lambda: None)
+        monkeypatch.setattr(config_utils, "read_last_api_record", lambda: None)
         assert pc._get_api_base() is None
 
     def test_builds_url_from_last_api(self, monkeypatch):
         monkeypatch.setattr(
             config_utils,
-            "read_last_api",
-            lambda: ("127.0.0.1", 9001),
+            "read_last_api_record",
+            lambda: config_utils.LastApiEndpoint("127.0.0.1", 9001),
         )
         assert pc._get_api_base() == "http://127.0.0.1:9001/api"
+
+    def test_includes_runtime_base_path(self, monkeypatch):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+        monkeypatch.setattr(pc, "read_runtime_api", lambda: None)
+        monkeypatch.setattr(
+            config_utils,
+            "read_last_api_record",
+            lambda: config_utils.LastApiEndpoint("127.0.0.1", 9001),
+        )
+        assert pc._get_api_base() == "http://127.0.0.1:9001/app/api"
 
 
 # ---------------------------------------------------------------------------

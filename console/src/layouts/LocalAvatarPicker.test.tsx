@@ -5,8 +5,24 @@ import type { ReactNode } from "react";
 import LocalAvatarPicker from "./LocalAvatarPicker";
 import { avatarApi } from "../api/modules/avatars";
 import { useLocalAvatar } from "../stores/localAvatarStore";
-vi.hoisted(() => vi.stubEnv("BASE_URL", "/qwenpaw/"));
-afterAll(() => vi.unstubAllEnvs());
+
+const baseElement = vi.hoisted(() => {
+  const base = document.createElement("base");
+  base.href = "/qwenpaw/";
+  document.head.append(base);
+  return base;
+});
+const runtimeBaseMeta = vi.hoisted(() => {
+  const meta = document.createElement("meta");
+  meta.name = "qwenpaw-base-path";
+  meta.content = "/qwenpaw";
+  document.head.append(meta);
+  return meta;
+});
+afterAll(() => {
+  baseElement.remove();
+  runtimeBaseMeta.remove();
+});
 
 vi.mock("../api/modules/avatars", () => ({
   avatarApi: {

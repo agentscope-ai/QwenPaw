@@ -12,10 +12,12 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.responses import JSONResponse
 
+from ....app.base_path import get_runtime_base_path
 from ....utils.logging import sanitize_log_value
 from ....utils.io_utils import write_json_atomic
 from .bridge import get_nm_bridge, shutdown_nm_bridge as shutdown_global_bridge
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 def resolve_default_ws_url() -> str:
     """Resolve the WebSocket endpoint of the current core API instance."""
+    base_path = quote(get_runtime_base_path(), safe="/")
     try:
         from qwenpaw.config.utils import read_last_api
 
@@ -38,12 +41,15 @@ def resolve_default_ws_url() -> str:
     except Exception:
         api_info = None
     if not api_info:
-        return DEFAULT_WS_URL
+        return (
+            f"{DEFAULT_WS_URL.removesuffix('/api/ws/chrome')}"
+            f"{base_path}/api/ws/chrome"
+        )
     host, port = api_info
     host = "127.0.0.1" if host in {"", "0.0.0.0"} else str(host)
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"ws://{host}:{port}/api/ws/chrome"
+    return f"ws://{host}:{port}{base_path}/api/ws/chrome"
 
 
 _bridge_state = get_nm_bridge_route_state()

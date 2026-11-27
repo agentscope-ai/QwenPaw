@@ -464,6 +464,7 @@ function AppInner({
     <BrowserRouter basename={basename}>
       <HostNavigation />
       <Routes>
+        <Route path="/index.html" element={<Navigate to="/" replace />} />
         <Route
           path="/login"
           element={

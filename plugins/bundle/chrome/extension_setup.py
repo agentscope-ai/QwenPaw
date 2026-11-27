@@ -14,6 +14,7 @@ import sys
 import webbrowser
 from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import quote
 
 from qwenpaw.config.utils import read_last_api
 from qwenpaw.utils.io_utils import write_json_atomic
@@ -333,15 +334,36 @@ class InstallModeError(ValueError):
     """Raised when the requested extension install mode cannot be used."""
 
 
+def _bridge_base_path() -> str:
+    """Use the core's prefix validation only when a prefix is configured."""
+    base_path = os.environ.get("QWENPAW_BASE_PATH", "").strip()
+    if base_path in {"", "/"}:
+        return ""
+    try:
+        from qwenpaw.app.base_path import normalize_base_path
+    except ModuleNotFoundError as exc:
+        if exc.name != "qwenpaw.app.base_path":
+            raise
+        raise BridgeEndpointUnavailable(
+            "Upgrade QwenPaw to use Chrome Native Messaging with "
+            "QWENPAW_BASE_PATH, or unset QWENPAW_BASE_PATH to use the root.",
+        ) from exc
+    return quote(normalize_base_path(base_path), safe="/")
+
+
 def require_bridge_endpoint() -> str:
     """Derive a loopback-only bridge endpoint from the running server bind."""
+    base_path = _bridge_base_path()
     try:
         api_info = read_last_api()
     except Exception:
         api_info = None
 
     if not api_info:
-        return DEFAULT_WS_URL
+        return (
+            f"{DEFAULT_WS_URL.removesuffix('/api/ws/chrome')}"
+            f"{base_path}/api/ws/chrome"
+        )
 
     host, port = api_info
     host = "127.0.0.1" if host in {"", "0.0.0.0"} else str(host)
@@ -360,7 +382,7 @@ def require_bridge_endpoint() -> str:
             )
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"ws://{host}:{port}/api/ws/chrome"
+    return f"ws://{host}:{port}{base_path}/api/ws/chrome"
 
 
 def _copy_extension(qwenpaw_home: Path) -> Path:

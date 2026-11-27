@@ -26,7 +26,8 @@ from typing import Any
 
 import click
 
-from .http import client, print_json
+from ..utils.runtime_api import api_client as client
+from .http import print_json, resolve_api_endpoint as _base_url
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +49,6 @@ def _ensure_daemon_alive(base_url: str) -> None:
             err=True,
         )
         sys.exit(2)
-
-
-def _base_url(ctx: click.Context, base_url: str | None) -> str:
-    if base_url:
-        return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
 
 
 def _add_command(

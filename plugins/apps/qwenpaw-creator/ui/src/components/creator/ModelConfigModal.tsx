@@ -54,6 +54,7 @@ import type {
   ModelConfigData,
   ModelConfigItem,
 } from "@/contracts/creator";
+import i18n from "@/i18n";
 import ModelSetupGuide from "@/components/onboarding/ModelSetupGuide";
 import SkillsConfigPane from "@/components/creator/SkillsConfigPane";
 
@@ -1154,7 +1155,6 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   );
 
   useEffect(() => {
-    getHostProviders().then(setHostProviders);
     getTtsCapabilities()
       .then(setTtsCapabilities)
       .catch(() => setTtsCapabilities(null));
@@ -1244,9 +1244,14 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       // values and reset below.
       const [data, providers] = await Promise.all([
         getModelConfig(),
-        getHostProviders(),
+        getHostProviders().catch(() => {
+          message.error(i18n.t("modelConfig.hostProvidersUnavailable"));
+          return null;
+        }),
       ]);
-      const knownHostProtocols = new Set(providers.map((p) => p.name));
+      if (providers !== null) setHostProviders(providers);
+      const knownHostProtocols =
+        providers && new Set(providers.map((p) => p.name));
       const receivedGrounding = data.grounding as Partial<GroundingConfig>;
       const validationSource =
         receivedGrounding.validation_source ??
@@ -1283,6 +1288,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         },
       };
       if (
+        knownHostProtocols &&
         !VLM_PROTOCOLS.includes(merged.vlm.protocol) &&
         !knownHostProtocols.has(merged.vlm.protocol)
       )
@@ -1339,9 +1345,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       setConfig(merged);
       setTested(initialTested);
       snapshotRef.current = JSON.parse(JSON.stringify(merged));
+      return providers !== null;
     } catch {
       setConfig(DEFAULT_CONFIG);
       snapshotRef.current = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+      return false;
     }
   }, []);
 
@@ -1368,12 +1376,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     if (reloading) return;
     setReloading(true);
     try {
-      await loadConfig();
+      const configReloaded = await loadConfig();
       // Null unless the skills pane is mounted. That refresh surfaces its own
       // failure inside the pane, so a skill-list problem cannot pass itself
       // off as a config reload error.
       await skillsRefreshRef.current?.();
-      message.success(t("modelConfig.configReloaded"));
+      if (configReloaded) message.success(t("modelConfig.configReloaded"));
     } catch (err) {
       message.error(
         (err as Error).message || t("modelConfig.reloadConfigError"),
@@ -1381,7 +1389,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     } finally {
       setReloading(false);
     }
-  }, [loadConfig, reloading]);
+  }, [loadConfig, reloading, t]);
 
   const updateItem = useCallback(
     (type: ModelType, field: string, value: unknown) => {

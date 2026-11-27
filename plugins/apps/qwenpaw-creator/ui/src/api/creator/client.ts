@@ -5,11 +5,10 @@ import {
   reportBackendUnavailable,
 } from "@/lib/backendHealthSignal";
 
-export const CREATOR_API_BASE = "/api/qwenpaw-creator";
-
 type HostWindow = Window & {
   QwenPaw?: {
     host?: {
+      getApiUrl?: (path: string) => string;
       getApiToken?: () => string;
       usesBrowserSession?: (appId: string) => boolean;
     };
@@ -43,9 +42,14 @@ export class CreatorHttpError extends Error {
   }
 }
 
+export function hostApiUrl(path: string): string {
+  const host = (window.parent as HostWindow).QwenPaw?.host;
+  return host?.getApiUrl?.(path) ?? `/api${path}`;
+}
+
 export function creatorApiUrl(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${CREATOR_API_BASE}${normalized}`;
+  return hostApiUrl(`/qwenpaw-creator${normalized}`);
 }
 
 /**

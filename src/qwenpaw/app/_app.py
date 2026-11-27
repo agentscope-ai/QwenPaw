@@ -48,6 +48,11 @@ from ..utils.logging import (
 )
 from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
+from .base_path import (
+    BasePathMiddleware,
+    ConsoleIndexResponse,
+    initialize_server_base_path,
+)
 from .auth import (
     AuthMiddleware,
     RuntimeBoundaryMiddleware,
@@ -102,6 +107,7 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+_BASE_PATH = initialize_server_base_path()
 
 
 async def _shutdown_plugins(app: FastAPI) -> list[str]:
@@ -617,6 +623,7 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
                 plugin_loader.registry,
                 host_port=server_port(app),
                 trusted_proxy=is_trusted_proxy,
+                base_path=_BASE_PATH,
             )
             plugin_loader.registry.channel_ingress_service = (
                 app.state.channel_ingress
@@ -1001,7 +1008,11 @@ _INDEX_NO_CACHE_HEADERS = {
 @app.get("/")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-        return FileResponse(_CONSOLE_INDEX, headers=_INDEX_NO_CACHE_HEADERS)
+        return ConsoleIndexResponse(
+            _CONSOLE_INDEX,
+            base_path=_BASE_PATH,
+            headers=_INDEX_NO_CACHE_HEADERS,
+        )
     return {
         "message": (
             f"{PROJECT_NAME} web console is not available. "
@@ -1102,8 +1113,9 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(
+            return ConsoleIndexResponse(
                 _CONSOLE_INDEX,
+                base_path=_BASE_PATH,
                 headers=_INDEX_NO_CACHE_HEADERS,
             )
 
@@ -1131,6 +1143,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         name="qwenpaw_console_spa_catchall",
     )
     def _console_spa(full_path: str):
+        if full_path == "index.html":
+            return _serve_console_index()
         # Prevent catching common system/special paths
         if full_path in ("docs", "redoc", "openapi.json"):
             raise HTTPException(status_code=404, detail="Not Found")
@@ -1150,3 +1164,6 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
                 return FileResponse(static_file, stat_result=file_stat)
 
         return _serve_console_index()
+
+
+app.add_middleware(BasePathMiddleware, base_path=_BASE_PATH)

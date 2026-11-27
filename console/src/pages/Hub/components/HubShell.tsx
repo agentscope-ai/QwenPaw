@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import LanguageSwitcher from "../../../components/LanguageSwitcher";
 import type { Section } from "../pageUtils";
+import { addRouterBasename } from "../../../utils/navigationMode";
 import styles from "./HubShell.module.less";
 
 type Props = {
@@ -110,7 +111,11 @@ export default function HubShell(props: Props) {
         <button
           className={styles.back}
           type="button"
-          onClick={() => window.location.assign("/")}
+          onClick={() =>
+            window.location.assign(
+              addRouterBasename(window.location.pathname, "/"),
+            )
+          }
         >
           <House size={17} />
           {t("hub.actions.backToQwenPaw")}

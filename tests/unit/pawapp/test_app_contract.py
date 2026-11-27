@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from qwenpaw.exceptions import ConfigurationException
@@ -20,7 +20,7 @@ from qwenpaw.pawapp import (
 )
 from qwenpaw.pawapp.app import _build_capability_router
 from qwenpaw.pawapp.context import ChatReply
-from qwenpaw.pawapp.deps import get_scoped_ctx
+from qwenpaw.pawapp.deps import _extract_app_id_from_request, get_scoped_ctx
 from qwenpaw.pawapp import service as service_module
 
 # Minimal loopback HTTP responder for managed-service fixtures. It is
@@ -690,11 +690,28 @@ def test_standard_routes_reject_forged_identity_claims() -> None:
     assert forged_channel.status_code == 403
 
 
+@pytest.mark.parametrize("root_path", ["", "/app"])
+def test_app_id_path_fallback_ignores_route_root_path(root_path: str) -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": f"{root_path}/api/demo/storage",
+            "root_path": root_path,
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("127.0.0.1", 8088),
+        },
+    )
+
+    assert _extract_app_id_from_request(request) == "demo"
+
+
 def test_scoped_ctx_binds_identity_to_the_authenticated_principal() -> None:
     # AuthMiddleware populates request.state.user; the scoped dependency
     # adopts it and accepts only matching explicit claims.
-    from fastapi import Request
-
     fixture = FastAPI()
 
     @fixture.middleware("http")

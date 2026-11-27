@@ -32,55 +32,75 @@ walk through each feature in order.
 
 ## Reverse-proxy subpath deployment
 
-To serve the Console at a path such as `https://example.com/qwenpaw/`, set
-the build-time variables in `console/.env.production.local`:
-
-```dotenv
-VITE_CONSOLE_BASENAME=/qwenpaw
-VITE_API_BASE_URL=/qwenpaw
-```
-
-Build from the repository root:
+To serve the Console and API at a path such as `https://example.com/qwenpaw/`,
+set the runtime base path before starting QwenPaw:
 
 ```bash
-cd console
-npm install
-npm run build
+QWENPAW_BASE_PATH=/qwenpaw qwenpaw app
 ```
 
-`VITE_CONSOLE_BASENAME` sets the router prefix and the asset URL prefix
-(for example, `/qwenpaw/assets/`). Leading and trailing slashes are normalized;
-nested prefixes such as `/apps/qwenpaw` are supported. If it is unset or empty,
-the existing root and `/console` routes remain available and assets stay at
-`/assets/`. Set it to `/` for an explicitly root-only router.
+The prefix must be an absolute URL path without a query, fragment, or control
+characters. Nested prefixes such as `/apps/qwenpaw` are supported. Use decoded
+path segments, not percent-encoded values such as `/apps/%71wenpaw`. Spaces
+inside a name are allowed (`/my console/`), but a space immediately before
+the trailing slash (`/demo /`) prevents startup. Leave the prefix unset or set
+it to `/` for the existing root and `/console` behavior. The same
+runtime setting covers SPA routes, static assets, API requests, and WebSockets;
+no frontend rebuild is required. Changes saved in the Console's environment
+settings take effect after restarting QwenPaw.
 
-`VITE_API_BASE_URL` independently sets the backend URL before `/api`. Use
-`/qwenpaw` when the proxy also exposes the API at `/qwenpaw/api/`; leave it empty
-when the API is served at `/api/`, or set it to the backend's external origin.
-These variables are embedded during the build. Changing the server environment
-afterward requires rebuilding the frontend.
-
-Point `QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of the resulting
-`console/dist` directory in the environment that runs `qwenpaw app`. This also
-lets a pip/uv installation serve the custom build without replacing package
-files. For Docker, include the custom build in the image or mount it and set
-`QWENPAW_CONSOLE_STATIC_DIR` to its path inside the container.
-
-Configure the proxy to strip `/qwenpaw` before forwarding every request,
-including SPA deep links, assets, API requests, and WebSockets. For example,
-with Caddy:
+Configure the proxy to preserve the prefix when forwarding requests. Do not use
+a path-stripping proxy directive. For example, with Caddy:
 
 ```caddyfile
 example.com {
     redir /qwenpaw /qwenpaw/ 308
-    handle_path /qwenpaw/* {
+    handle /qwenpaw/* {
         reverse_proxy 127.0.0.1:8088
     }
 }
 ```
 
-Open `https://example.com/qwenpaw/`. Forwarding the prefix unchanged would make
-asset requests reach the SPA fallback and return HTML instead of JavaScript.
+Open `https://example.com/qwenpaw/`. QwenPaw redirects the prefix without a
+trailing slash to this URL. Requests outside the configured prefix return 404.
+
+Local CLI commands such as `qwenpaw chats list` use the mount recorded by the
+standalone server for its host and port. Saving a new prefix does not redirect
+these commands until the server restarts. When targeting another address, or
+when connecting to an older server that did not record its mount, set
+`QWENPAW_BASE_PATH` to that server's prefix. An explicit `--base-url` takes
+precedence, for example `http://127.0.0.1:8088/qwenpaw`. When setting up Chrome
+Bridge separately, use the same `QWENPAW_BASE_PATH` as the server.
+
+Before switching an existing deployment to a non-root prefix, update any
+installed Chrome and Voice plugins to `0.1.2` or later while the server is still
+at `/`. Set the prefix, restart QwenPaw, and rerun Chrome Bridge setup if you
+use it, so the native host records the new WebSocket URL.
+
+If the deployment prefix itself ends in `/api`, keep it unchanged in
+`QWENPAW_BASE_PATH`. When specifying an explicit API base for a command such as
+`qwenpaw cron list`, include both segments: for a deployment at `/tenant/api`,
+use `--base-url http://127.0.0.1:8088/tenant/api/api`.
+
+Configure the whole external prefix in one place; do not split it between an
+outer ASGI mount (or Uvicorn `--root-path`) and `QWENPAW_BASE_PATH`. Desktop's
+private backend always starts at `/`, without changing the saved web setting.
+
+### Build-time custom Console
+
+For a separately built Console, `VITE_CONSOLE_BASENAME` and
+`VITE_API_BASE_URL` remain available in `console/.env.production.local`.
+They set the router/asset prefix and the backend URL before `/api`, respectively.
+Build with `cd console && npm install && npm run build`, then point
+`QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of `console/dist`.
+
+Changing these build-time variables requires rebuilding the frontend.
+For example, if both are `/qwenpaw` and the backend serves
+at `/`, leave `QWENPAW_BASE_PATH` unset. In the Caddy example above, change
+`handle /qwenpaw/*` to `handle_path /qwenpaw/*` so the proxy strips the prefix:
+`/qwenpaw/api/version` reaches the backend as `/api/version`. With the runtime
+setting, keep `handle` so the backend receives `/qwenpaw/api/version` instead.
+Do not combine the two modes.
 
 ---
 

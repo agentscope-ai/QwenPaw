@@ -753,6 +753,8 @@ class ChannelConfig(BaseModel):
 class LastApiConfig(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
+    # None denotes older records; an empty string is an observed root mount.
+    base_path: Optional[str] = None
 
 
 class ActiveHoursConfig(BaseModel):

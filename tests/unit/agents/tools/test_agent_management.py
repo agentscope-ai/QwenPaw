@@ -187,6 +187,21 @@ def test_resolve_agent_api_base_url_uses_last_api(monkeypatch):
     assert result == "http://192.168.1.8:18088"
 
 
+def test_standalone_agent_api_base_url_uses_configured_base_path(monkeypatch):
+    monkeypatch.setattr("qwenpaw.app.base_path._server_base_path", None)
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setattr(agent_management, "read_runtime_api", lambda: None)
+    monkeypatch.setattr(
+        agent_management,
+        "read_last_api",
+        lambda: ("127.0.0.1", 18088),
+    )
+
+    assert agent_management.resolve_agent_api_base_url() == (
+        "http://127.0.0.1:18088/app"
+    )
+
+
 def test_resolve_agent_api_base_url_falls_back_to_default(monkeypatch):
     monkeypatch.setattr(agent_management, "read_last_api", lambda: None)
 

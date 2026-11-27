@@ -1,5 +1,11 @@
 import { message } from "antd";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ModelConfigModal, {
   ASR_PROTOCOLS,
@@ -17,7 +23,8 @@ import ModelConfigModal, {
   modelSupportsImage,
   ttsModelsForProtocol,
 } from "../ModelConfigModal";
-import type { HostProviderInfo } from "@/api/creator";
+import type { HostProviderInfo, SkillItem } from "@/api/creator";
+import i18n from "@/i18n";
 import { installMockFetch } from "@/test/mockFetch";
 import en from "@/locales/en.json";
 import zh from "@/locales/zh.json";
@@ -225,6 +232,169 @@ function configRoutes(json: unknown, testJson?: Record<string, unknown>) {
 }
 
 describe("ModelConfigModal configuration lifecycle", () => {
+  it("loads the config on each open, but not while closed", async () => {
+    const configResponse = { json: speechBaseConfig };
+    const { calls } = installMockFetch([
+      { match: "/models/config", method: "GET", response: configResponse },
+      { match: "/api/models", method: "GET", response: { json: [] } },
+    ]);
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <ModelConfigModal open={false} onClose={onClose} />,
+    );
+    expect(
+      calls.filter((call) => call.url.endsWith("/models/config")),
+    ).toHaveLength(0);
+
+    rerender(<ModelConfigModal open onClose={onClose} />);
+    expect(await screen.findByDisplayValue("qwen3.7-plus")).toBeInTheDocument();
+    expect(
+      calls.filter((call) => call.url.endsWith("/models/config")),
+    ).toHaveLength(1);
+
+    rerender(<ModelConfigModal open={false} onClose={onClose} />);
+    configResponse.json = {
+      ...speechBaseConfig,
+      llm: { ...speechBaseConfig.llm, model_name: "updated-model" },
+    };
+    rerender(<ModelConfigModal open onClose={onClose} />);
+    expect(
+      await screen.findByDisplayValue("updated-model"),
+    ).toBeInTheDocument();
+    expect(
+      calls.filter((call) => call.url.endsWith("/models/config")),
+    ).toHaveLength(2);
+  });
+
+  it("changes the UI language without refetching config or losing unsaved model edits", async () => {
+    const { calls } = installMockFetch([
+      ...configRoutes(speechBaseConfig),
+      { match: "/api/models", method: "GET", response: { json: [] } },
+    ]);
+    const { unmount } = render(<ModelConfigModal open onClose={vi.fn()} />);
+    try {
+      const modelInput = await screen.findByDisplayValue("qwen3.7-plus");
+      expect(
+        screen.getByRole("button", { name: /保存配置/ }),
+      ).toBeInTheDocument();
+      fireEvent.change(modelInput, { target: { value: "unsaved-model" } });
+      expect(modelInput).toHaveValue("unsaved-model");
+      expect(
+        calls.filter((call) => call.url.endsWith("/models/config")),
+      ).toHaveLength(1);
+
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+
+      expect(
+        screen.getByRole("button", { name: /Save Config/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /保存配置/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByDisplayValue("unsaved-model")).toBe(modelInput);
+      expect(
+        calls.filter((call) => call.url.endsWith("/models/config")),
+      ).toHaveLength(1);
+      expect(
+        calls.filter((call) => call.url.endsWith("/api/models")),
+      ).toHaveLength(1);
+      expect(calls.some((call) => call.method === "POST")).toBe(false);
+    } finally {
+      unmount();
+      await act(async () => {
+        await i18n.changeLanguage("zh");
+      });
+    }
+  });
+
+  it("manually reloads config and refreshes the open Skills pane", async () => {
+    const passed = vi
+      .spyOn(message, "success")
+      .mockImplementation(() => undefined);
+    const skillsResponse = { items: [] as SkillItem[] };
+    const { calls } = installMockFetch([
+      ...configRoutes(speechBaseConfig),
+      { match: "/api/models", method: "GET", response: { json: [] } },
+      { match: "/skills", method: "GET", response: { json: skillsResponse } },
+    ]);
+    render(<ModelConfigModal open onClose={vi.fn()} />);
+    await screen.findByDisplayValue("qwen3.7-plus");
+    fireEvent.click(screen.getByRole("button", { name: /技能/ }));
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.endsWith("/skills"))).toHaveLength(
+        1,
+      ),
+    );
+    skillsResponse.items = [
+      {
+        name: "refreshed-skill",
+        description: "Loaded by manual reload",
+        enabled: true,
+        status: "available",
+        reason: null,
+        builtin: false,
+      },
+    ];
+
+    fireEvent.click(screen.getByRole("button", { name: /重新加载配置/ }));
+
+    expect(await screen.findByText("refreshed-skill")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(passed).toHaveBeenCalledWith(zh.modelConfig.configReloaded),
+    );
+    expect(
+      calls.filter((call) => call.url.endsWith("/models/config")),
+    ).toHaveLength(2);
+    expect(calls.filter((call) => call.url.endsWith("/skills"))).toHaveLength(
+      2,
+    );
+  });
+
+  it.each(["config", "providers"] as const)(
+    "does not report a successful reload when the %s lookup fails",
+    async (lookup) => {
+      const passed = vi
+        .spyOn(message, "success")
+        .mockImplementation(() => undefined);
+      const failed = vi
+        .spyOn(message, "error")
+        .mockImplementation(() => undefined);
+      const configResponse = { ok: true, status: 200, json: speechBaseConfig };
+      const providerResponse = { ok: true, status: 200, json: [] };
+      const { calls } = installMockFetch([
+        { match: "/models/config", method: "GET", response: configResponse },
+        { match: "/api/models", method: "GET", response: providerResponse },
+      ]);
+      render(<ModelConfigModal open onClose={vi.fn()} />);
+      await screen.findByDisplayValue("qwen3.7-plus");
+      const response = lookup === "config" ? configResponse : providerResponse;
+      response.ok = false;
+      response.status = 500;
+
+      fireEvent.click(screen.getByRole("button", { name: /重新加载配置/ }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: /重新加载配置/ }),
+        ).not.toHaveClass("ant-btn-loading"),
+      );
+      expect(
+        calls.filter((call) => call.url.endsWith("/models/config")),
+      ).toHaveLength(2);
+      expect(
+        calls.filter((call) => call.url.endsWith("/api/models")),
+      ).toHaveLength(2);
+      expect(passed).not.toHaveBeenCalled();
+      if (lookup === "providers") {
+        expect(failed).toHaveBeenCalledWith(
+          zh.modelConfig.hostProvidersUnavailable,
+        );
+      }
+    },
+  );
+
   it("preserves the saved governance mode when returning to full confirmation", async () => {
     const { calls } = installMockFetch(
       configRoutes({

@@ -53,11 +53,15 @@ class _Resp:
         return self._json
 
 
-def _run_checks(deep):
-    with click.Context(
+def _ctx(host="127.0.0.1", port=8088):
+    return click.Context(
         click.Command("doctor"),
-        obj={"host": "127.0.0.1", "port": 8088},
-    ) as ctx:
+        obj={"host": host, "port": port},
+    )
+
+
+def _run_checks(deep):
+    with _ctx() as ctx:
         dc.run_doctor_checks(ctx, 1.0, 1.0, deep=deep)
 
 
@@ -335,6 +339,20 @@ class TestServerPythonMismatchNote:
 # ---------------------------------------------------------------------------
 # _check_api_health / _fetch_running_server_python
 # ---------------------------------------------------------------------------
+
+
+def test_doctor_default_api_url_includes_runtime_base_path(monkeypatch):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+
+    assert dc.resolve_base_url(_ctx(), None) == "http://127.0.0.1:8088/app"
+
+
+def test_doctor_explicit_api_url_is_not_prefixed_again(monkeypatch):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+
+    assert dc.resolve_base_url(_ctx(), "http://example.test/custom/") == (
+        "http://example.test/custom"
+    )
 
 
 class TestCheckApiHealth:
@@ -776,6 +794,28 @@ class TestRunDoctorChecks:
         assert "=== Config ===" in out
         assert "=== Active LLM ===" in out
         assert "=== API ===" in out
+
+    @pytest.mark.parametrize("mount", ["/app", "/api", "/paw/api"])
+    def test_api_probes_include_runtime_base_path(self, monkeypatch, mount):
+        monkeypatch.setenv("QWENPAW_BASE_PATH", mount)
+        urls = []
+
+        def http_get(url, **kwargs):
+            urls.append(url)
+            return _Resp(200, headers={"content-type": "text/html"})
+
+        with _OkPatch(
+            monkeypatch,
+            _check_api_health=dc._check_api_health,
+            _http_get=http_get,
+        ):
+            dc.run_doctor_checks(_ctx(), 1.0, 1.0, deep=False)
+
+        assert urls == [
+            f"http://127.0.0.1:8088{mount}/api/healthz",
+            f"http://127.0.0.1:8088{mount}/api/version",
+            f"http://127.0.0.1:8088{mount}/",
+        ]
 
     @pytest.mark.parametrize("provider_id", ["qwenpaw-local", "copaw-local"])
     @pytest.mark.parametrize("deep", [False, True])

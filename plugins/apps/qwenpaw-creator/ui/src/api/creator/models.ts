@@ -3,7 +3,14 @@ import type {
   ModelConnectionTestRequest,
   ConnectionTestResponse,
 } from "@/contracts/creator";
-import { creatorRequest, hostToken, jsonBody, newClientId } from "./client";
+import {
+  CreatorHttpError,
+  creatorHeaders,
+  creatorRequest,
+  hostApiUrl,
+  jsonBody,
+  newClientId,
+} from "./client";
 
 export interface HostModelInfo {
   id: string;
@@ -32,16 +39,16 @@ let hostProvidersPromise: Promise<HostProviderInfo[]> | null = null;
 
 export function getHostProviders(): Promise<HostProviderInfo[]> {
   if (hostProvidersPromise) return hostProvidersPromise;
-  const headers: HeadersInit = { "Content-Type": "application/json" };
-  const token = hostToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  hostProvidersPromise = fetch("/api/models", { headers })
-    .then((r) => (r.ok ? r.json() : []))
-    // The host may answer with an error envelope instead of a provider
-    // array; anything non-array must degrade to "no presets" rather than
-    // crash the modal on hostProviders.find.
-    .then((data) => (Array.isArray(data) ? (data as HostProviderInfo[]) : []))
-    .catch(() => [])
+  hostProvidersPromise = fetch(hostApiUrl("/models"), {
+    headers: creatorHeaders(),
+  })
+    .then(async (response) => {
+      if (!response.ok) throw new CreatorHttpError(response.status);
+      const data: unknown = await response.json();
+      if (!Array.isArray(data))
+        throw new TypeError("Invalid host provider catalog");
+      return data as HostProviderInfo[];
+    })
     .finally(() => {
       hostProvidersPromise = null;
     });

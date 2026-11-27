@@ -280,7 +280,11 @@ def test_probe_service_returns_not_running_on_http_error(monkeypatch) -> None:
 def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
     from qwenpaw.cli import update_cmd as update_cmd_module
 
-    monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "read_last_api_record",
+        lambda: None,
+    )
     monkeypatch.setattr(
         update_cmd_module,
         "_probe_service",
@@ -292,7 +296,7 @@ def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_running_service_from_processes",
-        lambda _hosts: RunningServiceInfo(is_running=False),
+        lambda _hosts, _record: RunningServiceInfo(is_running=False),
     )
 
     result = _detect_running_service("0.0.0.0", 9090)
@@ -301,12 +305,63 @@ def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
     assert result.base_url == "http://127.0.0.1:9090"
 
 
+def test_detect_running_service_includes_runtime_base_path(
+    monkeypatch,
+) -> None:
+    from qwenpaw.cli import update_cmd as update_cmd_module
+
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    monkeypatch.setattr(
+        update_cmd_module,
+        "read_last_api_record",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        update_cmd_module,
+        "_probe_service",
+        lambda base_url: RunningServiceInfo(
+            is_running=True,
+            base_url=base_url,
+        ),
+    )
+
+    result = _detect_running_service("127.0.0.1", 9090)
+
+    assert result.base_url == "http://127.0.0.1:9090/app"
+
+
+def test_detect_running_service_uses_matching_recorded_mount(monkeypatch):
+    from qwenpaw.cli import update_cmd as module
+    from qwenpaw.config.utils import LastApiEndpoint
+
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/client")
+    monkeypatch.setattr(
+        module,
+        "read_last_api_record",
+        lambda: LastApiEndpoint("127.0.0.1", 9090, "/running"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_probe_service",
+        lambda url: RunningServiceInfo(
+            is_running=url == "http://127.0.0.1:9090/running",
+            base_url=url,
+        ),
+    )
+
+    assert _detect_running_service(None, None).is_running
+
+
 def test_detect_running_service_falls_back_to_process_ports(
     monkeypatch,
 ) -> None:
     from qwenpaw.cli import update_cmd as update_cmd_module
 
-    monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
+    monkeypatch.setattr(
+        update_cmd_module,
+        "read_last_api_record",
+        lambda: None,
+    )
     monkeypatch.setattr(
         update_cmd_module,
         "_probe_service",
@@ -315,7 +370,7 @@ def test_detect_running_service_falls_back_to_process_ports(
     monkeypatch.setattr(
         update_cmd_module,
         "_detect_running_service_from_processes",
-        lambda hosts: RunningServiceInfo(
+        lambda hosts, _record: RunningServiceInfo(
             is_running=True,
             base_url=f"http://{hosts[0]}:8088",
         ),

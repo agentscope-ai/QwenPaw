@@ -368,6 +368,7 @@
     "configSaved": "Configuration saved",
     "configReloaded": "Configuration reloaded",
     "reloadConfigError": "Error occurred while reloading configuration",
+    "hostProvidersUnavailable": "Could not load model providers from QwenPaw. Reload to retry.",
     "reloadConfig": "Reload Config",
     "saveConfig": "Save Config",
     "unknownError": "Unknown error",

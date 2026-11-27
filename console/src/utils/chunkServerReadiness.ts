@@ -1,3 +1,4 @@
+import { getApiUrl } from "../api/config";
 import { consoleHostOrigin } from "../features/platform-web/hostBridge";
 
 const REQUEST_TIMEOUT_MS = 2500;
@@ -139,7 +140,7 @@ export async function waitForChunkServerReady(
       report.attempts += 1;
       try {
         const version = await readResponse(
-          new URL("/api/version", page),
+          new URL(getApiUrl("/version"), page),
           controller.signal,
           report,
         );

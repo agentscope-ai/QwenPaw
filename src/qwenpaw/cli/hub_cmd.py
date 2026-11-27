@@ -9,7 +9,8 @@ from pathlib import Path
 import click
 from click.core import ParameterSource
 
-from ..utils.http import is_loopback_host
+from ..config.utils import write_last_api
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from .app_cmd import configure_server_process
 
 
@@ -133,11 +134,14 @@ def hub_cmd(
         click.echo(f"Administrator {user.username!r} initialized.")
         return
 
+    # Hub control-plane discovery remains address-only.
+    write_last_api(probe_host_for_bind_host(host), port, "")
     configure_server_process(
         host,
         port,
         log_level,
         hide_access_paths,
+        base_path="",
     )
 
     os.environ["QWENPAW_RUNTIME_MODE"] = "hub"

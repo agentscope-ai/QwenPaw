@@ -323,7 +323,11 @@ def test_local_commands_use_plugin_ownership_and_existing_model_files(
     remove = ["models", "remove-local", "example/small", "-y"]
     monkeypatch.delenv("QWENPAW_RUNTIME_ID")
 
-    monkeypatch.setattr(utils, "read_last_api", lambda: ("127.0.0.1", 54321))
+    monkeypatch.setattr(
+        utils,
+        "read_last_api_record",
+        lambda: utils.LastApiEndpoint("127.0.0.1", 54321),
+    )
     owner = "other"
 
     def version(request):

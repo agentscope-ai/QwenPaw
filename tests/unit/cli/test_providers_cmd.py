@@ -1708,7 +1708,11 @@ def test_implicit_provider_write_verifies_the_recorded_app(
     from qwenpaw.utils.runtime_api import PROFILE_PROBE_HEADER
 
     monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
-    monkeypatch.setattr(utils, "read_last_api", lambda: ("127.0.0.1", 8123))
+    monkeypatch.setattr(
+        utils,
+        "read_last_api_record",
+        lambda: utils.LastApiEndpoint("127.0.0.1", 8123),
+    )
     monkeypatch.setattr(constant, "WORKING_DIR", tmp_path / "working")
     monkeypatch.setattr(constant, "SECRET_DIR", tmp_path / "secret")
     app = FastAPI()

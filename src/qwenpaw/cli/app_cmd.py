@@ -10,7 +10,7 @@ import uvicorn
 
 from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
-from ..config.utils import write_last_api
+from ..config.utils import cache_last_api
 from ..constant import LOG_LEVEL_ENV
 from ..shutdown import HTTP_DRAIN_SECONDS
 from ..utils.http import is_loopback_host, probe_host_for_bind_host
@@ -60,18 +60,24 @@ def configure_server_process(
     hide_access_paths: tuple[str, ...],
     *,
     reload: bool = False,
+    base_path: str | None = None,
 ) -> None:
     """Configure shared process state for an HTTP server command."""
+    from ..app.base_path import get_runtime_base_path
     from ..app.server_context import set_server_port
 
     set_server_port(port)
     os.environ["QWENPAW_INTERNAL_HOST_API_HOST"] = probe_host_for_bind_host(
         host,
     )
+    cache_last_api(
+        probe_host_for_bind_host(host),
+        port,
+        get_runtime_base_path() if base_path is None else base_path,
+    )
     os.environ["QWENPAW_RUNTIME_MODE"] = (
         "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
     )
-    write_last_api(probe_host_for_bind_host(host), port)
     os.environ[LOG_LEVEL_ENV] = log_level
     if reload:
         os.environ["QWENPAW_RELOAD_MODE"] = "1"
@@ -105,6 +111,7 @@ def configure_server_process(
     help="Bind port",
 )
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev only)")
+@click.option("--desktop-root", is_flag=True, hidden=True)
 @click.option(
     "--log-level",
     default="info",
@@ -134,6 +141,7 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
+    desktop_root: bool,
     workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
@@ -142,6 +150,15 @@ def app_cmd(
     from ..app.server_context import set_dependency_restart
 
     set_dependency_restart(None)
+
+    if desktop_root:
+        if reload:
+            raise click.UsageError(
+                "--desktop-root cannot be used with --reload",
+            )
+        from ..envs.store import force_desktop_base_path_root
+
+        force_desktop_base_path_root()
 
     # NOTE: the server intentionally runs UNPRIVILEGED. The Windows
     # restricted-token sandbox no longer requires the whole server to be
@@ -201,7 +218,12 @@ def app_cmd(
             },
         )
 
-    uvicorn.run(
+    from uvicorn.main import STARTUP_FAILURE
+    from uvicorn.supervisors import ChangeReload
+
+    from ..app.api_server import ApiServer
+
+    config = uvicorn.Config(
         "qwenpaw.app._app:app",
         host=host,
         port=port,
@@ -215,3 +237,14 @@ def app_cmd(
         # protocol fact rather than a user-configurable WebSocket capacity.
         ws_max_size=NM_MAX_INBOUND_BYTES,
     )
+    server = ApiServer(config)
+    try:
+        if config.should_reload:
+            with config.bind_socket() as sock:
+                ChangeReload(config, target=server.run, sockets=[sock]).run()
+        else:
+            server.run()
+    except KeyboardInterrupt:
+        pass
+    if not config.should_reload and not server.started:
+        raise SystemExit(STARTUP_FAILURE)

@@ -121,7 +121,7 @@ describe("HubPage", () => {
     vi.mocked(hubApi.listAuditEvents).mockResolvedValue(page());
   });
 
-  describe("logout navigation", () => {
+  describe("deployment-aware navigation", () => {
     const originalLocation = Object.getOwnPropertyDescriptor(
       window,
       "location",
@@ -129,6 +129,23 @@ describe("HubPage", () => {
 
     afterEach(() => {
       Object.defineProperty(window, "location", originalLocation);
+    });
+
+    it.each([
+      ["/hub", "/"],
+      ["/qwenpaw/hub", "/qwenpaw/"],
+    ])("returns from %s to the console root", async (pathname, target) => {
+      const assign = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { pathname, assign },
+      });
+      renderHubPage();
+      await screen.findByText("hub.overview.title");
+      fireEvent.click(
+        screen.getByRole("button", { name: "hub.actions.backToQwenPaw" }),
+      );
+      expect(assign).toHaveBeenCalledWith(target);
     });
 
     it.each([

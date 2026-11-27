@@ -81,7 +81,22 @@ describe("navigationMode", () => {
 });
 
 describe("configured console basename", () => {
+  let baseElement: HTMLBaseElement | undefined;
+  let runtimeBaseMeta: HTMLMetaElement | undefined;
+
+  function setDocumentBase(path: string) {
+    baseElement = document.createElement("base");
+    baseElement.href = `${path}/`;
+    document.head.append(baseElement);
+    runtimeBaseMeta = document.createElement("meta");
+    runtimeBaseMeta.name = "qwenpaw-base-path";
+    runtimeBaseMeta.content = path;
+    document.head.append(runtimeBaseMeta);
+  }
+
   afterEach(() => {
+    baseElement?.remove();
+    runtimeBaseMeta?.remove();
     vi.unstubAllEnvs();
     vi.resetModules();
   });
@@ -155,5 +170,55 @@ describe("configured console basename", () => {
       "/login?redirect=%2Fchat",
     );
     expect(navigation.getOsRootHref("/login")).toBe("/os");
+  });
+
+  it.each(["/控制台", "/my console"])(
+    "keeps browser navigation inside %s",
+    async (base) => {
+      setDocumentBase(base);
+      const navigation = await loadNavigation(undefined);
+      const pathname = new URL(`${base}/login`, "https://example.org").pathname;
+      expect(navigation.stripRouterBasename(pathname)).toBe("/login");
+      expect(navigation.addRouterBasename(pathname, "/chat")).toBe(
+        pathname.replace(/login$/, "chat"),
+      );
+    },
+  );
+
+  it.each([
+    ["/O'Reilly", "/O%27Reilly"],
+    ["/中文", "/%e4%b8%ad%e6%96%87"],
+    ["/apps/data+preview", "/%61pps/data%2Bpreview"],
+  ])("matches an equivalent encoding of %s", async (base, spelling) => {
+    setDocumentBase(base);
+    const navigation = await loadNavigation(undefined);
+    const pathname = `${spelling}/chat/%2Fother`;
+    expect(navigation.getRouterBasename(pathname)).toBe(spelling);
+    expect(navigation.stripRouterBasename(spelling)).toBe("/");
+    expect(navigation.stripRouterBasename(pathname)).toBe("/chat/%2Fother");
+    expect(navigation.getLoginHref({ pathname })).toBe(
+      `${spelling}/login?redirect=%2Fchat%2F%252Fother`,
+    );
+    expect(
+      navigation.getRouterBasename(`${spelling}-other/chat`),
+    ).toBeUndefined();
+    expect(navigation.getRouterBasename(`${spelling}%2Fchat`)).toBeUndefined();
+    expect(navigation.getRouterBasename(`${spelling}%/chat`)).toBeUndefined();
+  });
+
+  it("prefers the server-injected runtime base path", async () => {
+    setDocumentBase("/app/qwenpaw/web");
+    const navigation = await loadNavigation(undefined);
+    const location = {
+      pathname: "/app/qwenpaw/web/chat",
+      search: "?draft=one",
+    };
+    expect(navigation.getRouterBasename(location.pathname)).toBe(
+      "/app/qwenpaw/web",
+    );
+    expect(navigation.stripRouterBasename(location.pathname)).toBe("/chat");
+    expect(navigation.getLoginHref(location)).toBe(
+      "/app/qwenpaw/web/login?redirect=%2Fchat%3Fdraft%3Done",
+    );
   });
 });

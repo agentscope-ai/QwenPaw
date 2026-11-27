@@ -41,6 +41,7 @@ interface QwenPawDataSdkFactory {
 declare global {
   interface Window {
     QwenPaw?: {
+      host?: { getApiUrl(path: string): string };
       paw?: QwenPawDataSdkFactory;
     };
   }

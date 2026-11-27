@@ -6,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from qwenpaw.cli.cron_cmd import (
+    _base_url,
     _build_spec_from_cli,
     _resolve_update_spec,
     cron_group,
@@ -34,6 +35,16 @@ def _agent_spec(**overrides):
     }
     values.update(overrides)
     return _build_spec_from_cli(**values)
+
+
+def test_base_url_includes_runtime_base_path(monkeypatch):
+    monkeypatch.setenv("QWENPAW_BASE_PATH", "/app")
+    ctx = click.Context(
+        click.Command("cron"),
+        obj={"host": "127.0.0.1", "port": 8088},
+    )
+
+    assert _base_url(ctx, None) == "http://127.0.0.1:8088/app/api"
 
 
 def test_build_agent_spec_includes_silent_delivery():

@@ -1,3 +1,5 @@
+import { getRuntimeBasePath } from "../utils/runtimeBasePath";
+
 declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
 import { isPlatformWebApp } from "../features/platform-web/client";
@@ -12,7 +14,11 @@ export function setRuntimeApiBaseUrl(url: string): void {
 }
 
 export function getApiBaseUrl(): string {
-  return consoleHost?.apiBase ?? runtimeApiBaseUrl ?? VITE_API_BASE_URL ?? "";
+  return (
+    consoleHost?.apiBase ??
+    runtimeApiBaseUrl ??
+    (VITE_API_BASE_URL || getRuntimeBasePath())
+  );
 }
 
 let authCleanup: Promise<unknown> = Promise.resolve();

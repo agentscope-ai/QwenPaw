@@ -5,7 +5,7 @@ import { build } from "esbuild";
 import type { Plugin } from "vite";
 
 /** Inline a dependency-free monitor before Vite's entry module executes. */
-export function startupMonitorPlugin(): Plugin {
+export function startupMonitorPlugin(apiBaseUrl = ""): Plugin {
   return {
     name: "console-startup-monitor",
     transformIndexHtml: {
@@ -63,6 +63,9 @@ export function startupMonitorPlugin(): Plugin {
             resolveDir: fileURLToPath(directory),
             sourcefile: "console-startup-monitor.ts",
             loader: "ts",
+          },
+          define: {
+            VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
           },
           bundle: true,
           write: false,

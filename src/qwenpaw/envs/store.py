@@ -6,7 +6,7 @@ Persistence strategy (two layers):
 1. **envs.json** – canonical store, survives process restarts.
 2. **os.environ** – injected into the current Python process so that
    ``os.getenv()`` and child subprocesses (``subprocess.run``, etc.)
-   can read them immediately.
+   can read them immediately, except for settings applied only at startup.
 """
 from __future__ import annotations
 
@@ -43,6 +43,8 @@ _LEGACY_ENVS_JSON_CANDIDATES = (
     _BOOTSTRAP_WORKING_DIR / "envs.json",
 )
 _HOST_ENV_VALUES: dict[str, str | None] = {}
+_BASE_PATH_ENV = "QWENPAW_BASE_PATH"
+_desktop_root_forced = False
 
 
 def _same_path(a: Path, b: Path) -> bool:
@@ -103,6 +105,17 @@ def get_envs_json_path() -> Path:
 # ------------------------------------------------------------------
 
 
+def force_desktop_base_path_root() -> None:
+    """Keep this Desktop backend at `/` without changing saved settings.
+
+    Call before importing the server: package bootstrap may already have
+    loaded the persisted base path, and the server loads it again on import.
+    """
+    global _desktop_root_forced  # pylint: disable=global-statement
+    _desktop_root_forced = True
+    os.environ[_BASE_PATH_ENV] = "/"
+
+
 def _apply_to_environ(
     envs: dict[str, str],
     *,
@@ -119,6 +132,8 @@ def _apply_to_environ(
         if is_internal_env_key(key) or is_managed_control_key(key):
             continue
         identity = env_key_identity(key)
+        if _desktop_root_forced and identity == _BASE_PATH_ENV:
+            continue
         if identity in seen:
             logger.warning(
                 f"Skipping case-conflicting environment variable: {key}",
@@ -137,7 +152,10 @@ def _remove_from_environ(key: str) -> None:
     """Restore the inherited value for *key*, or remove it if absent."""
     if is_internal_env_key(key):
         return
-    host_key = env_key_identity(key) if os.name == "nt" else key
+    identity = env_key_identity(key)
+    if _desktop_root_forced and identity == _BASE_PATH_ENV:
+        return
+    host_key = identity if os.name == "nt" else key
     inherited = _HOST_ENV_VALUES.get(host_key)
     if inherited is None:
         os.environ.pop(key, None)
@@ -149,11 +167,18 @@ def _sync_environ(
     old: dict[str, str],
     new: dict[str, str],
 ) -> None:
-    """Synchronise ``os.environ``: set *new*, remove stale *old*."""
+    """Sync live variables without changing the serving process's mount."""
     for key, old_value in old.items():
+        if env_key_identity(key) == _BASE_PATH_ENV:
+            continue
         if key not in new and os.environ.get(key) == old_value:
             _remove_from_environ(key)
-    _apply_to_environ(new, overwrite=True)
+    live = {
+        key: value
+        for key, value in new.items()
+        if env_key_identity(key) != _BASE_PATH_ENV
+    }
+    _apply_to_environ(live, overwrite=True)
 
 
 # ------------------------------------------------------------------
@@ -289,7 +314,7 @@ def save_envs(
     envs: dict[str, str],
     path: Optional[Path] = None,
 ) -> None:
-    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
+    """Write encrypted envs.json and sync live vars to ``os.environ``."""
     path, migrate_legacy = _resolve_envs_path(path)
     with get_sync_path_lock(path):
         if migrate_legacy:
@@ -339,10 +364,8 @@ def delete_env_var(key: str) -> dict[str, str]:
 def load_envs_into_environ() -> dict[str, str]:
     """Load envs.json and apply bootstrap-safe entries to ``os.environ``.
 
-    Call this once at application startup so that environment
-    variables persisted from a previous session are available
-    immediately. Protected keys are excluded from injection, and
-    persisted values override existing process/system values.
+    Persisted values override existing process/system values, except for
+    protected keys and the Desktop backend's forced root base path.
 
     Returns:
         Full persisted mapping from envs.json, including protected keys

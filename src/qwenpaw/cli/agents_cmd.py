@@ -31,7 +31,7 @@ from ..services.agent_setup import (
     normalized_agent_order as _normalized_agent_order,
     register_agent,
 )
-from .http import print_json, resolve_base_url
+from .http import print_json, resolve_api_endpoint
 
 SUPPORTED_AGENT_TEMPLATES = list_supported_agent_templates()
 
@@ -493,7 +493,7 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
         ]
       }
     """
-    base_url = resolve_base_url(ctx, base_url)
+    base_url = resolve_api_endpoint(ctx, base_url)
     print_json(agent_tools.list_agents_data(base_url))
 
 
@@ -671,7 +671,7 @@ def delete_cmd(
       qwenpaw agents delete research --remove-workspace
       qwenpaw agents delete research --yes
     """
-    resolved_base_url = resolve_base_url(ctx, base_url)
+    resolved_base_url = resolve_api_endpoint(ctx, base_url)
 
     if not yes:
         click.echo(f"WARNING: You are about to delete agent '{agent_id}'.")
@@ -895,7 +895,7 @@ def chat_cmd(
         * Status flow: submitted → pending → running → finished
         * finished includes: completed (✅) or failed (❌)
 """
-    resolved_base_url = resolve_base_url(ctx, base_url)
+    resolved_base_url = resolve_api_endpoint(ctx, base_url)
 
     # Validate parameters
     _validate_chat_parameters(

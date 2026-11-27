@@ -18,8 +18,6 @@ import click
 import httpx
 
 from ..config import utils as config_utils
-from ..utils.runtime_api import api_client, read_runtime_api
-
 from ..plugins.archive import (
     find_plugin_root,
     safe_extract_zip as _safe_extract_zip,
@@ -28,6 +26,12 @@ from ..plugins.discovery import read_manifest
 from ..plugins.validation import (
     validate_plugin_module as _validate_plugin_module,
 )
+from ..utils.runtime_api import (
+    api_client,
+    api_url_from_deployment,
+    read_runtime_api,
+)
+from .http import deployment_url
 
 logger = logging.getLogger(__name__)
 
@@ -104,20 +108,17 @@ def _get_api_base() -> Optional[str]:
         Base URL string such as ``http://127.0.0.1:8088/api`` if the
         app is running, otherwise ``None``.
     """
-    api_info = read_runtime_api()
-    if os.environ.get("QWENPAW_RUNTIME_ID") and api_info is None:
+    runtime = read_runtime_api()
+    if runtime is not None:
+        return api_url_from_deployment(deployment_url(*runtime))
+    if os.environ.get("QWENPAW_RUNTIME_ID"):
         raise click.ClickException("Managed runtime endpoint is unavailable")
-    api_info = api_info or config_utils.read_last_api()
-    if api_info is None:
+    record = config_utils.read_last_api_record()
+    if record is None:
         return None
-    host, port = api_info
-    address = httpx.URL(
-        scheme="http",
-        host=host.strip("[]"),
-        port=port,
-        path="/api",
+    return api_url_from_deployment(
+        deployment_url(record.host, record.port, record),
     )
-    return str(address)
 
 
 def _api_install_plugin(source: str, force: bool = False) -> bool:
