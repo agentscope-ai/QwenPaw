@@ -542,6 +542,25 @@ def test_browser_timeouts_must_be_positive(kwargs: dict) -> None:
         cfg_mod.BrowserConfig(**kwargs)
 
 
+def test_browser_ignore_default_args_defaults_to_empty() -> None:
+    assert cfg_mod.BrowserConfig().ignore_default_args == []
+
+
+def test_browser_ignore_default_args_round_trips() -> None:
+    browser = cfg_mod.BrowserConfig.model_validate(
+        {"ignore_default_args": ["--disable-extensions"]},
+    )
+    assert browser.ignore_default_args == ["--disable-extensions"]
+
+
+def test_browser_ignore_default_args_ignores_non_string_entries() -> None:
+    """Pydantic rejects a non-string switch instead of building a bad argv."""
+    with pytest.raises(ValidationError):
+        cfg_mod.BrowserConfig.model_validate(
+            {"ignore_default_args": ["--disable-extensions", 7]},
+        )
+
+
 # ---------------------------------------------------------------------------
 # plugin tool defaults
 # ---------------------------------------------------------------------------

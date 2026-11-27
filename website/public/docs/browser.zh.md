@@ -115,6 +115,7 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 | `headless`                 | string             | `"auto"` | `auto` 表示容器内或无图形界面时无头运行，否则显示窗口；也可写 `"true"` / `"false"` 强制 |
 | `user_data_dir`            | string \| null     | `null`   | 自定义独立浏览器的数据目录；不填则按工作区自动分配                                      |
 | `args`                     | string[]           | `[]`     | 追加的浏览器启动参数                                                                    |
+| `ignore_default_args`      | string[]           | `[]`     | 需要从启动命令行中去掉的 Playwright 默认参数（见下文）                                  |
 | `viewport`                 | [int, int] \| null | `null`   | 视口尺寸，两个值都必须为正整数                                                          |
 | `proxy`                    | string \| null     | `null`   | 代理地址                                                                                |
 | `use_system_default`       | bool               | `true`   | 优先使用系统默认浏览器的 Chromium 可执行文件                                            |
@@ -123,6 +124,29 @@ Agent 使用的是 QwenPaw 自带的 Browser SDK（不是 Playwright），API �
 | `exec_timeout_seconds`     | float              | `120`    | 单次 `browser` 调用的执行超时（秒）                                                     |
 
 > **已废弃字段**：`backend: "extension"` 请改用 `identity: "user"`；`context` 请改用 `identity`（`profile` → `avatar`，`incognito` → `guest`）。旧配置仍可加载，但会在日志中给出告警。
+
+### `ignore_default_args`
+
+`args` 只能**追加**参数，而 Chromium 的布尔开关是「存在即生效」——所以再追加一次
+`--disable-extensions` 并不能把它关掉。Playwright 自己就会注入
+`--disable-extensions`，这导致持久化 profile 里装好的扩展永远不会被加载。
+
+`ignore_default_args` 按名字从 Playwright 的默认参数表里去掉开关，这样 profile 的
+扩展就能正常加载：
+
+```json
+{
+  "browser": {
+    "backend": "launch",
+    "identity": "avatar",
+    "user_data_dir": "/path/to/User Data",
+    "ignore_default_args": ["--disable-extensions"]
+  }
+}
+```
+
+该字段只对 `backend: "launch"` 生效。`managed_cdp` 和 `connect_cdp` 连接的是已经
+在运行的浏览器，没有启动命令行可以调整。
 
 ---
 
