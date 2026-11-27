@@ -18,7 +18,7 @@ const windows = new WeakMap<HTMLElement, MeasuredMessageWindow>();
 export function revealCachedMessage(
   scroll: HTMLElement,
   id: string,
-  ready: () => void,
+  ready?: () => void,
 ): boolean {
   for (const root of scroll.querySelectorAll<HTMLElement>(
     "[data-measured-message-window]",
@@ -99,7 +99,6 @@ export class MeasuredMessageWindow extends Component<
 
   private measure = () => {
     if (!this.mounted) return;
-    const anchor = this.anchor();
     let changed = false;
     for (const row of this.rows()) {
       const height =
@@ -116,10 +115,9 @@ export class MeasuredMessageWindow extends Component<
       }
     }
     if (changed) {
-      this.forceUpdate(() => {
-        this.restore(anchor);
-        this.onScroll();
-      });
+      // The update lifecycle restores its pre-commit anchor before it notifies
+      // the parent. A second restore here would overwrite the parent's jump.
+      this.forceUpdate(this.onScroll);
     }
   };
 
@@ -213,7 +211,7 @@ export class MeasuredMessageWindow extends Component<
     if (this.root) windows.delete(this.root);
   }
 
-  reveal(id: string, ready: () => void): boolean {
+  reveal(id: string, ready?: () => void): boolean {
     const index = this.props.ids.indexOf(id);
     if (index < 0) return false;
     const start = Math.max(

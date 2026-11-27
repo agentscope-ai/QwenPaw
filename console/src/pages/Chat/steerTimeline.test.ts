@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { projectTurnTimeline } from "./steerTimeline";
 
-const msg = (id: string, role: string, ordinal: number, anchor?: string) => ({
+const msg = (
+  id: string,
+  role: string,
+  ordinal: number,
+  anchor?: string,
+  timestamp?: string,
+) => ({
   id,
   role,
   content: [{ type: "text", text: id }],
@@ -10,6 +16,7 @@ const msg = (id: string, role: string, ordinal: number, anchor?: string) => ({
     input_kind: role === "user" ? "steer" : undefined,
     client_message_id: role === "user" ? `c-${id}` : undefined,
     qwenpaw_transcript_position: { turn_id: "t", ordinal },
+    timestamp,
   },
 });
 
@@ -30,6 +37,7 @@ describe("steer timeline ownership", () => {
     expect(rows[2].key).toBe("t:s1");
   });
   it("merges the pending input with committed text without changing its key", () => {
+    const persistedAt = "2026-11-27T06:37:14.385Z";
     const receipt = {
       turn_id: "t",
       client_message_id: "c-s1",
@@ -41,6 +49,7 @@ describe("steer timeline ownership", () => {
       append_seq: 1,
       revision: 1,
       status: "accepted",
+      created_at: 1_700_000_000,
     };
     const before = projectTurnTimeline(
       [msg("a", "assistant", 0, "u1")],
@@ -48,12 +57,17 @@ describe("steer timeline ownership", () => {
       "t",
     );
     const after = projectTurnTimeline(
-      [msg("a", "assistant", 0, "u1"), msg("s1", "user", 1)],
+      [
+        msg("a", "assistant", 0, "u1"),
+        msg("s1", "user", 1, undefined, persistedAt),
+      ],
       [receipt],
       "t",
     );
     expect(before[1].content).toEqual(receipt.content);
     expect(before[1].key).toBe(after[1].key);
+    expect(before[1].createdAt).toBe(receipt.created_at);
+    expect(after[1].createdAt).toBe(Date.parse(persistedAt) / 1000);
     expect(after.filter((r) => r.kind === "user")).toHaveLength(1);
     expect(after[1].status).toBe("applied");
   });

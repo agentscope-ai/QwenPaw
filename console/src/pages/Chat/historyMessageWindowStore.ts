@@ -1,4 +1,5 @@
 import type { IAgentScopeRuntimeWebUIMessage } from "@agentscope-ai/chat";
+import type { MessageScrollAnchor } from "./messageScroll";
 
 export const HISTORY_MESSAGE_WINDOW_CARD = "QwenPawHistoryMessageWindow";
 
@@ -56,6 +57,7 @@ export interface HistoryWindowSnapshot {
   sessionId: string;
   turnRows: IAgentScopeRuntimeWebUIMessage[][];
   activeMessageId?: string;
+  initialScrollAnchor?: MessageScrollAnchor;
   loading: boolean;
   canLoadOlder: boolean;
   canLoadNewer?: boolean;
