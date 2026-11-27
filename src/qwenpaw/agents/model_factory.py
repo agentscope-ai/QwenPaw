@@ -2788,7 +2788,49 @@ def create_model_and_formatter(
             message=f"Provider '{model_slot.provider_id}' not found.",
         )
     if not provider.enabled:
-        raise ProviderError(message=f"Provider is disabled")
+        # Fix #8579: the agent's persisted run-config model may point at a
+        # provider that was disabled on the Models page after the model was
+        # selected. Treat that like an unset run-config model and fall back
+        # to the global default instead of failing every channel message
+        # with an unactionable "Provider is disabled". An explicit
+        # per-request override (slot) still raises: the caller asked for
+        # exactly that model and should learn it is unavailable.
+        agent_label = agent_id or "default"
+        if slot is not None:
+            raise ProviderError(
+                message=(
+                    f"Provider '{model_slot.provider_id}' is disabled; "
+                    f"choose another model for agent '{agent_label}'"
+                ),
+            )
+        fallback_slot = manager.get_active_model()
+        fallback_provider = None
+        if (
+            fallback_slot
+            and fallback_slot.provider_id
+            and fallback_slot.model
+        ):
+            fallback_provider = manager.get_provider(fallback_slot.provider_id)
+        if fallback_provider is None or not fallback_provider.enabled:
+            raise ProviderError(
+                message=(
+                    f"Provider '{model_slot.provider_id}' is disabled and no "
+                    f"enabled global default model is available; reselect a "
+                    f"model for agent '{agent_label}'"
+                ),
+            )
+        logger.warning(
+            "Agent '%s' run-config model '%s/%s' points at disabled provider "
+            "'%s'; falling back to the global default model '%s/%s'.",
+            agent_label,
+            model_slot.provider_id,
+            model_slot.model,
+            model_slot.provider_id,
+            fallback_slot.provider_id,
+            fallback_slot.model,
+        )
+        model_slot = fallback_slot
+        provider = fallback_provider
     with agent_thinking_level(
         settings.thinking_level,
         settings.thinking_budget,

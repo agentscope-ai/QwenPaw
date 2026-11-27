@@ -4,6 +4,7 @@
 # pylint: disable=protected-access,redefined-outer-name
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+import logging
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -369,6 +370,111 @@ def test_no_override_uses_active_model():
         )
 
     assert model.identifier == "default-provider/default-model"
+
+
+def _fallback_test_providers():
+    """Provider stubs for the disabled-provider fallback tests (#8579)."""
+    return {
+        "default-provider": _FakeProvider(
+            enabled=False,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+            id="default-provider",
+            get_chat_model_instance=lambda model_name: _FakeChatModel(
+                f"default-provider/{model_name}",
+            ),
+        ),
+        "global-provider": _FakeProvider(
+            enabled=True,
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+            id="global-provider",
+            get_chat_model_instance=lambda model_name: _FakeChatModel(
+                f"global-provider/{model_name}",
+            ),
+        ),
+    }
+
+
+def _patch_fallback_manager(monkeypatch, active_model):
+    """Point the factory at the fallback-test provider stubs."""
+    monkeypatch.setattr(
+        model_factory,
+        "ProviderManager",
+        SimpleNamespace(
+            get_instance=lambda: SimpleNamespace(
+                get_provider=_fallback_test_providers().get,
+                get_active_model=lambda: active_model,
+            ),
+        ),
+    )
+
+
+def test_disabled_run_config_model_falls_back_to_global_default(
+    monkeypatch,
+    caplog,
+):
+    """A run-config model on a disabled provider uses the global default."""
+    _patch_fallback_manager(
+        monkeypatch,
+        ModelSlotConfig(provider_id="global-provider", model="global-model"),
+    )
+
+    with patch.object(model_factory, "RetryConfig") as retry_cls:
+        retry_cls.return_value = "rc"
+        with caplog.at_level(logging.WARNING):
+            model, _ = model_factory.create_model_and_formatter(
+                agent_id="agent-1",
+            )
+
+    assert model.identifier == "global-provider/global-model"
+    assert "disabled provider 'default-provider'" in caplog.text
+
+
+def test_explicit_override_of_disabled_provider_keeps_raising(monkeypatch):
+    """An explicit per-request override of a disabled provider still fails."""
+    _patch_fallback_manager(
+        monkeypatch,
+        ModelSlotConfig(provider_id="global-provider", model="global-model"),
+    )
+
+    with pytest.raises(
+        model_factory.ProviderError,
+        match=r"is disabled; choose another model for agent 'agent-1'",
+    ):
+        model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+            model_slot_override="default-provider:model",
+        )
+
+
+@pytest.mark.parametrize(
+    "global_model",
+    [
+        None,
+        ModelSlotConfig(provider_id="", model="global-model"),
+        ModelSlotConfig(provider_id="global-provider", model=""),
+    ],
+)
+def test_disabled_run_config_without_usable_default_raises_actionably(
+    monkeypatch,
+    global_model,
+):
+    """Without a usable global default the error names the disabled slot."""
+    _patch_fallback_manager(monkeypatch, global_model)
+
+    with pytest.raises(
+        model_factory.ProviderError,
+        match=(
+            r"Provider 'default-provider' is disabled and no enabled global "
+            r"default model is available; reselect a model for agent 'agent-1'"
+        ),
+    ):
+        model_factory.create_model_and_formatter(agent_id="agent-1")
 
 
 @pytest.mark.parametrize("next_provider_id", ["dashscope", "other-dashscope"])
