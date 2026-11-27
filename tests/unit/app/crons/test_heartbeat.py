@@ -52,6 +52,20 @@ def test_is_cron_expression_accepts_named_dow_with_step():
     assert is_cron_expression("0 9 * * mon-fri/2") is True
 
 
+def test_is_cron_expression_accepts_named_dow_list():
+    """Comma lists of named days are valid cron, as the Cron Jobs page
+    emits them (e.g. ``mon,wed,fri``)."""
+    assert is_cron_expression("0 9 * * mon,wed,fri") is True
+    assert is_cron_expression("0 9 * * sat,sun") is True
+    assert is_cron_expression("0 9 * * mon-fri,sun") is True
+    assert is_cron_expression("0 9 * * mon,3-5") is True
+
+
+def test_is_cron_expression_rejects_invalid_named_dow_list():
+    assert is_cron_expression("0 9 * * mon,xyz") is False
+    assert is_cron_expression("0 9 * * mon,") is False
+
+
 def test_is_cron_expression_rejects_invalid_named_dow():
     assert is_cron_expression("0 9 * * xyz") is False
     assert is_cron_expression("0 9 * * monday") is False
