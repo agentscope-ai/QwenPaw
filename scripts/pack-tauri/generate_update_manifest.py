@@ -67,8 +67,10 @@ def cmd_stage(args: argparse.Namespace) -> None:
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, output)
-    shutil.copyfile(sig_source, output.with_suffix(output.suffix + ".sig"))
+    # A post-processed installer can already be signed at its publish path.
+    if source.resolve() != output.resolve():
+        shutil.copyfile(source, output)
+        shutil.copyfile(sig_source, output.with_suffix(output.suffix + ".sig"))
 
     metadata = {
         "target": args.target,
