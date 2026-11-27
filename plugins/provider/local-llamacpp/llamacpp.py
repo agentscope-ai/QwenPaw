@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import atexit
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -10,6 +11,7 @@ import socket
 import subprocess
 import uuid
 from contextlib import contextmanager, suppress
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -19,8 +21,10 @@ from .io_helpers import (
     SERVER_GRACE_SECONDS,
     create_server_job,
     finish,
+    pid_is_alive,
     run_io,
     stop_server,
+    stop_server_by_pid,
     process_options,
 )
 
@@ -65,11 +69,15 @@ class LlamaCppBackend(BinaryDownloads):
         self.backend = self._resolve_backend()
         self.target_dir = data_dir / "bin"
         self.log_dir = data_dir / "logs"
+        self.run_dir = data_dir / "run"
         self._server_process: subprocess.Popen | None = None
         self._server_job = create_server_job()
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
+        # Set when this backend is serving a process it did not spawn, so the
+        # shutdown path knows there is no Popen to signal.
+        self._adopted_pid: int | None = None
         self._server_transitioning = False
         self._progress = DownloadProgressTracker()
         self._download_controller = ProcessDownloadController(
@@ -273,6 +281,14 @@ class LlamaCppBackend(BinaryDownloads):
                     self._server_model_name,
                     self._server_process.poll(),
                 )
+        adopted = await self._try_adopt_recorded_server(
+            model_name=model_name,
+            model_info=model_info,
+            requested_port=port,
+        )
+        if adopted is not None:
+            return adopted
+
         process = self._server_process
         if process is not None and process.poll() is None:
             if before_restart is not None:
@@ -303,6 +319,12 @@ class LlamaCppBackend(BinaryDownloads):
             if model_name in PICCOLO_REPO_IDS:
                 await self._verify_decision_runtime(port)
             logger.info("llama.cpp server is ready")
+            self._write_server_record(
+                pid=process.pid,
+                port=port,
+                model_name=model_name,
+                model_path=resolved_model_path,
+            )
         except BaseException:
             await self.shutdown_server()
             raise
@@ -406,7 +428,7 @@ class LlamaCppBackend(BinaryDownloads):
             "--alias",
             model_name,
             "--log-file",
-            str(self.log_dir / "llama-server.log"),
+            str(self.server_log_path),
             "--gpu-layers",
             "auto",
         ]
@@ -497,6 +519,8 @@ class LlamaCppBackend(BinaryDownloads):
         with self._server_shutdown_context() as process:
             if process and process.poll() is None:
                 await run_io(stop_server, process)
+            elif process is None and self._adopted_pid is not None:
+                await run_io(stop_server_by_pid, self._adopted_pid)
             await self._cancel_server_log_task()
 
     def shutdown_server_sync(self) -> None:
@@ -507,6 +531,12 @@ class LlamaCppBackend(BinaryDownloads):
                 # forced-reap fallback shorter than managed async shutdown.
                 stop_server(
                     process,
+                    graceful_timeout=SERVER_GRACE_SECONDS,
+                    kill_timeout=1.0,
+                )
+            elif process is None and self._adopted_pid is not None:
+                stop_server_by_pid(
+                    self._adopted_pid,
                     graceful_timeout=SERVER_GRACE_SECONDS,
                     kill_timeout=1.0,
                 )
@@ -709,6 +739,190 @@ class LlamaCppBackend(BinaryDownloads):
             )
         return requested_port
 
+    @property
+    def server_log_path(self) -> Path:
+        """The log file llama-server writes to for the current launch."""
+        return self.log_dir / "llama-server.log"
+
+    @property
+    def server_record_path(self) -> Path:
+        """Where the running server describes itself for the next start."""
+        return self.run_dir / "llama-server.json"
+
+    def _read_server_record(self) -> dict[str, Any] | None:
+        """Read the last recorded server, or None when there is nothing usable.
+
+        Only the fields the caller needs are validated here. A record that is
+        malformed, half-written or missing is treated as absent rather than as
+        an error: the worst case is starting a new server, which is exactly
+        what happened before this file existed.
+        """
+        try:
+            text = self.server_record_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        try:
+            record = json.loads(text)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(record, dict):
+            return None
+        if not isinstance(record.get("pid"), int):
+            return None
+        if not isinstance(record.get("port"), int):
+            return None
+        if (
+            not isinstance(record.get("model_name"), str)
+            or not record["model_name"]
+        ):
+            return None
+        return record
+
+    def _write_server_record(
+        self,
+        *,
+        pid: int,
+        port: int,
+        model_name: str,
+        model_path: Path,
+    ) -> None:
+        """Record the running server so a later start can adopt it.
+
+        Written through a temporary file and renamed into place so a crash
+        mid-write leaves the previous record rather than a truncated one.
+        """
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "pid": pid,
+            "port": port,
+            "model_name": model_name,
+            "model_path": str(model_path),
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+        temporary = self.server_record_path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temporary, self.server_record_path)
+
+    def _clear_server_record(self) -> None:
+        """Drop the record; a stale one is never trusted, but leave nothing behind."""
+        with suppress(OSError):
+            self.server_record_path.unlink()
+
+    def _read_log_tail(
+        self,
+        max_lines: int = 20,
+        max_bytes: int = 8192,
+    ) -> str:
+        """Return the last few lines of the server log, or "" when unreadable.
+
+        Bounded on purpose: the file is written by another process and can be
+        large, so this reads only its tail rather than the whole thing.
+        """
+        path = self.server_log_path
+        try:
+            with path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - max_bytes))
+                chunk = handle.read()
+        except OSError:
+            return ""
+        lines = chunk.decode("utf-8", errors="replace").splitlines()
+        return "\n".join(lines[-max_lines:])
+
+    def _server_exit_message(self, returncode: int | None) -> str:
+        """Explain a dead server by its exit code and the tail of its log.
+
+        The bare "exited before becoming ready" leaves the reader with no way to
+        tell a missing runtime, an OOM kill and a bad model file apart. The exit
+        code and the last log lines distinguish them without another run.
+        """
+        head = (
+            "llama.cpp server exited before becoming ready "
+            f"(exit code {returncode})"
+        )
+        tail = self._read_log_tail()
+        if tail:
+            return f"{head}. Last lines of {self.server_log_path}:\n{tail}"
+        return f"{head}. {self.server_log_path} is empty or unreadable."
+
+    async def _probe_recorded_server(
+        self,
+        record: dict[str, Any],
+        model_name: str,
+    ) -> bool:
+        """Say whether the recorded server is this same model, still serving.
+
+        Three independent facts have to line up. A pid alone proves nothing —
+        the number can be reused by an unrelated process. A listening port alone
+        proves nothing either. Asking the server which model it serves is the
+        only check a coincidence cannot satisfy.
+        """
+        if record.get("model_name") != model_name:
+            return False
+
+        port = record["port"]
+        if self._is_port_available(port):
+            return False  # nothing is listening there any more
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=3.0,
+                trust_env=False,
+            ) as client:
+                health = await client.get(f"http://127.0.0.1:{port}/health")
+                if health.status_code >= 500:
+                    return False
+                models = await client.get(f"http://127.0.0.1:{port}/v1/models")
+                if models.status_code != 200:
+                    return False
+                data = models.json().get("data", [])
+        except (httpx.HTTPError, ValueError):
+            return False
+        return any(item.get("id") == model_name for item in data)
+
+    async def _try_adopt_recorded_server(
+        self,
+        model_name: str,
+        model_info: ModelInfo,
+        requested_port: int | None,
+    ) -> LlamaCppServerSetupResult | None:
+        """Serve the server a previous run left behind, when it is provably ours.
+
+        Nothing else stops a second copy from being started on a fresh port:
+        each one holds several gigabytes, so a few restarts end with the machine
+        out of commit and the next load dying quietly.
+        """
+        record = self._read_server_record()
+        if record is None:
+            return None
+        if requested_port is not None and requested_port != record["port"]:
+            return None
+        if not await self._probe_recorded_server(record, model_name):
+            return None
+
+        self._adopted_pid = record["pid"]
+        self._server_port = record["port"]
+        self._server_model_name = model_name
+        self._server_process = None
+        # Adopted without a Popen, so bind it to the job by pid: otherwise the
+        # server we just claimed sits outside the job and outlives the next
+        # crash exactly as the original orphan did.
+        self._server_job.assign_pid(record["pid"])
+        logger.info(
+            "Adopted the running llama.cpp server pid %s on port %s for model %s",
+            record["pid"],
+            record["port"],
+            model_name,
+        )
+        return LlamaCppServerSetupResult(
+            port=record["port"],
+            model_info=model_info,
+        )
+
     async def server_ready(
         self,
         timeout: float = 120.0,
@@ -723,7 +937,9 @@ class LlamaCppBackend(BinaryDownloads):
             while asyncio.get_running_loop().time() < deadline:
                 if self._server_process.poll() is not None:
                     raise RuntimeError(
-                        "llama.cpp server exited before becoming ready",
+                        self._server_exit_message(
+                            self._server_process.returncode,
+                        ),
                     )
                 try:
                     response = await client.get(health_url)
@@ -800,7 +1016,9 @@ class LlamaCppBackend(BinaryDownloads):
         self._server_log_task = None
         self._server_port = None
         self._server_model_name = None
+        self._adopted_pid = None
         self._server_transitioning = False
+        self._clear_server_record()
 
     def _shutdown_server_at_exit(self) -> None:
         with suppress(Exception):

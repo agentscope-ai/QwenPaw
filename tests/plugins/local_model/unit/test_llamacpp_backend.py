@@ -1654,6 +1654,8 @@ def test_force_shutdown_server_uses_plugin_shutdown_helper(
     assert calls == [(process, 5.0, 1.0)]
 
 
+# ---- tests from #8841 (job lifetime) ----
+
 # ---------------------------------------------------------------------------
 # The server must not outlive a crashed provider (#8830)
 # ---------------------------------------------------------------------------
@@ -1937,3 +1939,296 @@ def test_the_server_dies_with_a_sigkilled_provider(tmp_path: Path) -> None:
         if parent.poll() is None:
             parent.kill()
             parent.wait()
+
+
+# ---- tests for adopt / error reporting ----
+
+
+async def test_server_exit_error_carries_the_code_and_log_tail(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A dead server must say why, not just that it died.
+
+    "exited before becoming ready" leaves a missing runtime, an OOM kill and a
+    bad model file indistinguishable. The exit code separates them and the tail
+    of the log names the reason without asking the user to run it again.
+    """
+    downloader = _build_downloader(monkeypatch)
+    process = _FakeServerProcess()
+    process.returncode = 1
+    downloader._server_process = process
+    downloader._server_port = 43210
+    downloader.log_dir.mkdir(parents=True, exist_ok=True)
+    downloader.server_log_path.write_text(
+        "llama_model_loader: loaded meta data\n"
+        "llama_model_load: error loading model: bad tensor\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await downloader.server_ready(timeout=1)
+
+    message = str(excinfo.value)
+    assert "exit code 1" in message
+    assert "error loading model: bad tensor" in message
+
+
+async def test_server_exit_error_survives_a_missing_log(
+    monkeypatch,
+) -> None:
+    """A missing log must not replace the exit code with a traceback."""
+    downloader = _build_downloader(monkeypatch)
+    process = _FakeServerProcess()
+    process.returncode = -9
+    downloader._server_process = process
+    downloader._server_port = 43211
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await downloader.server_ready(timeout=1)
+
+    message = str(excinfo.value)
+    assert "exit code -9" in message
+    assert "empty or unreadable" in message
+
+
+class _FakeProbeClient:
+    """Answers /health and /v1/models the way a live server would."""
+
+    def __init__(self, *, health_status=200, model_ids=(), fail=None):
+        self._health = health_status
+        self._models = list(model_ids)
+        self._fail = fail
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def get(self, url):
+        request = httpx.Request("GET", url)
+        if self._fail is not None:
+            raise self._fail
+        if url.endswith("/health"):
+            return httpx.Response(self._health, request=request)
+        return httpx.Response(
+            200,
+            json={"data": [{"id": name} for name in self._models]},
+            request=request,
+        )
+
+
+def _record(backend, *, pid, port, model_name, model_path):
+    backend.run_dir.mkdir(parents=True, exist_ok=True)
+    backend.server_record_path.write_text(
+        __import__("json").dumps(
+            {
+                "pid": pid,
+                "port": port,
+                "model_name": model_name,
+                "model_path": str(model_path),
+                "started_at": "2026-11-24T00:00:00+00:00",
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
+async def test_setup_adopts_a_recorded_server_instead_of_spawning(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A healthy recorded server is reused, not duplicated.
+
+    Starting a second copy is what fills the machine: each one holds several
+    gigabytes, so a few restarts end with the next load dying quietly.
+    """
+    backend = _build_downloader(monkeypatch)
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(
+        backend,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    _record(backend, pid=4321, port=51000, model_name="A", model_path=model)
+
+    monkeypatch.setattr(
+        backend,
+        "_is_port_available",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        downloader_module.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _FakeProbeClient(model_ids=["A"]),
+    )
+
+    spawned = []
+
+    async def create(**_kwargs):
+        spawned.append(True)
+        raise AssertionError("a second server must not be started")
+
+    monkeypatch.setattr(backend, "_create_server_process", create)
+
+    result = await backend.setup_server(model, "A")
+
+    assert result.port == 51000
+    assert backend._adopted_pid == 4321
+    assert backend._server_process is None
+    assert not spawned
+
+
+async def test_setup_ignores_a_record_for_a_different_model(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Serving the wrong model silently is worse than starting the right one."""
+    backend = _build_downloader(monkeypatch)
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(
+        backend,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    _record(backend, pid=4321, port=51000, model_name="B", model_path=model)
+
+    monkeypatch.setattr(
+        backend,
+        "_is_port_available",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        downloader_module.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _FakeProbeClient(model_ids=["B"]),
+    )
+
+    spawned = []
+
+    async def create(**_kwargs):
+        spawned.append(True)
+        process = _FakeServerProcess()
+        process.returncode = None
+        return process
+
+    async def ready():
+        return True
+
+    monkeypatch.setattr(backend, "_create_server_process", create)
+    monkeypatch.setattr(backend, "server_ready", ready)
+    monkeypatch.setattr(backend, "_resolve_server_port", lambda _port: 51001)
+
+    result = await backend.setup_server(model, "A")
+
+    assert result.port == 51001
+    assert backend._adopted_pid is None
+    assert spawned
+
+
+async def test_setup_ignores_a_record_whose_port_is_free(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """A free port means the recorded server is gone, whatever the pid says."""
+    backend = _build_downloader(monkeypatch)
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(
+        backend,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    _record(backend, pid=4321, port=51000, model_name="A", model_path=model)
+
+    monkeypatch.setattr(
+        backend,
+        "_is_port_available",
+        lambda *_args, **_kwargs: True,
+    )
+    probed = []
+
+    def client(**_kwargs):
+        probed.append(True)
+        return _FakeProbeClient(model_ids=["A"])
+
+    monkeypatch.setattr(downloader_module.httpx, "AsyncClient", client)
+
+    async def create(**_kwargs):
+        return _FakeServerProcess()
+
+    async def ready():
+        return True
+
+    monkeypatch.setattr(backend, "_create_server_process", create)
+    monkeypatch.setattr(backend, "server_ready", ready)
+    monkeypatch.setattr(backend, "_resolve_server_port", lambda _port: 51001)
+
+    await backend.setup_server(model, "A")
+
+    assert backend._adopted_pid is None
+    assert not probed, "a free port should short-circuit before probing"
+
+
+async def test_adopted_server_is_stopped_by_pid(monkeypatch, tmp_path) -> None:
+    """There is no Popen for an adopted server, so shutdown goes by pid."""
+    backend = _build_downloader(monkeypatch)
+    backend._adopted_pid = 4321
+    backend._server_port = 51000
+    stopped = []
+
+    def stop(pid, **_kwargs):
+        stopped.append(pid)
+
+    monkeypatch.setattr(downloader_module, "stop_server_by_pid", stop)
+
+    await backend.shutdown_server()
+
+    assert stopped == [4321]
+    assert backend._adopted_pid is None
+    assert backend._server_port is None
+    assert not backend.server_record_path.exists()
+
+
+async def test_adopted_server_joins_the_job(monkeypatch, tmp_path) -> None:
+    """An adopted server joins the job by pid, or it outlives the next crash.
+
+    Adoption exists for the process a previous crash left behind, which is
+    exactly when the job matters. Without binding it, the server we just
+    claimed sits outside the job and the next hard kill orphans it again, so
+    adopting would undo the protection instead of inheriting it.
+    """
+    backend = _build_downloader(monkeypatch)
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(
+        backend,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    _record(backend, pid=4321, port=51000, model_name="A", model_path=model)
+
+    monkeypatch.setattr(
+        backend,
+        "_is_port_available",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        downloader_module.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _FakeProbeClient(model_ids=["A"]),
+    )
+
+    bound: list[int] = []
+    monkeypatch.setattr(
+        backend._server_job,
+        "assign_pid",
+        bound.append,
+    )
+
+    await backend.setup_server(model, "A")
+
+    assert bound == [4321], "the adopted pid has to join the job"
