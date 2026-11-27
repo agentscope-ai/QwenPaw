@@ -101,11 +101,8 @@ async def cancellable_wait(
     if as_kill_deadline and fallback_secs is not None:
         arm_kill_deadline(ctx, fallback_secs)
 
-    task = (
-        coro_or_task
-        if isinstance(coro_or_task, asyncio.Task)
-        else asyncio.ensure_future(coro_or_task)
-    )
+    owns_task = not isinstance(coro_or_task, asyncio.Task)
+    task = asyncio.ensure_future(coro_or_task) if owns_task else coro_or_task
     cancel_waiter = asyncio.create_task(ctx.cancel_event.wait())
 
     try:
@@ -126,6 +123,12 @@ async def cancellable_wait(
 
         return task.result()
     finally:
+        if owns_task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         if not cancel_waiter.done():
             cancel_waiter.cancel()
             try:
