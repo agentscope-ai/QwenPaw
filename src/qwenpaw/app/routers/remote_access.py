@@ -50,10 +50,10 @@ async def _service(request: Request) -> PlatformRuntimeConnection:
             raise HTTPException(status_code=503, detail="No Runtime endpoint")
         host, port = server
         host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+        base_url = str(httpx.URL(scheme="http", host=host, port=port))
         service = PlatformRuntimeConnection(
             SECRET_DIR,
-            str(httpx.URL(scheme="http", host=host, port=port)),
-            headers=platform_runtime_headers,
+            lambda: (base_url, platform_runtime_headers()),
             runs=request.app.state.relay_runs,
         )
         request.app.state.platform_connection = service
@@ -213,7 +213,13 @@ async def disconnect(request: Request) -> dict:
     """Revoke only this binding, preserving other devices and accounts."""
     _same_origin(request)
     service = await _service(request)
-    return {"remote_cleanup_confirmed": await service.disconnect()}
+    try:
+        return {"remote_cleanup_confirmed": await service.disconnect()}
+    except OSError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Could not remove the local Platform binding",
+        ) from exc
 
 
 @callback_router.get("/callback/{nonce}", response_class=HTMLResponse)

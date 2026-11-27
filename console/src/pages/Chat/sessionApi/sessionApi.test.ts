@@ -1363,6 +1363,31 @@ describe("buildUserCard", () => {
 });
 
 describe("history bubble identity", () => {
+  it("uses the stored message id as the boundary for migrated history", () => {
+    const migratedUser = (id: string, ordinal: number) =>
+      msg({
+        id,
+        metadata: {
+          original_id: "legacy-user",
+          qwenpaw_transcript_position: {
+            turn_id: "legacy:1",
+            turn_seq: 1,
+            ordinal,
+          },
+        },
+      });
+    const first = migratedUser("stored-user-1", 0);
+    const second = migratedUser("stored-user-2", 1);
+    const messages = T.convertMessages([first, second], true);
+    const nextPage = T.convertMessages([second], true);
+
+    expect(messages.map(({ id }) => id)).toEqual([
+      "stored-user-1",
+      "stored-user-2",
+    ]);
+    expect(T.mergeHistoryMessages(messages, nextPage)).toHaveLength(2);
+  });
+
   it("keeps legacy fallback identity when the API regenerates message ids", () => {
     const read = (suffix: string) =>
       T.convertMessages([
@@ -1377,24 +1402,6 @@ describe("history bubble identity", () => {
     expect(read("after").map(({ id }) => id)).toEqual(
       read("before").map(({ id }) => id),
     );
-  });
-
-  it("uses the DB message id for durable transcript messages", () => {
-    const [card] = T.convertMessages([
-      msg({
-        id: "db-user",
-        metadata: {
-          original_id: "legacy-user",
-          qwenpaw_transcript_position: {
-            turn_id: "legacy:1",
-            turn_seq: 1,
-            ordinal: 0,
-          },
-        },
-      }),
-    ]);
-
-    expect(card.id).toBe("db-user");
   });
 
   it("gives parts of one stored user message distinct stable IDs", () => {

@@ -41,11 +41,14 @@
   gap: var(--chat-message-gap);
   width: 100%;
   min-width: 0;
-  padding-block: calc(
-      var(--chat-message-edge) + var(--chat-message-header-space) +
-        var(--chat-message-gap)
-    )
-    calc(var(--chat-message-edge) + 2 * var(--chat-message-gap));
+  padding-block-start: calc(
+    var(--history-space-before, 0px) + var(--chat-message-edge) +
+      var(--chat-message-header-space) + var(--chat-message-gap)
+  );
+  padding-block-end: calc(
+    var(--history-space-after, 0px) + var(--chat-message-edge) + 2 *
+      var(--chat-message-gap)
+  );
 
   > :global(.qwenpaw-bubble) {
     flex-shrink: 0;

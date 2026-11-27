@@ -475,13 +475,13 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 });
 
 function historyMessageId(msg: Message): string | undefined {
-  const messageId = typeof msg.id === "string" && msg.id ? msg.id : undefined;
-  if (getTranscriptPosition(msg) && messageId) return messageId;
-
-  // Legacy snapshots generate a new transport ID when history is serialized.
+  const id = typeof msg.id === "string" && msg.id ? msg.id : undefined;
+  // Stored transcript IDs are stable and accepted by the paging endpoints.
+  if (id && getTranscriptPosition(msg)) return id;
+  // Unmigrated history can regenerate its transport IDs on every read.
   const originalId = (msg.metadata as Record<string, unknown>)?.original_id;
   if (typeof originalId === "string" && originalId) return originalId;
-  return messageId;
+  return id;
 }
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */

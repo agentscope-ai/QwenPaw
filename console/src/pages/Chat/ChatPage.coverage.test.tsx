@@ -2143,6 +2143,51 @@ describe("ChatPage coverage", () => {
     });
   });
 
+  it("pauses automatic older history loads after failure until manual retry", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession: vi.fn(async (id: string) => ({
+        id,
+        name: id,
+        messages: [{ id: "stored-user", role: "user" as const, history: true }],
+        historyPage: { has_more: true },
+      })),
+    });
+    const loadOlder = vi.mocked(sessionApi.loadOlderHistory);
+    loadOlder.mockClear();
+    loadOlder.mockRejectedValueOnce(new Error("Unavailable"));
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    const target = document.createElement("div");
+    const window = historyMessageWindow.getSnapshot()!;
+    await act(async () => window.onLoadOlder(target));
+    expect(loadOlder).toHaveBeenCalledWith(
+      "test-session",
+      expect.any(AbortSignal),
+      false,
+      "stored-user",
+    );
+    const retry = await screen.findByRole("button", { name: /retry/i });
+
+    await act(async () => {
+      window.onFillOlder(target);
+      window.onLoadOlder(target);
+    });
+    expect(loadOlder).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(loadOlder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+  });
+
   it("compact command uses execution.execute with current session identity", async () => {
     const { historyMessageWindow } = await import(
       "./historyMessageWindowStore"
