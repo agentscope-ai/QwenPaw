@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..exceptions import HookCycleError
+from .._session_signals import SESSION_SAVE_SUCCEEDED_KEY, TURN_COMMIT_KEY
 from .occupancy import occupancy_conflict
 from .phases import Phase
 
@@ -326,7 +327,13 @@ class HookRegistry:
         self._sorted_cache[phase] = ordered
         return ordered
 
-    async def run(self, phase: Phase, ctx: HookContext) -> HookResult:
+    async def run(
+        self,
+        phase: Phase,
+        ctx: HookContext,
+        *,
+        _remaining=None,
+    ) -> HookResult:
         """Execute all hooks for ``phase`` in topological order.
 
         * ``SHORT_CIRCUIT`` from any hook stops the phase immediately and
@@ -340,7 +347,29 @@ class HookRegistry:
           recorded on that plugin, and the phase continues.
         """
         final_action = HookAction.CONTINUE
-        for hook in self.hooks_for(phase):
+        ordered = self.hooks_for(phase) if _remaining is None else _remaining
+        for index, hook in enumerate(ordered):
+            request_context = (
+                getattr(ctx.request, "request_context", None) or {}
+            )
+            pending = request_context.get(TURN_COMMIT_KEY)
+            if (
+                phase == Phase.POST_RESPONSE
+                and _remaining is None
+                and pending is not None
+                and "runtime" in pending
+            ):
+
+                async def resume(saved, remaining=ordered[index:]):
+                    ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = saved
+                    return await self.run(
+                        phase,
+                        ctx,
+                        _remaining=remaining,
+                    )
+
+                pending["post_response"] = resume
+                return HookResult(action=final_action)
             try:
                 result = await hook.run(ctx)
             except Exception as exc:

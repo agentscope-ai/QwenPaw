@@ -153,6 +153,25 @@ describe("useSessionListData cross-agent ownership", () => {
     expect(setSessions).toHaveBeenCalled();
   });
 
+  it("keeps the conversation unchanged when backend deletion fails", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const onSessionRemoved = vi.fn();
+    sessionApi.onSessionRemoved = onSessionRemoved;
+    vi.spyOn(chatApi, "deleteChat").mockRejectedValue(
+      new Error("delete failed"),
+    );
+    const listSpy = vi.spyOn(api, "listChats");
+    const { hook, setSessions } = renderListData([makeSession(A_CHAT)]);
+
+    await act(async () => {
+      await hook.result.current.handleDelete(A_CHAT);
+    });
+
+    expect(onSessionRemoved).not.toHaveBeenCalled();
+    expect(setSessions).not.toHaveBeenCalled();
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
   it("updates the backend when a conversation is pinned within its group", async () => {
     sessionApi.setActiveAgent("agent-a");
     const updateSpy = vi

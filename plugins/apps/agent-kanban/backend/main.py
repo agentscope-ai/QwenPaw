@@ -459,7 +459,7 @@ async def delete_issue(
         issues = [i for i in issues if i.get("id") != issue_id]
         _write_all(issues)
 
-    # Delete the session file for this issue
+    # Delete durable session data for this issue
     if issue and issue.get("assignee"):
         try:
             # Use the assignee's agent_id to find the correct workspace
@@ -470,20 +470,11 @@ async def delete_issue(
             workspace = await agent_ctx._get_workspace()
             if workspace and hasattr(workspace, "session"):
                 session_mgr = workspace.session
-                # pylint: disable=protected-access
-                session_path = session_mgr._get_save_path(
+                await session_mgr.delete_session_state(
                     session_id=issue_id,
                     user_id=agent_ctx.user_id,
                     channel=agent_ctx.channel,
                 )
-                try:
-                    os.remove(session_path)
-                    logger.info(
-                        "[kanban] Deleted session file for issue %s",
-                        issue_id,
-                    )
-                except FileNotFoundError:
-                    pass  # Already deleted or never existed
         except Exception:  # noqa: BLE001
             logger.warning(
                 "[kanban] Failed to delete session for issue %s",

@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """JSON-based chat repository."""
+
 from __future__ import annotations
 
 import json
 import logging
 import os
 import shutil
+import sqlite3
 import uuid
+from contextlib import closing
 from pathlib import Path
 
 from .base import BaseChatRepository
-from ..models import ChatsFile
+from ..models import ChatsFile, session_storage_identity
 from ....utils.io_utils import read_json, run_sync_io, write_json_atomic
 
 logger = logging.getLogger(__name__)
@@ -42,11 +45,124 @@ class JsonChatRepository(BaseChatRepository):
         """Get the repository file path."""
         return self._path
 
-    def _load_sync(self) -> ChatsFile:
+    def _load_sync(self, *, verify_bindings: bool = False) -> ChatsFile:
         """Load and validate chat specs as one worker-thread operation."""
         if not self._path.exists():
             return ChatsFile(version=1, chats=[])
-        return ChatsFile.model_validate(read_json(self._path))
+        raw = read_json(self._path)
+        changed = False
+        chats = raw.get("chats") if isinstance(raw, dict) else None
+        recovered = False
+        if isinstance(chats, list):
+            candidates = [
+                chat
+                for chat in chats
+                if isinstance(chat, dict)
+                and (verify_bindings or not chat.get("storage_id"))
+            ]
+            if candidates:
+                recovered = self._recover_catalog_bindings(candidates)
+            changed = recovered
+            for chat in chats:
+                if isinstance(chat, dict) and not chat.get("storage_id"):
+                    chat.pop("storage_id", None)
+                    changed = True
+        result = ChatsFile.model_validate(raw)
+        identities = {}
+        for chat in result.chats:
+            identity = session_storage_identity(
+                chat.session_id,
+                chat.user_id,
+                chat.channel,
+            )
+            previous = identities.setdefault(chat.storage_id, identity)
+            if previous != identity:
+                raise ValueError("duplicate chat storage_id")
+        if changed:
+            if recovered:
+                backup = self._path.with_name(
+                    self._path.name + "." + uuid.uuid4().hex + ".recovery.bak",
+                )
+                shutil.copy2(self._path, backup)
+                logger.warning("Recovered chat identities; backup: %s", backup)
+            write_json_atomic(
+                self._path,
+                result.model_dump(mode="json"),
+                sort_keys=True,
+            )
+        return result
+
+    def _recover_catalog_bindings(self, chats: list) -> bool:
+        """Restore lost bindings using verified, read-only database facts."""
+        catalog = self._path.parent / "transcript_catalog.db"
+        if not catalog.is_file():
+            return False
+        with closing(
+            sqlite3.connect(
+                catalog.resolve().as_uri() + "?mode=ro",
+                uri=True,
+            ),
+        ) as connection:
+            bindings = {
+                session_storage_identity(row[0], row[1], row[2]): row[3]
+                for row in connection.execute(
+                    "SELECT session_id, user_id, channel, storage_id "
+                    "FROM transcript_files",
+                )
+            }
+        changed = False
+        for chat in chats:
+            if not isinstance(chat, dict):
+                continue
+            identity = session_storage_identity(
+                chat.get("session_id", ""),
+                chat.get("user_id", ""),
+                chat.get("channel", ""),
+            )
+            storage_id = bindings.get(identity)
+            current = chat.get("storage_id")
+            if not storage_id or current == storage_id:
+                continue
+            directory = self._path.parent / "transcripts"
+            if current and (directory / (current + ".db")).exists():
+                raise ValueError(
+                    "conflicting chat databases; recovery refused",
+                )
+            path = directory / (storage_id + ".db")
+            with closing(
+                sqlite3.connect(
+                    path.resolve().as_uri() + "?mode=ro",
+                    uri=True,
+                ),
+            ) as connection:
+                rows = connection.execute(
+                    "SELECT session_id, user_id, channel, storage_id "
+                    "FROM transcript_sessions",
+                ).fetchall()
+                if (
+                    len(rows) != 1
+                    or session_storage_identity(*rows[0][:3]) != identity
+                    or rows[0][3] != storage_id
+                ):
+                    raise ValueError("chat database identity mismatch")
+                fork = connection.execute(
+                    "SELECT payload_json FROM event_log "
+                    "WHERE event_type = 'session.forked' ORDER BY seq LIMIT 1",
+                ).fetchone()
+            if fork is not None:
+                fact = json.loads(fork[0])
+                fields = {
+                    "parent_chat_id": fact["source_chat_id"],
+                    "fork_turn_id": fact["turn_id"],
+                    "fork_turn_seq": fact["turn_seq"],
+                }
+                for key, value in fields.items():
+                    if chat.get(key) not in (None, value):
+                        raise ValueError("conflicting chat fork metadata")
+                    chat[key] = value
+            chat["storage_id"] = storage_id
+            changed = True
+        return changed
 
     async def load(self) -> ChatsFile:
         """Load and validate chat specs without blocking the event loop.

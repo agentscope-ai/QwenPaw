@@ -8,6 +8,8 @@ import pytest
 from qwenpaw.plugins.channels import ChannelMessage
 from qwenpaw.plugins.messages import ContentBlock
 from qwenpaw.plugins.testing import PluginTestHost
+from qwenpaw.schemas import AgentRequest, Message, TextContent
+from qwenpaw.agents.context.scroll.history import HistoryStore
 
 from .sdk_author_fixture import make_plugin
 
@@ -1305,3 +1307,57 @@ async def test_lifecycle_interrupt_closes_started_stream_once(
             ("end", "cancelled"),
         ]
         assert {row["run_id"] for row in rows} == {events[0]["run_id"]}
+
+
+@pytest.mark.parametrize("flag", [True, "true", "1", "yes"])
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_temporary_runtime_keeps_recall_without_session(
+    tmp_path,
+    flag,
+    cancel,
+):
+    async with PluginTestHost(tmp_path / "host") as host:
+        ctx = await setup(host, tmp_path)
+        workspace = await host._workspace("test")
+        request = AgentRequest(
+            session_id="temporary",
+            user_id="user",
+            channel="console",
+            request_context={"qwenpaw.ephemeral": flag},
+            input=[
+                Message(
+                    role="user",
+                    content=[
+                        TextContent(
+                            text=(
+                                "hold-first" if cancel else "temporary marker"
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        async def consume():
+            return [event async for event in workspace.stream_query(request)]
+
+        task = asyncio.create_task(consume())
+        if cancel:
+            await wait_for(lambda: ctx.storage.read_json("model.json", []))
+            assert not task.done()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await task
+        catalog = workspace.transcript_store
+        assert not catalog.has_session(
+            session_id="temporary",
+            user_id="user",
+            channel="console",
+        )
+        history = HistoryStore(workspace.workspace_dir / "history.db")
+        try:
+            assert history.count("temporary") >= 1
+        finally:
+            history.close()

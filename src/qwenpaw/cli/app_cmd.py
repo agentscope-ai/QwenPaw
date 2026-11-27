@@ -65,6 +65,9 @@ def configure_server_process(
     from ..app.server_context import set_server_port
 
     set_server_port(port)
+    os.environ["QWENPAW_INTERNAL_HOST_API_HOST"] = probe_host_for_bind_host(
+        host,
+    )
     os.environ["QWENPAW_RUNTIME_MODE"] = (
         "hub" if os.environ.get("QWENPAW_RUNTIME_ID") else "standalone"
     )

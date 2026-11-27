@@ -1,13 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-few-public-methods,protected-access
-"""The scroll first-run notice.
-
-Scroll became the DEFAULT context strategy, so agents that never set
-``strategy`` are switched to it silently and get a durable ``history.db`` in
-their workspace. ``build_scroll_components`` must log a one-time notice the
-first time it wires scroll in a workspace (the db file's absence is the
-signal), and must stay silent on every later run.
-"""
+"""Scroll uses the conversation-owned database for durable recall."""
 
 import logging
 from pathlib import Path
@@ -19,6 +12,7 @@ from pydantic import ValidationError
 import qwenpaw.agents.context as context_mod
 import qwenpaw.agents.context.scroll.manager as scroll_manager_mod
 from qwenpaw.agents.context import build_scroll_components
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.config.config import LightContextConfig, ScrollContextConfig
 
 
@@ -32,6 +26,7 @@ def _agent_config(strategy: str = "scroll") -> SimpleNamespace:
 
 
 def _build(workspace: Path):
+    _seed_conversation(workspace)
     return build_scroll_components(
         agent_config=_agent_config(),
         workspace_dir=str(workspace),
@@ -39,6 +34,42 @@ def _build(workspace: Path):
         session_id="s1",
         agent_id="ag1",
     )
+
+
+def _seed_conversation(workspace: Path) -> Path:
+    catalog = TranscriptCatalog(workspace)
+    try:
+        catalog.write_runtime_state(
+            session_id="s1",
+            user_id="",
+            channel="",
+            state={"agent": {}},
+        )
+        storage_id = catalog.storage_id_for(
+            session_id="s1",
+            user_id="",
+            channel="",
+        )
+        return workspace / "transcripts" / f"{storage_id}.db"
+    finally:
+        catalog.close()
+
+
+def test_context_generation_isolates_recall_rows(tmp_path: Path):
+    _seed_conversation(tmp_path)
+    components = build_scroll_components(
+        agent_config=_agent_config(),
+        workspace_dir=str(tmp_path),
+        model=_DummyModel(),
+        session_id="s1",
+        context_generation=2,
+        agent_id="ag1",
+    )
+    assert components is not None
+    manager = components.context_manager
+    assert manager._session_id == "s1\x1fcontext:2"
+    assert manager._archive_session_id == "s1"
+    manager._history.close()
 
 
 def _notice_records(caplog) -> list[logging.LogRecord]:
@@ -81,7 +112,8 @@ def test_summary_timeout_config_reaches_manager(tmp_path: Path, shared):
             config.running.light_context_config.model_dump_json(),
         )
     )
-    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    db_path = _seed_conversation(tmp_path)
+    supplied = HistoryStore(db_path) if shared else None
     components = None
     try:
         components = build_scroll_components(
@@ -108,32 +140,30 @@ def test_summary_timeout_rejects_unbounded_or_invalid_values(timeout):
 
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_first_run_logs_notice_once(tmp_path: Path, caplog):
+def test_first_run_uses_conversation_database(tmp_path: Path, caplog):
     db = tmp_path / "history.db"
     assert not db.exists()
 
     with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
         components = _build(tmp_path)
-    # Scroll actually wired and created the durable store.
     assert components is not None
-    assert db.exists()
-    # Exactly one notice, and it points at the rollback path.
-    records = _notice_records(caplog)
-    assert len(records) == 1
-    msg = records[0].getMessage()
-    assert str(db) in msg
-    assert "native" in msg
+    assert not db.exists()
+    assert _notice_records(caplog) == []
 
 
-def test_notice_does_not_repeat_when_db_exists(tmp_path: Path, caplog):
-    # Pre-create the store so this looks like a second startup.
-    _build(tmp_path)
-    assert (tmp_path / "history.db").exists()
+def test_wiring_reuses_the_same_conversation_db(tmp_path: Path, caplog):
+    first = _build(tmp_path)
+    assert first is not None
+    path = first.context_manager._history.path
+    first.context_manager._history.close()
 
     caplog.clear()  # drop the first run's notice; only watch the second
     with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
         _build(tmp_path)
-    assert _notice_records(caplog) == []
+    second = _build(tmp_path)
+    assert second is not None
+    assert second.context_manager._history.path == path
+    second.context_manager._history.close()
 
 
 def _size_records(caplog) -> list[logging.LogRecord]:
@@ -146,9 +176,10 @@ def _size_records(caplog) -> list[logging.LogRecord]:
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
-    # First build creates a small store (no size warning, just first-run).
-    _build(tmp_path)
-    db = tmp_path / "history.db"
+    first = _build(tmp_path)
+    assert first is not None
+    db = first.context_manager._history.path
+    first.context_manager._history.close()
     assert db.exists()
 
     # Drop the warn threshold below the tiny db so the next build trips it,
@@ -198,7 +229,8 @@ def test_wiring_failure_closes_only_owned_history_store(
     from qwenpaw.agents.context.scroll import repl
 
     histories = []
-    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    path = _seed_conversation(tmp_path)
+    supplied = HistoryStore(path) if shared else None
     manager_class = scroll_manager_mod.ScrollContextManager
 
     def track_manager(**kwargs):

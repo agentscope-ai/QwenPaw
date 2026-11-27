@@ -331,12 +331,22 @@ def _authorize(  # noqa: ANN001  # pylint: disable=unused-argument
     * ``INSERT``/``UPDATE``/``DELETE`` on ``hist`` — defense-in-depth over the
       read-only file handle (and these transitively block DDL on ``hist``).
 
+    * Immutable event/content tables are not model-facing Recall data.
+
     Everything else (scratch reads/writes, ``SELECT`` and read pragmas such as
     ``data_version`` on ``hist``, functions, transactions) is allowed.
     """
     if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):
         return sqlite3.SQLITE_DENY
     if db_name == "hist" and action in _HIST_WRITE_ACTIONS:
+        return sqlite3.SQLITE_DENY
+    if (
+        db_name == "hist"
+        and action == sqlite3.SQLITE_READ
+        and arg1 in {"content_objects", "event_log"}
+    ):
+        # Immutable facts can contain quarantined originals. Recall reads
+        # the safe projection, never the conflict archive behind it.
         return sqlite3.SQLITE_DENY
     return sqlite3.SQLITE_OK
 

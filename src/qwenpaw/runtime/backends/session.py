@@ -12,11 +12,15 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ..._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
+)
 from .._state_utils import StateProxy
 from ...schemas import AgentResponse, Message, MessageType
 from ...plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
 from ...utils.io_utils import run_sync_io
-
 
 _HISTORY_BATCH_SIZE = 16
 
@@ -97,13 +101,11 @@ class HarnessSessionBridge:
             return
         state = AgentState().model_dump(mode="json")
         state["context"] = await self._materialize_history(history, backend)
-        proxy = StateProxy()
-        proxy.data = {"state": state}
-        await self._session.save_session_state(
+        await self._session.import_session_history(
             session_id=session_id,
             user_id=user_id,
             channel=channel,
-            agent=proxy,
+            state={"agent": {"state": state}},
         )
 
     async def _append_turn(
@@ -137,11 +139,21 @@ class HarnessSessionBridge:
         proxy = StateProxy()
         agent_data["state"] = state
         proxy.data = agent_data
-        await self._session.save_session_state(
+        request_context = getattr(request, "request_context", None) or {}
+        turn_id = request_context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)
+        save = self._session.save_session_state
+        options: dict[str, Any] = {}
+        if turn_id and request_context.get(TRANSCRIPT_RECORDING_READY_KEY):
+            save = self._session.save_turn_session_state
+            options["turn_id"] = turn_id
+            if TURN_COMMIT_KEY in request_context:
+                options["pending_commit"] = request_context[TURN_COMMIT_KEY]
+        await save(
             session_id=session_id,
             user_id=user_id,
             channel=channel,
             agent=proxy,
+            **options,
         )
 
     async def _clear(
@@ -150,15 +162,22 @@ class HarnessSessionBridge:
         session_id: str,
         user_id: str,
         channel: str,
+        turn_id: str | None = None,
     ) -> None:
         """Replace a materialized third-party transcript with empty state."""
         proxy = StateProxy()
         proxy.data = {"state": AgentState().model_dump(mode="json")}
-        await self._session.save_session_state(
+        save = self._session.reset_session_state
+        options: dict[str, Any] = {}
+        if turn_id:
+            save = self._session.save_turn_session_state
+            options = {"turn_id": turn_id, "reset_context": True}
+        await save(
             session_id=session_id,
             user_id=user_id,
             channel=channel,
             agent=proxy,
+            **options,
         )
 
     @classmethod
