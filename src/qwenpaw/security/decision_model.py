@@ -449,6 +449,30 @@ def _interpret(
     )
 
 
+async def probe_tool_assessment(
+    provider: TypeSafeProvider,
+    model: str,
+    timeout: float,
+) -> None:
+    """用固定示例验证审批问题和应答格式，任何有效风险判断均可通过。"""
+    response = await provider.evaluate(
+        state={
+            "schema": _QUESTION_VERSION,
+            "tool": "write_file",
+            "operation": "create a new text file",
+            "target": "example.txt",
+            "parameter_names": ["file_path"],
+            "sandboxed": False,
+            "baseline_ask": False,
+            "risk_signals": [],
+        },
+        questions=_QUESTIONS,
+        model=model,
+        timeout=timeout,
+    )
+    _interpret(response)
+
+
 # pylint: disable-next=too-many-return-statements
 async def assess_tool_call(
     tool_name: str,

@@ -459,7 +459,7 @@ class ProviderManagerDiscoveryMixin(
         self,
         provider_id: str,
         model_id: str,
-        timeout: float = 5,
+        timeout: float | None = None,
     ) -> ProviderModelCheckResult:
         """Check a model and cache its structured availability result."""
         provider_id = self._normalize_provider_id(provider_id)
@@ -471,6 +471,7 @@ class ProviderManagerDiscoveryMixin(
         revision = self._provider_revision(provider_id)
 
         probe = provider
+        default_timeout = 5.0
         model = provider.get_model_info(
             model_id,
         ) or provider.get_discovered_model_info(model_id)
@@ -479,12 +480,16 @@ class ProviderManagerDiscoveryMixin(
             and model is not None
             and model.model_type == "decision"
         ):
-            from .custom_decision_model import CustomDecisionProvider
+            from .custom_decision_model import (
+                CUSTOM_DECISION_TIMEOUT_SECONDS,
+                CustomDecisionProvider,
+            )
 
             probe = CustomDecisionProvider.for_model(provider, model)
+            default_timeout = CUSTOM_DECISION_TIMEOUT_SECONDS
         raw_result = await probe.check_model_connection(
             model_id=model_id,
-            timeout=timeout,
+            timeout=default_timeout if timeout is None else timeout,
         )
         if isinstance(raw_result, ModelConnectionResult):
             result = self._classify_model_check(

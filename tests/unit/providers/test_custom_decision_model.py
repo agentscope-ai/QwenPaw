@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """验证自定义决策模型的配置、传输、响应校验与故障处理。"""
 
+import asyncio
 import json
 
 import httpx
@@ -14,6 +15,7 @@ from qwenpaw.providers import ModelInfo, ProviderInfo, ProviderManager
 from qwenpaw.providers import local_decision_model
 from qwenpaw.providers.typesafe_provider import (
     TypeSafeEvaluationError,
+    TypeSafeProvider,
     resolve_decision_model,
 )
 from qwenpaw.security.decision_model import assess_tool_call
@@ -130,35 +132,52 @@ async def test_select_reload_and_probe(protocol, endpoint, monkeypatch):
     assert manager.default_models["chat"] == original_chat
     provider = manager.get_provider(slot.provider_id)
     assert provider.get_model_info(slot.model).decision_protocol == protocol
-    if protocol == "systemone":
-        replies.append(
-            (
-                200,
-                {
-                    "model": slot.model,
-                    "answers": {"greeting": {"type": "noul", "noul": 0.95}},
-                    "usage": {"input_tokens": 8, "output_tokens": 0},
-                },
-            ),
-        )
-        path = "/gateway/v1/systemone"
-    else:
-        replies.append((200, chat_reply('{"greeting":0.95}')))
-        path = "/gateway/v1/chat/completions"
+    replies.append((200, tool_reply(protocol, slot.model, "unclear")))
     checked = await manager.check_provider_model(slot.provider_id, slot.model)
     assert checked.success and checked.verification == "live"
     assert len(calls) == 1
     request, body = calls[0]
-    assert request.url.path == path
+    assert request.extensions["timeout"]["read"] == 7
     assert request.headers["authorization"] == "Bearer fixture-key"
     assert request.headers["X-Project"] == "decisions"
     assert body["model"] == slot.model
     if protocol == "systemone":
-        assert body["questions"]["greeting"]["type"] == "noul"
+        assert request.url.path == "/gateway/v1/systemone"
         assert "content-encoding" not in request.headers
+        questions = body["questions"]
+        state = body["state"]
     else:
+        assert request.url.path == "/gateway/v1/chat/completions"
         assert body["response_format"] == {"type": "json_object"}
-        assert json.loads(body["messages"][1]["content"])["state"] == "Hello"
+        questions = json.loads(body["messages"][0]["content"].splitlines()[-1])
+        state = json.loads(body["messages"][1]["content"])["state"]
+    assert set(questions) == {
+        "impact",
+        "destructive",
+        "secret_exposure",
+        "privilege_change",
+    }
+    assert state["tool"] == "write_file" and state["target"] == "example.txt"
+
+
+@pytest.mark.asyncio
+async def test_probe_cancels_a_slow_request(monkeypatch):
+    manager, slot = await configure("chat_completions")
+    attempts = []
+
+    async def wait_for_reply(_provider, **request):
+        attempts.append(request["timeout"])
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(TypeSafeProvider, "evaluate", wait_for_reply)
+    async with asyncio.timeout(3):
+        checked = await manager.check_provider_model(
+            slot.provider_id,
+            slot.model,
+            timeout=0.05,
+        )
+    assert not checked.success and "timed out" in checked.message
+    assert attempts == [0.05]
 
 
 @pytest.mark.asyncio
@@ -268,6 +287,7 @@ async def test_custom_tool_approval(
     assert result.needs_approval is needs_approval
     assert result.error_type is None
     assert len(calls) == 1
+    assert calls[0][0].extensions["timeout"]["read"] == 7
 
 
 @pytest.mark.asyncio
@@ -312,7 +332,10 @@ async def test_switch_protocol_discards_old_probe_and_rejects_refusal(
     assert (
         provider.get_model_info(slot.model).availability_status == "unverified"
     )
-    replies.append((200, chat_reply('{"greeting":null}')))
+    refusal = dict.fromkeys(
+        ("impact", "destructive", "secret_exposure", "privilege_change"),
+    )
+    replies.append((200, chat_reply(json.dumps(refusal))))
     assert not (
         await manager.check_provider_model(slot.provider_id, slot.model)
     ).success
@@ -327,7 +350,9 @@ async def test_unavailable_custom_model_stays_unavailable(endpoint):
     assert not checked.success and checked.http_status == 401
     with pytest.raises(TypeSafeEvaluationError):
         resolve_decision_model(slot)
-    replies.append((200, chat_reply('{"greeting":0.95}')))
+    replies.append(
+        (200, tool_reply("chat_completions", slot.model, "routine")),
+    )
     assert (
         await manager.check_provider_model(slot.provider_id, slot.model)
     ).success

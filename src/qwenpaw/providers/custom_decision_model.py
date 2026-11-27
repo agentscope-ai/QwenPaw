@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from collections.abc import Mapping
@@ -30,9 +31,11 @@ from openai import APIError, AsyncOpenAI
 
 from .local_decision_model import LocalDecisionModel
 from .model_info import DecisionProtocol
-from .provider import ModelInfo, Provider
+from .provider import ModelConnectionResult, ModelInfo, Provider
 from .typesafe_provider import TypeSafeEvaluationError, TypeSafeProvider
 
+
+CUSTOM_DECISION_TIMEOUT_SECONDS = 7.0
 
 _CHAT_INSTRUCTIONS = (
     "Evaluate the named questions using the state as evidence. "
@@ -216,6 +219,45 @@ class CustomDecisionProvider(TypeSafeProvider):
         if info is None or info.model_type != "decision":
             raise TypeSafeEvaluationError("Decision model is not configured")
         return info.decision_protocol
+
+    async def evaluate(
+        self,
+        *,
+        state: str | dict[str, Any],
+        questions: Mapping[str, ClassifierQuestion],
+        model: str = "jev-latest",
+        timeout: float = CUSTOM_DECISION_TIMEOUT_SECONDS,
+    ) -> ClassifierResponse:
+        """为整次决策请求设置时限，包括等待完整响应的时间。"""
+        try:
+            async with asyncio.timeout(timeout):
+                return await super().evaluate(
+                    state=state,
+                    questions=questions,
+                    model=model,
+                    timeout=timeout,
+                )
+        except TimeoutError as exc:
+            raise TypeSafeEvaluationError(
+                f"Decision model request timed out after {timeout:g}s",
+            ) from exc
+
+    async def check_model_connection(
+        self,
+        model_id: str,
+        timeout: float = CUSTOM_DECISION_TIMEOUT_SECONDS,
+    ) -> ModelConnectionResult:
+        from ..security.decision_model import probe_tool_assessment
+
+        try:
+            await probe_tool_assessment(self, model_id, timeout)
+        except (TypeSafeEvaluationError, ValueError, TypeError) as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=self.connection_error_message(exc),
+                http_status=getattr(exc, "status_code", None),
+            )
+        return ModelConnectionResult(success=True)
 
     def as_decision_model(self, model, *, timeout=10, max_retries=1):
         protocol = self.get_decision_protocol(model)
