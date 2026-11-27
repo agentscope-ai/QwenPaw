@@ -108,6 +108,25 @@ describe("preserveReverseMessageViewport", () => {
     }
   });
 
+  it("holds the current reading position across streamed text updates between wheel gestures", async () => {
+    const { scroller, anchor, disconnect } = fixture();
+    try {
+      const text = document.createTextNode("first");
+      scroller.firstElementChild!.append(text);
+      await Promise.resolve();
+      scroller.scrollTop = -500;
+      scroller.dispatchEvent(new Event("scroll"));
+      const offset = anchor.getBoundingClientRect().top;
+      anchor.getBoundingClientRect = () =>
+        new DOMRect(0, -scroller.scrollTop - 678, 600, 500);
+      text.data += " next";
+      await Promise.resolve();
+      expect(anchor.getBoundingClientRect().top).toBe(offset);
+    } finally {
+      disconnect();
+    }
+  });
+
   it("honors return to latest before restored history changes the layout", async () => {
     const { scroller, addBubble, disconnect } = fixture();
     try {
@@ -205,6 +224,8 @@ describe("durable history scroll anchors", () => {
     const captured = captureMessageScrollAnchor(scroller);
     expect(captured).toEqual({ id: "message-1", offsetTop: 50 });
 
+    // The retained live tree can still own a bubble with this same ID.
+    scroller.before(anchor.cloneNode());
     anchor.getBoundingClientRect = () => ({ top: 130, bottom: 170 }) as DOMRect;
     expect(restoreMessageScrollAnchor(scroller, captured!)).toBe(true);
     expect(scroller.scrollTop).toBe(-620);
