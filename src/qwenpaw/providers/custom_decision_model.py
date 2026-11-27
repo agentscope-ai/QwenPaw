@@ -29,6 +29,7 @@ from agentscope.credential import OpenAICredential, TypeSafeCredential
 from openai import APIError, AsyncOpenAI
 
 from .local_decision_model import LocalDecisionModel
+from .model_info import DecisionProtocol
 from .provider import ModelInfo, Provider
 from .typesafe_provider import TypeSafeEvaluationError, TypeSafeProvider
 
@@ -205,17 +206,23 @@ class CustomDecisionProvider(TypeSafeProvider):
             base_url=provider.base_url,
             api_key=provider.api_key,
             custom_headers=provider.custom_headers,
-            models=[model],
+            # 同一次工具审批必须始终使用解析时选定的协议。
+            models=[model.model_copy(deep=True)],
         )
 
-    def as_decision_model(self, model, *, timeout=10, max_retries=1):
+    def get_decision_protocol(self, model: str) -> DecisionProtocol:
+        """返回当前决策模型实际使用的协议。"""
         info = self.get_model_info(model)
         if info is None or info.model_type != "decision":
             raise TypeSafeEvaluationError("Decision model is not configured")
+        return info.decision_protocol
+
+    def as_decision_model(self, model, *, timeout=10, max_retries=1):
+        protocol = self.get_decision_protocol(model)
         url = decision_base_url(self.base_url)
         # SDK 要求非空密钥，显式占位可防止读取环境中的其他服务密钥。
         key = self.api_key.strip() or "local"
-        if info.decision_protocol == "chat_completions":
+        if protocol == "chat_completions":
             return ChatCompletionsDecisionModel(
                 OpenAICredential(
                     api_key=key,

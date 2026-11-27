@@ -207,7 +207,7 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 2. Open the provider's model manager, add the model ID exposed by the service, and set **Model type** to **Decision**. Choose **System One** for a native `/v1/systemone` service, or **OpenAI Chat Completions** for a `/v1/chat/completions` service that supports JSON object responses. You can also edit the protocol of an existing decision model.
 3. Test the model connection, then choose it under **Default models → Decision model** or in an individual agent's model settings. Tool review and context compaction use their existing, separate enable switches.
 
-Chat Completions models supply their own probability estimates as JSON. An incomplete or invalid decision goes through the existing error handling, including requesting user approval when a tool review needs a decision.
+Chat Completions models supply their own probability estimates as JSON. In smart tool approval mode, a Chat Completions model can request confirmation for an allowed operation. If a local rule already calls for confirmation, QwenPaw asks you directly. A System One model can review risk flags that the local policy marks as eligible for automatic approval. An incomplete or invalid tool assessment requires user confirmation.
 
 ## Selecting a Model
 

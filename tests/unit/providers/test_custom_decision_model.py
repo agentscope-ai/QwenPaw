@@ -96,6 +96,28 @@ def chat_reply(content, finish="stop"):
     }
 
 
+def tool_reply(protocol, model, impact):
+    labels = ("read_only", "routine", "risky", "unclear")
+    probabilities = {label: float(label == impact) for label in labels}
+    risks = ("destructive", "secret_exposure", "privilege_change")
+    if protocol == "systemone":
+        return {
+            "model": model,
+            "answers": {
+                "impact": {
+                    "type": "choice",
+                    "choice": impact,
+                    "confidence": 1,
+                    "probabilities": probabilities,
+                },
+                **{name: {"type": "noul", "noul": 0} for name in risks},
+            },
+            "usage": {"input_tokens": 8, "output_tokens": 0},
+        }
+    answers = {"impact": probabilities, **dict.fromkeys(risks, 0)}
+    return chat_reply(json.dumps(answers))
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", ["systemone", "chat_completions"])
 async def test_select_reload_and_probe(protocol, endpoint, monkeypatch):
@@ -143,12 +165,14 @@ async def test_select_reload_and_probe(protocol, endpoint, monkeypatch):
 async def test_switch_existing_model_and_classify(endpoint):
     _, replies = endpoint
     manager, slot = await configure("systemone")
+    previous, _ = resolve_decision_model(slot)
     await manager.update_model_config(
         slot.provider_id,
         slot.model,
         {"decision_protocol": "chat_completions"},
     )
     provider, model = resolve_decision_model(slot)
+    assert previous.get_decision_protocol(model) == "systemone"
     replies.append(
         (
             200,
@@ -203,24 +227,70 @@ async def test_malformed_chat_decisions_are_rejected(content, endpoint):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "reply",
-    [
-        httpx.ReadTimeout("fixture timeout"),
-        (200, chat_reply("{}", finish="length")),
-        (200, chat_reply("{}")),
-    ],
-)
-async def test_missing_chat_decisions_request_user_approval(reply, endpoint):
-    calls, replies = endpoint
+async def test_chat_keeps_existing_approval_without_calling_model(endpoint):
+    calls, _ = endpoint
     await configure("chat_completions")
-    replies.append(reply)
     result = await assess_tool_call(
         "write_file",
         "notes.txt",
         baseline_ask=True,
     )
-    assert calls and result.needs_approval and result.error_type
+    assert result.needs_approval and result.error_type is None
+    assert not calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "protocol, baseline_ask, impact, needs_approval",
+    [
+        ("chat_completions", False, "routine", False),
+        ("chat_completions", False, "risky", True),
+        ("chat_completions", False, "unclear", True),
+        ("systemone", True, "routine", False),
+    ],
+)
+async def test_custom_tool_approval(
+    protocol,
+    baseline_ask,
+    impact,
+    needs_approval,
+    endpoint,
+):
+    calls, replies = endpoint
+    _, slot = await configure(protocol)
+    replies.append((200, tool_reply(protocol, slot.model, impact)))
+
+    result = await assess_tool_call(
+        "write_file",
+        "notes.txt",
+        baseline_ask=baseline_ask,
+    )
+    assert result.needs_approval is needs_approval
+    assert result.error_type is None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "protocol, reply",
+    [
+        ("systemone", httpx2.ReadTimeout("fixture timeout")),
+        ("chat_completions", httpx.ReadTimeout("fixture timeout")),
+        ("chat_completions", (200, chat_reply("{}", finish="length"))),
+        ("chat_completions", (200, chat_reply("{}"))),
+    ],
+)
+async def test_missing_decisions_request_user_approval(
+    protocol,
+    reply,
+    endpoint,
+):
+    calls, replies = endpoint
+    await configure(protocol)
+    replies.append(reply)
+    result = await assess_tool_call("write_file", "notes.txt")
+    assert len(calls) == 1
+    assert result.needs_approval and result.error_type
 
 
 @pytest.mark.asyncio

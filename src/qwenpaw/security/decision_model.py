@@ -30,6 +30,7 @@ from agentscope.classifier import (
     ClassifierResponse,
 )
 
+from ..providers.custom_decision_model import CustomDecisionProvider
 from ..providers.typesafe_provider import (
     TypeSafeEvaluationError,
     TypeSafeProvider,
@@ -543,6 +544,16 @@ async def assess_tool_call(
         if output_exists is False:
             state["verified_facts"] = {"output_exists": False}
         provider, model = await asyncio.to_thread(_decision_provider, agent_id)
+        if (
+            baseline_ask
+            and isinstance(provider, CustomDecisionProvider)
+            and provider.get_decision_protocol(model) != "systemone"
+        ):
+            return DecisionModelAssessment(
+                True,
+                "Decision model preflight: the selected protocol preserves "
+                "the approval required by local policy",
+            )
         response = await provider.evaluate(
             state=state,
             questions=_QUESTIONS,
