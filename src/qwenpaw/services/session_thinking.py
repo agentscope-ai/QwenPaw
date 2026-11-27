@@ -210,6 +210,12 @@ async def thinking_view(
             if provider is None or not provider.enabled:
                 return None, None, ThinkingControl(), None, None, None
         info = provider.get_model_info(slot.model)
+        if info is None and model_override is None:
+            # An agent or global default can pin a discovered model that the
+            # user has not added to the provider's pool yet. It is still
+            # callable, so render it instead of reporting the configured
+            # default as unset. Explicit session selections stay strict.
+            info = provider.get_discovered_model_info(slot.model)
         if info is None or getattr(info, "model_type", "chat") == "decision":
             return None, None, ThinkingControl(), None, None, None
         name = info.name

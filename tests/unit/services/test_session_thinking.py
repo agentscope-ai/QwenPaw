@@ -23,6 +23,7 @@ from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.thinking import ThinkingControl, ThinkingPreference
 from qwenpaw.schemas import AgentRequest
 from qwenpaw.services.session_thinking import (
@@ -612,6 +613,72 @@ async def test_hub_view_separates_display_name_from_routing_id(monkeypatch):
     assert view[f"model_name"] == f"Organization Qwen"
     assert view[f"model"] == model_id
     assert view[f"model_key"] == f"hub-managed:{model_id}"
+
+
+@pytest.mark.asyncio
+async def test_agent_model_outside_pool_still_renders():
+    """A discovered-only model pinned by the agent must not read as unset."""
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        active_model=ModelSlotConfig(provider_id=f"p", model=f"m"),
+        thinking_level=f"high",
+    )
+    info = ModelInfo(id=f"m", name=f"Discovered Model")
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        ) as factory,
+    ):
+        provider = factory.return_value.get_provider.return_value
+        provider.get_model_info.return_value = None
+        provider.get_discovered_model_info.return_value = info
+        provider.thinking_control.return_value = ThinkingControl()
+        provider.get_context_size.return_value = 32000
+        view = await thinking_view(SimpleNamespace(agent_id=f"agent"))
+    assert view[f"provider_id"] == f"p"
+    assert view[f"model"] == f"m"
+    assert view[f"model_name"] == f"Discovered Model"
+    assert view[f"effective_max_input_length"] == 32000
+
+
+@pytest.mark.asyncio
+async def test_discovered_only_model_cannot_be_pinned_to_a_session(tmp_path):
+    """The display fallback must not relax explicit session validation."""
+    config = AgentProfileConfig(id=f"agent", name=f"Agent")
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(
+        ChatSpec(session_id=f"s", user_id=f"u"),
+    )
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        ) as factory,
+    ):
+        provider = factory.return_value.get_provider.return_value
+        provider.get_model_info.return_value = None
+        provider.get_discovered_model_info.return_value = ModelInfo(
+            id=f"m",
+            name=f"Discovered Model",
+        )
+        with pytest.raises(HTTPException) as failure:
+            await set_chat_model(
+                chat.id,
+                ModelSlotConfig(provider_id=f"p", model=f"m"),
+                manager,
+                SimpleNamespace(agent_id=f"agent"),
+            )
+    assert failure.value.status_code == 422
+    persisted = await manager.get_chat(chat.id)
+    assert not persisted.meta.get(f"runtime_context")
 
 
 @pytest.mark.asyncio
