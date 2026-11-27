@@ -1757,7 +1757,7 @@ def _wait_and_read_process(
         stdout_raw = f_stdout.result(timeout=10)
         stderr_raw = f_stderr.result(timeout=10)
 
-    exit_code = ctypes.wintypes.DWORD()
+    exit_code = ctypes.wintypes.DWORD(0)
     kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code))
 
     kernel32.CloseHandle(stdout_handle)
