@@ -244,6 +244,7 @@ export function useSteerSender(
         append_seq: Number.MAX_SAFE_INTEGER,
         revision: 0,
         status: "submitting",
+        created_at: Date.now() / 1000,
       };
       pendingInput(visit, { scope: status.scope, receipt });
       useSteerStore.getState().merge(status.scope, [receipt]);

@@ -88,7 +88,13 @@ vi.mock("@agentscope-ai/chat/lib/Bubble", () => ({
 }));
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Actions",
-  () => ({ default: () => <span>request-actions</span> }),
+  () => ({
+    default: ({ data }: { data?: { created_at?: number } }) => (
+      <span data-testid="request-actions" data-created-at={data?.created_at}>
+        request-actions
+      </span>
+    ),
+  }),
 );
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Reasoning",
@@ -585,7 +591,11 @@ it("renders a committed steer as a separate user row between assistant segments"
       id: "s1",
       role: "user",
       content: [{ type: "text", text: "change direction" }],
-      metadata: { input_kind: "steer", client_message_id: "c1" },
+      metadata: {
+        input_kind: "steer",
+        client_message_id: "c1",
+        timestamp: "2026-11-27T06:37:14.385Z",
+      },
     },
     {
       id: "a2",
@@ -606,6 +616,10 @@ it("renders a committed steer as a separate user row between assistant segments"
     "change direction",
   );
   expect(view.getAllByTestId("response-actions")).toHaveLength(1);
+  expect(view.getByTestId("request-actions")).toHaveAttribute(
+    "data-created-at",
+    String(Date.parse("2026-11-27T06:37:14.385Z") / 1000),
+  );
 });
 
 it("keeps the original assistant DOM mounted when the first steer is accepted", async () => {

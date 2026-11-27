@@ -53,6 +53,42 @@ describe("Chat user directory", () => {
     ).toHaveLength(2);
   });
 
+  it("merges migrated cards through nested client message identities", () => {
+    const visibleUser = (clientMessageId: string) =>
+      getNavigationUsers([
+        {
+          id: "original-1",
+          role: "user",
+          cards: [
+            {
+              code: "AgentScopeRuntimeRequestCard",
+              data: {
+                created_at: 1700000000,
+                input: [
+                  {
+                    metadata: {
+                      metadata: {
+                        qwenpaw_client_message_id: clientMessageId,
+                      },
+                    },
+                    content: [{ text: "same input" }],
+                  },
+                ],
+              },
+            },
+          ],
+        } as IAgentScopeRuntimeWebUIMessage,
+      ]);
+    const persisted = [entry("server-1", "client-1")];
+    const migrated = visibleUser("client-1");
+
+    expect(migrated[0].clientMessageId).toBe("client-1");
+    expect(mergeNavigationUsers(persisted, migrated)).toEqual(persisted);
+    expect(
+      mergeNavigationUsers(persisted, visibleUser("client-2")),
+    ).toHaveLength(2);
+  });
+
   it("ignores assistant streaming updates and bounds previews", () => {
     const user = {
       id: "user-1",

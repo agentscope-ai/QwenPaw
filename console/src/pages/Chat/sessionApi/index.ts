@@ -475,10 +475,13 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
 });
 
 function historyMessageId(msg: Message): string | undefined {
-  // The API generates a new transport ID each time it serializes history.
+  const messageId = typeof msg.id === "string" && msg.id ? msg.id : undefined;
+  if (getTranscriptPosition(msg) && messageId) return messageId;
+
+  // Legacy snapshots generate a new transport ID when history is serialized.
   const originalId = (msg.metadata as Record<string, unknown>)?.original_id;
   if (typeof originalId === "string" && originalId) return originalId;
-  return typeof msg.id === "string" && msg.id ? msg.id : undefined;
+  return messageId;
 }
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */

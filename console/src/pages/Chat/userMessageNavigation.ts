@@ -1,4 +1,5 @@
 import type { IAgentScopeRuntimeWebUIMessage } from "@agentscope-ai/chat";
+import { extractClientMessageId } from "../../utils/clientMessageId";
 import type { HistoryUserMessage } from "./historyMessageWindowStore";
 
 export function activeUserAtScrollPosition(
@@ -64,8 +65,7 @@ export function getNavigationUsers(
     return [
       {
         messageId: item.id,
-        clientMessageId:
-          request?.input?.[0]?.metadata?.qwenpaw_client_message_id,
+        clientMessageId: extractClientMessageId(request?.input?.[0]?.metadata),
         preview: (request?.input ?? [])
           .flatMap((input) => input.content ?? [])
           .map((content) => content.text || content.filename || "")

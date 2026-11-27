@@ -1363,7 +1363,7 @@ describe("buildUserCard", () => {
 });
 
 describe("history bubble identity", () => {
-  it("uses durable history identity when the API regenerates message ids", () => {
+  it("keeps legacy fallback identity when the API regenerates message ids", () => {
     const read = (suffix: string) =>
       T.convertMessages([
         msg({ id: `user-${suffix}`, metadata: { original_id: "saved-user" } }),
@@ -1377,6 +1377,24 @@ describe("history bubble identity", () => {
     expect(read("after").map(({ id }) => id)).toEqual(
       read("before").map(({ id }) => id),
     );
+  });
+
+  it("uses the DB message id for durable transcript messages", () => {
+    const [card] = T.convertMessages([
+      msg({
+        id: "db-user",
+        metadata: {
+          original_id: "legacy-user",
+          qwenpaw_transcript_position: {
+            turn_id: "legacy:1",
+            turn_seq: 1,
+            ordinal: 0,
+          },
+        },
+      }),
+    ]);
+
+    expect(card.id).toBe("db-user");
   });
 
   it("gives parts of one stored user message distinct stable IDs", () => {
