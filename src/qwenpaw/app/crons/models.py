@@ -11,6 +11,7 @@ from pydantic import (
     model_validator,
 )
 
+from ...providers.thinking import ThinkingLevel
 from ..channels.schema import DEFAULT_CHANNEL
 
 # ---------------------------------------------------------------------------
@@ -179,6 +180,34 @@ class JobRuntimeSpec(BaseModel):
             "without approval checks, suitable for trusted automated tasks."
         ),
     )
+    thinking_level: ThinkingLevel = Field(
+        default="inherit",
+        description=(
+            "Thinking mode for this cron job. 'inherit' uses the agent's "
+            "thinking_level; 'off' disables thinking; effort levels "
+            "(minimal/low/medium/high/xhigh/max) override it for this job. "
+            "'budget' requires thinking_budget."
+        ),
+    )
+    thinking_budget: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Token budget used when thinking_level is 'budget'. "
+            "Must be omitted for every other level."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_thinking_budget(self) -> "JobRuntimeSpec":
+        if (self.thinking_level == "budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(
+                "thinking_budget is required only when thinking_level "
+                "is 'budget'",
+            )
+        return self
 
 
 class CronJobRequest(BaseModel):
