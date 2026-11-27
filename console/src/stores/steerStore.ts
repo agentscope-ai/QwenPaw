@@ -74,6 +74,7 @@ export const useSteerStore = create<{
         changed = true;
         values.set(receipt.client_message_id, {
           ...receipt,
+          created_at: receipt.created_at ?? previous?.created_at,
           message: receipt.message || previous?.message,
         });
       }

@@ -98,6 +98,10 @@ function observeViewport(scroller: HTMLElement) {
   updateChildren();
   return {
     updateChildren,
+    restoreDetached() {
+      if (viewport.anchor && scroller.scrollTop === viewport.scrollTop)
+        restore();
+    },
     disconnect() {
       resizeObserver.disconnect();
       scroller.removeEventListener("scroll", handleScroll);
@@ -118,9 +122,16 @@ export function preserveReverseMessageViewport(root: HTMLElement): () => void {
     if (!scroller || !root.contains(scroller)) bind();
     else if (mutations.some(({ target }) => target === scroller)) {
       viewport?.updateChildren();
+    } else if (mutations.some(({ target }) => scroller?.contains(target))) {
+      // Streamed text can move a reverse-list anchor before resize delivery.
+      viewport?.restoreDetached();
     }
   });
-  observer.observe(root, { childList: true, subtree: true });
+  observer.observe(root, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
   bind();
   return () => {
     observer.disconnect();
@@ -186,8 +197,11 @@ export function restoreMessageScrollAnchor(
   scroller: HTMLElement,
   anchor: MessageScrollAnchor,
 ): boolean {
-  const element = document.getElementById(anchor.id);
-  if (!element || !scroller.contains(element)) return false;
+  // Live and history trees may briefly contain bubbles with the same ID.
+  const element = Array.from(
+    scroller.querySelectorAll<HTMLElement>("[id][data-role]"),
+  ).find((item) => item.id === anchor.id);
+  if (!element) return false;
   const offsetTop =
     element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
   scroller.scrollTop += offsetTop - anchor.offsetTop;

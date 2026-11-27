@@ -1388,7 +1388,7 @@ describe("history bubble identity", () => {
     expect(T.mergeHistoryMessages(messages, nextPage)).toHaveLength(2);
   });
 
-  it("uses durable history identity when the API regenerates message ids", () => {
+  it("keeps legacy fallback identity when the API regenerates message ids", () => {
     const read = (suffix: string) =>
       T.convertMessages([
         msg({ id: `user-${suffix}`, metadata: { original_id: "saved-user" } }),
