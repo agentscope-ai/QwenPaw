@@ -736,12 +736,19 @@ async def video_session(monkeypatch, tmp_path):
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
     ) as client:
 
-        async def provider_reasoning(self, tool_choice=None):
-            del tool_choice
-            messages = await self.formatter.format(self.state.context)
-            response = await client.chat.completions.create(
+        async def call_provider(self, messages, tools, tool_choice=None):
+            return await client.chat.completions.create(
                 model="test-video",
-                messages=messages,
+                messages=await self.formatter.format(messages),
+            )
+
+        async def prepare_model_input():
+            return {"messages": agent.state.context, "tools": []}
+
+        async def provider_reasoning(self, tool_choice=None):
+            response = await self._call_model(
+                tool_choice=tool_choice,
+                **await self._prepare_model_input(),
             )
             yield Msg(
                 name="agent",
@@ -749,6 +756,8 @@ async def video_session(monkeypatch, tmp_path):
                 content=[TextBlock(text=response.choices[0].message.content)],
             )
 
+        monkeypatch.setattr(agent, "_prepare_model_input", prepare_model_input)
+        monkeypatch.setattr(Agent, "_call_model", call_provider)
         monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
         try:
             yield session
@@ -790,10 +799,12 @@ def _assert_recovery(session, video_counts, learned):
     } == {"video": False, "audio": False, "media": False}
 
 
+@pytest.mark.parametrize("with_current_video", [False, True])
 async def test_generic_400_with_historical_tool_video_recovers_each_turn(
     video_session,
     monkeypatch,
     tmp_path,
+    with_current_video,
 ):
     session = video_session
     agent = session.agent
@@ -832,9 +843,22 @@ async def test_generic_400_with_historical_tool_video_recovers_each_turn(
         Msg(name="agent", role="assistant", content=[TextBlock(text="OK")]),
     )
 
-    for question in ("Continue", "One more question"):
+    for question, attach_video in (
+        ("Continue", with_current_video),
+        ("One more question", False),
+    ):
+        content = [TextBlock(text=question)]
+        if attach_video:
+            content.append(
+                DataBlock(
+                    source=URLSource(
+                        url=(tmp_path / "clip.mp4").as_uri(),
+                        media_type="video/mp4",
+                    ),
+                ),
+            )
         agent.state.context.append(
-            Msg(name="user", role="user", content=[TextBlock(text=question)]),
+            Msg(name="user", role="user", content=content),
         )
         before = _dump_context(agent.state.context)
         session.errors.append(_mimo_bad_request())
@@ -843,10 +867,11 @@ async def test_generic_400_with_historical_tool_video_recovers_each_turn(
         assert events[-1].content[0].text == "done"
         assert _dump_context(agent.state.context) == before
 
+    video_count = 2 if with_current_video else 1
     assert [
-        [part["type"] for part in _parts(request) if part["type"] != "text"]
+        model_factory._count_wire_media_blocks(request)
         for request in session.requests
-    ] == [["video_url"], [], ["video_url"], []]
+    ] == [video_count, 0, video_count, 0]
     for request in session.requests:
         tool_results = {
             msg["tool_call_id"]: msg["content"]

@@ -1439,10 +1439,12 @@ class QwenPawAgent(Agent):
         # non-streaming call failed, so the streaming classifier has to be
         # consulted here too — otherwise the block stays in state.context
         # and every later turn replays the same rejection.
+        # Leave a generic 400 to the request-only retry in _reasoning().
         has_media = self._last_wire_request_had_media()
         media_rejection = (
             not body_overflow
             and has_media
+            and not self._is_generic_media_bad_request_error(exc)
             and not QwenPawAgent._is_modality_specific_media_rejection(exc)
             and self._is_media_payload_rejection_error(exc)
         )
