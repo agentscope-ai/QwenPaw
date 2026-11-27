@@ -34,7 +34,10 @@ describe("ChatActionGroup", () => {
     const workspace = screen.getByRole("button", {
       name: "files.openWorkspace",
     });
-    expect(screen.getAllByRole("button")).toEqual([terminal, workspace]);
+    const phone = screen.getByRole("button", {
+      name: "platformAccess.addToPhone",
+    });
+    expect(screen.getAllByRole("button")).toEqual([phone, terminal, workspace]);
     expect(terminal).toHaveAttribute("aria-expanded", "false");
     expect(terminal).toHaveStyle({
       width: "32px",

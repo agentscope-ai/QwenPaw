@@ -1,5 +1,7 @@
 declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
+import { isPlatformWebApp } from "../features/platform-web/client";
+import { consoleHost } from "../features/platform-web/context";
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
 let runtimeApiBaseUrl: string | null = null;
@@ -10,7 +12,7 @@ export function setRuntimeApiBaseUrl(url: string): void {
 }
 
 export function getApiBaseUrl(): string {
-  return runtimeApiBaseUrl ?? VITE_API_BASE_URL ?? "";
+  return consoleHost?.apiBase ?? runtimeApiBaseUrl ?? VITE_API_BASE_URL ?? "";
 }
 
 let authCleanup: Promise<unknown> = Promise.resolve();
@@ -51,6 +53,7 @@ export function getApiUrl(path: string): string {
  * @returns API token string or empty string
  */
 export function getApiToken(): string {
+  if (isPlatformWebApp) return "";
   const stored = localStorage.getItem(AUTH_TOKEN_KEY);
   if (stored) return stored;
   return typeof TOKEN !== "undefined" ? TOKEN : "";
