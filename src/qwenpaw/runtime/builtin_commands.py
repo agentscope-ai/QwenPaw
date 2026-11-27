@@ -340,6 +340,7 @@ _CONVERSATION_COMMANDS = frozenset(
         "plan",
         "system_prompt",
         "reme",
+        "steer",
     },
 )
 
@@ -896,6 +897,7 @@ def collect_builtin_command_specs() -> list[CommandSpec]:
     specs.extend(_collect_daemon_specs())
     specs.extend(_collect_control_specs())
     specs.extend(_collect_conversation_specs())
+
     return specs
 
 
