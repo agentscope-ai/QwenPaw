@@ -1,3 +1,8 @@
+import {
+  redactConsoleGrant,
+  reloadConsole,
+} from "../features/platform-web/hostBridge";
+
 const RELOAD_KEY = "qwenpaw:chunk-reload-build";
 const MAX_RELOADS = 2;
 const HEALTHY_PERIOD_MS = 60_000;
@@ -127,14 +132,14 @@ export function isErrorLike(error: unknown): error is ErrorLike {
 
 // Production bundle URLs contain content hashes; HMR URLs identify dev builds.
 export function getFrontendBuildId(): string {
-  return (
+  const build =
     Array.from(document.scripts).find(
       (script) =>
         script.type === "module" &&
         script.src &&
         !script.src.endsWith("/@vite/client"),
-    )?.src ?? document.baseURI
-  );
+    )?.src ?? document.baseURI;
+  return redactConsoleGrant(build);
 }
 
 /** Match module loading failures without treating API fetch errors as chunks. */
@@ -196,11 +201,13 @@ export function reloadAfterChunkError(
   }
   onDecision?.(decision);
   if (decision.reason !== "reload") return false;
+  const reloadFailed = () =>
+    onDecision?.({ ...decision, reason: "reload-failed" });
   try {
-    window.location.reload();
+    void reloadConsole()?.catch(reloadFailed);
     return true;
   } catch {
-    onDecision?.({ ...decision, reason: "reload-failed" });
+    reloadFailed();
     return false;
   }
 }
