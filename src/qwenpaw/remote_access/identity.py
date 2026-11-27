@@ -110,6 +110,8 @@ def _canonical_target(target: str) -> str:
     port = parsed.port
     default_port = {"http": 80, "ws": 80, "https": 443, "wss": 443}
     netloc = host.lower()
+    if ":" in netloc:
+        netloc = f"[{netloc}]"
     if port is not None and port != default_port[parsed.scheme]:
         netloc = f"{netloc}:{port}"
     path = parsed.path or "/"

@@ -1,3 +1,4 @@
+import { redactConsoleGrant } from "../features/platform-web/hostBridge";
 import { getFrontendBuildId } from "./chunkRecovery";
 import type { ChunkReloadDecision, ErrorLike } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
@@ -48,10 +49,7 @@ export interface ChunkDiagnostic {
 
 /** Keep temporary Console credentials out of copied and displayed reports. */
 export function formatChunkDiagnostic(value: object): string {
-  return JSON.stringify(value, null, 2).replace(
-    /(\/console-frames\/)[A-Za-z0-9_-]+/g,
-    "$1[redacted]",
-  );
+  return redactConsoleGrant(JSON.stringify(value, null, 2));
 }
 
 function safeUrl(value: string): string {
@@ -123,7 +121,9 @@ export function captureChunkDiagnostic(
   const failure = getLazyImportFailure(error);
   return {
     capturedAt: new Date().toISOString(),
-    page: `${window.location.origin}${window.location.pathname}`,
+    page: redactConsoleGrant(
+      `${window.location.origin}${window.location.pathname}`,
+    ),
     frontendBuild: safeUrl(getFrontendBuildId()),
     browser: navigator.userAgent,
     online: navigator.onLine,
