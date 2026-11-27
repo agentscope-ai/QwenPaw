@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../api/modules/agents";
 import type { MemoryTagFilePage, MemoryTagPage } from "../../api/types/agents";
+import { parseErrorDetail } from "../../utils/error";
 import type { FileSource, FileTarget, WorkspaceRoot } from "./types";
 import { workspacePath } from "./fileIdentity";
 import type { MemoryFileConfig } from "./useMemoryTagSupport";
@@ -45,11 +46,14 @@ export default function MemoryTagsNavigator({
   );
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setFailed(false);
+    setUnavailable(false);
     const pending =
       tag === null
         ? agentsApi.getMemoryTags(agentId, page, controller.signal)
@@ -66,8 +70,15 @@ export default function MemoryTagsNavigator({
         }
         setData(result);
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true);
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        // The tag index is optional: say why the pane is empty instead of
+        // reporting a generic failure the user cannot act on.
+        if (parseErrorDetail(error)?.code === "tag_index_unavailable") {
+          setUnavailable(true);
+          return;
+        }
+        setFailed(true);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -80,6 +91,15 @@ export default function MemoryTagsNavigator({
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
+
+  const rebuildIndex = () => {
+    setRebuilding(true);
+    void agentsApi
+      .rebuildMemoryIndex(agentId, "all")
+      .then(() => setRefresh((value) => value + 1))
+      .catch(() => setFailed(true))
+      .finally(() => setRebuilding(false));
+  };
 
   const files = data && "total_files" in data ? data : null;
   const selectedWorkspacePath = selectedSource
@@ -139,6 +159,21 @@ export default function MemoryTagsNavigator({
       <div className={styles.tree} aria-busy={loading}>
         {loading ? (
           <p role="status">{t("common.loading")}</p>
+        ) : unavailable ? (
+          <div role="alert">
+            <p>{t("files.memoryTagsUnavailable")}</p>
+            <p className={styles.tagsCount}>
+              {t("files.memoryTagsUnavailableHint")}
+            </p>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              disabled={rebuilding}
+              onClick={rebuildIndex}
+            >
+              {rebuilding ? t("common.loading") : t("files.memoryTagsRebuild")}
+            </button>
+          </div>
         ) : failed ? (
           <div role="alert">
             <p>{t("files.memoryTagsLoadFailed")}</p>

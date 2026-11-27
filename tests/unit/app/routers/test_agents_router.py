@@ -27,6 +27,7 @@ from qwenpaw.agents.memory.action_provider import MemoryActionProvider
 from qwenpaw.agents.memory.reme_embedding import (
     EmbeddingReindexUnavailableError,
 )
+from qwenpaw.agents.memory.reme_tags import TagIndexUnavailableError
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
@@ -1141,6 +1142,42 @@ def test_tag_browser_returns_unavailable_instead_of_empty(
 ):
     memory_tag_backend.run_action.return_value = result
     assert client.get("/api/agents/bot/memory/tags").status_code == 503
+
+
+@pytest.mark.parametrize("endpoint", ["tags", "tag-files?tag=赵六"])
+def test_tag_browser_explains_an_unhealthy_index(
+    client,
+    memory_tag_backend,
+    endpoint,
+):
+    """An unhealthy optional index must say so, and offer the rebuild path."""
+    memory_tag_backend.run_action.side_effect = TagIndexUnavailableError(
+        "Memory tag index is unavailable",
+    )
+
+    response = client.get(f"/api/agents/bot/memory/{endpoint}")
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "tag_index_unavailable"
+    assert detail["message"] == "Memory tag index is unavailable"
+    assert detail["rebuild"]["endpoint"] == "/agents/bot/memory/reindex"
+    assert detail["rebuild"]["scopes"] == ["all", "embedding"]
+
+
+@pytest.mark.parametrize("endpoint", ["tags", "tag-files?tag=赵六"])
+def test_tag_browser_keeps_the_flat_message_for_other_runtime_errors(
+    client,
+    memory_tag_backend,
+    endpoint,
+):
+    """Non tag-index failures keep the previous flat detail payload."""
+    memory_tag_backend.run_action.side_effect = RuntimeError("boom")
+
+    response = client.get(f"/api/agents/bot/memory/{endpoint}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Memory tag index is unavailable"
 
 
 @pytest.mark.parametrize("endpoint", ["tags", "tag-files?tag=赵六"])

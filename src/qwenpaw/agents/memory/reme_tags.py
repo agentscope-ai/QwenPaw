@@ -8,6 +8,15 @@ from typing import Any
 MAX_MEMORY_TAG_QUERY_LENGTH = 64 * 3
 
 
+class TagIndexUnavailableError(RuntimeError):
+    """The optional tag index cannot answer lookups right now.
+
+    Distinct from a plain ``RuntimeError`` so callers can tell "the tag index is
+    unhealthy" apart from "the backend is not started", and offer the user the
+    rebuild path instead of a bare failure.
+    """
+
+
 def _file_location(reme: Any, path: str) -> dict[str, str]:
     """Reuse the existing daily/digest editor identities for indexed files."""
     roots = sorted(
@@ -41,7 +50,7 @@ async def list_tag_files(
     store = reme.context.components["file_store"]["default"]
     index = store.require_tag_index()
     if not index.is_healthy:
-        raise RuntimeError("Memory tag index is unavailable")
+        raise TagIndexUnavailableError("Memory tag index is unavailable")
     raw = "_".join(tag.split())
     canonical = raw.casefold()
     if (
@@ -68,7 +77,7 @@ async def list_tag_files(
             )
         ]
     if not index.is_healthy:
-        raise RuntimeError("Memory tag index is unavailable")
+        raise TagIndexUnavailableError("Memory tag index is unavailable")
     nodes.sort(key=lambda node: (-node.st_mtime, node.path))
     start = (page - 1) * page_size
     return {

@@ -11,7 +11,11 @@ import { agentsApi } from "../../api/modules/agents";
 import type { MemoryTagFilePage } from "../../api/types/agents";
 
 vi.mock("../../api/modules/agents", () => ({
-  agentsApi: { getMemoryTags: vi.fn(), getMemoryTagFiles: vi.fn() },
+  agentsApi: {
+    getMemoryTags: vi.fn(),
+    getMemoryTagFiles: vi.fn(),
+    rebuildMemoryIndex: vi.fn(),
+  },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -235,6 +239,54 @@ describe("MemoryTagsNavigator", () => {
     expect(
       await screen.findByRole("button", { name: /Orion owner/ }),
     ).toBeInTheDocument();
+  });
+
+  it("explains an unhealthy tag index and offers the rebuild path", async () => {
+    const detail = {
+      code: "tag_index_unavailable",
+      message: "Memory tag index is unavailable",
+      rebuild: {
+        endpoint: "/agents/bot/memory/reindex",
+        scopes: ["all", "embedding"],
+      },
+    };
+    vi.mocked(agentsApi.getMemoryTagFiles).mockRejectedValueOnce(
+      new Error(`unavailable - ${JSON.stringify({ detail })}`),
+    );
+    vi.mocked(agentsApi.rebuildMemoryIndex).mockResolvedValue({
+      status: "completed",
+      scope: "all",
+    });
+
+    render(<MemoryTagsNavigator {...props()} tag="赵六" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "files.memoryTagsUnavailable",
+    );
+    expect(screen.queryByText("files.memoryTagsLoadFailed")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.memoryTagsRebuild" }),
+    );
+
+    await waitFor(() =>
+      expect(agentsApi.rebuildMemoryIndex).toHaveBeenCalledWith("bot", "all"),
+    );
+  });
+
+  it("keeps the generic retry when the failure carries no tag-index code", async () => {
+    vi.mocked(agentsApi.getMemoryTagFiles).mockRejectedValueOnce(
+      new Error(`boom - ${JSON.stringify({ detail: { code: "other" } })}`),
+    );
+
+    render(<MemoryTagsNavigator {...props()} tag="赵六" />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "files.memoryTagsLoadFailed",
+    );
+    expect(
+      screen.queryByRole("button", { name: "files.memoryTagsRebuild" }),
+    ).toBeNull();
   });
 
   it("discards a late response after the selected agent or tag changes", async () => {
