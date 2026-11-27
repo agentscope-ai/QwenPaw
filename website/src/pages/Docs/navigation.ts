@@ -15,6 +15,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "intro", titleKey: "docs.intro" },
       { slug: "quickstart", titleKey: "docs.quickstart" },
       { slug: "desktop", titleKey: "docs.desktop" },
+      { slug: "mobile", titleKey: "docs.mobile" },
       { slug: "functiondemo", titleKey: "docs.demo" },
     ],
   },

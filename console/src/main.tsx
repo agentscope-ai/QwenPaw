@@ -1,7 +1,5 @@
 import { createRoot } from "react-dom/client";
-import App from "./ConsoleApp";
-import { i18nReady } from "./i18n";
-import { ThemeProvider } from "./contexts/ThemeContext";
+import { initializeConsoleHost } from "./features/platform-web/consoleHost";
 
 const INITIAL_RENDER_TIMEOUT_MS = 3000;
 
@@ -46,16 +44,21 @@ if (typeof window !== "undefined") {
   };
 }
 
-const i18nSettled = Promise.race([
-  i18nReady.catch((error: unknown) => {
-    console.error("Failed to initialize translations:", error);
-  }),
-  new Promise<void>((resolve) => {
-    window.setTimeout(resolve, INITIAL_RENDER_TIMEOUT_MS);
-  }),
-]);
-
-void i18nSettled.then(() => {
+void initializeConsoleHost().then(async () => {
+  const [{ default: App }, { ThemeProvider }, { i18nReady }] =
+    await Promise.all([
+      import("./ConsoleApp"),
+      import("./contexts/ThemeContext"),
+      import("./i18n"),
+    ]);
+  await Promise.race([
+    i18nReady.catch((error: unknown) =>
+      console.error("Failed to initialize translations:", error),
+    ),
+    new Promise<void>((resolve) =>
+      window.setTimeout(resolve, INITIAL_RENDER_TIMEOUT_MS),
+    ),
+  ]);
   createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <App />
