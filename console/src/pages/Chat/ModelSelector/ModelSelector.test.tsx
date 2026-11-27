@@ -5,10 +5,24 @@ import { renderWithProviders } from "@/test/common_setup";
 import ModelSelector from "./index";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { useTurnUsageStore } from "../turnUsageStore";
+import { useState } from "react";
+import { MemoryModelChoice } from "../../Agent/Config/components/MemoryModelChoice";
+import type { ModelSlotConfig } from "@/api/types";
 
 vi.mock("./ProviderCandidatePicker", () => ({
-  default: ({ providerId }: { providerId: string }) => (
-    <div data-testid="candidate-picker">{providerId}</div>
+  default: ({
+    providerId,
+    onSaved,
+  }: {
+    providerId: string;
+    onSaved?: (modelId: string) => Promise<void>;
+  }) => (
+    <div data-testid="candidate-picker">
+      {providerId}
+      <button type="button" onClick={() => onSaved?.("gpt-new")}>
+        save-first-model
+      </button>
+    </div>
   ),
 }));
 
@@ -1119,6 +1133,71 @@ describe("ModelSelector", () => {
       expect.objectContaining({ id: "gpt-new" }),
     );
   });
+
+  it.each([false, true])(
+    "refreshes the memory label after saving a provider's first model (initial request pending: %s)",
+    async (delayInitial) => {
+      const first = {
+        ...mockProvider.models[0],
+        id: "gpt-new",
+        name: "GPT New",
+      };
+      const empty = { ...mockProvider, models: [] };
+      let finishInitial = () => {};
+      const initial = new Promise<(typeof mockProvider)[]>((resolve) => {
+        finishInitial = () => resolve([empty]);
+      });
+      vi.mocked(providerApi.listProviders)
+        .mockImplementationOnce(() =>
+          delayInitial ? initial : Promise.resolve([empty]),
+        )
+        .mockResolvedValue([{ ...mockProvider, models: [first] }]);
+      function MemoryField() {
+        const [value, setValue] = useState<ModelSlotConfig | null>(null);
+        return (
+          <>
+            <MemoryModelChoice value={value} onChange={setValue} />
+            <output>{value?.model ?? "main"}</output>
+          </>
+        );
+      }
+      const user = userEvent.setup();
+      renderWithProviders(<MemoryField />);
+      await waitFor(() =>
+        expect(providerApi.listProviders).toHaveBeenCalledOnce(),
+      );
+      const button = screen.getByRole("button", {
+        name: "agentConfig.memoryModelLabel",
+      });
+      await user.click(button);
+      finishInitial();
+      await screen.findByTestId("candidate-picker");
+      expect(providerApi.listProviders).toHaveBeenCalledOnce();
+      await user.click(
+        screen.getByRole("button", { name: "save-first-model" }),
+      );
+      await waitFor(() => expect(button).toHaveTextContent("OpenAI / GPT New"));
+      expect(
+        screen.getByText("gpt-new", { selector: "output" }),
+      ).toBeInTheDocument();
+      expect(providerApi.listProviders).toHaveBeenCalledTimes(2);
+      vi.mocked(providerApi.listProviders).mockResolvedValueOnce([
+        {
+          ...mockProvider,
+          models: [{ ...first, id: "replacement", name: "Replacement" }],
+        },
+      ]);
+      await user.click(button);
+      expect(await screen.findByText("Replacement")).toBeInTheDocument();
+      await user.click(
+        await screen.findByRole("button", {
+          name: "agentConfig.memoryModelUseMain",
+        }),
+      );
+      expect(button).toHaveTextContent("agentConfig.memoryModelUseMain");
+      expect(providerApi.listProviders).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("collapses available models by default and toggles the section", async () => {
     const candidate = {

@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
+import { providerApi } from "../../../api/modules/provider";
 import { modelSelectorApi } from "./modelSelectorApi";
 import { useModelSelectorData } from "./useModelSelectorData";
 
@@ -40,9 +41,10 @@ describe("useModelSelectorData", () => {
         name: "OpenAI",
       } as ProviderInfo,
     ];
+    vi.spyOn(providerApi, "listProviders").mockResolvedValueOnce(providers);
     vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
-      (_agent, _source, _session, onProviders, onActiveModels) => {
-        onProviders?.(providers);
+      async (_agent, source, _session, onProviders, onActiveModels) => {
+        onProviders?.(await source!.listProviders());
         return initial.promise.then((result) => {
           if (result.activeModels) onActiveModels?.(result.activeModels);
           return result;
@@ -74,6 +76,47 @@ describe("useModelSelectorData", () => {
     expect(onActiveModels).toHaveBeenCalledTimes(1);
     expect(onActiveModels).toHaveBeenCalledWith(refreshed);
   });
+});
+
+it("keeps the post-mutation catalog when an older refresh resolves late", async () => {
+  const before = [{ id: "p", models: [{ id: "removed" }] }] as ProviderInfo[];
+  const after = [{ id: "p", models: [] }] as unknown as ProviderInfo[];
+  const refreshed = [{ id: "p", models: [{ id: "added" }] }] as ProviderInfo[];
+  const older = deferred<ProviderInfo[]>();
+  const listProviders = vi
+    .spyOn(providerApi, "listProviders")
+    .mockReset()
+    .mockResolvedValueOnce(before)
+    .mockReturnValueOnce(older.promise)
+    .mockResolvedValueOnce(refreshed);
+  vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
+    async (_agent, source, _session, onProviders) => {
+      const providers = await source!.listProviders();
+      onProviders?.(providers);
+      return { providers, activeModels: null, loadError: false };
+    },
+  );
+  const onActiveModels = vi.fn();
+  const { result } = renderHook(() =>
+    useModelSelectorData({ agentId: "default", onActiveModels }),
+  );
+  await waitFor(() => expect(result.current.providers).toEqual(before));
+
+  let oldRefresh: ReturnType<typeof result.current.fetchData>;
+  act(() => {
+    oldRefresh = result.current.fetchData();
+  });
+  act(() => result.current.setProviders(after));
+  await act(async () => {
+    const refresh = result.current.fetchData();
+    expect(listProviders).toHaveBeenCalledTimes(3);
+    await refresh;
+  });
+  await act(async () => {
+    older.resolve(before);
+    await oldRefresh;
+  });
+  expect(result.current.providers).toEqual(refreshed);
 });
 
 it("restores the selected session model and discards late previous results", async () => {

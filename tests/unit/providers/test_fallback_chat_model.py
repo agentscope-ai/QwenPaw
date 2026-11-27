@@ -140,6 +140,42 @@ def _response(text: str) -> ChatResponse:
     )
 
 
+def test_excluding_models_copies_nested_chain_and_preserves_policies():
+    primary = FakeModel("A", lambda: _response("ok"), provider_id="p")
+    memory = FakeModel("M", lambda: _response("ok"), provider_id="p")
+    other = FakeModel("B", lambda: _response("ok"), provider_id="p")
+    nested = FallbackChatModel([memory, other], fallback_on_any_error=True)
+    original = FallbackChatModel([primary, memory, nested])
+
+    filtered = original.without_models({("p", "M")})
+
+    assert filtered._models[0] is primary
+    assert filtered._fallback_on_any_error is False
+    assert filtered._models[1] is other
+    assert original._models == [primary, memory, nested]
+    assert nested._models == [memory, other]
+    assert original.without_models({("p", name) for name in "AMB"}) is None
+    assert original.without_models({("p", name) for name in "AM"}) is other
+
+
+@pytest.mark.parametrize("fallback_on_any_error", [False, True])
+def test_excluding_models_retains_multi_candidate_policy(
+    fallback_on_any_error,
+):
+    models = [
+        FakeModel(name, HttpError(401), provider_id="p") for name in "MAB"
+    ]
+    original = FallbackChatModel(
+        models,
+        fallback_on_any_error=fallback_on_any_error,
+    )
+
+    filtered = original.without_models({("p", "M")})
+
+    assert filtered._models == models[1:]
+    assert filtered._fallback_on_any_error is fallback_on_any_error
+
+
 async def test_falls_back_on_transient_error_before_output() -> None:
     primary = FakeModel("primary", HttpError(503))
     fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
@@ -161,6 +197,23 @@ async def test_falls_back_on_transient_error_before_output() -> None:
             "reason_kind": "transient",
         },
     ]
+
+
+async def test_forced_fallback_handles_runtime_auth_failure() -> None:
+    """A dedicated memory model may fall back on any pre-output failure."""
+    memory_model = FakeModel("memory", HttpError(401))
+    main_model = FakeModel("main", lambda: _stream(_response("ok")))
+    model = FallbackChatModel(
+        [memory_model, main_model],
+        fallback_on_any_error=True,
+    )
+
+    response = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in response]
+
+    assert chunks[0].content[0]["text"] == "ok"
+    assert memory_model.calls == 1
+    assert main_model.calls == 1
 
 
 async def test_stream_idle_timeout_falls_back_after_retries() -> None:

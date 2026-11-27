@@ -1,10 +1,16 @@
 import type { SessionModelScope } from "../../../features/session-settings/sessionModel";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ActiveModelsInfo, ProviderInfo } from "../../../api/types";
+import type { ActiveModelsInfo } from "../../../api/types";
 import { modelSelectorApi } from "./modelSelectorApi";
+import { providerApi } from "../../../api/modules/provider";
+import {
+  useProviderCatalog,
+  type ProviderCatalog,
+} from "./useEligibleProviders";
 
 interface UseModelSelectorDataOptions {
+  providerCatalog?: ProviderCatalog;
   agentId: string;
   session?: SessionModelScope;
   onActiveModels: (activeModels: ActiveModelsInfo) => void;
@@ -14,8 +20,11 @@ export function useModelSelectorData({
   agentId,
   session,
   onActiveModels,
+  providerCatalog,
 }: UseModelSelectorDataOptions) {
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const localCatalog = useProviderCatalog(false);
+  const catalog = providerCatalog ?? localCatalog;
+  const { load: loadProviders, loadForPicker, setProviders } = catalog;
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
     null,
   );
@@ -37,35 +46,47 @@ export function useModelSelectorData({
     setActiveModels(value);
   }, []);
 
-  const fetchData = useCallback(async () => {
-    const providersRequestId = ++providersRequestRef.current;
-    const activeRequestId = ++activeRequestRef.current;
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const result = await modelSelectorApi.loadModelSelectorData(
-        agentId,
-        undefined,
-        session,
-        (value) => {
-          if (providersRequestId !== providersRequestRef.current) return;
-          setProviders(value);
+  const fetchData = useCallback(
+    async (refresh = true) => {
+      const providersRequestId = ++providersRequestRef.current;
+      const activeRequestId = ++activeRequestRef.current;
+      setLoading(true);
+      setLoadError(false);
+      try {
+        const result = await modelSelectorApi.loadModelSelectorData(
+          agentId,
+          {
+            listProviders: refresh ? () => loadProviders(true) : loadForPicker,
+            getActiveModels: providerApi.getActiveModels,
+          },
+          session,
+          () => {
+            if (providersRequestId !== providersRequestRef.current) return;
+            setLoading(false);
+          },
+          (value) => {
+            if (activeRequestId !== activeRequestRef.current) return;
+            applyActiveModels(value);
+          },
+        );
+        if (providersRequestId !== providersRequestRef.current) return;
+        setLoadError(result.loadError);
+        return result;
+      } finally {
+        if (providersRequestId === providersRequestRef.current) {
           setLoading(false);
-        },
-        (value) => {
-          if (activeRequestId !== activeRequestRef.current) return;
-          applyActiveModels(value);
-        },
-      );
-      if (providersRequestId !== providersRequestRef.current) return;
-      setLoadError(result.loadError);
-      return result;
-    } finally {
-      if (providersRequestId === providersRequestRef.current) {
-        setLoading(false);
+        }
       }
-    }
-  }, [agentId, session?.sessionId, session?.chatId, applyActiveModels]);
+    },
+    [
+      agentId,
+      session?.sessionId,
+      session?.chatId,
+      applyActiveModels,
+      loadProviders,
+      loadForPicker,
+    ],
+  );
 
   const refreshActiveModels = useCallback(async () => {
     const requestId = ++activeRequestRef.current;
@@ -75,7 +96,7 @@ export function useModelSelectorData({
 
   useEffect(() => {
     setActiveModels(null);
-    void fetchData();
+    void fetchData(false);
     return () => {
       providersRequestRef.current += 1;
       activeRequestRef.current += 1;
@@ -87,7 +108,7 @@ export function useModelSelectorData({
     fetchData,
     loading,
     loadError,
-    providers,
+    providers: catalog.providers ?? [],
     refreshActiveModels,
     setActiveModels: updateActiveModels,
     setProviders,

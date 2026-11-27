@@ -5,6 +5,7 @@ import { Button, Spin } from "antd";
 import { ChevronRight } from "lucide-react";
 import type { ModelSlotConfig, ModelType } from "@/api/types";
 import styles from "./index.module.less";
+import type { ProviderCatalog } from "./useEligibleProviders";
 const ModelSelector = lazy(() => import("./index"));
 export function ModelChoice({
   value,
@@ -16,6 +17,7 @@ export function ModelChoice({
   disabled,
   open: controlledOpen,
   onOpenChange,
+  providerCatalog,
 }: {
   modelType?: ModelType;
   ariaLabel?: string;
@@ -26,6 +28,7 @@ export function ModelChoice({
   disabled?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  providerCatalog?: ProviderCatalog;
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
@@ -55,6 +58,7 @@ export function ModelChoice({
           {open && (
             <Suspense fallback={<Spin />}>
               <ModelSelector
+                providerCatalog={providerCatalog}
                 embedded
                 modelType={modelType}
                 selectedSlot={value}

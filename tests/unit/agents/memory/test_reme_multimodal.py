@@ -5,7 +5,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 from agentscope.message import Base64Source, DataBlock, UserMsg
@@ -13,8 +13,6 @@ from agentscope.message import Base64Source, DataBlock, UserMsg
 from qwenpaw.agents.memory import reme_light_memory_manager as memory_module
 from qwenpaw.agents.memory.reme_config import get_reme_app_config
 from qwenpaw.config.config import AgentProfileConfig, ReMeLightMemoryConfig
-from qwenpaw.providers.model_info import ModelInfo
-from qwenpaw.providers.provider_manager import ProviderManager
 
 
 def _image_message():
@@ -32,25 +30,15 @@ def _image_message():
 def memory_job(monkeypatch):
     """Keep host routing real; replace only config, model and the ReMe job."""
     config = ReMeLightMemoryConfig()
+    agent_config = AgentProfileConfig(id="memory-agent", name="Memory Agent")
+    agent_config.running.reme_light_memory_config = config
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=agent_config),
+    )
     model = SimpleNamespace(model="vision:v1", model_key="custom:vision:v1")
-    metadata = ModelInfo(
-        id="vision:v1",
-        name="Custom vision model",
-        supports_image=True,
-        source="user",
-    )
-    # Include a different chat model to catch accidental global/session lookup.
-    provider = SimpleNamespace(models=[], extra_models=[metadata])
-    providers = SimpleNamespace(
-        get_provider=lambda provider_id: (
-            provider if provider_id == "custom" else None
-        ),
-        get_active_model=lambda: SimpleNamespace(
-            provider_id="custom",
-            model="chat-only",
-        ),
-    )
-    monkeypatch.setattr(ProviderManager, "_instance", providers)
+    model.formatter = SimpleNamespace(qwenpaw_supports_image=True)
     factory = AsyncMock(return_value=(model, None))
     monkeypatch.setattr(
         memory_module,
@@ -94,7 +82,6 @@ def memory_job(monkeypatch):
         manager=manager,
         config=config,
         model=model,
-        metadata=metadata,
         factory=factory,
     )
 
@@ -122,9 +109,7 @@ async def test_images_require_setting_and_actual_memory_model_support(
     expected,
 ):
     memory_job.config.auto_memory_include_images = enabled
-    memory_job.metadata.supports_image = supports_image
-    # Generic multimodal support can mean audio/video; it cannot allow images.
-    memory_job.metadata.supports_multimodal = True
+    memory_job.model.formatter.qwenpaw_supports_image = supports_image is True
     manager = memory_job.manager
     message = _image_message()
 
@@ -148,6 +133,7 @@ async def test_images_require_setting_and_actual_memory_model_support(
     assert call.kwargs["messages"][0]["content"][0]["type"] == "data"
     memory_job.factory.assert_awaited_once_with(
         "memory-agent",
+        agent_config=ANY,
         require_image_support=enabled and requested,
         resize_images_to_max_bytes=True,
     )
@@ -277,6 +263,7 @@ async def test_llm_jobs_keep_injected_model_until_completion(memory_job):
     assert manager._reme.update_component.await_count == 2
     memory_job.factory.assert_awaited_with(
         "memory-agent",
+        agent_config=ANY,
         require_image_support=False,
         resize_images_to_max_bytes=True,
     )
