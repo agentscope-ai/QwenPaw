@@ -20,6 +20,7 @@ from openai import APIStatusError, AsyncOpenAI
 from PIL import Image
 import pytest
 from agentscope.agent import Agent
+from agentscope.event import TextBlockDeltaEvent
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     Base64Source,
@@ -750,10 +751,16 @@ async def video_session(monkeypatch, tmp_path):
                 tool_choice=tool_choice,
                 **await self._prepare_model_input(),
             )
+            text = response.choices[0].message.content
+            yield TextBlockDeltaEvent(
+                reply_id=self.state.reply_id,
+                block_id="response-text",
+                delta=text,
+            )
             yield Msg(
                 name="agent",
                 role="assistant",
-                content=[TextBlock(text=response.choices[0].message.content)],
+                content=[TextBlock(text=text)],
             )
 
         monkeypatch.setattr(agent, "_prepare_model_input", prepare_model_input)
@@ -886,6 +893,28 @@ async def test_generic_400_with_historical_tool_video_recovers_each_turn(
     assert not agent.formatter._qwenpaw_force_strip_media
 
 
+async def test_generic_400_reports_omitted_current_attachments(video_session):
+    session = video_session
+    agent = session.agent
+    agent.state.context = agent.state.context[:1]
+    before = _dump_context(agent.state.context)
+    session.errors.append(_mimo_bad_request())
+
+    events = [event async for event in agent._reasoning()]
+
+    assert [
+        model_factory._count_wire_media_blocks(request)
+        for request in session.requests
+    ] == [3, 0]
+    assert isinstance(events[0], TextBlockDeltaEvent)
+    for event in (events[0], events[-1]):
+        assert event.metadata.get("qwenpaw_media_omitted") == {
+            "count": 3,
+            "reason": "retry without media",
+        }
+    assert _dump_context(agent.state.context) == before
+
+
 @pytest.mark.parametrize(
     ("status", "param"),
     [(422, ""), (400, "temperature")],
@@ -900,6 +929,41 @@ async def test_generic_error_with_media_but_wrong_status_or_named_parameter(
     with pytest.raises(APIStatusError, match="Invalid request parameters"):
         _ = [event async for event in session.agent._reasoning()]
     _assert_recovery(session, [2], learned=False)
+
+
+@pytest.mark.parametrize(
+    "tool_error",
+    [
+        {"code": "invalid_function_parameters"},
+        {"details": {"path": "tools[0].function.parameters"}},
+    ],
+    ids=["error-code", "parameter-path"],
+)
+async def test_generic_400_with_tool_parameter_error_does_not_retry(
+    video_session,
+    tool_error,
+):
+    session = video_session
+    before = _dump_context(session.agent.state.context)
+    session.errors.append(
+        httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Invalid request parameters",
+                    "code": "400",
+                    "param": "",
+                    **tool_error,
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+
+    _assert_recovery(session, [2], learned=False)
+    assert _dump_context(session.agent.state.context) == before
 
 
 @pytest.mark.parametrize(
@@ -1294,8 +1358,6 @@ async def test_the_omission_notice_rides_an_event_consumers_receive():
     only to those never reaches Console or a channel, so it rides the same
     streamed events the model-fallback notice rides.
     """
-    from agentscope.event import TextBlockDeltaEvent
-
     from qwenpaw.runtime.envelope import Envelope
 
     agent: QwenPawAgent = object.__new__(QwenPawAgent)
@@ -1378,8 +1440,6 @@ async def test_the_completed_message_keeps_the_omission_notice():
     starts without any metadata. A notice that only rode the deltas reached
     Console consumers and nothing else.
     """
-    from agentscope.event import TextBlockDeltaEvent
-
     from qwenpaw.runtime.envelope import Envelope
 
     notice = {"count": 2, "reason": "provider media limit"}

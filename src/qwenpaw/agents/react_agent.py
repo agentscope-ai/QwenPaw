@@ -1927,6 +1927,10 @@ class QwenPawAgent(Agent):
                 if removed:
                     self._note_media_omission(removed, "provider media limit")
                 if generic_bad_request_retry:
+                    self._note_media_omission(
+                        len(self._last_wire_media_summary()),
+                        "retry without media",
+                    )
                     logger.warning(
                         "_reasoning failed with media in the request (%s); "
                         "stripping media from the retry request. Stored "
@@ -2275,20 +2279,26 @@ class QwenPawAgent(Agent):
         """
         if QwenPawAgent._is_content_safety_error(exc):
             return False
-        if QwenPawAgent._is_generic_media_bad_request_error(exc):
-            return True
 
         error_str = " ".join(str(exc).lower().split())
         # A tool-schema failure is not about media, even when the tool or
         # field names contain media words: ``resize_image`` with a
         # ``dimensions`` field used to mark a valid historical image as
-        # omitted. The failing parameter is only in the structured body of
-        # an SDK error, so check that too and propagate the schema error
-        # untouched.
-        if _TOOL_PARAMETERS_PATH_RE.search(
-            error_str,
-        ) or _TOOL_PARAMETERS_PATH_RE.search(_structured_error_text(exc)):
+        # omitted. Check the error code and both forms of the parameter path
+        # before accepting a generic 400 as a media rejection.
+        body = getattr(exc, "body", None)
+        if (
+            getattr(exc, "code", None) == "invalid_function_parameters"
+            or (
+                isinstance(body, dict)
+                and body.get("code") == "invalid_function_parameters"
+            )
+            or _TOOL_PARAMETERS_PATH_RE.search(error_str)
+            or _TOOL_PARAMETERS_PATH_RE.search(_structured_error_text(exc))
+        ):
             return False
+        if QwenPawAgent._is_generic_media_bad_request_error(exc):
+            return True
         if not any(noun in error_str for noun in _MEDIA_PAYLOAD_MEDIA_NOUNS):
             return False
         if QwenPawAgent._is_content_safety_error(exc):
