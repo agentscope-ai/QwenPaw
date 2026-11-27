@@ -62,6 +62,22 @@ def unescape_pointer_token(value: str) -> str:
     return value.replace("~1", "/").replace("~0", "~")
 
 
+def _parse_array_index(token: str) -> int:
+    """Parse an RFC 6901 array-index reference token.
+
+    RFC 6901 section 4 requires an array index to be ``0`` or ASCII digits
+    starting with ``1``-``9`` (no leading zeros, signs, whitespace, or
+    non-ASCII digits). Plain ``int()`` accepts negatives, ``+1``, ``01``,
+    whitespace, and Unicode digits; in ``_parent_and_token`` negative values
+    silently address the last element while ``value_at`` rejects them.
+    """
+    if not token or not token.isascii() or not token.isdigit():
+        raise ValueError(f"invalid array index token: {token!r}")
+    if len(token) > 1 and token[0] == "0":
+        raise ValueError(f"invalid array index token: {token!r}")
+    return int(token)
+
+
 def split_pointer(pointer: str) -> tuple[str, ...]:
     if pointer == "":
         return ()
@@ -87,7 +103,7 @@ def value_at(document: Any, pointer: str, *, missing: Any = MISSING) -> Any:
             continue
         if isinstance(current, list):
             try:
-                index = int(token)
+                index = _parse_array_index(token)
             except (TypeError, ValueError):
                 return missing
             if index < 0 or index >= len(current):
@@ -204,7 +220,7 @@ def _parent_and_token(document: Any, pointer: str) -> tuple[Any, str]:
             parent = parent[token]
         elif isinstance(parent, list):
             try:
-                parent = parent[int(token)]
+                parent = parent[_parse_array_index(token)]
             except (ValueError, IndexError) as exc:
                 raise JsonPointerError(
                     f"missing JSON Pointer parent: {pointer}",
@@ -256,7 +272,7 @@ def apply_changes(
             continue
         if isinstance(parent, list):
             try:
-                index = int(token)
+                index = _parse_array_index(token)
             except ValueError as exc:
                 raise JsonPointerError(
                     f"invalid array index: {change.pointer}",
