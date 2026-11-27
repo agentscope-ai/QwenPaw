@@ -646,3 +646,99 @@ async def test_extract_json_key_ignores_non_object_json():
     assert (
         feishu_utils.extract_json_key('{"text": "hello"}', "text") == "hello"
     )
+
+
+FENCE = "`" * 3
+
+
+async def test_table_card_keeps_table_example_in_code_block():
+    feishu_utils = module("feishu", "utils")
+    text = "\n".join(
+        [
+            "Example:",
+            FENCE + "markdown",
+            "| Name | Age |",
+            "| --- | --- |",
+            "| Bob | 3 |",
+            FENCE,
+            "",
+            "| Real | Table |",
+            "| --- | --- |",
+            "| a | b |",
+        ],
+    )
+
+    elements = feishu_utils._build_elements(text)
+
+    assert [element["tag"] for element in elements] == ["markdown", "table"]
+    code = elements[0]["content"]
+    assert code.startswith("Example:\n" + FENCE + "markdown\n| Name | Age |")
+    assert code.endswith("| Bob | 3 |\n" + FENCE)
+    assert elements[1]["rows"] == [{"col0": "a", "col1": "b"}]
+
+
+async def test_table_card_keeps_code_comments_and_pipes_verbatim():
+    feishu_utils = module("feishu", "utils")
+    code = "\n".join(
+        [
+            FENCE + "bash",
+            "# count errors",
+            "cat app.log",
+            "  | grep ERROR",
+            FENCE,
+        ],
+    )
+    text = "| a | b |\n| - | - |\n| 1 | 2 |\n\n## Run\n" + code
+
+    elements = feishu_utils._build_elements(text)
+
+    assert [element["tag"] for element in elements] == ["table", "markdown"]
+    assert elements[1]["content"] == "**Run**\n" + code
+
+
+@pytest.mark.parametrize(
+    ("text", "msg_type"),
+    [
+        (
+            "Run:\n" + FENCE + "\ncat app.log\n  | grep ERROR\n" + FENCE,
+            "post",
+        ),
+        ("| a | b |\n| - | - |\n| 1 | 2 |", "interactive"),
+    ],
+)
+async def test_send_text_uses_table_card_only_for_tables_outside_code(
+    native,
+    text,
+    msg_type,
+):
+    event = await ingress(native, message("table-check"))
+    result = await send(
+        native,
+        event["response_handle"],
+        [{"type": "text", "text": text}],
+    )
+    assert result["state"] == "acknowledged"
+    row = next(r for r in native.rows if r["kind"] == "create")
+    assert row["msg_type"] == msg_type
+    if msg_type == "post":
+        post = json.loads(row["content"])
+        assert post["zh_cn"]["content"][0][0]["text"] == text
+
+
+async def test_normalize_feishu_md_leaves_fenced_code_unchanged():
+    feishu_utils = module("feishu", "utils")
+    long_fence = "\n".join(
+        [
+            "`" * 4 + "markdown",
+            FENCE + "python",
+            'print("a' + FENCE + 'b")',
+            FENCE,
+            "`" * 4,
+        ],
+    )
+
+    assert feishu_utils.normalize_feishu_md(long_fence) == long_fence
+    inline = "Code:" + FENCE + "\nx = 1\n" + FENCE
+    assert feishu_utils.normalize_feishu_md(inline) == (
+        "Code:\n" + FENCE + "\nx = 1\n" + FENCE
+    )

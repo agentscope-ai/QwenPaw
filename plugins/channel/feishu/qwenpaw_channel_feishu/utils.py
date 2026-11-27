@@ -296,9 +296,17 @@ def normalize_feishu_md(text: str) -> str:
     """
     if not text or not text.strip():
         return text
-    # Ensure newline before code fence so Feishu parses it
-    text = re.sub(r"([^\n])(```)", r"\1\n\2", text)
-    return text
+    lines: List[str] = []
+    fence = ""
+    for line in text.split("\n"):
+        if not fence:
+            # Ensure newline before code fence so Feishu parses it. Lines
+            # inside code and longer backtick runs stay as they are.
+            line = _INLINE_FENCE_RE.sub(r"\1\n\2", line)
+        for part in line.split("\n"):
+            lines.append(part)
+            fence = _next_fence(part, fence)
+    return "\n".join(lines)
 
 
 def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
@@ -384,27 +392,80 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
     }
 
 
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_INLINE_FENCE_RE = re.compile(r"([^\n`])(```)")
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
+
+
+def _next_fence(line: str, fence: str) -> str:
+    """Return the fence that is open after *line* ("" outside code)."""
+    match = _FENCE_RE.match(line)
+    if not match:
+        return fence
+    run, rest = match.group(1), match.group(2)
+    if fence:
+        closes = (
+            run[0] == fence[0] and len(run) >= len(fence) and not rest.strip()
+        )
+        return "" if closes else fence
+    if run[0] == "`" and "`" in rest:
+        return ""
+    return run
+
+
+def _code_line_flags(lines: List[str]) -> List[bool]:
+    """Mark fence lines and the lines inside fenced code blocks."""
+    flags: List[bool] = []
+    fence = ""
+    for line in lines:
+        next_fence = _next_fence(line, fence)
+        flags.append(bool(fence or next_fence))
+        fence = next_fence
+    return flags
+
+
+def has_md_table_row(text: str) -> bool:
+    """Return True if a table row starts outside fenced code blocks."""
+    lines = text.split("\n")
+    return any(
+        not in_code and _TABLE_ROW_RE.match(line)
+        for line, in_code in zip(lines, _code_line_flags(lines))
+    )
+
+
 def _convert_md_headings_to_bold(text: str) -> str:
-    """Convert Markdown headings (##, ###, etc.) to bold text."""
-    return re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", text, flags=re.MULTILINE)
+    """Convert Markdown headings (##, ###, etc.) to bold text.
+
+    Lines inside fenced code blocks, such as shell comments, stay as-is.
+    """
+    lines = text.split("\n")
+    return "\n".join(
+        line if in_code else _HEADING_RE.sub(r"**\1**", line)
+        for line, in_code in zip(lines, _code_line_flags(lines))
+    )
 
 
 _MAX_TABLES_PER_CARD = 5
 
 
 def _build_elements(text: str) -> List[Dict[str, Any]]:
-    """Parse text into a list of card elements (table or markdown)."""
+    """Parse text into a list of card elements (table or markdown).
+
+    Table rows inside fenced code blocks stay part of the markdown text.
+    """
     lines = text.split("\n")
+    in_code = _code_line_flags(lines)
+
+    def is_table_row(index: int) -> bool:
+        return not in_code[index] and bool(_TABLE_ROW_RE.match(lines[index]))
+
     elements: List[Dict[str, Any]] = []
     i = 0
     while i < len(lines):
-        line = lines[i]
-        if re.match(r"^\s*\|", line):
+        if is_table_row(i):
             table_block: List[str] = []
-            while i < len(lines) and re.match(
-                r"^\s*\|",
-                lines[i],
-            ):
+            while i < len(lines) and is_table_row(i):
                 table_block.append(lines[i])
                 i += 1
             table_elem = _parse_md_table(table_block)
@@ -419,10 +480,7 @@ def _build_elements(text: str) -> List[Dict[str, Any]]:
                 )
         else:
             text_block: List[str] = []
-            while i < len(lines) and not re.match(
-                r"^\s*\|",
-                lines[i],
-            ):
+            while i < len(lines) and not is_table_row(i):
                 text_block.append(lines[i])
                 i += 1
             content = "\n".join(text_block).strip()
