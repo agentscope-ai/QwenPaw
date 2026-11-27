@@ -53,6 +53,7 @@ async function main() {
   ];
   const paths = [
     "docs",
+    "downloads",
     "usage-policy",
     "evaluation",
     "evaluation/benchmarks",
