@@ -209,7 +209,20 @@ def plan_segments(
             final_segments.append((ps, pe))
     elif final_segments and last_dur < min_scene_sec:
         s, _ = final_segments.pop()
-        final_segments.append((s, end_sec))
+        absorbed_dur = end_sec - s
+        # Folding a short trailing remainder into the previous segment can
+        # push that segment past max_scene_sec (the cap the other two tail
+        # branches enforce by splitting). Re-check and split here too, so no
+        # returned clip exceeds the configured maximum.
+        if absorbed_dur > max_scene_sec:
+            n_parts = max(2, round(absorbed_dur / (max_scene_sec * 0.7)))
+            part_dur = absorbed_dur / n_parts
+            for j in range(n_parts):
+                ps = s + j * part_dur
+                pe = s + (j + 1) * part_dur if j < n_parts - 1 else end_sec
+                final_segments.append((ps, pe))
+        else:
+            final_segments.append((s, end_sec))
     else:
         final_segments.append((prev, end_sec))
 
